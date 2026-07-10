@@ -228,8 +228,14 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       tabs: [...s.tabs, tab],
     }))
 
-    getStorage().dashboards.create(dashboard).catch((e) => console.warn('[dashboard-store] persist error:', e))
-    getStorage().dashboardTabs.create(tab).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    // The tab's create references the dashboard (FK), so persist the dashboard
+    // first: in server mode the tab POST 404s if it races ahead of the parent.
+    try {
+      await getStorage().dashboards.create(dashboard)
+      await getStorage().dashboardTabs.create(tab)
+    } catch (e) {
+      console.warn('[dashboard-store] persist error:', e)
+    }
 
     return id
   },

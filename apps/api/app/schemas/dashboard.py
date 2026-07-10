@@ -1,0 +1,97 @@
+from datetime import datetime
+
+from app.schemas.base import CamelModel
+
+
+class DashboardCreate(CamelModel):
+    id: str
+    project_uid: str
+    name: dict = {}
+    filter_config: list = []
+    show_widget_titles: bool | None = None
+    default_dataset_file_id: str | None = None
+    widget_spacing: int | None = None
+    reload_widgets_on_tab_switch: bool | None = None
+    fit_to_height: bool | None = None
+    grid_v: int | None = None
+    origin: str = "user"
+    created_by: str | None = None
+    created_by_details: dict | None = None
+
+
+class DashboardUpdate(CamelModel):
+    name: dict | None = None
+    filter_config: list | None = None
+    show_widget_titles: bool | None = None
+    default_dataset_file_id: str | None = None
+    widget_spacing: int | None = None
+    reload_widgets_on_tab_switch: bool | None = None
+    fit_to_height: bool | None = None
+    grid_v: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
+
+
+class DashboardResponse(CamelModel):
+    id: str
+    project_uid: str
+    name: dict
+    filter_config: list
+    show_widget_titles: bool | None = None
+    default_dataset_file_id: str | None = None
+    widget_spacing: int | None = None
+    reload_widgets_on_tab_switch: bool | None = None
+    fit_to_height: bool | None = None
+    grid_v: int | None = None
+    origin: str
+    created_by: str | None = None
+    created_by_details: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DashboardTabCreate(CamelModel):
+    id: str
+    dashboard_id: str
+    name: str = ""
+    display_order: int = 0
+    parent_tab_id: str | None = None
+
+
+class DashboardTabUpdate(CamelModel):
+    name: str | None = None
+    display_order: int | None = None
+    parent_tab_id: str | None = None
+
+
+class DashboardTabResponse(CamelModel):
+    id: str
+    dashboard_id: str
+    name: str
+    display_order: int
+    parent_tab_id: str | None = None
+
+
+class DashboardWidgetCreate(CamelModel):
+    id: str
+    tab_id: str
+    name: str = ""
+    dataset_file_id: str | None = None
+    layout: dict = {}
+    source: dict = {}
+
+
+class DashboardWidgetUpdate(CamelModel):
+    name: str | None = None
+    dataset_file_id: str | None = None
+    layout: dict | None = None
+    source: dict | None = None
+
+
+class DashboardWidgetResponse(CamelModel):
+    id: str
+    tab_id: str
+    name: str
+    dataset_file_id: str | None = None
+    layout: dict
+    source: dict

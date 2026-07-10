@@ -15,6 +15,7 @@ from app.core.permissions import seed_default_roles
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.cohorts import router as cohorts_router
 from app.api.v1.routes.concept_sets import router as concept_sets_router
+from app.api.v1.routes.dashboards import router as dashboards_router
 from app.api.v1.routes.ide_connections import router as ide_connections_router
 from app.api.v1.routes.user_plugins import router as user_plugins_router
 from app.api.v1.routes.mapping_projects import router as mapping_projects_router
@@ -140,6 +141,7 @@ app.include_router(roles_router, prefix="/api/v1")
 app.include_router(uploads_router, prefix="/api/v1")
 app.include_router(datasets_router, prefix="/api/v1")
 app.include_router(cohorts_router, prefix="/api/v1")
+app.include_router(dashboards_router, prefix="/api/v1")
 app.include_router(dq_rule_sets_router, prefix="/api/v1")
 app.include_router(data_catalogs_router, prefix="/api/v1")
 app.include_router(concept_sets_router, prefix="/api/v1")

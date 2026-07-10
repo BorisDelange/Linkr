@@ -2,6 +2,7 @@ from app.models.user import User
 from app.models.project import Project
 from app.models.cohort import Cohort
 from app.models.concept_set import ConceptSet
+from app.models.dashboard import Dashboard, DashboardTab, DashboardWidget
 from app.models.concept_stats_cache import ConceptStatsCache
 from app.models.data_catalog import DataCatalog
 from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
@@ -33,6 +34,9 @@ __all__ = [
     "DatasetAnalysis",
     "Cohort",
     "ConceptSet",
+    "Dashboard",
+    "DashboardTab",
+    "DashboardWidget",
     "ConceptStatsCache",
     "DataCatalog",
     "SourceConceptIdRange",
