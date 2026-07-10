@@ -3,6 +3,7 @@ from app.models.project import Project
 from app.models.cohort import Cohort
 from app.models.concept_set import ConceptSet
 from app.models.dashboard import Dashboard, DashboardTab, DashboardWidget
+from app.models.attachment import ReadmeAttachment, WikiAttachment
 from app.models.concept_stats_cache import ConceptStatsCache
 from app.models.data_catalog import DataCatalog
 from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
@@ -37,6 +38,8 @@ __all__ = [
     "Dashboard",
     "DashboardTab",
     "DashboardWidget",
+    "ReadmeAttachment",
+    "WikiAttachment",
     "ConceptStatsCache",
     "DataCatalog",
     "SourceConceptIdRange",
