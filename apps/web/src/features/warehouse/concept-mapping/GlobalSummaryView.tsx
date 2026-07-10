@@ -1743,7 +1743,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             {/* Filter section — one card, two columns: statuses (left) / unmapped + total (right),
                 aligned with the single mapping project's Export tab. */}
             <Card className="p-4">
-              <div className="mb-2 flex items-center justify-between">
+              <div className="mb-1 flex items-center justify-between">
                 <p className="text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
                 <div className="flex items-center gap-1">
                   <button
@@ -1764,46 +1764,28 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 sm:divide-x">
-                {/* Left: group-by filter (badges) + status checkboxes */}
-                <div className="space-y-3">
-                  {exportGroupOptions.length > 0 && (
-                    <div>
-                      <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
-                        {t('concept_mapping.global_group_by')}: <span className="font-normal">{groupModeLabel}</span>
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {exportGroupOptions.map((opt) => {
-                          const active = exportGroupFilter.has(opt)
-                          return (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() => setExportGroupFilter((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(opt)) next.delete(opt)
-                                else next.add(opt)
-                                return next
-                              })}
-                              className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:border-foreground hover:text-foreground'}`}
-                            >
-                              {opt}
-                            </button>
-                          )
-                        })}
-                        {exportGroupFilter.size > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setExportGroupFilter(new Set())}
-                            className="rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
-                          >
-                            {t('common.clear')}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
+              {/* Group-by filter — multi-select dropdown, spanning the full width above
+                  the two-column split. */}
+              {exportGroupOptions.length > 0 && (
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
+                    {t('concept_mapping.global_group_by')}: <span className="font-normal">{groupModeLabel}</span>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <SharedMultiSelectFilter
+                      value={[...exportGroupFilter]}
+                      options={exportGroupOptions}
+                      placeholder={t('concepts.filter_all')}
+                      onChange={(v) => setExportGroupFilter(new Set(v))}
+                      triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+              )}
 
+              <div className="grid gap-4 sm:grid-cols-2 sm:divide-x">
+                {/* Left: status checkboxes */}
+                <div className="space-y-3">
                   <div className="space-y-1">
                     {(['approved', 'rejected', 'flagged', 'unchecked', 'ignored'] as MappingStatus[]).map((status) => {
                       const checked = exportStatuses.has(status)
