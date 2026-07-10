@@ -1,5 +1,11 @@
 # Audit — Users & Authorizations (mode serveur / full-stack)
 
+> **MàJ 2026-07-10 — tous les correctifs sont implémentés et committés** (branche
+> `feature/fastapi-backend`). Voir la section « État d'implémentation » en fin de doc.
+> À tester en mode serveur avant merge.
+
+
+
 > Audit du 2026-07-09, branche `feature/fastapi-backend`. Répond à : « est-ce
 > effectif, côté UI **et** serveur, d'empêcher les accès non autorisés ? » et
 > « manque-t-il des droits, notamment pour la requête SQL de la base applicative ».
@@ -138,3 +144,30 @@ l'outil SQL base app, et les contrôles edit/delete.
 5. **UI** (§5) : exposer permissions dans `/auth/me`, helper `hasPermission`,
    gater Settings/admin/outil SQL + contrôles edit/delete.
 6. Mineurs (organizations, db-info, test-connection).
+
+---
+
+## État d'implémentation (2026-07-10)
+
+Livré en 6 lots committés sur `feature/fastapi-backend`. 248 tests backend verts.
+
+| Lot | Contenu | Commit |
+|---|---|---|
+| **0** | P1 (`/execute` exige projet + editor), P2 (garde connexion terminal WS + bug signature `query(db,source,sql)`), `setup/db-info` admin après setup | `49a49dca` |
+| **2** | Dimension **projet** : table `project_members`, résolution 3D (admin > override projet > rôle workspace hérité), API membres (workspace + projet), garde dernier-owner | `75c2601f` |
+| **5** | **Pages Membres** (onglet dans settings workspace ET projet), ajout par username, client `lib/api/members.ts` | `697a209d` |
+| **3** | **Catalogue scopé** : droits `code-execution` (projet) + `app-database` (global) ; exécution gatée par `code-execution:write` ; outil SQL base app gaté par `app-database:read` | `660b0c22` |
+| **4** | `/auth/me` renvoie les permissions ; `hasGlobalPermission()` ; onglets Users/Roles + outil SQL cachés sans droit ; rôle projet **`none`** (masquer un projet) ; migration de backfill des rôles existants | `7553f08f` |
+| **1** | **Plugins strictement workspace-scopés** : `workspace_id` NOT NULL, migration supprime les globaux, création exige un workspace (front + back) | `9cfa3a4b` |
+
+### Décisions actées (product owner)
+- Appartenance projet = **héritage + override** (l'override remplace : élargit, restreint, ou `none` = masqué).
+- Créateur d'un workspace = **owner** (déjà en place).
+- Exécution de code = **droit dédié** `code-execution` (pas juste `editor`).
+- Plugins = **workspace-scopés stricts**, globaux existants **supprimés**, defaults built-in restent en registre mémoire (pas de rows `user_plugins`).
+- UI : pages/onglets admin **cachés** sans droit ; actions inline edit/delete → **désactivées** (posture retenue ; le gating inline fin reste à étendre surface par surface — voir Reste).
+
+### Reste (non bloquant, à planifier si besoin)
+- **Gating inline edit/delete** par rôle workspace/projet dans les surfaces (cohorts, datasets, connexions, mappings…) : nécessite d'exposer aussi le rôle **par contexte** (endpoint `GET /workspaces|projects/{id}/my-permissions`) puis désactiver les boutons. `/auth/me` ne porte aujourd'hui que les droits **globaux**.
+- **Mineurs** : lecture `organizations` ouverte à tout connecté (laissée volontairement) ; `test-connection` reste en authn (goût SSRF non traité).
+- **Portal/export** : les exports antérieurs contenant un plugin global (`workspaceId` absent) devront être ré-associés à un workspace à l'import (le flux d'import est déjà par-workspace).
