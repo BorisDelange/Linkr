@@ -5,15 +5,16 @@ import { isServerMode } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth-store'
 import {
   membersApi,
+  type DirectoryUser,
   type MemberRole,
   type ProjectMember,
   type ProjectMemberRole,
   type WorkspaceMember,
 } from '@/lib/api/members'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import {
   Select,
   SelectContent,
@@ -51,9 +52,10 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
   const { t } = useTranslation()
   const currentUserId = useAuthStore((s) => s.user?.id)
   const [members, setMembers] = useState<Row[]>([])
+  const [directory, setDirectory] = useState<DirectoryUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [newUsername, setNewUsername] = useState('')
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [newRole, setNewRole] = useState<ProjectMemberRole>('editor')
   const [busy, setBusy] = useState(false)
   const roleOptions = scope === 'project' ? PROJECT_ROLES : WORKSPACE_ROLES
@@ -79,6 +81,19 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
     load()
   }, [load])
 
+  useEffect(() => {
+    if (!isServerMode()) return
+    membersApi.directory().then(setDirectory).catch(() => setDirectory([]))
+  }, [])
+
+  // Users not already listed here — the pool the picker offers to add. For a
+  // project override, everyone is offerable (an override can target a workspace
+  // member too); for a workspace, only non-members.
+  const memberIds = new Set(members.map((m) => m.userId))
+  const addableOptions = directory
+    .filter((u) => scope === 'project' || !memberIds.has(u.id))
+    .map((u) => ({ value: String(u.id), label: u.username }))
+
   const upsert = async (body: { userId?: number; username?: string; role: ProjectMemberRole }) => {
     setBusy(true)
     try {
@@ -94,9 +109,24 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
   }
 
   const handleAdd = async () => {
-    if (!newUsername.trim()) return
-    await upsert({ username: newUsername.trim(), role: newRole })
-    setNewUsername('')
+    if (selectedUserIds.length === 0) return
+    setBusy(true)
+    try {
+      for (const id of selectedUserIds) {
+        if (scope === 'workspace') {
+          await membersApi.upsertWorkspace(targetId, { userId: Number(id), role: newRole })
+        } else {
+          await membersApi.upsertProject(targetId, { userId: Number(id), role: newRole })
+        }
+      }
+      setSelectedUserIds([])
+      await load()
+      setError(null)
+    } catch {
+      setError(t('members.save_error'))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const handleChangeRole = (userId: number, role: ProjectMemberRole) =>
@@ -144,17 +174,21 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Add member by username */}
+          {/* Add members: pick one or more users, choose a role, add them all. */}
           <div className="space-y-2">
             <Label>{t('members.add_label')}</Label>
             <div className="flex items-center gap-2">
-              <Input
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                placeholder={t('members.username_placeholder')}
-                className="h-8 flex-1 text-sm"
-              />
+              <div className="flex-1">
+                <MultiSelectFilter
+                  value={selectedUserIds}
+                  options={addableOptions}
+                  placeholder={t('members.select_users_placeholder')}
+                  onChange={setSelectedUserIds}
+                  popoverWidthClass="w-64"
+                  selectAllRespectsSearch
+                  triggerClass="h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus:border-primary"
+                />
+              </div>
               <Select value={newRole} onValueChange={(v) => setNewRole(v as ProjectMemberRole)}>
                 <SelectTrigger className="h-8 w-36 text-sm">
                   <SelectValue />
@@ -171,7 +205,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
                 size="sm"
                 variant="outline"
                 onClick={handleAdd}
-                disabled={!newUsername.trim() || busy}
+                disabled={selectedUserIds.length === 0 || busy}
                 className="gap-1"
               >
                 <Plus size={14} />

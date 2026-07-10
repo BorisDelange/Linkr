@@ -90,6 +90,22 @@ async def test_users_admin_only(client, db):
     ).status_code == 403
 
 
+async def test_directory_available_to_any_user(client, db):
+    """The light directory (id+username) is readable by non-admins (member
+    pickers need it) and exposes no email/role."""
+    await _bootstrap_admin(client)
+    db.add(User(username="bob", password_hash=hash_password("pw"), role="user"))
+    await db.commit()
+    bob = await _login(client, "bob")
+
+    r = await client.get(f"{API}/users/directory", headers=bob)
+    assert r.status_code == 200
+    entries = r.json()
+    assert any(e["username"] == "bob" for e in entries)
+    # No sensitive fields leaked.
+    assert all(set(e.keys()) == {"id", "username"} for e in entries)
+
+
 async def test_cannot_remove_last_admin(client):
     headers = await _bootstrap_admin(client)
     me = (await client.get(f"{API}/users", headers=headers)).json()[0]

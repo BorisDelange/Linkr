@@ -36,6 +36,7 @@
     "project_description": "Per-project role overrides. A member here replaces the role they inherit from the workspace — you can grant more or less access for this project only.",
     "add_label": "Add a member",
     "username_placeholder": "Username",
+    "select_users_placeholder": "Select users…",
     "add": "Add",
     "add_override": "Add override",
     "user": "User",

@@ -33,7 +33,15 @@ export interface MemberWrite {
   role: ProjectMemberRole
 }
 
+export interface DirectoryUser {
+  id: number
+  username: string
+}
+
 export const membersApi = {
+  /** Light id+username list of all users, to populate member pickers. */
+  directory: () => apiRequest<DirectoryUser[]>('/users/directory'),
+
   listWorkspace: (workspaceId: string) =>
     apiRequest<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`),
 

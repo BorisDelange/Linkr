@@ -36,6 +36,7 @@
     "project_description": "Redéfinitions de rôle propres à ce projet. Un membre défini ici remplace le rôle hérité de l'espace de travail — vous pouvez accorder plus ou moins d'accès pour ce projet uniquement.",
     "add_label": "Ajouter un membre",
     "username_placeholder": "Nom d'utilisateur",
+    "select_users_placeholder": "Sélectionner des utilisateurs…",
     "add": "Ajouter",
     "add_override": "Ajouter une redéfinition",
     "user": "Utilisateur",

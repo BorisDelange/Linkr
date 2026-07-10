@@ -2,12 +2,28 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin
+from app.core.deps import get_current_admin, get_current_user
 from app.models.user import User
-from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.user import (
+    UserCreate,
+    UserDirectoryEntry,
+    UserResponse,
+    UserUpdate,
+)
 from app.services import user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.get("/directory", response_model=list[UserDirectoryEntry])
+async def user_directory(
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Minimal id+username list for member pickers. Available to any authenticated
+    user (a workspace/project owner needs it to add members without the admin-only
+    full user list); exposes no email, role, or other sensitive fields."""
+    return await user_service.list_all(db)
 
 
 @router.get("", response_model=list[UserResponse])

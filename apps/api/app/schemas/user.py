@@ -28,6 +28,13 @@ class UserUpdate(CamelModel):
     password: str | None = None  # optional reset
 
 
+class UserDirectoryEntry(CamelModel):
+    """Minimal user info for member pickers (no email/role/secrets)."""
+
+    id: int
+    username: str
+
+
 class UserResponse(CamelModel):
     id: int
     username: str
