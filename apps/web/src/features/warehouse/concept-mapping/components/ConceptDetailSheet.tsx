@@ -7,7 +7,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { RelationsTable, type RelationRow } from './RelationsTable'
-import { Network, DataSet, type Edge } from 'vis-network/standalone'
+// vis-network is ~1.4 MB; import it dynamically so it ships in its own chunk and
+// loads only when the hierarchy graph actually renders (not with the whole page).
+import type { Network, DataSet, Edge } from 'vis-network/standalone'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import {
   buildConceptRelationsQuery,
@@ -222,6 +224,31 @@ function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNa
   useEffect(() => {
     if (!canvasRef.current) return
 
+    let cancelled = false
+    let cleanup: (() => void) | undefined
+
+    void (async () => {
+      const { Network, DataSet } = await import('vis-network/standalone')
+      // The effect may have been torn down (deps changed / unmounted) while the
+      // chunk loaded, or the canvas unmounted — bail before touching the DOM.
+      if (cancelled || !canvasRef.current) return
+      cleanup = buildNetwork(Network, DataSet)
+    })()
+
+    return () => {
+      cancelled = true
+      cleanup?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [self, ancestors, descendants, edgeRows, originId])
+
+  // Builds the vis-network graph once its module has loaded; returns a cleanup.
+  const buildNetwork = useCallback((
+    Network: typeof import('vis-network/standalone').Network,
+    DataSet: typeof import('vis-network/standalone').DataSet,
+  ): (() => void) => {
+    const canvas = canvasRef.current
+    if (!canvas) return () => {}
     const isDark = document.documentElement.classList.contains('dark')
     const edgeCol = isDark ? '#4b5563' : '#9ca3af'
     const selfId = self.concept_id
@@ -273,7 +300,7 @@ function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNa
     nodesDataRef.current = nodesDS as unknown as DataSet<{ id: number; color: unknown; borderWidth: number; font?: unknown }>
 
     networkRef.current = new Network(
-      canvasRef.current,
+      canvas,
       { nodes: nodesDS, edges: new DataSet<Edge>(edges) },
       {
         layout: { hierarchical: { enabled: true, direction: 'UD', sortMethod: 'directed', levelSeparation: 60, nodeSpacing: 100 } },
@@ -366,6 +393,7 @@ function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNa
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [self, ancestors, descendants, edgeRows, originId])
+  // ^ buildNetwork
 
   useEffect(() => {
     return () => hideTooltip()
