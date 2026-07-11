@@ -9,8 +9,8 @@ import {
   Eye,
   EyeOff,
   Play,
-  PlayCircle,
   Square,
+  Save,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -58,6 +58,7 @@ import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { useSqlScriptsStore, type SqlOutputTab, type SqlExecutionResult } from '@/stores/sql-scripts-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SqlScriptsFileTree } from './SqlScriptsFileTree'
@@ -85,6 +86,7 @@ interface Props {
 
 export function SqlScriptsEditorPage({ collectionId }: Props) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('sql-scripts:write')
   const {
     collections,
     collectionsLoaded,
@@ -363,7 +365,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                   <div className="flex items-center gap-0.5">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" onClick={() => { setCreateFolderMode(false); setCreateFileOpen(true) }}>
+                        <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={() => { setCreateFolderMode(false); setCreateFileOpen(true) }}>
                           <FilePlus size={14} />
                         </Button>
                       </TooltipTrigger>
@@ -371,7 +373,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" onClick={() => { setCreateFolderMode(true); setCreateFileOpen(true) }}>
+                        <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={() => { setCreateFolderMode(true); setCreateFileOpen(true) }}>
                           <FolderPlus size={14} />
                         </Button>
                       </TooltipTrigger>
@@ -423,42 +425,50 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                   {editorVisible && selectedFile && (
                     <>
                       <div className="mx-1 h-4 w-px bg-border" />
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={isRunning ? undefined : handleRunFile}
-                            disabled={isRunning}
-                          >
-                            <Play size={14} />
+                      {/* Run — split button (same UI as the IDE): primary runs the
+                          current script, the dropdown adds "run all scripts". */}
+                      {isRunning ? (
+                        <Button size="xs" variant="destructive" className="gap-1" onClick={() => setIsRunning(false)}>
+                          <Square size={12} />
+                          {t('sql_scripts.stop')}
+                        </Button>
+                      ) : (
+                        <div className="flex">
+                          <Button size="xs" className="gap-1 rounded-r-none" disabled={!canWrite} onClick={handleRunFile}>
+                            <Play size={12} />
+                            {t('sql_scripts.run')}
                           </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('sql_scripts.run_file')} (⇧↵)</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={isRunning ? undefined : handleRunAll}
-                            disabled={isRunning}
-                          >
-                            <PlayCircle size={14} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('sql_scripts.run_all')} (⌘⇧↵)</TooltipContent>
-                      </Tooltip>
-                      {isRunning && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="icon-xs" onClick={() => setIsRunning(false)}>
-                              <Square size={14} />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>{t('sql_scripts.stop')}</TooltipContent>
-                        </Tooltip>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button size="xs" className="rounded-l-none border-l border-primary-foreground/20 px-1">
+                                <ChevronDown size={12} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                              <DropdownMenuItem onClick={handleRunFile}>
+                                {t('sql_scripts.run_file')}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={handleRunAll}>
+                                {t('sql_scripts.run_all')}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       )}
+                      {/* Save current file (Cmd+S) */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={handleSaveFile}
+                            disabled={_dirtyVersion < 0 || !isFileDirty(selectedFile.id) || !canWrite}
+                          >
+                            <Save size={14} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('sql_scripts.save')} (⌘S)</TooltipContent>
+                      </Tooltip>
                     </>
                   )}
 
