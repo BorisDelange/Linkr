@@ -80,6 +80,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useEtlStore } from '@/stores/etl-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
@@ -99,6 +100,7 @@ interface Props {
 
 export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('etl:write')
   const { etlPipelines, files, pipelineRunning, scriptStatuses, runHistory, startPipelineRun, stopPipelineRun, setScriptStatus, finishPipelineRun, updateFile, updatePipeline } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
@@ -236,7 +238,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
           {!pipelineRunning ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-xs" onClick={handleRunPipeline}>
+                <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={handleRunPipeline}>
                   <Play size={14} />
                 </Button>
               </TooltipTrigger>

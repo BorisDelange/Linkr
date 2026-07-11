@@ -59,6 +59,7 @@ import { OutputTable } from '@/features/projects/files/OutputTable'
 import { TableIcon, FileText, Copy, Code, Check, Database } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useEtlStore, type EtlOutputTab, type EtlExecutionResult } from '@/stores/etl-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
@@ -100,6 +101,7 @@ interface Props {
 
 export function EtlScriptsTab({ pipelineId }: Props) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('etl:write')
   const {
     files,
     selectedFileId,
@@ -375,7 +377,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                 <div className="flex items-center gap-0.5">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon-xs" onClick={() => setCreateFileOpen(true)}>
+                      <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={() => setCreateFileOpen(true)}>
                         <FilePlus size={14} />
                       </Button>
                     </TooltipTrigger>
@@ -433,7 +435,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                           variant="ghost"
                           size="icon-xs"
                           onClick={isRunning ? undefined : handleRunFile}
-                          disabled={isRunning}
+                          disabled={isRunning || !canWrite}
                         >
                           <Play size={14} />
                         </Button>
@@ -446,7 +448,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                           variant="ghost"
                           size="icon-xs"
                           onClick={isRunning ? undefined : handleRunAll}
-                          disabled={isRunning}
+                          disabled={isRunning || !canWrite}
                         >
                           <PlayCircle size={14} />
                         </Button>

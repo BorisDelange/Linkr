@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useEtlStore } from '@/stores/etl-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { schemaName } from '@/lib/duckdb/engine'
@@ -133,6 +134,7 @@ function filterMappings(
 
 export function EtlVocabularyTab({ pipelineId }: Props) {
   const { t, i18n } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('etl:write')
   const { etlPipelines, updatePipeline } = useEtlStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -367,7 +369,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             size="sm"
             className="w-full"
             onClick={handleCreateFromProject}
-            disabled={!selectedProjectId || filteredMappings.length === 0 || !vocabSchema || creating}
+            disabled={!selectedProjectId || filteredMappings.length === 0 || !vocabSchema || creating || !canWrite}
           >
             {creating ? <Loader2 size={14} className="animate-spin" /> : <FileCode size={14} />}
             {t('etl.vocab_create_script')}
@@ -389,7 +391,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             size="sm"
             className="w-full"
             onClick={handleCreateFromFile}
-            disabled={!vocabSchema || creating}
+            disabled={!vocabSchema || creating || !canWrite}
           >
             <Upload size={14} />
             {t('etl.vocab_upload_csv')}
