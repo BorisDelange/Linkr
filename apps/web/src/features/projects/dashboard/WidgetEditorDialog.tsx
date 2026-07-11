@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -624,15 +624,17 @@ function ComponentPluginOutput({
   // `compact` matches how the widget renders on the dashboard (full-bleed, no extra chrome).
   return (
     <div className="h-full overflow-hidden">
-      {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
-      <Component
-        config={config}
-        columns={columns}
-        rows={rows}
-        compact
-        datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
-        datasetFilters={isServerMode() && datasetFileId ? datasetFilters : undefined}
-      />
+      <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-muted-foreground">…</div>}>
+        {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
+        <Component
+          config={config}
+          columns={columns}
+          rows={rows}
+          compact
+          datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
+          datasetFilters={isServerMode() && datasetFileId ? datasetFilters : undefined}
+        />
+      </Suspense>
     </div>
   )
 }

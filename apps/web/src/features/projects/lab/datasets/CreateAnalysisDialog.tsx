@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -238,13 +238,15 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
                       {t('datasets.component_server_unavailable')}
                     </div>
                   ) : PreviewComponent ? (
-                    // eslint-disable-next-line react-hooks/static-components -- component resolved from plugin data
-                    <PreviewComponent
-                      config={debouncedConfig}
-                      columns={columns}
-                      rows={rows}
-                      datasetFileId={isServerMode() ? datasetFileId : undefined}
-                    />
+                    <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">…</div>}>
+                      {/* eslint-disable-next-line react-hooks/static-components -- component resolved from plugin data */}
+                      <PreviewComponent
+                        config={debouncedConfig}
+                        columns={columns}
+                        rows={rows}
+                        datasetFileId={isServerMode() ? datasetFileId : undefined}
+                      />
+                    </Suspense>
                   ) : (
                     <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
                       {t('dashboard.preview_not_available')}

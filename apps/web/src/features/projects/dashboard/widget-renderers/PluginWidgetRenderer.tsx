@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
@@ -151,15 +152,17 @@ function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidge
 
   return (
     <div className="h-full overflow-auto">
-      {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
-      <Component
-        config={source.config}
-        columns={columns}
-        rows={filteredRows}
-        compact
-        datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
-        datasetFilters={isServerMode() && datasetFileId ? resolveServerFilters(filters, columns) : undefined}
-      />
+      <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-muted-foreground">…</div>}>
+        {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
+        <Component
+          config={source.config}
+          columns={columns}
+          rows={filteredRows}
+          compact
+          datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
+          datasetFilters={isServerMode() && datasetFileId ? resolveServerFilters(filters, columns) : undefined}
+        />
+      </Suspense>
     </div>
   )
 }

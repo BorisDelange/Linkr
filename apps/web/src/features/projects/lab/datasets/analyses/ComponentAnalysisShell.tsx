@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -107,13 +107,15 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
                   {t('datasets.component_server_unavailable')}
                 </div>
               ) : Component ? (
-                // eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data
-                <Component
-                  config={config}
-                  columns={columns}
-                  rows={rows}
-                  datasetFileId={server ? analysis.datasetFileId : undefined}
-                />
+                <Suspense fallback={<div className="flex items-center justify-center p-8 text-xs text-muted-foreground">…</div>}>
+                  {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
+                  <Component
+                    config={config}
+                    columns={columns}
+                    rows={rows}
+                    datasetFileId={server ? analysis.datasetFileId : undefined}
+                  />
+                </Suspense>
               ) : (
                 <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
                   Component not found: {componentId}

@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react'
+import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import type { DatasetColumn } from '@/types'
 
 /** Props that every component-runtime plugin receives. */
@@ -16,22 +16,39 @@ export interface ComponentPluginProps {
   datasetFilters?: unknown[]
 }
 
-const componentMap = new Map<string, ComponentType<ComponentPluginProps>>()
+type ComponentLoader = () => Promise<{ default: ComponentType<ComponentPluginProps> }>
+
+const loaderMap = new Map<string, ComponentLoader>()
+const lazyCache = new Map<string, LazyExoticComponent<ComponentType<ComponentPluginProps>>>()
 // Components that can compute their aggregate server-side (via datasetFileId +
 // datasetFilters). Others are gated in server mode until migrated.
 const serverCapable = new Set<string>()
 
+/**
+ * Register a built-in viz component by a lazy loader rather than the component
+ * itself, so heavy charting libs (recharts, leaflet, vis-network…) are NOT pulled
+ * into the initial bundle at registerDefaultPlugins() time. The component's chunk
+ * loads only when it first renders.
+ */
 export function registerComponent(
   id: string,
-  component: ComponentType<ComponentPluginProps>,
+  loader: ComponentLoader,
   opts?: { supportsServer?: boolean },
 ) {
-  componentMap.set(id, component)
+  loaderMap.set(id, loader)
   if (opts?.supportsServer) serverCapable.add(id)
 }
 
-export function getComponent(id: string): ComponentType<ComponentPluginProps> | undefined {
-  return componentMap.get(id)
+/** Returns a React.lazy component for this id (memoized), or undefined if none.
+ *  Callers must render it inside a <Suspense> boundary. */
+export function getComponent(id: string): LazyExoticComponent<ComponentType<ComponentPluginProps>> | undefined {
+  const cached = lazyCache.get(id)
+  if (cached) return cached
+  const loader = loaderMap.get(id)
+  if (!loader) return undefined
+  const lazyComp = lazy(loader)
+  lazyCache.set(id, lazyComp)
+  return lazyComp
 }
 
 export function componentSupportsServer(id: string): boolean {

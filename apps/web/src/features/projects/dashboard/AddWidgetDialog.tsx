@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -377,12 +377,14 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
                       {t('datasets.component_server_unavailable')}
                     </div>
                   ) : PreviewComponent ? (
-                    <PreviewComponent
-                      config={debouncedConfig}
-                      columns={columns}
-                      rows={rows}
-                      datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
-                    />
+                    <Suspense fallback={<div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">…</div>}>
+                      <PreviewComponent
+                        config={debouncedConfig}
+                        columns={columns}
+                        rows={rows}
+                        datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
+                      />
+                    </Suspense>
                   ) : (
                     <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
                       {t('dashboard.preview_not_available')}

@@ -3,15 +3,10 @@ import { registerPlugin, getPlugin, getAllPlugins } from './registry'
 import { registerComponent } from './component-registry'
 import { registerBuiltinWidgetPlugins, SYSTEM_PLUGIN_IDS } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
-import { KeyIndicatorComponent } from '@/features/projects/lab/datasets/analyses/KeyIndicatorComponent'
-import { PlotBuilderComponent } from '@/features/projects/lab/datasets/analyses/PlotBuilderComponent'
-import { MapComponent } from '@/features/projects/lab/datasets/analyses/MapComponent'
-import { Table1Component } from '@/features/projects/lab/datasets/analyses/Table1Component'
-import { StatisticalTestsComponent } from '@/features/projects/lab/datasets/analyses/StatisticalTestsComponent'
-import { RegressionComponent } from '@/features/projects/lab/datasets/analyses/RegressionComponent'
-import { KaplanMeierComponent } from '@/features/projects/lab/datasets/analyses/KaplanMeierComponent'
-import { CorrelationMatrixComponent } from '@/features/projects/lab/datasets/analyses/CorrelationMatrixComponent'
-import { SankeyComponent } from '@/features/projects/lab/datasets/analyses/SankeyComponent'
+// Built-in viz components are NOT imported statically — they'd drag recharts,
+// leaflet, vis-network, etc. into the initial bundle at registerDefaultPlugins()
+// time. They're registered as lazy loaders (see registerComponent calls below)
+// and their chunks load only when a component first renders.
 
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
@@ -43,9 +38,9 @@ export function buildPlugin(
 
 export function registerDefaultPlugins() {
   // Component-based lab plugins
-  registerComponent('table1', Table1Component, { supportsServer: true })
-  registerComponent('key-indicator', KeyIndicatorComponent, { supportsServer: true })
-  registerComponent('plot-builder', PlotBuilderComponent, { supportsServer: true })
+  registerComponent('table1', () => import('@/features/projects/lab/datasets/analyses/Table1Component').then(m => ({ default: m.Table1Component })), { supportsServer: true })
+  registerComponent('key-indicator', () => import('@/features/projects/lab/datasets/analyses/KeyIndicatorComponent').then(m => ({ default: m.KeyIndicatorComponent })), { supportsServer: true })
+  registerComponent('plot-builder', () => import('@/features/projects/lab/datasets/analyses/PlotBuilderComponent').then(m => ({ default: m.PlotBuilderComponent })), { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(table1Manifest as unknown as Record<string, unknown>),
     templates: null,
@@ -414,42 +409,42 @@ export function registerDefaultPlugins() {
     componentId: 'plot-builder',
   })
 
-  registerComponent('map', MapComponent, { supportsServer: true })
+  registerComponent('map', () => import('@/features/projects/lab/datasets/analyses/MapComponent').then(m => ({ default: m.MapComponent })), { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(mapManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'map',
   })
 
-  registerComponent('statistical-tests', StatisticalTestsComponent, { supportsServer: true })
+  registerComponent('statistical-tests', () => import('@/features/projects/lab/datasets/analyses/StatisticalTestsComponent').then(m => ({ default: m.StatisticalTestsComponent })), { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(statisticalTestsManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'statistical-tests',
   })
 
-  registerComponent('regression', RegressionComponent, { supportsServer: true })
+  registerComponent('regression', () => import('@/features/projects/lab/datasets/analyses/RegressionComponent').then(m => ({ default: m.RegressionComponent })), { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(regressionManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'regression',
   })
 
-  registerComponent('kaplan-meier', KaplanMeierComponent, { supportsServer: true })
+  registerComponent('kaplan-meier', () => import('@/features/projects/lab/datasets/analyses/KaplanMeierComponent').then(m => ({ default: m.KaplanMeierComponent })), { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(kaplanMeierManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'kaplan-meier',
   })
 
-  registerComponent('correlation-matrix', CorrelationMatrixComponent, { supportsServer: true })
+  registerComponent('correlation-matrix', () => import('@/features/projects/lab/datasets/analyses/CorrelationMatrixComponent').then(m => ({ default: m.CorrelationMatrixComponent })), { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(correlationMatrixManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'correlation-matrix',
   })
 
-  registerComponent('sankey', SankeyComponent, { supportsServer: true })
+  registerComponent('sankey', () => import('@/features/projects/lab/datasets/analyses/SankeyComponent').then(m => ({ default: m.SankeyComponent })), { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(sankeyManifest as unknown as Record<string, unknown>),
     templates: null,
