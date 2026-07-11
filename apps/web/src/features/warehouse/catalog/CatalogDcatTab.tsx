@@ -23,6 +23,7 @@ import {
 import { localized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
@@ -59,6 +60,7 @@ const OBLIGATION_COLORS: Record<string, string> = {
 
 export function CatalogDcatTab({ catalog, cache }: Props) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('catalog:write')
   const language = useAppStore((s) => s.language)
   const { updateCatalog } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -300,7 +302,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
       {/* Header with release info + auto-fill + completion */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={handleAutoFill} disabled={autoFilling}>
+          <Button variant="outline" size="sm" onClick={handleAutoFill} disabled={autoFilling || !canWrite}>
             <Sparkles size={14} className={autoFilling ? 'animate-spin' : ''} />
             {autoFilling ? t('dcat.auto_filling') : t('dcat.auto_fill')}
           </Button>

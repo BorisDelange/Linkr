@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useCatalogStore } from '@/stores/catalog-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import type { DataCatalog, CatalogResultCache, AnonymizationMode } from '@/types'
 
 interface Props {
@@ -23,6 +24,7 @@ interface Props {
 
 export function CatalogAnonymizationTab({ catalog, cache }: Props) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('catalog:write')
   const { updateCatalog } = useCatalogStore()
   const [thresholdInput, setThresholdInput] = useState(String(catalog.anonymization.threshold))
   const [mode, setMode] = useState<AnonymizationMode>(catalog.anonymization.mode ?? 'replace')
@@ -108,7 +110,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
             </SelectContent>
           </Select>
           {isDirty && (
-            <Button size="sm" onClick={handleSave}>
+            <Button size="sm" disabled={!canWrite} onClick={handleSave}>
               {t('common.save')}
             </Button>
           )}

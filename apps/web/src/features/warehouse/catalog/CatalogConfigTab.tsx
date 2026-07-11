@@ -21,6 +21,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildCategoryLabelsQuery, buildServiceLabelsQuery } from '@/lib/duckdb/catalog-queries'
 import { computeCatalog } from '@/lib/duckdb/catalog-compute'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
 import type { DataCatalog, DimensionConfig, PeriodConfig } from '@/types'
 import { AGE_BRACKET_PRESETS } from '@/types/catalog'
@@ -146,6 +147,7 @@ function MultiSelect({ label, values, selected, onChange, placeholder }: MultiSe
 
 export function CatalogConfigTab({ catalog }: Props) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('catalog:write')
   const { updateCatalog, computeRunning, computeProgress, startCompute, setComputeProgress, finishCompute, failCompute } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -441,7 +443,7 @@ export function CatalogConfigTab({ catalog }: Props) {
                               size="sm"
                               className="h-8"
                               onClick={handleAddBracket}
-                              disabled={!bracketInput || isNaN(parseInt(bracketInput)) || parseInt(bracketInput) <= 0}
+                              disabled={!canWrite || !bracketInput || isNaN(parseInt(bracketInput)) || parseInt(bracketInput) <= 0}
                             >
                               {t('common.add')}
                             </Button>
@@ -467,7 +469,7 @@ export function CatalogConfigTab({ catalog }: Props) {
                                   <Badge
                                     variant="secondary"
                                     className="group cursor-pointer gap-1 pr-1.5 text-xs hover:bg-destructive/10 hover:text-destructive"
-                                    onClick={() => handleRemoveBracket(b)}
+                                    onClick={() => { if (canWrite) handleRemoveBracket(b) }}
                                   >
                                     {b}
                                     <X size={12} className="text-muted-foreground/50 group-hover:text-destructive" />
@@ -597,7 +599,7 @@ export function CatalogConfigTab({ catalog }: Props) {
       {/* Compute button + progress */}
       <div className="space-y-2">
         <div className="flex items-center gap-3">
-          <Button onClick={handleCompute} disabled={computeRunning || !dataSource?.schemaMapping}>
+          <Button onClick={handleCompute} disabled={computeRunning || !dataSource?.schemaMapping || !canWrite}>
             {computeRunning ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
