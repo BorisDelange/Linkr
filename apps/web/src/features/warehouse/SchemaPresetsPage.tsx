@@ -57,6 +57,7 @@ import {
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { EntityIdField } from '@/components/ui/entity-id-field'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { getStorage } from '@/lib/storage'
 import { SchemaERD } from './SchemaERD'
 import { DdlERD } from './DdlERD'
@@ -875,6 +876,9 @@ function SchemaCard({
   onDelete?: () => void
 }) {
   const { t } = useTranslation()
+  const { can } = useMyWorkspaceRole()
+  const canWrite = can('schemas:write')
+  const canDelete = can('schemas:delete')
   const [menuOpen, setMenuOpen] = useState(false)
 
   // Count mapped tables (all distinct table names referenced in the mapping)
@@ -924,7 +928,7 @@ function SchemaCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
-            <DropdownMenuItem onSelect={onEdit}>
+            <DropdownMenuItem onSelect={onEdit} disabled={!canWrite}>
               <Pencil size={14} />
               {t('common.edit')}
             </DropdownMenuItem>
@@ -932,11 +936,11 @@ function SchemaCard({
               <Download size={14} />
               {t('settings.schema_preset_export')}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onDuplicate}>
+            <DropdownMenuItem onSelect={onDuplicate} disabled={!canWrite}>
               <Copy size={14} />
               {t('settings.schema_preset_duplicate')}
             </DropdownMenuItem>
-            {onDelete && (
+            {onDelete && canDelete && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
@@ -972,6 +976,9 @@ function SchemaDetailView({
   onRefresh: () => Promise<void>
 }) {
   const { t } = useTranslation()
+  const { can } = useMyWorkspaceRole()
+  const canWrite = can('schemas:write')
+  const canDelete = can('schemas:delete')
   const isBuiltin = BUILTIN_PRESET_IDS.includes(schemaId)
 
   // Resolve mapping: IDB override > built-in > custom
@@ -1078,12 +1085,12 @@ function SchemaDetailView({
           ) : (
             <>
               {isBuiltin && hasCustomOverride && (
-                <Button variant="ghost" size="sm" onClick={() => setShowResetConfirm(true)} className="gap-1.5 text-xs">
+                <Button variant="ghost" size="sm" disabled={!canWrite} onClick={() => setShowResetConfirm(true)} className="gap-1.5 text-xs">
                   <RotateCcw size={12} />
                   {t('schemas.reset_to_default')}
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={startEdit} className="gap-1.5 text-xs">
+              <Button variant="outline" size="sm" disabled={!canWrite} onClick={startEdit} className="gap-1.5 text-xs">
                 <Pencil size={12} />
                 {t('common.edit')}
               </Button>
@@ -1091,7 +1098,7 @@ function SchemaDetailView({
                 <Download size={12} />
                 {t('settings.schema_preset_export')}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-xs text-destructive">
+              <Button variant="ghost" size="sm" disabled={!canDelete} onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-xs text-destructive">
                 <Trash2 size={12} />
                 {t('common.delete')}
               </Button>
@@ -1226,6 +1233,7 @@ export function SchemaPresetsPage() {
   const { t } = useTranslation()
   const { wsUid, raw } = useResolvedParams()
   const navigate = useNavigate()
+  const canWrite = useMyWorkspaceRole().can('schemas:write')
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -1453,7 +1461,7 @@ export function SchemaPresetsPage() {
                 className="hidden"
                 onChange={handleImportFile}
               />
-              <Button size="sm" onClick={openCreateDialog} className="gap-1 text-xs">
+              <Button size="sm" disabled={!canWrite} onClick={openCreateDialog} className="gap-1 text-xs">
                 <Plus size={14} />
                 {t('schemas.new_schema')}
               </Button>
