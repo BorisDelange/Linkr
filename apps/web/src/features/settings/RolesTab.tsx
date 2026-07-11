@@ -20,7 +20,6 @@ import {
   Terminal,
   ShieldHalf,
   Building,
-  ServerCog,
   Layers,
   type LucideIcon,
 } from 'lucide-react'
@@ -97,7 +96,7 @@ const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
   users: { icon: Users, color: 'text-blue-500' },
   roles: { icon: ShieldHalf, color: 'text-slate-500' },
   organizations: { icon: Building, color: 'text-amber-500' },
-  'app-database': { icon: ServerCog, color: 'text-slate-500' },
+  'app-database': { icon: Database, color: 'text-slate-500' },
   'all-workspaces': { icon: Building2, color: 'text-amber-500' },
   'all-projects': { icon: Layers, color: 'text-blue-700' },
 }
