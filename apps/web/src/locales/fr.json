@@ -1720,7 +1720,7 @@
     "roles_global_title": "Rôles globaux",
     "roles_global_description": "Rôles au niveau du compte, régissant la gestion de l'instance (utilisateurs, rôles, organisations, base de données de l'application). « Tous les workspaces » / « Tous les projets » donnent accès à tous les workspaces ou projets sans en être membre.",
     "role_scope": "Portée",
-    "roles_scope_workspace": "Rôle de workspace",
+    "roles_scope_workspace": "Rôle de workspace & projet",
     "roles_scope_global": "Rôle global",
     "roles_description": "Configurez ce que chaque rôle peut faire. Les rôles système ne peuvent pas être supprimés, mais leurs permissions restent modifiables.",
     "roles_requires_backend": "La gestion des rôles nécessite une connexion au serveur",
