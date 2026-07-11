@@ -46,6 +46,9 @@ WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     "catalog": RWD,
     "etl": RWD,
     # Project section (things scoped to a single project).
+    # Manage THIS project: edit its settings (write) / delete it (delete). Mirrors
+    # workspace-settings; distinct from the workspace-tier "projects" (create/list).
+    "project-settings": RWD,
     "project-members": RWD,
     "project-summary": ["read", "write"],  # README + tasks; nothing to "delete"
     "ide": ["read", "write", "delete", "execute"],  # execute = run R/Python/SQL
@@ -309,6 +312,41 @@ async def check_project_role(
 async def _role_grants(db: AsyncSession, role_name: str, permission: str) -> bool:
     role = await db.scalar(select(Role).where(Role.name == role_name))
     return role is not None and permission in (role.permissions or [])
+
+
+async def _role_permissions(db: AsyncSession, role_name: str) -> list[str]:
+    role = await db.scalar(select(Role).where(Role.name == role_name))
+    return list(role.permissions or []) if role is not None else []
+
+
+async def effective_workspace_permissions(
+    db: AsyncSession, workspace_id: str, user: User
+) -> list[str]:
+    """The flat permission list the user effectively holds on `workspace_id`, for
+    UI gating (honours custom roles). admin → every permission. Otherwise the
+    permissions of the effective role (membership widened by any all-workspaces
+    grant); a global role's OWN permissions (e.g. workspaces:write) are merged in
+    so instance-wide grants show up too."""
+    if user.role == "admin":
+        return list(ALL_PERMISSIONS)
+    role = await effective_workspace_role(db, workspace_id, user)
+    perms = set(await _role_permissions(db, role)) if role else set()
+    perms |= set(await _role_permissions(db, user.role))  # global-tier grants
+    return sorted(perms)
+
+
+async def effective_project_permissions(
+    db: AsyncSession, project: Project, user: User
+) -> list[str]:
+    """The flat permission list the user effectively holds on `project`, for UI
+    gating. admin → every permission; else the effective (override > inherited,
+    widened by all-projects) role's permissions + the user's global-tier grants."""
+    if user.role == "admin":
+        return list(ALL_PERMISSIONS)
+    role = await effective_project_role(db, project, user)
+    perms = set(await _role_permissions(db, role)) if role else set()
+    perms |= set(await _role_permissions(db, user.role))  # global-tier grants
+    return sorted(perms)
 
 
 async def has_project_permission(

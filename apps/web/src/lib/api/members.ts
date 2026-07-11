@@ -42,13 +42,18 @@ export const membersApi = {
   /** Light id+username list of all users, to populate member pickers. */
   directory: () => apiRequest<DirectoryUser[]>('/users/directory'),
 
-  /** The current user's effective role on a workspace (null = no access). */
+  /** The current user's effective role + permissions on a workspace (null role
+   *  = no access). permissions is the flat "resource:action" list for gating. */
   myWorkspaceRole: (workspaceId: string) =>
-    apiRequest<{ role: MemberRole | null }>(`/workspaces/${workspaceId}/my-role`),
+    apiRequest<{ role: MemberRole | null; permissions: string[] }>(
+      `/workspaces/${workspaceId}/my-role`,
+    ),
 
-  /** The current user's effective role on a project (null = no access). */
+  /** The current user's effective role + permissions on a project. */
   myProjectRole: (projectUid: string) =>
-    apiRequest<{ role: MemberRole | null }>(`/projects/${projectUid}/my-role`),
+    apiRequest<{ role: MemberRole | null; permissions: string[] }>(
+      `/projects/${projectUid}/my-role`,
+    ),
 
   listWorkspace: (workspaceId: string) =>
     apiRequest<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`),

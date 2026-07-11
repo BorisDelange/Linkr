@@ -13,9 +13,12 @@ class MemberUser(CamelModel):
 
 class MyRoleResponse(CamelModel):
     """The current user's effective role on a workspace or project, for UI gating.
-    role is null when the user has no access (a "none" project override)."""
+    role is null when the user has no access (a "none" project override).
+    permissions is the flat "resource:action" list that role grants in this
+    context, so the UI can gate on the exact permission (honours custom roles)."""
 
     role: str | None = None
+    permissions: list[str] = []
 
 
 class WorkspaceMemberResponse(CamelModel):

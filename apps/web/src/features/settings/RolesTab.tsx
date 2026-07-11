@@ -106,6 +106,7 @@ const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
   catalog: { icon: BookOpen, color: 'text-teal-500' },
   etl: { icon: Workflow, color: 'text-teal-500' },
   // Project section (blue = project chrome, teal = warehouse, rose = lab).
+  'project-settings': { icon: FolderOpen, color: 'text-blue-700' },
   'project-members': { icon: UserCog, color: 'text-blue-700' },
   'project-summary': { icon: LayoutDashboard, color: 'text-blue-500' },
   ide: { icon: Code, color: 'text-violet-500' },
@@ -141,8 +142,9 @@ const WORKSPACE_SECTIONS: { key: string; resources: string[] }[] = [
   {
     key: 'project',
     resources: [
-      'project-members', 'project-summary', 'ide', 'pipeline', 'project-databases',
-      'concepts', 'cohorts', 'patient-data', 'datasets', 'dashboards', 'reports',
+      'project-settings', 'project-members', 'project-summary', 'ide', 'pipeline',
+      'project-databases', 'concepts', 'cohorts', 'patient-data', 'datasets',
+      'dashboards', 'reports',
     ],
   },
 ]

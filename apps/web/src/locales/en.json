@@ -1385,7 +1385,8 @@
     "console": "Console",
     "close": "Close",
     "close_all": "Close all",
-    "close_others": "Close others"
+    "close_others": "Close others",
+    "save": "Save"
   },
   "pipeline": {
     "title": "Pipeline",
@@ -1754,11 +1755,12 @@
     "resource_data-quality": "Data quality",
     "resource_catalog": "Data catalog",
     "resource_etl": "ETL pipelines",
+    "resource_project-settings": "Project settings",
     "resource_project-members": "Project members",
     "resource_project-summary": "Summary",
     "resource_ide": "IDE",
     "resource_pipeline": "Pipeline",
-    "resource_project-databases": "Databases (project)",
+    "resource_project-databases": "Databases",
     "resource_concepts": "Concepts",
     "resource_cohorts": "Cohorts",
     "resource_patient-data": "Patient data",
@@ -2672,7 +2674,11 @@
     "shortcut_comment": "Toggle comment",
     "delete_confirm_file": "Are you sure you want to delete \"{{name}}\"?",
     "delete_confirm_folder": "Are you sure you want to delete the folder \"{{name}}\" and all its contents?",
-    "file_count": "{{count}} file(s)"
+    "file_count": "{{count}} file(s)",
+    "save": "Save",
+    "run": "Run",
+    "run_selection": "Run selection",
+    "run_line": "Run current line"
   },
   "app_versioning": {
     "title": "Versioning",

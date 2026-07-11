@@ -14,7 +14,9 @@ from app.core.deps import get_current_user
 from app.core.permissions import (
     check_project_role,
     check_workspace_role,
+    effective_project_permissions,
     effective_project_role,
+    effective_workspace_permissions,
     effective_workspace_role,
 )
 from app.models.project import Project
@@ -70,8 +72,11 @@ async def my_workspace_role(
     db: AsyncSession = Depends(get_db),
 ):
     """The current user's effective role on this workspace (admin → owner,
-    widened by any global all-workspaces grant)."""
-    return MyRoleResponse(role=await effective_workspace_role(db, workspace_id, user))
+    widened by any global all-workspaces grant) + the permissions it grants."""
+    return MyRoleResponse(
+        role=await effective_workspace_role(db, workspace_id, user),
+        permissions=await effective_workspace_permissions(db, workspace_id, user),
+    )
 
 
 @router.get("/projects/{project_uid}/my-role", response_model=MyRoleResponse)
@@ -80,11 +85,15 @@ async def my_project_role(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """The current user's effective role on this project (override > inherited)."""
+    """The current user's effective role on this project (override > inherited)
+    + the permissions it grants, for fine-grained UI gating."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    return MyRoleResponse(role=await effective_project_role(db, project, user))
+    return MyRoleResponse(
+        role=await effective_project_role(db, project, user),
+        permissions=await effective_project_permissions(db, project, user),
+    )
 
 
 # --- Workspace members ----------------------------------------------------

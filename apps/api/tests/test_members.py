@@ -82,6 +82,31 @@ async def test_my_role_reflects_effective_role(client, db):
     assert (await client.get(f"{API}/workspaces/{ws}/my-role", headers=admin)).json()["role"] == "owner"
 
 
+async def test_my_role_returns_permissions_for_gating(client, db):
+    admin = await _bootstrap_admin(client)
+    ws = await _workspace(client, admin)
+    proj = await _project(client, admin, ws)
+    bob_id, bob = await _make_user(db, client, "bob")
+
+    # Workspace viewer: read-only permissions on the project, no writes.
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": bob_id, "role": "viewer"})
+    perms = (await client.get(f"{API}/projects/{proj}/my-role", headers=bob)).json()["permissions"]
+    assert "cohorts:read" in perms
+    assert "cohorts:write" not in perms
+    assert "ide:execute" not in perms
+
+    # Editor override on the project: gains write + ide:execute there.
+    await client.put(f"{API}/projects/{proj}/members", headers=admin,
+                     json={"userId": bob_id, "role": "editor"})
+    perms = (await client.get(f"{API}/projects/{proj}/my-role", headers=bob)).json()["permissions"]
+    assert "cohorts:write" in perms and "ide:execute" in perms
+
+    # Admin gets the full catalogue.
+    perms = (await client.get(f"{API}/projects/{proj}/my-role", headers=admin)).json()["permissions"]
+    assert "cohorts:delete" in perms and "workspaces:write" in perms
+
+
 async def test_workspace_owner_manages_members(client, db):
     admin = await _bootstrap_admin(client)
     ws = await _workspace(client, admin)

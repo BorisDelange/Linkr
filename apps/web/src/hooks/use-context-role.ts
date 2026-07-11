@@ -8,14 +8,22 @@ export interface ContextRole {
   role: MemberRole | null
   /** True if the effective role is at least `min` (front-only mode → always true). */
   atLeast: (min: MemberRole) => boolean
+  /**
+   * True if the effective role grants the exact `permission` ("resource:action",
+   * e.g. "cohorts:write", "ide:execute"). Front-only mode → always true. This is
+   * the preferred gate: it honours custom roles, not just the viewer/editor/owner
+   * rank. Real enforcement is server-side; this is UX only.
+   */
+  can: (permission: string) => boolean
 }
 
-function make(role: MemberRole | null): ContextRole {
+function make(role: MemberRole | null, permissions: string[]): ContextRole {
   const serverMode = isServerMode()
   return {
     role,
     atLeast: (min: MemberRole) =>
       !serverMode || (role != null && RANK[role] >= RANK[min]),
+    can: (permission: string) => !serverMode || permissions.includes(permission),
   }
 }
 
@@ -26,11 +34,13 @@ function make(role: MemberRole | null): ContextRole {
  */
 export function useMyWorkspaceRole(_workspaceId?: string | undefined): ContextRole {
   const role = useContextRoleStore((s) => s.workspaceRole)
-  return make(role)
+  const permissions = useContextRoleStore((s) => s.workspacePermissions)
+  return make(role, permissions)
 }
 
 /** Current user's effective role on the active project (from the shared store). */
 export function useMyProjectRole(_projectUid?: string | undefined): ContextRole {
   const role = useContextRoleStore((s) => s.projectRole)
-  return make(role)
+  const permissions = useContextRoleStore((s) => s.projectPermissions)
+  return make(role, permissions)
 }
