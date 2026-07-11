@@ -35,6 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 import { MultiSelectFilter as SharedMultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { DebouncedInput } from '@/components/ui/debounced-input'
 import {
   Table,
   TableBody,
@@ -69,7 +70,8 @@ import {
   queryFlatDistinct,
   queryDedupDistinct,
 } from '@/lib/concept-mapping/global-summary-queries'
-import { queryGlobalTableOnServer } from '@/lib/api/mapping-projects'
+import { buildGlobalTableOnServer, queryGlobalTableOnServer } from '@/lib/api/mapping-projects'
+import { ApiError } from '@/lib/api-client'
 import { isServerMode } from '@/lib/api-client'
 import { SourceIdTab } from './SourceIdTab'
 import type { ConceptMapping, MappingProject, MappingStatus, SourceConceptIdEntry } from '@/types'
@@ -105,6 +107,9 @@ function serializeGlobalFilters(f: GlobalTableFilters): Record<string, unknown> 
     ...f,
     statusFilter: f.statusFilter ? [...f.statusFilter] : undefined,
     groupLabels: f.groupLabels ? [...f.groupLabels] : undefined,
+    sourceVocabularyId: f.sourceVocabularyId ? [...f.sourceVocabularyId] : undefined,
+    targetVocabularyId: f.targetVocabularyId ? [...f.targetVocabularyId] : undefined,
+    equivalence: f.equivalence ? [...f.equivalence] : undefined,
   }
 }
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
@@ -246,96 +251,6 @@ function computeGroupStats(
   return result
 }
 
-/** Small dropdown filter for categorical columns. */
-function ColFilterSelect({
-  value,
-  options,
-  placeholder,
-  onChange,
-}: {
-  value: string | null
-  options: { value: string; label: string }[]
-  placeholder: string
-  onChange: (v: string | null) => void
-}) {
-  const { t } = useTranslation()
-  const selectedLabel = options.find((o) => o.value === value)?.label ?? value
-  return (
-    <Select value={value ?? '__all__'} onValueChange={(v) => onChange(v === '__all__' ? null : v)}>
-      <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
-        <SelectValue placeholder={placeholder}>
-          {value ? selectedLabel : undefined}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
-        {options.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
-
-/** Multi-select dropdown filter for the group column. */
-function MultiSelectFilter({
-  selected,
-  options,
-  onChange,
-}: {
-  selected: Set<string>
-  options: { value: string; label: string }[]
-  onChange: (v: Set<string>) => void
-}) {
-  const { t } = useTranslation()
-  const allSelected = selected.size === 0
-  const label = allSelected
-    ? t('concepts.filter_all')
-    : selected.size === 1
-      ? (options.find((o) => o.value === [...selected][0])?.label ?? [...selected][0])
-      : `${selected.size} selected`
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          className={`flex h-6 w-full items-center justify-between rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none hover:border-primary ${!allSelected ? 'border-primary text-primary' : 'text-muted-foreground'}`}
-        >
-          <span className="truncate">{label}</span>
-          <span className="ml-1 shrink-0 opacity-50">▾</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-60 overflow-auto">
-        <DropdownMenuCheckboxItem
-          checked={allSelected}
-          onCheckedChange={() => onChange(new Set())}
-          onSelect={(e) => e.preventDefault()}
-          className="text-xs"
-        >
-          {t('concepts.filter_all')}
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuSeparator />
-        {options.map((opt) => (
-          <DropdownMenuCheckboxItem
-            key={opt.value}
-            checked={selected.has(opt.value)}
-            onCheckedChange={(checked) => {
-              const next = new Set(selected)
-              if (checked) next.add(opt.value)
-              else next.delete(opt.value)
-              onChange(next)
-            }}
-            onSelect={(e) => e.preventDefault()}
-            className="text-xs"
-          >
-            {opt.label}
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
 /// Raw source concept row loaded from DuckDB or file
 interface SourceConceptRaw {
   concept_id: number
@@ -374,14 +289,14 @@ interface GlobalTableFilters {
   globalSearch?: string  // search box: matches source concept name OR code
   statusFilter?: Set<string>  // multi-select: statuses + 'unmapped'
   groupLabels?: Set<string>  // multi-select: badge labels, project names, or statuses
-  sourceVocabularyId?: string | null
+  sourceVocabularyId?: Set<string>  // multi-select
   sourceConceptId?: string
   sourceConceptCode?: string
   sourceConceptName?: string
-  targetVocabularyId?: string | null
+  targetVocabularyId?: Set<string>  // multi-select
   targetConceptId?: string
   targetConceptName?: string
-  equivalence?: string | null
+  equivalence?: Set<string>  // multi-select
 }
 
 export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
@@ -412,6 +327,13 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [tableLoading, setTableLoading] = useState(false)
   const [tableHasMore, setTableHasMore] = useState(false)
   const [tableReady, setTableReady] = useState(false)
+  // Server mode: the cache signature returned by /global-table/build. Every
+  // /global-table/query passes it so the server serves the prebuilt Parquet
+  // directly (no DB reload / rebuild per filter). Refreshed on (re)build.
+  const serverSignatureRef = useRef<string | null>(null)
+  // Server mode: distinct filter values (e.g. source vocabulary) from the built
+  // cache, feeding the filter dropdowns — the WASM path derives these client-side.
+  const [serverFilterValues, setServerFilterValues] = useState<Record<string, string[]>>({})
   // True while populateTable is inserting rows into the DuckDB temp table. Can take
   // tens of seconds to minutes for large workspaces (~300k+ rows). The body shows
   // a loading row in this state instead of "Aucun résultat".
@@ -422,6 +344,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [loadingSourceConcepts, setLoadingSourceConcepts] = useState(false)
   const tablePage = useRef(0)
   const tableLoadingRef = useRef(false)
+  // Bumped on every page-0 (re)load so a superseded in-flight request discards
+  // its result instead of the mutex dropping the new load and leaving the
+  // just-cleared table blank until the next user interaction.
+  const tableLoadGen = useRef(0)
 
   // Export tab state
   const [exportStatuses, setExportStatuses] = useState<Set<MappingStatus>>(new Set(['approved']))
@@ -558,7 +484,23 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const populateTable = useCallback(async () => {
     if (loadingMappings) return
     if (isServerMode()) {
-      setTableReady(true)
+      // Build the merged cache once here (the heavy DB read + Parquet merge);
+      // subsequent filter/page loads just query it by signature.
+      if (!activeWorkspaceId) { setTableReady(true); return }
+      setTablePopulating(true)
+      try {
+        const built = await buildGlobalTableOnServer({
+          workspaceId: activeWorkspaceId,
+          mode: groupMode === 'badge' ? 'dedup' : 'flat',
+        })
+        serverSignatureRef.current = built.signature
+        setServerFilterValues(built.filterValues ?? {})
+        setTableReady(true)
+      } catch (err) {
+        console.error('Failed to build global summary table:', err)
+      } finally {
+        setTablePopulating(false)
+      }
       return
     }
     invalidateGlobalTables()
@@ -575,26 +517,48 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     } finally {
       setTablePopulating(false)
     }
-  }, [loadingMappings, allMappings, allSourceConceptsByProject, projects, registryMap, groupMode])
+  }, [loadingMappings, allMappings, allSourceConceptsByProject, projects, registryMap, groupMode, activeWorkspaceId])
 
   // Load a page of rows. Server mode: paginate the merged table server-side (no
   // WASM). WASM mode: page the in-browser temp table.
   const loadTableRows = useCallback(async (pageToLoad: number) => {
-    if (!tableReady || tableLoadingRef.current) return
+    if (!tableReady) return
+    // A page-0 load (filter/sort change or initial) always supersedes an
+    // in-flight load; only scroll (page > 0) defers to the busy mutex.
+    if (pageToLoad > 0 && tableLoadingRef.current) return
+    const gen = ++tableLoadGen.current
     tableLoadingRef.current = true
     setTableLoading(true)
     try {
       let rows: Record<string, unknown>[]
       if (isServerMode()) {
         if (!activeWorkspaceId) { setTableRows([]); return }
-        const page = await queryGlobalTableOnServer({
+        const mode = groupMode === 'badge' ? 'dedup' : 'flat'
+        const runQuery = (signature: string) => queryGlobalTableOnServer({
           workspaceId: activeWorkspaceId,
-          mode: groupMode === 'badge' ? 'dedup' : 'flat',
+          signature,
+          mode,
           filters: serializeGlobalFilters(colFilters),
           sort: sorting,
           limit: PAGE_SIZE,
           offset: pageToLoad * PAGE_SIZE,
         })
+        let page: Awaited<ReturnType<typeof runQuery>>
+        try {
+          page = await runQuery(serverSignatureRef.current ?? '')
+        } catch (err) {
+          // 409 = the cache for our signature is gone (inputs changed). Rebuild
+          // once and retry with the fresh signature.
+          if (err instanceof ApiError && err.status === 409) {
+            const built = await buildGlobalTableOnServer({ workspaceId: activeWorkspaceId, mode })
+            serverSignatureRef.current = built.signature
+            setServerFilterValues(built.filterValues ?? {})
+            page = await runQuery(built.signature)
+          } else {
+            throw err
+          }
+        }
+        if (gen !== tableLoadGen.current) return
         if (pageToLoad === 0) setTableTotalCount(page.total)
         rows = page.rows
       } else {
@@ -602,6 +566,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
         const queryPage = groupMode === 'badge' ? queryDedupPage : queryFlatPage
         if (pageToLoad === 0) setTableTotalCount(await queryCount(colFilters))
         rows = await queryPage(colFilters, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
+        if (gen !== tableLoadGen.current) return
       }
 
       if (pageToLoad === 0) {
@@ -612,10 +577,12 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       setTableHasMore(rows.length === PAGE_SIZE)
     } catch (err) {
       console.error('Failed to load table rows:', err)
-      if (pageToLoad === 0) setTableRows([])
+      if (gen === tableLoadGen.current && pageToLoad === 0) setTableRows([])
     } finally {
-      setTableLoading(false)
-      tableLoadingRef.current = false
+      if (gen === tableLoadGen.current) {
+        setTableLoading(false)
+        tableLoadingRef.current = false
+      }
     }
   }, [tableReady, groupMode, colFilters, sorting, activeWorkspaceId])
 
@@ -745,14 +712,23 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     return Array.from(labels).sort()
   }, [projects])
 
-  // Load filter options from DuckDB when table is ready
+  // Load filter options for the dropdowns. Server mode: the distinct values come
+  // from the built cache (serverFilterValues) — the WASM temp table the
+  // query*Distinct helpers read doesn't exist server-side, which is why the
+  // source-vocabulary filter used to be missing. WASM mode: query the temp table.
   useEffect(() => {
     if (!tableReady) return
+    if (isServerMode()) {
+      setAllEquivs(serverFilterValues.equivalence ?? [])
+      setAllSourceVocabs(serverFilterValues.source_vocabulary_id ?? [])
+      setAllTargetVocabs(serverFilterValues.target_vocabulary_id ?? [])
+      return
+    }
     const queryDistinct = groupMode === 'badge' ? queryDedupDistinct : queryFlatDistinct
     queryDistinct('equivalence').then(setAllEquivs).catch(() => {})
     queryDistinct('source_vocabulary_id').then(setAllSourceVocabs).catch(() => {})
     queryDistinct('target_vocabulary_id').then(setAllTargetVocabs).catch(() => {})
-  }, [tableReady, groupMode])
+  }, [tableReady, groupMode, serverFilterValues])
 
   // Export: mappings filtered by group only (used for per-status counts in the checkbox UI)
   const exportGroupOnlyMappings = useMemo(() => {
@@ -954,7 +930,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     ? allBadgeLabels
     : projects.map((p) => localized(p.name, 'en'))
   const activeFilterCount =
-    (colFilters.sourceVocabularyId ? 1 : 0)
+    (colFilters.sourceVocabularyId?.size ?? 0)
+    + (colFilters.targetVocabularyId?.size ?? 0)
+    + (colFilters.equivalence?.size ?? 0)
     + statusFilterSet.size
     + groupLabelsSet.size
 
@@ -1251,45 +1229,47 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   // Active columns depend on groupMode
   const activeColumns = groupMode === 'badge' ? dedupedColumns : flatColumns
 
+  // Inline column filter: the rich multi-select (search + select all/none), the
+  // same component the Mapping editor uses. `filterKey` holds a Set<string>.
+  const inlineMultiSelect = (
+    filterKey: 'statusFilter' | 'groupLabels' | 'sourceVocabularyId' | 'targetVocabularyId' | 'equivalence',
+    options: { value: string; label: string }[],
+  ) => (
+    <SharedMultiSelectFilter
+      value={[...(colFilters[filterKey] ?? new Set<string>())]}
+      options={options}
+      placeholder={t('concepts.filter_all')}
+      onChange={(v) => updateFilter(filterKey, new Set(v))}
+    />
+  )
+
   const renderColFilter = (columnId: string) => {
     if (columnId === 'status') {
-      const opts = [
+      return inlineMultiSelect('statusFilter', [
         { value: 'mapped', label: t('concept_mapping.status_mapped') },
         { value: 'unmapped', label: t('concept_mapping.filter_unmapped') },
-      ]
-      return <MultiSelectFilter selected={colFilters.statusFilter ?? new Set()} options={opts} onChange={(v) => updateFilter('statusFilter', v)} />
+      ])
     }
     if (columnId === 'groupLabel' || columnId === 'badgeLabels') {
-      const selected = colFilters.groupLabels ?? new Set<string>()
-      if (groupMode === 'badge') {
-        const opts = allBadgeLabels.map((l) => ({ value: l, label: l }))
-        return opts.length > 0
-          ? <MultiSelectFilter selected={selected} options={opts} onChange={(v) => updateFilter('groupLabels', v)} />
-          : null
-      }
-      // project mode: use project names from projects list
-      const opts = projects.map((p) => ({ value: localized(p.name, 'en'), label: localized(p.name, 'en') }))
-      return opts.length > 0
-        ? <MultiSelectFilter selected={selected} options={opts} onChange={(v) => updateFilter('groupLabels', v)} />
-        : null
+      const opts = groupMode === 'badge'
+        ? allBadgeLabels.map((l) => ({ value: l, label: l }))
+        : projects.map((p) => ({ value: localized(p.name, 'en'), label: localized(p.name, 'en') }))
+      return opts.length > 0 ? inlineMultiSelect('groupLabels', opts) : null
     }
     if (columnId === 'sourceVocabularyId' && allSourceVocabs.length > 0) {
-      const opts = allSourceVocabs.map((v) => ({ value: v, label: v }))
-      return <ColFilterSelect value={colFilters.sourceVocabularyId ?? null} options={opts} placeholder="..." onChange={(v) => updateFilter('sourceVocabularyId', v)} />
+      return inlineMultiSelect('sourceVocabularyId', allSourceVocabs.map((v) => ({ value: v, label: v })))
     }
-    if (columnId === 'sourceConceptId') return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="..." value={colFilters.sourceConceptId ?? ''} onChange={(e) => updateFilter('sourceConceptId', e.target.value || null)} />
-    if (columnId === 'sourceConceptCode') return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="..." value={colFilters.sourceConceptCode ?? ''} onChange={(e) => updateFilter('sourceConceptCode', e.target.value || null)} />
-    if (columnId === 'sourceConceptName') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.sourceConceptName ?? ''} onChange={(e) => updateFilter('sourceConceptName', e.target.value || null)} />
+    if (columnId === 'sourceConceptId') return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="..." value={colFilters.sourceConceptId ?? ''} onChange={(v) => updateFilter('sourceConceptId', v || null)} />
+    if (columnId === 'sourceConceptCode') return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="..." value={colFilters.sourceConceptCode ?? ''} onChange={(v) => updateFilter('sourceConceptCode', v || null)} />
+    if (columnId === 'sourceConceptName') return <DebouncedInput className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.sourceConceptName ?? ''} onChange={(v) => updateFilter('sourceConceptName', v || null)} />
     if (columnId === 'equivalence' && allEquivs.length > 0) {
-      const opts = allEquivs.map((e) => ({ value: e, label: EQUIV_BADGE[e]?.label ?? e.replace('skos:', '') }))
-      return <ColFilterSelect value={colFilters.equivalence ?? null} options={opts} placeholder="..." onChange={(v) => updateFilter('equivalence', v)} />
+      return inlineMultiSelect('equivalence', allEquivs.map((e) => ({ value: e, label: EQUIV_BADGE[e]?.label ?? e.replace('skos:', '') })))
     }
     if (columnId === 'targetVocabularyId' && allTargetVocabs.length > 0) {
-      const opts = allTargetVocabs.map((v) => ({ value: v, label: v }))
-      return <ColFilterSelect value={colFilters.targetVocabularyId ?? null} options={opts} placeholder="..." onChange={(v) => updateFilter('targetVocabularyId', v)} />
+      return inlineMultiSelect('targetVocabularyId', allTargetVocabs.map((v) => ({ value: v, label: v })))
     }
-    if (columnId === 'targetConceptId') return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="..." value={colFilters.targetConceptId ?? ''} onChange={(e) => updateFilter('targetConceptId', e.target.value || null)} />
-    if (columnId === 'targetConceptName') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.targetConceptName ?? ''} onChange={(e) => updateFilter('targetConceptName', e.target.value || null)} />
+    if (columnId === 'targetConceptId') return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="..." value={colFilters.targetConceptId ?? ''} onChange={(v) => updateFilter('targetConceptId', v || null)} />
+    if (columnId === 'targetConceptName') return <DebouncedInput className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.targetConceptName ?? ''} onChange={(v) => updateFilter('targetConceptName', v || null)} />
     return null
   }
 
@@ -1610,10 +1590,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   <div className="space-y-1">
                     <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_vocabulary')}</label>
                     <SharedMultiSelectFilter
-                      value={colFilters.sourceVocabularyId ? [colFilters.sourceVocabularyId] : []}
+                      value={[...(colFilters.sourceVocabularyId ?? new Set<string>())]}
                       options={allSourceVocabs}
                       placeholder={t('concepts.filter_all')}
-                      onChange={(v) => updateFilter('sourceVocabularyId', v[v.length - 1] ?? null)}
+                      onChange={(v) => updateFilter('sourceVocabularyId', new Set(v))}
                       triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
                     />
                   </div>

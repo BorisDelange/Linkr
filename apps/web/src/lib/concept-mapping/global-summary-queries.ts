@@ -7,6 +7,7 @@
  */
 import { getDuckDB } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
+import { buildFuzzySearchSql } from '@/lib/fuzzy-search'
 import type { ConceptMapping, MappingProject } from '@/types'
 
 /* ------------------------------------------------------------------ */
@@ -26,14 +27,14 @@ export interface GlobalTableFilters {
   globalSearch?: string
   statusFilter?: Set<string>
   groupLabels?: Set<string>
-  sourceVocabularyId?: string | null
+  sourceVocabularyId?: Set<string>
   sourceConceptId?: string
   sourceConceptCode?: string
   sourceConceptName?: string
-  targetVocabularyId?: string | null
+  targetVocabularyId?: Set<string>
   targetConceptId?: string
   targetConceptName?: string
-  equivalence?: string | null
+  equivalence?: Set<string>
 }
 
 /* ------------------------------------------------------------------ */
@@ -42,6 +43,13 @@ export interface GlobalTableFilters {
 
 function esc(s: string): string {
   return s.replace(/'/g, "''")
+}
+
+/** `col IN ('a','b')` for a multi-select filter, or '' when nothing is selected. */
+function inClause(col: string, values: Set<string> | undefined): string {
+  if (!values || values.size === 0) return ''
+  const list = [...values].filter((v) => v !== '').map((v) => `'${esc(v)}'`).join(',')
+  return list ? `${col} IN (${list})` : ''
 }
 
 let _populated: 'flat' | 'dedup' | null = null
@@ -280,17 +288,24 @@ export function invalidateGlobalTables(): void {
 /* ------------------------------------------------------------------ */
 
 /** Global search clause: match the source concept name OR code, case-insensitive. */
-function globalSearchClause(f: GlobalTableFilters): string | null {
+/** Fuzzy search over source name + code (same ranked jaro_winkler search as the
+ * Mapping editor), or null when the search box is empty. `rankExpr` orders by
+ * relevance when the user hasn't picked an explicit column sort. */
+function globalSearch(f: GlobalTableFilters): { where: string; rankExpr: string } | null {
   const q = f.globalSearch?.trim()
   if (!q) return null
-  const like = `LOWER('%${esc(q)}%')`
-  return `(LOWER(source_concept_name) LIKE ${like} OR LOWER(source_concept_code) LIKE ${like})`
+  const sql = buildFuzzySearchSql(q, {
+    nameColumn: 'source_concept_name',
+    codeColumn: 'source_concept_code',
+  })
+  if (!sql) return null
+  return { where: sql.where, rankExpr: sql.rankExpr }
 }
 
 function buildFlatWhere(f: GlobalTableFilters): string {
   const clauses: string[] = []
-  const search = globalSearchClause(f)
-  if (search) clauses.push(search)
+  const search = globalSearch(f)
+  if (search) clauses.push(search.where)
   if (f.statusFilter?.size) {
     const parts: string[] = []
     if (f.statusFilter.has('unmapped')) parts.push('is_unmapped = true')
@@ -301,12 +316,15 @@ function buildFlatWhere(f: GlobalTableFilters): string {
     const vals = [...f.groupLabels].map((v) => `'${esc(v)}'`).join(',')
     clauses.push(`project_name IN (${vals})`)
   }
-  if (f.sourceVocabularyId) clauses.push(`source_vocabulary_id = '${esc(f.sourceVocabularyId)}'`)
+  const srcVocab = inClause('source_vocabulary_id', f.sourceVocabularyId)
+  if (srcVocab) clauses.push(srcVocab)
   if (f.sourceConceptId) clauses.push(`CAST(COALESCE(resolved_source_concept_id, 0) AS VARCHAR) LIKE '%${esc(f.sourceConceptId)}%'`)
   if (f.sourceConceptCode) clauses.push(`LOWER(source_concept_code) LIKE LOWER('%${esc(f.sourceConceptCode)}%')`)
   if (f.sourceConceptName) clauses.push(`LOWER(source_concept_name) LIKE LOWER('%${esc(f.sourceConceptName)}%')`)
-  if (f.equivalence) clauses.push(`equivalence = '${esc(f.equivalence)}'`)
-  if (f.targetVocabularyId) clauses.push(`target_vocabulary_id = '${esc(f.targetVocabularyId)}'`)
+  const equiv = inClause('equivalence', f.equivalence)
+  if (equiv) clauses.push(equiv)
+  const tgtVocab = inClause('target_vocabulary_id', f.targetVocabularyId)
+  if (tgtVocab) clauses.push(tgtVocab)
   if (f.targetConceptId) clauses.push(`CAST(target_concept_id AS VARCHAR) LIKE '%${esc(f.targetConceptId)}%'`)
   if (f.targetConceptName) clauses.push(`LOWER(target_concept_name) LIKE LOWER('%${esc(f.targetConceptName)}%')`)
   return clauses.length ? ' WHERE ' + clauses.join(' AND ') : ''
@@ -314,28 +332,36 @@ function buildFlatWhere(f: GlobalTableFilters): string {
 
 function buildDedupWhere(f: GlobalTableFilters): string {
   const clauses: string[] = []
-  const search = globalSearchClause(f)
-  if (search) clauses.push(search)
+  const search = globalSearch(f)
+  if (search) clauses.push(search.where)
   if (f.statusFilter?.size) {
     const parts: string[] = []
     if (f.statusFilter.has('unmapped')) parts.push('is_unmapped = true')
     if (f.statusFilter.has('mapped')) parts.push('is_unmapped = false')
     if (parts.length && parts.length < 2) clauses.push(`(${parts.join(' OR ')})`)
   }
-  if (f.sourceVocabularyId) clauses.push(`source_vocabulary_id = '${esc(f.sourceVocabularyId)}'`)
+  const srcVocab = inClause('source_vocabulary_id', f.sourceVocabularyId)
+  if (srcVocab) clauses.push(srcVocab)
   if (f.sourceConceptCode) clauses.push(`LOWER(source_concept_code) LIKE LOWER('%${esc(f.sourceConceptCode)}%')`)
   if (f.sourceConceptName) clauses.push(`LOWER(source_concept_name) LIKE LOWER('%${esc(f.sourceConceptName)}%')`)
-  if (f.equivalence) clauses.push(`equivalence = '${esc(f.equivalence)}'`)
-  if (f.targetVocabularyId) clauses.push(`target_vocabulary_id = '${esc(f.targetVocabularyId)}'`)
+  const equiv = inClause('equivalence', f.equivalence)
+  if (equiv) clauses.push(equiv)
+  const tgtVocab = inClause('target_vocabulary_id', f.targetVocabularyId)
+  if (tgtVocab) clauses.push(tgtVocab)
   if (f.targetConceptId) clauses.push(`CAST(target_concept_id AS VARCHAR) LIKE '%${esc(f.targetConceptId)}%'`)
   if (f.targetConceptName) clauses.push(`LOWER(target_concept_name) LIKE LOWER('%${esc(f.targetConceptName)}%')`)
   return clauses.length ? ' WHERE ' + clauses.join(' AND ') : ''
 }
 
-function buildOrderBy(sorting: { columnId: string; desc: boolean } | null, _mode: 'flat' | 'dedup'): string {
-  // Default order: mapped concepts first (is_unmapped ASC), then by name. This puts
-  // the user's actual mappings at the top instead of the (often huge) tail of
-  // unmapped source concepts.
+function buildOrderBy(
+  sorting: { columnId: string; desc: boolean } | null,
+  _mode: 'flat' | 'dedup',
+  rankExpr?: string,
+): string {
+  // An explicit column sort always wins. Otherwise, if a fuzzy search is active,
+  // order by relevance (matches the Mapping editor). Falling back to the default:
+  // mapped concepts first, then by name.
+  if (!sorting && rankExpr) return ` ORDER BY ${rankExpr} ASC, source_concept_name ASC`
   if (!sorting) return ' ORDER BY is_unmapped ASC, source_concept_name ASC'
   const colMap: Record<string, string> = {
     status: 'is_unmapped',
@@ -375,7 +401,7 @@ export async function queryFlatPage(
   offset: number,
 ): Promise<Record<string, unknown>[]> {
   const where = buildFlatWhere(filters)
-  const order = buildOrderBy(sorting, 'flat')
+  const order = buildOrderBy(sorting, 'flat', globalSearch(filters)?.rankExpr)
   return exec(`SELECT * FROM global_flat${where}${order} LIMIT ${limit} OFFSET ${offset}`)
 }
 
@@ -392,7 +418,7 @@ export async function queryDedupPage(
   offset: number,
 ): Promise<Record<string, unknown>[]> {
   const where = buildDedupWhere(filters)
-  const order = buildOrderBy(sorting, 'dedup')
+  const order = buildOrderBy(sorting, 'dedup', globalSearch(filters)?.rankExpr)
   return exec(`SELECT * FROM global_dedup${where}${order} LIMIT ${limit} OFFSET ${offset}`)
 }
 

@@ -131,6 +131,111 @@ async def delete_project(
     await svc.delete(db, project)
 
 
+# --- Cross-project overview Table (build cache once, then query pages) --------
+# Declared before the /{project_id}/... routes so `/global-table/query` isn't
+# captured by `/{project_id}/query` (Starlette matches in registration order).
+
+def _normalize_mode(mode: str) -> str:
+    return mode if mode in ("flat", "dedup") else "flat"
+
+
+async def _load_global_table_inputs(db: AsyncSession, workspace_id: str):
+    """Reload the merged-table inputs from the app DB. This is the expensive part
+    (all mappings + the assigned-id registry), so it runs only in the `build`
+    step — not on every filter/page of the `query` step."""
+    projects = await svc.list_for_workspace(db, workspace_id)
+    project_dicts = [_project_to_dict(p) for p in projects]
+    mappings_by_project = {
+        p.id: [_mapping_to_dict(m) for m in await svc.list_mappings(db, p.id)]
+        for p in projects
+    }
+    entries = await sci_svc.list_entries(db, workspace_id)
+    registry = {f"{e.vocabulary_id}__{e.concept_code}": e.source_concept_id for e in entries}
+    return project_dicts, mappings_by_project, registry
+
+
+class GlobalTableBuild(CamelModel):
+    workspace_id: str
+    mode: str = "flat"  # 'flat' (project) | 'dedup' (badge)
+
+
+@router.post(_PROJ + "/global-table/build")
+async def global_table_build(
+    body: GlobalTableBuild,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """(Re)build the cross-project overview cache for one (workspace, mode) and
+    return its cache signature + the distinct filter values (e.g. source
+    vocabulary). Call this once when the Table opens or after a data change; then
+    hit `/global-table/query` with the returned signature for each page/filter —
+    that path reads the Parquet directly and never touches the app DB."""
+    await check_workspace_role(db, body.workspace_id, user, "viewer")
+    mode = _normalize_mode(body.mode)
+    project_dicts, mappings_by_project, registry = await _load_global_table_inputs(
+        db, body.workspace_id
+    )
+
+    def _run():
+        signature = global_table_service.cache_signature(
+            project_dicts, mappings_by_project, registry
+        )
+        path = global_table_service.get_or_build_cache(
+            body.workspace_id, mode, project_dicts, mappings_by_project, registry,
+        )
+        total = global_table_service.query_page(path, mode, {}, None, 0, 0)[1]
+        filter_values = global_table_service.distinct_filter_values(path, mode)
+        return signature, total, filter_values
+
+    try:
+        signature, total, filter_values = await asyncio.to_thread(_run)
+    except file_reader.ExcelSupportUnavailable:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable")
+    except Exception as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Global table build failed: {e}")
+    return {"signature": signature, "total": total, "filterValues": filter_values}
+
+
+class GlobalTableQuery(CamelModel):
+    workspace_id: str
+    signature: str
+    mode: str = "flat"
+    filters: dict = {}
+    sort: dict | None = None
+    limit: int = 50
+    offset: int = 0
+
+
+@router.post(_PROJ + "/global-table/query")
+async def global_table_query(
+    body: GlobalTableQuery,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """One page of the cross-project overview Table, read straight from the cached
+    Parquet identified by `signature` — no app-DB reload, no rebuild. If the cache
+    for this signature is gone (inputs changed since the last build), return 409
+    so the client re-runs `/global-table/build`."""
+    await check_workspace_role(db, body.workspace_id, user, "viewer")
+    mode = _normalize_mode(body.mode)
+
+    def _run():
+        path = global_table_service.cached_path_or_raise(
+            body.workspace_id, mode, body.signature
+        )
+        return global_table_service.query_page(
+            path, mode, body.filters, body.sort, body.limit, body.offset,
+        )
+
+    try:
+        rows, total = await asyncio.to_thread(_run)
+    except global_table_service.CacheMissing:
+        raise HTTPException(status.HTTP_409_CONFLICT, "cache_stale")
+    except Exception as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Global table query failed: {e}")
+    return {"rows": rows, "total": total}
+
+
 # --- Source-CSV blob (uploaded separately via /uploads, referenced by sha) --
 
 class RawFileRef(CamelModel):
@@ -250,53 +355,6 @@ def _mapping_to_dict(m: ConceptMapping) -> dict:
         "mapped_by": m.mapped_by, "reviews": m.reviews,
         "created_at": m.created_at, "updated_at": m.updated_at,
     }
-
-
-class GlobalTableQuery(CamelModel):
-    workspace_id: str
-    mode: str = "flat"  # 'flat' (project) | 'dedup' (badge)
-    filters: dict = {}
-    sort: dict | None = None
-    limit: int = 50
-    offset: int = 0
-
-
-@router.post(_PROJ + "/global-table")
-async def global_table(
-    body: GlobalTableQuery,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """One page of the cross-project overview Table, merged + paginated
-    server-side (source concepts + mappings + assigned-id registry). Replaces the
-    browser's DuckDB-WASM temp table in fullstack mode."""
-    await check_workspace_role(db, body.workspace_id, user, "viewer")
-    mode = body.mode if body.mode in ("flat", "dedup") else "flat"
-
-    projects = await svc.list_for_workspace(db, body.workspace_id)
-    project_dicts = [_project_to_dict(p) for p in projects]
-    mappings_by_project = {
-        p.id: [_mapping_to_dict(m) for m in await svc.list_mappings(db, p.id)]
-        for p in projects
-    }
-    entries = await sci_svc.list_entries(db, body.workspace_id)
-    registry = {f"{e.vocabulary_id}__{e.concept_code}": e.source_concept_id for e in entries}
-
-    def _run():
-        path = global_table_service.get_or_build_cache(
-            body.workspace_id, mode, project_dicts, mappings_by_project, registry,
-        )
-        return global_table_service.query_page(
-            path, mode, body.filters, body.sort, body.limit, body.offset,
-        )
-
-    try:
-        rows, total = await asyncio.to_thread(_run)
-    except file_reader.ExcelSupportUnavailable:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable")
-    except Exception as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Global table failed: {e}")
-    return {"rows": rows, "total": total}
 
 
 @router.get(_PROJ + "/{project_id}/raw-file")

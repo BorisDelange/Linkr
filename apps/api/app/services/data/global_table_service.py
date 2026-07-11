@@ -358,14 +358,65 @@ def _esc(s: str) -> str:
     return s.replace("'", "''")
 
 
+# Same fuzzy search as the frontend (lib/fuzzy-search.ts): tiered exact/prefix/
+# substring/jaro-winkler over the source name + code, accent- and case-folded.
+_JW_FUZZY_THRESHOLD = 0.75
+
+
+def _fold(expr: str) -> str:
+    return f"strip_accents(LOWER({expr}))"
+
+
+def _fuzzy_search(q: str) -> tuple[str, str]:
+    """Return (where, rank_expr) for a global-search term over source name+code,
+    mirroring the frontend's ranked jaro_winkler search so both modes behave the
+    same. `rank_expr` = tier + (1 - similarity), smaller is a better match."""
+    escaped = _esc(q.strip())
+    words = [w for w in q.strip().split() if w]
+    name = _fold("source_concept_name")
+    code = _fold("source_concept_code")
+    qf = _fold(f"'{escaped}'")
+
+    exact_name = f"{name} = {qf}"
+    exact_code = f"{code} = {qf}"
+    prefix_name = f"{name} LIKE {qf} || '%'"
+    substring = " AND ".join(
+        f"({name} LIKE {_fold(chr(39) + '%' + _esc(w) + '%' + chr(39))} "
+        f"OR {code} LIKE {_fold(chr(39) + '%' + _esc(w) + '%' + chr(39))})"
+        for w in words
+    )
+    fuzzy_any = (
+        f"(jaro_winkler_similarity({name}, {qf}) >= {_JW_FUZZY_THRESHOLD} "
+        f"OR jaro_winkler_similarity({code}, {qf}) >= {_JW_FUZZY_THRESHOLD})"
+    )
+
+    tiers = [exact_code, exact_name, prefix_name]
+    if substring:
+        tiers.append(substring)
+    tiers.append(fuzzy_any)
+    where = f"({' OR '.join(tiers)})"
+
+    sim = (
+        f"GREATEST(jaro_winkler_similarity({name}, {qf}), "
+        f"jaro_winkler_similarity({code}, {qf}))"
+    )
+    case_parts = [
+        f"WHEN {exact_code} THEN 1",
+        f"WHEN {exact_name} THEN 2",
+        f"WHEN {prefix_name} THEN 3",
+    ]
+    if substring:
+        case_parts.append(f"WHEN ({substring}) THEN 4")
+    case_parts.append("ELSE 5")
+    rank_expr = f"(CASE {' '.join(case_parts)} END * 1.0 + (1.0 - {sim}))"
+    return where, rank_expr
+
+
 def _where(filters: dict, mode: str) -> str:
     clauses: list[str] = []
     q = (filters.get("globalSearch") or "").strip()
     if q:
-        like = f"LOWER('%{_esc(q)}%')"
-        clauses.append(
-            f"(LOWER(source_concept_name) LIKE {like} OR LOWER(source_concept_code) LIKE {like})"
-        )
+        clauses.append(_fuzzy_search(q)[0])
     status = filters.get("statusFilter") or []
     if status and len(status) < 2:
         if "unmapped" in status:
@@ -389,8 +440,13 @@ def _where(filters: dict, mode: str) -> str:
         ("targetVocabularyId", "target_vocabulary_id"),
     ):
         v = filters.get(key)
-        if v:
-            clauses.append(f"{col} = '{_esc(str(v))}'")
+        if not v:
+            continue
+        # Multi-select (list) → IN (...); tolerate a legacy scalar → single-value IN.
+        values = v if isinstance(v, list) else [v]
+        vals = ",".join(f"'{_esc(str(x))}'" for x in values if x != "")
+        if vals:
+            clauses.append(f"{col} IN ({vals})")
     for key, col in (
         ("sourceConceptCode", "source_concept_code"),
         ("sourceConceptName", "source_concept_name"),
@@ -417,8 +473,11 @@ _SORT_COLS = {
 }
 
 
-def _order_by(sort: dict | None, available: set[str]) -> str:
+def _order_by(sort: dict | None, available: set[str], rank_expr: str | None = None) -> str:
+    # Explicit column sort wins; else rank by search relevance if searching; else default.
     if not sort or not sort.get("columnId"):
+        if rank_expr:
+            return f" ORDER BY {rank_expr} ASC, source_concept_name ASC"
         return " ORDER BY is_unmapped ASC, source_concept_name ASC"
     col = _SORT_COLS.get(sort["columnId"], "source_concept_name")
     if col not in available:
@@ -433,7 +492,9 @@ def query_page(
     """Return (rows, total_count) for one page of the cached merged table."""
     available = set(_FLAT_COLUMNS if mode == "flat" else _DEDUP_COLUMNS)
     where = _where(filters, mode)
-    order = _order_by(sort, available)
+    q = (filters.get("globalSearch") or "").strip()
+    rank_expr = _fuzzy_search(q)[1] if q else None
+    order = _order_by(sort, available, rank_expr)
     con = duckdb.connect()
     con.execute(f"SET extension_directory = '{db_connect._ext_dir()}'")
     try:
@@ -449,6 +510,36 @@ def query_page(
         return rows, int(total)
     finally:
         con.close()
+
+
+# Distinct-value filter columns exposed to the UI's filter dropdowns, per mode.
+_FILTER_VALUE_COLUMNS = {
+    "flat": ["source_vocabulary_id", "target_vocabulary_id", "equivalence"],
+    "dedup": ["source_vocabulary_id", "target_vocabulary_id", "equivalence"],
+}
+
+
+def distinct_filter_values(path: Path, mode: str) -> dict[str, list[str]]:
+    """Distinct non-empty values for each filterable column, read straight from
+    the cached Parquet — feeds the Table's filter dropdowns (e.g. source
+    vocabulary) without a second pass over the app DB."""
+    cols = _FILTER_VALUE_COLUMNS.get(mode, _FILTER_VALUE_COLUMNS["flat"])
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{db_connect._ext_dir()}'")
+    out: dict[str, list[str]] = {}
+    try:
+        con.execute(
+            f"CREATE VIEW g AS SELECT * FROM read_parquet('{path.as_posix()}')"
+        )
+        for col in cols:
+            rows = con.execute(
+                f"SELECT DISTINCT {col} AS v FROM g "
+                f"WHERE {col} IS NOT NULL AND {col} != '' ORDER BY v"
+            ).fetchall()
+            out[col] = [str(r[0]) for r in rows]
+    finally:
+        con.close()
+    return out
 
 
 # --- Source concepts per project (file source only) --------------------------
@@ -502,6 +593,21 @@ def _source_concepts_select(column_mapping: dict) -> str:
 
 
 # --- Cache orchestration -----------------------------------------------------
+
+
+class CacheMissing(Exception):
+    """The requested (workspace, mode, signature) Parquet cache does not exist —
+    the caller must (re)build it before querying."""
+
+
+def cached_path_or_raise(workspace_id: str, mode: str, signature: str) -> Path:
+    """Path to an already-built cache for this exact signature, or raise
+    CacheMissing. Lets the lightweight query endpoint read the Parquet directly
+    without reloading the app DB or recomputing the merged rows."""
+    dest = cache_path(workspace_id, mode, signature)
+    if not dest.exists():
+        raise CacheMissing(signature)
+    return dest
 
 
 def get_or_build_cache(

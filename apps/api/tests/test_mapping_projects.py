@@ -193,9 +193,20 @@ async def test_global_table_flat_and_dedup(client):
         "vocabularyId": "LOINC", "conceptCode": "1234-5", "sourceConceptId": 2000001,
     })
 
-    # Flat mode: 1 mapped (Glucose) + 1 unmapped (Sodium) = 2 rows.
-    r = await client.post(f"{API}/mapping-projects/global-table", headers=headers, json={
-        "workspaceId": ws, "mode": "flat", "limit": 50, "offset": 0,
+    # Build the flat cache: returns a signature, total, and distinct filter
+    # values (source vocabulary must be present — it feeds the UI dropdown).
+    rb = await client.post(f"{API}/mapping-projects/global-table/build", headers=headers, json={
+        "workspaceId": ws, "mode": "flat",
+    })
+    assert rb.status_code == 200, rb.text
+    build = rb.json()
+    sig = build["signature"]
+    assert build["total"] == 2
+    assert build["filterValues"]["source_vocabulary_id"] == ["LOINC"]
+
+    # Query the cache by signature — 1 mapped (Glucose) + 1 unmapped (Sodium).
+    r = await client.post(f"{API}/mapping-projects/global-table/query", headers=headers, json={
+        "workspaceId": ws, "mode": "flat", "signature": sig, "limit": 50, "offset": 0,
     })
     assert r.status_code == 200, r.text
     body = r.json()
@@ -206,15 +217,32 @@ async def test_global_table_flat_and_dedup(client):
     assert glucose["resolved_source_concept_id"] == 2000001  # from registry
     assert sodium["is_unmapped"] is True
 
+    # Source-vocabulary filter narrows correctly (the filter that was missing).
+    rv = await client.post(f"{API}/mapping-projects/global-table/query", headers=headers, json={
+        "workspaceId": ws, "mode": "flat", "signature": sig,
+        "filters": {"sourceVocabularyId": "LOINC"},
+    })
+    assert rv.json()["total"] == 2
+
     # Search filter narrows to Sodium.
-    r2 = await client.post(f"{API}/mapping-projects/global-table", headers=headers, json={
-        "workspaceId": ws, "mode": "flat", "filters": {"globalSearch": "sodium"},
+    r2 = await client.post(f"{API}/mapping-projects/global-table/query", headers=headers, json={
+        "workspaceId": ws, "mode": "flat", "signature": sig, "filters": {"globalSearch": "sodium"},
     })
     assert r2.json()["total"] == 1
 
+    # A stale/unknown signature → 409 so the client rebuilds.
+    r409 = await client.post(f"{API}/mapping-projects/global-table/query", headers=headers, json={
+        "workspaceId": ws, "mode": "flat", "signature": "deadbeefdeadbeef",
+    })
+    assert r409.status_code == 409
+
     # Dedup (badge) mode also returns both, one row each.
-    r3 = await client.post(f"{API}/mapping-projects/global-table", headers=headers, json={
+    rbd = await client.post(f"{API}/mapping-projects/global-table/build", headers=headers, json={
         "workspaceId": ws, "mode": "dedup",
+    })
+    assert rbd.status_code == 200
+    r3 = await client.post(f"{API}/mapping-projects/global-table/query", headers=headers, json={
+        "workspaceId": ws, "mode": "dedup", "signature": rbd.json()["signature"],
     })
     assert r3.status_code == 200 and r3.json()["total"] == 2
 

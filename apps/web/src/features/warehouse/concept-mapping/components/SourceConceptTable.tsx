@@ -34,6 +34,7 @@ import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { TruncatedText } from '@/components/ui/truncated-text'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
 import {
   Table,
@@ -58,6 +59,19 @@ import type { ConceptMapping } from '@/types'
 import type { ExternalMappingInfo } from '@/stores/concept-mapping-store'
 
 export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'mapped_elsewhere'
+
+// Text columns that get the styled truncate+hover tooltip on overflow.
+const TOOLTIP_COLUMNS = new Set(['concept_name', 'concept_code', 'category', 'subcategory', 'terminology_name'])
+// Of those, the ones rendered in a monospace font (kept in the tooltip cell).
+const MONO_COLUMNS = new Set(['concept_code'])
+
+/** Resolve a column's header to a plain string for the truncated-with-tooltip
+ * label. All headers here are `() => t(key)`, so this returns that string; any
+ * non-string header (none today) falls back to empty. */
+function headerText(header: unknown, ctx: unknown): string {
+  const value = typeof header === 'function' ? (header as (c: unknown) => unknown)(ctx) : header
+  return typeof value === 'string' ? value : ''
+}
 
 interface SourceConceptTableProps {
   rows: SourceConceptRow[]
@@ -924,18 +938,19 @@ export function SourceConceptTable({
                   return (
                     <TableHead
                       key={header.id}
-                      className="relative select-none text-xs"
-                      style={{ width: header.getSize() }}
+                      className="relative select-none overflow-hidden text-xs"
+                      style={{ width: header.getSize(), maxWidth: header.getSize() }}
                     >
                       {isStatusCol || isUnsortable ? null : (
                         <button
                           type="button"
-                          className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                          className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground"
                           onClick={() => handleSort(colId)}
                         >
-                          <span className="truncate">
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                          </span>
+                          <TruncatedText
+                            text={headerText(header.column.columnDef.header, header.getContext())}
+                            className="min-w-0 flex-1 text-left"
+                          />
                           <SortIndicator columnId={colId} sorting={sorting} />
                         </button>
                       )}
@@ -1001,15 +1016,19 @@ export function SourceConceptTable({
                     onClick={() => onSelectConcept(row.original.concept_id)}
                   >
                     {row.getVisibleCells().map((cell) => {
-                      const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
                       const raw = cell.getValue()
-                      const title = raw != null ? String(raw) : undefined
+                      // Long-text columns get the styled truncate+hover tooltip
+                      // (matches the target/relations tables) instead of the
+                      // browser's delayed native title tooltip.
+                      const useTooltip = TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
+                      const rendered = useTooltip
+                        ? <TruncatedText text={String(raw)} className={MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined} />
+                        : flexRender(cell.column.columnDef.cell, cell.getContext())
                       return (
                         <TableCell
                           key={cell.id}
                           className="overflow-hidden truncate text-xs px-2 py-1"
                           style={{ maxWidth: cell.column.getSize() }}
-                          title={title}
                         >
                           {rendered}
                         </TableCell>

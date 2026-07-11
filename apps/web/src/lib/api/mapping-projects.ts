@@ -38,18 +38,41 @@ export interface GlobalTablePage {
   total: number
 }
 
-/** One page of the cross-project overview Table, merged + paginated server-side
- * (source concepts + mappings + assigned-id registry). Replaces the DuckDB-WASM
- * temp table in fullstack mode. `mode`: 'flat' (project) | 'dedup' (badge). */
+export interface GlobalTableBuildResult {
+  signature: string
+  total: number
+  filterValues: Record<string, string[]>
+}
+
+/** (Re)build the cross-project overview cache for a (workspace, mode) and return
+ * its signature + distinct filter values. The heavy step (reads all mappings +
+ * the assigned-id registry from the DB, merges to a Parquet cache) — run once
+ * when the Table opens or after a data change, then page via
+ * queryGlobalTableOnServer with the returned signature. */
+export function buildGlobalTableOnServer(params: {
+  workspaceId: string
+  mode: 'flat' | 'dedup'
+}): Promise<GlobalTableBuildResult> {
+  return apiRequest<GlobalTableBuildResult>(`${PROJ}/global-table/build`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+/** One page of the cross-project overview Table, read straight from the cached
+ * Parquet identified by `signature` — no DB reload, no rebuild. Throws ApiError
+ * 409 if the cache is stale (inputs changed); the caller should re-run
+ * buildGlobalTableOnServer and retry. `mode`: 'flat' (project) | 'dedup' (badge). */
 export function queryGlobalTableOnServer(params: {
   workspaceId: string
+  signature: string
   mode: 'flat' | 'dedup'
   filters?: Record<string, unknown>
   sort?: { columnId: string; desc: boolean } | null
   limit: number
   offset: number
 }): Promise<GlobalTablePage> {
-  return apiRequest<GlobalTablePage>(`${PROJ}/global-table`, {
+  return apiRequest<GlobalTablePage>(`${PROJ}/global-table/query`, {
     method: 'POST',
     body: JSON.stringify(params),
   })
