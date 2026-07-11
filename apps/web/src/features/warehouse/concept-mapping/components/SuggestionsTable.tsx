@@ -352,7 +352,10 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       id: 'standard_concept',
       header: () => t('concept_mapping.col_std'),
       accessorFn: (r) => r.standard_concept,
-      cell: ({ row }) => <StandardConceptBadge value={row.original.standard_concept} />,
+      // A not-found concept (OHDSI vocab not imported → no concept_name) has no
+      // known standard flag; show nothing rather than a misleading "NS".
+      cell: ({ row }) =>
+        row.original.concept_name ? <StandardConceptBadge value={row.original.standard_concept} /> : null,
       size: 40,
       minSize: 30,
       enableResizing: true,
