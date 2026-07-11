@@ -11,9 +11,12 @@ from app.schemas.data_catalog import (
     DataCatalogResponse,
     DataCatalogUpdate,
 )
-from app.services import data_catalog_service
+from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
+from app.services import data_catalog_service, stats_cache_service
 
 router = APIRouter(prefix="/data-catalogs", tags=["data-catalogs"])
+
+_CATALOG_SCOPE = "catalog"
 
 
 async def _load(db: AsyncSession, catalog_id: str, user: User, min_role: str) -> DataCatalog:
@@ -82,3 +85,44 @@ async def delete_catalog(
 ):
     catalog = await _load(db, catalog_id, user, "editor")
     await data_catalog_service.delete(db, catalog)
+
+
+@router.get("/{catalog_id}/results-cache", response_model=StatsCacheResponse | None)
+async def get_catalog_results_cache(
+    catalog_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Shared, precomputed catalog results (null if none). Stored server-side so
+    every user of the workspace reuses one computed payload."""
+    await _load(db, catalog_id, user, "viewer")
+    row = await stats_cache_service.get(db, _CATALOG_SCOPE, catalog_id)
+    if row is None:
+        return None
+    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+
+
+@router.put("/{catalog_id}/results-cache", response_model=StatsCacheResponse)
+async def save_catalog_results_cache(
+    catalog_id: str,
+    body: StatsCacheSave,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Store the catalog results a client just computed, sharing them."""
+    await _load(db, catalog_id, user, "editor")
+    row = await stats_cache_service.save(
+        db, _CATALOG_SCOPE, catalog_id, body.computed_at, body.payload
+    )
+    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+
+
+@router.delete("/{catalog_id}/results-cache", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_catalog_results_cache(
+    catalog_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset the shared catalog results cache (the "reset" button)."""
+    await _load(db, catalog_id, user, "editor")
+    await stats_cache_service.delete(db, _CATALOG_SCOPE, catalog_id)

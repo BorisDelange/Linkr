@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, ConceptCountCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -85,13 +85,6 @@ export interface CohortStorage {
 export interface DatabaseStatsCacheStorage {
   get(dataSourceId: string): Promise<DatabaseStatsCache | undefined>
   save(cache: DatabaseStatsCache): Promise<void>
-  delete(dataSourceId: string): Promise<void>
-}
-
-/** Storage interface for the shared concept count cache. */
-export interface ConceptCountCacheStorage {
-  get(dataSourceId: string): Promise<ConceptCountCache | undefined>
-  save(cache: ConceptCountCache): Promise<void>
   delete(dataSourceId: string): Promise<void>
 }
 
@@ -429,7 +422,6 @@ export interface Storage {
   fileHandles: FileHandleStorage
   cohorts: CohortStorage
   databaseStatsCache: DatabaseStatsCacheStorage
-  conceptCountCache: ConceptCountCacheStorage
   schemaPresets: SchemaPresetStorage
   pipelines: PipelineStorage
   readmeAttachments: ReadmeAttachmentStorage

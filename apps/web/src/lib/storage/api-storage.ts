@@ -31,6 +31,7 @@ import { apiSqlScriptCollectionStorage, apiSqlScriptFileStorage } from '@/lib/ap
 import { apiUserStorage } from '@/lib/api/users'
 import { apiWikiPageStorage } from '@/lib/api/wiki-pages'
 import { apiWorkspaceStorage } from '@/lib/api/workspaces'
+import { apiDatabaseStatsCacheStorage, apiCatalogResultStorage } from '@/lib/api/stats-cache'
 import type { Storage } from '@/lib/storage'
 import { createIDBStorage } from '@/lib/storage/idb-storage'
 
@@ -80,5 +81,7 @@ export function createAPIStorage(): Storage {
     serviceMappings: apiServiceMappingStorage,
     userPlugins: apiUserPluginStorage,
     connections: apiIdeConnectionStorage,
+    databaseStatsCache: apiDatabaseStatsCacheStorage,
+    catalogResults: apiCatalogResultStorage,
   }
 }

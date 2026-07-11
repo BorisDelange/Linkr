@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, ConceptCountCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, ConceptCountCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { SUGGESTION_CATEGORIES } from '@/types'
 
@@ -49,10 +49,6 @@ interface LinkrDB extends DBSchema {
   database_stats_cache: {
     key: string
     value: DatabaseStatsCache
-  }
-  concept_count_cache: {
-    key: string
-    value: ConceptCountCache
   }
   pipelines: {
     key: string
@@ -753,10 +749,7 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         db.createObjectStore('suggestion_scores_blob', { keyPath: 'projectId' })
         db.createObjectStore('suggestion_scores_meta', { keyPath: 'projectId' })
       }
-      // Version 33: concept count cache (front-only fallback; server mode uses the API)
-      if (oldVersion < 33) {
-        db.createObjectStore('concept_count_cache', { keyPath: 'dataSourceId' })
-      }
+      // Version 33: (removed) concept_count_cache — was an unused front-only store.
       // Version 34: README attachments can also be workspace-scoped.
       if (oldVersion < 34) {
         transaction.objectStore('readme_attachments').createIndex('by-workspace', 'workspaceId')
@@ -1052,23 +1045,6 @@ class IDBDatabaseStatsCacheStorage implements DatabaseStatsCacheStorage {
   async delete(dataSourceId: string): Promise<void> {
     const db = await getDB()
     await db.delete('database_stats_cache', dataSourceId)
-  }
-}
-
-class IDBConceptCountCacheStorage implements ConceptCountCacheStorage {
-  async get(dataSourceId: string): Promise<ConceptCountCache | undefined> {
-    const db = await getDB()
-    return db.get('concept_count_cache', dataSourceId)
-  }
-
-  async save(cache: ConceptCountCache): Promise<void> {
-    const db = await getDB()
-    await db.put('concept_count_cache', cache)
-  }
-
-  async delete(dataSourceId: string): Promise<void> {
-    const db = await getDB()
-    await db.delete('concept_count_cache', dataSourceId)
   }
 }
 
@@ -2255,7 +2231,6 @@ export function createIDBStorage(): Storage {
     fileHandles: new IDBFileHandleStorage(),
     cohorts: new IDBCohortStorage(),
     databaseStatsCache: new IDBDatabaseStatsCacheStorage(),
-    conceptCountCache: new IDBConceptCountCacheStorage(),
     schemaPresets: new IDBSchemaPresetStorage(),
     pipelines: new IDBPipelineStorage(),
     readmeAttachments: new IDBReadmeAttachmentStorage(),

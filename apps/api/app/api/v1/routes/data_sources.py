@@ -27,10 +27,12 @@ from app.schemas.data_source import (
     TestConnectionRequest,
     TestConnectionResult,
 )
+from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
 from app.services import (
     blob_store,
     concept_stats_cache_service,
     data_source_service,
+    stats_cache_service,
 )
 from app.services.data import concept_cache_fs
 
@@ -318,6 +320,50 @@ async def save_concept_stats(
     """Persist the stats a client computed for one concept, sharing them."""
     await _load_source(db, source_id, user, "editor")
     return await concept_stats_cache_service.save(db, source_id, concept_id, body.stats)
+
+
+_STATS_SCOPE = "database"
+
+
+@router.get("/{source_id}/stats-cache", response_model=StatsCacheResponse | None)
+async def get_database_stats_cache(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Shared, precomputed database statistics for this source (null if none).
+    Stored server-side so every user of the project reuses one computed payload."""
+    await _load_source(db, source_id, user, "viewer")
+    row = await stats_cache_service.get(db, _STATS_SCOPE, source_id)
+    if row is None:
+        return None
+    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+
+
+@router.put("/{source_id}/stats-cache", response_model=StatsCacheResponse)
+async def save_database_stats_cache(
+    source_id: str,
+    body: StatsCacheSave,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Store the statistics a client just computed, sharing them with the project."""
+    await _load_source(db, source_id, user, "editor")
+    row = await stats_cache_service.save(
+        db, _STATS_SCOPE, source_id, body.computed_at, body.payload
+    )
+    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+
+
+@router.delete("/{source_id}/stats-cache", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_database_stats_cache(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset the shared statistics cache for this source (the "reset" button)."""
+    await _load_source(db, source_id, user, "editor")
+    await stats_cache_service.delete(db, _STATS_SCOPE, source_id)
 
 
 @router.get("/{source_id}/files", response_model=list[DataSourceFileResponse])
