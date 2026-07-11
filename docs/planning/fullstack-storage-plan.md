@@ -234,3 +234,30 @@ Build des 2 images **vérifié sur Mac ARM** (rocker/r-ver pour R+arrow binaire,
 
 ### Coordination
 Sessions parallèles sur `feature/fastapi-backend` (auth « Lot 0-5 » + IDE/terminal). Committer uniquement ses propres fichiers, jamais `git add -A`. Le chantier dashboards ne touche aucun fichier des autres sessions.
+
+---
+
+## État de session — 2026-07-11
+
+### Fait cette session
+- **✅ Scores de suggestions concept-mapping → serveur** (Lot D fini) + **DuckDB-WASM lazy** (tree-shaking). Voir Lot D / Tree-shaking ci-dessus.
+- **✅ Import standalone d'un projet de mapping restaure les scores** (lecture binaire + attach, gardé `isServerMode()`).
+- **✅ Fuites WASM restantes fermées** : `RmdNotebook` (cellules Python/R → `executeOnServer`), plugins warehouse patient-data (`warehouse-plugin-executor` → serveur, contexte patient = 3 variables injectées + bridge `sql_query`), testeur de plugins warehouse dans les Settings débloqué. **Audit exhaustif : plus aucune fuite** (les 3 runtimes WASM ne sont chargés en mode serveur par aucun chemin ; vérifié aussi au niveau bundle — 0 import statique).
+- **✅ Plugins built-in seedés en base à la création d'un workspace** (copies workspace-scoped, comme les schémas ; serveur + front-only) — ils apparaissent listés dans la page Plugins de chaque workspace.
+- **✅ Caches partagés serveur** : `databaseStatsCache` + `catalogResults` portés vers une table `stats_cache` serveur persistante partagée (un calcul pour tous les users du projet, reset = invalidation globale) ; `conceptCountCache` (mort) supprimé. IDB gardé pour le front-only.
+
+### Décisions produit actées
+- Se séparer d'IndexedDB : **NON** — IDB n'est pas un problème de compat (supporté depuis IE10 ; le vrai risque récent = OPFS, déjà avec fallback), et le mode front-only en dépend vitalement. Règle retenue : **cache serveur partagé** quand c'est partageable à l'échelle projet/workspace + bouton reset ; **IDB gardé** pour tout le front-only.
+
+### TODO (backlog, non ordonnancé — demandé par le PO 2026-07-11)
+- **Import par lien git** : vérifier que l'upload à partir d'un lien git fonctionne (le champ dans chaque modal Import).
+- **Versioning projets & workspaces** : implémenter la page Versioning de chacun, en se connectant à un git.
+- **IDE — environnements** : réfléchir à la gestion des environnements (venv/packages par env, env par terminal — cf. §07c « reste »).
+- **Multi-user — contenu modifié entre-temps** : prévenir l'utilisateur s'il édite un contenu modifié depuis (détection de conflit / version).
+- **IDE — gestion de jobs** : suivi de longs processus qu'on peut suivre et interrompre (± queue).
+- **Pipeline** : le rendre réellement fonctionnel.
+- **Page Reports** : à implémenter.
+- **Perf multi-user** : voir la note ci-dessous (jobs longs vs concurrence).
+
+### Note perf multi-user (jobs longs)
+Point d'attention identifié : l'exécution R/Python serveur (`execution/kernel.py`, `runtime.py`) et les requêtes DuckDB longues peuvent monopoliser des ressources. À auditer : est-ce qu'un job long d'un user bloque les autres (kernels par (projet,user) donc namespaces isolés, mais CPU/RAM/pool DuckDB partagés) ? Piste : file de jobs + limites de concurrence par user + timeouts déjà en place (`session_timeout_minutes`, `max_sessions_per_user`).
