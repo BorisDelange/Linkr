@@ -1,5 +1,5 @@
 import type { Plugin, PluginManifest } from '@/types/plugin'
-import { registerPlugin, getPlugin } from './registry'
+import { registerPlugin, getPlugin, getAllPlugins } from './registry'
 import { registerComponent } from './component-registry'
 import { registerBuiltinWidgetPlugins, SYSTEM_PLUGIN_IDS } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
@@ -461,6 +461,48 @@ export function registerDefaultPlugins() {
 }
 
 /** Load user-created plugins from IndexedDB and register them. */
+/**
+ * Seed a copy of every built-in plugin as a workspace-scoped user_plugins row,
+ * so each new workspace lists them in its Plugins page (mirrors the schema-preset
+ * seed). Built-ins are compiled components with no editable code, so the row
+ * carries only the manifest (+ templates when a built-in ever ships them); the
+ * in-memory registry still supplies the runnable component. Idempotent: skips a
+ * built-in already present in the workspace. Best-effort per plugin.
+ */
+export async function seedBuiltinPluginsForWorkspace(workspaceId: string): Promise<void> {
+  const storage = getStorage()
+  let existingIds: Set<string>
+  try {
+    const existing = await storage.userPlugins.getByWorkspace(workspaceId)
+    existingIds = new Set(existing.map((p) => p.id))
+  } catch {
+    existingIds = new Set()
+  }
+  const now = new Date().toISOString()
+  for (const plugin of getAllPlugins()) {
+    if (plugin.workspaceId) continue  // only built-ins (no workspace)
+    if (existingIds.has(plugin.manifest.id)) continue
+    const files: Record<string, string> = {
+      'plugin.json': JSON.stringify(plugin.manifest, null, 2),
+    }
+    if (plugin.templates) {
+      for (const [lang, content] of Object.entries(plugin.templates)) {
+        files[`analysis${lang === 'r' ? '.R.template' : '.py.template'}`] = content
+      }
+    }
+    await storage.userPlugins
+      .create({
+        id: plugin.manifest.id,
+        entityId: plugin.manifest.id,
+        files,
+        createdAt: now,
+        updatedAt: now,
+        workspaceId,
+      })
+      .catch((e) => console.warn('[default-plugins] builtin seed:', plugin.manifest.id, e))
+  }
+}
+
 export async function registerUserPlugins() {
   try {
     const storage = getStorage()

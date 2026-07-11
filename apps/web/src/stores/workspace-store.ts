@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
+import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { isShellHtml, toLocalized, setLocalized, localized } from '@/lib/localized'
 import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString } from '@/types'
 import { useAppStore, registerWorkspaceStore, stampAuthored } from './app-store'
@@ -132,6 +133,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
           .catch((e) => console.warn('[workspace-store] preset seed:', presetId, e)),
       ),
     )
+    // Seed a copy of every built-in plugin so the workspace lists them in its
+    // Plugins page (same rationale as the schema presets above).
+    await seedBuiltinPluginsForWorkspace(id)
     set((s) => ({
       _workspacesRaw: [...s._workspacesRaw, workspace],
       workspaces: [...s.workspaces, workspaceToItem(workspace, lang)],
