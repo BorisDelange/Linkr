@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { LocalizedString } from '@/types'
 import { useLocation, useNavigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
@@ -11,12 +12,13 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
+import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { localized } from '@/lib/localized'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
-import { clearAllData, clearLocalCache } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck } from 'lucide-react'
+import { clearAllData } from '@/lib/version-check'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck, Puzzle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
@@ -25,6 +27,7 @@ import { useDashboardActions } from '@/features/projects/lab/use-dashboard-actio
 import { useCohortActions } from '@/features/projects/warehouse/cohorts/use-cohort-actions'
 import { useEtlActions } from '@/features/warehouse/etl/use-etl-actions'
 import { useSqlCollectionActions } from '@/features/warehouse/sql-scripts/use-sql-collection-actions'
+import { usePluginActions } from '@/features/settings/use-plugin-actions'
 import { useCatalogActions } from '@/features/warehouse/catalog/use-catalog-actions'
 import { useDqRuleSetActions } from '@/features/warehouse/data-quality/use-dq-rule-set-actions'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -147,6 +150,22 @@ export function Header() {
   const cmProject = useConceptMappingStore((s) => cmId ? resolveByIdPrefix(s.mappingProjects, cmId, (p) => p.id) : undefined)
   const dqEntity = useDqStore((s) => dqId ? resolveByIdPrefix(s.dqRuleSets, dqId, (r) => r.id) : undefined)
 
+  // Plugin editor is driven by store state (not a route). When a plugin is open,
+  // surface its name as a header badge with the same actions as any entity.
+  const editingPluginId = usePluginEditorStore((s) => s.editingPluginId)
+  const editingPluginFiles = usePluginEditorStore((s) => s.files)
+  const editingPluginIsSystem = usePluginEditorStore((s) => s.isSystemPlugin)
+  const closePluginEditor = usePluginEditorStore((s) => s.closeEditor)
+  const pluginItem = useMemo(() => {
+    if (!editingPluginId) return undefined
+    try {
+      const m = JSON.parse(editingPluginFiles['plugin.json'] ?? '{}')
+      return { id: editingPluginId, name: (m.name ?? editingPluginId) as LocalizedString | string }
+    } catch {
+      return { id: editingPluginId, name: editingPluginId as string }
+    }
+  }, [editingPluginId, editingPluginFiles])
+
   const dashboardName = dashboardEntity?.name != null ? localized(dashboardEntity.name, language) : undefined
   const cohortName = cohortEntity?.name
   const etlName = etlEntity?.name
@@ -162,6 +181,8 @@ export function Header() {
   const sqlActions = useSqlCollectionActions()
   const catalogActions = useCatalogActions()
   const dqActions = useDqRuleSetActions()
+  const pluginActions = usePluginActions()
+  const [pluginMenuOpen, setPluginMenuOpen] = useState(false)
   const [cmMenuOpen, setCmMenuOpen] = useState(false)
   const [dashMenuOpen, setDashMenuOpen] = useState(false)
   const [cohortMenuOpen, setCohortMenuOpen] = useState(false)
@@ -183,7 +204,9 @@ export function Header() {
     i18n.changeLanguage(newLang)
   }
 
-  const handleResetData = () => (isServerMode ? clearLocalCache() : clearAllData())
+  // Only reachable in front-only mode (the menu item is hidden in server mode),
+  // where IndexedDB is the sole data store.
+  const handleResetData = () => clearAllData()
 
   // Build display name and initials from firstName/lastName
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ')
@@ -237,16 +260,38 @@ export function Header() {
     <>
       <header className="flex h-12 shrink-0 items-center justify-between border-b bg-background px-4">
         <div className="flex items-center gap-2.5">
-          {backToListPath && (
+          {(backToListPath || pluginItem) && (
             <button
-              onClick={() => navigate(backToListPath)}
+              onClick={() => { if (pluginItem) closePluginEditor(); else if (backToListPath) navigate(backToListPath) }}
               className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               title={t('common.back')}
             >
               <ArrowLeft size={15} />
             </button>
           )}
-          {cmProject ? (
+          {pluginItem ? (
+            <EntityActionsMenu
+              item={pluginItem}
+              {...pluginActions}
+              canEdit={!editingPluginIsSystem}
+              canDelete={!editingPluginIsSystem}
+              align="start"
+              onDeleted={closePluginEditor}
+              open={pluginMenuOpen}
+              onOpenChange={setPluginMenuOpen}
+              trigger={
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+                  aria-label={t('common.actions')}
+                >
+                  <Puzzle size={10} className="text-muted-foreground" />
+                  {localized(pluginItem.name, language)}
+                  <MoreHorizontal size={12} className="text-muted-foreground" />
+                </Badge>
+              }
+            />
+          ) : cmProject ? (
             <EntityActionsMenu
               item={cmProject}
               {...mappingActions}
@@ -478,13 +523,17 @@ export function Header() {
                   <Settings size={14} />
                   {t('user_menu.profile')}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setResetDialogOpen(true)}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <Trash2 size={14} className="text-destructive" />
-                  {isServerMode ? t('user_menu.clear_local_cache') : t('user_menu.reset_data')}
-                </DropdownMenuItem>
+                {/* Front-only only: wipes local IndexedDB (the sole data store there).
+                    In server mode the client keeps no data, so there's nothing to clear. */}
+                {!isServerMode && (
+                  <DropdownMenuItem
+                    onClick={() => setResetDialogOpen(true)}
+                    className="cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <Trash2 size={14} className="text-destructive" />
+                    {t('user_menu.reset_data')}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="cursor-pointer">
                   <LogOut size={14} />
@@ -499,25 +548,18 @@ export function Header() {
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{isServerMode ? t('reset.cache_title') : t('reset.title')}</DialogTitle>
+            <DialogTitle>{t('reset.title')}</DialogTitle>
             <DialogDescription asChild>
-              {isServerMode ? (
-                <div className="space-y-3">
-                  <p>{t('reset.cache_description')}</p>
-                  <p className="text-xs text-muted-foreground">{t('reset.cache_hint')}</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <p>{t('reset.description')}</p>
-                  <ul className="list-disc pl-4 text-xs space-y-1">
-                    <li>{t('reset.item_projects')}</li>
-                    <li>{t('reset.item_dashboards')}</li>
-                    <li>{t('reset.item_files')}</li>
-                    <li>{t('reset.item_preferences')}</li>
-                  </ul>
-                  <p className="font-medium text-destructive">{t('reset.warning')}</p>
-                </div>
-              )}
+              <div className="space-y-3">
+                <p>{t('reset.description')}</p>
+                <ul className="list-disc pl-4 text-xs space-y-1">
+                  <li>{t('reset.item_projects')}</li>
+                  <li>{t('reset.item_dashboards')}</li>
+                  <li>{t('reset.item_files')}</li>
+                  <li>{t('reset.item_preferences')}</li>
+                </ul>
+                <p className="font-medium text-destructive">{t('reset.warning')}</p>
+              </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -526,7 +568,7 @@ export function Header() {
             </Button>
             <Button variant="destructive" onClick={handleResetData}>
               <Trash2 size={14} />
-              {isServerMode ? t('reset.cache_confirm') : t('reset.confirm')}
+              {t('reset.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

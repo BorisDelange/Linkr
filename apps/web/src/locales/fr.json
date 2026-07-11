@@ -1741,7 +1741,9 @@
     "action_delete": "Suppression",
     "action_execute": "Exécution",
     "resource_workspaces": "Workspaces",
-    "resource_members": "Membres",
+    "resource_workspace-settings": "Paramètres du workspace",
+    "resource_workspace-members": "Membres du workspace",
+    "resource_workspace-summary": "Résumé",
     "resource_projects": "Projets",
     "resource_wiki": "Wiki",
     "resource_plugins": "Plugins",
@@ -1753,7 +1755,7 @@
     "resource_catalog": "Catalogue de données",
     "resource_etl": "Pipelines ETL",
     "resource_project-members": "Membres du projet",
-    "resource_summary": "Résumé",
+    "resource_project-summary": "Résumé",
     "resource_ide": "IDE",
     "resource_pipeline": "Pipeline",
     "resource_project-databases": "Bases de données (projet)",
@@ -1771,6 +1773,7 @@
     "resource_all-projects": "Tous les projets",
     "roles_section_workspace": "Workspace",
     "roles_section_project": "Projet",
+    "resource_hint_workspaces": "Droit global de CRÉER un workspace (le créateur en devient owner). Éditer ou supprimer un workspace dépend de l'appartenance au workspace (owner) ou du droit Tous les workspaces.",
     "resource_hint_all-workspaces": "Court-circuite l'appartenance à chaque workspace : octroie ce niveau d'accès à TOUS les workspaces et tout ce qu'ils contiennent (projets, wiki, membres…), sans en être membre.",
     "resource_hint_all-projects": "Court-circuite l'appartenance à chaque projet : octroie ce niveau d'accès à TOUS les projets (et leur contenu), dans tous les workspaces, sans en être membre.",
     "rename_role": "Renommer le rôle",
@@ -2005,7 +2008,16 @@
     "r_deps": "Packages R",
     "deps_placeholder": "Un package par ligne",
     "system_plugin_info": "Ceci est un plugin système intégré. Vous pouvez modifier ses métadonnées (nom, description, icône) mais pas son code.",
-    "languages": "Langages"
+    "languages": "Langages",
+    "settings_title": "Modifier le plugin",
+    "tab_general": "Général",
+    "tab_appearance": "Apparence",
+    "tab_advanced": "Avancé",
+    "search_placeholder": "Rechercher un plugin...",
+    "no_results": "Aucun plugin ne correspond à votre recherche",
+    "filter_badges": "Badges",
+    "shortcuts": "Raccourcis clavier",
+    "name_exists": "Un fichier nommé « {{name}} » existe déjà"
   },
   "profile": {
     "title": "Paramètres utilisateur",
@@ -2227,11 +2239,7 @@
     "item_files": "Tous les fichiers et le code des projets",
     "item_preferences": "Toutes les préférences (langue, thème, paramètres de l'éditeur)",
     "warning": "Cette action est irréversible.",
-    "confirm": "Supprimer toutes les données",
-    "cache_title": "Vider le cache local",
-    "cache_description": "Ceci vide les données mises en cache dans votre navigateur (IndexedDB). Vos données sont sur le serveur et ne sont pas affectées.",
-    "cache_hint": "Utile pour supprimer des données résiduelles d'une précédente session en mode client seul.",
-    "cache_confirm": "Vider le cache"
+    "confirm": "Supprimer toutes les données"
   },
   "version_check": {
     "update_title": "Linkr a été mis à jour",
@@ -2339,7 +2347,6 @@
   "user_menu": {
     "profile": "Paramètres",
     "reset_data": "Réinitialiser les données",
-    "clear_local_cache": "Vider le cache local",
     "sign_out": "Se déconnecter"
   },
   "runtime": {

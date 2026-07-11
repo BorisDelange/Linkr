@@ -1741,7 +1741,9 @@
     "action_delete": "Delete",
     "action_execute": "Execute",
     "resource_workspaces": "Workspaces",
-    "resource_members": "Members",
+    "resource_workspace-settings": "Workspace settings",
+    "resource_workspace-members": "Workspace members",
+    "resource_workspace-summary": "Summary",
     "resource_projects": "Projects",
     "resource_wiki": "Wiki",
     "resource_plugins": "Plugins",
@@ -1753,7 +1755,7 @@
     "resource_catalog": "Data catalog",
     "resource_etl": "ETL pipelines",
     "resource_project-members": "Project members",
-    "resource_summary": "Summary",
+    "resource_project-summary": "Summary",
     "resource_ide": "IDE",
     "resource_pipeline": "Pipeline",
     "resource_project-databases": "Databases (project)",
@@ -1771,6 +1773,7 @@
     "resource_all-projects": "All projects",
     "roles_section_workspace": "Workspace",
     "roles_section_project": "Project",
+    "resource_hint_workspaces": "Global right to CREATE a workspace (the creator becomes its owner). Editing or deleting a workspace is governed by workspace membership (owner) or the All workspaces grant.",
     "resource_hint_all-workspaces": "Bypasses per-workspace membership: grants this level of access to EVERY workspace and everything inside it (projects, wiki, members…), without being added as a member.",
     "resource_hint_all-projects": "Bypasses per-project membership: grants this level of access to EVERY project (and its contents), across all workspaces, without being added as a member.",
     "rename_role": "Rename role",
@@ -2005,7 +2008,16 @@
     "r_deps": "R packages",
     "deps_placeholder": "One package per line",
     "system_plugin_info": "This is a built-in system plugin. You can edit its metadata (name, description, icon) but not its code.",
-    "languages": "Languages"
+    "languages": "Languages",
+    "settings_title": "Edit plugin",
+    "tab_general": "General",
+    "tab_appearance": "Appearance",
+    "tab_advanced": "Advanced",
+    "search_placeholder": "Search plugins...",
+    "no_results": "No plugins matching your search",
+    "filter_badges": "Badges",
+    "shortcuts": "Keyboard shortcuts",
+    "name_exists": "A file named \"{{name}}\" already exists"
   },
   "profile": {
     "title": "User settings",
@@ -2227,11 +2239,7 @@
     "item_files": "All project files and code",
     "item_preferences": "All preferences (language, theme, editor settings)",
     "warning": "This action cannot be undone.",
-    "confirm": "Delete all data",
-    "cache_title": "Clear local cache",
-    "cache_description": "This clears data cached in your browser (IndexedDB). Your data lives on the server and is not affected.",
-    "cache_hint": "Useful to remove leftover data from a previous client-only session.",
-    "cache_confirm": "Clear cache"
+    "confirm": "Delete all data"
   },
   "version_check": {
     "update_title": "Linkr has been updated",
@@ -2339,7 +2347,6 @@
   "user_menu": {
     "profile": "Settings",
     "reset_data": "Reset all data",
-    "clear_local_cache": "Clear local cache",
     "sign_out": "Sign out"
   },
   "runtime": {
