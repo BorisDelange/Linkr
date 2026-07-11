@@ -1756,6 +1756,8 @@
     "resource_app-database": "Base de données de l'application",
     "resource_all-workspaces": "Tous les workspaces",
     "resource_all-projects": "Tous les projets",
+    "resource_hint_all-workspaces": "Court-circuite l'appartenance à chaque workspace : octroie ce niveau d'accès à TOUS les workspaces et tout ce qu'ils contiennent (projets, wiki, membres…), sans en être membre.",
+    "resource_hint_all-projects": "Court-circuite l'appartenance à chaque projet : octroie ce niveau d'accès à TOUS les projets (et leur contenu), dans tous les workspaces, sans en être membre.",
     "rename_role": "Renommer le rôle",
     "rename_role_description": "Définit le nom affiché du rôle dans la langue courante.",
     "schema_presets": "Modèles de schéma",

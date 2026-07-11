@@ -53,6 +53,9 @@ const GLOBAL_RESOURCES = new Set([
 const resourceOf = (permission: Permission) => permission.split(':')[0]
 const isGlobalPermission = (permission: Permission) => GLOBAL_RESOURCES.has(resourceOf(permission))
 
+/** Resources that carry an explanatory tooltip (settings.resource_hint_<r>). */
+const RESOURCE_HINTS = new Set(['all-workspaces', 'all-projects'])
+
 type Draft = Record<string, Permission[]>
 
 /** Group "resource:action" strings by resource, preserving catalogue order. */
@@ -148,7 +151,21 @@ function RoleMatrix({ description, roles, catalogue, draft, onToggle, onSetAll, 
                 <Fragment key={group.resource}>
                   <tr className="border-b bg-muted/20">
                     <td className="sticky left-0 z-10 w-56 bg-muted/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t(`settings.resource_${group.resource}`, group.resource)}
+                      <span className="inline-flex items-center gap-1">
+                        {t(`settings.resource_${group.resource}`, group.resource)}
+                        {RESOURCE_HINTS.has(group.resource) && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help text-muted-foreground/70">
+                                <Info size={12} />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs normal-case tracking-normal">
+                              {t(`settings.resource_hint_${group.resource}`)}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </span>
                     </td>
                     <td colSpan={roles.length} className="bg-muted/20" />
                   </tr>
