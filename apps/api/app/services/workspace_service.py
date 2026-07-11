@@ -1,11 +1,15 @@
+import shutil
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import global_grant_role
+from app.models.project import Project
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate
+from app.services import blob_cleanup, project_fs
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Workspace]:
@@ -53,5 +57,22 @@ async def update(
 
 
 async def delete(db: AsyncSession, workspace: Workspace) -> None:
+    workspace_id = workspace.id
+    result = await db.execute(
+        select(Project.uid).where(Project.workspace_id == workspace_id)
+    )
+    project_uids = [uid for (uid,) in result.all()]
+
+    shas: set[str] = set()
+    for project_uid in project_uids:
+        shas |= await blob_cleanup.collect_project_blob_shas(db, project_uid)
+    shas |= await blob_cleanup.collect_workspace_blob_shas(db, workspace_id)
+
     await db.delete(workspace)
     await db.commit()
+
+    # Disk cleanup after the DB commit — see project_service.delete for the
+    # same reasoning (per-project dirs are never shared; blobs may be).
+    for project_uid in project_uids:
+        shutil.rmtree(project_fs.project_dir(project_uid), ignore_errors=True)
+    await blob_cleanup.deref_blobs(db, shas)

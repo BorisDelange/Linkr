@@ -1,3 +1,5 @@
+import shutil
+
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +9,7 @@ from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.project import ProjectCreate, ProjectUpdate
+from app.services import blob_cleanup, project_fs
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Project]:
@@ -67,5 +70,16 @@ async def update(
 
 
 async def delete(db: AsyncSession, project: Project) -> None:
+    project_uid = project.uid
+    shas = await blob_cleanup.collect_project_blob_shas(db, project_uid)
+
     await db.delete(project)
     await db.commit()
+
+    # Disk cleanup after the DB commit: the project's working directory
+    # (scripts/, datasets/, .cache/) is never shared with another project, so
+    # it's safe to remove outright. Blobs are content-addressed and may be
+    # shared (e.g. a duplicated mapping project) — deref_blobs only deletes
+    # ones no longer referenced by any row anywhere.
+    shutil.rmtree(project_fs.project_dir(project_uid), ignore_errors=True)
+    await blob_cleanup.deref_blobs(db, shas)
