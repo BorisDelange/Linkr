@@ -319,15 +319,9 @@ export function PluginEditor() {
       }
 
       if (isWarehouse) {
-        // Warehouse plugins run in the browser WASM engine with patient context.
-        // There's no server-side path for them yet, so in full-stack mode don't
-        // fall back to WASM — surface it instead of silently loading Pyodide/WebR.
-        if (isServerMode()) {
-          setTestStatusMessage(null)
-          setTestResult({ stdout: '', stderr: t('plugins.warehouse_test_server_unsupported'), figures: [], table: null, html: '' })
-          return
-        }
-        // Warehouse mode: execute with patient context (null for test)
+        // Warehouse mode: execute with patient context (null for test). The
+        // executor routes to the server in full-stack mode (no WASM) and to the
+        // browser engine front-only — same as the real patient-data renderers.
         const code = resolveTemplate(template, testConfig, [], parsedSchema, testLanguage)
         const { executeWarehousePluginPython, executeWarehousePluginR } = await import(
           '@/features/projects/warehouse/patient-data/warehouse-plugin-executor'
@@ -370,7 +364,7 @@ export function PluginEditor() {
       setIsExecuting(false)
       setTestStatusMessage(null)
     }
-  }, [t, pluginScope, testDataSourceId, testPersonId, testVisitId, testVisitDetailId, testDatasetFileId, testLanguage, files, testConfig, parsedSchema, outputVisible, isSystemPlugin, editingPluginId])
+  }, [pluginScope, testDataSourceId, testPersonId, testVisitId, testVisitDetailId, testDatasetFileId, testLanguage, files, testConfig, parsedSchema, outputVisible, isSystemPlugin, editingPluginId])
 
   const activeContent = activeFile ? files[activeFile] ?? '' : ''
   const activeLanguage = activeFile ? languageFromFilename(activeFile) : 'plaintext'

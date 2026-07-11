@@ -1921,7 +1921,6 @@
     "unsaved_changes": "Unsaved",
     "system_plugin": "System",
     "back_to_list": "Back",
-    "warehouse_test_server_unsupported": "Testing warehouse plugins isn't available in server mode yet (they run in the browser engine).",
     "no_plugins": "No plugins yet.",
     "files": "Files",
     "new_file": "new-file.txt",

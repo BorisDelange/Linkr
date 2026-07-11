@@ -1921,7 +1921,6 @@
     "unsaved_changes": "Non enregistré",
     "system_plugin": "Système",
     "back_to_list": "Retour",
-    "warehouse_test_server_unsupported": "Le test des plugins entrepôt n'est pas encore disponible en mode serveur (ils s'exécutent dans le moteur du navigateur).",
     "no_plugins": "Aucun plugin.",
     "files": "Fichiers",
     "new_file": "nouveau-fichier.txt",
