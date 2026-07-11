@@ -325,7 +325,7 @@ def query_file_source(
         # be set at/after connect and enable_external_access can't be toggled),
         # so this does NOT sandbox arbitrary local-file reads — that residual is
         # accepted because /query is now editor-only, and editors already hold
-        # code-execution (Python/R/SQL IDE) in this app.
+        # ide:execute (Python/R/SQL IDE) in this app.
         _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql, max_rows=max_rows)
     finally:

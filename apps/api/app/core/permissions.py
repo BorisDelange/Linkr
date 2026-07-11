@@ -16,52 +16,100 @@ ROLE_ORDER = {"viewer": 0, "editor": 1, "owner": 2}
 # The set of (resource, action) pairs the app knows about. This is code-owned,
 # not user-configurable: adding a resource/action is a code change. Roles pick
 # from this catalogue. The UI reads it (GET /permissions) to render the matrix.
-RESOURCES = [
-    "workspaces",
-    "projects",
-    "wiki",
-    "datasets",
-    "dashboards",
-    "databases",
-    "cohorts",
-    "concepts",
-    "members",
-    # Running R/Python/SQL server-side in a project. Powerful (a live kernel in
-    # the project dir), so it's its own resource rather than folded into
-    # "datasets" — an admin can grant read-everything without code execution.
-    "code-execution",
-    # Per-project role overrides (project_members). Managed by project owners.
-    "project-members",
-]
-ACTIONS = ["read", "write", "delete"]
+#
+# Actions are per-resource (not a uniform read/write/delete): most resources use
+# read/write/delete, but some differ — "concepts" is read-only (browse only),
+# "summary" has no delete, and "ide" adds "execute" (running R/Python/SQL, the
+# app's only real server-side code execution). Order matters: the UI renders the
+# matrix in catalogue order, grouped into Workspace / Project sections client-side.
+RWD = ["read", "write", "delete"]
 
-PERMISSIONS = [f"{r}:{a}" for r in RESOURCES for a in ACTIONS]
+# Workspace-tier resources → their actions. Inherited by the workspace's projects;
+# a project override (project_members) can refine per project. The client splits
+# these into a "Workspace" section and a "Project" section for display.
+WORKSPACE_CATALOGUE: dict[str, list[str]] = {
+    # Workspace section (things that make up a workspace).
+    "workspaces": RWD,  # incl. delete: an owner can delete their own workspace
+    "members": RWD,
+    "projects": RWD,
+    "wiki": RWD,
+    "plugins": RWD,
+    "schemas": RWD,
+    "databases": RWD,  # workspace owns the DB connections
+    "concept-mapping": RWD,
+    "sql-scripts": RWD,
+    "data-quality": RWD,
+    "catalog": RWD,
+    "etl": RWD,
+    # Project section (things scoped to a single project).
+    "project-members": RWD,
+    "summary": ["read", "write"],  # README + tasks; nothing to "delete"
+    "ide": ["read", "write", "delete", "execute"],  # execute = run R/Python/SQL
+    "pipeline": RWD,
+    "project-databases": ["read", "write"],  # link/unlink a workspace source
+    "concepts": ["read"],  # browse the source's concept dictionary (read-only)
+    "cohorts": RWD,
+    "patient-data": RWD,
+    "datasets": RWD,
+    "dashboards": RWD,
+    "reports": RWD,  # stub page ("coming soon") — reserved so roles can pre-grant
+}
 
-# Actions that a global admin manages instance-wide.
-GLOBAL_RESOURCES = [
-    "users",
-    "roles",
+RESOURCES = list(WORKSPACE_CATALOGUE.keys())
+PERMISSIONS = [f"{r}:{a}" for r, acts in WORKSPACE_CATALOGUE.items() for a in acts]
+
+# Global-tier resources → actions. Instance-wide management (Home / Settings).
+GLOBAL_CATALOGUE: dict[str, list[str]] = {
+    # Creating / renaming / deleting ANY workspace (from Home). Distinct from the
+    # workspace-tier "workspaces:delete" that lets an owner delete their own.
+    "workspaces": RWD,
+    "users": RWD,
+    "roles": RWD,
     # Organizations are an instance-wide directory (Settings → Organizations),
     # shared across workspaces — so they're gated globally, not per workspace.
-    "organizations",
+    "organizations": RWD,
     # Read-only SQL against the app's OWN database (Settings → Application
     # database). Holds every table incl. password hashes, so it's admin-tier.
-    "app-database",
+    "app-database": RWD,
     # Cross-cutting grants: a global role holding these gets the corresponding
     # workspace-tier access on EVERY workspace/project without being a member
     # (like admin, but configurable). "all-workspaces:X" satisfies the
     # workspace-tier "workspaces:X" check on any workspace; "all-projects:X"
     # satisfies any workspace-tier check on any project. See global_grant_role.
-    "all-workspaces",
-    "all-projects",
-]
-GLOBAL_PERMISSIONS = [f"{r}:{a}" for r in GLOBAL_RESOURCES for a in ACTIONS]
+    "all-workspaces": RWD,
+    "all-projects": RWD,
+}
+GLOBAL_RESOURCES = list(GLOBAL_CATALOGUE.keys())
+GLOBAL_PERMISSIONS = [f"{r}:{a}" for r, acts in GLOBAL_CATALOGUE.items() for a in acts]
 
 ALL_PERMISSIONS = PERMISSIONS + GLOBAL_PERMISSIONS
+
+# Backwards-compatible action list (uniform triple). Some callers still import it;
+# the catalogue itself is now per-resource via WORKSPACE_CATALOGUE/GLOBAL_CATALOGUE.
+ACTIONS = RWD
 
 
 def _perms_for(actions_by_resource: dict[str, list[str]]) -> list[str]:
     return [f"{r}:{a}" for r, acts in actions_by_resource.items() for a in acts]
+
+
+def _actions_up_to(action: str) -> set[str]:
+    """Every action a role holding `action` implies, by the read⊂write⊂delete
+    ladder, plus "execute" once you can write. Used to build default roles."""
+    ladder = {"read": {"read"}, "write": {"read", "write", "execute"}, "delete": {"read", "write", "delete", "execute"}}
+    return ladder.get(action, {action})
+
+
+def _catalogue_perms(max_action: str) -> list[str]:
+    """Workspace permissions a default role gets: for each resource, every one of
+    its catalogue actions that is implied by `max_action`."""
+    allowed = _actions_up_to(max_action)
+    return [
+        f"{r}:{a}"
+        for r, acts in WORKSPACE_CATALOGUE.items()
+        for a in acts
+        if a in allowed
+    ]
 
 
 # --- Default system roles -------------------------------------------------
@@ -73,14 +121,13 @@ DEFAULT_ROLES = [
         "name": "viewer",
         "label": {"en": "Viewer", "fr": "Lecteur"},
         "scope": "workspace",
-        "permissions": [f"{r}:read" for r in RESOURCES],
+        "permissions": _catalogue_perms("read"),
     },
     {
         "name": "editor",
         "label": {"en": "Editor", "fr": "Éditeur"},
         "scope": "workspace",
-        "permissions": [f"{r}:read" for r in RESOURCES]
-        + [f"{r}:write" for r in RESOURCES],
+        "permissions": _catalogue_perms("write"),  # incl. ide:execute
     },
     {
         "name": "owner",

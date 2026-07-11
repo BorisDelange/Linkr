@@ -334,8 +334,8 @@ async def test_execute_forbidden_without_project_membership(client):
 
 
 async def test_code_execution_requires_write_not_just_read(client):
-    """A viewer can see the project but cannot run code (code-execution:write is
-    an editor+ permission); an editor can."""
+    """A viewer can see the project but cannot run code (ide:execute is an
+    editor+ permission); an editor can."""
     admin = await _admin_headers(client)
     ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "W"}})).json()["id"]
     uid = (await client.post(

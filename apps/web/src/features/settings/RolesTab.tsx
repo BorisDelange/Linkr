@@ -17,10 +17,19 @@ import {
   UsersRound,
   Table2,
   BarChart3,
-  Terminal,
   ShieldHalf,
   Building,
   Layers,
+  Puzzle,
+  FileSpreadsheet,
+  ArrowRightLeft,
+  SquareTerminal,
+  ShieldCheck,
+  Workflow,
+  LayoutDashboard,
+  Code,
+  User,
+  FileText,
   type LucideIcon,
 } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
@@ -81,17 +90,31 @@ const RESOURCE_HINTS = new Set(['all-workspaces', 'all-projects'])
 /** Per-resource icon + color, mirroring the sidebar so a resource is easy to
  *  place. Icons/colors match the corresponding sidebar nav item. */
 const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
+  // Workspace section (sidebar colors: teal = warehouse).
   workspaces: { icon: Building2, color: 'text-amber-500' },
+  members: { icon: Users, color: 'text-amber-500' },
   projects: { icon: FolderOpen, color: 'text-blue-700' },
   wiki: { icon: BookOpen, color: 'text-emerald-500' },
-  members: { icon: Users, color: 'text-amber-500' },
-  'project-members': { icon: UserCog, color: 'text-blue-700' },
+  plugins: { icon: Puzzle, color: 'text-pink-500' },
+  schemas: { icon: FileSpreadsheet, color: 'text-teal-500' },
   databases: { icon: Database, color: 'text-teal-500' },
+  'concept-mapping': { icon: ArrowRightLeft, color: 'text-teal-500' },
+  'sql-scripts': { icon: SquareTerminal, color: 'text-teal-500' },
+  'data-quality': { icon: ShieldCheck, color: 'text-teal-500' },
+  catalog: { icon: BookOpen, color: 'text-teal-500' },
+  etl: { icon: Workflow, color: 'text-teal-500' },
+  // Project section (blue = project chrome, teal = warehouse, rose = lab).
+  'project-members': { icon: UserCog, color: 'text-blue-700' },
+  summary: { icon: LayoutDashboard, color: 'text-blue-500' },
+  ide: { icon: Code, color: 'text-violet-500' },
+  pipeline: { icon: Workflow, color: 'text-orange-500' },
+  'project-databases': { icon: Database, color: 'text-teal-500' },
   concepts: { icon: BookOpen, color: 'text-teal-500' },
   cohorts: { icon: UsersRound, color: 'text-teal-500' },
+  'patient-data': { icon: User, color: 'text-teal-500' },
   datasets: { icon: Table2, color: 'text-rose-500' },
   dashboards: { icon: BarChart3, color: 'text-rose-500' },
-  'code-execution': { icon: Terminal, color: 'text-rose-500' },
+  reports: { icon: FileText, color: 'text-rose-500' },
   // Global-tier resources.
   users: { icon: Users, color: 'text-blue-500' },
   roles: { icon: ShieldHalf, color: 'text-slate-500' },
@@ -104,8 +127,20 @@ const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
 /** Workspace-tier resources split into two visual sections (sidebar order).
  *  This is presentation only — the enforcement tier is unchanged. */
 const WORKSPACE_SECTIONS: { key: string; resources: string[] }[] = [
-  { key: 'workspace', resources: ['workspaces', 'projects', 'wiki', 'members', 'project-members'] },
-  { key: 'project', resources: ['databases', 'concepts', 'cohorts', 'datasets', 'dashboards', 'code-execution'] },
+  {
+    key: 'workspace',
+    resources: [
+      'workspaces', 'members', 'projects', 'wiki', 'plugins', 'schemas',
+      'databases', 'concept-mapping', 'sql-scripts', 'data-quality', 'catalog', 'etl',
+    ],
+  },
+  {
+    key: 'project',
+    resources: [
+      'project-members', 'summary', 'ide', 'pipeline', 'project-databases',
+      'concepts', 'cohorts', 'patient-data', 'datasets', 'dashboards', 'reports',
+    ],
+  },
 ]
 
 type Draft = Record<string, Permission[]>

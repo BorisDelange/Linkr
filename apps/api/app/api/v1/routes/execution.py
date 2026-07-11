@@ -54,13 +54,13 @@ async def _require_project_access(
 async def _require_code_execution(
     db: AsyncSession, project_uid: str, user: User
 ) -> None:
-    """Running code / attaching a terminal requires the code-execution:write
-    permission on the project (granted to editor+ by default, but separable so an
-    admin can allow read-everything without letting a role run server-side code)."""
+    """Running code / attaching a terminal requires the ide:execute permission on
+    the project (granted to editor+ by default, but separable so an admin can allow
+    read-everything without letting a role run server-side code)."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    if not await has_project_permission(db, project, user, "code-execution:write"):
+    if not await has_project_permission(db, project, user, "ide:execute"):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Code execution not permitted on this project"
         )
@@ -368,7 +368,7 @@ async def terminal_ws(websocket: WebSocket):
         return
 
     # A terminal opens an arbitrary shell/kernel in the project's working dir, so
-    # it requires the same code-execution permission as running code over HTTP.
+    # it requires the same ide:execute permission as running code over HTTP.
     # The HTTP dependency system doesn't apply to a raw WebSocket, so check here.
     try:
         async with async_session() as db:

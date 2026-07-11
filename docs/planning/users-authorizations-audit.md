@@ -42,7 +42,14 @@ pendant l'implémentation ; il faut que le product owner le **valide de bout en 
 
 ---
 
-## 📋 Catalogue de droits PROPOSÉ (à valider — 2026-07-11)
+## 📋 Catalogue de droits — VALIDÉ + IMPLÉMENTÉ (2026-07-11)
+
+> **Validé par le PO le 2026-07-11 et implémenté** (backend `permissions.py`,
+> migration `4d744166dce4`, UI `RolesTab.tsx`). Décisions PO sur les points ouverts :
+> `reports` ajouté (verrouillé, stub) ; `databases` (workspace) + `project-databases`
+> (projet) = deux ressources ; `concepts` (projet) = `read` seul ; **pas d'actions
+> dédiées** (test/build/export) → tout en `read/write/delete`, seul `ide` ajoute
+> `execute`. `code-execution` retiré → `ide:execute` (renommé par la migration).
 
 > Reconstruit à partir des capacités réelles de l'app (sidebar + features +
 > routes). **Trois tiers** : Global / Workspace / Projet. On garde le grain « rôle »
