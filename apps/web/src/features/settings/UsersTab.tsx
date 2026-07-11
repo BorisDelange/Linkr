@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import {
@@ -48,6 +49,7 @@ import { Badge } from '@/components/ui/badge'
 interface UserDraft {
   username: string
   password: string
+  passwordConfirm: string
   role: string
   firstName: string
   lastName: string
@@ -59,6 +61,7 @@ interface UserDraft {
 const emptyDraft: UserDraft = {
   username: '',
   password: '',
+  passwordConfirm: '',
   role: 'user',
   firstName: '',
   lastName: '',
@@ -71,6 +74,7 @@ function draftFromUser(u: User): UserDraft {
   return {
     username: u.username,
     password: '',
+    passwordConfirm: '',
     role: u.role,
     firstName: u.firstName ?? '',
     lastName: u.lastName ?? '',
@@ -151,6 +155,10 @@ export function UsersTab() {
     const orcid = draft.orcid.trim() ? normalizeOrcid(draft.orcid) : ''
     if (!isValidOrcid(orcid)) {
       setError(t('settings.invalid_orcid'))
+      return
+    }
+    if (draft.password && draft.password !== draft.passwordConfirm) {
+      setError(t('settings.password_mismatch'))
       return
     }
     const fields = {
@@ -279,17 +287,44 @@ export function UsersTab() {
                   autoFocus={!editing}
                 />
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="user-password">
+                    {editing ? t('settings.new_password_optional') : <>{t('settings.temporary_password')}<RequiredMark /></>}
+                  </Label>
+                  <PasswordInput
+                    id="user-password"
+                    value={draft.password}
+                    placeholder={editing ? t('settings.leave_blank_keep') : undefined}
+                    onChange={(e) => setField('password', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="user-password-confirm">
+                    {t('settings.confirm_password')}{!editing && <RequiredMark />}
+                  </Label>
+                  <PasswordInput
+                    id="user-password-confirm"
+                    value={draft.passwordConfirm}
+                    placeholder={editing ? t('settings.leave_blank_keep') : undefined}
+                    onChange={(e) => setField('passwordConfirm', e.target.value)}
+                  />
+                </div>
+              </div>
               <div className="space-y-2">
-                <Label htmlFor="user-password">
-                  {editing ? t('settings.new_password_optional') : <>{t('settings.temporary_password')}<RequiredMark /></>}
-                </Label>
-                <Input
-                  id="user-password"
-                  type="password"
-                  value={draft.password}
-                  placeholder={editing ? t('settings.leave_blank_keep') : undefined}
-                  onChange={(e) => setField('password', e.target.value)}
-                />
+                <Label>{t('settings.user_role')}</Label>
+                <Select value={draft.role} onValueChange={(v) => setField('role', v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.filter((r) => r.scope === 'global').map((r) => (
+                      <SelectItem key={r.id} value={r.name}>
+                        {localized(r.label, i18n.language) || r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -329,21 +364,6 @@ export function UsersTab() {
                     onChange={(e) => setField('orcid', e.target.value)}
                   />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label>{t('settings.user_role')}</Label>
-                <Select value={draft.role} onValueChange={(v) => setField('role', v)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.filter((r) => r.scope === 'global').map((r) => (
-                      <SelectItem key={r.id} value={r.name}>
-                        {localized(r.label, i18n.language) || r.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
               {error && <p className="text-xs text-destructive">{error}</p>}
             </div>

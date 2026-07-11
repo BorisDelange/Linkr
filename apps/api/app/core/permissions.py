@@ -47,6 +47,13 @@ GLOBAL_RESOURCES = [
     # Read-only SQL against the app's OWN database (Settings → Application
     # database). Holds every table incl. password hashes, so it's admin-tier.
     "app-database",
+    # Cross-cutting grants: a global role holding these gets the corresponding
+    # workspace-tier access on EVERY workspace/project without being a member
+    # (like admin, but configurable). "all-workspaces:X" satisfies the
+    # workspace-tier "workspaces:X" check on any workspace; "all-projects:X"
+    # satisfies any workspace-tier check on any project. See global_grant_role.
+    "all-workspaces",
+    "all-projects",
 ]
 GLOBAL_PERMISSIONS = [f"{r}:{a}" for r in GLOBAL_RESOURCES for a in ACTIONS]
 
@@ -108,6 +115,43 @@ async def seed_default_roles(db: AsyncSession) -> None:
 
 # --- Enforcement ----------------------------------------------------------
 
+# A global "all-*" grant of a given action confers this workspace-tier role rank.
+_GRANT_ACTION_TO_ROLE = {"read": "viewer", "write": "editor", "delete": "owner"}
+
+
+async def global_grant_role(db: AsyncSession, user: User, resource: str) -> str | None:
+    """The workspace-tier role a user's GLOBAL role confers everywhere via an
+    "all-workspaces"/"all-projects" grant, or None. The highest granted action
+    wins (delete > write > read). Admins get "owner"."""
+    if user.role == "admin":
+        return "owner"
+    role = await db.scalar(select(Role).where(Role.name == user.role))
+    if role is None:
+        return None
+    perms = role.permissions or []
+    best = None
+    for action in ("delete", "write", "read"):
+        if f"{resource}:{action}" in perms:
+            best = _GRANT_ACTION_TO_ROLE[action]
+            break
+    return best
+
+
+async def effective_workspace_role(
+    db: AsyncSession, workspace_id: str, user: User
+) -> str | None:
+    """The user's resolved role on `workspace_id` (membership widened by any
+    global "all-workspaces" grant). admin → "owner". None if no access."""
+    if user.role == "admin":
+        return "owner"
+    member = await db.get(WorkspaceMember, (workspace_id, user.id))
+    member_rank = ROLE_ORDER.get(member.role, -1) if member is not None else -1
+    granted = await global_grant_role(db, user, "all-workspaces")
+    best = max(member_rank, ROLE_ORDER.get(granted, -1) if granted else -1)
+    if best < 0:
+        return None
+    return next(name for name, rank in ROLE_ORDER.items() if rank == best)
+
 
 async def check_workspace_role(
     db: AsyncSession, workspace_id: str, user: User, min_role: str
@@ -120,7 +164,10 @@ async def check_workspace_role(
     if user.role == "admin":
         return await db.get(WorkspaceMember, (workspace_id, user.id))
     member = await db.get(WorkspaceMember, (workspace_id, user.id))
-    if member is None or ROLE_ORDER.get(member.role, -1) < ROLE_ORDER.get(min_role, 99):
+    member_rank = ROLE_ORDER.get(member.role, -1) if member is not None else -1
+    granted = await global_grant_role(db, user, "all-workspaces")
+    effective_rank = max(member_rank, ROLE_ORDER.get(granted, -1) if granted else -1)
+    if effective_rank < ROLE_ORDER.get(min_role, 99):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient workspace permissions",
@@ -139,12 +186,14 @@ async def has_permission(
     if user.role == "admin":
         return True
     member = await db.get(WorkspaceMember, (workspace_id, user.id))
-    if member is None:
-        return False
-    role = await db.scalar(select(Role).where(Role.name == member.role))
-    if role is None:
-        return False
-    return permission in (role.permissions or [])
+    if member is not None:
+        role = await db.scalar(select(Role).where(Role.name == member.role))
+        if role is not None and permission in (role.permissions or []):
+            return True
+    granted = await global_grant_role(db, user, "all-workspaces")
+    if granted is not None:
+        return await _role_grants(db, granted, permission)
+    return False
 
 
 async def effective_project_role(
@@ -162,15 +211,30 @@ async def effective_project_role(
     """
     if user.role == "admin":
         return "owner"
+
+    # A cross-cutting global "all-projects" grant applies to every project (like
+    # admin, but configurable). It widens access: the highest rank wins, so it
+    # can lift a workspace member but never demotes an explicit stronger role.
+    granted = await global_grant_role(db, user, "all-projects")
+
+    def _widen(role: str | None) -> str | None:
+        ranks = [ROLE_ORDER[r] for r in (role, granted) if r in ROLE_ORDER]
+        if not ranks:
+            return None
+        best = max(ranks)
+        return next(name for name, rank in ROLE_ORDER.items() if rank == best)
+
     override = await db.get(ProjectMember, (project.uid, user.id))
     if override is not None:
-        # "none" is an explicit "hide this project from this member" override.
-        return None if override.role == "none" else override.role
+        # "none" is an explicit "hide this project from this member" override,
+        # but a global all-projects grant still confers cross-cutting access.
+        base = None if override.role == "none" else override.role
+        return _widen(base)
     if project.workspace_id is None:
         # Unassigned project: no membership model applies, open to any user.
         return "owner"
     member = await db.get(WorkspaceMember, (project.workspace_id, user.id))
-    return member.role if member is not None else None
+    return _widen(member.role if member is not None else None)
 
 
 async def check_project_role(

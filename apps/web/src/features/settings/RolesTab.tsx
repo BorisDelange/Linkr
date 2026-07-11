@@ -1,9 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCheck, Info, Plus, Shield, SquareX, Trash2 } from 'lucide-react'
+import { CheckCheck, Info, Pencil, Plus, Shield, SquareX, Trash2 } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { localized } from '@/lib/localized'
+import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
 import type { Permission, Role } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -41,7 +41,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 /** Resources that gate the account instance-wide rather than a single workspace. */
-const GLOBAL_RESOURCES = new Set(['users', 'roles', 'organizations', 'app-database'])
+const GLOBAL_RESOURCES = new Set([
+  'users',
+  'roles',
+  'organizations',
+  'app-database',
+  'all-workspaces',
+  'all-projects',
+])
 
 const resourceOf = (permission: Permission) => permission.split(':')[0]
 const isGlobalPermission = (permission: Permission) => GLOBAL_RESOURCES.has(resourceOf(permission))
@@ -78,10 +85,11 @@ interface RoleMatrixProps {
   draft: Draft
   onToggle: (roleId: string, permission: Permission, checked: boolean) => void
   onSetAll: (roleId: string, permissions: Permission[]) => void
+  onEdit: (role: Role) => void
   onDelete: (role: Role) => void
 }
 
-function RoleMatrix({ description, roles, catalogue, draft, onToggle, onSetAll, onDelete }: RoleMatrixProps) {
+function RoleMatrix({ description, roles, catalogue, draft, onToggle, onSetAll, onEdit, onDelete }: RoleMatrixProps) {
   const { t, i18n } = useTranslation()
   const groups = useMemo(() => groupByResource(catalogue), [catalogue])
 
@@ -109,7 +117,10 @@ function RoleMatrix({ description, roles, catalogue, draft, onToggle, onSetAll, 
                           </TooltipTrigger>
                           <TooltipContent>{displayName}</TooltipContent>
                         </Tooltip>
-                        <div className="flex h-6 items-center">
+                        <div className="flex h-6 items-center gap-0.5">
+                          <Button variant="ghost" size="icon-xs" onClick={() => onEdit(role)} title={t('common.rename')}>
+                            <Pencil size={12} />
+                          </Button>
                           {role.isSystem ? (
                             <Badge variant="outline" className="text-[10px]">{t('settings.role_system')}</Badge>
                           ) : (
@@ -180,6 +191,8 @@ export function RolesTab() {
   const [newScope, setNewScope] = useState<'workspace' | 'global'>('workspace')
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
+  const [renameTarget, setRenameTarget] = useState<Role | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const [roleTab, setRoleTab] = useState<'workspace' | 'global'>('global')
 
   const applyRoles = useCallback((r: Role[]) => {
@@ -284,6 +297,27 @@ export function RolesTab() {
     }
   }
 
+  const openRename = (role: Role) => {
+    setRenameTarget(role)
+    setRenameValue(localized(role.label, i18n.language) || role.name)
+  }
+
+  const confirmRename = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!renameTarget) return
+    const value = renameValue.trim()
+    if (!value) return
+    const role = renameTarget
+    setRenameTarget(null)
+    try {
+      await getStorage().roles.update(role.id, {
+        label: setLocalized(role.label, i18n.language, value),
+      })
+    } finally {
+      await load()
+    }
+  }
+
   const confirmDelete = async () => {
     if (!deleteTarget) return
     const id = deleteTarget.id
@@ -297,27 +331,22 @@ export function RolesTab() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium text-foreground">{t('settings.roles_title')}</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('settings.roles_description')}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => { setError(null); setAddOpen(true) }}>
-            <Plus size={14} />
-            {t('settings.add_role')}
-          </Button>
-          <Button size="sm" onClick={form.save} disabled={!form.canSaveNow}>
-            {t('common.save')}
-          </Button>
-        </div>
-      </div>
-
       <Tabs value={roleTab} onValueChange={(v) => setRoleTab(v as 'workspace' | 'global')}>
-        <TabsList className="mx-auto w-fit">
-          <TabsTrigger value="global">{t('settings.roles_global_title')}</TabsTrigger>
-          <TabsTrigger value="workspace">{t('settings.roles_workspace_title')}</TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between gap-2">
+          <TabsList className="w-fit">
+            <TabsTrigger value="global">{t('settings.roles_global_title')}</TabsTrigger>
+            <TabsTrigger value="workspace">{t('settings.roles_workspace_title')}</TabsTrigger>
+          </TabsList>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => { setError(null); setAddOpen(true) }}>
+              <Plus size={14} />
+              {t('settings.add_role')}
+            </Button>
+            <Button size="sm" onClick={form.save} disabled={!form.canSaveNow}>
+              {t('common.save')}
+            </Button>
+          </div>
+        </div>
         <TabsContent value="global" className="mt-4">
           <RoleMatrix
             description={t('settings.roles_global_description')}
@@ -326,6 +355,7 @@ export function RolesTab() {
             draft={draft}
             onToggle={toggle}
             onSetAll={(roleId, next) => setAll(roleId, globalCatalogue, next)}
+            onEdit={openRename}
             onDelete={setDeleteTarget}
           />
         </TabsContent>
@@ -337,6 +367,7 @@ export function RolesTab() {
             draft={draft}
             onToggle={toggle}
             onSetAll={(roleId, next) => setAll(roleId, workspaceCatalogue, next)}
+            onEdit={openRename}
             onDelete={setDeleteTarget}
           />
         </TabsContent>
@@ -378,6 +409,29 @@ export function RolesTab() {
               </Button>
               <Button type="submit" disabled={!newName.trim()}>
                 {t('common.create')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) setRenameTarget(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={confirmRename}>
+            <DialogHeader>
+              <DialogTitle>{t('settings.rename_role')}</DialogTitle>
+              <DialogDescription>{t('settings.rename_role_description')}</DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 space-y-2">
+              <Label htmlFor="rename-role">{t('settings.role_label')}</Label>
+              <Input id="rename-role" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
+            </div>
+            <DialogFooter className="mt-6">
+              <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
+                {t('common.cancel')}
+              </Button>
+              <Button type="submit" disabled={!renameValue.trim()}>
+                {t('common.save')}
               </Button>
             </DialogFooter>
           </form>

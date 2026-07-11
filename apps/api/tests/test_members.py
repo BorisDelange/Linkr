@@ -216,6 +216,57 @@ async def test_project_override_none_hides_from_workspace_member(client, db):
             json={"userId": bob_id, "role": "none"})).status_code == 422
 
 
+async def _make_user_with_role(db, client, username: str, role_name: str) -> tuple[int, dict]:
+    u = User(username=username, password_hash=hash_password("pw"), role=role_name)
+    db.add(u)
+    await db.commit()
+    await db.refresh(u)
+    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw"})
+    return u.id, {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+async def test_global_grant_gives_cross_workspace_access(client, db):
+    admin = await _bootstrap_admin(client)
+    ws = await _workspace(client, admin)
+    proj = await _project(client, admin, ws)
+
+    # A custom GLOBAL role holding all-workspaces:write + all-projects:write —
+    # the write action maps to editor rank everywhere.
+    role = (await client.post(f"{API}/roles", headers=admin, json={
+        "name": "cross-editor",
+        "scope": "global",
+        "permissions": ["all-workspaces:write", "all-projects:write"],
+    })).json()
+    assert role["name"] == "cross-editor"
+
+    bob_id, bob = await _make_user_with_role(db, client, "bob", "cross-editor")
+
+    # bob is NOT a member of the workspace, yet the grant confers editor access:
+    # he sees the project and can create cohorts in it.
+    assert (await client.get(f"{API}/workspaces/{ws}/my-role", headers=bob)).json()["role"] == "editor"
+    assert (await client.get(f"{API}/projects/{proj}/my-role", headers=bob)).json()["role"] == "editor"
+    assert (await _make_cohort(client, bob, proj)).status_code == 201
+    assert any(p["uid"] == proj for p in (await client.get(f"{API}/projects", headers=bob)).json())
+
+
+async def test_global_grant_read_only_cannot_write(client, db):
+    admin = await _bootstrap_admin(client)
+    ws = await _workspace(client, admin)
+    proj = await _project(client, admin, ws)
+
+    await client.post(f"{API}/roles", headers=admin, json={
+        "name": "cross-viewer",
+        "scope": "global",
+        "permissions": ["all-workspaces:read", "all-projects:read"],
+    })
+    _, bob = await _make_user_with_role(db, client, "bob", "cross-viewer")
+
+    # read grant → viewer everywhere: can list, cannot create.
+    assert (await client.get(f"{API}/projects/{proj}/my-role", headers=bob)).json()["role"] == "viewer"
+    assert (await client.get(f"{API}/cohorts?projectUid={proj}", headers=bob)).status_code == 200
+    assert (await _make_cohort(client, bob, proj)).status_code == 403
+
+
 async def test_project_override_shares_with_non_workspace_member(client, db):
     admin = await _bootstrap_admin(client)
     ws = await _workspace(client, admin)

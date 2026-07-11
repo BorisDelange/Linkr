@@ -1,6 +1,7 @@
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import global_grant_role
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.user import User
@@ -14,8 +15,9 @@ async def list_for_user(db: AsyncSession, user: User) -> list[Project]:
     A project is visible when the user has a role on its workspace (inherited) OR
     a per-project override grants them a role directly — the latter lets a project
     be shared with someone who isn't a workspace member. A "none" override hides
-    the project even from a workspace member."""
-    if user.role == "admin":
+    the project even from a workspace member. A global "all-projects" grant sees
+    every project (like admin, but configurable)."""
+    if user.role == "admin" or await global_grant_role(db, user, "all-projects"):
         result = await db.execute(select(Project))
         return list(result.scalars().all())
 

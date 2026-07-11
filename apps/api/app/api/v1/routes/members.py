@@ -15,6 +15,7 @@ from app.core.permissions import (
     check_project_role,
     check_workspace_role,
     effective_project_role,
+    effective_workspace_role,
 )
 from app.models.project import Project
 from app.models.user import User
@@ -68,11 +69,9 @@ async def my_workspace_role(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """The current user's effective role on this workspace (admin → owner)."""
-    if user.role == "admin":
-        return MyRoleResponse(role="owner")
-    member = await db.get(WorkspaceMember, (workspace_id, user.id))
-    return MyRoleResponse(role=member.role if member else None)
+    """The current user's effective role on this workspace (admin → owner,
+    widened by any global all-workspaces grant)."""
+    return MyRoleResponse(role=await effective_workspace_role(db, workspace_id, user))
 
 
 @router.get("/projects/{project_uid}/my-role", response_model=MyRoleResponse)

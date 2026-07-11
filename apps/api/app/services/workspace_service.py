@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import global_grant_role
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
@@ -8,8 +9,9 @@ from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Workspace]:
-    """Workspaces the user is a member of (admins see all)."""
-    if user.role == "admin":
+    """Workspaces the user is a member of (admins see all; a global
+    all-workspaces grant sees all too)."""
+    if user.role == "admin" or await global_grant_role(db, user, "all-workspaces"):
         result = await db.execute(select(Workspace))
         return list(result.scalars().all())
 
