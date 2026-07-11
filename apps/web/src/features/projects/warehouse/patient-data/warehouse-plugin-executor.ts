@@ -1,4 +1,5 @@
 import type { RuntimeOutput } from '@/lib/runtimes/types'
+import { isServerMode } from '@/lib/api-client'
 
 /**
  * Build Python preamble injecting patient context variables.
@@ -57,10 +58,17 @@ export async function executeWarehousePluginPython(
   visitDetailId: string | null,
   extraPreamble?: string,
 ): Promise<RuntimeOutput> {
-  const { executePython } = await import('@/lib/runtimes/pyodide-engine')
   const preamble = buildPythonPreamble(personId, visitOccurrenceId, visitDetailId)
   const extra = extraPreamble ? extraPreamble + '\n' : ''
-  return executePython(preamble + extra + code, dataSourceId)
+  const full = preamble + extra + code
+  // Server mode: run on the backend (no Pyodide WASM). The patient context is
+  // plain injected variables; the data source drives the sql_query() bridge.
+  if (isServerMode()) {
+    const { executeOnServer } = await import('@/lib/api/execution')
+    return executeOnServer('python', full, { connectionId: dataSourceId })
+  }
+  const { executePython } = await import('@/lib/runtimes/pyodide-engine')
+  return executePython(full, dataSourceId)
 }
 
 /**
@@ -75,8 +83,13 @@ export async function executeWarehousePluginR(
   visitDetailId: string | null,
   extraPreamble?: string,
 ): Promise<RuntimeOutput> {
-  const { executeR } = await import('@/lib/runtimes/webr-engine')
   const preamble = buildRPreamble(personId, visitOccurrenceId, visitDetailId)
   const extra = extraPreamble ? extraPreamble + '\n' : ''
-  return executeR(preamble + extra + code, dataSourceId)
+  const full = preamble + extra + code
+  if (isServerMode()) {
+    const { executeOnServer } = await import('@/lib/api/execution')
+    return executeOnServer('r', full, { connectionId: dataSourceId })
+  }
+  const { executeR } = await import('@/lib/runtimes/webr-engine')
+  return executeR(full, dataSourceId)
 }
