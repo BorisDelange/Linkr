@@ -87,13 +87,15 @@ interface ReadmeEditorProps {
   resolveUrls?: (md: string) => string
   /** Extra buttons rendered in the header bar (e.g. attachments button) */
   headerActions?: React.ReactNode
+  /** When false, the Edit button is hidden (view-only). Default true. */
+  canEdit?: boolean
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions }: ReadmeEditorProps) {
+export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEdit = true }: ReadmeEditorProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [localReadme, setLocalReadme] = useState(readme)
@@ -229,12 +231,12 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions }: Rea
                 {t('common.save')}
               </Button>
             </>
-          ) : (
+          ) : canEdit ? (
             <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setMode('edit')}>
               <Pencil size={12} />
               {t('summary.edit')}
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
 

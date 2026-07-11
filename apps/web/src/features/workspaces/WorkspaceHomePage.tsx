@@ -33,6 +33,7 @@ import { getStatusClasses, getStatusDotClass } from '@/features/projects/Project
 import { ReadmeEditor, remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 import { Paperclip } from 'lucide-react'
 import { useWorkspaceReadmeAttachments } from '@/hooks/use-workspace-readme-attachments'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { ReadmeAttachmentsDialog } from '@/features/projects/summary/ReadmeAttachmentsDialog'
 
 const MAX_RECENT = 2
@@ -41,6 +42,7 @@ export function WorkspaceHomePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
+  const canWriteSummary = useMyWorkspaceRole(wsUid).can('workspace-summary:write')
   const { _workspacesRaw, updateWorkspaceReadme } = useWorkspaceStore()
   const { _projectsRaw, getWorkspaceProjects, openProject, language } = useAppStore()
 
@@ -194,11 +196,13 @@ export function WorkspaceHomePage() {
               readme={readme}
               onSave={(content) => updateWorkspaceReadme(wsUid, content)}
               resolveUrls={resolveAttachmentUrls}
+              canEdit={canWriteSummary}
               headerActions={
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-5 px-2 text-xs text-muted-foreground"
+                  disabled={!canWriteSummary}
                   onClick={() => setAttachmentsOpen(true)}
                 >
                   <Paperclip size={12} />

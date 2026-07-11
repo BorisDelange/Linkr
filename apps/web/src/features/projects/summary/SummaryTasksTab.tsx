@@ -31,6 +31,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import type { TodoItem } from '@/types'
@@ -41,6 +42,7 @@ interface SummaryTasksTabProps {
 
 export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
   const { t } = useTranslation()
+  const canWrite = useMyProjectRole(uid).can('project-summary:write')
   const {
     _projectsRaw,
     updateProjectTodos,
@@ -152,6 +154,7 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
                           key={todo.id}
                           todo={todo}
                           language={language}
+                          canWrite={canWrite}
                           onToggle={handleToggleTodo}
                           onRemove={handleRemoveTodo}
                           onRename={handleRenameTodo}
@@ -169,12 +172,13 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
                 onKeyDown={(e) => e.key === 'Enter' && handleAddTodo()}
                 placeholder={t('summary.add_task_placeholder')}
                 className="h-8 text-sm"
+                disabled={!canWrite}
               />
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={handleAddTodo}
-                disabled={!newTask.trim()}
+                disabled={!newTask.trim() || !canWrite}
               >
                 <Plus size={14} />
               </Button>
@@ -194,6 +198,7 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
               value={localNotes}
               onChange={(e) => handleNotesChange(e.target.value)}
               placeholder={t('summary.notes_placeholder')}
+              readOnly={!canWrite}
               className="h-full resize-none border-0 p-0 shadow-none focus-visible:ring-0"
             />
           </div>
@@ -206,12 +211,14 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
 function SortableTodoItem({
   todo,
   language,
+  canWrite = true,
   onToggle,
   onRemove,
   onRename,
 }: {
   todo: TodoItem
   language: string
+  canWrite?: boolean
   onToggle: (id: string) => void
   onRemove: (id: string) => void
   onRename: (id: string, text: string) => void
@@ -261,7 +268,8 @@ function SortableTodoItem({
       </button>
       <button
         onClick={() => onToggle(todo.id)}
-        className="shrink-0 text-muted-foreground hover:text-foreground"
+        disabled={!canWrite}
+        className="shrink-0 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
       >
         {todo.done ? (
           <CheckCircle2 size={16} className="text-primary" />
@@ -283,13 +291,13 @@ function SortableTodoItem({
         />
       ) : (
         <span
-          onDoubleClick={startEdit}
+          onDoubleClick={canWrite ? startEdit : undefined}
           className={`flex-1 text-sm ${todo.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}
         >
           {text}
         </span>
       )}
-      {!editing && (
+      {!editing && canWrite && (
         <button
           onClick={startEdit}
           className="shrink-0 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"
@@ -297,12 +305,14 @@ function SortableTodoItem({
           <Pencil size={13} />
         </button>
       )}
-      <button
-        onClick={() => onRemove(todo.id)}
-        className="shrink-0 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"
-      >
-        <X size={14} />
-      </button>
+      {canWrite && (
+        <button
+          onClick={() => onRemove(todo.id)}
+          className="shrink-0 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"
+        >
+          <X size={14} />
+        </button>
+      )}
     </div>
   )
 }
