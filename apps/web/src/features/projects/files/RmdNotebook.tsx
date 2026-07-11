@@ -66,6 +66,8 @@ import { CellOutput } from '@/components/editor/CellOutput'
 import { parseRmdFile, serializeRmdFile, parseChunkOptions, serializeChunkOptions, type RmdCell } from '@/lib/rmd-parser'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
+import { executeOnServer } from '@/lib/api/execution'
+import { isServerMode } from '@/lib/api-client'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
 import { useShortcutStore } from '@/stores/shortcut-store'
@@ -484,10 +486,16 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
       try {
         let output: RuntimeOutput
 
-        if (cell.language === 'python') {
-          output = await executePython(cell.content, activeConnectionId ?? null)
-        } else if (cell.language === 'r') {
-          output = await executeR(cell.content, activeConnectionId ?? null)
+        if (cell.language === 'python' || cell.language === 'r') {
+          // Server mode: run on the backend (no Python/R WASM in the browser).
+          // executeOnServer resolves the active project from the app store.
+          output = isServerMode()
+            ? await executeOnServer(cell.language, cell.content, {
+                connectionId: activeConnectionId ?? undefined,
+              })
+            : cell.language === 'python'
+              ? await executePython(cell.content, activeConnectionId ?? null)
+              : await executeR(cell.content, activeConnectionId ?? null)
         } else if (cell.language === 'sql') {
           if (!activeConnectionId) {
             output = {
