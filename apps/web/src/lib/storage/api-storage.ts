@@ -33,7 +33,7 @@ import { apiWikiPageStorage } from '@/lib/api/wiki-pages'
 import { apiWorkspaceStorage } from '@/lib/api/workspaces'
 import { apiDatabaseStatsCacheStorage, apiCatalogResultStorage } from '@/lib/api/stats-cache'
 import type { Storage } from '@/lib/storage'
-import { createIDBStorage } from '@/lib/storage/idb-storage'
+import { noopFileHandleStorage, noopScoresBlobStorage, noopScoresMetaStorage } from '@/lib/storage/noop-storage'
 
 /**
  * Server-mode Storage: API-backed where an adapter exists, IndexedDB otherwise.
@@ -42,9 +42,13 @@ import { createIDBStorage } from '@/lib/storage/idb-storage'
  * list below; the IDB fallback shrinks until it only serves local (front-only) mode.
  */
 export function createAPIStorage(): Storage {
-  const idb = createIDBStorage()
+  // Every store is API-backed or a no-op — no `...idb` spread — so IndexedDB is
+  // never even instantiated in server mode. The only inherently client-only
+  // stores (fileHandles, scoresBlob, scoresMeta) become no-ops here.
   return {
-    ...idb,
+    fileHandles: noopFileHandleStorage,
+    scoresBlob: noopScoresBlobStorage,
+    scoresMeta: noopScoresMetaStorage,
     workspaces: apiWorkspaceStorage,
     users: apiUserStorage,
     roles: apiRoleStorage,
