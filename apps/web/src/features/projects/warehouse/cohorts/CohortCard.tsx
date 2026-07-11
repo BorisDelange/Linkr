@@ -22,6 +22,9 @@ interface CohortCardProps {
   basePath: string
   onRemove: () => void
   onEdit: () => void
+  /** Gate the edit / remove menu items (default true for front-only mode). */
+  canEdit?: boolean
+  canDelete?: boolean
 }
 
 const levelColors: Record<string, string> = {
@@ -35,6 +38,8 @@ export function CohortCard({
   basePath,
   onRemove,
   onEdit,
+  canEdit = true,
+  canDelete = true,
 }: CohortCardProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -87,12 +92,13 @@ export function CohortCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onEdit() }}>
+              <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onEdit() }}>
                 <Pencil size={14} />
                 {t('common.edit')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
+                disabled={!canDelete}
                 onClick={(e) => { e.stopPropagation(); onRemove() }}
                 className="text-destructive focus:text-destructive"
               >

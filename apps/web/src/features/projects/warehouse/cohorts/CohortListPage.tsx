@@ -7,7 +7,8 @@ import { paths } from '@/lib/paths'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useMemo } from 'react'
 import { UsersRound, Plus } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useMyProjectRole } from '@/hooks/use-context-role'
+import { GatedButton } from '@/components/ui/gated-button'
 import { Card } from '@/components/ui/card'
 import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
 import {
@@ -26,6 +27,7 @@ import { CreateCohortDialog } from './CreateCohortDialog'
 export function CohortListPage() {
   const { t } = useTranslation()
   const { projectUid: uid, wsUid } = useResolvedParams()
+  const { can } = useMyProjectRole(uid)
   const navigate = useNavigate()
   const { getProjectCohorts, addCohort, removeCohort, updateCohort } = useCohortStore()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -66,10 +68,10 @@ export function CohortListPage() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">{t('cohorts.list_description')}</p>
           </div>
-          <Button size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setDialogOpen(true)}>
+          <GatedButton allowed={can('cohorts:write')} notAllowedReason={t('common.insufficient_permissions')} size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setDialogOpen(true)}>
             <Plus size={14} />
             {t('cohorts.create')}
-          </Button>
+          </GatedButton>
         </div>
 
         {cohorts.length > 0 && (
@@ -106,6 +108,8 @@ export function CohortListPage() {
                 basePath={basePath}
                 onRemove={() => setDeleteTarget(cohort)}
                 onEdit={() => setEditingCohort(cohort)}
+                canEdit={can('cohorts:write')}
+                canDelete={can('cohorts:delete')}
               />
             ))}
           </div>

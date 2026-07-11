@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -51,6 +52,7 @@ const levelOptions: { value: CohortLevel; labelKey: string }[] = [
 export function CohortBuilderPage() {
   const { t } = useTranslation()
   const { projectUid: uid, raw } = useResolvedParams()
+  const { can } = useMyProjectRole(uid)
   const {
     cohorts,
     updateCohort,
@@ -275,8 +277,8 @@ export function CohortBuilderPage() {
           </span>
         )}
 
-        {/* Import/Export */}
-        <Button variant="ghost" size="sm" onClick={() => setImportDialogOpen(true)} className="h-6 gap-1 text-xs">
+        {/* Import/Export (export is a read operation → not gated) */}
+        <Button variant="ghost" size="sm" disabled={!can('cohorts:write')} onClick={() => setImportDialogOpen(true)} className="h-6 gap-1 text-xs">
           <Upload size={12} />
           {t('common.import')}
         </Button>
@@ -290,7 +292,7 @@ export function CohortBuilderPage() {
           variant="outline"
           size="sm"
           onClick={handleMaterialize}
-          disabled={loading || !activeSource || cohort.level === 'event'}
+          disabled={loading || !activeSource || cohort.level === 'event' || !can('cohorts:write')}
           className="h-6 gap-1 text-xs"
           title={cohort.level === 'event' ? t('cohorts.materialize_event_disabled') : undefined}
         >
@@ -302,7 +304,7 @@ export function CohortBuilderPage() {
         <Button
           size="sm"
           onClick={handleExecute}
-          disabled={loading || !activeSource}
+          disabled={loading || !activeSource || !can('cohorts:write')}
           className="h-6 gap-1 text-xs"
         >
           {loading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
