@@ -60,6 +60,7 @@ export function queryGlobalTableOnServer(params: {
  * (Parquet in server mode). Returns the sha so the caller can reuse the blob at
  * create time instead of re-uploading. */
 export async function previewFileColumnsOnServer(
+  workspaceId: string,
   file: Blob,
   fileName: string,
   parseOptions?: Record<string, unknown>,
@@ -67,7 +68,7 @@ export async function previewFileColumnsOnServer(
   const { sha } = await uploadFileInChunks(file, fileName)
   const res = await apiRequest<{ columns: string[]; rowCount: number }>(
     `${PROJ}/preview-columns`,
-    { method: 'POST', body: JSON.stringify({ sha, fileName, parseOptions }) },
+    { method: 'POST', body: JSON.stringify({ workspaceId, sha, fileName, parseOptions }) },
   )
   return { ...res, sha }
 }

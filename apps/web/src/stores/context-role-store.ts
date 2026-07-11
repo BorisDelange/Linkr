@@ -34,6 +34,9 @@ export const useContextRoleStore = create<ContextRoleState>((set, get) => ({
     }
     // Already loaded for this workspace — don't refetch.
     if (get().workspaceId === workspaceId && get().workspaceRole !== null) return
+    // Switching to a different workspace: drop the previous role first so gated
+    // controls stay denied during the fetch instead of showing the old role.
+    if (get().workspaceId !== workspaceId) set({ workspaceId, workspaceRole: null })
     try {
       const { role } = await membersApi.myWorkspaceRole(workspaceId)
       set({ workspaceId, workspaceRole: role })
@@ -48,6 +51,7 @@ export const useContextRoleStore = create<ContextRoleState>((set, get) => ({
       return
     }
     if (get().projectUid === projectUid && get().projectRole !== null) return
+    if (get().projectUid !== projectUid) set({ projectUid, projectRole: null })
     try {
       const { role } = await membersApi.myProjectRole(projectUid)
       set({ projectUid, projectRole: role })

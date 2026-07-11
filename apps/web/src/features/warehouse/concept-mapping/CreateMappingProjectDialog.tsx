@@ -425,8 +425,13 @@ export function CreateMappingProjectDialog({
     // required before the project exists. Upload once now and read columns +
     // count server-side (native, no DuckDB-WASM). Reuse the sha at create time.
     if (isServerMode()) {
+      if (!activeWorkspaceId) {
+        setFileError(t('datasets.upload_parse_error'))
+        setFileLoading(false)
+        return
+      }
       try {
-        const { columns, rowCount, sha } = await previewFileColumnsOnServer(f, f.name)
+        const { columns, rowCount, sha } = await previewFileColumnsOnServer(activeWorkspaceId, f, f.name)
         applyParsedData(columns, [])
         setTotalRows(rowCount)
         setPreUploadedSha(sha)
@@ -459,7 +464,7 @@ export function CreateMappingProjectDialog({
       setFileError(t('datasets.upload_parse_error'))
     }
     setFileLoading(false)
-  }, [t, applyParsedData])
+  }, [t, applyParsedData, activeWorkspaceId])
 
   const parseFile = useCallback((f: File) => {
     setFileLoading(true)

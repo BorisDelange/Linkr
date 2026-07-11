@@ -309,3 +309,41 @@ async def test_non_member_cannot_access(client, db):
     assert (await client.get(f"{API}/mapping-projects?workspaceId={ws}", headers=other)).status_code == 403
     assert (await client.get(f"{API}/mapping-projects/{p['id']}/mappings", headers=other)).status_code == 403
     assert (await client.delete(f"{API}/mapping-projects/{p['id']}", headers=other)).status_code == 403
+
+
+async def test_query_and_preview_columns_require_editor(client, db):
+    """A viewer must NOT run arbitrary SQL over a file source (/query runs
+    server-side DuckDB) nor probe an arbitrary blob's columns (/preview-columns
+    reads a globally-content-addressed blob). Both require editor."""
+    admin = await _admin_headers(client)
+    ws = await _workspace(client, admin)
+    p = (await client.post(f"{API}/mapping-projects", headers=admin, json={
+        "id": "mpv", "workspaceId": ws, "name": {"en": "F"}, "description": {},
+        "sourceType": "file", "conceptSetIds": [],
+        "fileSourceData": {
+            "fileName": "src.csv", "columns": ["code"], "rows": [],
+            "columnMapping": {"conceptCodeColumn": "code"},
+        },
+    })).json()
+    csv = b"code\n1234-5\n"
+    sha, _ = await blob_store.store_bytes(csv)
+    await client.post(f"{API}/mapping-projects/{p['id']}/raw-file", headers=admin,
+                      json={"sha": sha, "fileName": "src.csv"})
+
+    viewer = await _create_user(db, client, "bob")
+    me = (await client.get(f"{API}/auth/me", headers=viewer)).json()
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": me["id"], "role": "viewer"})
+
+    # viewer: forbidden on both hardened endpoints
+    assert (await client.post(f"{API}/mapping-projects/{p['id']}/query", headers=viewer,
+            json={"sql": "SELECT * FROM source_concepts"})).status_code == 403
+    assert (await client.post(f"{API}/mapping-projects/preview-columns", headers=viewer,
+            json={"workspaceId": ws, "sha": sha, "fileName": "src.csv"})).status_code == 403
+
+    # editor (the admin/owner here) still works on both
+    assert (await client.post(f"{API}/mapping-projects/{p['id']}/query", headers=admin,
+            json={"sql": "SELECT * FROM source_concepts"})).status_code == 200
+    pv = await client.post(f"{API}/mapping-projects/preview-columns", headers=admin,
+            json={"workspaceId": ws, "sha": sha, "fileName": "src.csv"})
+    assert pv.status_code == 200 and pv.json()["columns"] == ["code"]

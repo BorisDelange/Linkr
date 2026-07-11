@@ -47,6 +47,18 @@ def _ext_dir() -> str:
     return d.as_posix()
 
 
+def _lock_down_user_sql(con: duckdb.DuckDBPyConnection) -> None:
+    """Harden a DuckDB connection that is about to run arbitrary client SQL:
+    forbid auto-installing/loading unknown or community extensions, then lock the
+    configuration so the query can't turn any of it back on. Call this AFTER any
+    legitimately-needed extension (e.g. excel) has already been loaded and the
+    source view created."""
+    con.execute("SET autoinstall_known_extensions=false")
+    con.execute("SET autoload_known_extensions=false")
+    con.execute("SET allow_community_extensions=false")
+    con.execute("SET lock_configuration=true")
+
+
 def _connect(extension: str) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     # Persist installed extensions under data_dir so INSTALL only hits the
@@ -73,15 +85,18 @@ def _dsn_value(value: str) -> str:
 
     Without this, an attacker-controlled field (e.g. a `username` of
     ``x password=secret host=evil``) would inject extra DSN keywords and could
-    redirect the connection or smuggle parameters. Escaping the space keeps each
-    value one token, so no injected ``key=value`` pair can break out.
+    redirect the connection or smuggle parameters. libpq treats ANY whitespace
+    (space, tab, newline, carriage return, form-feed, vertical tab) as a token
+    separator, so every whitespace char must be backslash-escaped — not just the
+    space — to keep each value one token and prevent an injected ``key=value``
+    pair from breaking out.
     """
-    return (
+    escaped = (
         str(value)
         .replace("\\", "\\\\")
         .replace("'", "\\'")
-        .replace(" ", "\\ ")
     )
+    return re.sub(r"\s", lambda m: "\\" + m.group(0), escaped)
 
 
 def _dsn(config: dict, password: str | None) -> str:
@@ -302,6 +317,16 @@ def query_file_source(
         con.execute(
             f"CREATE VIEW source_concepts AS SELECT {select_sql} FROM {reader}"
         )
+        # The `sql` here is arbitrary client SQL (editor-authored, mirroring the
+        # in-browser DuckDB-WASM path). Harden the connection before running it:
+        # block INSTALL/LOAD of unknown/community extensions and lock the config
+        # so the query can't re-enable anything. NOTE: DuckDB 1.5 cannot confine
+        # the local filesystem once the DB is running (allowed_directories can't
+        # be set at/after connect and enable_external_access can't be toggled),
+        # so this does NOT sandbox arbitrary local-file reads — that residual is
+        # accepted because /query is now editor-only, and editors already hold
+        # code-execution (Python/R/SQL IDE) in this app.
+        _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql, max_rows=max_rows)
     finally:
         con.close()

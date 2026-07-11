@@ -29,6 +29,57 @@ Notes / follow-ups:
 
 ---
 
+## 2026-07-10 — Full-stack second wave: dashboards/members/attachments/global-table + UI role-gating + server-mode data paths
+
+- Reviewed by: Claude Opus 4.8 — by coherent file groups at final state (4 parallel adversarial Explore sub-agents; every reported finding re-verified in source by the reviewer before reporting/fixing).
+- Range: 22f01a8c..5137bc09 (**100 commits, 269 files, ~12,255 insertions / ~2,533 deletions**). Highlights: dashboards persistence (routes/service/model), members + 3-dimension RBAC (members router/service, project_member model, my-role endpoints), README/wiki attachments (blob store), concept-stats + concept-list Parquet caches, cross-project global-table service (server-side merge + Parquet paging), warm DuckDB connection pool, execution sessions + per-user kernel/PTY caps, UI role-gating infra (context-role-store, GatedButton, no-access-notice), server-mode data paths (Concepts from Parquet cache, no WASM load in server mode), Docker full-stack deploy, History feature removed. Version 2.0.22→2.1.0.
+- Last reviewed commit: 5137bc09edeff95676f0142dd4d5461bf1cffe17
+- Verdict: **Fix-then-ship** → 2 front-end UX bugs fixed during review; backend findings are server-mode-only policy items, reported for the user's authz decision (not fixed unilaterally, per the deferred-authz-pass precedent).
+- Tests: frontend **168 passed** (16 files) · backend **275 passed / 2 skipped** (Postgres-only skips) · Lint: **0 errors** (151 warnings, all pre-existing React Compiler category) · Typecheck: 0 errors introduced in edited files.
+- Reminder: `apps/api` is **not in the shipping build** (prod = static WASM). Server-mode findings are real but do not affect the current production build → severity weighted accordingly.
+
+Findings (all re-verified in source):
+
+**Front-end (FIXED during review — safe, high-value, aligns with UI-quality priority):**
+- 🟠 FIXED — context-role-store.ts:36-43 / 50-53 — **stale-role window on context switch.** On A→B navigation the store kept A's role until the async `/my-role` refetch resolved; during that window a *viewer* of B saw B's settings/Save/Danger controls as enabled (UI-only; server still rejects). Fix: reset role to `null` when the incoming workspaceId/projectUid differs, before awaiting (`atLeast(null)` already denies). Note: `clearProjectRole` remains defined-but-unused — left as a follow-up (wire to closeProject or drop).
+- 🟠 FIXED — GlobalSummaryView.tsx:582-620 — **cross-project Table goes permanently blank if a filter/sort changes mid-load.** The filter/sort effect cleared rows then called loadTableRows(0), but the busy-mutex early-return dropped the new page-0 load and the effect wouldn't re-fire → blank table until the next interaction (server mode, large workspace = multi-second window). Fix: added a `tableLoadGen` counter — page-0 loads always supersede an in-flight load (only scroll defers to the mutex), and a superseded request discards its result/state writes. Doubles as the missing out-of-order-response guard.
+
+**Backend (REPORTED, server-mode-only, authz-policy — NOT fixed unilaterally):**
+- 🟠 mapping_projects.py:161-190 (`POST /{id}/query`) — a **viewer** can run arbitrary SQL over the project's file-source DuckDB. The connection is a plain `duckdb.connect()` with **no** `enable_external_access=false` / filesystem lockdown (db_connect.query_file_source:296), so the SQL can `read_csv('/etc/passwd')`, `INSTALL`/`LOAD` extensions, etc. → local-file read + privilege issue (viewer should not execute SQL). Fix options: require `editor` (matches code-execution being a distinct powerful capability) and/or lock the file-source connections (`SET enable_external_access=false`, disable arbitrary INSTALL/LOAD). Mirrors the WASM model but server DuckDB has real FS access the browser sandbox lacks.
+- 🟠 mapping_projects.py:199-218 (`POST /preview-columns`) — **no workspace/project access check** (depends only on `get_current_user`). Any authed user with a 64-hex sha (blobs are globally content-addressed/dedup'd) can read another workspace's blob column names + row count → cross-tenant schema/row-count leak + drives DuckDB parsing of arbitrary stored blobs. sha format is validated (no traversal) but sha↔resource ownership is not. Fix: require `editor` on a supplied workspaceId, or verify the sha belongs to a resource the caller can access.
+- 🟠 db_connect.py:79-84 (`_dsn_value`) — the prior review's DSN-injection fix escapes only the literal **space**, not tab/newline/other libpq whitespace. libpq (and DuckDB's postgres/mysql ATTACH parser, which reuses it) treats any whitespace as a key=value separator → a workspace editor with a `username`/`database` containing a tab could smuggle `host=`/`sslmode=`/`options=` (SSRF / connect redirect). CONFIRMED that only space is escaped; PLAUSIBLE that tab is a separator in DuckDB's impl (not empirically verified). Fix: escape all whitespace (`re.sub(r"\s", ...)`) or reject control/whitespace chars; add a tab/newline regression test (current test_db_connect_dsn covers only space).
+- 🟡 mapping_projects.py:141-154 (`set_raw_file`) — an editor can point a project at ANY existing blob sha (no sha↔project ownership check); requires cross-tenant sha knowledge (not enumerable), low impact. Same ownership-gap family as preview-columns.
+
+**Backend robustness (REPORTED, MINOR, server-mode-only):**
+- 🟡 db_connect.materialize_parquet:500-510 — temp file named `.tmp-<pid>`; two concurrent concept-cache refreshes of the same source (threadpool, same PID) collide on the tmp path → one COPY fails or the unlink races the other's write (dest rename stays atomic, so no corruption at rest). Fix: per-call-unique temp name (uuid4/mkstemp).
+- 🟡 kernel.py per-user cap counts dict keys incl. dead (`not alive`) kernels → a user who crashes N kernels within the idle window is locked out at the cap. Fix: drop `not kernel.alive` entries in the sweep/count.
+- 🟡 pty_kernel.py — no idle eviction for PTY shells (kernels get swept, PTYs don't); bounded only by per-user cap + WS lifetime; `session_id = str(id(websocket))` risks id() reuse. Fix: idle sweep for PTYs + uuid4 session id (or document the bound).
+- 🟡 concept-mapping robustness: SourceIdTab.assignIds:277-281 breaks silently when a badge range is exhausted (>1M pairs → under-assign with no warning); source-concept-ids-io.ts:45-53 (`parseSourceConceptIdEntries`) doesn't validate compact-row arity (short row → `undefined` fields coerced into the id); `importProjectSourceConceptIds` is exported but dead (the two real import paths reimplement it inline — divergence risk). All non-blocking.
+
+Verified sound ✅ (actively probed, no finding):
+- Access control **holds** on the new routers: members (owner-for-writes/viewer-reads + last-owner guard), dashboards (all routes funnel through _require_project_access/_load_*), attachments (README/wiki blobs re-load + enforce scope role before returning bytes; sha 64-hex validated → no traversal), global-table endpoint (check_workspace_role viewer + sort allow-list). The organizations/execution "unguarded router" bug class does NOT recur here.
+- SQL safety: global_table_service._where escaping is single-quote doubling (correct for DuckDB literals; sort is allow-listed via _SORT_COLS); global-summary-queries.ts all data via esc() with localized() on names; dataset_rows binds filter/sort values as `?` params + validates column ids before quoting; file_reader routes path/sheet/delimiter through _sql_str. database.py app-DB query is admin-gated (app-database:read) with single-statement check + always-rollback.
+- connection_pool: per-key locks, keyed by source.id (access gated before pool use → no cross-project credential leak), all READ_ONLY, invalidated on update/delete. concept_cache_fs: source_id validated by `^[A-Za-z0-9_-]{1,64}$` before FS. kernels keyed by (project,user,lang,env) — can't read another user's kernel; sql_query RPC keeps creds host-side.
+- Front gating logic directionally correct: atLeast(null/unknown/'none') denies (no default-to-allowed); admin bypass gated on role==='admin' with permissions absent → deny; revalidate-on-mount under-grants until /auth/me hydrates (safe).
+- Export/import round-trip: source-concept-ids survive export→import + cross-workspace re-keying (tested); 10k cap genuinely removed (queryDataSourceAll pages until short page); columnar Arrow ingest has no row/column misalignment.
+- i18n parity: all new keys (members.*, common.no_access_*/insufficient_permissions, global_*, source_id_*, import_phase_source_id_registry) present in both en.json and fr.json.
+
+Carried follow-ups (non-blocking): clearProjectRole wire-or-drop; materialize_parquet temp-name race; dead-kernel cap accounting; PTY idle eviction; assignIds range-exhaustion warning; parseSourceConceptIdEntries arity validation + malformed/empty tests; wire or drop importProjectSourceConceptIds; entity-io source-concept-ids wiring untested end-to-end.
+
+### Fixes applied this review (uncommitted, awaiting user test) — 2026-07-11
+
+The user approved fixing all three backend authz items too. Applied:
+- **query viewer→editor** (mapping_projects.py:171) — `/query` now requires `editor` (was viewer). Also hardened the DuckDB connection that runs the client SQL: new `_lock_down_user_sql` (db_connect.py) disables autoinstall/autoload of known + community extensions and locks the config before running user SQL. IMPORTANT residual, documented in code: DuckDB 1.5.4 CANNOT confine the local filesystem once running (`allowed_directories` can't be set at/after connect, `enable_external_access` can't be toggled and a blanket off breaks the legitimate blob read — verified empirically), so an editor's SQL can still read arbitrary local files. Accepted because /query is now editor-only and editors already hold code-execution (Python/R/SQL IDE) in this app. If tighter isolation is ever required, run these reads in the sandboxed execution kernel instead of an in-process DuckDB.
+- **preview-columns access check** (mapping_projects.py:200) — now takes `workspaceId` and requires `editor` on it (was: any authed user with a sha). Frontend threaded through: `previewFileColumnsOnServer(workspaceId, ...)` (mapping-projects.ts) + CreateMappingProjectDialog passes `activeWorkspaceId` (guards null).
+- **DSN whitespace** (db_connect.py `_dsn_value`) — now escapes ALL whitespace (`re.sub(r"\s", ...)`), not just space, closing tab/newline DSN-keyword injection. Regression tests added (test_db_connect_dsn.py: tab/newline/CR/FF/VT + a tab-separated injection case).
+- Regression test `test_query_and_preview_columns_require_editor` (test_mapping_projects.py): viewer → 403 on both endpoints, editor → 200.
+
+Front-end fixes (from the review pass): context-role-store.ts (stale-role window), GlobalSummaryView.tsx (blank-table generation guard).
+
+Verification: frontend 168 tests + lint 0 errors + 0 new typecheck errors; backend test_db_connect_dsn + test_mapping_projects green (20). Full backend suite re-run pending confirmation.
+
+---
+
 ## 2026-07-08 — Full-stack backend review (by coherent file groups) — COMPLETE
 
 Reviewed the 170-commit FastAPI backend landing (`eac0095f..22f01a8c`, 346 files, ~27.5k insertions) **by coherent file groups at their final state**, not commit-by-commit (far less redundant on files touched across many commits; judges the code as it is today). Cursor advanced to HEAD at completion (see FINAL SUMMARY below). All fixes went into one grouped commit.

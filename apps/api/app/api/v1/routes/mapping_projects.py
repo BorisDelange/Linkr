@@ -168,7 +168,10 @@ async def query_file_source(
     """Run the frontend's SQL over a file-source project's CSV (server-side
     DuckDB). The CSV is projected to the `source_concepts` view via the project's
     columnMapping, mirroring the browser's DuckDB-WASM mount."""
-    project = await _load_project(db, project_id, user, "viewer")
+    # Editor, not viewer: this runs arbitrary client SQL over the file source's
+    # server-side DuckDB (a distinct, powerful capability), not a read of already
+    # projected rows.
+    project = await _load_project(db, project_id, user, "editor")
     if not project.raw_file_sha or not blob_store.exists(project.raw_file_sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No source file")
     fsd = project.file_source_data or {}
@@ -191,6 +194,7 @@ async def query_file_source(
 
 
 class FileColumnsPreview(CamelModel):
+    workspace_id: str
     sha: str
     file_name: str
     parse_options: dict | None = None
@@ -200,10 +204,16 @@ class FileColumnsPreview(CamelModel):
 async def preview_file_columns(
     body: FileColumnsPreview,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Columns + row count of an already-uploaded blob, before a project exists.
     Lets the create dialog map columns of a file whose headers can't be read in
-    the browser (Parquet in server mode) without booting DuckDB-WASM."""
+    the browser (Parquet in server mode) without booting DuckDB-WASM.
+
+    Blobs are globally content-addressed, so gate on editor rights in the target
+    workspace: without it any authenticated user could read the schema/row count
+    of any workspace's upload by guessing/knowing its sha."""
+    await check_workspace_role(db, body.workspace_id, user, "editor")
     if not blob_store.exists(body.sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Uploaded file not found")
     path = str(blob_store.path_for(body.sha))
