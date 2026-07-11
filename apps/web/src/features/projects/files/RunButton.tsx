@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useConnectionStore, type ConnectionEntry } from '@/stores/connection-store'
 import { useRuntimeStore } from '@/stores/runtime-store'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 
 interface RunButtonProps {
   onRunFile: () => void
@@ -40,6 +41,7 @@ export function RunButton({
   const { t } = useTranslation()
   const { getProjectConnections, activeConnectionId, setActiveConnection } = useConnectionStore()
   const { pythonStatus, rStatus } = useRuntimeStore()
+  const canExecute = useMyProjectRole(projectUid).can('ide:execute')
 
   const connections = projectUid ? getProjectConnections(projectUid) : []
   const warehouseConns = connections.filter((c) => c.source === 'warehouse')
@@ -59,7 +61,7 @@ export function RunButton({
 
   const runtimeStatus = language === 'python' ? pythonStatus : language === 'r' ? rStatus : 'idle'
   const isLoading = runtimeStatus === 'loading'
-  const canRun = isSql ? !!activeConn : true
+  const canRun = (isSql ? !!activeConn : true) && canExecute
   const isDisabled = !canRun || isExecuting || isLoading
 
   const getButtonLabel = () => {

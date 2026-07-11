@@ -33,6 +33,7 @@ import {
   Check,
   XCircle,
   Table2,
+  Save,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -94,6 +95,7 @@ import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowse
 import { EditorSettingsDialog } from './files/EditorSettingsDialog'
 import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useShortcutStore } from '@/stores/shortcut-store'
 
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
@@ -137,6 +139,7 @@ export function FilesPage() {
     editorModeFileIds,
   } = useFileStore()
   const { activeProjectUid } = useAppStore()
+  const canWriteIde = useMyProjectRole(activeProjectUid ?? undefined).can('ide:write')
   const { activeConnectionId, loadProjectConnections, getProjectConnections, setActiveConnection } = useConnectionStore()
   const { isExecuting, startExecution, stopExecution, finishExecution } = useRuntimeStore()
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
@@ -801,6 +804,7 @@ export function FilesPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        disabled={!canWriteIde}
                         onClick={() => setCreateFileOpen(true)}
                       >
                         <FilePlus size={14} />
@@ -813,6 +817,7 @@ export function FilesPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        disabled={!canWriteIde}
                         onClick={() => setCreateFolderOpen(true)}
                       >
                         <FolderPlus size={14} />
@@ -825,6 +830,7 @@ export function FilesPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        disabled={!canWriteIde}
                         onClick={() => setUploadOpen(true)}
                       >
                         <Upload size={14} />
@@ -924,6 +930,20 @@ export function FilesPage() {
                       language={selectedLanguage as 'python' | 'r' | undefined}
                       projectUid={activeProjectUid ?? undefined}
                     />
+                    {/* Save current file (Cmd+S) */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={handleSaveFile}
+                          disabled={_dirtyVersion < 0 || !isFileDirty(selectedNode.id) || !canWriteIde}
+                        >
+                          <Save size={14} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('files.save')} (⌘S)</TooltipContent>
+                    </Tooltip>
                     {/* Session (kernel namespace) selector — server mode, R/Python only. */}
                     {(selectedLanguage === 'python' || selectedLanguage === 'r') && activeProjectUid && (
                       <SessionDropdown projectUid={activeProjectUid} />
