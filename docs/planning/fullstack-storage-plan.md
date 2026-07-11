@@ -1,242 +1,243 @@
-# Linkr full-stack — plan de stockage & de calcul (base / fichiers / serveur)
+# Linkr full-stack — storage & compute plan (database / files / server)
 
-> Version Markdown du document de décision (l'original `fullstack-storage-plan.html`
-> reste la source historique). Des annotations **[FAIT]** / **[EN COURS]** / **[À FAIRE]**
-> indiquent l'état d'avancement au moment de la rédaction.
+> Markdown version of the decision document (the original `fullstack-storage-plan.html`
+> remains the historical source). **[DONE]** / **[IN PROGRESS]** / **[TODO]** annotations
+> indicate the state of progress at the time of writing.
 
-Règle générale : **métadonnées légères en base**, **contenu lourd/binaire en fichiers**
-sous un dossier racine unique (`data_dir`), calqué sur `linkr-portal/`. Le calcul touchant
-aux données vit **côté serveur** en mode full-stack, **dans le navigateur** en mode front-only.
-
----
-
-## 01 — Le principe de partage base / fichiers
-
-L'export ZIP fait déjà cette séparation (un `_tree.json` de métadonnées + les fichiers de
-contenu à leur chemin). Le backend full-stack reproduit ce layout sur disque et indexe les
-métadonnées en base.
-
-**En base (SQLite / Postgres)** : identité & relations (id, workspaceId, projectUid, FK,
-cascades) ; métadonnées (noms multilingues, description, config, status, badges, timestamps,
-auteur) ; arbres de fichiers sans contenu ; concept mappings ; structure dashboards ; registres.
-
-**En fichiers (`data_dir`)** : code & scripts (IDE, ETL, SQL, code inline widgets, plugins) ;
-données (CSV/Parquet des datasets, source brut des mappings, blobs Parquet) ; bases importées
-(vocabulaires OHDSI, dédupliqués par hash) ; markdown (README, wiki) ; pièces jointes binaires.
-
-**Recalculable** : caches (`*_stats_cache`, `catalog_results`, scores) — peut ne pas être
-persisté ; recalcul à la demande.
+General rule: **lightweight metadata in the database**, **heavy/binary content in files**
+under a single root folder (`data_dir`), modeled on `linkr-portal/`. Data-touching compute lives
+**on the server side** in full-stack mode, **in the browser** in front-only mode.
 
 ---
 
-## 02 — Persistance serveur par entité (Tâche 4) **[FAIT]**
+## 01 — The DB / files split principle
 
-Chaque entité auparavant client-only (IndexedDB) a maintenant sa persistance serveur :
-modèle SQLAlchemy + schémas Pydantic (camelCase) + service + routes CRUD workspace/project-
-scopées + adaptateur front `lib/api/<entité>.ts` branché dans `createAPIStorage()`
-(`api-storage.ts`). `isServerMode()` décide au niveau de la façade `getStorage()` ; les stores
-Zustand sont inchangés. Migrations Alembic + tests d'intégration pytest pour chacune.
+The ZIP export already makes this separation (a `_tree.json` of metadata + the content files
+at their path). The full-stack backend reproduces this layout on disk and indexes the
+metadata in the database.
 
-| Entité | Tables | Portée | Notes |
+**In the database (SQLite / Postgres)**: identity & relations (id, workspaceId, projectUid, FK,
+cascades); metadata (multilingual names, description, config, status, badges, timestamps,
+author); file trees without content; concept mappings; dashboard structure; registries.
+
+**In files (`data_dir`)**: code & scripts (IDE, ETL, SQL, inline widget code, plugins); data
+(dataset CSV/Parquet, mapping raw source, Parquet blobs); imported databases (OHDSI
+vocabularies, deduplicated by hash); markdown (README, wiki); binary attachments.
+
+**Recomputable**: caches (`*_stats_cache`, `catalog_results`, scores) — may not be
+persisted; recomputed on demand.
+
+---
+
+## 02 — Server persistence per entity (Task 4) **[DONE]**
+
+Each entity previously client-only (IndexedDB) now has its server persistence: SQLAlchemy
+model + Pydantic schemas (camelCase) + service + workspace/project-scoped CRUD routes +
+front adapter `lib/api/<entity>.ts` wired into `createAPIStorage()`
+(`api-storage.ts`). `isServerMode()` decides at the `getStorage()` façade level; the Zustand
+stores are unchanged. Alembic migrations + pytest integration tests for each.
+
+| Entity | Tables | Scope | Notes |
 |---|---|---|---|
-| Pipeline (DAG projet) | `pipelines` | project | **[FAIT]** |
-| ETL pipelines | `etl_pipelines` + `etl_files` | workspace | contenu scripts inline **[FAIT]** |
-| Cohorts | `cohorts` | project | criteria tree JSON ; caches result_count/attrition **[FAIT]** |
-| Data quality | `dq_rule_sets` + `dq_custom_checks` | workspace | SQL inline, cascade **[FAIT]** |
-| Data catalogs | `data_catalogs` | workspace | config/DCAT-AP JSON ; `catalog_results` = cache local **[FAIT]** |
-| Concept sets | `concept_sets` | workspace | expression/resolvedIds JSON ; delete-batch **[FAIT]** |
-| Source-concept IDs | `source_concept_id_ranges` (clé composite) + `_entries` | workspace | upsert + saveBatch **[FAIT]** |
-| Mapping projects | `mapping_projects` + `concept_mappings` + `service_mappings` | workspace | CSV source dans blob store (`raw_file_sha`, lazy-load) ; createBatch/deleteOrphans **[FAIT]** |
-| User plugins | `user_plugins` | workspace (nullable = global) | fichiers code inline **[FAIT]** |
-| IDE connections | `ide_connections` | project | **secret Fernet** (password/token chiffré dans `connection_secret`, jamais renvoyé) **[FAIT]** |
-| Schémas par défaut | (seed) | workspace | OMOP 5.4/5.3, MIMIC-IV/III seedés à la création d'un workspace (front) **[FAIT]** |
+| Pipeline (project DAG) | `pipelines` | project | **[DONE]** |
+| ETL pipelines | `etl_pipelines` + `etl_files` | workspace | inline script content **[DONE]** |
+| Cohorts | `cohorts` | project | criteria tree JSON; result_count/attrition caches **[DONE]** |
+| Data quality | `dq_rule_sets` + `dq_custom_checks` | workspace | inline SQL, cascade **[DONE]** |
+| Data catalogs | `data_catalogs` | workspace | config/DCAT-AP JSON; `catalog_results` = local cache **[DONE]** |
+| Concept sets | `concept_sets` | workspace | expression/resolvedIds JSON; delete-batch **[DONE]** |
+| Source-concept IDs | `source_concept_id_ranges` (composite key) + `_entries` | workspace | upsert + saveBatch **[DONE]** |
+| Mapping projects | `mapping_projects` + `concept_mappings` + `service_mappings` | workspace | source CSV in blob store (`raw_file_sha`, lazy-load); createBatch/deleteOrphans **[DONE]** |
+| User plugins | `user_plugins` | workspace (nullable = global) | inline code files **[DONE]** |
+| IDE connections | `ide_connections` | project | **Fernet secret** (password/token encrypted in `connection_secret`, never returned) **[DONE]** |
+| Default schemas | (seed) | workspace | OMOP 5.4/5.3, MIMIC-IV/III seeded on workspace creation (front) **[DONE]** |
 
-Déjà persistés avant cette tâche : workspaces, organizations, projects, data sources,
-datasets, SQL scripts, wiki, schema presets, IDE files (autre session).
+Already persisted before this task: workspaces, organizations, projects, data sources,
+datasets, SQL scripts, wiki, schema presets, IDE files (other session).
 
-Requête serveur d'un mapping project *file* : `POST /mapping-projects/{id}/query` exécute le SQL
-sur le CSV du blob via `db_connect.query_csv` (DuckDB `read_csv_auto`), en reconstruisant la vue
-`source_concepts` (colonnes normalisées via columnMapping, miroir du montage WASM). **[FAIT]**
+Server query of a mapping project *file*: `POST /mapping-projects/{id}/query` runs the SQL
+on the blob's CSV via `db_connect.query_csv` (DuckDB `read_csv_auto`), reconstructing the
+`source_concepts` view (columns normalized via columnMapping, mirroring the WASM setup). **[DONE]**
 
-Perf mode serveur (concept-mapping) : buffer CSV **jamais** chargé dans le state React
-(sortait le navigateur de l'archi §03 et provoquait un lag/timeout devtools) ; `mountFileSourceIntoDuckDB`
-no-op en mode serveur ; cross-project overview parallélisé (`Promise.all`) + chargement des
-lignes source différé aux onglets Table/Export. **[FAIT]**
-
----
-
-## 03 — Où tourne le calcul : décision d'architecture (ACTÉE)
-
-Deux modes de déploiement, deux endroits pour le calcul — **le mode seul décide, jamais la
-nature de la donnée**. Le drapeau `isServerMode()` (présence de `VITE_API_URL`) tranche.
-
-- **Full-stack (CHU) — compute 100 % serveur** : DuckDB, R et Python s'exécutent sur le
-  serveur ; le WASM n'est pas chargé. Le navigateur envoie du SQL / des specs et ne reçoit que
-  des résultats agrégés. Motivé par (1) postes peu puissants, (2) données patient à ne pas
-  exposer sur le poste.
-- **Front-only (WASM) — conservé** : déploiement statique (GitLab Pages, portal), démos,
-  données publiques (MIMIC). Compute dans le navigateur (DuckDB-WASM / Pyodide / WebR). Ne
-  doit **jamais** être cassé.
-
-Pas de classification de sensibilité. Frontière technique : tout ce qui lit les tables
-s'exécute au serveur ; le navigateur réaffiche/re-trie des résultats déjà reçus.
-
-*Nuance produit ultérieure : la règle "aucune donnée dans le navigateur" n'est pas absolue —
-poste sécurisé, on peut descendre un peu de données quand c'est le rendu naturel (points d'un
-nuage), mais on garde les agrégats petits quand un agrégat suffit.*
-
-**Séquençage** (l'app reste utilisable à chaque étape) :
-- **(a) Stockage** — métadonnées en base, blobs (lignes de dataset en Parquet) sur disque. **[FAIT]**
-- **(b) Moteur DuckDB serveur** — une API de requêtes remplace `queryDataSource` (~142 appels)
-  et `computeStats` ; le navigateur reçoit des lignes de résultat. **[LARGEMENT FAIT — 2026-07-09]**
-  (routage `isServerMode()` dans `engine.ts`, pool de connexions, cache Parquet matérialisé ;
-  voir l'état de session 2026-07-09. Reste : quelques fuites WASM mineures, voir 2026-07-10.)
-- **(c) R / Python serveur** — exécution par session (voir §06/§07). **[FAIT]** (kernels
-  persistants) ; **terminal streaming = §07(d) [FAIT]**.
+Server-mode perf (concept-mapping): the CSV buffer is **never** loaded into React state
+(it took the browser out of the §03 architecture and caused a devtools lag/timeout);
+`mountFileSourceIntoDuckDB` is a no-op in server mode; cross-project overview parallelized
+(`Promise.all`) + source-row loading deferred to the Table/Export tabs. **[DONE]**
 
 ---
 
-## 04 — Datasets en full-stack **[FAIT]**
+## 03 — Where compute runs: architecture decision (RATIFIED)
 
-Cible atteinte : lignes en **Parquet** sur le serveur (colonnaire, interrogeable DuckDB) ;
-tableau paginé `LIMIT/OFFSET` serveur ; tri/filtres `ORDER BY / WHERE` serveur ; stats par
-colonne = agrégats DuckDB ; analyses = code exécuté serveur, seul le résultat revient ;
-datasets importés **en lecture seule** (source immuable, transformation via pipeline).
+Two deployment modes, two places for compute — **the mode alone decides, never the
+nature of the data**. The `isServerMode()` flag (presence of `VITE_API_URL`) settles it.
 
-Implémentation retenue (disque source de vérité) : `projects/<uid>/datasets/` contient les
-fichiers **bruts** (source unique, scannés depuis le disque) ; un **cache Parquet dérivé** vit
-sous `projects/<uid>/.cache/datasets/` pour la pagination/stats/injection. Les analyses sont
-re-keyées par `(project_uid, dataset_path)` avec réconciliation des orphelines au scan.
+- **Full-stack (hospital) — 100% server compute**: DuckDB, R and Python run on the
+  server; WASM is not loaded. The browser sends SQL / specs and only receives
+  aggregated results. Motivated by (1) low-powered workstations, (2) patient data that
+  must not be exposed on the workstation.
+- **Front-only (WASM) — retained**: static deployment (GitLab Pages, portal), demos,
+  public data (MIMIC). Compute in the browser (DuckDB-WASM / Pyodide / WebR). Must
+  **never** be broken.
 
-Le dossier `datasets/` est aussi surfacé **en lecture seule dans l'arbre de l'IDE** (à côté de
-`scripts/`, flag `showInIde` dans `use-project-tree.ts`) : cliquer un fichier ouvre le
-**visualiseur de dataset** (aperçu paginé, même rendu que la page Datasets), pas le JSON de
-métadonnées ; pas de Download ni d'édition depuis l'IDE (la page Datasets reste le point
-d'import/édition, source immuable). **[FAIT]**
+No sensitivity classification. Technical boundary: everything that reads the tables
+runs on the server; the browser re-renders/re-sorts already-received results.
+
+*Later product nuance: the "no data in the browser" rule is not absolute — on a secured
+workstation, we can push down a little data when it is the natural rendering (points of a
+scatter plot), but we keep aggregates small when an aggregate is enough.*
+
+**Sequencing** (the app stays usable at each step):
+- **(a) Storage** — metadata in the database, blobs (dataset rows in Parquet) on disk. **[DONE]**
+- **(b) Server DuckDB engine** — a query API replaces `queryDataSource` (~142 calls)
+  and `computeStats`; the browser receives result rows. **[MOSTLY DONE — 2026-07-09]**
+  (`isServerMode()` routing in `engine.ts`, connection pool, materialized Parquet cache;
+  see the 2026-07-09 session state. Remaining: a few minor WASM leaks, see 2026-07-10.)
+- **(c) Server R / Python** — per-session execution (see §06/§07). **[DONE]** (persistent
+  kernels); **terminal streaming = §07(d) [DONE]**.
 
 ---
 
-## 05 — Le dossier racine `data_dir`
+## 04 — Datasets in full-stack **[DONE]**
 
-Un seul dossier configurable (`LINKR_DATA_DIR`, défaut `~/.linkr`) contient tout :
+Target reached: rows in **Parquet** on the server (columnar, DuckDB-queryable);
+`LIMIT/OFFSET` server-paginated table; `ORDER BY / WHERE` server-side sort/filters; per-column
+stats = DuckDB aggregates; analyses = code run on the server, only the result comes back;
+imported datasets **read-only** (immutable source, transformation via pipeline).
+
+Chosen implementation (disk source of truth): `projects/<uid>/datasets/` holds the **raw**
+files (single source, scanned from disk); a **derived Parquet cache** lives under
+`projects/<uid>/.cache/datasets/` for pagination/stats/injection. Analyses are re-keyed
+by `(project_uid, dataset_path)` with orphan reconciliation on scan.
+
+The `datasets/` folder is also surfaced **read-only in the IDE tree** (next to
+`scripts/`, `showInIde` flag in `use-project-tree.ts`): clicking a file opens the
+**dataset viewer** (paginated preview, same rendering as the Datasets page), not the metadata
+JSON; no Download or editing from the IDE (the Datasets page remains the
+import/edit point, immutable source). **[DONE]**
+
+---
+
+## 05 — The `data_dir` root folder
+
+A single configurable folder (`LINKR_DATA_DIR`, default `~/.linkr`) contains everything:
 
 ```
 data_dir/
-├─ linkr.db                    # base : métadonnées + relations (ou Postgres externe)
-├─ _files/<sha256>             # blobs partagés dédupliqués par hash (Parquet, uploads)
-└─ projects/<project-uid>/     # [FAIT] arbre de travail réel par projet (façon RStudio/Jupyter)
-   ├─ scripts/                 #   fichiers IDE réels (noms lisibles) — disque = source unique
-   ├─ datasets/                #   datasets bruts — disque = source unique
-   └─ .cache/datasets/         #   cache Parquet dérivé (jamais montré dans l'arbre)
+├─ linkr.db                    # database: metadata + relations (or external Postgres)
+├─ _files/<sha256>             # shared blobs deduplicated by hash (Parquet, uploads)
+└─ projects/<project-uid>/     # [DONE] real working tree per project (RStudio/Jupyter style)
+   ├─ scripts/                 #   real IDE files (readable names) — disk = single source
+   ├─ datasets/                #   raw datasets — disk = single source
+   └─ .cache/datasets/         #   derived Parquet cache (never shown in the tree)
 ```
 
-Le kernel d'un projet tourne avec `projects/<uid>/` comme **répertoire de travail**, donc le
-code lit `scripts/…` et `datasets/…` par chemins relatifs.
+A project's kernel runs with `projects/<uid>/` as its **working directory**, so the
+code reads `scripts/…` and `datasets/…` via relative paths.
 
 ---
 
-## 06 — Exécuter R et Python côté serveur **[FAIT]**
+## 06 — Running R and Python on the server side **[DONE]**
 
-- `docker/Dockerfile.api` installe `r-base` → `Rscript` dispo. Python = interpréteur backend.
-- `app/services/execution/` : `runtime.py` (one-shot) + `kernel.py` (kernels persistants).
-- Injection des données par le serveur (`injection.py`) : le Parquet est chargé comme variable
-  `dataset` (pandas/pyarrow côté Python, arrow côté R) — plus de `JSON.stringify` des lignes.
-- Retour : `RuntimeOutput` (table, figures encodées, stdout/stderr) — même contrat que le
-  moteur WASM navigateur.
-- Isolation : process séparé, timeout, cwd = dossier projet.
-
----
-
-## 07 — Environnements & sessions kernel (IDE)
-
-Un IDE attend une **session vivante** où les variables s'accumulent entre les runs (modèle
-kernel Jupyter / console RStudio). Deux sens d'« environnement » : (1) paquets installés
-(pip/CRAN) ; (2) état des variables (mémoire d'un process vivant).
-
-- **(a) Kernel Python persistant par projet** — variables persistent. **[FAIT]**
-- **(b) Kernel R persistant.** **[FAIT]**
-- **(c) Multi-environnements + sessions + monitoring.** **[FAIT]** Kernels keyés
-  `(project_uid, user_id, language, env_id)` ; footer StatusBar (Ready/Busy/RSS/PID/restart) ;
-  dropdown Session (créer/basculer/supprimer) ; `session_timeout_minutes` (éviction idle) +
-  `max_sessions_per_user` appliqués. **Reste :** de vrais venv/packages par env (aujourd'hui
-  un env = un namespace, même interpréteur) ; un `env_id` distinct par onglet terminal.
-- **(d) Terminal serveur = REPL interactif sur un kernel (streaming)** — **le plus complexe,
-  en dernier**. **[FAIT]** WebSocket `/execute/terminal` : Python/R en streaming sur le kernel
-  persistant (chunks stdout/stderr live + `done`), interruption Ctrl+C → SIGINT (le kernel survit),
-  Bash = vrai PTY (`pty.openpty` + `bash -i`, pas de fork de l'interpréteur). Auth WS via `?token=`.
-  Front : `TerminalSocket` + xterm, `isServerMode()` décide (WASM inchangé en front-only).
-  **Reste (hors §07d, notés) :** Run du bouton éditeur toujours en batch (à passer en streaming +
-  Stop réel + Ctrl+C) ; streaming R vrai temps réel (aujourd'hui bufferisé par `capture.output`,
-  sortie émise en fin de run).
-
-Kernels persistants en mémoire (acté) : un process R/Python vivant par environnement, gardé en
-RAM côté serveur. Variables perdues au redémarrage serveur ou à l'expiration d'inactivité
-(`session_timeout_minutes`), plafond `max_sessions_per_user`. « Restart kernel » = tuer +
-relancer. Le footer reflète l'état : Ready / Busy / Memory (RSS).
-
-Mapping : par défaut 1 kernel Python + 1 kernel R par projet ; possibilité d'en créer d'autres.
-Un environnement = `{ langage, id, projet, paquets installés, process vivant }`.
+- `docker/Dockerfile.api` installs `r-base` → `Rscript` available. Python = backend interpreter.
+- `app/services/execution/`: `runtime.py` (one-shot) + `kernel.py` (persistent kernels).
+- Data injection by the server (`injection.py`): the Parquet is loaded as a `dataset`
+  variable (pandas/pyarrow on the Python side, arrow on the R side) — no more `JSON.stringify`
+  of the rows.
+- Return: `RuntimeOutput` (table, encoded figures, stdout/stderr) — same contract as the
+  browser WASM engine.
+- Isolation: separate process, timeout, cwd = project folder.
 
 ---
 
-## 08 — Décisions tranchées
+## 07 — Kernel environments & sessions (IDE)
 
-- **Fichiers = source de vérité ou export ?** → **Base = vérité des métadonnées ; fichiers =
-  blobs**. Exception actée depuis : pour `scripts/` et `datasets/`, **le disque EST la source
-  unique** (scan disque, pas de table miroir de contenu), façon RStudio/Jupyter.
-- **Caches** → recalculables ; ceux partageables à l'échelle projet/workspace (database-stats,
-  catalog-results) vivent dans un **cache serveur partagé** (`stats_cache`), invalidé par un bouton
-  reset. (Décision affinée depuis — voir « État actuel ».)
-- **Dossier racine** → `LINKR_DATA_DIR` fixé côté serveur (lecture seule dans le wizard).
+An IDE expects a **live session** where variables accumulate between runs (Jupyter kernel /
+RStudio console model). Two meanings of "environment": (1) installed packages
+(pip/CRAN); (2) variable state (memory of a live process).
+
+- **(a) Persistent Python kernel per project** — variables persist. **[DONE]**
+- **(b) Persistent R kernel.** **[DONE]**
+- **(c) Multi-environments + sessions + monitoring.** **[DONE]** Kernels keyed
+  `(project_uid, user_id, language, env_id)`; StatusBar footer (Ready/Busy/RSS/PID/restart);
+  Session dropdown (create/switch/delete); `session_timeout_minutes` (idle eviction) +
+  `max_sessions_per_user` enforced. **Remaining:** true venv/packages per env (today
+  one env = one namespace, same interpreter); a distinct `env_id` per terminal tab.
+- **(d) Server terminal = interactive REPL over a kernel (streaming)** — **the most complex,
+  done last**. **[DONE]** WebSocket `/execute/terminal`: Python/R streaming over the persistent
+  kernel (live stdout/stderr chunks + `done`), Ctrl+C interruption → SIGINT (the kernel survives),
+  Bash = real PTY (`pty.openpty` + `bash -i`, no fork of the interpreter). WS auth via `?token=`.
+  Front: `TerminalSocket` + xterm, `isServerMode()` decides (WASM unchanged in front-only).
+  **Remaining (outside §07d, noted):** the editor button's Run still runs in batch (to move to streaming +
+  real Stop + Ctrl+C); true real-time R streaming (today buffered by `capture.output`,
+  output emitted at end of run).
+
+Persistent in-memory kernels (ratified): one live R/Python process per environment, kept in
+server-side RAM. Variables lost on server restart or on inactivity expiry
+(`session_timeout_minutes`), capped by `max_sessions_per_user`. "Restart kernel" = kill +
+relaunch. The footer reflects the state: Ready / Busy / Memory (RSS).
+
+Mapping: by default 1 Python kernel + 1 R kernel per project; more can be created.
+An environment = `{ language, id, project, installed packages, live process }`.
+
+---
+
+## 08 — Settled decisions
+
+- **Files = source of truth or export?** → **Database = truth of the metadata; files =
+  blobs**. Exception ratified since: for `scripts/` and `datasets/`, **disk IS the single
+  source** (disk scan, no content mirror table), RStudio/Jupyter style.
+- **Caches** → recomputable; those shareable at the project/workspace scale (database-stats,
+  catalog-results) live in a **shared server cache** (`stats_cache`), invalidated by a reset
+  button. (Decision refined since — see "Current state".)
+- **Root folder** → `LINKR_DATA_DIR` fixed on the server side (read-only in the wizard).
 
 
 ---
 
-## État actuel (MàJ 2026-07-11)
+## Current state (updated 2026-07-11)
 
-La transition full-stack est fonctionnelle et déployable (Docker validé bout en bout,
-v2.1.0). Détail par brique dans les sections §01–§08 ci-dessus (annotations `[FAIT]`).
+The full-stack transition is functional and deployable (Docker validated end to end,
+v2.1.0). Details per building block in sections §01–§08 above (`[DONE]` annotations).
 
-### Fait
-- **Stockage entités serveur (§02)** : toutes les entités client-only sont persistées serveur
-  (métadonnées en base, contenu lourd en blobs), dashboards inclus. Schémas + plugins built-in
-  seedés à la création d'un workspace.
-- **Moteur DuckDB serveur (§03b)** : `queryDataSource`/`computeStats` routés serveur en mode
-  full-stack (read-only + écriture sur Parquet uniquement — pas de fichier DuckDB partagé) ;
-  bases externes attachées en `READ_ONLY` ; pool de connexions ; cache Parquet matérialisé.
-- **Datasets (§04)**, **R/Python serveur (§06)**, **kernels + sessions + terminal streaming (§07)**.
-- **Zéro runtime WASM en mode serveur** : audit exhaustif — Pyodide/WebR/DuckDB-WASM ne sont
-  chargés par aucun chemin en full-stack (concept-mapping scores, RmdNotebook, plugins warehouse
-  patient-data, testeur de plugins : tous routés serveur). Vérifié au niveau bundle.
-- **Zéro IndexedDB en mode serveur** : stores API-backed ou no-op ; IDB jamais ouverte en
-  full-stack. Caches partageables (`databaseStatsCache`, `catalogResults`) portés vers une table
-  serveur partagée `stats_cache` (reset = invalidation globale). IDB conservée pour le front-only.
-- **Client léger** : bundle initial ~1,9 MB → ~0,66 MB gzip (lazy-load par route + composants viz
-  + vis-network à la demande).
+### Done
+- **Server entity storage (§02)**: all client-only entities are persisted server-side
+  (metadata in the database, heavy content in blobs), dashboards included. Schemas + built-in
+  plugins seeded on workspace creation.
+- **Server DuckDB engine (§03b)**: `queryDataSource`/`computeStats` routed to the server in
+  full-stack mode (read-only + write to Parquet only — no shared DuckDB file);
+  external databases attached as `READ_ONLY`; connection pool; materialized Parquet cache.
+- **Datasets (§04)**, **server R/Python (§06)**, **kernels + sessions + terminal streaming (§07)**.
+- **Zero WASM runtime in server mode**: exhaustive audit — Pyodide/WebR/DuckDB-WASM are not
+  loaded by any path in full-stack (concept-mapping scores, RmdNotebook, warehouse plugins
+  patient-data, plugin tester: all routed to the server). Verified at the bundle level.
+- **Zero IndexedDB in server mode**: stores API-backed or no-op; IDB never opened in
+  full-stack. Shareable caches (`databaseStatsCache`, `catalogResults`) ported to a shared
+  server table `stats_cache` (reset = global invalidation). IDB retained for front-only.
+- **Lightweight client**: initial bundle ~1.9 MB → ~0.66 MB gzip (lazy-load per route + viz components
+  + vis-network on demand).
 
-### Décisions produit actées
-- **Compute = le mode décide, jamais la nature de la donnée** (§03). Full-stack = tout serveur ;
-  front-only WASM conservé (portal statique, démos MIMIC) — ne jamais casser.
-- **Base = source de vérité des métadonnées ; fichiers = blobs** (§08). Exception : `scripts/` et
-  `datasets/` → le disque est la source unique (façon RStudio/Jupyter).
-- **Caches recalculables** : cache **serveur partagé** quand c'est partageable à l'échelle
-  projet/workspace + bouton reset ; sinon recalcul. (Remplace la note §08 « caches pas en base ».)
-- **IndexedDB conservée** (front-only en dépend, pas un problème de compat) — jamais ouverte en
-  mode serveur.
-- **Modèle de droits** : le catalogue ressources×actions reste **à valider de bout en bout par le
-  PO** (voir `users-authorizations-audit.md`).
+### Product decisions made
+- **Compute = the mode decides, never the nature of the data** (§03). Full-stack = all server;
+  front-only WASM retained (static portal, MIMIC demos) — never break it.
+- **Database = source of truth of the metadata; files = blobs** (§08). Exception: `scripts/` and
+  `datasets/` → disk is the single source (RStudio/Jupyter style).
+- **Recomputable caches**: **shared server** cache when it is shareable at the
+  project/workspace scale + reset button; otherwise recompute. (Replaces the §08 note "caches not in the database".)
+- **IndexedDB retained** (front-only depends on it, not a compat problem) — never opened in
+  server mode.
+- **Rights model**: the resources×actions catalog remains **to be validated end to end by the
+  PO** (see `users-authorizations-audit.md`).
 
-### Backlog (non ordonnancé — PO)
-- **Import par lien git** : vérifier l'upload depuis un lien git (champ de chaque modal Import).
-- **Versioning projets & workspaces** : page Versioning connectée à un git.
-- **IDE — environnements** : venv/packages par env, un env par terminal (cf. §07c « reste »).
-- **IDE — gestion de jobs** : suivi/interruption de longs processus (± file de jobs).
-- **Multi-user — édition concurrente** : prévenir si un contenu a été modifié entre-temps
-  (détection de conflit / version).
-- **Perf multi-user** : pas de blocage logique (kernels isolés, async), mais contention CPU/RAM
-  possible sur jobs longs — prévoir file de jobs + limites de concurrence. uvicorn tourne en
+### Backlog (unordered — PO)
+- **Import via git link**: verify the upload from a git link (field in each Import modal).
+- **Project & workspace versioning**: Versioning page connected to a git.
+- **IDE — environments**: venv/packages per env, one env per terminal (cf. §07c "remaining").
+- **IDE — job management**: tracking/interruption of long processes (± job queue).
+- **Multi-user — concurrent editing**: warn if content has been modified in the meantime
+  (conflict / version detection).
+- **Multi-user perf**: no logical blocking (isolated kernels, async), but CPU/RAM contention
+  possible on long jobs — plan a job queue + concurrency limits. uvicorn runs on
   1 worker.
-- **Pipeline** : le rendre réellement fonctionnel.
-- **Page Reports** : à implémenter.
-- **Finitions** : Run du bouton éditeur en streaming (+ Stop/Ctrl+C) ; streaming R vrai temps réel
-  (aujourd'hui bufferisé) ; gating UI inline edit/delete sur les pages détail (backend déjà en 403).
+- **Pipeline**: make it actually functional.
+- **Reports page**: to implement.
+- **Finishing touches**: editor button's Run in streaming (+ Stop/Ctrl+C); true real-time R streaming
+  (today buffered); inline edit/delete UI gating on the detail pages (backend already at 403).

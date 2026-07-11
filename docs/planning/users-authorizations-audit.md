@@ -1,292 +1,292 @@
-# Audit — Users & Authorizations (mode serveur / full-stack)
+# Audit — Users & Authorizations (server / full-stack mode)
 
-> **MàJ 2026-07-10 — tous les correctifs sont implémentés et committés** (branche
-> `feature/fastapi-backend`). Voir la section « État d'implémentation » en fin de doc.
-> À tester en mode serveur avant merge.
+> **Update 2026-07-10 — all fixes are implemented and committed** (branch
+> `feature/fastapi-backend`). See the "Implementation state" section at the end of the doc.
+> To be tested in server mode before merge.
 
 ---
 
-## ⏳ TODO — à faire avant de considérer le chantier terminé
+## ⏳ TODO — to do before considering the effort complete
 
-### 1. 🔴 Revoir le MODÈLE de droits (décision produit — à valider par le PO)
-**Non revu pour l'instant.** Le catalogue actuel a été construit au fil de l'eau
-pendant l'implémentation ; il faut que le product owner le **valide de bout en bout** :
-- **Quels blocs de droits on veut vraiment** (ressources × actions), et à quel niveau
-  (global / workspace / projet). Le découpage actuel (voir « État d'implémentation »
-  → catalogue) est une proposition, pas une décision arrêtée.
-- **Quels rôles par défaut** et quelles permissions chacun a (viewer/editor/owner +
-  admin global) — revoir la matrice, notamment : qui doit pouvoir exécuter du code,
-  gérer les organisations, requêter la base applicative, gérer les membres.
-- **Granularité** : garde-t-on le grain « rôle » (viewer<editor<owner) ou passe-t-on
-  à du grain fin par ressource sur certaines surfaces ?
-- **Cas limites** : ressources partagées/annuaires (organizations = lecture ouverte,
-  décidé) ; rôle projet `none` (masquer un projet) ; héritage workspace→projet.
-→ **Rien ne doit être considéré comme figé tant que le PO n'a pas revu ce modèle.**
+### 1. 🔴 Review the permission MODEL (product decision — to be validated by the PO)
+**Not reviewed for now.** The current catalog was built incrementally
+during implementation; the product owner must **validate it end to end**:
+- **Which permission blocks we actually want** (resources × actions), and at what level
+  (global / workspace / project). The current breakdown (see "Implementation state"
+  → catalog) is a proposal, not a settled decision.
+- **Which default roles** and which permissions each has (viewer/editor/owner +
+  global admin) — review the matrix, in particular: who should be able to execute code,
+  manage organizations, query the application database, manage members.
+- **Granularity**: do we keep the "role" grain (viewer<editor<owner) or move
+  to fine grain per resource on some surfaces?
+- **Edge cases**: shared resources/directories (organizations = open read,
+  decided); project role `none` (hide a project); workspace→project inheritance.
+→ **Nothing should be considered final until the PO has reviewed this model.**
 
-### 2. Finir + vérifier le GATING UI
-- **Vérifier** en mode serveur tout le gating déjà posé (settings, warehouse/lab
-  list features, datasets, dashboards, wiki, projets, bases de données) avec des
-  comptes viewer / editor / owner / non-membre.
-- **Surfaces UI restantes non gatées** (backend déjà protégé — confort UI only) :
+### 2. Finish + verify the UI GATING
+- **Verify** in server mode all the gating already in place (settings, warehouse/lab
+  list features, datasets, dashboards, wiki, projects, databases) with
+  viewer / editor / owner / non-member accounts.
+- **Remaining ungated UI surfaces** (backend already protected — UI comfort only):
   concept-mapping (bulk-delete concept sets, delete import batch, edit mapping
   project, comments/approve, source-ID ranges), DQ checks editor (create/save),
-  catalog config (age brackets, anonymisation), SQL scripts editor (create/save
-  file), pipeline (add/remove node/edge/script), summary (README, tâches,
-  attachments), patient-data widgets (add/edit/settings), dashboards détail
+  catalog config (age brackets, anonymization), SQL scripts editor (create/save
+  file), pipeline (add/remove node/edge/script), summary (README, tasks,
+  attachments), patient-data widgets (add/edit/settings), dashboards detail
   (toggle edit, add widget, settings, tabs), IDE files (create/rename/upload),
-  wiki (context-menu par nœud : create child/rename/delete, métadonnées/pièces
-  jointes). Cartographie complète : voir l'inventaire produit le 2026-07-10.
-- **Rappel** : le gating UI n'est que cosmétique — l'enforcement réel est serveur
-  (403). À (re)prioriser une fois le modèle de droits validé (point 1), car
-  certains gates changeront si le catalogue change.
+  wiki (per-node context menu: create child/rename/delete, metadata/attachments).
+  Full mapping: see the inventory produced on 2026-07-10.
+- **Reminder**: UI gating is only cosmetic — the real enforcement is server-side
+  (403). To be (re)prioritized once the permission model is validated (point 1), because
+  some gates will change if the catalog changes.
 
 ---
 
-## 📋 Catalogue de droits — VALIDÉ + IMPLÉMENTÉ (2026-07-11)
+## 📋 Permissions catalog — VALIDATED + IMPLEMENTED (2026-07-11)
 
-> **Validé par le PO le 2026-07-11 et implémenté** (backend `permissions.py`,
-> migration `4d744166dce4`, UI `RolesTab.tsx`). Décisions PO sur les points ouverts :
-> `reports` ajouté (verrouillé, stub) ; `databases` (workspace) + `project-databases`
-> (projet) = deux ressources ; `concepts` (projet) = `read` seul ; **pas d'actions
-> dédiées** (test/build/export) → tout en `read/write/delete`, seul `ide` ajoute
-> `execute`. `code-execution` retiré → `ide:execute` (renommé par la migration).
+> **Validated by the PO on 2026-07-11 and implemented** (backend `permissions.py`,
+> migration `4d744166dce4`, UI `RolesTab.tsx`). PO decisions on the open points:
+> `reports` added (locked, stub); `databases` (workspace) + `project-databases`
+> (project) = two resources; `concepts` (project) = `read` only; **no dedicated
+> actions** (test/build/export) → everything in `read/write/delete`, only `ide` adds
+> `execute`. `code-execution` removed → `ide:execute` (renamed by the migration).
 
-> Reconstruit à partir des capacités réelles de l'app (sidebar + features +
-> routes). **Trois tiers** : Global / Workspace / Projet. On garde le grain « rôle »
-> (viewer < editor < owner) + admin global super-admin. L'héritage workspace→projet
-> est conservé ; un override `project_members` peut affiner par projet.
+> Rebuilt from the app's actual capabilities (sidebar + features +
+> routes). **Three tiers**: Global / Workspace / Project. We keep the "role" grain
+> (viewer < editor < owner) + global admin super-admin. The workspace→project inheritance
+> is kept; a `project_members` override can refine per project.
 >
-> Convention : la plupart des ressources ont `read / write / delete`. Les
-> ressources marquées ont des actions **non standard** (ex. `execute`). Les
-> ressources **[N]** sont nouvelles (à ajouter au backend + migration).
+> Convention: most resources have `read / write / delete`. The
+> marked resources have **non-standard** actions (e.g. `execute`). Resources
+> marked **[N]** are new (to be added to the backend + migration).
 
-### Tier GLOBAL (onglet « Global »)
-Gestion instance-wide, depuis Home / Settings.
+### GLOBAL Tier ("Global" tab)
+Instance-wide management, from Home / Settings.
 
-| Ressource | Actions | Note |
+| Resource | Actions | Note |
 |---|---|---|
-| `workspaces` | **write** | **write = CRÉER** un workspace (Home) ; le créateur en devient owner. Éditer/supprimer = via l'appartenance (owner → `workspace-settings`) ou `all-workspaces`. |
-| `users` | read / write / delete | Comptes utilisateurs. |
-| `roles` | read / write / delete | Rôles & permissions. |
-| `organizations` | read / write / delete | Annuaire organisations (lecture ouverte à tous, décidé). |
-| `app-database` | read / write / delete | SQL sur la base applicative (sensible — admin-tier). |
-| `all-workspaces` | read / write / delete | Grant transverse : accès à TOUS les workspaces sans être membre. |
-| `all-projects` | read / write / delete | Grant transverse : accès à TOUS les projets sans être membre. |
+| `workspaces` | **write** | **write = CREATE** a workspace (Home); the creator becomes its owner. Edit/delete = via membership (owner → `workspace-settings`) or `all-workspaces`. |
+| `users` | read / write / delete | User accounts. |
+| `roles` | read / write / delete | Roles & permissions. |
+| `organizations` | read / write / delete | Organizations directory (read open to all, decided). |
+| `app-database` | read / write / delete | SQL on the application database (sensitive — admin-tier). |
+| `all-workspaces` | read / write / delete | Cross-cutting grant: access to ALL workspaces without being a member. |
+| `all-projects` | read / write / delete | Cross-cutting grant: access to ALL projects without being a member. |
 
-### Tier WORKSPACE — section « Workspace » (ordre sidebar)
-Données workspace-scoped. Héritées par les projets du workspace.
+### WORKSPACE Tier — "Workspace" section (sidebar order)
+Workspace-scoped data. Inherited by the workspace's projects.
 
-| # | Ressource | Actions | Note |
+| # | Resource | Actions | Note |
 |---|---|---|---|
-| 1 | `workspace-settings` | read / write / delete | Gérer CE workspace : éditer (write) / supprimer (delete). Nom distinct du `workspaces` global (= créer) — pas de collision. |
-| 2 | `workspace-members` | read / write / delete | Membres du workspace (2ᵉ position). |
-| 3 | `workspace-summary` | read / write | Accueil du workspace : overview + README. |
-| 4 | `projects` | read / write / delete | Créer / gérer les projets du workspace. |
-| 5 | `wiki` | read / write / delete | Pages + pièces jointes. |
-| 6 | `plugins` | read / write / delete | Installer / éditer le code / tester un plugin. |
-| 7 | `schemas` | read / write / delete | Presets de schéma (upsert + delete ; pas de create pur). |
-| 8 | `databases` | read / write / delete | Connexions BDD : create, test/retest, query, refresh-cache, edit, delete. |
-| 9 | `concept-mapping` | read / write / delete | Projets de mapping + concept sets : import, map, build table, export. |
-| 10 | `sql-scripts` | read / write / delete | Collections + fichiers SQL (run = client-side contre une source). |
-| 11 | `data-quality` | read / write / delete | Rule sets + checks (run + résultats = client-side). |
-| 12 | `catalog` | read / write / delete | Data catalog : config, anonymisation, export DCAT. |
-| 13 | `etl` | read / write / delete | Pipelines ETL + fichiers (build/run = client-side). |
+| 1 | `workspace-settings` | read / write / delete | Manage THIS workspace: edit (write) / delete (delete). Name distinct from the global `workspaces` (= create) — no collision. |
+| 2 | `workspace-members` | read / write / delete | Workspace members (2nd position). |
+| 3 | `workspace-summary` | read / write | Workspace home: overview + README. |
+| 4 | `projects` | read / write / delete | Create / manage the workspace's projects. |
+| 5 | `wiki` | read / write / delete | Pages + attachments. |
+| 6 | `plugins` | read / write / delete | Install / edit the code / test a plugin. |
+| 7 | `schemas` | read / write / delete | Schema presets (upsert + delete; no pure create). |
+| 8 | `databases` | read / write / delete | DB connections: create, test/retest, query, refresh-cache, edit, delete. |
+| 9 | `concept-mapping` | read / write / delete | Mapping projects + concept sets: import, map, build table, export. |
+| 10 | `sql-scripts` | read / write / delete | SQL collections + files (run = client-side against a source). |
+| 11 | `data-quality` | read / write / delete | Rule sets + checks (run + results = client-side). |
+| 12 | `catalog` | read / write / delete | Data catalog: config, anonymization, DCAT export. |
+| 13 | `etl` | read / write / delete | ETL pipelines + files (build/run = client-side). |
 
-### Tier WORKSPACE — section « Projet » (ordre sidebar)
-Ces droits s'appliquent **dans** un projet (via l'héritage / l'override projet).
+### WORKSPACE Tier — "Project" section (sidebar order)
+These permissions apply **inside** a project (via inheritance / the project override).
 
-| # | Ressource | Actions | Note |
+| # | Resource | Actions | Note |
 |---|---|---|---|
-| 1 | `project-members` | read / write / delete | Overrides de rôle par projet (2ᵉ position). |
-| 2 | `project-summary` | read / write | README + tâches + pièces jointes (pas de delete dédié). |
-| 3 | `ide` | read / write / delete + **execute** | Fichiers IDE + connexions + **exécution R/Python/SQL** (remplace `code-execution`). |
-| 4 | `pipeline` | read / write / delete | Éditeur de graphe de pipeline projet. |
-| 5 | `project-databases` | read / write | Link/unlink + test/reconnect/disconnect d'une source workspace (pas de delete : ne supprime pas la connexion). |
-| 6 | `concepts` | **read** | Parcourir le dictionnaire de concepts de la source active (lecture seule). |
-| 7 | `cohorts` | read / write / delete | Builder + génération SQL + run + résultats. |
-| 8 | `patient-data` | read / write / delete | Tabs + widgets du dossier patient (layout projet). |
+| 1 | `project-members` | read / write / delete | Per-project role overrides (2nd position). |
+| 2 | `project-summary` | read / write | README + tasks + attachments (no dedicated delete). |
+| 3 | `ide` | read / write / delete + **execute** | IDE files + connections + **R/Python/SQL execution** (replaces `code-execution`). |
+| 4 | `pipeline` | read / write / delete | Project pipeline graph editor. |
+| 5 | `project-databases` | read / write | Link/unlink + test/reconnect/disconnect a workspace source (no delete: does not remove the connection). |
+| 6 | `concepts` | **read** | Browse the active source's concept dictionary (read-only). |
+| 7 | `cohorts` | read / write / delete | Builder + SQL generation + run + results. |
+| 8 | `patient-data` | read / write / delete | Tabs + widgets of the patient record (project layout). |
 | 9 | `datasets` | read / write / delete | Import/reimport/duplicate/edit/query + analyses. |
 | 10 | `dashboards` | read / write / delete | Tabs + widgets + export. |
-| 11 | `reports` | read / write / delete | ⚠️ **Stub** (page « à venir ») — verrouillé, réservé. |
+| 11 | `reports` | read / write / delete | ⚠️ **Stub** ("coming soon" page) — locked, reserved. |
 
-### Suppression / création d'un workspace — récap
-- **Créer** : `workspaces:write` (global). Défaut : seul `admin`. Le rôle `user` ne
-  l'a pas → à accorder explicitement.
-- **Éditer** : `workspace-settings:write` (owner/editor du workspace) ou `all-workspaces:write`.
-- **Supprimer** : `workspace-settings:delete` (owner du workspace) ou `all-workspaces:delete` ou admin.
-- Chevauchement de nom voulu : `workspaces:write` (global, créer) ≠ `workspace-settings:write` (workspace, éditer) — strings distinctes.
+### Deleting / creating a workspace — recap
+- **Create**: `workspaces:write` (global). Default: only `admin`. The `user` role does
+  not have it → to be granted explicitly.
+- **Edit**: `workspace-settings:write` (workspace owner/editor) or `all-workspaces:write`.
+- **Delete**: `workspace-settings:delete` (workspace owner) or `all-workspaces:delete` or admin.
+- Intentional name overlap: `workspaces:write` (global, create) ≠ `workspace-settings:write` (workspace, edit) — distinct strings.
 
-### Points à trancher (PO)
-1. `reports` = stub : on l'ajoute quand même (verrouillé) ou on attend la vraie page ?
-2. Actions dédiées `test` / `build` / `export` : utiles, ou on simplifie à
-   read/write/delete + `execute` uniquement pour l'IDE ?
-3. `concepts` projet en lecture seule : OK ? (aucun CRUD côté projet aujourd'hui).
-4. `summary` sans `delete` : OK ? (on ne supprime pas la page résumé).
+### Points to settle (PO)
+1. `reports` = stub: do we add it anyway (locked) or wait for the real page?
+2. Dedicated actions `test` / `build` / `export`: useful, or do we simplify to
+   read/write/delete + `execute` only for the IDE?
+3. `concepts` project read-only: OK? (no CRUD on the project side today).
+4. `summary` without `delete`: OK? (we don't delete the summary page).
 
 ---
 
-> Audit du 2026-07-09, branche `feature/fastapi-backend`. Répond à : « est-ce
-> effectif, côté UI **et** serveur, d'empêcher les accès non autorisés ? » et
-> « manque-t-il des droits, notamment pour la requête SQL de la base applicative ».
+> Audit of 2026-07-09, branch `feature/fastapi-backend`. Answers: "is it
+> effective, on the UI **and** server side, to prevent unauthorized access?" and
+> "are any permissions missing, notably for the SQL query on the application database?".
 
 ## TL;DR
 
-- **Serveur = solide sur 90 % des surfaces.** Le système de rôles/permissions
-  (`app/core/permissions.py`) est réel et branché : chaque route CRUD résout la
-  ressource puis vérifie le rôle workspace/projet (viewer < editor < owner ;
-  admin global = super-admin). Cohorts, datasets, data sources, SQL scripts,
+- **Server = solid on 90% of the surfaces.** The roles/permissions system
+  (`app/core/permissions.py`) is real and wired in: each CRUD route resolves the
+  resource then checks the workspace/project role (viewer < editor < owner;
+  global admin = super-admin). Cohorts, datasets, data sources, SQL scripts,
   wiki, pipelines, ETL, DQ, concept sets, catalogs, mappings, users, roles,
-  workspaces, projects, **la requête SQL de la base applicative** — tous gardés.
-- **UI = quasi aveugle à l'autorisation.** Le front ne connaît que le rôle
-  **global** (`admin`/`user`) et **ne l'utilise nulle part** pour cacher/désactiver.
-  Pas de `hasPermission()`, pas de garde de route par rôle. Tout utilisateur
-  connecté **voit** tout (Settings, Users, Roles, outil SQL base applicative,
-  boutons edit/delete d'un viewer). La sécurité tient **uniquement** parce que le
-  backend renvoie 403 — mauvaise UX et posture fragile.
-- **3 vraies failles serveur** (privilege escalation), à corriger.
-- **Droits manquants dans le catalogue** : rien pour l'exécution de code (IDE /
-  Python / R / terminal) ni pour la requête SQL de la base applicative (aujourd'hui
-  cette dernière est `admin`-only en dur, sans passer par le catalogue).
+  workspaces, projects, **the SQL query on the application database** — all guarded.
+- **UI = almost blind to authorization.** The frontend only knows the **global**
+  role (`admin`/`user`) and **uses it nowhere** to hide/disable.
+  No `hasPermission()`, no route guard by role. Any logged-in
+  user **sees** everything (Settings, Users, Roles, application-database SQL tool,
+  a viewer's edit/delete buttons). Security holds **only** because the
+  backend returns 403 — poor UX and a fragile posture.
+- **3 real server flaws** (privilege escalation), to fix.
+- **Missing permissions in the catalog**: nothing for code execution (IDE /
+  Python / R / terminal) nor for the SQL query on the application database (today
+  the latter is `admin`-only, hardcoded, not going through the catalog).
 
 ---
 
-## 1. Ce qui est effectif côté serveur (bon)
+## 1. What is effective on the server side (good)
 
-Catalogue : `RESOURCES × ACTIONS` (read/write/delete) + globales `users/roles/settings`.
+Catalog: `RESOURCES × ACTIONS` (read/write/delete) + global `users/roles/settings`.
 Enforcement via `check_workspace_role` / `has_permission` / `require_*`.
 
-| Surface | Garde | Verdict |
+| Surface | Guard | Verdict |
 |---|---|---|
 | workspaces / projects | `require_workspace_role` / `require_project_role` | ✅ |
 | cohorts, datasets, dataset_files | `_require_project_access` (viewer read / editor write+delete) | ✅ |
-| data_sources (+ `/query` SQL externe) | `_load_source` viewer/editor | ✅ |
+| data_sources (+ `/query` external SQL) | `_load_source` viewer/editor | ✅ |
 | sql_scripts, pipelines, etl, dq, concept_sets, catalogs, mappings, source_concept_ids | `check_workspace_role` | ✅ |
-| wiki, schema_presets, ide_connections, ide_files | idem | ✅ |
+| wiki, schema_presets, ide_connections, ide_files | same | ✅ |
 | users, roles | `get_current_admin` | ✅ |
-| **base applicative `/database/query` + `/schema`** | `get_current_admin` + read-only (single SELECT + rollback) | ✅ |
-| execution `/execute` (avec projet), `/kernels`, `/restart`, WS `/terminal` | rôle projet (editor pour exécuter) | ✅ |
+| **application database `/database/query` + `/schema`** | `get_current_admin` + read-only (single SELECT + rollback) | ✅ |
+| execution `/execute` (with project), `/kernels`, `/restart`, WS `/terminal` | project role (editor to execute) | ✅ |
 
-Les endpoints de liste filtrent les workspaces non visibles (`list_for_user`) → pas
-de fuite inter-workspace.
-
----
-
-## 2. Failles serveur à corriger (priorisées)
-
-### 🔴 P1 — Exécution de code sans contexte projet = RCE authentifié
-`app/api/v1/routes/execution.py:99` — `POST /execute` ne vérifie le rôle projet
-**que si `body.project_uid` est présent**. Sans `project_uid`, on tombe direct sur
-`runtime.run_python` / `run_r` : **n'importe quel utilisateur connecté** (même un
-`user` global sans aucune appartenance workspace) exécute du Python/R arbitraire
-sur le serveur. Seul garde-fou : le flag `enable_code_execution` (défaut `True`).
-→ **Fix** : exiger un contexte projet + rôle `editor` pour toute exécution, ou
-gater l'exécution sans contexte derrière un droit explicite (cf. §4).
-
-### 🟠 P2 — Terminal WS : connexion SQL non gardée par le workspace
-`execution.py:171-184` (`_make_ws_resolver`) charge la data source par
-`connectionId` **sans** `check_workspace_role`, contrairement au chemin HTTP
-(`_require_connection_access`, l:42-52). Un editor du projet A peut passer
-`?connectionId=<source du workspace B>` et requêter dessus.
-Note : actuellement **masqué** par un bug (§3) qui casse `sql_query()`, mais à
-corriger avec.
-
-### 🟠 P3 — Plugins globaux modifiables par tous
-`app/api/v1/routes/user_plugins.py` — `_check_access` **no-op quand
-`workspace_id is None`**. Tout utilisateur connecté peut créer/éditer/supprimer un
-plugin **global** (= instance-wide, code exécutable). Escalade via surface partagée.
-
-### 🟡 Mineurs
-- `organizations.py:17-43` — lecture/énumération de **toutes** les organisations
-  par tout utilisateur connecté (ressource pourtant au catalogue). Lecture seule.
-- `data_sources.py:93` `test-connection` — connexion sortante vers un hôte
-  arbitraire du body, `get_current_user` seul (goût SSRF, sans persistance).
-- `setup.py` `GET /setup/db-info` — moteur + host/chemin DB exposés **sans auth**.
-- Pattern transverse : **toute ressource `workspace_id IS NULL`** (data sources,
-  plugins, schema presets, projets non assignés) est world-accessible aux
-  authentifiés — cohérent par design, mais c'est le point mou (P1–P3 y vivent).
+The list endpoints filter out non-visible workspaces (`list_for_user`) → no
+inter-workspace leak.
 
 ---
 
-## 3. Bug latent (à corriger avec P2)
-`execution.py:116` et `:182` appellent `data_source_service.query(source, sql)`
-alors que la signature est `query(db, source, sql)` (`data_source_service.py:197`).
-→ `sql_query()` depuis un kernel/terminal lève un `TypeError`. Fonctionnalité
-cassée aujourd'hui.
+## 2. Server flaws to fix (prioritized)
+
+### 🔴 P1 — Code execution without project context = authenticated RCE
+`app/api/v1/routes/execution.py:99` — `POST /execute` checks the project role
+**only if `body.project_uid` is present**. Without `project_uid`, we fall straight through
+to `runtime.run_python` / `run_r`: **any logged-in user** (even a
+global `user` with no workspace membership at all) executes arbitrary Python/R
+on the server. The only safeguard: the `enable_code_execution` flag (default `True`).
+→ **Fix**: require a project context + `editor` role for any execution, or
+gate context-less execution behind an explicit permission (cf. §4).
+
+### 🟠 P2 — WS terminal: SQL connection not guarded by the workspace
+`execution.py:171-184` (`_make_ws_resolver`) loads the data source by
+`connectionId` **without** `check_workspace_role`, unlike the HTTP path
+(`_require_connection_access`, l:42-52). An editor of project A can pass
+`?connectionId=<source of workspace B>` and query it.
+Note: currently **masked** by a bug (§3) that breaks `sql_query()`, but to be
+fixed together with it.
+
+### 🟠 P3 — Global plugins editable by everyone
+`app/api/v1/routes/user_plugins.py` — `_check_access` is a **no-op when
+`workspace_id is None`**. Any logged-in user can create/edit/delete a
+**global** plugin (= instance-wide, executable code). Escalation via a shared surface.
+
+### 🟡 Minor
+- `organizations.py:17-43` — reading/enumerating **all** organizations
+  by any logged-in user (even though the resource is in the catalog). Read-only.
+- `data_sources.py:93` `test-connection` — outbound connection to an
+  arbitrary host from the body, `get_current_user` only (SSRF flavor, no persistence).
+- `setup.py` `GET /setup/db-info` — engine + DB host/path exposed **without auth**.
+- Cross-cutting pattern: **any `workspace_id IS NULL` resource** (data sources,
+  plugins, schema presets, unassigned projects) is world-accessible to
+  authenticated users — coherent by design, but it's the soft spot (P1–P3 live there).
 
 ---
 
-## 4. Droits manquants dans le catalogue
-
-Le catalogue (`RESOURCES`/`GLOBAL_RESOURCES`) ne couvre **pas** les capacités
-nouvelles/sensibles :
-
-- **Exécution de code** (IDE, Python/R, kernels, terminal) — aujourd'hui gérée par
-  le rôle `editor` sur le projet, sans droit dédié. Un CHU voudra sans doute
-  distinguer « peut voir les datasets » de « peut exécuter du code serveur ».
-- **Requête SQL de la base applicative** — aujourd'hui `admin`-only **en dur**
-  (`get_current_admin`), hors catalogue. À exposer comme droit global explicite
-  (`settings:*` ou nouveau `app-database:read`) si on veut le déléguer un jour.
-- **Terminal / shell serveur** (PTY bash) — même remarque que l'exécution : accès
-  très puissant (shell dans le dossier projet), mérite son propre droit.
-
-Proposition d'ajouts (à valider) :
-- `RESOURCES += ["pipelines", "etl", "sql", "code-execution"]` (aligner le
-  catalogue sur les entités réelles — plusieurs sont gardées par rôle sans droit
-  nommé).
-- `GLOBAL_RESOURCES += ["app-database"]` pour la requête SQL de la base app.
+## 3. Latent bug (to fix with P2)
+`execution.py:116` and `:182` call `data_source_service.query(source, sql)`
+while the signature is `query(db, source, sql)` (`data_source_service.py:197`).
+→ `sql_query()` from a kernel/terminal raises a `TypeError`. Functionality
+broken today.
 
 ---
 
-## 5. UI — quasi aucune barrière d'autorisation
+## 4. Missing permissions in the catalog
 
-- `AuthUser` (`stores/auth-store.ts:4-10`) n'expose qu'un `role: string` global,
-  **jamais lu** pour gater. Pas de liste de permissions côté client.
-- Aucune garde de route par rôle (`app/App.tsx`), Settings/Users/Roles/outil SQL
-  base app visibles par **tout** connecté (seul `isServerMode()` les conditionne —
-  capacité, pas autorisation).
-- Un **viewer** voit les boutons create/edit/delete partout (cohorts, datasets,
-  connexions, mappings…). Le backend bloque (403) mais l'UX est trompeuse.
-- Pas d'écran de gestion des membres de workspace (attribution viewer/editor/owner).
+The catalog (`RESOURCES`/`GLOBAL_RESOURCES`) does **not** cover the
+new/sensitive capabilities:
 
-**Primitive manquante** : faire renvoyer par `GET /auth/me` les permissions
-effectives + le rôle par workspace, puis introduire `hasPermission()` / `useCan()`
-+ un wrapper `RequireRole` pour gater la route `/settings`, les onglets admin,
-l'outil SQL base app, et les contrôles edit/delete.
+- **Code execution** (IDE, Python/R, kernels, terminal) — today handled by
+  the `editor` role on the project, without a dedicated permission. A hospital will
+  probably want to distinguish "can view datasets" from "can execute server code".
+- **SQL query on the application database** — today `admin`-only, **hardcoded**
+  (`get_current_admin`), outside the catalog. To be exposed as an explicit global
+  permission (`settings:*` or new `app-database:read`) if we ever want to delegate it.
+- **Terminal / server shell** (PTY bash) — same remark as execution: very
+  powerful access (a shell in the project folder), deserves its own permission.
 
----
-
-## Ordre de traitement recommandé
-1. **P1** (exécution sans contexte) — le plus grave, RCE authentifié.
-2. **P2 + bug §3** (terminal WS + signature `query`).
-3. **P3** (plugins globaux).
-4. **Catalogue** (§4) : ajouter les droits code-execution + app-database.
-5. **UI** (§5) : exposer permissions dans `/auth/me`, helper `hasPermission`,
-   gater Settings/admin/outil SQL + contrôles edit/delete.
-6. Mineurs (organizations, db-info, test-connection).
+Proposed additions (to be validated):
+- `RESOURCES += ["pipelines", "etl", "sql", "code-execution"]` (align the
+  catalog with the real entities — several are guarded by role without a named
+  permission).
+- `GLOBAL_RESOURCES += ["app-database"]` for the app database SQL query.
 
 ---
 
-## État d'implémentation (2026-07-10)
+## 5. UI — almost no authorization barrier
 
-Livré en 6 lots committés sur `feature/fastapi-backend`. 248 tests backend verts.
+- `AuthUser` (`stores/auth-store.ts:4-10`) only exposes a global `role: string`,
+  **never read** to gate. No permission list on the client side.
+- No route guard by role (`app/App.tsx`), Settings/Users/Roles/app database SQL tool
+  visible to **every** logged-in user (only `isServerMode()` conditions them —
+  a capability, not an authorization).
+- A **viewer** sees create/edit/delete buttons everywhere (cohorts, datasets,
+  connections, mappings…). The backend blocks (403) but the UX is misleading.
+- No workspace member management screen (assigning viewer/editor/owner).
 
-| Lot | Contenu | Commit |
+**Missing primitive**: have `GET /auth/me` return the effective permissions
++ the per-workspace role, then introduce `hasPermission()` / `useCan()`
++ a `RequireRole` wrapper to gate the `/settings` route, the admin tabs,
+the app database SQL tool, and the edit/delete controls.
+
+---
+
+## Recommended order
+1. **P1** (context-less execution) — the most serious, authenticated RCE.
+2. **P2 + bug §3** (WS terminal + `query` signature).
+3. **P3** (global plugins).
+4. **Catalog** (§4): add the code-execution + app-database permissions.
+5. **UI** (§5): expose permissions in `/auth/me`, `hasPermission` helper,
+   gate Settings/admin/SQL tool + edit/delete controls.
+6. Minor (organizations, db-info, test-connection).
+
+---
+
+## Implementation state (2026-07-10)
+
+Delivered in 6 batches committed on `feature/fastapi-backend`. 248 backend tests green.
+
+| Batch | Content | Commit |
 |---|---|---|
-| **0** | P1 (`/execute` exige projet + editor), P2 (garde connexion terminal WS + bug signature `query(db,source,sql)`), `setup/db-info` admin après setup | `49a49dca` |
-| **2** | Dimension **projet** : table `project_members`, résolution 3D (admin > override projet > rôle workspace hérité), API membres (workspace + projet), garde dernier-owner | `75c2601f` |
-| **5** | **Pages Membres** (onglet dans settings workspace ET projet), ajout par username, client `lib/api/members.ts` | `697a209d` |
-| **3** | **Catalogue scopé** : droits `code-execution` (projet) + `app-database` (global) ; exécution gatée par `code-execution:write` ; outil SQL base app gaté par `app-database:read` | `660b0c22` |
-| **4** | `/auth/me` renvoie les permissions ; `hasGlobalPermission()` ; onglets Users/Roles + outil SQL cachés sans droit ; rôle projet **`none`** (masquer un projet) ; migration de backfill des rôles existants | `7553f08f` |
-| **1** | **Plugins strictement workspace-scopés** : `workspace_id` NOT NULL, migration supprime les globaux, création exige un workspace (front + back) | `9cfa3a4b` |
+| **0** | P1 (`/execute` requires project + editor), P2 (WS terminal connection guard + `query(db,source,sql)` signature bug), `setup/db-info` admin after setup | `49a49dca` |
+| **2** | **Project** dimension: `project_members` table, 3D resolution (admin > project override > inherited workspace role), members API (workspace + project), last-owner guard | `75c2601f` |
+| **5** | **Members pages** (tab in the workspace AND project settings), add by username, `lib/api/members.ts` client | `697a209d` |
+| **3** | **Scoped catalog**: `code-execution` (project) + `app-database` (global) permissions; execution gated by `code-execution:write`; app database SQL tool gated by `app-database:read` | `660b0c22` |
+| **4** | `/auth/me` returns the permissions; `hasGlobalPermission()`; Users/Roles tabs + SQL tool hidden without permission; project role **`none`** (hide a project); backfill migration for existing roles | `7553f08f` |
+| **1** | **Strictly workspace-scoped plugins**: `workspace_id` NOT NULL, migration removes the global ones, creation requires a workspace (front + back) | `9cfa3a4b` |
 
-### Décisions actées (product owner)
-- Appartenance projet = **héritage + override** (l'override remplace : élargit, restreint, ou `none` = masqué).
-- Créateur d'un workspace = **owner** (déjà en place).
-- Exécution de code = **droit dédié** `code-execution` (pas juste `editor`).
-- Plugins = **workspace-scopés stricts**, globaux existants **supprimés**, defaults built-in restent en registre mémoire (pas de rows `user_plugins`).
-- UI : pages/onglets admin **cachés** sans droit ; actions inline edit/delete → **désactivées** (posture retenue ; le gating inline fin reste à étendre surface par surface — voir Reste).
+### Decisions made (product owner)
+- Project membership = **inheritance + override** (the override replaces: broadens, restricts, or `none` = hidden).
+- Workspace creator = **owner** (already in place).
+- Code execution = **dedicated permission** `code-execution` (not just `editor`).
+- Plugins = **strictly workspace-scoped**, existing global ones **removed**, built-in defaults stay in an in-memory registry (no `user_plugins` rows).
+- UI: admin pages/tabs **hidden** without permission; inline edit/delete actions → **disabled** (chosen posture; the fine-grained inline gating remains to be extended surface by surface — see Remaining).
 
-### Reste (non bloquant, à planifier si besoin)
-- **Gating inline edit/delete** par rôle workspace/projet dans les surfaces (cohorts, datasets, connexions, mappings…) : nécessite d'exposer aussi le rôle **par contexte** (endpoint `GET /workspaces|projects/{id}/my-permissions`) puis désactiver les boutons. `/auth/me` ne porte aujourd'hui que les droits **globaux**.
-- **Mineurs** : lecture `organizations` ouverte à tout connecté (laissée volontairement) ; `test-connection` reste en authn (goût SSRF non traité).
-- **Portal/export** : les exports antérieurs contenant un plugin global (`workspaceId` absent) devront être ré-associés à un workspace à l'import (le flux d'import est déjà par-workspace).
+### Remaining (non-blocking, to plan if needed)
+- **Inline edit/delete gating** by workspace/project role in the surfaces (cohorts, datasets, connections, mappings…): requires also exposing the role **per context** (endpoint `GET /workspaces|projects/{id}/my-permissions`) then disabling the buttons. `/auth/me` today only carries the **global** permissions.
+- **Minor**: `organizations` read open to any logged-in user (left intentionally); `test-connection` stays at authn (SSRF flavor not addressed).
+- **Portal/export**: earlier exports containing a global plugin (`workspaceId` absent) will need to be re-associated with a workspace on import (the import flow is already per-workspace).
