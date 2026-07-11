@@ -99,6 +99,13 @@ const EQUIV_BADGE: Record<string, { label: string; className: string }> = {
 
 const PAGE_SIZE = 50
 const TOP_N = 10
+
+/** Server-mode cross-project cache metadata, kept at MODULE scope so it survives
+ * the component unmount/remount when the user leaves and returns to the page.
+ * Keyed by `workspace::mode::inputsKey`; while the inputs are unchanged we reuse
+ * the cached signature + filter values and skip the heavy /global-table/build
+ * (which reloads all mappings + the registry) entirely. */
+const globalTableBuildCache = new Map<string, { signature: string; filterValues: Record<string, string[]> }>()
 const EXPORT_STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
 
 /** GlobalTableFilters → the server endpoint's JSON shape (Sets become arrays). */
@@ -487,14 +494,29 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       // Build the merged cache once here (the heavy DB read + Parquet merge);
       // subsequent filter/page loads just query it by signature.
       if (!activeWorkspaceId) { setTableReady(true); return }
+      const mode = groupMode === 'badge' ? 'dedup' : 'flat'
+      // Reuse a prior build (this session) while the inputs are unchanged, even
+      // across a page unmount/remount — avoids re-running the heavy build just
+      // because the user navigated away and back.
+      const srcCount = [...allSourceConceptsByProject.values()].reduce((n, a) => n + a.length, 0)
+      const lastUpdated = allMappings.length > 0 ? allMappings[allMappings.length - 1].updatedAt : ''
+      const cacheKey = `${activeWorkspaceId}::${mode}::${allMappings.length}::${lastUpdated}::${allSourceConceptsByProject.size}:${srcCount}`
+      const cached = globalTableBuildCache.get(cacheKey)
+      if (cached) {
+        serverSignatureRef.current = cached.signature
+        setServerFilterValues(cached.filterValues)
+        setTableReady(true)
+        return
+      }
       setTablePopulating(true)
       try {
-        const built = await buildGlobalTableOnServer({
-          workspaceId: activeWorkspaceId,
-          mode: groupMode === 'badge' ? 'dedup' : 'flat',
-        })
+        const built = await buildGlobalTableOnServer({ workspaceId: activeWorkspaceId, mode })
         serverSignatureRef.current = built.signature
         setServerFilterValues(built.filterValues ?? {})
+        globalTableBuildCache.set(cacheKey, {
+          signature: built.signature,
+          filterValues: built.filterValues ?? {},
+        })
         setTableReady(true)
       } catch (err) {
         console.error('Failed to build global summary table:', err)
