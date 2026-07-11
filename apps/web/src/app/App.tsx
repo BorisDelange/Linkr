@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { Routes, Route, Navigate } from 'react-router'
@@ -17,39 +17,41 @@ import { StatusBar } from '@/components/layout/StatusBar'
 import { WorkspaceGuard } from '@/app/WorkspaceGuard'
 import { ProjectGuard } from '@/app/ProjectGuard'
 import { VersionCheckDialog } from '@/components/layout/VersionCheckDialog'
-import { HomePage } from '@/features/home/HomePage'
-import { ProjectsPage } from '@/features/projects/ProjectsPage'
-import { SummaryPage } from '@/features/projects/SummaryPage'
-import { PipelinePage } from '@/features/projects/PipelinePage'
-import { DatabasesPage } from '@/features/projects/warehouse/DatabasesPage'
-import { ConceptsPage } from '@/features/projects/warehouse/ConceptsPage'
-import { CohortListPage } from '@/features/projects/warehouse/cohorts/CohortListPage'
-import { CohortBuilderPage } from '@/features/projects/warehouse/cohorts/CohortBuilderPage'
-import { PatientDataPage } from '@/features/projects/warehouse/PatientDataPage'
-import { DatasetsPage } from '@/features/projects/lab/DatasetsPage'
-import { IdePage } from '@/features/projects/lab/IdePage'
-import { LabDashboardsPage } from '@/features/projects/lab/LabDashboardsPage'
-import { DashboardPage } from '@/features/projects/DashboardPage'
-import { ReportsPage } from '@/features/projects/lab/ReportsPage'
-import { VersioningPage } from '@/features/projects/VersioningPage'
-import { ProjectSettingsPage } from '@/features/projects/ProjectSettingsPage'
-
-import { SettingsPage } from '@/features/settings/SettingsPage'
-import { PluginsPage } from '@/features/settings/PluginsPage'
-import { ProfilePage } from '@/features/settings/ProfilePage'
-import { CatalogPage } from '@/features/catalog/CatalogPage'
-import { WikiPage } from '@/features/wiki/WikiPage'
-import { AppDatabasesPage } from '@/features/warehouse/AppDatabasesPage'
-import { SchemaPresetsPage } from '@/features/warehouse/SchemaPresetsPage'
-import { ConceptMappingPage } from '@/features/warehouse/ConceptMappingPage'
-import { EtlPage } from '@/features/warehouse/EtlPage'
-import { SqlScriptsPage } from '@/features/warehouse/SqlScriptsPage'
-import { DqPage } from '@/features/warehouse/DqPage'
-import { DataCatalogPage } from '@/features/warehouse/DataCatalogPage'
-import { AppVersioningPage } from '@/features/versioning/AppVersioningPage'
-import { WorkspacesPage } from '@/features/workspaces/WorkspacesPage'
-import { WorkspaceHomePage } from '@/features/workspaces/WorkspaceHomePage'
-import { WorkspaceSettingsPage } from '@/features/workspaces/WorkspaceSettingsPage'
+// Pages are lazy-loaded so each route's heavy libs (vis-network, leaflet, xterm,
+// xyflow, xlsx, recharts, katex, isomorphic-git…) ship in a per-route chunk and
+// are fetched only when that page is opened — not in the initial bundle.
+const HomePage = lazy(() => import('@/features/home/HomePage').then(m => ({ default: m.HomePage })))
+const ProjectsPage = lazy(() => import('@/features/projects/ProjectsPage').then(m => ({ default: m.ProjectsPage })))
+const SummaryPage = lazy(() => import('@/features/projects/SummaryPage').then(m => ({ default: m.SummaryPage })))
+const PipelinePage = lazy(() => import('@/features/projects/PipelinePage').then(m => ({ default: m.PipelinePage })))
+const DatabasesPage = lazy(() => import('@/features/projects/warehouse/DatabasesPage').then(m => ({ default: m.DatabasesPage })))
+const ConceptsPage = lazy(() => import('@/features/projects/warehouse/ConceptsPage').then(m => ({ default: m.ConceptsPage })))
+const CohortListPage = lazy(() => import('@/features/projects/warehouse/cohorts/CohortListPage').then(m => ({ default: m.CohortListPage })))
+const CohortBuilderPage = lazy(() => import('@/features/projects/warehouse/cohorts/CohortBuilderPage').then(m => ({ default: m.CohortBuilderPage })))
+const PatientDataPage = lazy(() => import('@/features/projects/warehouse/PatientDataPage').then(m => ({ default: m.PatientDataPage })))
+const DatasetsPage = lazy(() => import('@/features/projects/lab/DatasetsPage').then(m => ({ default: m.DatasetsPage })))
+const IdePage = lazy(() => import('@/features/projects/lab/IdePage').then(m => ({ default: m.IdePage })))
+const LabDashboardsPage = lazy(() => import('@/features/projects/lab/LabDashboardsPage').then(m => ({ default: m.LabDashboardsPage })))
+const DashboardPage = lazy(() => import('@/features/projects/DashboardPage').then(m => ({ default: m.DashboardPage })))
+const ReportsPage = lazy(() => import('@/features/projects/lab/ReportsPage').then(m => ({ default: m.ReportsPage })))
+const VersioningPage = lazy(() => import('@/features/projects/VersioningPage').then(m => ({ default: m.VersioningPage })))
+const ProjectSettingsPage = lazy(() => import('@/features/projects/ProjectSettingsPage').then(m => ({ default: m.ProjectSettingsPage })))
+const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const PluginsPage = lazy(() => import('@/features/settings/PluginsPage').then(m => ({ default: m.PluginsPage })))
+const ProfilePage = lazy(() => import('@/features/settings/ProfilePage').then(m => ({ default: m.ProfilePage })))
+const CatalogPage = lazy(() => import('@/features/catalog/CatalogPage').then(m => ({ default: m.CatalogPage })))
+const WikiPage = lazy(() => import('@/features/wiki/WikiPage').then(m => ({ default: m.WikiPage })))
+const AppDatabasesPage = lazy(() => import('@/features/warehouse/AppDatabasesPage').then(m => ({ default: m.AppDatabasesPage })))
+const SchemaPresetsPage = lazy(() => import('@/features/warehouse/SchemaPresetsPage').then(m => ({ default: m.SchemaPresetsPage })))
+const ConceptMappingPage = lazy(() => import('@/features/warehouse/ConceptMappingPage').then(m => ({ default: m.ConceptMappingPage })))
+const EtlPage = lazy(() => import('@/features/warehouse/EtlPage').then(m => ({ default: m.EtlPage })))
+const SqlScriptsPage = lazy(() => import('@/features/warehouse/SqlScriptsPage').then(m => ({ default: m.SqlScriptsPage })))
+const DqPage = lazy(() => import('@/features/warehouse/DqPage').then(m => ({ default: m.DqPage })))
+const DataCatalogPage = lazy(() => import('@/features/warehouse/DataCatalogPage').then(m => ({ default: m.DataCatalogPage })))
+const AppVersioningPage = lazy(() => import('@/features/versioning/AppVersioningPage').then(m => ({ default: m.AppVersioningPage })))
+const WorkspacesPage = lazy(() => import('@/features/workspaces/WorkspacesPage').then(m => ({ default: m.WorkspacesPage })))
+const WorkspaceHomePage = lazy(() => import('@/features/workspaces/WorkspaceHomePage').then(m => ({ default: m.WorkspaceHomePage })))
+const WorkspaceSettingsPage = lazy(() => import('@/features/workspaces/WorkspaceSettingsPage').then(m => ({ default: m.WorkspaceSettingsPage })))
 
 export function App() {
   const { darkMode, language, projectsLoaded, loadProjects, activeProjectUid } = useAppStore()
@@ -119,6 +121,11 @@ export function App() {
       <SidebarInset className="flex flex-col overflow-hidden">
         <Header />
         <main className="flex-1 overflow-hidden">
+          <Suspense fallback={
+            <div className="flex h-full items-center justify-center">
+              <Loader2 size={24} className="animate-spin text-muted-foreground" />
+            </div>
+          }>
           <Routes>
             {/* App-level routes */}
             <Route path="/" element={<HomePage />} />
@@ -185,6 +192,7 @@ export function App() {
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </main>
         <StatusBar />
       </SidebarInset>
