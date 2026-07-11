@@ -29,6 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import {
   flexRender,
@@ -677,8 +678,8 @@ export function ConceptPickerDialog({
                         headerGroup.headers.map((header) => (
                           <TableHead
                             key={header.id}
-                            className="select-none text-xs"
-                            style={{ width: header.getSize() }}
+                            className="select-none overflow-hidden text-xs"
+                            style={{ width: header.getSize(), maxWidth: header.getSize() }}
                           >
                             {header.column.id === '_select' ? (
                               <button
@@ -692,12 +693,12 @@ export function ConceptPickerDialog({
                             ) : header.column.id === '_meta' ? null : (
                               <button
                                 type="button"
-                                className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                                className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground"
                                 onClick={() => hook.updateSorting(header.column.id)}
                               >
-                                <span className="truncate">
+                                <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                                   {flexRender(header.column.columnDef.header, header.getContext())}
-                                </span>
+                                </TruncatedHeader>
                                 <SortIndicator columnId={header.column.id} sorting={hook.sorting} />
                               </button>
                             )}

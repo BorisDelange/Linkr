@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Badge } from '@/components/ui/badge'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
@@ -2734,9 +2735,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                     }
                     return (
                       <TableHead key={header.id} className="overflow-hidden text-xs" style={{ width: size, maxWidth: size }}>
-                        <span className="truncate block">
+                        <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                           {flexRender(header.column.columnDef.header, header.getContext())}
-                        </span>
+                        </TruncatedHeader>
                       </TableHead>
                     )
                   })}
@@ -3006,27 +3007,18 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                       {isSortable ? (
                         <button
                           type="button"
-                          className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                          className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground"
                           onClick={() => handleSort(colId)}
                         >
-                          {(() => {
-                            const hDef = header.column.columnDef.header
-                            const label = typeof hDef === 'function'
-                              ? hDef(header.getContext())
-                              : hDef
-                            const titleText = typeof label === 'string' ? label : undefined
-                            return (
-                              <span className="truncate" title={titleText}>
-                                {flexRender(hDef, header.getContext())}
-                              </span>
-                            )
-                          })()}
+                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </TruncatedHeader>
                           {sortIcon}
                         </button>
                       ) : (
-                        <span className="truncate">
+                        <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                           {flexRender(header.column.columnDef.header, header.getContext())}
-                        </span>
+                        </TruncatedHeader>
                       )}
                       {/* Resize handle */}
                       {header.column.getCanResize() && (

@@ -36,6 +36,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
@@ -170,13 +171,13 @@ function SortableColumnHeader({
   return (
     <TableHead
       ref={setNodeRef}
-      className={`relative select-none text-xs ${isDropTarget ? 'bg-primary/10' : ''}`}
-      style={{ width: header.getSize(), opacity: isDragging ? 0.4 : 1 }}
+      className={`relative select-none overflow-hidden text-xs ${isDropTarget ? 'bg-primary/10' : ''}`}
+      style={{ width: header.getSize(), maxWidth: header.getSize(), opacity: isDragging ? 0.4 : 1 }}
     >
       {isDropTarget && (
         <div className="absolute left-0 top-0 h-full w-0.5 bg-primary" />
       )}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 overflow-hidden">
         <button
           type="button"
           className="shrink-0 cursor-grab touch-none text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
@@ -187,12 +188,12 @@ function SortableColumnHeader({
         </button>
         <button
           type="button"
-          className="flex min-w-0 items-center gap-1 hover:text-foreground"
+          className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground"
           onClick={() => onSort(columnId)}
         >
-          <span className="truncate">
+          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
             {flexRender(header.column.columnDef.header, header.getContext())}
-          </span>
+          </TruncatedHeader>
           <SortIndicator columnId={columnId} sorting={sorting} />
         </button>
       </div>

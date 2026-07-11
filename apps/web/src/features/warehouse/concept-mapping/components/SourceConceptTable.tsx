@@ -35,6 +35,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Skeleton } from '@/components/ui/skeleton'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
 import {
   Table,
@@ -64,14 +65,6 @@ export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'mapped_elsewh
 const TOOLTIP_COLUMNS = new Set(['concept_name', 'concept_code', 'category', 'subcategory', 'terminology_name'])
 // Of those, the ones rendered in a monospace font (kept in the tooltip cell).
 const MONO_COLUMNS = new Set(['concept_code'])
-
-/** Resolve a column's header to a plain string for the truncated-with-tooltip
- * label. All headers here are `() => t(key)`, so this returns that string; any
- * non-string header (none today) falls back to empty. */
-function headerText(header: unknown, ctx: unknown): string {
-  const value = typeof header === 'function' ? (header as (c: unknown) => unknown)(ctx) : header
-  return typeof value === 'string' ? value : ''
-}
 
 interface SourceConceptTableProps {
   rows: SourceConceptRow[]
@@ -947,10 +940,9 @@ export function SourceConceptTable({
                           className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground"
                           onClick={() => handleSort(colId)}
                         >
-                          <TruncatedText
-                            text={headerText(header.column.columnDef.header, header.getContext())}
-                            className="min-w-0 flex-1 text-left"
-                          />
+                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </TruncatedHeader>
                           <SortIndicator columnId={colId} sorting={sorting} />
                         </button>
                       )}

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -1244,8 +1245,8 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                             return (
                               <TableHead
                                 key={header.id}
-                                className="relative select-none text-xs"
-                                style={{ width: header.getSize() }}
+                                className="relative select-none overflow-hidden text-xs"
+                                style={{ width: header.getSize(), maxWidth: header.getSize() }}
                               >
                                 {isMetaCol ? (
                                   colId === '_selection' ? (
@@ -1259,12 +1260,12 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                                 ) : (
                                   <button
                                     type="button"
-                                    className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                                    className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground"
                                     onClick={() => handleCsSort(colId)}
                                   >
-                                    <span className="truncate">
+                                    <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                                       {flexRender(header.column.columnDef.header, header.getContext())}
-                                    </span>
+                                    </TruncatedHeader>
                                     <SortIndicator columnId={colId} sorting={csSorting} />
                                   </button>
                                 )}
@@ -1573,17 +1574,17 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                                   return (
                                     <TableHead
                                       key={header.id}
-                                      className="relative select-none text-xs"
-                                      style={{ width: header.getSize() }}
+                                      className="relative select-none overflow-hidden text-xs"
+                                      style={{ width: header.getSize(), maxWidth: header.getSize() }}
                                     >
                                       <button
                                         type="button"
-                                        className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                                        className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground"
                                         onClick={() => handleBrowseSort(colId)}
                                       >
-                                        <span className="truncate">
+                                        <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                                           {flexRender(header.column.columnDef.header, header.getContext())}
-                                        </span>
+                                        </TruncatedHeader>
                                         {sortIcon}
                                       </button>
                                       {header.column.getCanResize() && (

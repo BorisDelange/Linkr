@@ -60,6 +60,7 @@ import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-q
 import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
@@ -872,18 +873,18 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                   return (
                     <TableHead
                       key={header.id}
-                      className="relative select-none text-[10px]"
-                      style={{ width: header.getSize() }}
+                      className="relative select-none overflow-hidden text-[10px]"
+                      style={{ width: header.getSize(), maxWidth: header.getSize() }}
                     >
                       {isMetaCol ? null : (
                         <button
                           type="button"
-                          className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                          className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground"
                           onClick={() => handleCsSort(colId)}
                         >
-                          <span className="truncate">
+                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                             {flexRender(header.column.columnDef.header, header.getContext())}
-                          </span>
+                          </TruncatedHeader>
                           {!csSorting || csSorting.columnId !== colId
                             ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
                             : csSorting.desc
@@ -1851,24 +1852,24 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                     return (
                     <TableHead
                       key={header.id}
-                      className="relative select-none text-xs"
-                      style={{ width: header.getSize() }}
+                      className="relative select-none overflow-hidden text-xs"
+                      style={{ width: header.getSize(), maxWidth: header.getSize() }}
                     >
                       {isSortable ? (
                         <button
                           type="button"
-                          className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                          className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground"
                           onClick={() => handleSearchSort(colId)}
                         >
-                          <span className="truncate">
+                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                             {flexRender(header.column.columnDef.header, header.getContext())}
-                          </span>
+                          </TruncatedHeader>
                           {sortIcon}
                         </button>
                       ) : (
-                        <span className="truncate">
+                        <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                           {flexRender(header.column.columnDef.header, header.getContext())}
-                        </span>
+                        </TruncatedHeader>
                       )}
                       {header.column.getCanResize() && (
                         <div

@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { Badge } from '@/components/ui/badge'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
@@ -469,12 +470,12 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
                   return (
                     <TableHead
                       key={header.id}
-                      className="relative select-none text-xs"
-                      style={{ width: header.getSize() }}
+                      className="relative select-none overflow-hidden text-xs"
+                      style={{ width: header.getSize(), maxWidth: header.getSize() }}
                     >
                       {isSortable ? (
-                        <button type="button" className="flex min-w-0 items-center gap-1 hover:text-foreground" onClick={() => handleSort(colId)}>
-                          <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                        <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground" onClick={() => handleSort(colId)}>
+                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>{flexRender(header.column.columnDef.header, header.getContext())}</TruncatedHeader>
                           {!sorting || sorting.columnId !== colId
                             ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
                             : sorting.desc
@@ -482,7 +483,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
                               : <ArrowUp size={10} className="shrink-0 text-primary" />}
                         </button>
                       ) : (
-                        <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                        <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>{flexRender(header.column.columnDef.header, header.getContext())}</TruncatedHeader>
                       )}
                       {header.column.getCanResize() && (
                         <div

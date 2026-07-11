@@ -36,6 +36,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Input } from '@/components/ui/input'
 import { MultiSelectFilter as SharedMultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { DebouncedInput } from '@/components/ui/debounced-input'
+import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import {
   Table,
   TableBody,
@@ -1659,15 +1660,12 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                         : sorting.desc
                           ? <ArrowDown size={10} className="shrink-0 text-primary" />
                           : <ArrowUp size={10} className="shrink-0 text-primary" />
-                      const headerContent = flexRender(header.column.columnDef.header, header.getContext())
-                      const rawHeader = typeof header.column.columnDef.header === 'function'
-                        ? header.column.columnDef.header(header.getContext())
-                        : header.column.columnDef.header
-                      const headerTitle = typeof rawHeader === 'string' ? rawHeader : undefined
                       return (
                         <TableHead key={header.id} className="relative select-none overflow-hidden text-xs" style={{ width: header.getSize(), maxWidth: header.getSize() }}>
-                          <button type="button" className="flex min-w-0 items-center gap-1 hover:text-foreground" title={headerTitle} onClick={() => handleSort(colId)}>
-                            <span className="truncate">{headerContent}</span>
+                          <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground" onClick={() => handleSort(colId)}>
+                            <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </TruncatedHeader>
                             {sortIcon}
                           </button>
                           {header.column.getCanResize() && (

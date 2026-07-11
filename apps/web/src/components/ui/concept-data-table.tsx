@@ -10,6 +10,7 @@ import {
 import { ArrowUpDown, ArrowUp, ArrowDown, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import {
   Table,
   TableBody,
@@ -228,11 +229,13 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage 
                   return (
                     <TableHead
                       key={header.id}
-                      className="relative select-none text-xs"
-                      style={{ width: header.getSize() }}
+                      className="relative select-none overflow-hidden text-xs"
+                      style={{ width: header.getSize(), maxWidth: header.getSize() }}
                     >
-                      <button type="button" className="flex min-w-0 items-center gap-1 hover:text-foreground" onClick={() => handleSort(colId)}>
-                        <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                      <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground" onClick={() => handleSort(colId)}>
+                        <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </TruncatedHeader>
                         {!sorting || sorting.columnId !== colId
                           ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
                           : sorting.desc
