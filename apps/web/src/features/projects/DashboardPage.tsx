@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useMyProjectRole } from '@/hooks/use-context-role'
+import { GatedButton } from '@/components/ui/gated-button'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { Plus, LayoutGrid, Layers, Pencil, Lock, Filter, Settings2, Download, Maximize, Minimize } from 'lucide-react'
@@ -24,6 +26,7 @@ export function DashboardPage() {
   const { wsUid, projectUid: resolvedProjectUid, raw } = useResolvedParams()
   const navigate = useNavigate()
   const projectUid = resolvedProjectUid ?? ''
+  const canWrite = useMyProjectRole(projectUid).can('dashboards:write')
 
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
@@ -171,7 +174,9 @@ export function DashboardPage() {
         <DashboardTabBar dashboardId={currentDashboardId} editMode={editMode} />
 
         <div className="ml-auto flex shrink-0 items-center gap-1 py-1 pl-4">
-          <Button
+          <GatedButton
+            allowed={canWrite}
+            notAllowedReason={t('common.insufficient_permissions')}
             variant={editMode ? 'default' : 'ghost'}
             size="xs"
             className="gap-1"
@@ -188,7 +193,7 @@ export function DashboardPage() {
                 {t('dashboard.edit_layout')}
               </>
             )}
-          </Button>
+          </GatedButton>
           {editMode && (
             <Button
               size="xs"
@@ -203,6 +208,7 @@ export function DashboardPage() {
             variant="ghost"
             size="xs"
             className="gap-1"
+            disabled={!canWrite}
             onClick={() => setSettingsOpen(true)}
           >
             <Settings2 size={12} />
@@ -250,6 +256,7 @@ export function DashboardPage() {
             size="xs"
             variant="outline"
             className="gap-1 border-amber-500/40"
+            disabled={!canWrite}
             onClick={() => acceptAllPluginVersions(currentDashboardId)}
           >
             <RefreshCw size={12} />
@@ -311,6 +318,7 @@ export function DashboardPage() {
                 <Button
                   size="sm"
                   className="mt-4 gap-1.5"
+                  disabled={!canWrite}
                   onClick={() => {
                     setEditMode(true)
                     setAddWidgetOpen(true)
