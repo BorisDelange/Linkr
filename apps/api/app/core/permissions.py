@@ -64,12 +64,6 @@ PERMISSIONS = [f"{r}:{a}" for r, acts in WORKSPACE_CATALOGUE.items() for a in ac
 
 # Global-tier resources → actions. Instance-wide management (Home / Settings).
 GLOBAL_CATALOGUE: dict[str, list[str]] = {
-    # Creating a workspace (from Home). WRITE-only: editing/deleting a workspace is
-    # done via workspace membership (owner → workspace-settings) or the
-    # all-workspaces super-grant. "workspaces:write" (global, = create) and
-    # "workspace-settings:write" (workspace, = edit) deliberately mean different
-    # things and never collide as strings.
-    "workspaces": ["write"],
     "users": RWD,
     "roles": RWD,
     # Organizations are an instance-wide directory (Settings → Organizations),
@@ -78,6 +72,13 @@ GLOBAL_CATALOGUE: dict[str, list[str]] = {
     # Read-only SQL against the app's OWN database (Settings → Application
     # database). Holds every table incl. password hashes, so it's admin-tier.
     "app-database": RWD,
+    # Creating a workspace (from Home). WRITE-only: editing/deleting a workspace is
+    # done via workspace membership (owner → workspace-settings) or the
+    # all-workspaces super-grant. "workspaces:write" (global, = create) and
+    # "workspace-settings:write" (workspace, = edit) deliberately mean different
+    # things and never collide as strings. Placed next to "all-workspaces" since
+    # both concern workspaces at the instance level.
+    "workspaces": ["write"],
     # Cross-cutting grants: a global role holding these gets the corresponding
     # workspace-tier access on EVERY workspace/project without being a member
     # (like admin, but configurable). "all-workspaces:X" satisfies the
