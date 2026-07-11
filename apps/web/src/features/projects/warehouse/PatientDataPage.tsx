@@ -20,11 +20,13 @@ import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 
 export function PatientDataPage() {
   const { t } = useTranslation()
   const { projectUid: resolvedUid } = useResolvedParams()
   const projectUid = resolvedUid ?? ''
+  const canWrite = useMyProjectRole(projectUid).can('patient-data:write')
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -120,6 +122,7 @@ export function PatientDataPage() {
                     variant={editMode ? 'default' : 'ghost'}
                     size="xs"
                     className="gap-1"
+                    disabled={!canWrite}
                     onClick={() => setEditMode(!editMode)}
                   >
                     {editMode ? (
@@ -143,6 +146,7 @@ export function PatientDataPage() {
                 variant="ghost"
                 size="xs"
                 className="gap-1"
+                disabled={!canWrite}
                 onClick={() => setSettingsOpen(true)}
               >
                 <Settings2 size={13} />
@@ -194,6 +198,7 @@ export function PatientDataPage() {
                     <Button
                       size="sm"
                       className="mt-4 gap-1.5"
+                      disabled={!canWrite}
                       onClick={() => {
                         setEditMode(true)
                         setAddWidgetOpen(true)
