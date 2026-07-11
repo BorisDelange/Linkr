@@ -4,6 +4,7 @@ import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { ShieldCheck, Play, Loader2, PanelLeft, PanelRight, BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
   Tooltip,
   TooltipContent,
@@ -33,6 +34,7 @@ interface Props {
 
 export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onScanComplete, onBeforeScan }: Props) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('data-quality:write')
 
   const [report, setReport] = useState<DqReport | null>(null)
   const [loading, setLoading] = useState(false)
@@ -125,7 +127,7 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
             size="sm"
             variant="default"
             onClick={handleRunScan}
-            disabled={loading}
+            disabled={loading || !canWrite}
             className="h-6 gap-1 px-2 text-xs"
           >
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}

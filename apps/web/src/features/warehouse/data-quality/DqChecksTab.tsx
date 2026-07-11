@@ -44,6 +44,7 @@ import { generateChecks } from '@/lib/duckdb/data-quality'
 import type { DqCheck, DqCategory, DqSeverity } from '@/lib/duckdb/data-quality'
 import { useDqStore } from '@/stores/dq-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CATEGORIES, SEVERITIES, CATEGORY_COLORS } from './DqConstants'
 import type { DqCustomCheck } from '@/types'
 
@@ -74,6 +75,7 @@ function fuzzyMatch(target: string, query: string): boolean {
 
 export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('data-quality:write')
   const {
     customChecks,
     selectedCheckId,
@@ -245,7 +247,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                 size="sm"
                 variant="default"
                 onClick={handleTest}
-                disabled={testing}
+                disabled={testing || !canWrite}
                 className="h-6 gap-1 px-2 text-xs"
               >
                 {testing ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
@@ -256,6 +258,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                 <Button
                   size="icon-xs"
                   variant="ghost"
+                  disabled={!canWrite}
                   onClick={handleSave}
                 >
                   <Save size={14} />
@@ -303,7 +306,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                         </DropdownMenuCheckboxItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                    <Button variant="ghost" size="icon-xs" onClick={handleNewCheck}>
+                    <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={handleNewCheck}>
                       <Plus size={14} />
                     </Button>
                   </div>
@@ -360,12 +363,14 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                                   )} />
                                   <span className="min-w-0 flex-1 truncate">{check.name}</span>
                                   {dirty && <span className="size-1.5 shrink-0 rounded-full bg-orange-500" />}
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); deleteCustomCheck(check.id) }}
-                                    className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                                  >
-                                    <Trash2 size={10} />
-                                  </button>
+                                  {canWrite && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); deleteCustomCheck(check.id) }}
+                                      className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                                    >
+                                      <Trash2 size={10} />
+                                    </button>
+                                  )}
                                 </button>
                               )
                             })}
@@ -519,7 +524,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                     <ShieldCheck size={32} className="mx-auto text-muted-foreground/50" />
                     <p className="mt-3 text-sm font-medium">{t('data_quality.no_checks')}</p>
                     <p className="mt-1 max-w-xs text-xs text-muted-foreground">{t('data_quality.no_checks_description')}</p>
-                    <Button variant="outline" size="sm" className="mt-4 gap-1.5" onClick={handleNewCheck}>
+                    <Button variant="outline" size="sm" className="mt-4 gap-1.5" disabled={!canWrite} onClick={handleNewCheck}>
                       <Plus size={14} />
                       {t('data_quality.new_check')}
                     </Button>
