@@ -73,6 +73,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 /** Resources that gate the account instance-wide rather than a single workspace. */
 const GLOBAL_RESOURCES = new Set([
+  'workspaces',
   'users',
   'roles',
   'organizations',
