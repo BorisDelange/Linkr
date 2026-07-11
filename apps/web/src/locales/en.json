@@ -1756,6 +1756,8 @@
     "resource_app-database": "Application database",
     "resource_all-workspaces": "All workspaces",
     "resource_all-projects": "All projects",
+    "roles_section_workspace": "Workspace",
+    "roles_section_project": "Project",
     "resource_hint_all-workspaces": "Bypasses per-workspace membership: grants this level of access to EVERY workspace and everything inside it (projects, wiki, members…), without being added as a member.",
     "resource_hint_all-projects": "Bypasses per-project membership: grants this level of access to EVERY project (and its contents), across all workspaces, without being added as a member.",
     "rename_role": "Rename role",

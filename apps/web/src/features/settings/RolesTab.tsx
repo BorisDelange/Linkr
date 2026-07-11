@@ -1,6 +1,29 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCheck, Info, Pencil, Plus, Shield, SquareX, Trash2 } from 'lucide-react'
+import {
+  CheckCheck,
+  Info,
+  Pencil,
+  Plus,
+  Shield,
+  SquareX,
+  Trash2,
+  Building2,
+  FolderOpen,
+  BookOpen,
+  Users,
+  UserCog,
+  Database,
+  UsersRound,
+  Table2,
+  BarChart3,
+  Terminal,
+  ShieldHalf,
+  Building,
+  ServerCog,
+  Layers,
+  type LucideIcon,
+} from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { localized, setLocalized } from '@/lib/localized'
@@ -56,6 +79,36 @@ const isGlobalPermission = (permission: Permission) => GLOBAL_RESOURCES.has(reso
 /** Resources that carry an explanatory tooltip (settings.resource_hint_<r>). */
 const RESOURCE_HINTS = new Set(['all-workspaces', 'all-projects'])
 
+/** Per-resource icon + color, mirroring the sidebar so a resource is easy to
+ *  place. Icons/colors match the corresponding sidebar nav item. */
+const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
+  workspaces: { icon: Building2, color: 'text-amber-500' },
+  projects: { icon: FolderOpen, color: 'text-blue-700' },
+  wiki: { icon: BookOpen, color: 'text-emerald-500' },
+  members: { icon: Users, color: 'text-amber-500' },
+  'project-members': { icon: UserCog, color: 'text-blue-700' },
+  databases: { icon: Database, color: 'text-teal-500' },
+  concepts: { icon: BookOpen, color: 'text-teal-500' },
+  cohorts: { icon: UsersRound, color: 'text-teal-500' },
+  datasets: { icon: Table2, color: 'text-rose-500' },
+  dashboards: { icon: BarChart3, color: 'text-rose-500' },
+  'code-execution': { icon: Terminal, color: 'text-rose-500' },
+  // Global-tier resources.
+  users: { icon: Users, color: 'text-blue-500' },
+  roles: { icon: ShieldHalf, color: 'text-slate-500' },
+  organizations: { icon: Building, color: 'text-amber-500' },
+  'app-database': { icon: ServerCog, color: 'text-slate-500' },
+  'all-workspaces': { icon: Building2, color: 'text-amber-500' },
+  'all-projects': { icon: Layers, color: 'text-blue-700' },
+}
+
+/** Workspace-tier resources split into two visual sections (sidebar order).
+ *  This is presentation only — the enforcement tier is unchanged. */
+const WORKSPACE_SECTIONS: { key: string; resources: string[] }[] = [
+  { key: 'workspace', resources: ['workspaces', 'projects', 'wiki', 'members', 'project-members'] },
+  { key: 'project', resources: ['databases', 'concepts', 'cohorts', 'datasets', 'dashboards', 'code-execution'] },
+]
+
 type Draft = Record<string, Permission[]>
 
 /** Group "resource:action" strings by resource, preserving catalogue order. */
@@ -85,6 +138,8 @@ interface RoleMatrixProps {
   roles: Role[]
   /** Permission catalogue restricted to this section's scope. */
   catalogue: Permission[]
+  /** Optional visual sections (workspace/project), rendered as banded groups. */
+  sections?: { key: string; resources: string[] }[]
   draft: Draft
   onToggle: (roleId: string, permission: Permission, checked: boolean) => void
   onSetAll: (roleId: string, permissions: Permission[]) => void
@@ -92,9 +147,27 @@ interface RoleMatrixProps {
   onDelete: (role: Role) => void
 }
 
-function RoleMatrix({ description, roles, catalogue, draft, onToggle, onSetAll, onEdit, onDelete }: RoleMatrixProps) {
+function RoleMatrix({ description, roles, catalogue, sections, draft, onToggle, onSetAll, onEdit, onDelete }: RoleMatrixProps) {
   const { t, i18n } = useTranslation()
-  const groups = useMemo(() => groupByResource(catalogue), [catalogue])
+  const rawGroups = useMemo(() => groupByResource(catalogue), [catalogue])
+
+  // Order groups by section (sidebar order) and tag each with its section head,
+  // so the body can render a section band before its first resource.
+  const groups = useMemo(() => {
+    if (!sections) return rawGroups.map((g) => ({ ...g, sectionKey: undefined as string | undefined }))
+    const byResource = new Map(rawGroups.map((g) => [g.resource, g]))
+    const ordered: { resource: string; actions: string[]; sectionKey: string | undefined }[] = []
+    for (const section of sections) {
+      let first = true
+      for (const resource of section.resources) {
+        const g = byResource.get(resource)
+        if (!g) continue
+        ordered.push({ ...g, sectionKey: first ? section.key : undefined })
+        first = false
+      }
+    }
+    return ordered
+  }, [rawGroups, sections])
 
   if (roles.length === 0) return null
 
@@ -147,11 +220,25 @@ function RoleMatrix({ description, roles, catalogue, draft, onToggle, onSetAll, 
               </tr>
             </thead>
             <tbody>
-              {groups.map((group) => (
+              {groups.map((group) => {
+                const meta = RESOURCE_META[group.resource]
+                const ResourceIcon = meta?.icon
+                return (
                 <Fragment key={group.resource}>
+                  {group.sectionKey && (
+                    <tr className="border-b border-t bg-muted/60">
+                      <td
+                        colSpan={roles.length + 1}
+                        className="sticky left-0 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-foreground"
+                      >
+                        {t(`settings.roles_section_${group.sectionKey}`)}
+                      </td>
+                    </tr>
+                  )}
                   <tr className="border-b bg-muted/20">
                     <td className="sticky left-0 z-10 w-56 bg-muted/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center gap-1.5">
+                        {ResourceIcon && <ResourceIcon size={13} className={meta.color} />}
                         {t(`settings.resource_${group.resource}`, group.resource)}
                         {RESOURCE_HINTS.has(group.resource) && (
                           <Tooltip>
@@ -188,7 +275,8 @@ function RoleMatrix({ description, roles, catalogue, draft, onToggle, onSetAll, 
                     )
                   })}
                 </Fragment>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -381,6 +469,7 @@ export function RolesTab() {
             description={t('settings.roles_workspace_description')}
             roles={workspaceRoles}
             catalogue={workspaceCatalogue}
+            sections={WORKSPACE_SECTIONS}
             draft={draft}
             onToggle={toggle}
             onSetAll={(roleId, next) => setAll(roleId, workspaceCatalogue, next)}
