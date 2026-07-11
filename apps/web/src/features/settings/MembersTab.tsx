@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Info, Plus, Trash2, Users } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
 import { useAuthStore } from '@/stores/auth-store'
+import { useMyWorkspaceRole, useMyProjectRole } from '@/hooks/use-context-role'
 import {
   membersApi,
   type DirectoryUser,
@@ -51,6 +52,12 @@ interface MembersTabProps {
 export function MembersTab({ scope, targetId }: MembersTabProps) {
   const { t } = useTranslation()
   const currentUserId = useAuthStore((s) => s.user?.id)
+  const wsRole = useMyWorkspaceRole()
+  const projRole = useMyProjectRole()
+  const canManage =
+    scope === 'workspace'
+      ? wsRole.can('workspace-members:write')
+      : projRole.can('project-members:write')
   const [members, setMembers] = useState<Row[]>([])
   const [directory, setDirectory] = useState<DirectoryUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -204,7 +211,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
               <Button
                 size="sm"
                 onClick={handleAdd}
-                disabled={selectedUserIds.length === 0 || busy}
+                disabled={selectedUserIds.length === 0 || busy || !canManage}
                 className="gap-1"
               >
                 <Plus size={14} />
@@ -246,7 +253,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
                         <Select
                           value={m.role}
                           onValueChange={(v) => handleChangeRole(m.userId, v as ProjectMemberRole)}
-                          disabled={busy}
+                          disabled={busy || !canManage}
                         >
                           <SelectTrigger className="h-8 text-sm">
                             <SelectValue />
@@ -266,7 +273,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
                           variant="ghost"
                           className="h-8 w-8 text-muted-foreground hover:text-destructive"
                           onClick={() => handleRemove(m.userId)}
-                          disabled={busy || (scope === 'workspace' && isSelf)}
+                          disabled={busy || !canManage || (scope === 'workspace' && isSelf)}
                           title={
                             scope === 'project'
                               ? t('members.remove_override')

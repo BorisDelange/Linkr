@@ -72,9 +72,9 @@ export function ProjectSettingsPage() {
   } = useAppStore()
 
   // Editing needs editor+, deleting needs owner (both enforced server-side too).
-  const { atLeast: hasProjectRole } = useMyProjectRole(uid)
-  const canEdit = hasProjectRole('editor')
-  const canDelete = hasProjectRole('owner')
+  const { can } = useMyProjectRole(uid)
+  const canEdit = can('project-settings:write')
+  const canDelete = can('project-settings:delete')
 
   const projectRaw = _projectsRaw.find((p) => p.uid === uid)
   const project = projects.find((p) => p.uid === uid)

@@ -48,9 +48,9 @@ export function WorkspaceSettingsPage() {
   const { wsUid } = useResolvedParams()
   const [searchParams] = useSearchParams()
   // Editing needs editor+, deleting needs owner (both enforced server-side too).
-  const { atLeast: hasWsRole } = useMyWorkspaceRole(wsUid)
-  const canEdit = hasWsRole('editor')
-  const canDelete = hasWsRole('owner')
+  const { can } = useMyWorkspaceRole(wsUid)
+  const canEdit = can('workspace-settings:write')
+  const canDelete = can('workspace-settings:delete')
   const requestedTab = searchParams.get('tab') ?? 'general'
   const defaultTab = requestedTab === 'danger' && !canDelete ? 'general' : requestedTab
   const language = useAppStore((s) => s.language)
