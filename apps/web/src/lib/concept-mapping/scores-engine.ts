@@ -1,4 +1,3 @@
-import * as duckdb from '@duckdb/duckdb-wasm'
 import { getDuckDB, registerResetHook } from '@/lib/duckdb/engine'
 import { getScoresFile, saveScoresFile } from './scores-storage'
 import { getStorage } from '@/lib/storage'
@@ -43,7 +42,8 @@ async function ensureRegisteredInternal(projectId: string): Promise<string | nul
   const db = await getDuckDB()
   const name = fileNameFor(projectId)
   try { await db.dropFile(name) } catch { /* not registered yet */ }
-  await db.registerFileHandle(name, file, duckdb.DuckDBDataProtocol.BROWSER_FILEREADER, true)
+  const { DuckDBDataProtocol } = await import('@duckdb/duckdb-wasm')
+  await db.registerFileHandle(name, file, DuckDBDataProtocol.BROWSER_FILEREADER, true)
   registered.set(projectId, name)
   return name
 }

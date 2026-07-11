@@ -627,13 +627,23 @@ export async function buildMappingProjectFolder(
     }
   }
 
-  // Precomputed similarity scores (opt-in — large parquet, stored in OPFS/IDB, not JSON)
+  // Precomputed similarity scores (opt-in — large parquet, stored in OPFS/IDB
+  // front-only, or the blob store server-side; never in JSON)
   if (options.includeScores) {
     try {
-      const { getScoresFile } = await import('@/lib/concept-mapping/scores-storage')
-      const scoresFile = await getScoresFile(project.id)
-      if (scoresFile) {
-        zip.file(`${prefix}similarity-scores.parquet`, await scoresFile.arrayBuffer(), { compression: 'STORE' })
+      const { isServerMode } = await import('@/lib/api-client')
+      if (isServerMode()) {
+        const { fetchScoresFileFromServer } = await import('@/lib/api/scores')
+        const buf = await fetchScoresFileFromServer(project.id)
+        if (buf && buf.byteLength > 0) {
+          zip.file(`${prefix}similarity-scores.parquet`, buf, { compression: 'STORE' })
+        }
+      } else {
+        const { getScoresFile } = await import('@/lib/concept-mapping/scores-storage')
+        const scoresFile = await getScoresFile(project.id)
+        if (scoresFile) {
+          zip.file(`${prefix}similarity-scores.parquet`, await scoresFile.arrayBuffer(), { compression: 'STORE' })
+        }
       }
     } catch {
       // Scores export failed — continue without them

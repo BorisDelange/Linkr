@@ -565,9 +565,14 @@ async function loadStructuralEntity(
       // Optional precomputed similarity scores (present only when the export bundled them)
       const scoresBuf = await fetchBinary(`${base}/mapping-projects/${mpFolder}/similarity-scores.parquet`)
       if (scoresBuf && scoresBuf.byteLength > 0) {
-        const { persistScoresFile } = await import('@/lib/concept-mapping/scores-engine')
         const scoresFile = new File([scoresBuf], `${project.id}.parquet`, { type: 'application/octet-stream' })
-        await persistScoresFile(project.id, scoresFile).catch(() => {})
+        if (isServerMode()) {
+          const { persistScoresFileOnServer } = await import('@/lib/api/scores')
+          await persistScoresFileOnServer(project.id, scoresFile).catch(() => {})
+        } else {
+          const { persistScoresFile } = await import('@/lib/concept-mapping/scores-engine')
+          await persistScoresFile(project.id, scoresFile).catch(() => {})
+        }
       }
       break
     }

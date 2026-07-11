@@ -14,6 +14,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { formatDate } from '@/lib/format-helpers'
+import { isServerMode } from '@/lib/api-client'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -427,12 +428,18 @@ export function WorkspacesPage() {
         })
         if (scoresFile) {
           // Untrusted ZIP input — validate columns before persisting, same as the interactive load flow.
-          const [{ persistScoresFile }, { validateScoresFile }] = await Promise.all([
-            import('@/lib/concept-mapping/scores-engine'),
-            import('@/lib/concept-mapping/scores-parser'),
-          ])
-          const validation = await validateScoresFile(scoresFile)
-          if (validation.ok) await persistScoresFile(id, scoresFile).catch(() => {})
+          if (isServerMode()) {
+            // The server attach endpoint validates the parquet before storing it.
+            const { persistScoresFileOnServer } = await import('@/lib/api/scores')
+            await persistScoresFileOnServer(id, scoresFile).catch(() => {})
+          } else {
+            const [{ persistScoresFile }, { validateScoresFile }] = await Promise.all([
+              import('@/lib/concept-mapping/scores-engine'),
+              import('@/lib/concept-mapping/scores-parser'),
+            ])
+            const validation = await validateScoresFile(scoresFile)
+            if (validation.ok) await persistScoresFile(id, scoresFile).catch(() => {})
+          }
         }
         for (const m of mappings) {
           await storage.conceptMappings.create({

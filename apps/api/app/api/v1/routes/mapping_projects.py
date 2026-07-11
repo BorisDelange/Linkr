@@ -30,6 +30,7 @@ from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
 from app.services.data import db_connect, file_reader
 from app.services.data import global_table_service
+from app.services.data import scores_service
 from app.services.data.file_source import build_source_concepts_select
 
 router = APIRouter(tags=["mapping-projects"])
@@ -296,6 +297,111 @@ async def query_file_source(
     except Exception as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Query failed: {e}")
     return rows
+
+
+# --- Suggestion-scores blob (precomputed match scores parquet) -------------
+
+class ScoresFileRef(CamelModel):
+    sha: str
+    file_name: str | None = None
+
+
+@router.post(_PROJ + "/{project_id}/scores-file")
+async def set_scores_file(
+    project_id: str,
+    body: ScoresFileRef,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Attach an uploaded scores parquet to a project: validate it, build the
+    query index, and store the sha pointer. Returns the ScoresIndex the client
+    caches for the "has suggestions" badges."""
+    project = await _load_project(db, project_id, user, "editor")
+    if not blob_store.exists(body.sha):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
+    path = str(blob_store.path_for(body.sha))
+    ok, error = await asyncio.to_thread(scores_service.validate, path)
+    if not ok:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, error or "Invalid scores file")
+    await svc.update(
+        db, project,
+        MappingProjectUpdate(scores_file_sha=body.sha, scores_file_name=body.file_name),
+    )
+    return await asyncio.to_thread(scores_service.build_index, project_id, path)
+
+
+@router.get(_PROJ + "/{project_id}/scores-index")
+async def get_scores_index(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rebuild the query index from the persisted parquet (no upload). Returns
+    null when the project has no scores file."""
+    project = await _load_project(db, project_id, user, "viewer")
+    if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
+        return None
+    blob_path = blob_store.path_for(project.scores_file_sha)
+    path = str(blob_path)
+    index = await asyncio.to_thread(scores_service.build_index, project_id, path)
+    index["fileSize"] = blob_path.stat().st_size
+    return index
+
+
+class ScoresQuery(CamelModel):
+    vocabulary_id: str
+    concept_code: str
+
+
+@router.post(_PROJ + "/{project_id}/scores/query")
+async def query_scores(
+    project_id: str,
+    body: ScoresQuery,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Score rows for one (vocabulary, code) — the per-source lookup the
+    Suggestions panel runs. Reads the parquet server-side; only matching rows
+    descend to the browser."""
+    project = await _load_project(db, project_id, user, "viewer")
+    if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
+        return []
+    path = str(blob_store.path_for(project.scores_file_sha))
+    return await asyncio.to_thread(
+        scores_service.query_scores, path, body.vocabulary_id, body.concept_code
+    )
+
+
+@router.get(_PROJ + "/{project_id}/scores-file")
+async def get_scores_file(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the scores parquet from the blob store (for export). 404 when the
+    project has no scores file."""
+    project = await _load_project(db, project_id, user, "viewer")
+    if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No scores file")
+    data = await blob_store.read_bytes(project.scores_file_sha)
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"x-file-name": project.scores_file_name or "similarity-scores.parquet"},
+    )
+
+
+@router.delete(_PROJ + "/{project_id}/scores-file", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_scores_file(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await _load_project(db, project_id, user, "editor")
+    await svc.update(
+        db, project,
+        MappingProjectUpdate(scores_file_sha=None, scores_file_name=None),
+    )
 
 
 class FileColumnsPreview(CamelModel):

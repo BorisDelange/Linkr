@@ -1,4 +1,7 @@
-import * as duckdb from '@duckdb/duckdb-wasm'
+// Type-only import: erased at build so the DuckDB-WASM glue JS is NOT bundled
+// unconditionally. The runtime module is loaded on demand via `loadDuckDBModule()`
+// (dynamic import), so a server-mode build that never boots WASM ships without it.
+import type * as duckdb from '@duckdb/duckdb-wasm'
 import { Type as ArrowType } from 'apache-arrow'
 import { isServerMode } from '@/lib/api-client'
 import { fetchDataSourceSchema, queryDataSourceOnServer } from '@/lib/api/data-sources'
@@ -70,12 +73,21 @@ let _db: duckdb.AsyncDuckDB | null = null
 let _initPromise: Promise<duckdb.AsyncDuckDB> | null = null
 let _worker: Worker | null = null
 
+let _modulePromise: Promise<typeof import('@duckdb/duckdb-wasm')> | null = null
+/** Load the DuckDB-WASM runtime module on demand (front-only). Cached so the
+ *  dynamic chunk is fetched at most once. */
+function loadDuckDBModule(): Promise<typeof import('@duckdb/duckdb-wasm')> {
+  if (!_modulePromise) _modulePromise = import('@duckdb/duckdb-wasm')
+  return _modulePromise
+}
+
 /** Try to instantiate DuckDB with a specific bundle (worker URL + WASM URL). */
 async function tryInstantiate(
   workerUrl: string,
   wasmUrl: string,
   label: string,
 ): Promise<duckdb.AsyncDuckDB> {
+  const mod = await loadDuckDBModule()
   const worker = new Worker(workerUrl)
   _worker = worker
 
@@ -86,8 +98,8 @@ async function tryInstantiate(
   // WARNING level by default — DuckDB-WASM otherwise logs every INSERT/SELECT to
   // the browser console, which on a 300k-row populateTable adds up to thousands
   // of console.log calls and slows DevTools (and the main thread) to a crawl.
-  const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING)
-  const db = new duckdb.AsyncDuckDB(logger, worker)
+  const logger = new mod.ConsoleLogger(mod.LogLevel.WARNING)
+  const db = new mod.AsyncDuckDB(logger, worker)
 
   // Wrap instantiate with a timeout — worker may crash silently
   await Promise.race([
@@ -753,7 +765,7 @@ export async function mountDataSourceFromHandles(
           await db.registerFileHandle(
             h.fileName,
             file,
-            duckdb.DuckDBDataProtocol.BROWSER_FILEREADER,
+            (await loadDuckDBModule()).DuckDBDataProtocol.BROWSER_FILEREADER,
             true,
           )
           registeredNames.push(h.fileName)
@@ -771,7 +783,7 @@ export async function mountDataSourceFromHandles(
       await db.registerFileHandle(
         h.fileName,
         file,
-        duckdb.DuckDBDataProtocol.BROWSER_FILEREADER,
+        (await loadDuckDBModule()).DuckDBDataProtocol.BROWSER_FILEREADER,
         true,
       )
       await conn.query(`ATTACH '${h.fileName}' AS "${schema}" (READ_ONLY)`)

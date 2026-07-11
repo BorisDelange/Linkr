@@ -1,9 +1,16 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import type { ScoresIndex } from '@/types'
 import { validateScoresFile, type ParsedScoreRow } from '@/lib/concept-mapping/scores-parser'
 import { deleteScoresFile } from '@/lib/concept-mapping/scores-storage'
 import { persistScoresFile, queryScoresForSource, unregisterProject, buildIndex } from '@/lib/concept-mapping/scores-engine'
+import {
+  persistScoresFileOnServer,
+  fetchScoresIndexFromServer,
+  queryScoresForSourceOnServer,
+  deleteScoresFileOnServer,
+} from '@/lib/api/scores'
 
 interface SuggestionScoresState {
   activeProjectId: string | null
@@ -28,18 +35,33 @@ export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get)
 
   async loadProjectMeta(projectId) {
     if (get().activeProjectId === projectId && get().loaded) return
-    const index = await getStorage().scoresMeta.get(projectId) ?? null
+    // In server mode the parquet lives on the server; the index is rebuilt there
+    // (no client scoresMeta cache). Front-only reads the persisted index from IDB.
+    const index = isServerMode()
+      ? await fetchScoresIndexFromServer(projectId)
+      : (await getStorage().scoresMeta.get(projectId) ?? null)
     set({ activeProjectId: projectId, index, loaded: true })
   },
 
   async reindexProject(projectId) {
-    const index = await buildIndex(projectId)
+    const index = isServerMode()
+      ? await fetchScoresIndexFromServer(projectId)
+      : await buildIndex(projectId)
     if (!index) return
-    await getStorage().scoresMeta.put(index)
+    if (!isServerMode()) await getStorage().scoresMeta.put(index)
     if (get().activeProjectId === projectId) set({ index })
   },
 
   async importScores(projectId, file) {
+    if (isServerMode()) {
+      // The upload+attach endpoint validates the parquet server-side, so no
+      // client-side DuckDB validation (which would need DuckDB-WASM).
+      const index = await persistScoresFileOnServer(projectId, file)
+      if (!index) throw new Error('Failed to build scores index after save.')
+      set({ activeProjectId: projectId, index, loaded: true })
+      return index
+    }
+
     const validation = await validateScoresFile(file)
     if (!validation.ok) throw new Error(validation.error)
 
@@ -51,9 +73,13 @@ export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get)
   },
 
   async deleteProjectScores(projectId) {
-    await unregisterProject(projectId)
-    await deleteScoresFile(projectId)
-    await getStorage().scoresMeta.delete(projectId)
+    if (isServerMode()) {
+      await deleteScoresFileOnServer(projectId)
+    } else {
+      await unregisterProject(projectId)
+      await deleteScoresFile(projectId)
+      await getStorage().scoresMeta.delete(projectId)
+    }
     if (get().activeProjectId === projectId) {
       set({ index: null, loaded: true })
     }
@@ -68,6 +94,8 @@ export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get)
   async queryScoresForSource(vocabId, code) {
     const projectId = get().activeProjectId
     if (!projectId) return []
-    return queryScoresForSource(projectId, vocabId, code)
+    return isServerMode()
+      ? queryScoresForSourceOnServer(projectId, vocabId, code)
+      : queryScoresForSource(projectId, vocabId, code)
   },
 }))

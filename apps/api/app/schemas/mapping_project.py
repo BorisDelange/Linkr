@@ -17,6 +17,8 @@ class MappingProjectCreate(CamelModel):
     file_source_data: dict | None = None
     raw_file_sha: str | None = None
     raw_file_name: str | None = None
+    scores_file_sha: str | None = None
+    scores_file_name: str | None = None
     concept_set_ids: list | None = None
     stats: dict | None = None
     import_batches: list | None = None
@@ -36,6 +38,8 @@ class MappingProjectUpdate(CamelModel):
     file_source_data: dict | None = None
     raw_file_sha: str | None = None
     raw_file_name: str | None = None
+    scores_file_sha: str | None = None
+    scores_file_name: str | None = None
     concept_set_ids: list | None = None
     stats: dict | None = None
     import_batches: list | None = None
@@ -56,6 +60,8 @@ class MappingProjectResponse(CamelModel):
     file_source_data: dict | None = None
     raw_file_sha: str | None = None
     raw_file_name: str | None = None
+    scores_file_sha: str | None = None
+    scores_file_name: str | None = None
     concept_set_ids: list | None = None
     stats: dict | None = None
     import_batches: list | None = None

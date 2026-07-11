@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { getScoresFile } from '@/lib/concept-mapping/scores-storage'
+import { isServerMode } from '@/lib/api-client'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
@@ -359,8 +360,13 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     setScoresSize(null)
     setZipDialogOpen(true)
     try {
-      const f = await getScoresFile(project.id)
-      setScoresSize(f ? f.size : 0)
+      if (isServerMode()) {
+        const { fetchScoresFileSizeFromServer } = await import('@/lib/api/scores')
+        setScoresSize(await fetchScoresFileSizeFromServer(project.id))
+      } else {
+        const f = await getScoresFile(project.id)
+        setScoresSize(f ? f.size : 0)
+      }
     } catch {
       setScoresSize(0)
     }
