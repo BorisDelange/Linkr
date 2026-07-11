@@ -15,7 +15,6 @@ export const APP_SCHEMA_VERSION = 1
 const BUILD_HASH_KEY = 'linkr-app-build-hash'
 const SCHEMA_VERSION_KEY = 'linkr-app-schema-version'
 const PENDING_RESET_KEY = 'linkr-pending-reset'
-const PENDING_CACHE_CLEAR_KEY = 'linkr-pending-cache-clear'
 const SERVER_IDB_PURGED_KEY = 'linkr-server-idb-purged'
 
 export type VersionStatus =
@@ -89,24 +88,6 @@ export async function executePendingReset(): Promise<boolean> {
   if (localStorage.getItem(PENDING_RESET_KEY) !== '1') return false
   await deleteAllIndexedDbs()
   localStorage.clear()
-  return true
-}
-
-/**
- * Server-mode counterpart to {@link clearAllData}: clears the residual local
- * cache (IndexedDB) without wiping localStorage, so the auth session survives.
- * The real data lives on the server and is untouched.
- */
-export function clearLocalCache(): void {
-  localStorage.setItem(PENDING_CACHE_CLEAR_KEY, '1')
-  window.location.href = '/'
-}
-
-/** Delete IndexedDB if a cache clear was requested (keeps localStorage/session). */
-export async function executePendingCacheClear(): Promise<boolean> {
-  if (localStorage.getItem(PENDING_CACHE_CLEAR_KEY) !== '1') return false
-  localStorage.removeItem(PENDING_CACHE_CLEAR_KEY)
-  await deleteAllIndexedDbs()
   return true
 }
 
