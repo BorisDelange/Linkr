@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import require_workspace_role
+from app.core.permissions import require_global_permission, require_workspace_role
 from app.models.user import User
 from app.schemas.workspace import (
     WorkspaceCreate,
@@ -26,9 +26,11 @@ async def list_workspaces(
 @router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     body: WorkspaceCreate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_global_permission("workspaces:write")),
     db: AsyncSession = Depends(get_db),
 ):
+    # Creating a workspace is a global-tier right (admin, or a role granted
+    # "workspaces:write"). The creator becomes its owner (see the service).
     return await workspace_service.create(db, body, user)
 
 

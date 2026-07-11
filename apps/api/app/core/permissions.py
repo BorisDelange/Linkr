@@ -29,8 +29,12 @@ RWD = ["read", "write", "delete"]
 # these into a "Workspace" section and a "Project" section for display.
 WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     # Workspace section (things that make up a workspace).
-    "workspaces": RWD,  # incl. delete: an owner can delete their own workspace
-    "members": RWD,
+    # Manage THIS workspace: edit its settings (write) / delete it (delete). Note
+    # the distinct name from the global "workspaces" resource (which gates
+    # CREATING a workspace) — they must not collide as "resource:action" strings.
+    "workspace-settings": RWD,
+    "workspace-members": RWD,
+    "workspace-summary": ["read", "write"],  # workspace home: overview + README
     "projects": RWD,
     "wiki": RWD,
     "plugins": RWD,
@@ -43,7 +47,7 @@ WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     "etl": RWD,
     # Project section (things scoped to a single project).
     "project-members": RWD,
-    "summary": ["read", "write"],  # README + tasks; nothing to "delete"
+    "project-summary": ["read", "write"],  # README + tasks; nothing to "delete"
     "ide": ["read", "write", "delete", "execute"],  # execute = run R/Python/SQL
     "pipeline": RWD,
     "project-databases": ["read", "write"],  # link/unlink a workspace source
@@ -60,9 +64,12 @@ PERMISSIONS = [f"{r}:{a}" for r, acts in WORKSPACE_CATALOGUE.items() for a in ac
 
 # Global-tier resources → actions. Instance-wide management (Home / Settings).
 GLOBAL_CATALOGUE: dict[str, list[str]] = {
-    # Creating / renaming / deleting ANY workspace (from Home). Distinct from the
-    # workspace-tier "workspaces:delete" that lets an owner delete their own.
-    "workspaces": RWD,
+    # Creating a workspace (from Home). WRITE-only: editing/deleting a workspace is
+    # done via workspace membership (owner → workspace-settings) or the
+    # all-workspaces super-grant. "workspaces:write" (global, = create) and
+    # "workspace-settings:write" (workspace, = edit) deliberately mean different
+    # things and never collide as strings.
+    "workspaces": ["write"],
     "users": RWD,
     "roles": RWD,
     # Organizations are an instance-wide directory (Settings → Organizations),

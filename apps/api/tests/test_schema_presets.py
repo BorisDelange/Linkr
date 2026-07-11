@@ -1,4 +1,7 @@
+from sqlalchemy import select
+
 from app.core.security import hash_password
+from app.models.role import Role
 from app.models.user import User
 
 API = "/api/v1"
@@ -15,7 +18,14 @@ async def _admin_headers(client) -> dict:
 
 
 async def _create_user(db, client, username: str) -> dict:
-    db.add(User(username=username, password_hash=hash_password("pw"), role="user"))
+    # Give the test user a global role that can create workspaces (creating a
+    # workspace now requires workspaces:write). They own only what they create;
+    # they are not a member of anyone else's workspace.
+    existing = await db.scalar(select(Role).where(Role.name == "ws-user"))
+    if existing is None:
+        db.add(Role(name="ws-user", scope="global", permissions=["workspaces:write"]))
+        await db.commit()
+    db.add(User(username=username, password_hash=hash_password("pw"), role="ws-user"))
     await db.commit()
     r = await client.post(
         f"{API}/auth/login", json={"username": username, "password": "pw"}

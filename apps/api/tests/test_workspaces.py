@@ -101,6 +101,28 @@ async def test_non_member_cannot_see_or_access(client, db):
     assert r.status_code == 403
 
 
+async def test_create_workspace_requires_global_permission(client, db):
+    admin = await _bootstrap_admin(client)
+    # A plain user (role "user", no permissions) may NOT create a workspace.
+    plain = await _create_user(db, client, "plain")
+    r = await client.post(f"{API}/workspaces", headers=plain, json={"name": {"en": "X"}})
+    assert r.status_code == 403
+
+    # A custom global role holding workspaces:write may.
+    await client.post(f"{API}/roles", headers=admin, json={
+        "name": "ws-creator", "scope": "global", "permissions": ["workspaces:write"],
+    })
+    db.add(User(username="creator", password_hash=hash_password("pw"), role="ws-creator"))
+    await db.commit()
+    r = await client.post(f"{API}/auth/login", json={"username": "creator", "password": "pw"})
+    creator = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    r = await client.post(f"{API}/workspaces", headers=creator, json={"name": {"en": "Mine"}})
+    assert r.status_code == 201
+    # …and becomes its owner (can delete it).
+    ws_id = r.json()["id"]
+    assert (await client.delete(f"{API}/workspaces/{ws_id}", headers=creator)).status_code == 204
+
+
 async def test_workspace_badges_persist(client):
     headers = await _bootstrap_admin(client)
     r = await client.post(

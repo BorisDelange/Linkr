@@ -65,7 +65,7 @@ Gestion instance-wide, depuis Home / Settings.
 
 | Ressource | Actions | Note |
 |---|---|---|
-| `workspaces` | read / write / delete | Créer / renommer / **supprimer n'importe quel** workspace (Home). |
+| `workspaces` | **write** | **write = CRÉER** un workspace (Home) ; le créateur en devient owner. Éditer/supprimer = via l'appartenance (owner → `workspace-settings`) ou `all-workspaces`. |
 | `users` | read / write / delete | Comptes utilisateurs. |
 | `roles` | read / write / delete | Rôles & permissions. |
 | `organizations` | read / write / delete | Annuaire organisations (lecture ouverte à tous, décidé). |
@@ -78,48 +78,43 @@ Données workspace-scoped. Héritées par les projets du workspace.
 
 | # | Ressource | Actions | Note |
 |---|---|---|---|
-| 1 | `workspaces` | **delete** | L'owner peut supprimer SON workspace (recoupe `workspaces:delete` global, voulu). |
-| 2 | `members` | read / write / delete | Membres du workspace (2ᵉ position). |
-| 3 | `projects` | read / write / delete | Créer / gérer les projets du workspace. |
-| 4 | `wiki` | read / write / delete | Pages + pièces jointes. |
-| 5 | `plugins` **[N]** | read / write / delete + **test** ? | Installer / éditer le code / tester un plugin. |
-| 6 | `schemas` **[N]** | read / write / delete | Presets de schéma (upsert + delete ; pas de create pur). |
-| 7 | `databases` | read / write / delete | Connexions BDD : create, test/retest, query, refresh-cache, edit, delete. |
-| 8 | `concept-mapping` **[N]** | read / write / delete + **build** ? | Projets de mapping + concept sets : import, map, build table, export. |
-| 9 | `sql-scripts` **[N]** | read / write / delete | Collections + fichiers SQL (run = client-side contre une source). |
-| 10 | `data-quality` **[N]** | read / write / delete | Rule sets + checks (run + résultats = client-side). |
-| 11 | `catalog` **[N]** | read / write / delete + **export** ? | Data catalog : config, anonymisation, export DCAT. |
-| 12 | `etl` **[N]** | read / write / delete | Pipelines ETL + fichiers (build/run = client-side). |
+| 1 | `workspace-settings` | read / write / delete | Gérer CE workspace : éditer (write) / supprimer (delete). Nom distinct du `workspaces` global (= créer) — pas de collision. |
+| 2 | `workspace-members` | read / write / delete | Membres du workspace (2ᵉ position). |
+| 3 | `workspace-summary` | read / write | Accueil du workspace : overview + README. |
+| 4 | `projects` | read / write / delete | Créer / gérer les projets du workspace. |
+| 5 | `wiki` | read / write / delete | Pages + pièces jointes. |
+| 6 | `plugins` | read / write / delete | Installer / éditer le code / tester un plugin. |
+| 7 | `schemas` | read / write / delete | Presets de schéma (upsert + delete ; pas de create pur). |
+| 8 | `databases` | read / write / delete | Connexions BDD : create, test/retest, query, refresh-cache, edit, delete. |
+| 9 | `concept-mapping` | read / write / delete | Projets de mapping + concept sets : import, map, build table, export. |
+| 10 | `sql-scripts` | read / write / delete | Collections + fichiers SQL (run = client-side contre une source). |
+| 11 | `data-quality` | read / write / delete | Rule sets + checks (run + résultats = client-side). |
+| 12 | `catalog` | read / write / delete | Data catalog : config, anonymisation, export DCAT. |
+| 13 | `etl` | read / write / delete | Pipelines ETL + fichiers (build/run = client-side). |
 
 ### Tier WORKSPACE — section « Projet » (ordre sidebar)
 Ces droits s'appliquent **dans** un projet (via l'héritage / l'override projet).
 
 | # | Ressource | Actions | Note |
 |---|---|---|---|
-| 1 | `projects` | **delete** | Supprimer CE projet (recoupe `projects:delete` workspace, voulu). |
-| 2 | `project-members` | read / write / delete | Overrides de rôle par projet (2ᵉ position). |
-| 3 | `summary` **[N]** | read / write | README + tâches + pièces jointes (pas de delete dédié). |
-| 4 | `ide` **[N]** | read / write / delete + **execute** | Fichiers IDE + connexions + **exécution R/Python/SQL** (remplace `code-execution`). |
-| 5 | `pipeline` **[N]** | read / write / delete | Éditeur de graphe de pipeline projet. |
-| 6 | `project-databases` **[N]** | read / write | Link/unlink + test/reconnect/disconnect d'une source workspace (pas de delete : ne supprime pas la connexion). |
-| 7 | `concepts` | **read** | Parcourir le dictionnaire de concepts de la source active (lecture seule). |
-| 8 | `cohorts` | read / write / delete | Builder + génération SQL + run + résultats. |
-| 9 | `patient-data` **[N]** | read / write / delete | Tabs + widgets du dossier patient (layout projet). |
-| 10 | `datasets` | read / write / delete | Import/reimport/duplicate/edit/query + analyses. |
-| 11 | `dashboards` | read / write / delete | Tabs + widgets + export. |
-| 12 | `reports` **[N]** | read / write / delete | ⚠️ **Stub** (page « à venir ») — à cadrer plus tard, ou différer. |
+| 1 | `project-members` | read / write / delete | Overrides de rôle par projet (2ᵉ position). |
+| 2 | `project-summary` | read / write | README + tâches + pièces jointes (pas de delete dédié). |
+| 3 | `ide` | read / write / delete + **execute** | Fichiers IDE + connexions + **exécution R/Python/SQL** (remplace `code-execution`). |
+| 4 | `pipeline` | read / write / delete | Éditeur de graphe de pipeline projet. |
+| 5 | `project-databases` | read / write | Link/unlink + test/reconnect/disconnect d'une source workspace (pas de delete : ne supprime pas la connexion). |
+| 6 | `concepts` | **read** | Parcourir le dictionnaire de concepts de la source active (lecture seule). |
+| 7 | `cohorts` | read / write / delete | Builder + génération SQL + run + résultats. |
+| 8 | `patient-data` | read / write / delete | Tabs + widgets du dossier patient (layout projet). |
+| 9 | `datasets` | read / write / delete | Import/reimport/duplicate/edit/query + analyses. |
+| 10 | `dashboards` | read / write / delete | Tabs + widgets + export. |
+| 11 | `reports` | read / write / delete | ⚠️ **Stub** (page « à venir ») — verrouillé, réservé. |
 
-### Changements backend impliqués (si validé)
-- **Ajouter** au catalogue : `plugins`, `schemas`, `concept-mapping`, `sql-scripts`,
-  `data-quality`, `catalog`, `etl`, `summary`, `ide`, `pipeline`, `project-databases`,
-  `patient-data`, `reports`.
-- **Action non standard** : `ide:execute` (remplace la ressource `code-execution`).
-  Décider si `plugins:test`, `concept-mapping:build`, `catalog:export` deviennent des
-  actions dédiées ou restent couvertes par `write`.
-- **Migration** : rebrancher les permissions des rôles existants (ex. `code-execution:*`
-  → `ide:execute`), seed des nouvelles ressources dans viewer/editor/owner.
-- **UI** : la section « Projet » reste affichée dans l'onglet workspace (héritage),
-  scindée visuellement — déjà en place.
+### Suppression / création d'un workspace — récap
+- **Créer** : `workspaces:write` (global). Défaut : seul `admin`. Le rôle `user` ne
+  l'a pas → à accorder explicitement.
+- **Éditer** : `workspace-settings:write` (owner/editor du workspace) ou `all-workspaces:write`.
+- **Supprimer** : `workspace-settings:delete` (owner du workspace) ou `all-workspaces:delete` ou admin.
+- Chevauchement de nom voulu : `workspaces:write` (global, créer) ≠ `workspace-settings:write` (workspace, éditer) — strings distinctes.
 
 ### Points à trancher (PO)
 1. `reports` = stub : on l'ajoute quand même (verrouillé) ou on attend la vraie page ?

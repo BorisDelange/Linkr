@@ -41,10 +41,23 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 # code-execution:* → ide:* (write becomes the dedicated "execute" action).
+# Renames applied to EVERY role's permission list. All the source keys are old
+# WORKSPACE-tier resources; the new global "workspaces:write" (create) is added
+# only via the additive backfill below, so it is never produced by a rename.
 _RENAME = {
+    # code-execution folded into ide (write → the dedicated execute action).
     "code-execution:read": "ide:read",
     "code-execution:write": "ide:execute",
     "code-execution:delete": "ide:delete",
+    # The old workspace-tier "workspaces" (manage your own workspace) is now
+    # "workspace-settings"; the name "workspaces" is reused by the global tier.
+    "workspaces:read": "workspace-settings:read",
+    "workspaces:write": "workspace-settings:write",
+    "workspaces:delete": "workspace-settings:delete",
+    # "members" (workspace) renamed for symmetry with "project-members".
+    "members:read": "workspace-members:read",
+    "members:write": "workspace-members:write",
+    "members:delete": "workspace-members:delete",
 }
 
 # The full default grant each system role should have under the new catalogue.

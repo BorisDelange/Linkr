@@ -85,14 +85,15 @@ const resourceOf = (permission: Permission) => permission.split(':')[0]
 const isGlobalPermission = (permission: Permission) => GLOBAL_RESOURCES.has(resourceOf(permission))
 
 /** Resources that carry an explanatory tooltip (settings.resource_hint_<r>). */
-const RESOURCE_HINTS = new Set(['all-workspaces', 'all-projects'])
+const RESOURCE_HINTS = new Set(['all-workspaces', 'all-projects', 'workspaces'])
 
 /** Per-resource icon + color, mirroring the sidebar so a resource is easy to
  *  place. Icons/colors match the corresponding sidebar nav item. */
 const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
   // Workspace section (sidebar colors: teal = warehouse).
-  workspaces: { icon: Building2, color: 'text-amber-500' },
-  members: { icon: Users, color: 'text-amber-500' },
+  'workspace-settings': { icon: Building2, color: 'text-amber-500' },
+  'workspace-members': { icon: UserCog, color: 'text-amber-500' },
+  'workspace-summary': { icon: LayoutDashboard, color: 'text-blue-500' },
   projects: { icon: FolderOpen, color: 'text-blue-700' },
   wiki: { icon: BookOpen, color: 'text-emerald-500' },
   plugins: { icon: Puzzle, color: 'text-pink-500' },
@@ -105,7 +106,7 @@ const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
   etl: { icon: Workflow, color: 'text-teal-500' },
   // Project section (blue = project chrome, teal = warehouse, rose = lab).
   'project-members': { icon: UserCog, color: 'text-blue-700' },
-  summary: { icon: LayoutDashboard, color: 'text-blue-500' },
+  'project-summary': { icon: LayoutDashboard, color: 'text-blue-500' },
   ide: { icon: Code, color: 'text-violet-500' },
   pipeline: { icon: Workflow, color: 'text-orange-500' },
   'project-databases': { icon: Database, color: 'text-teal-500' },
@@ -116,6 +117,7 @@ const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
   dashboards: { icon: BarChart3, color: 'text-rose-500' },
   reports: { icon: FileText, color: 'text-rose-500' },
   // Global-tier resources.
+  workspaces: { icon: Building2, color: 'text-amber-500' },
   users: { icon: Users, color: 'text-blue-500' },
   roles: { icon: ShieldHalf, color: 'text-slate-500' },
   organizations: { icon: Building, color: 'text-amber-500' },
@@ -130,14 +132,15 @@ const WORKSPACE_SECTIONS: { key: string; resources: string[] }[] = [
   {
     key: 'workspace',
     resources: [
-      'workspaces', 'members', 'projects', 'wiki', 'plugins', 'schemas',
-      'databases', 'concept-mapping', 'sql-scripts', 'data-quality', 'catalog', 'etl',
+      'workspace-settings', 'workspace-members', 'workspace-summary', 'projects',
+      'wiki', 'plugins', 'schemas', 'databases', 'concept-mapping', 'sql-scripts',
+      'data-quality', 'catalog', 'etl',
     ],
   },
   {
     key: 'project',
     resources: [
-      'project-members', 'summary', 'ide', 'pipeline', 'project-databases',
+      'project-members', 'project-summary', 'ide', 'pipeline', 'project-databases',
       'concepts', 'cohorts', 'patient-data', 'datasets', 'dashboards', 'reports',
     ],
   },
