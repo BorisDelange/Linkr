@@ -331,7 +331,7 @@ export function RolesTab() {
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newLabel, setNewLabel] = useState('')
-  const [newScope, setNewScope] = useState<'workspace' | 'global'>('workspace')
+  const [newScope, setNewScope] = useState<'workspace' | 'global'>('global')
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
   const [renameTarget, setRenameTarget] = useState<Role | null>(null)
@@ -432,7 +432,7 @@ export function RolesTab() {
       setNewName('')
       setNewLabel('')
       setRoleTab(newScope)
-      setNewScope('workspace')
+      setNewScope('global')
       setError(null)
       await load()
     } catch (err) {
@@ -540,8 +540,8 @@ export function RolesTab() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="workspace">{t('settings.roles_scope_workspace')}</SelectItem>
                     <SelectItem value="global">{t('settings.roles_scope_global')}</SelectItem>
+                    <SelectItem value="workspace">{t('settings.roles_scope_workspace')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
