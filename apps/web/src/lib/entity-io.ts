@@ -228,6 +228,24 @@ export async function parseImportZip(
   return result
 }
 
+/**
+ * Read a single entry from an import ZIP as raw bytes (root-folder-aware, like
+ * parseImportZip). Binary payloads (e.g. similarity-scores.parquet) must be read
+ * this way — parseImportZip decodes every entry as UTF-8 text, which corrupts
+ * binary content. Returns null when the entry is absent or empty.
+ */
+export async function readBinaryFromImportZip(
+  file: File,
+  path: string,
+): Promise<Uint8Array | null> {
+  let zip = await JSZip.loadAsync(file)
+  zip = stripRootFolder(zip)
+  const entry = zip.files[path]
+  if (!entry || entry.dir) return null
+  const buf = await entry.async('uint8array')
+  return buf.byteLength > 0 ? buf : null
+}
+
 // ---------------------------------------------------------------------------
 // Project ZIP — structured folder layout (unified: IDE = Export = Git)
 // ---------------------------------------------------------------------------

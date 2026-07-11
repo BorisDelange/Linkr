@@ -18,7 +18,8 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
-import { parseImportZip } from '@/lib/entity-io'
+import { parseImportZip, readBinaryFromImportZip } from '@/lib/entity-io'
+import { isServerMode } from '@/lib/api-client'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import {
@@ -168,6 +169,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     mappings: import('@/types').ConceptMapping[]
     sourceIdRanges?: unknown
     sourceIdEntries?: unknown
+    scoresFile?: File
   }
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
   const [newIdWarning, setNewIdWarning] = useState<string | null>(null)
@@ -235,10 +237,29 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
           /* leave the registry as-is */
         }
       }
+
+      // Precomputed suggestion scores (best-effort — a failure must not fail the
+      // whole import). Server mode validates + indexes the parquet server-side;
+      // front-only persists it to OPFS/IDB and builds the index via DuckDB-WASM.
+      if (children.scoresFile) {
+        try {
+          if (isServerMode()) {
+            const { persistScoresFileOnServer } = await import('@/lib/api/scores')
+            await persistScoresFileOnServer(projectId, children.scoresFile)
+          } else {
+            const { persistScoresFile } = await import('@/lib/concept-mapping/scores-engine')
+            const { validateScoresFile } = await import('@/lib/concept-mapping/scores-parser')
+            const validation = await validateScoresFile(children.scoresFile)
+            if (validation.ok) await persistScoresFile(projectId, children.scoresFile)
+          }
+        } catch {
+          /* leave the project without scores */
+        }
+      }
     } finally {
       await loadMappingProjects()
     }
-  }, [activeWorkspaceId, loadMappingProjects])
+  }, [activeWorkspaceId, loadMappingProjects]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleImport = useCallback(async (file: File) => {
     try {
@@ -249,11 +270,18 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         return
       }
       const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
+      // Precomputed suggestion scores (optional, large binary — read as bytes, not
+      // via parseImportZip which decodes every entry as text and corrupts parquet).
+      const scoresBuf = await readBinaryFromImportZip(file, 'similarity-scores.parquet')
+      const scoresFile = scoresBuf
+        ? new File([scoresBuf as BlobPart], `${project.id}.parquet`, { type: 'application/octet-stream' })
+        : undefined
       // Assigned source-concept-ids (optional folder — absent in older ZIPs).
       const children: ImportChildren = {
         mappings,
         sourceIdRanges: parsed['source-concept-ids/ranges.json'],
         sourceIdEntries: parsed['source-concept-ids/entries.json'],
+        scoresFile,
       }
 
       // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based project)
