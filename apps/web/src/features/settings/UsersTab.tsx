@@ -285,6 +285,7 @@ export function UsersTab() {
                   onChange={(e) => setField('username', e.target.value)}
                   disabled={!!editing}
                   autoFocus={!editing}
+                  autoComplete="off"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -295,6 +296,7 @@ export function UsersTab() {
                   <PasswordInput
                     id="user-password"
                     value={draft.password}
+                    autoComplete="new-password"
                     placeholder={editing ? t('settings.leave_blank_keep') : undefined}
                     onChange={(e) => setField('password', e.target.value)}
                   />
@@ -306,6 +308,7 @@ export function UsersTab() {
                   <PasswordInput
                     id="user-password-confirm"
                     value={draft.passwordConfirm}
+                    autoComplete="new-password"
                     placeholder={editing ? t('settings.leave_blank_keep') : undefined}
                     onChange={(e) => setField('passwordConfirm', e.target.value)}
                   />
