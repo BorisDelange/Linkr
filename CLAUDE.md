@@ -7,7 +7,7 @@ Linkr is a healthcare data visualization platform (React + FastAPI). v2 is a ful
 - Fuzzy search rules → `docs/fuzzy-search.md`
 - Available shadcn/ui components → `docs/shadcn-components.md`
 - Long-term vision → `docs/vision-roadmap.md`
-- **Ongoing work-in-progress plans** (full-stack backend, auth, IDE) → `docs/planning/` — read the latest "État de session" for what's done vs. still TODO before starting related work.
+- **Ongoing work-in-progress plans** (full-stack backend, auth, IDE) → `docs/planning/` — read the "État actuel" section (fullstack-storage-plan.md) for what's done vs. still TODO before starting related work.
 
 ## Related repos
 
