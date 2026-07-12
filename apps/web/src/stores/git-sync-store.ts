@@ -9,6 +9,7 @@
 import { create } from 'zustand'
 import { buildProjectZip, buildWorkspaceZip } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
+import { defaultSelectedPaths } from '@/lib/git-file-classify'
 import {
   gitBranches,
   gitCommitPush,
@@ -33,6 +34,8 @@ async function buildZip(scope: GitScope, id: string): Promise<Blob> {
 interface GitSyncState {
   status: GitStatus | null
   branches: GitBranches | null
+  /** Paths checked for the next commit; data files are unchecked by default. */
+  selected: Set<string>
   loadingStatus: boolean
   committing: boolean
   error: string | null
@@ -41,12 +44,15 @@ interface GitSyncState {
   loadBranches: (scope: GitScope, id: string) => Promise<void>
   getDiff: (scope: GitScope, id: string, path: string, branch?: string) => Promise<GitDiff | null>
   commitPush: (scope: GitScope, id: string, message: string, branch?: string) => Promise<GitCommitResult | null>
+  togglePath: (path: string) => void
+  setAllSelected: (checked: boolean) => void
   reset: () => void
 }
 
-export const useGitSyncStore = create<GitSyncState>((set) => ({
+export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   status: null,
   branches: null,
+  selected: new Set(),
   loadingStatus: false,
   committing: false,
   error: null,
@@ -55,7 +61,18 @@ export const useGitSyncStore = create<GitSyncState>((set) => ({
     set({ loadingStatus: true, error: null })
     try {
       const zip = await buildZip(scope, id)
-      set({ status: await gitStatus(scope, id, zip, branch) })
+      const status = await gitStatus(scope, id, zip, branch)
+      // Re-seed the selection: keep the user's choices for paths that still
+      // change, default-select new non-data paths, drop paths no longer changed.
+      const prev = get().selected
+      const hadStatus = get().status !== null
+      const changed = status.files.map((f) => f.path)
+      const defaults = new Set(defaultSelectedPaths(changed))
+      const selected = new Set(
+        changed.filter((p) => (hadStatus ? prev.has(p) : defaults.has(p))),
+      )
+      if (hadStatus) for (const p of changed) if (!prev.has(p) && defaults.has(p)) selected.add(p)
+      set({ status, selected })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
     } finally {
@@ -84,11 +101,11 @@ export const useGitSyncStore = create<GitSyncState>((set) => ({
   commitPush: async (scope, id, message, branch) => {
     set({ committing: true, error: null })
     try {
+      const paths = [...get().selected]
       const zip = await buildZip(scope, id)
-      const result = await gitCommitPush(scope, id, zip, message, branch)
-      // After a commit the working tree is clean; refresh so the UI empties out.
-      const fresh = await gitStatus(scope, id, zip, branch)
-      set({ status: fresh })
+      const result = await gitCommitPush(scope, id, zip, message, branch, paths)
+      // After a commit the pushed files are clean; refresh so the UI updates.
+      await get().refreshStatus(scope, id, branch)
       return result
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) })
@@ -98,5 +115,19 @@ export const useGitSyncStore = create<GitSyncState>((set) => ({
     }
   },
 
-  reset: () => set({ status: null, branches: null, error: null, loadingStatus: false, committing: false }),
+  togglePath: (path) =>
+    set((s) => {
+      const next = new Set(s.selected)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return { selected: next }
+    }),
+
+  setAllSelected: (checked) =>
+    set((s) => ({
+      selected: checked ? new Set((s.status?.files ?? []).map((f) => f.path)) : new Set(),
+    })),
+
+  reset: () =>
+    set({ status: null, branches: null, selected: new Set(), error: null, loadingStatus: false, committing: false }),
 }))

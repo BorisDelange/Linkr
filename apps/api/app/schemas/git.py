@@ -20,6 +20,8 @@ class GitDiffResponse(CamelModel):
     change_type: str
     old_content: str
     new_content: str
+    too_large: bool = False
+    binary: bool = False
 
 
 class GitBranchesResponse(CamelModel):

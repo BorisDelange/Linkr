@@ -29,6 +29,8 @@ export interface GitDiff {
   changeType: FileChangeType | 'renamed'
   oldContent: string
   newContent: string
+  tooLarge: boolean
+  binary: boolean
 }
 
 export interface GitBranches {
@@ -75,11 +77,12 @@ export async function gitCommitPush(
   zip: Blob,
   message: string,
   branch?: string,
+  paths?: string[],
 ): Promise<GitCommitResult> {
-  return postForm<GitCommitResult>(
-    `${base(scope, id)}/commit-push`,
-    zipForm(zip, { message, ...(branch ? { branch } : {}) }),
-  )
+  const form = zipForm(zip, { message, ...(branch ? { branch } : {}) })
+  // Omitting `paths` entirely means "commit everything"; a subset stages only those.
+  if (paths) for (const p of paths) form.append('paths', p)
+  return postForm<GitCommitResult>(`${base(scope, id)}/commit-push`, form)
 }
 
 export async function gitBranches(scope: GitScope, id: string): Promise<GitBranches> {

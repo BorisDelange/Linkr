@@ -1496,7 +1496,15 @@
     "diff_empty": "No differences.",
     "remote_private": "Private",
     "remote_token_hint": "Optional. Required only for a private repository (personal access token).",
-    "remote_connect_failed": "Could not connect to the repository"
+    "remote_connect_failed": "Could not connect to the repository",
+    "change_added": "Added",
+    "change_modified": "Modified",
+    "change_deleted": "Deleted",
+    "change_renamed": "Renamed",
+    "diff_binary": "Binary file — no preview.",
+    "diff_too_large": "File too large to preview.",
+    "sync_select_all": "Select all",
+    "sync_selected_count": "{{count}} of {{total}} files selected"
   },
   "summary": {
     "tab_overview": "Overview",
@@ -1899,7 +1907,10 @@
     "tab_schema_mapping": "Schema (Mapping)",
     "reset_to_default": "Reset to default",
     "reset_confirm": "This will discard your changes and restore the original built-in schema. This action cannot be undone.",
-    "edit_description": "Rename this schema.",
+    "edit_description": "Update this schema's name and description.",
+    "field_name": "Schema name",
+    "field_description": "Description",
+    "field_description_placeholder": "What this schema describes (optional)",
     "erd_edit_layout": "Edit layout",
     "erd_done": "Done",
     "erd_groups": "Groups",

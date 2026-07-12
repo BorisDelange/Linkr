@@ -1496,7 +1496,15 @@
     "diff_empty": "Aucune différence.",
     "remote_private": "Privé",
     "remote_token_hint": "Optionnel. Requis uniquement pour un dépôt privé (jeton d'accès personnel).",
-    "remote_connect_failed": "Impossible de se connecter au dépôt"
+    "remote_connect_failed": "Impossible de se connecter au dépôt",
+    "change_added": "Ajouté",
+    "change_modified": "Modifié",
+    "change_deleted": "Supprimé",
+    "change_renamed": "Renommé",
+    "diff_binary": "Fichier binaire — aucun aperçu.",
+    "diff_too_large": "Fichier trop volumineux pour l’aperçu.",
+    "sync_select_all": "Tout sélectionner",
+    "sync_selected_count": "{{count}} fichier(s) sur {{total}} sélectionné(s)"
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",
@@ -1899,7 +1907,10 @@
     "tab_schema_mapping": "Schéma (Mapping)",
     "reset_to_default": "Réinitialiser",
     "reset_confirm": "Cela supprimera vos modifications et restaurera le schéma intégré d'origine. Cette action est irréversible.",
-    "edit_description": "Renommer ce schéma.",
+    "edit_description": "Modifiez le nom et la description de ce schéma.",
+    "field_name": "Nom du schéma",
+    "field_description": "Description",
+    "field_description_placeholder": "Ce que décrit ce schéma (facultatif)",
     "erd_edit_layout": "Modifier la disposition",
     "erd_done": "Terminé",
     "erd_groups": "Groupes",

@@ -77,6 +77,17 @@ async def test_verify_remote_detects_default_branch():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_diff_payload_flags_binary_and_oversized():
+    assert g._diff_payload("hello") == ("hello", False, False)
+    # NUL byte in the head → treated as binary, content dropped.
+    content, big, binary = g._diff_payload("ab\x00cd")
+    assert binary is True and content == "" and big is False
+    # Over the byte cap → too_large, content dropped (protects the UI).
+    huge = "x" * (g._DIFF_MAX_BYTES + 1)
+    content, big, binary = g._diff_payload(huge)
+    assert big is True and content == "" and binary is False
+
+
 @pytest.mark.asyncio
 async def test_status_commit_diff_cycle():
     tmp = Path(tempfile.mkdtemp())

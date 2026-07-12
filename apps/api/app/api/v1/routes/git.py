@@ -67,6 +67,7 @@ async def project_status(
         await file.read(),
         _default_branch(project, branch),
         _remote_url(project),
+        git_secret.token_for(project),
     ))
     return {"linked": _remote_url(project) is not None, **result}
 
@@ -85,6 +86,7 @@ async def project_diff(
         _default_branch(project, branch),
         path,
         _remote_url(project),
+        git_secret.token_for(project),
     ))
 
 
@@ -103,6 +105,7 @@ async def project_commit_push(
     file: UploadFile = File(...),
     message: str = Form(...),
     branch: str | None = Form(None),
+    paths: list[str] | None = Form(None),
     project=Depends(require_project_role("editor")),
 ):
     if _remote_url(project) is None:
@@ -115,6 +118,7 @@ async def project_commit_push(
         message,
         _remote_url(project),
         git_secret.token_for(project),
+        paths,
     ))
 
 
@@ -143,6 +147,7 @@ async def workspace_status(
         await file.read(),
         _default_branch(ws, branch),
         _remote_url(ws),
+        git_secret.token_for(ws),
     ))
     return {"linked": _remote_url(ws) is not None, **result}
 
@@ -164,6 +169,7 @@ async def workspace_diff(
         _default_branch(ws, branch),
         path,
         _remote_url(ws),
+        git_secret.token_for(ws),
     ))
 
 
@@ -185,6 +191,7 @@ async def workspace_commit_push(
     file: UploadFile = File(...),
     message: str = Form(...),
     branch: str | None = Form(None),
+    paths: list[str] | None = Form(None),
     db: AsyncSession = Depends(get_db),
     _member=Depends(require_workspace_role("editor")),
 ):
@@ -199,6 +206,7 @@ async def workspace_commit_push(
         message,
         _remote_url(ws),
         git_secret.token_for(ws),
+        paths,
     ))
 
 

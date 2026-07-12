@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileDiff, FilePlus, FileMinus, FilePen, GitCommitVertical, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
+import { GitCommitVertical, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 import { useGitSyncStore } from '@/stores/git-sync-store'
 import type { GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
+import { changeTypeMeta } from './git-change-meta'
 
 interface GitSyncPanelProps {
   scope: GitScope
@@ -17,21 +20,14 @@ interface GitSyncPanelProps {
   defaultBranch: string
 }
 
-const CHANGE_ICON = {
-  added: FilePlus,
-  modified: FilePen,
-  deleted: FileMinus,
-  renamed: FileDiff,
-} as const
-
 /**
  * Push-only sync UI shown once an entity is linked to a git remote (server mode):
- * pick a branch, review the files that would be committed (with per-file diff),
- * and commit + push in one action.
+ * pick a branch, tick the files to include (data files unchecked by default),
+ * review each file's diff in a full-size viewer, and commit + push the selection.
  */
 export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, loadingStatus, committing, error, refreshStatus, loadBranches, commitPush, reset } =
+  const { status, branches, selected, loadingStatus, committing, error, refreshStatus, loadBranches, commitPush, togglePath, setAllSelected, reset } =
     useGitSyncStore()
   const [branch, setBranch] = useState(defaultBranch)
   const [message, setMessage] = useState('')
@@ -50,7 +46,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   }
 
   const handleCommit = async () => {
-    if (!message.trim() || committing) return
+    if (!message.trim() || committing || selected.size === 0) return
     const result = await commitPush(scope, id, message.trim(), branch)
     if (result?.pushed) {
       setPushed(true)
@@ -61,6 +57,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
 
   const files = status?.files ?? []
   const nothingToCommit = !loadingStatus && files.length === 0
+  const allChecked = files.length > 0 && files.every((f) => selected.has(f.path))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -93,8 +90,17 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
-        <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-          <span className="text-xs font-medium">{t('versioning.sync_changes')}</span>
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
+          <div className="flex items-center gap-2">
+            {!nothingToCommit && !loadingStatus && (
+              <Checkbox
+                checked={allChecked}
+                onCheckedChange={(v) => setAllSelected(!!v)}
+                aria-label={t('versioning.sync_select_all')}
+              />
+            )}
+            <span className="text-xs font-medium">{t('versioning.sync_changes')}</span>
+          </div>
           {status && (
             <span className="text-[11px] text-muted-foreground">
               {t('versioning.sync_summary', { added: status.added, modified: status.modified, deleted: status.deleted })}
@@ -112,15 +118,25 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           <ScrollArea className="min-h-0 flex-1">
             <ul className="divide-y">
               {files.map((f) => {
-                const Icon = CHANGE_ICON[f.changeType] ?? FilePen
+                const meta = changeTypeMeta(f.changeType)
                 return (
-                  <li key={f.path}>
+                  <li key={f.path} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50">
+                    <Checkbox
+                      checked={selected.has(f.path)}
+                      onCheckedChange={() => togglePath(f.path)}
+                      className="shrink-0"
+                    />
                     <button
                       type="button"
                       onClick={() => setDiffPath(f.path)}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted/50"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
                     >
-                      <Icon size={13} className="shrink-0 text-muted-foreground" />
+                      <span
+                        className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-[10px] font-bold', meta.badgeClass)}
+                        title={t(meta.labelKey)}
+                      >
+                        {meta.letter}
+                      </span>
                       <span className="truncate font-mono">{f.path}</span>
                     </button>
                   </li>
@@ -130,6 +146,12 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           </ScrollArea>
         )}
       </div>
+
+      {!nothingToCommit && (
+        <p className="shrink-0 text-[11px] text-muted-foreground">
+          {t('versioning.sync_selected_count', { count: selected.size, total: files.length })}
+        </p>
+      )}
 
       <div className="shrink-0 space-y-2">
         <Label className="text-xs">{t('versioning.sync_message')}</Label>
@@ -152,14 +174,27 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
             {t('versioning.sync_pushed')}
           </span>
         )}
-        <Button onClick={handleCommit} disabled={!message.trim() || nothingToCommit || committing} className="gap-1.5">
+        <Button
+          onClick={handleCommit}
+          disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing}
+          className="gap-1.5"
+        >
           {committing ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
           {t('versioning.sync_commit_push')}
         </Button>
       </div>
 
       {diffPath && (
-        <GitDiffDialog scope={scope} id={id} path={diffPath} branch={branch} onClose={() => setDiffPath(null)} />
+        <GitDiffDialog
+          scope={scope}
+          id={id}
+          branch={branch}
+          files={files}
+          initialPath={diffPath}
+          selected={selected}
+          onToggle={togglePath}
+          onClose={() => setDiffPath(null)}
+        />
       )}
     </div>
   )
