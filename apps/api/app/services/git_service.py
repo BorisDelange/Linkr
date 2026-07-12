@@ -28,7 +28,11 @@ import zipfile
 from pathlib import Path
 from urllib.parse import quote, urlsplit, urlunsplit
 
+import structlog
+
 from app.config import settings
+
+logger = structlog.get_logger()
 
 # git identity for server-made commits (the human author is tracked separately
 # in the commit message / by the app; this is just what git records locally).
@@ -215,6 +219,31 @@ def _stage_paths(repo: Path, paths: list[str]) -> None:
             _run(repo, "rm", "-q", "--", rel, check=False)
 
 
+_lfs_available: bool | None = None  # cached probe result
+
+
+def _has_git_lfs() -> bool:
+    global _lfs_available
+    if _lfs_available is None:
+        try:
+            proc = subprocess.run(["git", "lfs", "version"], capture_output=True, timeout=10, env=_git_env())
+            _lfs_available = proc.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            _lfs_available = False
+        if not _lfs_available:
+            logger.warning(
+                "git-lfs not available: large files (e.g. similarity-scores.parquet) will be "
+                "committed as normal git blobs. Install git-lfs on the server (see Dockerfile.api)."
+            )
+    return _lfs_available
+
+
+def _ensure_lfs(repo: Path) -> None:
+    """Install LFS filters for this repo (idempotent). No-op if git-lfs is absent."""
+    if _has_git_lfs():
+        _run(repo, "lfs", "install", "--local", check=False)
+
+
 def _ensure_repo(repo: Path, remote_url: str | None) -> None:
     """Init the repo (idempotent) and set/refresh 'origin' without credentials."""
     repo.mkdir(parents=True, exist_ok=True)
@@ -223,6 +252,11 @@ def _ensure_repo(repo: Path, remote_url: str | None) -> None:
         _run(repo, "config", "user.name", _COMMIT_NAME)
         _run(repo, "config", "user.email", _COMMIT_EMAIL)
         # Default branch name is set on first commit via `checkout -B`.
+    # Enable LFS smudge/clean filters for this repo so a .gitattributes marking
+    # *.parquet (etc.) filter=lfs actually stores those as LFS objects. Best
+    # effort: if git-lfs isn't installed, warn but don't block — the file would
+    # then commit as a normal blob (see the Dockerfile which installs git-lfs).
+    _ensure_lfs(repo)
     if remote_url:
         current = _run(repo, "remote", "get-url", "origin", check=False).strip()
         if not current:

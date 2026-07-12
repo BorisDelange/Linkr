@@ -666,16 +666,33 @@ export async function buildMappingProjectFolder(
  * takes an id + storage and returns a blob. DB-sourced concept extraction
  * (queryDataSource/ensureMounted) is intentionally omitted — versioning tracks
  * the mapping definition, not a re-derivable DB dump.
+ *
+ * When `includeData` is set, the (potentially ~100 MB) scores parquet is added,
+ * and a `.gitattributes` is generated so heavy/large files are tracked via Git
+ * LFS instead of committed as normal blobs.
  */
 export async function buildMappingProjectZip(
   projectId: string,
   storage: Storage,
+  options: { includeData?: boolean } = {},
 ): Promise<{ blob: Blob; projectName: string } | null> {
   const project = await storage.mappingProjects.getById(projectId)
   if (!project) return null
   const JSZip = (await import('jszip')).default
   const zip = new JSZip()
-  await buildMappingProjectFolder(zip, '', project, storage)
+  await buildMappingProjectFolder(zip, '', project, storage, { includeScores: !!options.includeData })
+
+  // Track heavy/large files via LFS (see git-lfs.ts). Computed from the actual
+  // ZIP entry sizes, then written back into the tree before the caller commits.
+  const { buildGitAttributes } = await import('@/lib/git-lfs')
+  const entries = await Promise.all(
+    Object.values(zip.files)
+      .filter((f) => !f.dir)
+      .map(async (f) => ({ path: f.name, size: (await f.async('uint8array')).byteLength })),
+  )
+  const attrs = buildGitAttributes(entries)
+  if (attrs) zip.file('.gitattributes', attrs)
+
   const blob = await zip.generateAsync({ type: 'blob' })
   return { blob, projectName: localized(project.name, 'en') || project.id }
 }

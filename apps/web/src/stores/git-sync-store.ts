@@ -38,7 +38,7 @@ async function buildZip(scope: GitScope, id: string, includeData: boolean): Prom
     result = await buildWorkspaceZip(id, storage, { includeDataFiles: includeData })
   } else {
     const { buildMappingProjectZip } = await import('@/lib/concept-mapping/export')
-    result = await buildMappingProjectZip(id, storage)
+    result = await buildMappingProjectZip(id, storage, { includeData })
   }
   if (!result) throw new Error('export-failed')
   return result.blob

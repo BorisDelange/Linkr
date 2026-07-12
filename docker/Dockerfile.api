@@ -10,10 +10,16 @@ WORKDIR /app
 
 # Python (for the API) + Rscript is already present. r-cran-* aren't used —
 # we install the R packages from p3m below as binaries.
+# git + git-lfs power server-side project/mapping versioning: git for
+# clone/commit/push, git-lfs so large data files (similarity-scores.parquet,
+# big CSVs) are stored as LFS objects rather than bloating the repo.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     python3-pip \
+    git \
+    git-lfs \
+    && git lfs install --system \
     && rm -rf /var/lib/apt/lists/*
 
 # R packages for server-side execution: arrow (Parquet dataset injection),
