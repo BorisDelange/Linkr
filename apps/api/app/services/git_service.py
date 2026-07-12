@@ -89,6 +89,12 @@ def _workspace_repo(workspace_id: str) -> Path:
     return d
 
 
+def _mapping_project_repo(mapping_project_id: str) -> Path:
+    d = settings.data_path / "mapping-projects" / mapping_project_id / "versioning"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 _GH_NAV_SEGMENTS = ("tree", "blob", "commit", "commits", "pull", "pulls", "releases", "tags", "branches", "find", "raw")
 
 
@@ -489,10 +495,14 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> bytes:
     return await asyncio.to_thread(work)
 
 
-# Repo-getter bindings for the two scopes (passed to the generic ops above).
+# Repo-getter bindings per scope (passed to the generic ops above).
 def project_repo_getter(uid: str) -> Path:
     return _project_repo(uid)
 
 
 def workspace_repo_getter(uid: str) -> Path:
     return _workspace_repo(uid)
+
+
+def mapping_project_repo_getter(uid: str) -> Path:
+    return _mapping_project_repo(uid)

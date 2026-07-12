@@ -11,7 +11,7 @@ from app.schemas.mapping_project import (
     ServiceMappingCreate,
     ServiceMappingUpdate,
 )
-from app.services import blob_store
+from app.services import blob_store, git_secret
 
 
 async def _sha_still_referenced(db: AsyncSession, sha: str) -> bool:
@@ -48,7 +48,11 @@ async def get(db: AsyncSession, project_id: str) -> MappingProject | None:
 
 
 async def create(db: AsyncSession, data: MappingProjectCreate) -> MappingProject:
-    project = MappingProject(**data.model_dump(exclude_none=True))
+    payload = data.model_dump(exclude_none=True)
+    project = MappingProject()
+    git_secret.apply_to_entity(project, payload)
+    for key, value in payload.items():
+        setattr(project, key, value)
     db.add(project)
     await db.commit()
     await db.refresh(project)
@@ -59,6 +63,7 @@ async def update(
     db: AsyncSession, project: MappingProject, data: MappingProjectUpdate
 ) -> MappingProject:
     changes = data.model_dump(exclude_unset=True)
+    git_secret.apply_to_entity(project, changes)
     old_sha = project.raw_file_sha
     for key, value in changes.items():
         setattr(project, key, value)

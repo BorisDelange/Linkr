@@ -660,6 +660,26 @@ export async function buildMappingProjectFolder(
   }
 }
 
+/**
+ * Build a standalone mapping-project export ZIP (metadata + mappings + concept
+ * sets + source ids), for git versioning. Mirrors buildProjectZip's shape:
+ * takes an id + storage and returns a blob. DB-sourced concept extraction
+ * (queryDataSource/ensureMounted) is intentionally omitted — versioning tracks
+ * the mapping definition, not a re-derivable DB dump.
+ */
+export async function buildMappingProjectZip(
+  projectId: string,
+  storage: Storage,
+): Promise<{ blob: Blob; projectName: string } | null> {
+  const project = await storage.mappingProjects.getById(projectId)
+  if (!project) return null
+  const JSZip = (await import('jszip')).default
+  const zip = new JSZip()
+  await buildMappingProjectFolder(zip, '', project, storage)
+  const blob = await zip.generateAsync({ type: 'blob' })
+  return { blob, projectName: localized(project.name, 'en') || project.id }
+}
+
 // ---------------------------------------------------------------------------
 // Browser download helper
 // ---------------------------------------------------------------------------

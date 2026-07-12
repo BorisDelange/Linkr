@@ -48,6 +48,8 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
   onExport?: (item: T) => void
   /** When set, the Export menu item calls this instead (e.g. navigate to the item's own export view). */
   onExportOverride?: (item: T) => void
+  /** When set, the Versioning menu item calls this instead of opening the dialog (e.g. navigate to a Versioning tab). */
+  onVersioningOverride?: (item: T) => void
   /** Read the item's git link (null when unlinked). When provided alongside onSaveGitRemote, the Versioning menu item is enabled. */
   getGitRemote?: (item: T) => GitRemoteConfig | null
   /** Persist (or clear) the item's git link. Required to enable the Versioning menu item. */
@@ -96,6 +98,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   onDelete,
   onExport,
   onExportOverride,
+  onVersioningOverride,
   getGitRemote,
   onSaveGitRemote,
   exportSupportsIncludeData = true,
@@ -194,6 +197,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     onDelete={onDelete}
                     onExport={onExport}
                     onExportOverride={onExportOverride}
+                    onVersioningOverride={onVersioningOverride}
                     getGitRemote={getGitRemote}
                     onSaveGitRemote={onSaveGitRemote}
                     exportSupportsIncludeData={exportSupportsIncludeData}

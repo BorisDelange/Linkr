@@ -219,6 +219,98 @@ async def workspace_commit_push(
     ))
 
 
+# --- Mapping project scope ------------------------------------------------
+
+
+async def _load_mapping_project(mapping_project_id: str, db: AsyncSession, user: User, permission: str):
+    from app.core.permissions import check_workspace_permission
+    from app.services import mapping_project_service
+
+    mp = await mapping_project_service.get(db, mapping_project_id)
+    if mp is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mapping project not found")
+    await check_workspace_permission(db, mp.workspace_id, user, permission)
+    return mp
+
+
+@router.post("/mapping-projects/{mapping_project_id}/status", response_model=GitStatusResponse)
+async def mapping_project_status(
+    mapping_project_id: str,
+    file: UploadFile = File(...),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    result = await _guard(git_service.status(
+        git_service.mapping_project_repo_getter,
+        mp.id,
+        await file.read(),
+        _default_branch(mp, branch),
+        _remote_url(mp),
+        git_secret.token_for(mp),
+    ))
+    return {"linked": _remote_url(mp) is not None, **result}
+
+
+@router.post("/mapping-projects/{mapping_project_id}/diff", response_model=GitDiffResponse)
+async def mapping_project_diff(
+    mapping_project_id: str,
+    file: UploadFile = File(...),
+    path: str = Form(...),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    return await _guard(git_service.diff(
+        git_service.mapping_project_repo_getter,
+        mp.id,
+        await file.read(),
+        _default_branch(mp, branch),
+        path,
+        _remote_url(mp),
+        git_secret.token_for(mp),
+    ))
+
+
+@router.get("/mapping-projects/{mapping_project_id}/branches", response_model=GitBranchesResponse)
+async def mapping_project_branches(
+    mapping_project_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    return await git_service.branches(
+        git_service.mapping_project_repo_getter, mp.id, _remote_url(mp), git_secret.token_for(mp)
+    )
+
+
+@router.post("/mapping-projects/{mapping_project_id}/commit-push", response_model=GitCommitResponse)
+async def mapping_project_commit_push(
+    mapping_project_id: str,
+    file: UploadFile = File(...),
+    message: str = Form(...),
+    branch: str | None = Form(None),
+    paths: list[str] | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:write")
+    if _remote_url(mp) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mapping project is not linked to a git remote")
+    return await _guard(git_service.commit_push(
+        git_service.mapping_project_repo_getter,
+        mp.id,
+        await file.read(),
+        _default_branch(mp, branch),
+        message,
+        _remote_url(mp),
+        git_secret.token_for(mp),
+        paths,
+    ))
+
+
 # --- Verify + Clone (no entity, just authenticated) -----------------------
 
 

@@ -176,17 +176,19 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         <TabsContent value="export" className="flex-1 overflow-hidden">
           {activeTab === 'export' && <ExportTab project={project} dataSource={dataSource} />}
         </TabsContent>
-        <TabsContent value="versioning" className="flex-1 overflow-auto">
+        <TabsContent value="versioning" className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'versioning' && (
-            <div className="mx-auto max-w-2xl px-6 py-6">
-              {/* git-only: the mapping project already has its own Export tab, and
-                  the push/pull sync panel needs a backend git scope not yet defined
-                  for mapping projects — so this mirrors the current "..." dialog. */}
+            <div className="mx-auto flex min-h-0 h-full w-full max-w-3xl flex-col px-6 py-6">
+              {/* git-only (the mapping project has its own Export tab) but with the
+                  full push-only sync panel, same as project/workspace versioning. */}
               <VersioningTabs
+                fillHeight
                 gitOnly
                 exportContent={null}
                 gitRemote={project.gitRemoteConfig ?? null}
                 onSaveGitRemote={(cfg) => updateMappingProject(project.id, { gitRemoteConfig: cfg ?? undefined })}
+                syncScope="mapping-projects"
+                syncId={project.id}
               />
             </div>
           )}

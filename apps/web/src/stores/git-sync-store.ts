@@ -30,10 +30,16 @@ export interface GitSyncError {
 }
 
 async function buildZip(scope: GitScope, id: string, includeData: boolean): Promise<Blob> {
-  const result =
-    scope === 'projects'
-      ? await buildProjectZip(id, getStorage(), { includeDataFiles: includeData })
-      : await buildWorkspaceZip(id, getStorage(), { includeDataFiles: includeData })
+  const storage = getStorage()
+  let result: { blob: Blob } | null
+  if (scope === 'projects') {
+    result = await buildProjectZip(id, storage, { includeDataFiles: includeData })
+  } else if (scope === 'workspaces') {
+    result = await buildWorkspaceZip(id, storage, { includeDataFiles: includeData })
+  } else {
+    const { buildMappingProjectZip } = await import('@/lib/concept-mapping/export')
+    result = await buildMappingProjectZip(id, storage)
+  }
   if (!result) throw new Error('export-failed')
   return result.blob
 }

@@ -68,3 +68,30 @@ async def test_git_status_requires_auth(client):
     files = {"file": ("export.zip", _zip({"a.txt": "x"}), "application/zip")}
     r = await client.post(f"{API}/git/projects/whatever/status", files=files)
     assert r.status_code in (401, 403)
+
+
+async def test_git_mapping_project_scope(client, db):
+    """The mapping-project git scope is mounted, token is encrypted, status runs."""
+    from sqlalchemy import select
+
+    from app.models.mapping_project import MappingProject
+
+    headers = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    await client.post(
+        f"{API}/mapping-projects",
+        headers=headers,
+        json={
+            "id": "mp-git-1", "workspaceId": ws, "name": {"en": "M"}, "description": {},
+            "sourceType": "database", "dataSourceId": "src-1", "conceptSetIds": [],
+            "gitRemoteConfig": {"url": "https://x/y.git", "branch": "main", "authToken": "glpat-secret"},
+        },
+    )
+    # Token encrypted, never returned in the config.
+    mp = (await db.execute(select(MappingProject).where(MappingProject.id == "mp-git-1"))).scalar_one()
+    assert mp.git_remote_secret and mp.git_remote_secret != "glpat-secret"
+
+    files = {"file": ("export.zip", _zip({"mapping-project.json": "{}"}), "application/zip")}
+    r = await client.post(f"{API}/git/mapping-projects/mp-git-1/status", headers=headers, files=files, data={"branch": "main"})
+    assert r.status_code == 200
+    assert r.json()["added"] == 1

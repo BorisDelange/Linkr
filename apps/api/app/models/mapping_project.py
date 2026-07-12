@@ -37,6 +37,8 @@ class MappingProject(Base, TimestampMixin):
     stats: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     import_batches: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Fernet ciphertext of the git access token; never returned by the API.
+    git_remote_secret: Mapped[str | None] = mapped_column(Text)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
 
 
