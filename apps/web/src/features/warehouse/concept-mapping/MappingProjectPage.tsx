@@ -1,18 +1,11 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { localized } from '@/lib/localized'
-import { FileSpreadsheet, Database, Settings2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useVisitStore } from '@/stores/visit-store'
-import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { unmountFileSource } from '@/lib/duckdb/engine'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
-import { MAPPING_STATUS_COLORS, CreateMappingProjectDialog } from './CreateMappingProjectDialog'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
 import { ConceptSetsTab } from './ConceptSetsTab'
 import { MappingEditorTab } from './MappingEditorTab'
@@ -25,9 +18,7 @@ interface MappingProjectPageProps {
 }
 
 export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
-  const { t, i18n } = useTranslation()
-  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
-  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') ?? 'progress'
   const setActiveTab = (value: string) => {
@@ -91,56 +82,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   }
 
   return (
-    <>
-    <CreateMappingProjectDialog
-      open={editDialogOpen}
-      onOpenChange={setEditDialogOpen}
-      editingProject={project}
-    />
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center gap-2 border-b px-4 py-2">
-        {project.status && (
-          <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${MAPPING_STATUS_COLORS[project.status].bg} ${MAPPING_STATUS_COLORS[project.status].text}`}>
-            <span className={`size-1.5 rounded-full ${MAPPING_STATUS_COLORS[project.status].dot}`} />
-            {t(`concept_mapping.project_status_${project.status}`)}
-          </span>
-        )}
-        {project.badges && project.badges.map((badge) => (
-          <span
-            key={badge.id}
-            className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${getBadgeClasses(badge.color)}`}
-            style={getBadgeStyle(badge.color)}
-          >
-            {badge.label}
-          </span>
-        ))}
-        {isFileSource && project.fileSourceData && (
-          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            <FileSpreadsheet size={12} />
-            {project.fileSourceData.fileName}
-            <span className="text-[10px]">
-              ({(project.fileSourceData.totalRowCount ?? project.fileSourceData.rows.length).toLocaleString()} {t('concept_mapping.file_rows')})
-            </span>
-          </span>
-        )}
-        {!isFileSource && dataSource && (
-          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            <Database size={12} />
-            {dataSource.name}{dataSource.schemaMapping?.presetLabel ? ` (${localized(dataSource.schemaMapping.presetLabel, i18n.language)})` : ''}
-          </span>
-        )}
-        <div className="flex-1" />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" disabled={!canWrite} onClick={() => setEditDialogOpen(true)}>
-              <Settings2 size={15} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.edit_project')}</TooltipContent>
-        </Tooltip>
-      </div>
-
       {/* Tabs — centered */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
         <div className="flex justify-center">
@@ -195,6 +137,5 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         </TabsContent>
       </Tabs>
     </div>
-    </>
   )
 }
