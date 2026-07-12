@@ -1525,7 +1525,8 @@
     "git_error_details": "Afficher l'erreur complète",
     "sync_include_data": "Inclure les fichiers de données (CSV, parquet…)",
     "lfs_add": "Suivre avec Git LFS",
-    "lfs_remove": "Retirer de Git LFS"
+    "lfs_remove": "Retirer de Git LFS",
+    "diff_truncated": "Fichier volumineux — aperçu limité aux 1000 premières lignes."
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",

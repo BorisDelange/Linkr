@@ -113,29 +113,39 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
                   <Loader2 size={14} className="animate-spin" />
                   {t('versioning.sync_computing')}
                 </div>
-              ) : diff?.binary || diff?.tooLarge ? (
+              ) : diff?.binary ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
                   <FileWarning size={28} />
-                  <p className="text-sm">{t(diff.binary ? 'versioning.diff_binary' : 'versioning.diff_too_large')}</p>
+                  <p className="text-sm">{t('versioning.diff_binary')}</p>
                 </div>
               ) : (
-                <DiffEditor
-                  key={path}
-                  original={diff?.oldContent ?? ''}
-                  modified={diff?.newContent ?? ''}
-                  language={language}
-                  theme={darkMode ? 'linkr-dark' : 'linkr-light'}
-                  beforeMount={beforeMount}
-                  options={{
-                    readOnly: true,
-                    renderSideBySide: true,
-                    wordWrap: 'on',
-                    minimap: { enabled: false },
-                    scrollBeyondLastLine: false,
-                    fontSize: 12,
-                    automaticLayout: true,
-                  }}
-                />
+                <div className="flex h-full flex-col">
+                  {diff?.truncated && (
+                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+                      <FileWarning size={12} />
+                      {t('versioning.diff_truncated')}
+                    </div>
+                  )}
+                  <div className="min-h-0 flex-1">
+                    <DiffEditor
+                      key={path}
+                      original={diff?.oldContent ?? ''}
+                      modified={diff?.newContent ?? ''}
+                      language={language}
+                      theme={darkMode ? 'linkr-dark' : 'linkr-light'}
+                      beforeMount={beforeMount}
+                      options={{
+                        readOnly: true,
+                        renderSideBySide: true,
+                        wordWrap: 'on',
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false,
+                        fontSize: 12,
+                        automaticLayout: true,
+                      }}
+                    />
+                  </div>
+                </div>
               )}
             </Allotment.Pane>
           </Allotment>

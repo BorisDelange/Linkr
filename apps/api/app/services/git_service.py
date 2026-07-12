@@ -22,7 +22,9 @@ asyncio.to_thread to keep the event loop responsive (mirrors blob_store).
 
 import asyncio
 import io
+import ipaddress
 import shutil
+import socket
 import subprocess
 import zipfile
 from pathlib import Path
@@ -124,6 +126,31 @@ def _clean_url(url: str) -> str:
     return url.rstrip("/")
 
 
+def _reject_internal_host(url: str) -> None:
+    """Refuse an http(s) remote whose host resolves to a loopback/link-local/
+    private/reserved address — the clone & sync flows let any authenticated user
+    make the server open a connection to an arbitrary URL, so block SSRF to the
+    metadata endpoint (169.254.169.254), localhost, and the internal network.
+
+    ssh/git remotes are left to the OS (no server-side HTTP fetch); a host that
+    fails to resolve is left for git to error on (network code), not blocked here.
+    """
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        return
+    host = parts.hostname
+    if not host:
+        raise GitError("remote URL has no host", "network")
+    try:
+        infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except OSError:
+        return  # unresolvable → let git fail with a network error, don't leak resolvability
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_loopback or ip.is_link_local or ip.is_private or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            raise GitError("remote host is not allowed (internal address)", "network")
+
+
 def _with_credentials(url: str, token: str | None) -> str:
     """Inject an access token into an https remote URL for a single call.
 
@@ -162,18 +189,22 @@ def _git_env() -> dict:
     }
 
 
-def _run(repo: Path, *args: str, token: str | None = None, check: bool = True) -> str:
+def _run(repo: Path, *args: str, token: str | None = None, check: bool = True, env_extra: dict | None = None) -> str:
     """Run a git command in `repo`; return stdout. Raise GitError on failure.
 
     Credentials that may appear in args/output are scrubbed from any error.
+    `env_extra` adds/overrides env vars for this call (e.g. GIT_LFS_SKIP_SMUDGE).
     """
+    env = _git_env()
+    if env_extra:
+        env.update(env_extra)
     try:
         proc = subprocess.run(
             ["git", "-C", str(repo), *args],
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT,
-            env=_git_env(),
+            env=env,
         )
     except subprocess.TimeoutExpired as exc:
         raise GitError(f"git {args[0]} timed out", "network") from exc
@@ -193,6 +224,7 @@ def _sync_remote_branch(repo: Path, branch: str, remote_url: str | None, token: 
     """
     if not remote_url:
         return False
+    _reject_internal_host(remote_url)
     fetch_url = _with_credentials(remote_url, token)
     out = _run(repo, "ls-remote", "--heads", fetch_url, branch, token=token, check=False)
     if f"refs/heads/{branch}" not in out:
@@ -200,11 +232,15 @@ def _sync_remote_branch(repo: Path, branch: str, remote_url: str | None, token: 
         _run(repo, "checkout", "-B", branch, check=False)
         _run(repo, "rm", "-r", "-q", "--cached", ".", check=False)
         return False
-    _run(repo, "fetch", "-q", fetch_url, branch, token=token)
+    # Skip downloading LFS objects here: status/diff only need the tree + pointers
+    # to compare, not the (potentially ~100 MB) file contents. This is what makes
+    # "Computing changes" fast on a repo with large LFS files.
+    skip_lfs = {"GIT_LFS_SKIP_SMUDGE": "1"}
+    _run(repo, "fetch", "-q", fetch_url, branch, token=token, env_extra=skip_lfs)
     # Reset index+HEAD to the fetched commit but keep the working tree (we replace
     # it with the export next), so status compares export vs the remote content.
-    _run(repo, "checkout", "-B", branch, check=False)
-    _run(repo, "reset", "-q", "--mixed", "FETCH_HEAD")
+    _run(repo, "checkout", "-B", branch, check=False, env_extra=skip_lfs)
+    _run(repo, "reset", "-q", "--mixed", "FETCH_HEAD", env_extra=skip_lfs)
     return True
 
 
@@ -213,7 +249,7 @@ def _stage_paths(repo: Path, paths: list[str]) -> None:
     `rm --cached`+worktree delete if the path is a deletion (gone from the export
     but tracked in HEAD)."""
     for rel in paths:
-        if (repo / rel).is_file():
+        if _safe_join(repo, rel).is_file():
             _run(repo, "add", "--", rel)
         else:
             _run(repo, "rm", "-q", "--", rel, check=False)
@@ -265,6 +301,16 @@ def _ensure_repo(repo: Path, remote_url: str | None) -> None:
             _run(repo, "remote", "set-url", "origin", remote_url)
 
 
+def _safe_join(tree: Path, rel: str) -> Path:
+    """Resolve `rel` under `tree`, refusing anything that escapes it (a client
+    `path`/`paths` entry could be `../../etc/passwd`). Raises GitError on escape."""
+    dest = (tree / rel).resolve()
+    root = tree.resolve()
+    if dest != root and root not in dest.parents:
+        raise GitError(f"path escapes tree: {rel}")
+    return dest
+
+
 def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
     """Replace the working tree's tracked content with the ZIP's, preserving .git.
 
@@ -283,9 +329,7 @@ def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
             if name.endswith("/"):
                 continue
             # Reject path traversal from a crafted ZIP.
-            dest = (tree / name).resolve()
-            if tree.resolve() not in dest.parents and dest != tree.resolve():
-                raise GitError(f"ZIP entry escapes tree: {name}")
+            dest = _safe_join(tree, name)
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(zf.read(name))
 
@@ -341,19 +385,29 @@ async def status(repo_getter, uid: str, zip_bytes: bytes, branch: str, remote_ur
         return await asyncio.to_thread(work)
 
 
-# Beyond this, a side-by-side diff is neither useful nor cheap (LCS is O(n²)
-# memory), and shipping megabytes of a CSV to the browser would freeze the UI.
+# Shipping megabytes to the browser (and diffing them, LCS is O(n²)) would freeze
+# the UI, so an oversized text file is truncated to a preview rather than dropped:
+# the user still sees the head of a big CSV/JSON instead of "too large".
 _DIFF_MAX_BYTES = 256 * 1024
+_DIFF_MAX_LINES = 1000
 
 
 def _diff_payload(text: str) -> tuple[str, bool, bool]:
-    """(content, too_large, binary) for one side of a diff. Binary or oversized
-    content is dropped so the UI shows a placeholder instead of choking."""
+    """(content, truncated, binary) for one side of a diff. Binary content is
+    dropped (no preview); oversized text is truncated to the first _DIFF_MAX_LINES
+    lines or _DIFF_MAX_BYTES bytes, whichever comes first, with truncated=True."""
     if "\x00" in text[:8192]:
         return "", False, True
-    if len(text.encode("utf-8", errors="ignore")) > _DIFF_MAX_BYTES:
-        return "", True, False
-    return text, False, False
+    over_bytes = len(text.encode("utf-8", errors="ignore")) > _DIFF_MAX_BYTES
+    lines = text.split("\n")
+    over_lines = len(lines) > _DIFF_MAX_LINES
+    if not over_bytes and not over_lines:
+        return text, False, False
+    # Cap by lines first, then hard-cap bytes in case a few lines are huge.
+    preview = "\n".join(lines[:_DIFF_MAX_LINES])
+    if len(preview.encode("utf-8", errors="ignore")) > _DIFF_MAX_BYTES:
+        preview = preview.encode("utf-8", errors="ignore")[:_DIFF_MAX_BYTES].decode("utf-8", errors="ignore")
+    return preview, True, False
 
 
 async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, remote_url: str | None, token: str | None = None) -> dict:
@@ -364,22 +418,31 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
 
     def work() -> dict:
         repo = repo_getter(uid)
+        _safe_join(repo, path)  # reject a traversing path before any git/FS use
         _ensure_repo(repo, remote_url)
         _sync_remote_branch(repo, branch, remote_url, token)
         old_raw = _run(repo, "show", f"HEAD:{path}", check=False)
         _unpack_zip_into(zip_bytes, repo)
         _run(repo, "add", "-A")
         status_files = {f["path"]: f["changeType"] for f in _porcelain_status(repo)}
-        new_file = repo / path
+        new_file = _safe_join(repo, path)
         new_raw = new_file.read_text(encoding="utf-8", errors="replace") if new_file.is_file() else ""
-        old, old_big, old_bin = _diff_payload(old_raw)
-        new, new_big, new_bin = _diff_payload(new_raw)
+        # HEAD content of an LFS-tracked file is just its pointer (we fetch with
+        # SKIP_SMUDGE), so a text diff against it is meaningless — flag as binary.
+        if old_raw.startswith("version https://git-lfs"):
+            old_raw = ""
+            old_is_lfs = True
+        else:
+            old_is_lfs = False
+        old, old_trunc, old_bin = _diff_payload(old_raw)
+        new, new_trunc, new_bin = _diff_payload(new_raw)
+        old_bin = old_bin or old_is_lfs
         return {
             "path": path,
             "changeType": status_files.get(path, "modified"),
             "oldContent": old,
             "newContent": new,
-            "tooLarge": old_big or new_big,
+            "truncated": old_trunc or new_trunc,
             "binary": old_bin or new_bin,
         }
 
@@ -422,6 +485,7 @@ async def commit_push(
         head = _run(repo, "rev-parse", "HEAD").strip()
         pushed = False
         if remote_url:
+            _reject_internal_host(remote_url)
             push_url = _with_credentials(remote_url, token)
             _run(repo, "push", push_url, f"{branch}:{branch}", token=token)
             pushed = True
@@ -444,6 +508,7 @@ async def branches(repo_getter, uid: str, remote_url: str | None, token: str | N
         _ensure_repo(repo, remote_url)
         names: list[str] = []
         if remote_url:
+            _reject_internal_host(remote_url)
             ls_url = _with_credentials(remote_url, token)
             out = _run(repo, "ls-remote", "--heads", ls_url, token=token, check=False)
             for line in out.splitlines():
@@ -465,7 +530,9 @@ async def verify_remote(url: str, token: str | None) -> dict:
     so the caller can refuse to persist an unreachable/unauthorized link."""
 
     def work() -> dict:
-        ls_url = _with_credentials(_clean_url(url), token)
+        cleaned = _clean_url(url)
+        _reject_internal_host(cleaned)
+        ls_url = _with_credentials(cleaned, token)
         proc = subprocess.run(
             ["git", "ls-remote", "--symref", ls_url, "HEAD"],
             capture_output=True,
@@ -506,7 +573,9 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> bytes:
 
         tmp = Path(tempfile.mkdtemp(prefix="linkr-clone-"))
         try:
-            clone_url = _with_credentials(_clean_url(url), token)
+            cleaned = _clean_url(url)
+            _reject_internal_host(cleaned)
+            clone_url = _with_credentials(cleaned, token)
             args = ["clone", "--depth", "1", "--single-branch"]
             if branch:
                 args += ["--branch", branch]

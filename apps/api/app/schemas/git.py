@@ -21,7 +21,7 @@ class GitDiffResponse(CamelModel):
     change_type: str
     old_content: str
     new_content: str
-    too_large: bool = False
+    truncated: bool = False  # preview capped to the first lines/bytes of a large file
     binary: bool = False
 
 

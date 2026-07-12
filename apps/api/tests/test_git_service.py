@@ -50,6 +50,52 @@ def test_unpack_rejects_zip_traversal():
         shutil.rmtree(tree, ignore_errors=True)
 
 
+def test_safe_join_rejects_traversal_keeps_legit_paths():
+    tree = Path(tempfile.mkdtemp())
+    try:
+        # A normal in-tree path resolves under the tree.
+        assert g._safe_join(tree, "scripts/main.py").is_relative_to(tree.resolve())
+        # Traversal (even deep) and absolute paths are refused.
+        for bad in ("../../../../etc/passwd", "a/../../escape", "/etc/hostname"):
+            with pytest.raises(g.GitError):
+                g._safe_join(tree, bad)
+    finally:
+        shutil.rmtree(tree, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_diff_rejects_traversing_path():
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        z = _zip({"project.json": "{}"})
+        await g.commit_push(getter, "u", z, "main", "init", None, None)
+        with pytest.raises(g.GitError):
+            await g.diff(getter, "u", z, "main", "../../../../etc/passwd", None)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_reject_internal_host_blocks_ssrf_targets():
+    # Metadata endpoint, loopback, and private ranges must be refused.
+    for bad in (
+        "http://169.254.169.254/latest/meta-data/",
+        "https://127.0.0.1/x.git",
+        "http://localhost:8000/x.git",
+        "http://10.0.0.5/x.git",
+        "https://192.168.1.1/x.git",
+    ):
+        with pytest.raises(g.GitError):
+            g._reject_internal_host(bad)
+    # ssh remotes are not our HTTP fetch to police; an unresolvable host is left
+    # for git to error on (not blocked here).
+    g._reject_internal_host("git@github.com:o/r.git")
+    g._reject_internal_host("https://definitely-not-a-real-host.invalid/x.git")
+
+
 @pytest.mark.asyncio
 async def test_verify_remote_rejects_unreachable_url():
     # A bogus host must fail fast (non-interactive env → no credential-prompt hang).
@@ -104,15 +150,17 @@ def test_classify_error_maps_git_stderr_to_codes():
     assert g._classify_error("something odd") == "unknown"
 
 
-def test_diff_payload_flags_binary_and_oversized():
+def test_diff_payload_truncates_large_and_flags_binary():
     assert g._diff_payload("hello") == ("hello", False, False)
-    # NUL byte in the head → treated as binary, content dropped.
-    content, big, binary = g._diff_payload("ab\x00cd")
-    assert binary is True and content == "" and big is False
-    # Over the byte cap → too_large, content dropped (protects the UI).
-    huge = "x" * (g._DIFF_MAX_BYTES + 1)
-    content, big, binary = g._diff_payload(huge)
-    assert big is True and content == "" and binary is False
+    # NUL byte in the head → treated as binary, content dropped (no preview).
+    content, trunc, binary = g._diff_payload("ab\x00cd")
+    assert binary is True and content == "" and trunc is False
+    # Over the line cap → truncated to the first _DIFF_MAX_LINES, not dropped.
+    many = "\n".join(str(i) for i in range(g._DIFF_MAX_LINES + 500))
+    content, trunc, binary = g._diff_payload(many)
+    assert trunc is True and binary is False
+    assert content.count("\n") + 1 == g._DIFF_MAX_LINES  # preview capped
+    assert content.startswith("0\n1\n")  # keeps the head
 
 
 @pytest.mark.asyncio

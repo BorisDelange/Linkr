@@ -31,7 +31,8 @@ export interface GitDiff {
   changeType: FileChangeType | 'renamed'
   oldContent: string
   newContent: string
-  tooLarge: boolean
+  /** Content is a preview capped to the first lines/bytes of a large file. */
+  truncated: boolean
   binary: boolean
 }
 
