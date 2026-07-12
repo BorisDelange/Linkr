@@ -269,7 +269,7 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
   useEffect(() => {
     if (!server || !datasetFileId || !code) return
     let cancelled = false
-    executeOnServer('python', code, { datasetFileId, datasetFilters, purpose: 'datasets' })
+    executeOnServer('python', code, { datasetFileId, datasetFilters, purpose: 'render' })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerError(out.stderr); return }

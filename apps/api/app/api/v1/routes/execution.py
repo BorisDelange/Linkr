@@ -66,10 +66,12 @@ async def _require_code_execution(
         )
 
 
-# The "purpose" of an /execute call → the permission it needs. Rendering a
-# widget/analysis runs author-defined code, gated by the owning resource's own
-# "execute" (dashboards/datasets/patient-data — viewer holds these by default),
-# distinct from ide:execute (arbitrary code typed in the IDE).
+# The "purpose" of an /execute call → the permission it needs.
+#   "render" → a built-in component's server-side aggregation (generated code, no
+#     user interpreter): a VIEW operation, so any project read access is enough.
+#   dashboards/datasets/patient-data → a code-backed widget/analysis (author R/Python
+#     code) → the owning resource's :execute (editor+ by default).
+#   ide → arbitrary code in the IDE → ide:execute.
 _PURPOSE_PERMISSION = {
     "ide": "ide:execute",
     "dashboards": "dashboards:execute",
@@ -81,11 +83,15 @@ _PURPOSE_PERMISSION = {
 async def _require_execute(
     db: AsyncSession, project_uid: str, user: User, purpose: str
 ) -> None:
-    """Enforce the execute permission for this run's `purpose` on the project."""
-    permission = _PURPOSE_PERMISSION.get(purpose, "ide:execute")
+    """Enforce the permission for this run's `purpose` on the project."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    # A built-in component render is view-time: any read access suffices.
+    if purpose == "render":
+        await check_project_role(db, project, user, "viewer")
+        return
+    permission = _PURPOSE_PERMISSION.get(purpose, "ide:execute")
     if not await has_project_permission(db, project, user, permission):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Code execution not permitted on this project"

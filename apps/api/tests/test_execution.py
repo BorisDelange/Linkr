@@ -373,13 +373,16 @@ async def test_render_execute_gated_per_resource(client):
     val_id = next(u["id"] for u in (await client.get(f"{API}/users", headers=admin)).json() if u["username"] == "val")
     val = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'val', 'password': 'pw'})).json()['access_token']}"}
 
-    # Viewer: no code execution at all — neither IDE nor a code-backed widget.
+    # Viewer: no code execution (IDE / code-backed widget), BUT a built-in
+    # component render ("render") is a view op → allowed.
     await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
                      json={"userId": val_id, "role": "viewer"})
     assert (await client.post(f"{API}/execute", headers=val,
             json={"language": "python", "code": "print(1)", "projectUid": uid})).status_code == 403
     assert (await client.post(f"{API}/execute", headers=val,
             json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "dashboards"})).status_code == 403
+    assert (await client.post(f"{API}/execute", headers=val,
+            json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "render"})).status_code == 200
 
     # Editor: holds dashboards:execute (and ide:execute) → both allowed.
     await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
