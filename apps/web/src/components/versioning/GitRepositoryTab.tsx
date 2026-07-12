@@ -11,7 +11,7 @@ import { toGitError } from '@/lib/git-error-message'
 import type { GitErrorCode, GitScope } from '@/lib/api/git'
 import type { GitRemoteConfig } from '@/types'
 import { GitSyncPanel } from './GitSyncPanel'
-import { GitErrorNotice } from './GitErrorNotice'
+import { GitErrorInline } from './GitErrorInline'
 import { GitTokenDialog } from './GitTokenDialog'
 import { GitTokenHelp } from './GitTokenHelp'
 
@@ -185,7 +185,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
         />
         <p className="text-[11px] text-muted-foreground leading-relaxed">{t('versioning.remote_token_hint')}</p>
       </div>
-      {error && <GitErrorNotice code={error.code} raw={error.raw} />}
+      {error && <GitErrorInline detail={error.raw} />}
       <div className="flex justify-end">
         <Button onClick={handleConnect} disabled={!canConnect || saving} className="gap-1.5">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}

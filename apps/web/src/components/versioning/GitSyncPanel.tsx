@@ -11,7 +11,7 @@ import { useGitSyncStore } from '@/stores/git-sync-store'
 import type { GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
 import { ChangeBadge } from './ChangeBadge'
-import { GitErrorNotice } from './GitErrorNotice'
+import { GitErrorInline } from './GitErrorInline'
 
 interface GitSyncPanelProps {
   scope: GitScope
@@ -159,7 +159,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
 
       {error && (
         <div className="shrink-0">
-          <GitErrorNotice code={error.code} raw={error.raw} />
+          <GitErrorInline detail={error.raw} />
         </div>
       )}
 

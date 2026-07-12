@@ -1520,7 +1520,9 @@
     "token_help_github_3": "Copy it and paste it here",
     "token_help_gitlab_1": "Preferences → Access Tokens (or the project’s Settings → Access Tokens)",
     "token_help_gitlab_2": "Create a token with the \"read_repository\" and \"write_repository\" scopes",
-    "token_help_gitlab_3": "Copy it and paste it here"
+    "token_help_gitlab_3": "Copy it and paste it here",
+    "git_error_generic": "Something went wrong with the git operation.",
+    "git_error_details": "Show the full error"
   },
   "summary": {
     "tab_overview": "Overview",

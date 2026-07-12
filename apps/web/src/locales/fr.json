@@ -1520,7 +1520,9 @@
     "token_help_github_3": "Copiez-le et collez-le ici",
     "token_help_gitlab_1": "Préférences → Jetons d’accès (ou Paramètres du projet → Jetons d’accès)",
     "token_help_gitlab_2": "Créez un jeton avec les portées « read_repository » et « write_repository »",
-    "token_help_gitlab_3": "Copiez-le et collez-le ici"
+    "token_help_gitlab_3": "Copiez-le et collez-le ici",
+    "git_error_generic": "Une erreur est survenue lors de l'opération git.",
+    "git_error_details": "Afficher l'erreur complète"
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",

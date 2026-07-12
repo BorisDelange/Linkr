@@ -12,9 +12,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getGitCorsProxy, setGitCorsProxy, cloneRepoToZip, classifyCloneError } from '@/lib/git-clone'
+import { getGitCorsProxy, setGitCorsProxy, cloneRepoToZip } from '@/lib/git-clone'
 import { gitCloneToZip } from '@/lib/api/git'
 import { isServerMode } from '@/lib/api-client'
+import { GitErrorInline } from '@/components/versioning/GitErrorInline'
 
 /** Git link captured during an import-from-git, so the caller can pre-configure
  *  the imported entity's Versioning page with the same repo. */
@@ -51,7 +52,7 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
   const [proxy, setProxy] = useState(() => getGitCorsProxy())
   const [cloning, setCloning] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)  // full raw error, shown via GitErrorInline's tooltip
   const [showProxyHelp, setShowProxyHelp] = useState(false)
   const [copied, setCopied] = useState(false)
   const [dragActive, setDragActive] = useState(false)
@@ -76,8 +77,7 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
       await onImport(file)
       onOpenChange(false)
     } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err)
-      setError(`${t('import_source.error_unknown')}${raw ? `\n(${raw})` : ''}`)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setImporting(false)
     }
@@ -115,15 +115,9 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
       await onImport(new File([blob], `${repoName(url)}.zip`, { type: 'application/zip' }), gitRemote)
     } catch (err) {
       console.error('[import] git clone failed:', err)
-      const raw = err instanceof Error ? err.message : String(err)
-      if (serverMode) {
-        // The backend already returns a specific message (auth/not-found/…).
-        setError(`${t('import_source.error_unknown')}${raw ? `\n(${raw})` : ''}`)
-      } else {
-        const kind = classifyCloneError(err)
-        // Show the underlying message too — the generic hint alone hides the real cause.
-        setError(`${t(`import_source.error_${kind}`)}${raw ? `\n(${raw})` : ''}`)
-      }
+      // One generic line + the full raw error in an info tooltip (GitErrorInline),
+      // consistent with the versioning surfaces — no per-case message mapping.
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setCloning(false)
     }
@@ -220,7 +214,7 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
                 )}
               </div>
             )}
-            {error && <p className="whitespace-pre-line text-[11px] text-destructive">{error}</p>}
+            {error && <GitErrorInline detail={error} />}
             <div className="flex justify-end">
               <Button onClick={handleClone} disabled={!url.trim() || (!serverMode && !proxy.trim()) || cloning} className="gap-1.5">
                 {cloning ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}

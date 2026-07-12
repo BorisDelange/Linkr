@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { gitVerifyRemote } from '@/lib/api/git'
 import { toGitError } from '@/lib/git-error-message'
 import type { GitErrorCode } from '@/lib/api/git'
-import { GitErrorNotice } from './GitErrorNotice'
+import { GitErrorInline } from './GitErrorInline'
 
 interface GitTokenDialogProps {
   url: string
@@ -57,7 +57,7 @@ export function GitTokenDialog({ url, onSave, onClose }: GitTokenDialogProps) {
             className="h-9 text-sm"
           />
         </div>
-        {error && <GitErrorNotice code={error.code} raw={error.raw} />}
+        {error && <GitErrorInline detail={error.raw} />}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>
             {t('common.cancel')}
