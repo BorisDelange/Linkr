@@ -334,10 +334,11 @@ const INSTANCE_FIELDS = [
   'updatedAt',
 ] as const
 
-/** Return a copy of an entity's metadata without instance-specific fields. */
-export function stripInstanceFields<T extends Record<string, unknown>>(meta: T): Partial<T> {
-  const out = { ...meta }
-  for (const f of INSTANCE_FIELDS) delete out[f]
+/** Return a copy of an entity's metadata without instance-specific fields.
+ *  Accepts any object (interfaces without an index signature included). */
+export function stripInstanceFields<T extends object>(meta: T): Partial<T> {
+  const out: Partial<T> = { ...meta }
+  for (const f of INSTANCE_FIELDS) delete (out as Record<string, unknown>)[f]
   return out
 }
 
