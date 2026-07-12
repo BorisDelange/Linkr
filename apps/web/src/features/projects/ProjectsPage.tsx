@@ -342,10 +342,6 @@ export function ProjectsPage() {
                               <Pencil size={14} />
                               {t('common.edit')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = project.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectSettings(w, project.uid)) }}>
-                              <Settings2 size={14} />
-                              {t('nav.settings')}
-                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ uid: project.uid, tab: 'export' }) }}>
                               <Download size={14} />
                               {t('common.export')}
@@ -357,6 +353,10 @@ export function ProjectsPage() {
                             <DropdownMenuItem disabled={!canEditWs} onClick={(e) => { e.stopPropagation(); handleDuplicateProject(project.uid) }}>
                               <Copy size={14} />
                               {t('common.duplicate')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = project.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectSettings(w, project.uid)) }}>
+                              <Settings2 size={14} />
+                              {t('nav.settings')}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

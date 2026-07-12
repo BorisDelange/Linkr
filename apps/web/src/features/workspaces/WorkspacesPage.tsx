@@ -698,10 +698,6 @@ export function WorkspacesPage() {
                             <Pencil size={14} />
                             {t('common.edit')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(paths.workspaceSettings(ws.id)) }}>
-                            <Settings2 size={14} />
-                            {t('nav.settings')}
-                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ id: ws.id, tab: 'export' }) }}>
                             <Download size={14} />
                             {t('common.export')}
@@ -709,6 +705,10 @@ export function WorkspacesPage() {
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ id: ws.id, tab: 'git' }) }}>
                             <GitBranch size={14} />
                             {t('common.versioning')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(paths.workspaceSettings(ws.id)) }}>
+                            <Settings2 size={14} />
+                            {t('nav.settings')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
