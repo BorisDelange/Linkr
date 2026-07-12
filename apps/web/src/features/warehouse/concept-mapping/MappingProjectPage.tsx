@@ -6,7 +6,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useVisitStore } from '@/stores/visit-store'
 import { unmountFileSource } from '@/lib/duckdb/engine'
-import { VersioningTabs } from '@/components/versioning/VersioningTabs'
+import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { ConceptSetsTab } from './ConceptSetsTab'
 import { MappingEditorTab } from './MappingEditorTab'
 import { MappingsTab } from './MappingsTab'
@@ -121,14 +121,11 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         <TabsContent value="versioning" className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'versioning' && (
             <div className="mx-auto flex min-h-0 h-full w-full max-w-3xl flex-col px-6 py-6">
-              {/* git-only (the mapping project has its own Export tab) but with the
-                  full push-only sync panel, same as project/workspace versioning. */}
-              <VersioningTabs
-                fillHeight
-                gitOnly
-                exportContent={null}
+              {/* Git repository link + push-only sync panel. The mapping project
+                  has its own Export tab, so no export UI here. */}
+              <GitRepositoryTab
                 gitRemote={project.gitRemoteConfig ?? null}
-                onSaveGitRemote={(cfg) => updateMappingProject(project.id, { gitRemoteConfig: cfg ?? undefined })}
+                onSave={(cfg) => updateMappingProject(project.id, { gitRemoteConfig: cfg ?? undefined })}
                 syncScope="mapping-projects"
                 syncId={project.id}
               />
