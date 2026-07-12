@@ -402,6 +402,7 @@ export function Header() {
             <EntityActionsMenu
               item={sqlEntity}
               {...sqlActions}
+              syncScope="sql-script-collections"
               align="start"
               onDeleted={handleEntityDeleted}
               open={sqlMenuOpen}

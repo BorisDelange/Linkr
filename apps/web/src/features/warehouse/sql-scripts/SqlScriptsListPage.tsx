@@ -103,6 +103,7 @@ export function SqlScriptsListPage() {
       getGitRemote={sqlActions.getGitRemote}
       onSaveGitRemote={sqlActions.onSaveGitRemote}
       exportSupportsIncludeData={sqlActions.exportSupportsIncludeData}
+      syncScope="sql-script-collections"
       onImport={handleImport}
       renderCardBody={(collection) => (
         <>

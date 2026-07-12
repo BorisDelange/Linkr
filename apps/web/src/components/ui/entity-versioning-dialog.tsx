@@ -12,6 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { VersioningTabs, type VersioningTab } from '@/components/versioning/VersioningTabs'
+import type { GitScope } from '@/lib/api/git'
 import type { GitRemoteConfig } from '@/types'
 
 interface EntityVersioningDialogProps {
@@ -31,6 +32,9 @@ interface EntityVersioningDialogProps {
   onSaveGitRemote: (config: GitRemoteConfig | null) => void | Promise<void>
   /** Show only the Git tab (for entities whose export lives on a dedicated page). */
   gitOnly?: boolean
+  /** Scope + id enable the push-only sync panel in the Git tab (server mode). */
+  syncScope?: GitScope
+  syncId?: string
 }
 
 /** Export tab body for a single entity: include-data option + download (or git-linked hint). */
@@ -93,17 +97,20 @@ export function EntityVersioningDialog({
   gitRemote,
   onSaveGitRemote,
   gitOnly = false,
+  syncScope,
+  syncId,
 }: EntityVersioningDialogProps) {
   const { t } = useTranslation()
 
-  // A custom export (e.g. the full workspace export) needs a roomier, fixed-height dialog
-  // whose body scrolls internally.
-  const wide = !!exportContent
+  // The sync panel (once linked) is a full-height file list + diff + commit UI,
+  // so it needs a roomy, fixed-height dialog whose body scrolls internally — same
+  // as a custom export (e.g. the full workspace export).
+  const wide = !!exportContent || !!syncScope
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={wide ? 'flex max-h-[85vh] flex-col sm:max-w-2xl' : undefined}>
-        <DialogHeader>
+      <DialogContent className={wide ? 'flex h-[85vh] max-h-[85vh] flex-col sm:max-w-3xl' : undefined}>
+        <DialogHeader className="shrink-0">
           <DialogTitle>{t('app_versioning.entity_versioning_title')}</DialogTitle>
           <DialogDescription>{t('app_versioning.entity_versioning_description')}</DialogDescription>
         </DialogHeader>
@@ -112,6 +119,8 @@ export function EntityVersioningDialog({
           initialTab={initialTab}
           fillHeight={wide}
           gitOnly={gitOnly}
+          syncScope={syncScope}
+          syncId={syncId}
           gitRemote={gitRemote}
           onSaveGitRemote={onSaveGitRemote}
           exportContent={

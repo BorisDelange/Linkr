@@ -311,6 +311,98 @@ async def mapping_project_commit_push(
     ))
 
 
+# --- SQL script collection scope ------------------------------------------
+
+
+async def _load_sql_collection(collection_id: str, db: AsyncSession, user: User, permission: str):
+    from app.core.permissions import check_workspace_permission
+    from app.services import sql_script_service
+
+    collection = await sql_script_service.get(db, collection_id)
+    if collection is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "SQL script collection not found")
+    await check_workspace_permission(db, collection.workspace_id, user, permission)
+    return collection
+
+
+@router.post("/sql-script-collections/{collection_id}/status", response_model=GitStatusResponse)
+async def sql_collection_status(
+    collection_id: str,
+    file: UploadFile = File(...),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    result = await _guard(git_service.status(
+        git_service.sql_collection_repo_getter,
+        c.id,
+        await file.read(),
+        _default_branch(c, branch),
+        _remote_url(c),
+        git_secret.token_for(c),
+    ))
+    return {"linked": _remote_url(c) is not None, **result}
+
+
+@router.post("/sql-script-collections/{collection_id}/diff", response_model=GitDiffResponse)
+async def sql_collection_diff(
+    collection_id: str,
+    file: UploadFile = File(...),
+    path: str = Form(...),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    return await _guard(git_service.diff(
+        git_service.sql_collection_repo_getter,
+        c.id,
+        await file.read(),
+        _default_branch(c, branch),
+        path,
+        _remote_url(c),
+        git_secret.token_for(c),
+    ))
+
+
+@router.get("/sql-script-collections/{collection_id}/branches", response_model=GitBranchesResponse)
+async def sql_collection_branches(
+    collection_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    return await git_service.branches(
+        git_service.sql_collection_repo_getter, c.id, _remote_url(c), git_secret.token_for(c)
+    )
+
+
+@router.post("/sql-script-collections/{collection_id}/commit-push", response_model=GitCommitResponse)
+async def sql_collection_commit_push(
+    collection_id: str,
+    file: UploadFile = File(...),
+    message: str = Form(...),
+    branch: str | None = Form(None),
+    paths: list[str] | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:write")
+    if _remote_url(c) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "SQL script collection is not linked to a git remote")
+    return await _guard(git_service.commit_push(
+        git_service.sql_collection_repo_getter,
+        c.id,
+        await file.read(),
+        _default_branch(c, branch),
+        message,
+        _remote_url(c),
+        git_secret.token_for(c),
+        paths,
+    ))
+
+
 # --- Verify + Clone (no entity, just authenticated) -----------------------
 
 

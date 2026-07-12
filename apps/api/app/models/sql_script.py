@@ -21,6 +21,9 @@ class SqlScriptCollection(Base, TimestampMixin):
     description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     default_data_source_id: Mapped[str | None] = mapped_column(String(36))
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Encrypted git access token (Fernet); kept out of git_remote_config so it's
+    # never returned by the API. Mirrors DataSource.connection_secret.
+    git_remote_secret: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[str | None] = mapped_column(Text)
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
 

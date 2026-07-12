@@ -4,6 +4,7 @@ import { Plus, Upload, type LucideIcon } from 'lucide-react'
 import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { shortenIdAmong } from '@/lib/short-id'
+import type { GitScope } from '@/lib/api/git'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
 import { Button } from '@/components/ui/button'
 import { GatedButton } from '@/components/ui/gated-button'
@@ -56,6 +57,9 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
   onSaveGitRemote?: (item: T, config: GitRemoteConfig | null) => Promise<void>
   /** Whether the export of this entity supports an "include data" toggle. Default true. */
   exportSupportsIncludeData?: boolean
+  /** When set, the versioning dialog's Git tab shows the push-only sync panel for
+   *  this scope (server mode), using each item's id as the sync id. */
+  syncScope?: GitScope
   /** Import from a file. When provided, the Import header button is enabled. */
   onImport?: (file: File) => void
   /** File accept filter for import (default: ".zip") */
@@ -102,6 +106,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   getGitRemote,
   onSaveGitRemote,
   exportSupportsIncludeData = true,
+  syncScope,
   onImport,
   importAccept = '.zip',
   renderCardBody,
@@ -201,6 +206,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     getGitRemote={getGitRemote}
                     onSaveGitRemote={onSaveGitRemote}
                     exportSupportsIncludeData={exportSupportsIncludeData}
+                    syncScope={syncScope}
                     renderEditDialog={renderEditDialog}
                     deleteConfirmTitleKey={deleteConfirmTitleKey}
                     deleteConfirmDescriptionKey={deleteConfirmDescriptionKey}

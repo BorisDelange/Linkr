@@ -8,7 +8,7 @@
 import { apiFetch, apiRequest } from '@/lib/api-client'
 import type { FileChangeType } from '@/types'
 
-export type GitScope = 'projects' | 'workspaces' | 'mapping-projects'
+export type GitScope = 'projects' | 'workspaces' | 'mapping-projects' | 'sql-script-collections'
 
 export interface GitFileChange {
   path: string

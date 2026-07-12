@@ -101,6 +101,12 @@ def _mapping_project_repo(mapping_project_id: str) -> Path:
     return d
 
 
+def _sql_collection_repo(collection_id: str) -> Path:
+    d = settings.data_path / "sql-collections" / collection_id / "versioning"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 _GH_NAV_SEGMENTS = ("tree", "blob", "commit", "commits", "pull", "pulls", "releases", "tags", "branches", "find", "raw")
 
 
@@ -633,3 +639,7 @@ def workspace_repo_getter(uid: str) -> Path:
 
 def mapping_project_repo_getter(uid: str) -> Path:
     return _mapping_project_repo(uid)
+
+
+def sql_collection_repo_getter(uid: str) -> Path:
+    return _sql_collection_repo(uid)

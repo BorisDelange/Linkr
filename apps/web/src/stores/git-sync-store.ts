@@ -44,6 +44,9 @@ async function buildZipUncached(
     result = await buildProjectZip(id, storage, { includeDataFiles: includeData })
   } else if (scope === 'workspaces') {
     result = await buildWorkspaceZip(id, storage, { includeDataFiles: includeData })
+  } else if (scope === 'sql-script-collections') {
+    const { buildSqlCollectionZip } = await import('@/lib/entity-io')
+    result = await buildSqlCollectionZip(id, storage, { lfsOverrides })
   } else {
     const { buildMappingProjectZip } = await import('@/lib/concept-mapping/export')
     result = await buildMappingProjectZip(id, storage, { includeData, lfsOverrides })

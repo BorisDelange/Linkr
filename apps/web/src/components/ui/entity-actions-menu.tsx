@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Trash2, Pencil, Download, GitBranch, MoreHorizontal } from 'lucide-react'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
+import type { GitScope } from '@/lib/api/git'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
 import { localized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -61,6 +62,9 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
   canDelete?: boolean
   /** Extra menu items inserted before the delete separator (e.g. Duplicate). */
   extraItems?: ReactNode
+  /** When set, the versioning dialog's Git tab shows the push-only sync panel
+   *  for this scope (server mode); the item's id is used as the sync id. */
+  syncScope?: GitScope
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +91,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   canEdit = true,
   canDelete = true,
   extraItems,
+  syncScope,
 }: EntityActionsMenuProps<T>) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -185,6 +190,8 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             onOpenChange={(open) => { if (!open) setVersioning(null) }}
             initialTab={versioning.tab}
             gitOnly={gitOnly}
+            syncScope={syncScope}
+            syncId={syncScope ? versioning.item.id : undefined}
             supportsIncludeData={exportSupportsIncludeData}
             gitRemote={getGitRemote(versioning.item)}
             onExport={onExport ? () => onExport(versioning.item) : undefined}

@@ -1136,7 +1136,9 @@ export async function buildSqlCollectionFolder(
   collection: SqlScriptCollection,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}_collection.json`, json(collection))
+  // Strip instance-specific fields (workspaceId, gitRemoteConfig, …) so the
+  // versioned tree round-trips idempotently — import reassigns them anyway.
+  zip.file(`${prefix}_collection.json`, json(stripInstanceFields(collection)))
   const files = await storage.sqlScriptFiles.getByCollection(collection.id)
   const byId = new Map(files.map(f => [f.id, f]))
   zip.file(`${prefix}_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
@@ -1145,6 +1147,36 @@ export async function buildSqlCollectionFolder(
       zip.file(`${prefix}${buildTreePath(f, byId)}`, f.content)
     }
   }
+}
+
+/**
+ * Build a ZIP blob for a SQL script collection's versioned tree (root layout),
+ * used by the git sync panel. Mirrors buildMappingProjectZip: content at the
+ * root + a .gitattributes derived from the automatic LFS rule and any per-file
+ * overrides. SQL scripts are text, so LFS rarely triggers, but keeping the same
+ * shape means the sync panel's per-file LFS control works uniformly.
+ */
+export async function buildSqlCollectionZip(
+  collectionId: string,
+  storage: Storage,
+  options: { lfsOverrides?: Map<string, boolean> } = {},
+): Promise<{ blob: Blob; name: string } | null> {
+  const collection = await storage.sqlScriptCollections.getById(collectionId)
+  if (!collection) return null
+  const zip = new JSZip()
+  await buildSqlCollectionFolder(zip, '', collection, storage)
+
+  const { resolveLfsPaths, buildGitAttributes } = await import('@/lib/git-lfs')
+  const entries = await Promise.all(
+    Object.values(zip.files)
+      .filter((f) => !f.dir)
+      .map(async (f) => ({ path: f.name, size: (await f.async('uint8array')).byteLength })),
+  )
+  const attrs = buildGitAttributes(resolveLfsPaths(entries, options.lfsOverrides ?? new Map()))
+  if (attrs) zip.file('.gitattributes', attrs)
+
+  const blob = await zip.generateAsync({ type: 'blob' })
+  return { blob, name: localized(collection.name, 'en') || collection.id }
 }
 
 /**

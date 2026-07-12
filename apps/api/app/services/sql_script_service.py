@@ -9,6 +9,7 @@ from app.schemas.sql_script import (
     SqlScriptFileCreate,
     SqlScriptFileUpdate,
 )
+from app.services import git_secret
 
 
 # --- Collections -----------------------------------------------------------
@@ -36,7 +37,11 @@ async def get(db: AsyncSession, collection_id: str) -> SqlScriptCollection | Non
 async def create(
     db: AsyncSession, data: SqlScriptCollectionCreate
 ) -> SqlScriptCollection:
-    collection = SqlScriptCollection(**data.model_dump(exclude_none=True))
+    payload = data.model_dump(exclude_none=True)
+    collection = SqlScriptCollection()
+    git_secret.apply_to_entity(collection, payload)
+    for key, value in payload.items():
+        setattr(collection, key, value)
     db.add(collection)
     await db.commit()
     await db.refresh(collection)
@@ -46,7 +51,9 @@ async def create(
 async def update(
     db: AsyncSession, collection: SqlScriptCollection, data: SqlScriptCollectionUpdate
 ) -> SqlScriptCollection:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    git_secret.apply_to_entity(collection, changes)
+    for key, value in changes.items():
         setattr(collection, key, value)
     await db.commit()
     await db.refresh(collection)
