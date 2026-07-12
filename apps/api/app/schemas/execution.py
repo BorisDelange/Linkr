@@ -17,10 +17,12 @@ class ExecuteRequest(CamelModel):
     dataset_filters: list[dict] | None = None
     # When set, sql_query() in the code runs against this data source (its id).
     connection_id: str | None = None
-    # Why the code runs. "ide" = author running code in the IDE → needs
-    # ide:execute. "widget" = rendering a dashboard/patient-data widget (the code
-    # is author-defined, not typed at view time) → a viewer must be able to see it,
-    # so it only needs read access to the project. Defaults to "ide" (strict).
+    # Why the code runs → which execute permission it needs:
+    #   "ide"          → ide:execute (arbitrary code in the IDE)
+    #   "dashboards"   → dashboards:execute (render a dashboard widget)
+    #   "datasets"     → datasets:execute (render a dataset analysis)
+    #   "patient-data" → patient-data:execute (render a patient-data widget)
+    # Render purposes are held by viewers by default. Defaults to "ide" (strict).
     purpose: str = "ide"
 
 

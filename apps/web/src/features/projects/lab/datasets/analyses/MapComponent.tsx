@@ -128,7 +128,7 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
   useEffect(() => {
     if (!server || !datasetFileId || !serverCode) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'datasets' })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerData({ rows: [], colorCats: [], sizeMin: null, sizeMax: null }); return }

@@ -197,7 +197,7 @@ export function SankeyComponent({ config, columns, rows, compact, datasetFileId,
   useEffect(() => {
     if (!server || !datasetFileId || !serverCode) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'datasets' })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerData({ nodes: [], links: [], total: 0, error: null }); return }

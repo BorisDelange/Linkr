@@ -56,9 +56,12 @@ WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     "project-databases": ["read", "write"],  # link/unlink a workspace source
     "concepts": ["read"],  # browse the source's concept dictionary (read-only)
     "cohorts": RWD,
-    "patient-data": RWD,
-    "datasets": RWD,
-    "dashboards": RWD,
+    # execute = render widgets/analyses (run their author-defined code). It's a
+    # view-time operation, so viewer gets it by default (see _catalogue_perms),
+    # yet it stays separable from ide:execute (arbitrary code in the IDE).
+    "patient-data": ["read", "write", "delete", "execute"],
+    "datasets": ["read", "write", "delete", "execute"],
+    "dashboards": ["read", "write", "delete", "execute"],
     "reports": RWD,  # stub page ("coming soon") — reserved so roles can pre-grant
 }
 
@@ -104,23 +107,35 @@ def _perms_for(actions_by_resource: dict[str, list[str]]) -> list[str]:
     return [f"{r}:{a}" for r, acts in actions_by_resource.items() for a in acts]
 
 
-def _actions_up_to(action: str) -> set[str]:
-    """Every action a role holding `action` implies, by the read⊂write⊂delete
-    ladder, plus "execute" once you can write. Used to build default roles."""
-    ladder = {"read": {"read"}, "write": {"read", "write", "execute"}, "delete": {"read", "write", "delete", "execute"}}
-    return ladder.get(action, {action})
+# Resources whose "execute" is a VIEW-time render (widgets/analyses): a viewer
+# gets it by default. Everywhere else (i.e. ide) "execute" means running arbitrary
+# code and is only granted from write up.
+_RENDER_EXECUTE_RESOURCES = {"dashboards", "datasets", "patient-data"}
+
+_LADDER = {
+    "read": {"read"},
+    "write": {"read", "write"},
+    "delete": {"read", "write", "delete"},
+}
 
 
 def _catalogue_perms(max_action: str) -> list[str]:
-    """Workspace permissions a default role gets: for each resource, every one of
-    its catalogue actions that is implied by `max_action`."""
-    allowed = _actions_up_to(max_action)
-    return [
-        f"{r}:{a}"
-        for r, acts in WORKSPACE_CATALOGUE.items()
-        for a in acts
-        if a in allowed
-    ]
+    """Workspace permissions a default role gets, per resource:
+    - read/write/delete follow the read⊂write⊂delete ladder;
+    - "execute" is granted at read for render resources (dashboards/datasets/
+      patient-data), and at write for everything else (ide)."""
+    base = _LADDER.get(max_action, {max_action})
+    rank = {"read": 0, "write": 1, "delete": 2}.get(max_action, 0)
+    out: list[str] = []
+    for r, acts in WORKSPACE_CATALOGUE.items():
+        for a in acts:
+            if a in base:
+                out.append(f"{r}:{a}")
+            elif a == "execute":
+                needed = 0 if r in _RENDER_EXECUTE_RESOURCES else 1  # read vs write
+                if rank >= needed:
+                    out.append(f"{r}:{a}")
+    return out
 
 
 # --- Default system roles -------------------------------------------------

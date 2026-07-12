@@ -66,17 +66,30 @@ async def _require_code_execution(
         )
 
 
-async def _require_widget_render(
-    db: AsyncSession, project_uid: str, user: User
+# The "purpose" of an /execute call → the permission it needs. Rendering a
+# widget/analysis runs author-defined code, gated by the owning resource's own
+# "execute" (dashboards/datasets/patient-data — viewer holds these by default),
+# distinct from ide:execute (arbitrary code typed in the IDE).
+_PURPOSE_PERMISSION = {
+    "ide": "ide:execute",
+    "dashboards": "dashboards:execute",
+    "datasets": "datasets:execute",
+    "patient-data": "patient-data:execute",
+}
+
+
+async def _require_execute(
+    db: AsyncSession, project_uid: str, user: User, purpose: str
 ) -> None:
-    """Rendering a dashboard/patient-data widget runs author-defined code, not code
-    typed at view time — so it's a VIEW operation: any read access to the project
-    is enough (a viewer must see the widgets). Distinct from ide:execute, which
-    gates the IDE where users author and run arbitrary code."""
+    """Enforce the execute permission for this run's `purpose` on the project."""
+    permission = _PURPOSE_PERMISSION.get(purpose, "ide:execute")
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    await check_project_role(db, project, user, "viewer")
+    if not await has_project_permission(db, project, user, permission):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Code execution not permitted on this project"
+        )
 
 
 async def _require_connection_access(
@@ -143,12 +156,9 @@ async def execute_code(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "project_uid is required to run code"
         )
-    # Widget renders are a view operation (author-defined code) → viewers allowed;
-    # everything else is IDE execution → needs ide:execute.
-    if body.purpose == "widget":
-        await _require_widget_render(db, body.project_uid, user)
-    else:
-        await _require_code_execution(db, body.project_uid, user)
+    # Gate on the execute permission matching this run's purpose (ide:execute for
+    # the IDE; dashboards/datasets/patient-data:execute for a widget/analysis render).
+    await _require_execute(db, body.project_uid, user, body.purpose)
 
     code = body.code
     if body.dataset_file_id and body.language in ("python", "r"):

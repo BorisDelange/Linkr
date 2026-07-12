@@ -65,7 +65,7 @@ export async function executeWarehousePluginPython(
   // plain injected variables; the data source drives the sql_query() bridge.
   if (isServerMode()) {
     const { executeOnServer } = await import('@/lib/api/execution')
-    return executeOnServer('python', full, { connectionId: dataSourceId, purpose: 'widget' })
+    return executeOnServer('python', full, { connectionId: dataSourceId, purpose: 'patient-data' })
   }
   const { executePython } = await import('@/lib/runtimes/pyodide-engine')
   return executePython(full, dataSourceId)
@@ -88,7 +88,7 @@ export async function executeWarehousePluginR(
   const full = preamble + extra + code
   if (isServerMode()) {
     const { executeOnServer } = await import('@/lib/api/execution')
-    return executeOnServer('r', full, { connectionId: dataSourceId, purpose: 'widget' })
+    return executeOnServer('r', full, { connectionId: dataSourceId, purpose: 'patient-data' })
   }
   const { executeR } = await import('@/lib/runtimes/webr-engine')
   return executeR(full, dataSourceId)

@@ -752,7 +752,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   useEffect(() => {
     if (!server || !datasetFileId || !serverCode) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'datasets' })
       .then((out) => {
         if (cancelled) return
         setServerLoaded(true)

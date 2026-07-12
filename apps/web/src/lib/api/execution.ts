@@ -18,9 +18,10 @@ export function executeOnServer(
     datasetFileId?: string
     connectionId?: string
     datasetFilters?: unknown[]
-    /** 'widget' → a dashboard/patient-data render (viewers allowed); 'ide' (default)
-     *  → author running code, needs ide:execute. */
-    purpose?: 'ide' | 'widget'
+    /** Which execute permission the run needs: a render purpose ('dashboards' |
+     *  'datasets' | 'patient-data') is held by viewers; 'ide' (default) needs
+     *  ide:execute. */
+    purpose?: 'ide' | 'dashboards' | 'datasets' | 'patient-data'
   },
 ): Promise<RuntimeOutput> {
   // The backend resolves a disk-source dataset (datasetFileId = its path) only

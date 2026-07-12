@@ -361,8 +361,8 @@ async def test_code_execution_requires_write_not_just_read(client):
 
 
 async def test_widget_render_allowed_for_viewer(client):
-    """purpose='widget' renders author-defined widget code → a viewer (read access)
-    must be allowed, unlike raw ide:execute."""
+    """A render purpose (dashboards/datasets/patient-data) runs author-defined code
+    → a viewer holds the matching :execute by default, unlike raw ide:execute."""
     admin = await _admin_headers(client)
     ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "W"}})).json()["id"]
     uid = (await client.post(
@@ -379,12 +379,12 @@ async def test_widget_render_allowed_for_viewer(client):
     assert (await client.post(f"{API}/execute", headers=val,
             json={"language": "python", "code": "print(1)", "projectUid": uid})).status_code == 403
     assert (await client.post(f"{API}/execute", headers=val,
-            json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "widget"})).status_code == 200
+            json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "dashboards"})).status_code == 200
 
     # A non-member still can't render (no read access).
     await client.delete(f"{API}/workspaces/{ws}/members/{val_id}", headers=admin)
     assert (await client.post(f"{API}/execute", headers=val,
-            json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "widget"})).status_code == 403
+            json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "dashboards"})).status_code == 403
 
 
 # --- Streaming core (execute_stream) -------------------------------------------

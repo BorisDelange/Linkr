@@ -74,7 +74,7 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
           projectUid: activeProjectUid ?? undefined,
           datasetFileId: datasetFileId ?? undefined,
           datasetFilters: datasetFileId ? resolveServerFilters(filters, columns) : undefined,
-          purpose: 'widget',
+          purpose: 'dashboards',
         })
       }
       // Ensure plugin dependencies are installed (cached per session) — WASM only.

@@ -119,6 +119,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
         output = await executeOnServer(execLanguage, currentCode, {
           projectUid: activeProjectUid ?? undefined,
           datasetFileId: analysis.datasetFileId,
+          purpose: 'datasets',
         })
       } else {
         // Auto-install declared plugin dependencies (only checks once per session)
