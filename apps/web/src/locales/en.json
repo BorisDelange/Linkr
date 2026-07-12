@@ -1495,7 +1495,8 @@
     "sync_commit_push": "Commit & push",
     "diff_empty": "No differences.",
     "remote_private": "Private",
-    "remote_token_hint": "Optional. Required only for a private repository (personal access token)."
+    "remote_token_hint": "Optional. Required only for a private repository (personal access token).",
+    "remote_connect_failed": "Could not connect to the repository"
   },
   "summary": {
     "tab_overview": "Overview",

@@ -3,6 +3,7 @@ materialize→status→commit→diff cycle must report changes correctly."""
 
 import io
 import shutil
+import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
@@ -46,6 +47,34 @@ def test_unpack_rejects_zip_traversal():
             g._unpack_zip_into(_zip({"../escape.txt": "x"}), tree)
     finally:
         shutil.rmtree(tree, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_verify_remote_rejects_unreachable_url():
+    # A bogus host must fail fast (non-interactive env → no credential-prompt hang).
+    with pytest.raises(g.GitError):
+        await g.verify_remote("https://example.invalid/nope/nope.git", None)
+
+
+@pytest.mark.asyncio
+async def test_verify_remote_detects_default_branch():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        bare = tmp / "origin.git"
+        subprocess.run(["git", "init", "--bare", "-b", "trunk", str(bare)], capture_output=True, check=True)
+        wc = tmp / "wc"
+        subprocess.run(["git", "clone", str(bare), str(wc)], capture_output=True, check=True)
+        (wc / "f.txt").write_text("hi")
+        subprocess.run(["git", "-C", str(wc), "add", "-A"], capture_output=True, check=True)
+        subprocess.run(
+            ["git", "-C", str(wc), "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-m", "x"],
+            capture_output=True, check=True,
+        )
+        subprocess.run(["git", "-C", str(wc), "push", "origin", "trunk"], capture_output=True, check=True)
+        r = await g.verify_remote(str(bare), None)
+        assert r["ok"] is True and r["default"] == "trunk"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 @pytest.mark.asyncio

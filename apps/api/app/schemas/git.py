@@ -43,3 +43,14 @@ class GitCloneRequest(CamelModel):
     url: str
     branch: str | None = None
     token: str | None = None
+
+
+class GitVerifyRequest(CamelModel):
+    url: str
+    token: str | None = None
+
+
+class GitVerifyResponse(CamelModel):
+    ok: bool
+    branches: list[str]
+    default: str | None = None

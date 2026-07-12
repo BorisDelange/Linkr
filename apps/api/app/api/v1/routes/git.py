@@ -18,7 +18,15 @@ from app.core.deps import get_current_user
 from app.core.permissions import require_project_role, require_workspace_role
 from app.models.user import User
 from app.models.workspace import Workspace
-from app.schemas.git import GitBranchesResponse, GitCloneRequest, GitCommitResponse, GitDiffResponse, GitStatusResponse
+from app.schemas.git import (
+    GitBranchesResponse,
+    GitCloneRequest,
+    GitCommitResponse,
+    GitDiffResponse,
+    GitStatusResponse,
+    GitVerifyRequest,
+    GitVerifyResponse,
+)
 from app.services import git_secret, git_service, workspace_service
 
 router = APIRouter(prefix="/git", tags=["git"])
@@ -194,7 +202,18 @@ async def workspace_commit_push(
     ))
 
 
-# --- Clone (import flow, server mode) -------------------------------------
+# --- Verify + Clone (no entity, just authenticated) -----------------------
+
+
+@router.post("/verify-remote", response_model=GitVerifyResponse)
+async def verify_remote(body: GitVerifyRequest, _user: User = Depends(get_current_user)):
+    """Check a remote is reachable with the given credentials before the caller
+    persists the link — so an unreachable/unauthorized URL is rejected up front
+    instead of silently saved and only failing later in the sync panel."""
+    try:
+        return await git_service.verify_remote(body.url, body.token)
+    except git_service.GitError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.post("/clone")

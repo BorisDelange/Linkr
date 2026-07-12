@@ -38,6 +38,20 @@ _COMMIT_EMAIL = "versioning@linkr"
 # Never let a hung git subprocess (e.g. auth prompt, dead remote) block a worker.
 _GIT_TIMEOUT = 120
 
+# One lock per repo path: status/branches/commit for the same entity can arrive
+# concurrently (the sync panel fires several at mount), and two `git` processes
+# writing .git/config at once collide with "could not lock config file".
+_repo_locks: dict[str, asyncio.Lock] = {}
+
+
+def _lock_for(repo: Path) -> asyncio.Lock:
+    key = str(repo)
+    lock = _repo_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _repo_locks[key] = lock
+    return lock
+
 
 class GitError(RuntimeError):
     """A git invocation failed; message carries the (credential-scrubbed) stderr."""
@@ -78,6 +92,19 @@ def _scrub(text: str, token: str | None) -> str:
     return text
 
 
+def _git_env() -> dict:
+    """Environment that keeps git non-interactive: a bad/missing token on a
+    private remote must fail fast, never block on a credential prompt."""
+    import os
+
+    return {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "true",
+        "HOME": os.environ.get("HOME", "/tmp"),
+    }
+
+
 def _run(repo: Path, *args: str, token: str | None = None, check: bool = True) -> str:
     """Run a git command in `repo`; return stdout. Raise GitError on failure.
 
@@ -89,6 +116,7 @@ def _run(repo: Path, *args: str, token: str | None = None, check: bool = True) -
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT,
+            env=_git_env(),
         )
     except subprocess.TimeoutExpired as exc:
         raise GitError(f"git {args[0]} timed out") from exc
@@ -106,9 +134,11 @@ def _ensure_repo(repo: Path, remote_url: str | None) -> None:
         _run(repo, "config", "user.email", _COMMIT_EMAIL)
         # Default branch name is set on first commit via `checkout -B`.
     if remote_url:
-        existing = _run(repo, "remote", check=False).split()
-        verb = "set-url" if "origin" in existing else "add"
-        _run(repo, "remote", verb, "origin", remote_url)
+        current = _run(repo, "remote", "get-url", "origin", check=False).strip()
+        if not current:
+            _run(repo, "remote", "add", "origin", remote_url)
+        elif current != remote_url:
+            _run(repo, "remote", "set-url", "origin", remote_url)
 
 
 def _unpack_zip_into(zip_bytes: bytes, tree: Path) -> None:
@@ -178,7 +208,8 @@ async def status(repo_getter, uid: str, zip_bytes: bytes, branch: str, remote_ur
         summary = _summarize(files)
         return {"branch": branch, "files": files, **summary}
 
-    return await asyncio.to_thread(work)
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
 
 
 async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, remote_url: str | None) -> dict:
@@ -201,7 +232,8 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
             "newContent": new,
         }
 
-    return await asyncio.to_thread(work)
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
 
 
 async def commit_push(
@@ -237,7 +269,8 @@ async def commit_push(
             "commit": {"oid": head, "message": message},
         }
 
-    return await asyncio.to_thread(work)
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
 
 
 async def branches(repo_getter, uid: str, remote_url: str | None, token: str | None) -> dict:
@@ -258,6 +291,35 @@ async def branches(repo_getter, uid: str, remote_url: str | None, token: str | N
             names = [b.strip() for b in out.splitlines() if b.strip()]
         current = _run(repo, "rev-parse", "--abbrev-ref", "HEAD", check=False).strip()
         return {"branches": sorted(set(names)), "current": current or None}
+
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
+
+
+async def verify_remote(url: str, token: str | None) -> dict:
+    """Check that the remote exists and is reachable with the given credentials,
+    without cloning. Returns {ok, branches, default}. Raises GitError otherwise,
+    so the caller can refuse to persist an unreachable/unauthorized link."""
+
+    def work() -> dict:
+        ls_url = _with_credentials(url, token)
+        proc = subprocess.run(
+            ["git", "ls-remote", "--symref", ls_url, "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT,
+            env=_git_env(),
+        )
+        if proc.returncode != 0:
+            raise GitError(_scrub(proc.stderr.strip() or "remote not reachable", token))
+        default = None
+        branches_found: list[str] = []
+        for line in proc.stdout.splitlines():
+            if line.startswith("ref:") and "refs/heads/" in line:
+                default = line.split("refs/heads/", 1)[1].split()[0].strip()
+            elif "refs/heads/" in line:
+                branches_found.append(line.split("refs/heads/", 1)[1].strip())
+        return {"ok": True, "branches": sorted(set(branches_found)), "default": default}
 
     return await asyncio.to_thread(work)
 
@@ -282,7 +344,7 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> bytes:
             args += [clone_url, str(tmp / "repo")]
             # Run from tmp (not an existing repo) — plain `git clone`.
             proc = subprocess.run(
-                ["git", *args], capture_output=True, text=True, timeout=_GIT_TIMEOUT
+                ["git", *args], capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env()
             )
             if proc.returncode != 0:
                 raise GitError(_scrub(proc.stderr.strip(), token))

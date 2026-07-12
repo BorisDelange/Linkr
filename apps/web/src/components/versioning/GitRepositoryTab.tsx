@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { isServerMode } from '@/lib/api-client'
+import { gitVerifyRemote } from '@/lib/api/git'
 import type { GitRemoteConfig } from '@/types'
 import type { GitScope } from '@/lib/api/git'
 import { GitSyncPanel } from './GitSyncPanel'
@@ -33,6 +34,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
   const [token, setToken] = useState('')
   const [linked, setLinked] = useState(!!gitRemote?.url)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   // Whether an access token backs the current link (private repo). The backend
   // never returns the token, so this is only known within the session that set it.
   const [hasToken, setHasToken] = useState(!!gitRemote?.authToken)
@@ -44,10 +46,21 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
   const handleConnect = async () => {
     if (!canConnect || saving) return
     setSaving(true)
+    setError(null)
     try {
-      await onSave({ url: url.trim(), branch, authToken: token || undefined })
+      let resolvedBranch = branch
+      // Verify the remote is reachable before persisting, so a wrong URL or a
+      // missing token for a private repo is rejected up front — not saved and
+      // only failing later. Detect the default branch while we're at it.
+      if (isServerMode()) {
+        const check = await gitVerifyRemote(url.trim(), token || undefined)
+        if (check.default) resolvedBranch = check.default
+      }
+      await onSave({ url: url.trim(), branch: resolvedBranch, authToken: token || undefined })
       setHasToken(!!token)
       setLinked(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
@@ -134,6 +147,12 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
         />
         <p className="text-[11px] text-muted-foreground leading-relaxed">{t('versioning.remote_token_hint')}</p>
       </div>
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+          <p className="text-xs font-medium text-destructive">{t('versioning.remote_connect_failed')}</p>
+          <p className="mt-0.5 whitespace-pre-line break-words text-[11px] text-destructive/80">{error}</p>
+        </div>
+      )}
       <div className="flex justify-end">
         <Button onClick={handleConnect} disabled={!canConnect || saving} className="gap-1.5">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}

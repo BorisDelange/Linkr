@@ -86,6 +86,26 @@ export async function gitBranches(scope: GitScope, id: string): Promise<GitBranc
   return apiRequest<GitBranches>(`${base(scope, id)}/branches`)
 }
 
+export interface GitVerifyResult {
+  ok: boolean
+  branches: string[]
+  default: string | null
+}
+
+/**
+ * Check a remote is reachable with the given credentials before linking.
+ * Throws (with the git error message) if the URL is wrong or auth fails, so the
+ * caller can refuse to save a link that doesn't actually work.
+ */
+export async function gitVerifyRemote(url: string, token?: string): Promise<GitVerifyResult> {
+  const res = await apiFetch('/api/v1/git/verify-remote', {
+    method: 'POST',
+    body: JSON.stringify({ url, token: token || undefined }),
+  })
+  if (!res.ok) throw new Error((await res.text()) || `Remote not reachable (${res.status})`)
+  return res.json()
+}
+
 /** Clone a remote server-side, returning its content as a ZIP Blob for import. */
 export async function gitCloneToZip(url: string, branch: string, token?: string): Promise<Blob> {
   const res = await apiFetch('/api/v1/git/clone', {
