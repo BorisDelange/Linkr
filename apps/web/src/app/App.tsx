@@ -110,11 +110,17 @@ export function App() {
   const loadVisits = useVisitStore((s) => s.loadVisits)
   const recordVisit = useVisitStore((s) => s.recordVisit)
   useEffect(() => { loadVisits() }, [loadVisits])
+  // Defer the record so the re-sorted "recent" list don't visibly reshuffle on the
+  // page being left before the router navigates away — a short delay hides it.
   useEffect(() => {
-    if (activeWorkspaceId) recordVisit('workspace', activeWorkspaceId)
+    if (!activeWorkspaceId) return
+    const id = setTimeout(() => recordVisit('workspace', activeWorkspaceId), 400)
+    return () => clearTimeout(id)
   }, [activeWorkspaceId, recordVisit])
   useEffect(() => {
-    if (activeProjectUid) recordVisit('project', activeProjectUid)
+    if (!activeProjectUid) return
+    const id = setTimeout(() => recordVisit('project', activeProjectUid), 400)
+    return () => clearTimeout(id)
   }, [activeProjectUid, recordVisit])
 
   if (!organizationsLoaded || !workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded || !catalogsLoaded || !serviceMappingsLoaded) {

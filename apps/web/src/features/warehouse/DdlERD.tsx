@@ -19,6 +19,7 @@ import { Table2, Pencil, Check, Palette, RotateCcw, Filter, ChevronDown, Chevron
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import type { ErdGroup } from '@/types/schema-mapping'
 import { DdlERDGroupPanel } from './DdlERDGroupPanel'
@@ -638,11 +639,10 @@ function ErdFilterSheet({ groups, allTables, hiddenGroups, hiddenTables, open, o
                       {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                     </button>
                     <label className="flex items-center gap-2 flex-1 cursor-pointer min-w-0">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={!groupHidden}
-                        onChange={() => onToggleGroup(group.id)}
-                        className="rounded shrink-0"
+                        onCheckedChange={() => onToggleGroup(group.id)}
+                        className="shrink-0"
                       />
                       <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${COLOR_DOT_ERD[group.color] ?? COLOR_DOT_ERD.slate}`} />
                       <span className="text-xs font-medium text-foreground truncate flex-1">{group.label}</span>
@@ -660,12 +660,10 @@ function ErdFilterSheet({ groups, allTables, hiddenGroups, hiddenTables, open, o
                               key={tbl.name}
                               className="flex items-center gap-2 px-1.5 py-0.5 rounded text-xs cursor-pointer hover:bg-muted/50"
                             >
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={!hidden && !groupHidden}
                                 disabled={groupHidden}
-                                onChange={() => onToggleTable(tbl.name.toLowerCase())}
-                                className="rounded"
+                                onCheckedChange={() => onToggleTable(tbl.name.toLowerCase())}
                               />
                               <code className="text-[10px] font-mono">{tbl.name}</code>
                             </label>
@@ -693,11 +691,9 @@ function ErdFilterSheet({ groups, allTables, hiddenGroups, hiddenTables, open, o
                           key={tbl.name}
                           className="flex items-center gap-2 px-1.5 py-0.5 rounded text-xs cursor-pointer hover:bg-muted/50"
                         >
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={!hidden}
-                            onChange={() => onToggleTable(tbl.name.toLowerCase())}
-                            className="rounded"
+                            onCheckedChange={() => onToggleTable(tbl.name.toLowerCase())}
                           />
                           <code className="text-[10px] font-mono">{tbl.name}</code>
                         </label>

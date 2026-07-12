@@ -61,7 +61,9 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   }, [projectId, loadProjectMappings])
 
   useEffect(() => {
-    if (projectId) useVisitStore.getState().recordVisit('mapping-project', projectId)
+    if (!projectId) return
+    const id = setTimeout(() => useVisitStore.getState().recordVisit('mapping-project', projectId), 400)
+    return () => clearTimeout(id)
   }, [projectId])
 
   // Free DuckDB memory when leaving the project. The CSV file source can hold ~200 MB
