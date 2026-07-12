@@ -47,8 +47,6 @@ export function ProfilePage() {
     setLanguage,
     darkMode,
     toggleDarkMode,
-    dismissSeedUpdateNotifications,
-    setDismissSeedUpdateNotifications,
   } = useAppStore()
 
   const [draft, setDraft] = useState<AccountDraft>(() => accountDraftFrom(user))
@@ -231,32 +229,6 @@ export function ProfilePage() {
                     {t('profile.dark_mode')}
                   </Label>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">
-                  {t('profile.notifications')}
-                </CardTitle>
-                <CardDescription>
-                  {t('profile.notifications_description')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-3">
-                  <Switch
-                    id="dismiss-seed-updates"
-                    checked={dismissSeedUpdateNotifications}
-                    onCheckedChange={setDismissSeedUpdateNotifications}
-                  />
-                  <Label htmlFor="dismiss-seed-updates" className="text-sm">
-                    {t('profile.dismiss_seed_updates')}
-                  </Label>
-                </div>
-                <p className="mt-1.5 text-xs text-muted-foreground ml-[44px]">
-                  {t('profile.dismiss_seed_updates_description')}
-                </p>
               </CardContent>
             </Card>
           </TabsContent>

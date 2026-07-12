@@ -35,6 +35,12 @@ class MeResponse(BaseModel):
     role: str
     is_active: bool
     permissions: list[str]
+    # Profile fields, so the client can populate /profile without a second call.
+    first_name: str | None = None
+    last_name: str | None = None
+    affiliation: str | None = None
+    profession: str | None = None
+    orcid: str | None = None
 
     model_config = {"from_attributes": True}
 

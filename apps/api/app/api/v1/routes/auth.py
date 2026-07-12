@@ -108,4 +108,9 @@ async def me(
         role=user.role,
         is_active=user.is_active,
         permissions=permissions,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        affiliation=user.affiliation,
+        profession=user.profession,
+        orcid=user.orcid,
     )

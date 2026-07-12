@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
+import { useAppStore } from '@/stores/app-store'
 import { LoginPage } from '@/features/login/LoginPage'
 import { ServerUnreachable } from '@/features/login/ServerUnreachable'
 import { SetupWizard } from '@/features/setup/SetupWizard'
@@ -61,6 +62,27 @@ export function AuthGate({ children }: AuthGateProps) {
     // when validateToken updates the user (which would loop).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isServerMode, needsSetup, token, validateToken])
+
+  // Server mode: the app-store `user` (used by the profile page, display name, etc.)
+  // must mirror the authenticated account — otherwise it keeps its local default
+  // ("admin"), so the profile shows the wrong username after login/refresh.
+  useEffect(() => {
+    if (!isServerMode) return
+    if (user) {
+      useAppStore.getState().login({
+        id: user.id,
+        username: user.username,
+        firstName: user.first_name ?? '',
+        lastName: user.last_name ?? '',
+        role: user.role,
+        affiliation: user.affiliation ?? '',
+        profession: user.profession ?? '',
+        orcid: user.orcid ?? '',
+      })
+    } else {
+      useAppStore.getState().logout()
+    }
+  }, [isServerMode, user])
 
   // In local mode, render children immediately (after hooks, to keep hook order stable)
   if (!isServerMode) return <>{children}</>

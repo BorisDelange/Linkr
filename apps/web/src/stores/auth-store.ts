@@ -11,6 +11,13 @@ export interface AuthUser {
   // after validateToken; absent right after login (login returns the lighter
   // user shape), so gate on hasGlobalPermission which treats absence as "no".
   permissions?: string[]
+  // Profile fields (snake_case, matching the auth API convention). Present after
+  // validateToken (/auth/me); absent from the lighter login response.
+  first_name?: string | null
+  last_name?: string | null
+  affiliation?: string | null
+  profession?: string | null
+  orcid?: string | null
 }
 
 interface AuthState {
