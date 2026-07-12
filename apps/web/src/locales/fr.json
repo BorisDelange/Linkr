@@ -1504,7 +1504,17 @@
     "diff_binary": "Fichier binaire — aucun aperçu.",
     "diff_too_large": "Fichier trop volumineux pour l’aperçu.",
     "sync_select_all": "Tout sélectionner",
-    "sync_selected_count": "{{count}} fichier(s) sur {{total}} sélectionné(s)"
+    "sync_selected_count": "{{count}} fichier(s) sur {{total}} sélectionné(s)",
+    "remote_edit_token": "Modifier le jeton",
+    "git_err_auth_required": "Ce dépôt est privé — un jeton d'accès est requis.",
+    "git_err_auth_failed": "Échec de l'authentification — le jeton d'accès est manquant, invalide ou expiré.",
+    "git_err_not_found": "Dépôt introuvable — vérifiez l'URL.",
+    "git_err_network": "Serveur injoignable — vérifiez votre connexion et l'URL.",
+    "git_err_unknown": "Impossible de se connecter au dépôt.",
+    "git_err_details": "Afficher les détails",
+    "token_dialog_title": "Modifier le jeton d'accès",
+    "token_dialog_desc": "Saisissez un nouveau jeton d'accès pour ce dépôt. Il est vérifié avant l'enregistrement.",
+    "token_dialog_save": "Enregistrer le jeton"
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",

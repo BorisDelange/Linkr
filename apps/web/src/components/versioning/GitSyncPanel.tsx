@@ -7,11 +7,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { cn } from '@/lib/utils'
 import { useGitSyncStore } from '@/stores/git-sync-store'
 import type { GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
-import { changeTypeMeta } from './git-change-meta'
+import { ChangeBadge } from './ChangeBadge'
 
 interface GitSyncPanelProps {
   scope: GitScope
@@ -117,31 +116,23 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         ) : (
           <ScrollArea className="min-h-0 flex-1">
             <ul className="divide-y">
-              {files.map((f) => {
-                const meta = changeTypeMeta(f.changeType)
-                return (
-                  <li key={f.path} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50">
-                    <Checkbox
-                      checked={selected.has(f.path)}
-                      onCheckedChange={() => togglePath(f.path)}
-                      className="shrink-0"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setDiffPath(f.path)}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
-                    >
-                      <span
-                        className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-[10px] font-bold', meta.badgeClass)}
-                        title={t(meta.labelKey)}
-                      >
-                        {meta.letter}
-                      </span>
-                      <span className="truncate font-mono">{f.path}</span>
-                    </button>
-                  </li>
-                )
-              })}
+              {files.map((f) => (
+                <li key={f.path} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50">
+                  <Checkbox
+                    checked={selected.has(f.path)}
+                    onCheckedChange={() => togglePath(f.path)}
+                    className="shrink-0"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setDiffPath(f.path)}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
+                  >
+                    <ChangeBadge changeType={f.changeType} />
+                    <span className="truncate font-mono">{f.path}</span>
+                  </button>
+                </li>
+              ))}
             </ul>
           </ScrollArea>
         )}

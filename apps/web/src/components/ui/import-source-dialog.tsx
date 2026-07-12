@@ -16,6 +16,14 @@ import { getGitCorsProxy, setGitCorsProxy, cloneRepoToZip, classifyCloneError } 
 import { gitCloneToZip } from '@/lib/api/git'
 import { isServerMode } from '@/lib/api-client'
 
+/** Git link captured during an import-from-git, so the caller can pre-configure
+ *  the imported entity's Versioning page with the same repo. */
+export interface ImportGitRemote {
+  url: string
+  branch: string
+  authToken?: string
+}
+
 interface ImportSourceDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -23,9 +31,10 @@ interface ImportSourceDialogProps {
   accept?: string
   /**
    * Receives the chosen source as a File — either the uploaded file or a ZIP built from
-   * a cloned git repo. The caller's existing import logic stays unchanged.
+   * a cloned git repo. `gitRemote` is set when the source was cloned from git, so the
+   * caller can link the imported entity to that repo. The existing import path is unchanged.
    */
-  onImport: (file: File) => void | Promise<void>
+  onImport: (file: File, gitRemote?: ImportGitRemote) => void | Promise<void>
 }
 
 /**
@@ -101,8 +110,9 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
         const zip = await cloneRepoToZip({ url: url.trim(), branch: branch.trim() || 'main', token: token || undefined })
         blob = await zip.generateAsync({ type: 'blob' })
       }
+      const gitRemote = { url: url.trim(), branch: branch.trim() || 'main', authToken: token || undefined }
       onOpenChange(false)
-      await onImport(new File([blob], `${repoName(url)}.zip`, { type: 'application/zip' }))
+      await onImport(new File([blob], `${repoName(url)}.zip`, { type: 'application/zip' }), gitRemote)
     } catch (err) {
       console.error('[import] git clone failed:', err)
       const raw = err instanceof Error ? err.message : String(err)

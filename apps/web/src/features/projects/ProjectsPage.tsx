@@ -38,7 +38,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
-import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
+import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
@@ -66,7 +66,7 @@ export function ProjectsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
   // Import conflict state
-  const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip; otherWorkspaceName?: string } | null>(null)
+  const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip; otherWorkspaceName?: string; gitRemote?: ImportGitRemote } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -148,7 +148,7 @@ export function ProjectsPage() {
 
 
   // --- Import ---
-  const doImport = useCallback(async (parsed: ParsedProjectZip, duplicate: boolean) => {
+  const doImport = useCallback(async (parsed: ParsedProjectZip, duplicate: boolean, gitRemote?: ImportGitRemote) => {
     const { project } = parsed
     if (!project?.uid) return
 
@@ -179,6 +179,9 @@ export function ProjectsPage() {
         : project.name,
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
+      // Imported from a git repo → pre-link its Versioning page to that repo
+      // (with the token, if one was supplied at import).
+      ...(gitRemote ? { gitRemoteConfig: gitRemote } : {}),
     }
 
     // Always clean up existing data for the target uid to avoid IDB constraint errors
@@ -212,7 +215,7 @@ export function ProjectsPage() {
     await doImport(parsed, true)
   }, [doImport])
 
-  const handleImportSource = useCallback(async (file: File) => {
+  const handleImportSource = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     try {
       const parsed = await parseProjectZip(file)
       if (!parsed) {
@@ -231,9 +234,9 @@ export function ProjectsPage() {
           const ws = await getStorage().workspaces.getById(existing.workspaceId)
           if (ws) otherWorkspaceName = typeof ws.name === 'string' ? ws.name : (ws.name.en || Object.values(ws.name)[0] || '')
         }
-        setImportConflict({ name: existingName, pending: parsed, otherWorkspaceName })
+        setImportConflict({ name: existingName, pending: parsed, otherWorkspaceName, gitRemote })
       } else {
-        await doImport(parsed, false)
+        await doImport(parsed, false, gitRemote)
       }
     } catch (err) {
       setImportError(t('projects.import_error', { error: err instanceof Error ? err.message : String(err) }))
@@ -402,8 +405,8 @@ export function ProjectsPage() {
         onOpenChange={(open) => { if (!open) setImportConflict(null) }}
         existingName={importConflict?.name ?? ''}
         existingWorkspaceName={importConflict?.otherWorkspaceName}
-        onDuplicate={() => { if (importConflict) doImport(importConflict.pending, true); setImportConflict(null) }}
-        onOverwrite={() => { if (importConflict) doImport(importConflict.pending, false); setImportConflict(null) }}
+        onDuplicate={() => { if (importConflict) doImport(importConflict.pending, true, importConflict.gitRemote); setImportConflict(null) }}
+        onOverwrite={() => { if (importConflict) doImport(importConflict.pending, false, importConflict.gitRemote); setImportConflict(null) }}
       />
 
       {/* Import project (ZIP upload or git clone) */}

@@ -1504,7 +1504,17 @@
     "diff_binary": "Binary file — no preview.",
     "diff_too_large": "File too large to preview.",
     "sync_select_all": "Select all",
-    "sync_selected_count": "{{count}} of {{total}} files selected"
+    "sync_selected_count": "{{count}} of {{total}} files selected",
+    "remote_edit_token": "Edit token",
+    "git_err_auth_required": "This repository is private — an access token is required.",
+    "git_err_auth_failed": "Authentication failed — the access token is missing, invalid, or expired.",
+    "git_err_not_found": "Repository not found — check the URL.",
+    "git_err_network": "Could not reach the server — check your connection and the URL.",
+    "git_err_unknown": "Could not connect to the repository.",
+    "git_err_details": "Show details",
+    "token_dialog_title": "Update access token",
+    "token_dialog_desc": "Enter a new access token for this repository. It is verified before saving.",
+    "token_dialog_save": "Save token"
   },
   "summary": {
     "tab_overview": "Overview",

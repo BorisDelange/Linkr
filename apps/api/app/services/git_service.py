@@ -54,7 +54,27 @@ def _lock_for(repo: Path) -> asyncio.Lock:
 
 
 class GitError(RuntimeError):
-    """A git invocation failed; message carries the (credential-scrubbed) stderr."""
+    """A git invocation failed. `message` is the credential-scrubbed raw stderr;
+    `code` is a stable machine label the UI maps to a friendly message."""
+
+    def __init__(self, message: str, code: str = "unknown") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _classify_error(text: str) -> str:
+    """Map git's raw stderr to a stable error code for the UI. Order matters:
+    auth-denied often also mentions the URL, so check credentials first."""
+    low = text.lower()
+    if any(s in low for s in ("access denied", "authentication failed", "http basic", "invalid username or password", "403")):
+        return "auth_failed"
+    if any(s in low for s in ("could not read from remote", "repository not found", "not found", "404")):
+        return "not_found"
+    if any(s in low for s in ("could not resolve host", "unable to access", "timed out", "network")):
+        return "network"
+    if "authentication" in low or "credential" in low:
+        return "auth_failed"
+    return "unknown"
 
 
 def _project_repo(project_uid: str) -> Path:
@@ -119,9 +139,10 @@ def _run(repo: Path, *args: str, token: str | None = None, check: bool = True) -
             env=_git_env(),
         )
     except subprocess.TimeoutExpired as exc:
-        raise GitError(f"git {args[0]} timed out") from exc
+        raise GitError(f"git {args[0]} timed out", "network") from exc
     if check and proc.returncode != 0:
-        raise GitError(_scrub(proc.stderr.strip() or proc.stdout.strip(), token))
+        msg = _scrub(proc.stderr.strip() or proc.stdout.strip(), token)
+        raise GitError(msg, _classify_error(msg))
     return proc.stdout
 
 
@@ -382,7 +403,13 @@ async def verify_remote(url: str, token: str | None) -> dict:
             env=_git_env(),
         )
         if proc.returncode != 0:
-            raise GitError(_scrub(proc.stderr.strip() or "remote not reachable", token))
+            msg = _scrub(proc.stderr.strip() or "remote not reachable", token)
+            code = _classify_error(msg)
+            # A private repo probed without a token reads as auth_failed; signal
+            # "token required" so the UI can ask for one rather than just erroring.
+            if code == "auth_failed" and not token:
+                code = "auth_required"
+            raise GitError(msg, code)
         default = None
         branches_found: list[str] = []
         for line in proc.stdout.splitlines():
@@ -418,7 +445,8 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> bytes:
                 ["git", *args], capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env()
             )
             if proc.returncode != 0:
-                raise GitError(_scrub(proc.stderr.strip(), token))
+                msg = _scrub(proc.stderr.strip(), token)
+                raise GitError(msg, _classify_error(msg))
             repo = tmp / "repo"
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:

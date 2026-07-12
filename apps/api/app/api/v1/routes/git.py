@@ -32,12 +32,21 @@ from app.services import git_secret, git_service, workspace_service
 router = APIRouter(prefix="/git", tags=["git"])
 
 
+def _git_http_error(exc: git_service.GitError) -> HTTPException:
+    """A structured 400 the UI can turn into a friendly message: `code` is the
+    stable label, `message` the raw (scrubbed) git output shown on demand."""
+    return HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        detail={"code": getattr(exc, "code", "unknown"), "message": str(exc)},
+    )
+
+
 async def _guard(coro) -> dict:
-    """Run a git service coroutine, mapping GitError → 400 with its scrubbed message."""
+    """Run a git service coroutine, mapping GitError → structured 400."""
     try:
         return await coro
     except git_service.GitError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise _git_http_error(exc) from exc
 
 
 def _remote_url(entity) -> str | None:
@@ -221,7 +230,7 @@ async def verify_remote(body: GitVerifyRequest, _user: User = Depends(get_curren
     try:
         return await git_service.verify_remote(body.url, body.token)
     except git_service.GitError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise _git_http_error(exc) from exc
 
 
 @router.post("/clone")
@@ -233,7 +242,7 @@ async def clone(body: GitCloneRequest, _user: User = Depends(get_current_user)):
     try:
         data = await git_service.clone_to_zip(body.url, body.branch or "main", body.token)
     except git_service.GitError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise _git_http_error(exc) from exc
     return Response(
         content=data,
         media_type="application/zip",

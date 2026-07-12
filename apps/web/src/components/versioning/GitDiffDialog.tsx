@@ -4,13 +4,12 @@ import { DiffEditor, type BeforeMount } from '@monaco-editor/react'
 import { FileWarning, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 import { useGitSyncStore } from '@/stores/git-sync-store'
 import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
 import { monacoLanguageFor } from '@/lib/monaco-language'
-import { changeTypeMeta } from './git-change-meta'
+import { ChangeBadge } from './ChangeBadge'
 import type { GitDiff, GitFileChange, GitScope } from '@/lib/api/git'
 
 interface GitDiffDialogProps {
@@ -68,11 +67,10 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1">
-          {/* File sidebar */}
-          <ScrollArea className="w-72 shrink-0 border-r">
-            <ul className="p-1">
+          {/* File sidebar — scrolls both ways so long paths are readable in full. */}
+          <div className="w-72 shrink-0 overflow-auto border-r">
+            <ul className="w-max min-w-full p-1">
               {files.map((f) => {
-                const meta = changeTypeMeta(f.changeType)
                 const active = f.path === path
                 return (
                   <li key={f.path}>
@@ -91,24 +89,17 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
                       <button
                         type="button"
                         onClick={() => setPath(f.path)}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        className="flex flex-1 items-center gap-2 text-left"
                       >
-                        <span
-                          className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-[10px] font-bold', meta.badgeClass)}
-                          title={t(meta.labelKey)}
-                        >
-                          {meta.letter}
-                        </span>
-                        <span className="truncate font-mono text-xs" title={f.path}>
-                          {f.path}
-                        </span>
+                        <ChangeBadge changeType={f.changeType} />
+                        <span className="whitespace-nowrap font-mono text-xs">{f.path}</span>
                       </button>
                     </div>
                   </li>
                 )
               })}
             </ul>
-          </ScrollArea>
+          </div>
 
           {/* Diff pane */}
           <div className="min-w-0 flex-1">

@@ -77,6 +77,14 @@ async def test_verify_remote_detects_default_branch():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_classify_error_maps_git_stderr_to_codes():
+    assert g._classify_error("remote: HTTP Basic: Access denied") == "auth_failed"
+    assert g._classify_error("fatal: Authentication failed for 'https://x'") == "auth_failed"
+    assert g._classify_error("fatal: repository 'x' not found") == "not_found"
+    assert g._classify_error("fatal: could not resolve host: nope") == "network"
+    assert g._classify_error("something odd") == "unknown"
+
+
 def test_diff_payload_flags_binary_and_oversized():
     assert g._diff_payload("hello") == ("hello", False, False)
     # NUL byte in the head → treated as binary, content dropped.

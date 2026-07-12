@@ -95,9 +95,41 @@ export interface GitVerifyResult {
   default: string | null
 }
 
+/** Git error codes the backend classifies; the UI maps these to friendly text. */
+export type GitErrorCode = 'auth_required' | 'auth_failed' | 'not_found' | 'network' | 'unknown'
+
+/** A git operation failed: `code` drives the friendly message, `rawMessage` is
+ *  the underlying git output shown on demand. */
+export class GitRemoteError extends Error {
+  code: GitErrorCode
+  rawMessage: string
+  constructor(code: GitErrorCode, rawMessage: string) {
+    super(rawMessage)
+    this.name = 'GitRemoteError'
+    this.code = code
+    this.rawMessage = rawMessage
+  }
+}
+
+/** Turn a non-OK git response into a GitRemoteError, parsing the {code,message}
+ *  detail when present (falls back to raw text / plain error). */
+async function gitError(res: Response): Promise<GitRemoteError> {
+  const text = await res.text()
+  try {
+    const body = JSON.parse(text)
+    const detail = body?.detail
+    if (detail && typeof detail === 'object' && 'code' in detail) {
+      return new GitRemoteError(detail.code as GitErrorCode, detail.message ?? text)
+    }
+    return new GitRemoteError('unknown', typeof detail === 'string' ? detail : text)
+  } catch {
+    return new GitRemoteError('unknown', text || `Request failed (${res.status})`)
+  }
+}
+
 /**
  * Check a remote is reachable with the given credentials before linking.
- * Throws (with the git error message) if the URL is wrong or auth fails, so the
+ * Throws GitRemoteError (with a code) if the URL is wrong or auth fails, so the
  * caller can refuse to save a link that doesn't actually work.
  */
 export async function gitVerifyRemote(url: string, token?: string): Promise<GitVerifyResult> {
@@ -105,7 +137,7 @@ export async function gitVerifyRemote(url: string, token?: string): Promise<GitV
     method: 'POST',
     body: JSON.stringify({ url, token: token || undefined }),
   })
-  if (!res.ok) throw new Error((await res.text()) || `Remote not reachable (${res.status})`)
+  if (!res.ok) throw await gitError(res)
   return res.json()
 }
 
@@ -115,6 +147,6 @@ export async function gitCloneToZip(url: string, branch: string, token?: string)
     method: 'POST',
     body: JSON.stringify({ url, branch, token: token || undefined }),
   })
-  if (!res.ok) throw new Error((await res.text()) || `Clone failed (${res.status})`)
+  if (!res.ok) throw await gitError(res)
   return res.blob()
 }
