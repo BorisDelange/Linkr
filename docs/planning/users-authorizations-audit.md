@@ -23,22 +23,32 @@ during implementation; the product owner must **validate it end to end**:
   decided); project role `none` (hide a project); workspace→project inheritance.
 → **Nothing should be considered final until the PO has reviewed this model.**
 
-### 2. Finish + verify the UI GATING
-- **Verify** in server mode all the gating already in place (settings, warehouse/lab
-  list features, datasets, dashboards, wiki, projects, databases) with
-  viewer / editor / owner / non-member accounts.
-- **Remaining ungated UI surfaces** (backend already protected — UI comfort only):
-  concept-mapping (bulk-delete concept sets, delete import batch, edit mapping
-  project, comments/approve, source-ID ranges), DQ checks editor (create/save),
-  catalog config (age brackets, anonymization), SQL scripts editor (create/save
-  file), pipeline (add/remove node/edge/script), summary (README, tasks,
-  attachments), patient-data widgets (add/edit/settings), dashboards detail
-  (toggle edit, add widget, settings, tabs), IDE files (create/rename/upload),
-  wiki (per-node context menu: create child/rename/delete, metadata/attachments).
-  Full mapping: see the inventory produced on 2026-07-10.
-- **Reminder**: UI gating is only cosmetic — the real enforcement is server-side
-  (403). To be (re)prioritized once the permission model is validated (point 1), because
-  some gates will change if the catalog changes.
+### 2. UI GATING — DONE (2026-07-12), still to VERIFY in the app
+**Fine-grained gating is implemented on the exact atomic permission** (custom roles
+honoured), not just the viewer/editor/owner rank. `my-role` now returns the effective
+permission list; the frontend hook exposes `can('resource:action')` (front-only →
+always true, admin → always true). Gated surfaces:
+- **Cohorts** (`cohorts:write|delete`), **IDE** (`ide:execute` run + terminal + packages,
+  `ide:write` file ops), **dashboards** + **patient-data** (edit-mode toggle + settings
+  on `dashboards:write` / `patient-data:write`), **summary** (`project-summary:write`)
+  + **workspace home README** (`workspace-summary:write`), **project/workspace settings**
+  (`*-settings:write|delete`), **members** (`*-members:write`).
+- **Warehouse editors**: data-quality, catalog (config/anonymization/dcat), SQL scripts,
+  ETL (scripts/pipeline/vocab), schema presets, concept-mapping (project edit + concept
+  sets), pipeline canvas — each on its `resource:write|delete`.
+- **Exports are NOT gated** (viewer can export — decided).
+- Delete of a catalogue entity → `:delete`; create/edit/run + delete of a sub-element
+  (task, criterion, check, widget, node) → `:write` (decided).
+
+Still to do:
+- **Verify** in server mode with viewer / editor / owner / non-member + a **custom role**
+  (e.g. `cohorts:read` only) that the gates match, on each surface above.
+- **Minor leftovers** (backend already 403s, low visibility): concept-mapping MappingsTab
+  comments/review + SourceIdTab ranges; IDE FileTreeItem rename/delete + connections/env
+  dialogs; dashboard/patient-data per-widget menus (covered by the edit-mode gate but not
+  individually disabled); catalog DCAT add/remove custom value; SQL/ETL file-tree
+  rename/delete. Gate these if a later pass wants full coverage.
+- **Reminder**: UI gating is only cosmetic — real enforcement is server-side (403).
 
 ---
 
