@@ -12,6 +12,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { usePipeline } from './use-pipeline'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 import { PipelineToolbar } from './PipelineToolbar'
 import { PipelineNodePalette } from './PipelineNodePalette'
 import { PipelineNodePanel } from './PipelineNodePanel'
@@ -53,6 +54,7 @@ export function PipelineCanvas() {
     cohorts,
   } = usePipeline()
 
+  const canWrite = useMyProjectRole().can('pipeline:write')
   const reactFlowRef = useRef<ReactFlowInstance<Node<PipelineNodeData>> | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(true)
   const addCountRef = useRef(0)
@@ -200,19 +202,20 @@ export function PipelineCanvas() {
         onDeleteSelected={deleteSelectedNodes}
         paletteOpen={paletteOpen}
         onTogglePalette={() => setPaletteOpen((v) => !v)}
+        canWrite={canWrite}
       />
       <div className="flex flex-1 overflow-hidden">
-        {paletteOpen && <PipelineNodePalette onAddNode={onPaletteAdd} />}
+        {paletteOpen && <PipelineNodePalette onAddNode={onPaletteAdd} canWrite={canWrite} />}
         <div className="relative flex-1">
           <ReactFlow
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
+            onConnect={canWrite ? onConnect : undefined}
             onInit={(instance) => { reactFlowRef.current = instance }}
             onDragOver={onDragOver}
-            onDrop={onDrop}
+            onDrop={canWrite ? onDrop : undefined}
             onNodeClick={onNodeClick}
             onNodeDragStop={onNodeDragStop}
             onPaneClick={onPaneClick}
@@ -224,7 +227,11 @@ export function PipelineCanvas() {
             defaultEdgeOptions={{ type: 'smoothstep' }}
             proOptions={{ hideAttribution: true }}
             multiSelectionKeyCode="Meta"
-            deleteKeyCode={['Delete', 'Backspace']}
+            // Read-only when the user can't write: no node dragging, connecting or delete-key.
+            nodesDraggable={canWrite}
+            nodesConnectable={canWrite}
+            edgesReconnectable={canWrite}
+            deleteKeyCode={canWrite ? ['Delete', 'Backspace'] : null}
             selectionMode={SelectionMode.Partial}
           >
             <Background

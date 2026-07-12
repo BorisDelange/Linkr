@@ -64,20 +64,23 @@ const paletteItems: PaletteItem[] = [
 
 interface PipelineNodePaletteProps {
   onAddNode: (type: PipelineNodeType) => void
+  /** When false, nodes can't be added/dragged (pipeline:write). Default true. */
+  canWrite?: boolean
 }
 
-function PaletteItemRow({ item, onAddNode, onDragStart }: {
+function PaletteItemRow({ item, onAddNode, onDragStart, canWrite }: {
   item: PaletteItem
   onAddNode: (type: PipelineNodeType) => void
   onDragStart: (e: React.DragEvent, type: PipelineNodeType) => void
+  canWrite: boolean
 }) {
   const { t } = useTranslation()
   return (
     <div
-      draggable
-      onDragStart={(e) => onDragStart(e, item.type)}
-      onClick={() => onAddNode(item.type)}
-      className="flex cursor-grab items-center gap-2.5 rounded-lg border border-border/60 bg-muted/50 px-2.5 py-2 transition-colors hover:border-border hover:bg-muted active:cursor-grabbing"
+      draggable={canWrite}
+      onDragStart={canWrite ? (e) => onDragStart(e, item.type) : undefined}
+      onClick={canWrite ? () => onAddNode(item.type) : undefined}
+      className={`flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/50 px-2.5 py-2 transition-colors ${canWrite ? 'cursor-grab hover:border-border hover:bg-muted active:cursor-grabbing' : 'cursor-not-allowed opacity-50'}`}
     >
       <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${item.iconBgClass}`}>
         <item.icon size={14} className={item.iconColorClass} />
@@ -94,7 +97,7 @@ function PaletteItemRow({ item, onAddNode, onDragStart }: {
   )
 }
 
-export function PipelineNodePalette({ onAddNode }: PipelineNodePaletteProps) {
+export function PipelineNodePalette({ onAddNode, canWrite = true }: PipelineNodePaletteProps) {
   const { t } = useTranslation()
 
   const onDragStart = (event: React.DragEvent, type: PipelineNodeType) => {
@@ -114,6 +117,7 @@ export function PipelineNodePalette({ onAddNode }: PipelineNodePaletteProps) {
             item={item}
             onAddNode={onAddNode}
             onDragStart={onDragStart}
+            canWrite={canWrite}
           />
         ))}
       </div>

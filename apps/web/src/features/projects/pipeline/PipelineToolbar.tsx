@@ -14,9 +14,11 @@ interface PipelineToolbarProps {
   onDeleteSelected: () => void
   paletteOpen: boolean
   onTogglePalette: () => void
+  /** When false, node add/delete are disabled (pipeline:write). Default true. */
+  canWrite?: boolean
 }
 
-export function PipelineToolbar({ pipeline, selectedNodeId, onDeleteSelected, paletteOpen, onTogglePalette }: PipelineToolbarProps) {
+export function PipelineToolbar({ pipeline, selectedNodeId, onDeleteSelected, paletteOpen, onTogglePalette, canWrite = true }: PipelineToolbarProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const { zoomIn, zoomOut, fitView } = useReactFlow()
@@ -47,7 +49,7 @@ export function PipelineToolbar({ pipeline, selectedNodeId, onDeleteSelected, pa
       </div>
       <div className="flex items-center gap-1">
         <TooltipProvider delayDuration={300}>
-          {selectedNodeId && (
+          {selectedNodeId && canWrite && (
             <>
               <Tooltip>
                 <TooltipTrigger asChild>
