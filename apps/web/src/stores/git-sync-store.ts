@@ -10,6 +10,7 @@ import { create } from 'zustand'
 import { buildProjectZip, buildWorkspaceZip } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
 import { defaultSelectedPaths } from '@/lib/git-file-classify'
+import { resolveLfsPaths } from '@/lib/git-lfs'
 import { toGitError } from '@/lib/git-error-message'
 import {
   gitBranches,
@@ -29,7 +30,14 @@ export interface GitSyncError {
   raw: string
 }
 
-async function buildZip(scope: GitScope, id: string, includeData: boolean): Promise<Blob> {
+// lfsOverrides: forced per-file LFS decisions applied when generating the export's
+// .gitattributes (undefined → use the automatic size/extension rule).
+async function buildZip(
+  scope: GitScope,
+  id: string,
+  includeData: boolean,
+  lfsOverrides?: Map<string, boolean>,
+): Promise<Blob> {
   const storage = getStorage()
   let result: { blob: Blob } | null
   if (scope === 'projects') {
@@ -38,7 +46,7 @@ async function buildZip(scope: GitScope, id: string, includeData: boolean): Prom
     result = await buildWorkspaceZip(id, storage, { includeDataFiles: includeData })
   } else {
     const { buildMappingProjectZip } = await import('@/lib/concept-mapping/export')
-    result = await buildMappingProjectZip(id, storage, { includeData })
+    result = await buildMappingProjectZip(id, storage, { includeData, lfsOverrides })
   }
   if (!result) throw new Error('export-failed')
   return result.blob
@@ -52,6 +60,9 @@ interface GitSyncState {
   /** Include dataset data files (CSV/parquet/…) in the export — mirrors the export
    *  tab's toggle. Off by default; off adds .gitignore rules that exclude them. */
   includeData: boolean
+  /** Per-file forced LFS decisions (true = force LFS, false = force normal blob);
+   *  absent → the automatic size/extension rule applies. */
+  lfsOverrides: Map<string, boolean>
   loadingStatus: boolean
   committing: boolean
   error: GitSyncError | null
@@ -63,6 +74,10 @@ interface GitSyncState {
   togglePath: (path: string) => void
   setAllSelected: (checked: boolean) => void
   setIncludeData: (scope: GitScope, id: string, value: boolean, branch?: string) => Promise<void>
+  /** Set of paths that will be tracked via LFS (auto rule + overrides). */
+  lfsPaths: () => Set<string>
+  /** Force a file's LFS state on/off (used by the badge + context menu). */
+  toggleLfs: (path: string) => void
   reset: () => void
 }
 
@@ -71,6 +86,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   branches: null,
   selected: new Set(),
   includeData: false,
+  lfsOverrides: new Map(),
   loadingStatus: false,
   committing: false,
   error: null,
@@ -121,7 +137,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     set({ committing: true, error: null })
     try {
       const paths = [...get().selected]
-      const zip = await buildZip(scope, id, get().includeData)
+      const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
       const result = await gitCommitPush(scope, id, zip, message, branch, paths)
       // After a commit the pushed files are clean; refresh so the UI updates.
       await get().refreshStatus(scope, id, branch)
@@ -154,6 +170,21 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       selected: checked ? new Set((s.status?.files ?? []).map((f) => f.path)) : new Set(),
     })),
 
+  lfsPaths: () => {
+    const files = get().status?.files ?? []
+    return new Set(resolveLfsPaths(files, get().lfsOverrides))
+  },
+
+  toggleLfs: (path) =>
+    set((s) => {
+      const file = s.status?.files.find((f) => f.path === path)
+      // Current effective state (auto rule unless already overridden), then flip it.
+      const current = new Set(resolveLfsPaths(file ? [file] : [], s.lfsOverrides)).has(path)
+      const next = new Map(s.lfsOverrides)
+      next.set(path, !current)
+      return { lfsOverrides: next }
+    }),
+
   reset: () =>
-    set({ status: null, branches: null, selected: new Set(), includeData: false, error: null, loadingStatus: false, committing: false }),
+    set({ status: null, branches: null, selected: new Set(), includeData: false, lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false }),
 }))

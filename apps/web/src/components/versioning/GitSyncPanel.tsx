@@ -7,8 +7,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { useGitSyncStore } from '@/stores/git-sync-store'
-import type { GitScope } from '@/lib/api/git'
+import type { GitFileChange, GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
 import { ChangeBadge } from './ChangeBadge'
 import { GitErrorInline } from './GitErrorInline'
@@ -27,8 +33,9 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, selected, includeData, loadingStatus, committing, error, refreshStatus, loadBranches, commitPush, togglePath, setAllSelected, setIncludeData, reset } =
+  const { status, branches, selected, includeData, loadingStatus, committing, error, refreshStatus, loadBranches, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs, reset } =
     useGitSyncStore()
+  const lfsSet = lfsPaths()
   const [branch, setBranch] = useState(defaultBranch)
   const [message, setMessage] = useState('')
   const [diffPath, setDiffPath] = useState<string | null>(null)
@@ -128,21 +135,15 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           <ScrollArea className="min-h-0 flex-1">
             <ul className="divide-y">
               {files.map((f) => (
-                <li key={f.path} className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50">
-                  <Checkbox
-                    checked={selected.has(f.path)}
-                    onCheckedChange={() => togglePath(f.path)}
-                    className="shrink-0"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setDiffPath(f.path)}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
-                  >
-                    <ChangeBadge changeType={f.changeType} />
-                    <span className="truncate font-mono">{f.path}</span>
-                  </button>
-                </li>
+                <GitFileRow
+                  key={f.path}
+                  file={f}
+                  checked={selected.has(f.path)}
+                  isLfs={lfsSet.has(f.path)}
+                  onToggleSelect={() => togglePath(f.path)}
+                  onToggleLfs={() => toggleLfs(f.path)}
+                  onOpenDiff={() => setDiffPath(f.path)}
+                />
               ))}
             </ul>
           </ScrollArea>
@@ -203,5 +204,52 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         />
       )}
     </div>
+  )
+}
+
+interface GitFileRowProps {
+  file: GitFileChange
+  checked: boolean
+  isLfs: boolean
+  onToggleSelect: () => void
+  onToggleLfs: () => void
+  onOpenDiff: () => void
+}
+
+/** One row of the changes list: commit checkbox, change badge, path, an LFS
+ *  chip (click to toggle), and a right-click menu to add/remove LFS tracking. */
+function GitFileRow({ file, checked, isLfs, onToggleSelect, onToggleLfs, onOpenDiff }: GitFileRowProps) {
+  const { t } = useTranslation()
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <li className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50">
+          <Checkbox checked={checked} onCheckedChange={onToggleSelect} className="shrink-0" />
+          <button
+            type="button"
+            onClick={onOpenDiff}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
+          >
+            <ChangeBadge changeType={file.changeType} />
+            <span className="truncate font-mono">{file.path}</span>
+          </button>
+          {isLfs && (
+            <button
+              type="button"
+              onClick={onToggleLfs}
+              title={t('versioning.lfs_remove')}
+              className="shrink-0 rounded-sm bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-violet-600 hover:bg-violet-500/25 dark:text-violet-400"
+            >
+              LFS
+            </button>
+          )}
+        </li>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onToggleLfs}>
+          {isLfs ? t('versioning.lfs_remove') : t('versioning.lfs_add')}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }

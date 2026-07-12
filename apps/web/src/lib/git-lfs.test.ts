@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isLfsCandidate, buildGitAttributes, LFS_SIZE_THRESHOLD } from './git-lfs'
+import { isLfsCandidate, buildGitAttributes, resolveLfsPaths, LFS_SIZE_THRESHOLD } from './git-lfs'
 
 // A ~100MB parquet must never land as a normal git blob (permanent repo bloat),
 // so LFS tracking triggers on data extensions OR a size threshold.
@@ -27,23 +27,37 @@ describe('isLfsCandidate', () => {
 })
 
 describe('buildGitAttributes', () => {
-  it('returns null when nothing qualifies', () => {
-    expect(buildGitAttributes([{ path: 'project.json', size: 10 }])).toBeNull()
+  it('returns null when the path list is empty', () => {
+    expect(buildGitAttributes([])).toBeNull()
   })
 
-  it('emits one lfs rule per tracked path, sorted', () => {
-    const out = buildGitAttributes([
-      { path: 'b.parquet', size: 1 },
-      { path: 'project.json', size: 1 },
-      { path: 'a.parquet', size: 1 },
-    ])
-    expect(out).toBe(
+  it('emits one lfs rule per path, sorted', () => {
+    expect(buildGitAttributes(['b.parquet', 'a.parquet'])).toBe(
       'a.parquet filter=lfs diff=lfs merge=lfs -text\nb.parquet filter=lfs diff=lfs merge=lfs -text\n',
     )
   })
 
   it('quotes paths containing spaces', () => {
-    const out = buildGitAttributes([{ path: 'my data.parquet', size: 1 }])
-    expect(out).toBe('"my data.parquet" filter=lfs diff=lfs merge=lfs -text\n')
+    expect(buildGitAttributes(['my data.parquet'])).toBe('"my data.parquet" filter=lfs diff=lfs merge=lfs -text\n')
+  })
+})
+
+describe('resolveLfsPaths', () => {
+  const files = [
+    { path: 'scores.parquet', size: 100 }, // candidate (extension)
+    { path: 'small.csv', size: 100 }, // not a candidate
+    { path: 'big.csv', size: LFS_SIZE_THRESHOLD + 1 }, // candidate (size)
+  ]
+
+  it('applies the automatic rule with no overrides', () => {
+    expect(resolveLfsPaths(files, new Map())).toEqual(['big.csv', 'scores.parquet'])
+  })
+
+  it('lets an override force a small file into LFS', () => {
+    expect(resolveLfsPaths(files, new Map([['small.csv', true]]))).toEqual(['big.csv', 'scores.parquet', 'small.csv'])
+  })
+
+  it('lets an override remove a candidate from LFS', () => {
+    expect(resolveLfsPaths(files, new Map([['scores.parquet', false]]))).toEqual(['big.csv'])
   })
 })

@@ -1523,7 +1523,9 @@
     "token_help_gitlab_3": "Copy it and paste it here",
     "git_error_generic": "Something went wrong with the git operation.",
     "git_error_details": "Show the full error",
-    "sync_include_data": "Include data files (CSV, parquet…)"
+    "sync_include_data": "Include data files (CSV, parquet…)",
+    "lfs_add": "Track with Git LFS",
+    "lfs_remove": "Remove from Git LFS"
   },
   "summary": {
     "tab_overview": "Overview",
@@ -3375,6 +3377,8 @@
     "delete_description": "This will permanently delete \"{{name}}\" and all its computed results. This action cannot be undone.",
     "name": "Name",
     "name_placeholder": "e.g. MIMIC-IV Demographics Catalog",
+    "field_description": "Description",
+    "field_description_placeholder": "Brief description of this catalog...",
     "database": "Database",
     "select_database": "Select a database",
     "status_draft": "Draft",

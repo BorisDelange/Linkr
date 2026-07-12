@@ -1523,7 +1523,9 @@
     "token_help_gitlab_3": "Copiez-le et collez-le ici",
     "git_error_generic": "Une erreur est survenue lors de l'opération git.",
     "git_error_details": "Afficher l'erreur complète",
-    "sync_include_data": "Inclure les fichiers de données (CSV, parquet…)"
+    "sync_include_data": "Inclure les fichiers de données (CSV, parquet…)",
+    "lfs_add": "Suivre avec Git LFS",
+    "lfs_remove": "Retirer de Git LFS"
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",
@@ -3375,6 +3377,8 @@
     "delete_description": "Cela supprimera définitivement « {{name}} » et tous ses résultats calculés. Cette action est irréversible.",
     "name": "Nom",
     "name_placeholder": "ex. Catalogue démographique MIMIC-IV",
+    "field_description": "Description",
+    "field_description_placeholder": "Brève description de ce catalogue...",
     "database": "Base de données",
     "select_database": "Sélectionner une base de données",
     "status_draft": "Brouillon",

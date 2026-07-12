@@ -62,6 +62,8 @@ async def test_git_status_endpoint_reports_added_files(client):
     assert body["added"] == 1
     assert body["linked"] is False  # no remote configured
     assert [f["path"] for f in body["files"]] == ["project.json"]
+    # Each file carries its byte size (drives LFS tracking in the UI).
+    assert body["files"][0]["size"] == len('{"a":1}')
 
 
 async def test_git_status_requires_auth(client):

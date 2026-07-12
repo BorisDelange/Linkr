@@ -13,6 +13,8 @@ export type GitScope = 'projects' | 'workspaces' | 'mapping-projects'
 export interface GitFileChange {
   path: string
   changeType: FileChangeType | 'renamed'
+  /** Working-tree byte size (0 for deletions); drives default LFS tracking. */
+  size: number
 }
 
 export interface GitStatus {

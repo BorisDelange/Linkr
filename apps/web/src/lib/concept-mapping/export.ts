@@ -674,7 +674,7 @@ export async function buildMappingProjectFolder(
 export async function buildMappingProjectZip(
   projectId: string,
   storage: Storage,
-  options: { includeData?: boolean } = {},
+  options: { includeData?: boolean; lfsOverrides?: Map<string, boolean> } = {},
 ): Promise<{ blob: Blob; projectName: string } | null> {
   const project = await storage.mappingProjects.getById(projectId)
   if (!project) return null
@@ -682,15 +682,17 @@ export async function buildMappingProjectZip(
   const zip = new JSZip()
   await buildMappingProjectFolder(zip, '', project, storage, { includeScores: !!options.includeData })
 
-  // Track heavy/large files via LFS (see git-lfs.ts). Computed from the actual
-  // ZIP entry sizes, then written back into the tree before the caller commits.
-  const { buildGitAttributes } = await import('@/lib/git-lfs')
+  // Track heavy/large files via LFS (see git-lfs.ts): the automatic size/
+  // extension rule, adjusted by the user's per-file overrides. Computed from the
+  // actual ZIP entry sizes, then written back into the tree before committing.
+  const { resolveLfsPaths, buildGitAttributes } = await import('@/lib/git-lfs')
   const entries = await Promise.all(
     Object.values(zip.files)
       .filter((f) => !f.dir)
       .map(async (f) => ({ path: f.name, size: (await f.async('uint8array')).byteLength })),
   )
-  const attrs = buildGitAttributes(entries)
+  const lfsPaths = resolveLfsPaths(entries, options.lfsOverrides ?? new Map())
+  const attrs = buildGitAttributes(lfsPaths)
   if (attrs) zip.file('.gitattributes', attrs)
 
   const blob = await zip.generateAsync({ type: 'blob' })

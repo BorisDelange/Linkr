@@ -294,7 +294,9 @@ _STATUS_CODE = {"M": "modified", "A": "added", "D": "deleted", "R": "renamed", "
 
 
 def _porcelain_status(repo: Path) -> list[dict]:
-    """Parse `git status --porcelain` into [{path, changeType}] against HEAD+worktree."""
+    """Parse `git status --porcelain` into [{path, changeType, size}] against
+    HEAD+worktree. `size` is the working-tree byte size (0 for deletions), used
+    by the UI to decide LFS tracking."""
     out = _run(repo, "status", "--porcelain")
     files: list[dict] = []
     for line in out.splitlines():
@@ -304,7 +306,9 @@ def _porcelain_status(repo: Path) -> list[dict]:
         path = line[3:].strip()
         if " -> " in path:  # rename: report the new path
             path = path.split(" -> ", 1)[1]
-        files.append({"path": path, "changeType": _STATUS_CODE.get(code, "modified")})
+        fp = repo / path
+        size = fp.stat().st_size if fp.is_file() else 0
+        files.append({"path": path, "changeType": _STATUS_CODE.get(code, "modified"), "size": size})
     return files
 
 

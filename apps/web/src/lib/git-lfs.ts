@@ -26,14 +26,25 @@ export function isLfsCandidate(entry: ExportEntry): boolean {
  * per exact path (paths are quoted / space-safe). Returns null when nothing
  * qualifies, so the caller can skip writing the file entirely.
  */
-export function buildGitAttributes(entries: ExportEntry[]): string | null {
-  const tracked = entries.filter(isLfsCandidate).map((e) => e.path).sort()
-  if (tracked.length === 0) return null
-  const lines = tracked.map((path) => `${quotePattern(path)} filter=lfs diff=lfs merge=lfs -text`)
+export function buildGitAttributes(lfsPaths: string[]): string | null {
+  if (lfsPaths.length === 0) return null
+  const lines = [...lfsPaths].sort().map((path) => `${quotePattern(path)} filter=lfs diff=lfs merge=lfs -text`)
   return lines.join('\n') + '\n'
 }
 
 /** gitattributes pattern quoting: wrap paths containing spaces in double quotes. */
 function quotePattern(path: string): string {
   return /\s/.test(path) ? `"${path}"` : path
+}
+
+/**
+ * Effective LFS paths for a set of changed files: the auto rule (isLfsCandidate)
+ * unless the user overrode it. `overrides` maps a path to a forced decision
+ * (true = force LFS, false = force normal blob). Returned as a sorted array.
+ */
+export function resolveLfsPaths(entries: ExportEntry[], overrides: Map<string, boolean>): string[] {
+  return entries
+    .filter((e) => (overrides.has(e.path) ? overrides.get(e.path)! : isLfsCandidate(e)))
+    .map((e) => e.path)
+    .sort()
 }

@@ -4,6 +4,7 @@ from app.schemas.base import CamelModel
 class GitFileChange(CamelModel):
     path: str
     change_type: str  # modified | added | deleted | renamed
+    size: int = 0  # working-tree byte size (0 for deletions); drives LFS tracking in the UI
 
 
 class GitStatusResponse(CamelModel):
