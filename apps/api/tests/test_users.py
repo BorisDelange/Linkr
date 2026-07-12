@@ -78,6 +78,21 @@ async def test_duplicate_username_rejected(client):
     assert (await client.post(f"{API}/users", headers=headers, json=body)).status_code == 409
 
 
+async def test_rename_username_keeps_id_and_rejects_clash(client):
+    headers = await _bootstrap_admin(client)
+    a = (await client.post(f"{API}/users", headers=headers, json={"username": "alice", "password": "pw"})).json()
+    (await client.post(f"{API}/users", headers=headers, json={"username": "bob", "password": "pw"}))
+
+    # Rename alice → alice2: same id (memberships keyed on id are unaffected).
+    r = await client.patch(f"{API}/users/{a['id']}", headers=headers, json={"username": "alice2"})
+    assert r.status_code == 200
+    assert r.json()["id"] == a["id"] and r.json()["username"] == "alice2"
+
+    # Renaming onto an existing username is refused.
+    r = await client.patch(f"{API}/users/{a['id']}", headers=headers, json={"username": "bob"})
+    assert r.status_code == 409
+
+
 async def test_users_admin_only(client, db):
     await _bootstrap_admin(client)
     db.add(User(username="bob", password_hash=hash_password("pw"), role="user"))

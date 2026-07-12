@@ -48,6 +48,15 @@ async def update(db: AsyncSession, user: User, data: UserUpdate) -> User:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot remove the last administrator",
         )
+    # Renaming keeps the same user id, so memberships/roles (keyed on users.id)
+    # follow automatically; only enforce username uniqueness.
+    new_username = changes.get("username")
+    if new_username is not None and new_username != user.username:
+        clash = await db.scalar(select(User).where(User.username == new_username))
+        if clash is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Username already exists"
+            )
     for key, value in changes.items():
         setattr(user, key, value)
     if data.password is not None:

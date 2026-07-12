@@ -17,6 +17,7 @@ class UserCreate(CamelModel):
 
 
 class UserUpdate(CamelModel):
+    username: str | None = None  # renaming keeps the same user id → memberships intact
     role: str | None = None
     email: str | None = None
     first_name: str | None = None

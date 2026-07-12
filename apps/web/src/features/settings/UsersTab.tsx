@@ -161,6 +161,7 @@ export function UsersTab() {
       setError(t('settings.password_mismatch'))
       return
     }
+    if (!draft.username.trim()) return
     const fields = {
       role: draft.role,
       firstName: draft.firstName.trim() || undefined,
@@ -173,6 +174,7 @@ export function UsersTab() {
       const storage = getStorage()
       if (editing) {
         const changes: Partial<UserCreateInput> = { ...fields }
+        if (draft.username.trim() !== editing.username) changes.username = draft.username.trim()
         if (draft.password.trim()) changes.password = draft.password
         await storage.users.update(editing.id, changes)
       } else {
@@ -278,12 +280,11 @@ export function UsersTab() {
             </DialogHeader>
             <div className="mt-4 space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="user-username">{t('settings.user_username')}{!editing && <RequiredMark />}</Label>
+                <Label htmlFor="user-username">{t('settings.user_username')}<RequiredMark /></Label>
                 <Input
                   id="user-username"
                   value={draft.username}
                   onChange={(e) => setField('username', e.target.value)}
-                  disabled={!!editing}
                   autoFocus={!editing}
                   autoComplete="off"
                 />
