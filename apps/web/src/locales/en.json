@@ -1493,7 +1493,9 @@
     "sync_message_ph": "Describe your changes",
     "sync_pushed": "Pushed",
     "sync_commit_push": "Commit & push",
-    "diff_empty": "No differences."
+    "diff_empty": "No differences.",
+    "remote_private": "Private",
+    "remote_token_hint": "Optional. Required only for a private repository (personal access token)."
   },
   "summary": {
     "tab_overview": "Overview",
@@ -2308,6 +2310,7 @@
     "no_access_title": "Access not available",
     "no_access_description": "Your account doesn't have permission to access this section.",
     "insufficient_permissions": "You don't have permission to do this.",
+    "execute_not_permitted": "Running this requires code-execution permission.",
     "entity_not_found_title": "{{entity}} not found",
     "entity_not_found_description": "It may have been deleted, or the link is incorrect.",
     "entity_project": "Project",

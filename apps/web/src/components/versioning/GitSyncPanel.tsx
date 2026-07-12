@@ -63,7 +63,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const nothingToCommit = !loadingStatus && files.length === 0
 
   return (
-    <div className="space-y-3 border-t pt-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Label className="text-xs">{t('versioning.sync_branch')}</Label>
@@ -92,8 +92,8 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         </Button>
       </div>
 
-      <div className="rounded-lg border bg-card shadow-sm">
-        <div className="flex items-center justify-between border-b px-3 py-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
+        <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
           <span className="text-xs font-medium">{t('versioning.sync_changes')}</span>
           {status && (
             <span className="text-[11px] text-muted-foreground">
@@ -109,7 +109,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         ) : nothingToCommit ? (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
         ) : (
-          <ScrollArea className="max-h-48">
+          <ScrollArea className="min-h-0 flex-1">
             <ul className="divide-y">
               {files.map((f) => {
                 const Icon = CHANGE_ICON[f.changeType] ?? FilePen
@@ -131,7 +131,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         )}
       </div>
 
-      <div className="space-y-2">
+      <div className="shrink-0 space-y-2">
         <Label className="text-xs">{t('versioning.sync_message')}</Label>
         <Textarea
           value={message}
@@ -143,9 +143,9 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         />
       </div>
 
-      {error && <p className="whitespace-pre-line text-[11px] text-destructive">{error}</p>}
+      {error && <p className="shrink-0 whitespace-pre-line text-[11px] text-destructive">{error}</p>}
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex shrink-0 items-center justify-end gap-2">
         {pushed && (
           <span className="flex items-center gap-1 text-xs text-primary">
             <GitCommitVertical size={13} />

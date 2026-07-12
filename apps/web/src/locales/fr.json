@@ -1493,7 +1493,9 @@
     "sync_message_ph": "Décrivez vos modifications",
     "sync_pushed": "Poussé",
     "sync_commit_push": "Valider et pousser",
-    "diff_empty": "Aucune différence."
+    "diff_empty": "Aucune différence.",
+    "remote_private": "Privé",
+    "remote_token_hint": "Optionnel. Requis uniquement pour un dépôt privé (jeton d'accès personnel)."
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",
@@ -2308,6 +2310,7 @@
     "no_access_title": "Accès non disponible",
     "no_access_description": "Votre compte n'a pas les droits pour accéder à cette section.",
     "insufficient_permissions": "Vous n'avez pas les droits pour effectuer cette action.",
+    "execute_not_permitted": "L'affichage nécessite le droit d'exécution de code.",
     "entity_not_found_title": "{{entity}} introuvable",
     "entity_not_found_description": "Il a peut-être été supprimé, ou le lien est incorrect.",
     "entity_project": "Projet",

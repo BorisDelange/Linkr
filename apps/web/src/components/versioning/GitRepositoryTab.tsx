@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check } from 'lucide-react'
+import { GitBranch, KeyRound, Link2Off, Loader2 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -20,29 +20,34 @@ interface GitRepositoryTabProps {
 }
 
 /**
- * Git repository link form (URL / branch / token + connect/disconnect), shared by the
- * versioning page and the per-entity dialog. Owns its own state so the connect/disconnect
- * feedback works without the parent re-passing a fresh prop.
+ * Two-state Git repository tab, shared by the versioning pages.
+ *  - Unlinked: a compact connect form (URL + optional access token).
+ *  - Linked: a one-line summary (repo URL + private badge + disconnect) so the
+ *    sync panel below gets the room to show the repo's files.
+ * The branch is no longer typed here — it's detected on connect and switched
+ * from the sync panel's dropdown.
  */
 export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRepositoryTabProps) {
   const { t } = useTranslation()
   const [url, setUrl] = useState(gitRemote?.url ?? '')
-  const [branch, setBranch] = useState(gitRemote?.branch ?? 'main')
-  const [token, setToken] = useState(gitRemote?.authToken ?? '')
+  const [token, setToken] = useState('')
   const [linked, setLinked] = useState(!!gitRemote?.url)
   const [saving, setSaving] = useState(false)
-  const [justSaved, setJustSaved] = useState(false)
+  // Whether an access token backs the current link (private repo). The backend
+  // never returns the token, so this is only known within the session that set it.
+  const [hasToken, setHasToken] = useState(!!gitRemote?.authToken)
 
   const canConnect = url.trim().length > 0
+  const linkedUrl = gitRemote?.url ?? url
+  const branch = gitRemote?.branch || 'main'
 
   const handleConnect = async () => {
     if (!canConnect || saving) return
     setSaving(true)
     try {
-      await onSave({ url: url.trim(), branch: branch.trim() || 'main', authToken: token || undefined })
+      await onSave({ url: url.trim(), branch, authToken: token || undefined })
+      setHasToken(!!token)
       setLinked(true)
-      setJustSaved(true)
-      setTimeout(() => setJustSaved(false), 1800)
     } finally {
       setSaving(false)
     }
@@ -55,11 +60,56 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
       await onSave(null)
       setLinked(false)
       setUrl('')
-      setBranch('main')
       setToken('')
+      setHasToken(false)
     } finally {
       setSaving(false)
     }
+  }
+
+  if (linked) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        {/* Compact connection summary — keeps the config out of the way so the
+            sync panel below owns the space. */}
+        <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
+          <GitBranch size={15} className="shrink-0 text-muted-foreground" />
+          <a
+            href={linkedUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="min-w-0 flex-1 truncate text-xs font-medium hover:underline"
+            title={linkedUrl}
+          >
+            {linkedUrl}
+          </a>
+          {hasToken && (
+            <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+              <KeyRound size={10} />
+              {t('versioning.remote_private')}
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 gap-1 text-xs text-muted-foreground hover:text-destructive"
+            onClick={handleDisconnect}
+            disabled={saving}
+          >
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Link2Off size={13} />}
+            {t('versioning.remote_disconnect')}
+          </Button>
+        </div>
+
+        {isServerMode() && syncScope && syncId ? (
+          <GitSyncPanel scope={syncScope} id={syncId} defaultBranch={branch} />
+        ) : (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {t('versioning.remote_requires_backend')}
+          </p>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -70,56 +120,26 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder={t('versioning.remote_url_placeholder')}
-          disabled={linked}
           className="h-9 text-sm"
         />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label className="text-xs">{t('versioning.remote_branch')}</Label>
-          <Input
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-            placeholder="main"
-            disabled={linked}
-            className="h-9 text-sm"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs">{t('versioning.remote_token')}</Label>
-          <Input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder={t('versioning.remote_token_placeholder')}
-            disabled={linked}
-            className="h-9 text-sm"
-          />
-        </div>
+      <div className="space-y-2">
+        <Label className="text-xs">{t('versioning.remote_token')}</Label>
+        <Input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder={t('versioning.remote_token_placeholder')}
+          className="h-9 text-sm"
+        />
+        <p className="text-[11px] text-muted-foreground leading-relaxed">{t('versioning.remote_token_hint')}</p>
       </div>
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        {t('app_versioning.entity_git_link_hint')}
-      </p>
       <div className="flex justify-end">
-        {justSaved ? (
-          <Button variant="outline" disabled className="gap-1.5 text-muted-foreground">
-            <Check size={14} className="text-primary" />
-            {t('app_versioning.remote_connected')}
-          </Button>
-        ) : linked ? (
-          <Button variant="outline" onClick={handleDisconnect} disabled={saving}>
-            {t('versioning.remote_disconnect')}
-          </Button>
-        ) : (
-          <Button onClick={handleConnect} disabled={!canConnect || saving}>
-            {t('versioning.remote_connect')}
-          </Button>
-        )}
+        <Button onClick={handleConnect} disabled={!canConnect || saving} className="gap-1.5">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
+          {t('versioning.remote_connect')}
+        </Button>
       </div>
-
-      {linked && isServerMode() && syncScope && syncId && (
-        <GitSyncPanel scope={syncScope} id={syncId} defaultBranch={branch || 'main'} />
-      )}
     </div>
   )
 }

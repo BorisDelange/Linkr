@@ -331,11 +331,11 @@ export function ProjectsPage() {
                               <Pencil size={14} />
                               {t('common.edit')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = project.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectVersioning(w, project.uid, 'export')) }}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = rawByUid.get(project.uid)?.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectVersioning(w, project.uid, 'export')) }}>
                               <Download size={14} />
                               {t('common.export')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = project.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectVersioning(w, project.uid, 'git')) }}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = rawByUid.get(project.uid)?.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectVersioning(w, project.uid, 'git')) }}>
                               <GitBranch size={14} />
                               {t('common.versioning')}
                             </DropdownMenuItem>
@@ -343,7 +343,7 @@ export function ProjectsPage() {
                               <Copy size={14} />
                               {t('common.duplicate')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = project.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectSettings(w, project.uid)) }}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = rawByUid.get(project.uid)?.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectSettings(w, project.uid)) }}>
                               <Settings2 size={14} />
                               {t('nav.settings')}
                             </DropdownMenuItem>
