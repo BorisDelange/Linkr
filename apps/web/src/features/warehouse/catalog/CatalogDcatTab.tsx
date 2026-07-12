@@ -508,6 +508,7 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
                 {customValues.map((cv) => (
                   <Badge key={cv} variant="default" className="gap-1 pr-1 text-xs">
                     {cv}
+                    {canWrite && (
                     <button
                       type="button"
                       className="ml-0.5 rounded-full p-0.5 opacity-60 transition-opacity hover:bg-background/20 hover:opacity-100"
@@ -515,6 +516,7 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
                     >
                       <X size={10} />
                     </button>
+                    )}
                   </Badge>
                 ))}
               </div>
@@ -527,13 +529,14 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCustom() } }}
                 placeholder={t('dcat.custom_value_placeholder')}
                 className="h-7 flex-1 text-xs"
+                disabled={!canWrite}
               />
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-7 px-2"
                 onClick={handleAddCustom}
-                disabled={!customInput.trim()}
+                disabled={!customInput.trim() || !canWrite}
               >
                 <Plus size={12} />
               </Button>

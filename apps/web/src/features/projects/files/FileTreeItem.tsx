@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { useState, useRef, useEffect } from 'react'
 import { useFileStore } from '@/stores/file-store'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { TreeNode, DatasetBridgeNode } from '@/hooks/use-project-tree'
 import {
@@ -125,6 +126,8 @@ export function FileTreeItem({
   selectedFileId,
 }: FileTreeItemProps) {
   const { t } = useTranslation()
+  const canWrite = useMyProjectRole().can('ide:write')
+  const canDelete = useMyProjectRole().can('ide:delete')
   const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode, renameNode } = useFileStore()
   const datasetStore = useDatasetStore()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -384,7 +387,7 @@ export function FileTreeItem({
             </>
           ) : (
             <>
-              <ContextMenuItem onClick={startRename}>
+              <ContextMenuItem onClick={startRename} disabled={!canWrite}>
                 <Pencil size={14} />
                 {t('files.rename')}
               </ContextMenuItem>
@@ -395,7 +398,7 @@ export function FileTreeItem({
                 </ContextMenuItem>
               )}
               {!isFolder && (
-                <ContextMenuItem onClick={() => {
+                <ContextMenuItem disabled={!canWrite} onClick={() => {
                   if (isBridge && bridgeDatasetFileId) {
                     datasetStore.duplicateFile(bridgeDatasetFileId)
                   } else {
@@ -440,6 +443,7 @@ export function FileTreeItem({
               <ContextMenuSeparator />
               <ContextMenuItem
                 variant="destructive"
+                disabled={!canDelete}
                 onClick={() => setDeleteConfirmOpen(true)}
               >
                 <Trash2 size={14} />

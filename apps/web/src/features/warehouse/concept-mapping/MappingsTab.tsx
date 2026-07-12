@@ -70,6 +70,7 @@ import { Card } from '@/components/ui/card'
 import { SectionRenderer, extractSections, extractTextFields } from './components/ConceptDetailView'
 import { useRequireIdentity } from './components/IdentityRequiredDialog'
 import { useConceptMappingStore, type ExternalMappingInfo } from '@/stores/concept-mapping-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, DataSource } from '@/types'
@@ -144,6 +145,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const { mappings, updateMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
@@ -213,7 +215,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
                     <span className="text-xs font-medium">{c.authorId}</span>
                     <div className="flex items-center gap-1">
                       <span className="text-[10px] text-muted-foreground">{formatDate(c.createdAt)}</span>
-                      {c.authorId === currentUser && editingId !== c.id && (
+                      {c.authorId === currentUser && editingId !== c.id && canWrite && (
                         <>
                           <button
                             className="ml-1 text-muted-foreground hover:text-foreground"
@@ -270,7 +272,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAdd() }
               }}
             />
-            <Button size="sm" className="h-7 w-full text-xs" disabled={!draft.trim()} onClick={handleAdd}>
+            <Button size="sm" className="h-7 w-full text-xs" disabled={!draft.trim() || !canWrite} onClick={handleAdd}>
               {t('concept_mapping.add_comment')}
             </Button>
           </div>
@@ -288,6 +290,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const { mappings, updateMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
@@ -386,7 +389,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
                 className={`h-8 text-xs gap-1 ${myReview?.status === 'approved' ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
                 variant={myReview?.status === 'approved' ? 'default' : 'outline'}
                 onClick={() => handleReview('approved')}
-                disabled={isOwnMapping}
+                disabled={isOwnMapping || !canWrite}
               >
                 <Check size={12} />
                 {t(myReview?.status === 'approved' ? 'concept_mapping.status_approved' : 'concept_mapping.approve')}
@@ -396,7 +399,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
                 className={`h-8 text-xs gap-1 ${myReview?.status === 'rejected' ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}
                 variant={myReview?.status === 'rejected' ? 'default' : 'outline'}
                 onClick={() => handleReview('rejected')}
-                disabled={isOwnMapping}
+                disabled={isOwnMapping || !canWrite}
               >
                 <X size={12} />
                 {t(myReview?.status === 'rejected' ? 'concept_mapping.status_rejected' : 'concept_mapping.reject')}
@@ -406,6 +409,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
                 className={`h-8 text-xs gap-1 ${myReview?.status === 'flagged' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}`}
                 variant={myReview?.status === 'flagged' ? 'default' : 'outline'}
                 onClick={() => handleReview('flagged')}
+                disabled={!canWrite}
               >
                 <Flag size={12} />
                 {t(myReview?.status === 'flagged' ? 'concept_mapping.status_flagged' : 'concept_mapping.flag')}
@@ -439,6 +443,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
   onNext?: () => void
 }) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const myReview = (mapping.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status ?? 'unchecked'
   const isOwn = mapping.mappedBy === currentUser
   const commentsCount = (mapping.comments ?? []).length
@@ -580,7 +585,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 size="icon-sm"
                 className={`size-7 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
                 onClick={() => onReview(mapping.id, 'approved')}
-                disabled={isOwn}
+                disabled={isOwn || !canWrite}
               >
                 <Check size={14} />
               </Button>
@@ -594,7 +599,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 size="icon-sm"
                 className={`size-7 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
                 onClick={() => onReview(mapping.id, 'rejected')}
-                disabled={isOwn}
+                disabled={isOwn || !canWrite}
               >
                 <X size={14} />
               </Button>
@@ -814,6 +819,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
 interface ReviewActionsCellProps {
   mappingId: string
   isOwn: boolean
+  canWrite: boolean
   myReview: MappingStatus | 'unchecked'
   commentsCount: number
   reviewsCount: number
@@ -824,7 +830,7 @@ interface ReviewActionsCellProps {
   t: ReturnType<typeof useTranslation>['t']
 }
 const ReviewActionsCell = memo(function ReviewActionsCell({
-  mappingId, isOwn, myReview, commentsCount, reviewsCount,
+  mappingId, isOwn, canWrite, myReview, commentsCount, reviewsCount,
   onOpenDetail, onOpenComments, onOpenReviews, onReview, t,
 }: ReviewActionsCellProps) {
   return (
@@ -872,7 +878,7 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
         className={`size-6 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
         title={isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.approve')}
         onClick={(e) => { e.stopPropagation(); onReview(mappingId, 'approved') }}
-        disabled={isOwn}
+        disabled={isOwn || !canWrite}
       >
         <Check size={13} />
       </Button>
@@ -882,7 +888,7 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
         className={`size-6 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
         title={isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.reject')}
         onClick={(e) => { e.stopPropagation(); onReview(mappingId, 'rejected') }}
-        disabled={isOwn}
+        disabled={isOwn || !canWrite}
       >
         <X size={13} />
       </Button>
@@ -892,6 +898,7 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
         className={`size-6 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
         title={t('concept_mapping.flag')}
         onClick={(e) => { e.stopPropagation(); onReview(mappingId, 'flagged') }}
+        disabled={!canWrite}
       >
         <Flag size={13} />
       </Button>
@@ -901,6 +908,7 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
 
 export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   // Memos depend on `mappingsStructureVersion` (set membership / aggregations)
   // or `mappingsVersion` (per-row content) instead of the `mappings` array
   // itself, so a vote on a single row doesn't invalidate filter / sort memos.
@@ -2350,6 +2358,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
             <ReviewActionsCell
               mappingId={m.id}
               isOwn={m.mappedBy === currentUser}
+              canWrite={canWrite}
               myReview={d?.myReviewStatus ?? 'unchecked'}
               commentsCount={(m.comments ?? []).length}
               reviewsCount={(m.reviews ?? []).length}
@@ -2896,7 +2905,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                 size="icon-sm"
                 className="h-7 w-7"
                 onClick={() => setImportSourceOpen(true)}
-                disabled={importing || bulkImporting}
+                disabled={importing || bulkImporting || !canWrite}
               >
                 {(importing || bulkImporting) ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
               </Button>
@@ -2976,6 +2985,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
             size="sm"
             className="h-7 gap-1 text-xs"
             onClick={toggleEditMode}
+            disabled={!canWrite}
           >
             <Pencil size={12} />
             {editMode ? t('concept_mapping.done_editing') : t('concept_mapping.edit_mode')}

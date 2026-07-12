@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useConnectionStore, type ConnectionEntry } from '@/stores/connection-store'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 import { AddConnectionDialog } from './AddConnectionDialog'
 import { cn } from '@/lib/utils'
 
@@ -102,6 +103,7 @@ function ConnectionItem({
 
 export function ConnectionsPanel({ open, onOpenChange, projectUid }: ConnectionsPanelProps) {
   const { t } = useTranslation()
+  const canWrite = useMyProjectRole(projectUid).can('ide:write')
   const { getProjectConnections, activeConnectionId, setActiveConnection, removeCustomConnection } = useConnectionStore()
   const connections = getProjectConnections(projectUid)
 
@@ -182,7 +184,7 @@ export function ConnectionsPanel({ open, onOpenChange, projectUid }: Connections
                         entry={entry}
                         isActive={activeConnectionId === entry.id}
                         onSelect={() => setActiveConnection(entry.id)}
-                        onRemove={() => setDeleteTarget(entry.id)}
+                        onRemove={canWrite ? () => setDeleteTarget(entry.id) : undefined}
                       />
                     ))}
                   </div>
@@ -192,6 +194,7 @@ export function ConnectionsPanel({ open, onOpenChange, projectUid }: Connections
                   variant="outline"
                   size="sm"
                   className="mt-4 w-full gap-1.5"
+                  disabled={!canWrite}
                   onClick={() => setAddDialogOpen(true)}
                 >
                   <Plus size={14} />

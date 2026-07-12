@@ -31,6 +31,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 import { getPyodideStatus } from '@/lib/runtimes/pyodide-engine'
 import { getWebRStatus } from '@/lib/runtimes/webr-engine'
 import {
@@ -79,6 +80,8 @@ function summarizeInstallError(raw: string, t: (k: string) => string): string {
 export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogProps) {
   const { t } = useTranslation()
   const server = isServerMode()
+  // Installing/updating/uninstalling packages runs server-side → ide:execute.
+  const canExecute = useMyProjectRole().can('ide:execute')
   const [langTab, setLangTab] = useState<'python' | 'r'>('python')
   const [newPkgName, setNewPkgName] = useState('')
   const [installing, setInstalling] = useState(false)
@@ -263,7 +266,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
             size="sm"
             variant="outline"
             onClick={handleInstall}
-            disabled={!newPkgName.trim() || installing}
+            disabled={!newPkgName.trim() || installing || !canExecute}
             className="shrink-0 gap-1"
           >
             {installing ? (
@@ -366,7 +369,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
                         <button
                           type="button"
                           onClick={() => handleUpdate(pkg)}
-                          disabled={updatingPkg === pkg.name || uninstallingPkg === pkg.name}
+                          disabled={updatingPkg === pkg.name || uninstallingPkg === pkg.name || !canExecute}
                           className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                         >
                           {updatingPkg === pkg.name ? (
@@ -385,7 +388,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
                         <button
                           type="button"
                           onClick={() => handleUninstall(pkg)}
-                          disabled={uninstallingPkg === pkg.name || updatingPkg === pkg.name}
+                          disabled={uninstallingPkg === pkg.name || updatingPkg === pkg.name || !canExecute}
                           className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
                         >
                           {uninstallingPkg === pkg.name ? (

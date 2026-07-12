@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { getStorage } from '@/lib/storage'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import type { MappingProject, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
@@ -65,6 +66,7 @@ const rangeCache = new Map<string, RangeRow[]>()
 
 export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
@@ -373,7 +375,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium">{t('concept_mapping.source_id_ranges')}</p>
             {totalAssigned > 0 && (
-              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-destructive hover:text-destructive" onClick={() => setResetConfirm('all')}>
+              <Button variant="ghost" size="sm" disabled={!canWrite} className="h-7 gap-1 text-xs text-destructive hover:text-destructive" onClick={() => setResetConfirm('all')}>
                 <RefreshCw size={12} />
                 {t('concept_mapping.source_id_reset_all')}
               </Button>
@@ -439,7 +441,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                                 value={edit.rangeEnd}
                                 onChange={(e) => setEdits((prev) => ({ ...prev, [range.badgeLabel]: { ...edit, rangeEnd: e.target.value } }))}
                               />
-                              <Button size="sm" className="h-7 text-xs" onClick={() => saveEdit(range.badgeLabel)}>{t('common.save')}</Button>
+                              <Button size="sm" className="h-7 text-xs" disabled={!canWrite} onClick={() => saveEdit(range.badgeLabel)}>{t('common.save')}</Button>
                               <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEdits((prev) => { const n = { ...prev }; delete n[range.badgeLabel]; return n })}>{t('common.cancel')}</Button>
                             </div>
                             {err && <p className="text-[11px] text-destructive">{err}</p>}
@@ -449,12 +451,14 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                             <span className="font-mono text-xs text-muted-foreground">
                               {formatNumber(range.rangeStart)} → {formatNumber(range.rangeEnd)}
                             </span>
+                            {canWrite && (
                             <button
                               className="text-[11px] text-primary underline-offset-2 hover:underline"
                               onClick={() => setEdits((prev) => ({ ...prev, [range.badgeLabel]: { rangeStart: String(range.rangeStart), rangeEnd: String(range.rangeEnd) } }))}
                             >
                               {t('common.edit')}
                             </button>
+                            )}
                           </div>
                         )}
                         {assignProgress && assignProgress.badge === range.badgeLabel && (
@@ -481,7 +485,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                           size="sm"
                           variant="outline"
                           className="h-7 gap-1 text-xs"
-                          disabled={assignLoading === range.badgeLabel}
+                          disabled={assignLoading === range.badgeLabel || !canWrite}
                           onClick={() => assignIds(range.badgeLabel)}
                         >
                           {assignLoading === range.badgeLabel ? (
@@ -492,11 +496,11 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                           {t('concept_mapping.source_id_assign')}
                         </Button>
                         {range.assignedCount > 0 && (
-                          <Button size="icon-sm" variant="ghost" className="h-7 w-7 text-muted-foreground" title={t('concept_mapping.source_id_reset')} onClick={() => setResetConfirm(range.badgeLabel)}>
+                          <Button size="icon-sm" variant="ghost" disabled={!canWrite} className="h-7 w-7 text-muted-foreground" title={t('concept_mapping.source_id_reset')} onClick={() => setResetConfirm(range.badgeLabel)}>
                             <RefreshCw size={12} />
                           </Button>
                         )}
-                        <Button size="icon-sm" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" title={t('common.remove')} onClick={() => setDeleteConfirm(range.badgeLabel)}>
+                        <Button size="icon-sm" variant="ghost" disabled={!canWrite} className="h-7 w-7 text-destructive hover:text-destructive" title={t('common.remove')} onClick={() => setDeleteConfirm(range.badgeLabel)}>
                           <Trash2 size={12} />
                         </Button>
                       </div>
@@ -509,7 +513,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         </div>
 
         {/* Add badge */}
-        {unregisteredBadges.length > 0 && (
+        {canWrite && unregisteredBadges.length > 0 && (
           <Card className="p-4">
             <p className="mb-2 text-xs font-medium text-muted-foreground">{t('concept_mapping.source_id_add_badge')}</p>
             <div className="flex flex-wrap gap-2">

@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import type { SqlScriptFile } from '@/types'
 
 export function SqlScriptsFileTree() {
@@ -156,6 +157,8 @@ function SqlScriptsFileTreeItem({
   selectedFileId: string | null
 }) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('sql-scripts:write')
+  const canDelete = useMyWorkspaceRole().can('sql-scripts:delete')
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(file.name)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -316,13 +319,14 @@ function SqlScriptsFileTreeItem({
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem onClick={handleStartRename}>
+          <ContextMenuItem onClick={handleStartRename} disabled={!canWrite}>
             <Pencil size={14} />
             {t('sql_scripts.rename')}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"
+            disabled={!canDelete}
             onClick={() => onDelete(file.id)}
           >
             <Trash2 size={14} />
