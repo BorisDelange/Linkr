@@ -212,7 +212,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
                 size="sm"
                 onClick={handleAdd}
                 disabled={selectedUserIds.length === 0 || busy || !canManage}
-                className="gap-1"
+                className="h-8 gap-1"
               >
                 <Plus size={14} />
                 {scope === 'project' ? t('members.add_override') : t('members.add')}

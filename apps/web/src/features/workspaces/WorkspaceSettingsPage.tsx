@@ -247,7 +247,6 @@ export function WorkspaceSettingsPage() {
                       allowed={canEdit}
                       notAllowedReason={t('common.insufficient_permissions')}
                       size="sm"
-                      variant="outline"
                       onClick={handleAddBadge}
                       disabled={!newBadgeLabel.trim()}
                       className="gap-1"
