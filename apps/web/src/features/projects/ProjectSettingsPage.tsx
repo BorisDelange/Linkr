@@ -14,13 +14,6 @@ import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   Card,
   CardContent,
   CardDescription,
@@ -52,7 +45,7 @@ export {
   getStatusClasses,
   getStatusDotClass,
 } from '@/lib/badge-colors'
-import { getBadgeClasses, getBadgeStyle, getStatusDotClass } from '@/lib/badge-colors'
+import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from '@/lib/badge-colors'
 
 const STATUS_OPTIONS: ProjectStatus[] = ['active', 'completed', 'archived', 'draft']
 
@@ -207,27 +200,24 @@ export function ProjectSettingsPage() {
                 <CardDescription>{t('project_settings.status_description')}</CardDescription>
               </CardHeader>
               <CardContent>
-                <Select
-                  value={status}
-                  disabled={!canEdit}
-                  onValueChange={(value) => {
-                    if (uid) updateProjectStatus(uid, value as ProjectStatus)
-                  }}
-                >
-                  <SelectTrigger className="w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_OPTIONS.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        <span className="flex items-center gap-2">
-                          <span className={`h-2 w-2 rounded-full ${getStatusDotClass(s)}`} />
-                          {t(`project_settings.status_${s}`)}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-wrap gap-2">
+                  {STATUS_OPTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      disabled={!canEdit}
+                      onClick={() => { if (uid) updateProjectStatus(uid, s) }}
+                      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all border disabled:cursor-not-allowed disabled:opacity-60 ${
+                        status === s
+                          ? 'border-transparent ' + getStatusClasses(s)
+                          : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                      }`}
+                    >
+                      <span className={`size-1.5 rounded-full ${status === s ? getStatusDotClass(s) : 'bg-muted-foreground'}`} />
+                      {t(`project_settings.status_${s}`)}
+                    </button>
+                  ))}
+                </div>
               </CardContent>
             </Card>
 

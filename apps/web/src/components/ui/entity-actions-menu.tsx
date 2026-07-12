@@ -130,7 +130,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             <Pencil size={14} />
             {t('common.edit')}
           </DropdownMenuItem>
-          {(onExport || onExportOverride) ? (
+          {(onExport || onExportOverride) && (
             <DropdownMenuItem onClick={(e) => {
               e.stopPropagation()
               if (onExportOverride) onExportOverride(item)
@@ -139,12 +139,6 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             }}>
               <Download size={14} />
               {t('common.export')}
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem disabled>
-              <Download size={14} />
-              {t('common.export')}
-              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
             </DropdownMenuItem>
           )}
           {(versioningEnabled || gitOnly) && (

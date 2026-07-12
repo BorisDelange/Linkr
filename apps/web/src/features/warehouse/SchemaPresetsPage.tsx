@@ -19,6 +19,8 @@ import {
   ChevronDown,
   ChevronRight,
   FileSpreadsheet,
+  Filter,
+  Palette,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -54,6 +56,7 @@ import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-
 import { localized, setLocalized } from '@/lib/localized'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { useSchemaPresetActions, toSchemaPresetItem } from './use-schema-preset-actions'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { Textarea } from '@/components/ui/textarea'
 import { SchemaERD } from './SchemaERD'
 import { DdlERD } from './DdlERD'
@@ -980,7 +983,28 @@ function SchemaDetailView({
   const [isEditing, setIsEditing] = useState(false)
   const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [activeTab, setActiveTab] = useState('erd-ddl')
+  // ERD (Schema DDL tab) controls, lifted out of DdlERD so they sit on the tabs row.
+  const [layoutEditing, setLayoutEditing] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [groupsPanelOpen, setGroupsPanelOpen] = useState(false)
   const ddlEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+
+  // Cmd/Ctrl+S saves while editing the DDL / mapping tabs. Enabled only in edit
+  // mode on those tabs so it doesn't fire on the read-only diagram views.
+  useSaveForm({
+    current: editMapping,
+    baseline: null,
+    onSave: () => {
+      if (editMapping) {
+        void onSave(schemaId, editMapping)
+        setIsEditing(false)
+        setEditMapping(null)
+      }
+    },
+    canSave: isEditing && !!editMapping,
+    enabled: isEditing && (activeTab === 'ddl' || activeTab === 'mapping'),
+  })
 
   // Check if built-in has been customized (override exists in IDB)
   const hasCustomOverride = isBuiltin && customPresets.some((p) => p.presetId === schemaId)
@@ -1029,7 +1053,7 @@ function SchemaDetailView({
     <div className="flex h-full flex-col">
       {/* Tabs — the Edit/Save controls sit on this row, top-right. The schema's
           name, export and delete now live in the global header badge menu. */}
-      <Tabs defaultValue="erd-ddl" className="flex-1 flex flex-col min-h-0">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
         <div className="flex items-center px-6 pt-2 shrink-0">
           <div className="flex-1" />
           <TabsList>
@@ -1042,13 +1066,50 @@ function SchemaDetailView({
             <TabsTrigger value="erd-mapping">{t('schemas.tab_schema_mapping')}</TabsTrigger>
           </TabsList>
           <div className="flex flex-1 items-center justify-end gap-1">
-            {isEditing ? (
+            {activeTab === 'erd-ddl' ? (
+              // Schema (DDL) diagram: Filter + Edit(=layout editing). In edit mode,
+              // Reset layout / Groups / Done. The mapping/DDL editor isn't used here.
+              layoutEditing ? (
+                <>
+                  {baseMapping.erdLayout && Object.keys(baseMapping.erdLayout).length > 0 && (
+                    <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => onSave(schemaId, { ...baseMapping, erdLayout: undefined })}>
+                      <RotateCcw size={12} />
+                      {t('schemas.erd_reset_layout')}
+                    </Button>
+                  )}
+                  <Button variant={groupsPanelOpen ? 'default' : 'outline'} size="sm" className="h-7 gap-1 text-xs" onClick={() => setGroupsPanelOpen((v) => !v)}>
+                    <Palette size={12} />
+                    {t('schemas.erd_groups')}
+                  </Button>
+                  <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => { setLayoutEditing(false); setGroupsPanelOpen(false) }}>
+                    <Check size={12} />
+                    {t('schemas.erd_done')}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {(baseMapping.erdGroups ?? []).length > 0 && (
+                    <Button variant={filterOpen ? 'default' : 'outline'} size="sm" className="h-7 gap-1 text-xs" onClick={() => setFilterOpen((v) => !v)}>
+                      <Filter size={12} />
+                      {t('schemas.erd_filter')}
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" disabled={!canWrite} className="h-7 gap-1 text-xs" onClick={() => { setLayoutEditing(true); setFilterOpen(false) }}>
+                    <Pencil size={12} />
+                    {t('common.edit')}
+                  </Button>
+                </>
+              )
+            ) : activeTab === 'erd-mapping' ? (
+              // Schema (mapping) view: read-only, nothing to edit here.
+              null
+            ) : isEditing ? (
               <>
-                <Button variant="ghost" size="xs" onClick={cancelEdit} className="gap-1">
+                <Button variant="ghost" size="sm" onClick={cancelEdit} className="h-7 gap-1 text-xs">
                   <X size={12} />
                   {t('common.cancel')}
                 </Button>
-                <Button size="xs" onClick={handleSave} className="gap-1">
+                <Button size="sm" onClick={handleSave} className="h-7 gap-1 text-xs">
                   <Check size={12} />
                   {t('common.save')}
                 </Button>
@@ -1056,12 +1117,12 @@ function SchemaDetailView({
             ) : (
               <>
                 {isBuiltin && hasCustomOverride && (
-                  <Button variant="ghost" size="xs" disabled={!canWrite} onClick={() => setShowResetConfirm(true)} className="gap-1">
+                  <Button variant="ghost" size="sm" disabled={!canWrite} onClick={() => setShowResetConfirm(true)} className="h-7 gap-1 text-xs">
                     <RotateCcw size={12} />
                     {t('schemas.reset_to_default')}
                   </Button>
                 )}
-                <Button variant="outline" size="xs" disabled={!canWrite} onClick={startEdit} className="gap-1">
+                <Button variant="outline" size="sm" disabled={!canWrite} onClick={startEdit} className="h-7 gap-1 text-xs">
                   <Pencil size={12} />
                   {t('common.edit')}
                 </Button>
@@ -1077,7 +1138,12 @@ function SchemaDetailView({
               ddl={displayMapping.ddl}
               erdGroups={baseMapping.erdGroups}
               erdLayout={baseMapping.erdLayout}
-              editable
+              editable={canWrite}
+              layoutEditing={layoutEditing}
+              filterOpen={filterOpen}
+              groupsPanelOpen={groupsPanelOpen}
+              onGroupsPanelOpenChange={setGroupsPanelOpen}
+              onFilterOpenChange={setFilterOpen}
               onLayoutChange={(layout) => {
                 const updated = { ...baseMapping, erdLayout: Object.keys(layout).length > 0 ? layout : undefined }
                 onSave(schemaId, updated)

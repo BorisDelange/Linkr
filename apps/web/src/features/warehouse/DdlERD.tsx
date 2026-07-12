@@ -15,9 +15,8 @@ import {
   useNodesState,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Table2, Pencil, Check, Palette, RotateCcw, Filter, ChevronDown, ChevronRight } from 'lucide-react'
+import { Table2, ChevronDown, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
@@ -616,12 +615,14 @@ function ErdFilterSheet({ groups, allTables, hiddenGroups, hiddenTables, open, o
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-[300px] sm:max-w-[300px] p-0 gap-0">
-        <SheetHeader className="px-3 py-2 border-b">
-          <SheetTitle className="text-xs font-semibold">{t('schemas.erd_filter')}</SheetTitle>
-          <SheetDescription className="sr-only">{t('schemas.erd_filter')}</SheetDescription>
+        {/* Title/description kept for accessibility only; the visible header + rule
+            were removed at the user's request. */}
+        <SheetHeader className="sr-only">
+          <SheetTitle>{t('schemas.erd_filter')}</SheetTitle>
+          <SheetDescription>{t('schemas.erd_filter')}</SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 overflow-auto p-3">
+        <div className="flex-1 overflow-auto p-3 pt-4">
           <div className="space-y-2">
             {groups.map((group) => {
               const groupHidden = hiddenGroups.has(group.id)
@@ -721,21 +722,32 @@ interface DdlERDProps {
   editable?: boolean
   onLayoutChange?: (layout: Record<string, { x: number; y: number }>) => void
   onGroupsChange?: (groups: ErdGroup[]) => void
+  // Toolbar controls are hoisted to the parent (they live on the tabs row), so
+  // layout-editing / filter / groups-panel visibility are controlled via props.
+  layoutEditing?: boolean
+  filterOpen?: boolean
+  groupsPanelOpen?: boolean
+  onFilterOpenChange?: (open: boolean) => void
+  onGroupsPanelOpenChange?: (open: boolean) => void
 }
 
 export function DdlERD({
   ddl,
   erdGroups,
   erdLayout,
-  editable,
   onLayoutChange,
   onGroupsChange,
+  layoutEditing = false,
+  filterOpen = false,
+  groupsPanelOpen = false,
+  onFilterOpenChange,
+  onGroupsPanelOpenChange,
 }: DdlERDProps) {
   const { t } = useTranslation()
   const tables = useMemo(() => parseDdl(ddl), [ddl])
-  const [isEditing, setIsEditing] = useState(false)
-  const [groupPanelOpen, setGroupPanelOpen] = useState(false)
-  const [filterPanelOpen, setFilterPanelOpen] = useState(false)
+  const isEditing = layoutEditing
+  const groupPanelOpen = groupsPanelOpen
+  const filterPanelOpen = filterOpen
   const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(new Set())
   const [hiddenTableNames, setHiddenTableNames] = useState<Set<string>>(new Set())
 
@@ -778,63 +790,8 @@ export function DdlERD({
 
   return (
     <div className="w-full h-full relative">
-      {/* Toolbar */}
-      <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
-        {/* Filter toggle (visible when groups exist, outside edit mode) */}
-        {!isEditing && (erdGroups ?? []).length > 0 && (
-          <Button
-            variant={filterPanelOpen ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilterPanelOpen((v) => !v)}
-            className="gap-1.5 text-xs"
-          >
-            <Filter size={13} />
-            {t('schemas.erd_filter')}
-          </Button>
-        )}
-        {/* Edit mode buttons */}
-        {editable && isEditing && erdLayout && Object.keys(erdLayout).length > 0 && onLayoutChange && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onLayoutChange({})}
-            className="gap-1.5 text-xs"
-          >
-            <RotateCcw size={13} />
-            {t('schemas.erd_reset_layout')}
-          </Button>
-        )}
-        {editable && isEditing && onGroupsChange && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setGroupPanelOpen((v) => !v)}
-            className="gap-1.5 text-xs"
-          >
-            <Palette size={13} />
-            {t('schemas.erd_groups')}
-          </Button>
-        )}
-        {editable && (
-          <Button
-            variant={isEditing ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => {
-              setIsEditing((v) => !v)
-              if (isEditing) {
-                setGroupPanelOpen(false)
-              } else {
-                setFilterPanelOpen(false)
-              }
-            }}
-            className="gap-1.5 text-xs"
-          >
-            {isEditing ? <Check size={13} /> : <Pencil size={13} />}
-            {isEditing ? t('schemas.erd_done') : t('schemas.erd_edit_layout')}
-          </Button>
-        )}
-      </div>
-
+      {/* Toolbar (Filter / Edit / Reset / Groups / Done) is rendered by the parent
+          on the tabs row; this component only reacts to the controlled props. */}
       <div className="flex h-full">
         <div className="flex-1 h-full">
           <ReactFlowProvider>
@@ -856,7 +813,7 @@ export function DdlERD({
           hiddenGroups={hiddenGroups}
           hiddenTables={hiddenTableNames}
           open={filterPanelOpen && !isEditing}
-          onOpenChange={setFilterPanelOpen}
+          onOpenChange={(o) => onFilterOpenChange?.(o)}
           onToggleGroup={toggleGroup}
           onToggleTable={toggleTable}
         />
@@ -868,7 +825,7 @@ export function DdlERD({
             allTables={tables.map((t) => t.name)}
             onChange={onGroupsChange}
             open={groupPanelOpen && isEditing}
-            onOpenChange={setGroupPanelOpen}
+            onOpenChange={(o) => onGroupsPanelOpenChange?.(o)}
           />
         )}
       </div>
