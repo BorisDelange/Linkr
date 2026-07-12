@@ -4,6 +4,7 @@
 import JSZip from 'jszip'
 import type { Storage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
+import { deterministicId } from '@/lib/deterministic-id'
 import type {
   Project, IdeFile, Pipeline, Cohort, IdeConnection,
   Dashboard, DashboardTab, DashboardWidget,
@@ -637,9 +638,13 @@ export async function importProjectContent(
   projectUid: string,
   storage: Storage,
 ): Promise<void> {
+  // Derive each new id deterministically from (projectUid + originalId) instead
+  // of a random UUID, so re-importing the same project yields the same ids and a
+  // git export→import→export round-trip is stable — while ids from a different
+  // project still differ (projectUid is in the hash), avoiding PK collisions.
   const idMap = new Map<string, string>()
   const mapId = (oldId: string): string => {
-    if (!idMap.has(oldId)) idMap.set(oldId, crypto.randomUUID())
+    if (!idMap.has(oldId)) idMap.set(oldId, deterministicId(projectUid, oldId))
     return idMap.get(oldId)!
   }
 
