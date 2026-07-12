@@ -17,6 +17,7 @@ class Dashboard(Base, TimestampMixin):
         ForeignKey("projects.uid", ondelete="CASCADE")
     )
     name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
     filter_config: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
     show_widget_titles: Mapped[bool | None] = mapped_column(Boolean)
     default_dataset_file_id: Mapped[str | None] = mapped_column(String(36))

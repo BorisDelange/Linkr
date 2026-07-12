@@ -425,6 +425,7 @@ export interface Dashboard extends Seedable, Authored {
   id: string
   projectUid: string
   name: LocalizedString
+  description?: LocalizedString
   filterConfig: DashboardFilter[]
   showWidgetTitles?: boolean
   defaultDatasetFileId?: string | null

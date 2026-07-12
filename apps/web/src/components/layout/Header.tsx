@@ -18,7 +18,7 @@ import { resolveByIdPrefix } from '@/lib/short-id'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck, Puzzle } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck, Puzzle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
@@ -464,7 +464,7 @@ export function Header() {
                     const wsId = useWorkspaceStore.getState().activeWorkspaceId
                     if (wsId) navigate(paths.workspaceSettings(wsId))
                   }}>
-                    <Settings size={14} />
+                    <Settings2 size={14} />
                     {t('nav.settings')}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -497,7 +497,7 @@ export function Header() {
                     const wsId = useWorkspaceStore.getState().activeWorkspaceId
                     if (wsId && activeProjectUid) navigate(paths.projectSettings(wsId, activeProjectUid))
                   }}>
-                    <Settings size={14} />
+                    <Settings2 size={14} />
                     {t('nav.settings')}
                   </DropdownMenuItem>
                 </DropdownMenuContent>

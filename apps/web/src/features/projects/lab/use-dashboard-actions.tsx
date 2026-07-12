@@ -1,5 +1,5 @@
 import { useDashboardStore } from '@/stores/dashboard-store'
-import { DashboardRenameDialog } from './DashboardRenameDialog'
+import { DashboardEditDialog } from './DashboardEditDialog'
 import type { Dashboard } from '@/types'
 
 export interface DashboardActions {
@@ -10,7 +10,7 @@ export interface DashboardActions {
 }
 
 /**
- * Shared per-item actions config for a dashboard (rename / delete). Used by the
+ * Shared per-item actions config for a dashboard (edit / delete). Used by the
  * header badge menu so it stays behaviourally identical to the list page.
  */
 export function useDashboardActions(): DashboardActions {
@@ -19,7 +19,7 @@ export function useDashboardActions(): DashboardActions {
   return {
     onDelete: (id) => deleteDashboard(id),
     renderEditDialog: ({ item, onOpenChange }) => (
-      <DashboardRenameDialog item={item} onOpenChange={onOpenChange} />
+      <DashboardEditDialog item={item} onOpenChange={onOpenChange} />
     ),
     deleteConfirmTitleKey: 'dashboard.delete_confirm_title',
     deleteConfirmDescriptionKey: 'dashboard.delete_confirm_description',

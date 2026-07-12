@@ -42,7 +42,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { localized, setLocalized } from '@/lib/localized'
-import { DashboardRenameDialog } from './DashboardRenameDialog'
+import { DashboardEditDialog } from './DashboardEditDialog'
 
 export function LabDashboardsPage() {
   const { t } = useTranslation()
@@ -60,7 +60,7 @@ export function LabDashboardsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-  const [renameTarget, setRenameTarget] = useState<Dashboard | null>(null)
+  const [editTarget, setEditTarget] = useState<Dashboard | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
@@ -184,9 +184,9 @@ export function LabDashboardsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenuItem disabled={!canEdit} onClick={() => setRenameTarget(dash)}>
+                          <DropdownMenuItem disabled={!canEdit} onClick={() => setEditTarget(dash)}>
                             <Pencil size={14} />
-                            {t('common.rename')}
+                            {t('common.edit')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem disabled={!canDelete} variant="destructive" onClick={() => setDeleteTarget(dash.id)}>
@@ -255,10 +255,10 @@ export function LabDashboardsPage() {
       </AlertDialog>
 
       {/* Rename dialog */}
-      {renameTarget && (
-        <DashboardRenameDialog
-          item={renameTarget}
-          onOpenChange={(open) => { if (!open) setRenameTarget(null) }}
+      {editTarget && (
+        <DashboardEditDialog
+          item={editTarget}
+          onOpenChange={(open) => { if (!open) setEditTarget(null) }}
         />
       )}
     </div>
