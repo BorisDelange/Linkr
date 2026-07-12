@@ -91,3 +91,23 @@ def test_cache_signature_changes_with_mappings():
     mappings["p1"][0]["updated_at"] = "u2"
     sig2 = gts.cache_signature(projects, mappings, registry)
     assert sig1 != sig2
+
+
+def test_cache_path_rejects_malformed_signature():
+    import pytest
+
+    # A real signature (16 lowercase hex) is accepted.
+    ok = gts.cache_path("ws1", "flat", "0123456789abcdef")
+    assert ok.name == "ws1__flat__0123456789abcdef.parquet"
+    # Anything else (traversal, wrong length/charset) is refused before it reaches
+    # a filename — no reading a Parquet outside the cache dir.
+    for bad in ("../../../../etc/passwd", "0123456789abcde", "0123456789ABCDEF", "abc/def", "a" * 64):
+        with pytest.raises(ValueError):
+            gts.cache_path("ws1", "flat", bad)
+
+
+def test_cached_path_or_raise_treats_bad_signature_as_miss():
+    import pytest
+
+    with pytest.raises(gts.CacheMissing):
+        gts.cached_path_or_raise("ws1", "flat", "../escape")

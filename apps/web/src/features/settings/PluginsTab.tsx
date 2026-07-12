@@ -205,14 +205,18 @@ export function PluginsTab() {
   }, [refreshPluginList, activeWorkspaceId])
 
   // A plugin opened in another workspace must not leak across a workspace switch:
-  // once the (workspace-scoped) list is loaded, if the open plugin isn't part of it,
-  // close the editor so /plugins shows the widget list, not a stale plugin.
+  // once the list has loaded FOR THE ACTIVE workspace, if the open plugin isn't
+  // part of it, close the editor so /plugins shows the widget list, not a stale
+  // plugin. Gate on the list's workspace marker (not pluginList.length) so a
+  // switch into a genuinely-empty workspace still closes the stale editor.
   const closeEditor = usePluginEditorStore((s) => s.closeEditor)
+  const pluginListWorkspaceId = usePluginEditorStore((s) => s.pluginListWorkspaceId)
   useEffect(() => {
-    if (editingPluginId && pluginList.length > 0 && !pluginList.some((p) => p.id === editingPluginId)) {
+    const listReady = pluginListWorkspaceId === (activeWorkspaceId ?? null)
+    if (editingPluginId && listReady && !pluginList.some((p) => p.id === editingPluginId)) {
       closeEditor()
     }
-  }, [editingPluginId, pluginList, closeEditor])
+  }, [editingPluginId, pluginList, pluginListWorkspaceId, activeWorkspaceId, closeEditor])
 
   // All badge labels across plugins (for the filter dropdown)
   const allBadges = useMemo(() => {

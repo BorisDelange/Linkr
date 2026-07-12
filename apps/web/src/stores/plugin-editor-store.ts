@@ -94,6 +94,10 @@ print(df)
 interface PluginEditorState {
   // List
   pluginList: PluginListItem[]
+  /** Workspace the current pluginList reflects (null = global/all). Lets a
+   *  consumer tell an empty list "loaded, this ws has no plugins" from "not
+   *  loaded yet", instead of guessing via pluginList.length. */
+  pluginListWorkspaceId: string | null
   refreshPluginList: () => Promise<void>
 
   /** Active tab in the plugin list view (survives editor open/close). */
@@ -166,6 +170,7 @@ const builtInIds = new Set<string>()
 export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   // List
   pluginList: [],
+  pluginListWorkspaceId: null,
   activePluginTab: 'warehouse',
   setActivePluginTab(tab) { set({ activePluginTab: tab }) },
 
@@ -194,7 +199,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         list.push({ id: up.id, manifestId, manifest, isBuiltIn, isSystemPlugin, readOnly: isBuiltIn || isSystemPlugin, entityId: up.entityId, gitRemoteConfig: up.gitRemoteConfig })
       } catch { /* skip invalid */ }
     }
-    set({ pluginList: list })
+    set({ pluginList: list, pluginListWorkspaceId: wsId ?? null })
   },
 
   // Editor
@@ -490,8 +495,12 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
 
   async deletePlugin(id: string) {
     const storage = getStorage()
+    // The registry keys on manifest.id, which differs from the storage row id for
+    // seeded built-ins (row id = UUID). Resolve the manifest id so the registry
+    // entry is actually removed, not left dangling.
+    const manifestId = get().pluginList.find((p) => p.id === id)?.manifestId ?? id
     await storage.userPlugins.delete(id)
-    unregisterPlugin(id)
+    unregisterPlugin(manifestId)
     if (get().editingPluginId === id) get().closeEditor()
     await get().refreshPluginList()
   },

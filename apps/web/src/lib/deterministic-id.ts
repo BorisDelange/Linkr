@@ -30,9 +30,16 @@ function hex8(n: number): string {
 /**
  * A UUID-shaped id deterministically derived from `namespace` (the project uid)
  * and `key` (the original entity id). Same inputs → same id, always.
+ *
+ * The two parts are joined on ':'. A literal ':' inside either part is escaped
+ * (':' → '::') first, so the join is unambiguous — without it,
+ * ('a:b','c') and ('a','b:c') would hash identically and collide. Values with no
+ * ':' (UUIDs, the only real-world case) are unchanged, so already-persisted ids
+ * stay stable; only pathological ':'-containing inputs get a new (distinct) id.
  */
 export function deterministicId(namespace: string, key: string): string {
-  const s = `${namespace}:${key}`
+  const esc = (v: string) => v.replace(/:/g, '::')
+  const s = `${esc(namespace)}:${esc(key)}`
   const a = hex8(fnv1a(s, 0))
   const b = hex8(fnv1a(s, 0x9e3779b9))
   const c = hex8(fnv1a(s, 0x7f4a7c15))

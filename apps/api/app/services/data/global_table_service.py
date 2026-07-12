@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -274,7 +275,15 @@ def cache_signature(
     return h.hexdigest()[:16]
 
 
+_SIGNATURE_RE = re.compile(r"^[0-9a-f]{16}$")  # cache_signature() → sha256 hexdigest[:16]
+
+
 def cache_path(workspace_id: str, mode: str, signature: str) -> Path:
+    # `signature` reaches here from a client query param; validate its exact shape
+    # before it becomes part of a filename so it can't inject '/' or '..' and read
+    # a Parquet outside the cache dir (mirrors blob_store._SHA_RE).
+    if not _SIGNATURE_RE.match(signature):
+        raise ValueError(f"invalid cache signature: {signature!r}")
     return _cache_dir() / f"{workspace_id}__{mode}__{signature}.parquet"
 
 
@@ -604,7 +613,12 @@ def cached_path_or_raise(workspace_id: str, mode: str, signature: str) -> Path:
     """Path to an already-built cache for this exact signature, or raise
     CacheMissing. Lets the lightweight query endpoint read the Parquet directly
     without reloading the app DB or recomputing the merged rows."""
-    dest = cache_path(workspace_id, mode, signature)
+    try:
+        dest = cache_path(workspace_id, mode, signature)
+    except ValueError as exc:
+        # A malformed signature can never match a real cache → treat as a miss
+        # (the endpoint's normal rebuild path) rather than a 500.
+        raise CacheMissing(signature) from exc
     if not dest.exists():
         raise CacheMissing(signature)
     return dest

@@ -48,7 +48,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
-import { EntityIdField } from '@/components/ui/entity-id-field'
+import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
@@ -1320,9 +1320,21 @@ export function SchemaPresetsPage() {
     setShowCreateDialog(true)
   }
 
+  // A blank schema's identifier is optional (empty → random fallback); if the
+  // user typed one it must be valid and not collide with an existing preset id
+  // (the store upserts by presetId, so a dup would silently overwrite it).
+  const presetIdOk =
+    createTemplate !== 'blank' ||
+    newPresetId.trim() === '' ||
+    isEntityIdValid(newPresetId.trim(), [...BUILTIN_PRESET_IDS, ...customPresets.map((p) => p.presetId)])
+  const nameDuplicate = customPresets.some(
+    (p) => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase(),
+  )
+  const canCreatePreset = !!newPresetName.trim() && !nameDuplicate && presetIdOk
+
   const confirmCreatePreset = async () => {
     const name = newPresetName.trim()
-    if (!name) return
+    if (!canCreatePreset) return
 
     const label = setLocalized({}, language, name)
     const description = newPresetDescription.trim() ? setLocalized({}, language, newPresetDescription.trim()) : undefined
@@ -1490,14 +1502,14 @@ export function SchemaPresetsPage() {
                     value={newPresetName}
                     onChange={(e) => setNewPresetName(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newPresetName.trim() && !customPresets.some(p => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase())) {
+                      if (e.key === 'Enter' && canCreatePreset) {
                         e.preventDefault()
                         confirmCreatePreset()
                       }
                     }}
                     autoFocus
                   />
-                  {newPresetName.trim() && customPresets.some(p => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase()) && (
+                  {newPresetName.trim() && nameDuplicate && (
                     <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
                   )}
                 </div>
@@ -1525,7 +1537,7 @@ export function SchemaPresetsPage() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>
-                <Button onClick={confirmCreatePreset} disabled={!newPresetName.trim() || customPresets.some(p => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase())}>{t('common.create')}</Button>
+                <Button onClick={confirmCreatePreset} disabled={!canCreatePreset}>{t('common.create')}</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>

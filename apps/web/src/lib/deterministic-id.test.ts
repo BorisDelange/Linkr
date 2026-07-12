@@ -30,4 +30,19 @@ describe('deterministicId', () => {
     const ids = keys.map((k) => deterministicId('proj-1', k))
     expect(new Set(ids).size).toBe(keys.length)
   })
+
+  it("disambiguates a ':' inside a part (no boundary collision)", () => {
+    // Without escaping, ('a:b','c') and ('a','b:c') both hash "a:b:c" → collide.
+    expect(deterministicId('a:b', 'c')).not.toBe(deterministicId('a', 'b:c'))
+    expect(deterministicId('proj:1', 'dash')).not.toBe(deterministicId('proj', '1:dash'))
+  })
+
+  it('stays collision-free at scale (20 projects × 5k keys)', () => {
+    const ids = new Set<string>()
+    const total = 20 * 5_000
+    for (let p = 0; p < 20; p++) {
+      for (let i = 0; i < 5_000; i++) ids.add(deterministicId(`proj-${p}`, `ent-${i}`))
+    }
+    expect(ids.size).toBe(total) // any collision would shrink the Set
+  })
 })
