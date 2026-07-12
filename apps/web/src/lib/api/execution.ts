@@ -18,6 +18,9 @@ export function executeOnServer(
     datasetFileId?: string
     connectionId?: string
     datasetFilters?: unknown[]
+    /** 'widget' → a dashboard/patient-data render (viewers allowed); 'ide' (default)
+     *  → author running code, needs ide:execute. */
+    purpose?: 'ide' | 'widget'
   },
 ): Promise<RuntimeOutput> {
   // The backend resolves a disk-source dataset (datasetFileId = its path) only
@@ -42,6 +45,7 @@ export function executeOnServer(
       datasetFileId: opts?.datasetFileId ?? null,
       connectionId: opts?.connectionId ?? null,
       datasetFilters: opts?.datasetFilters ?? null,
+      purpose: opts?.purpose ?? 'ide',
     }),
   })
 }

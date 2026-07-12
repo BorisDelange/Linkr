@@ -360,6 +360,33 @@ async def test_code_execution_requires_write_not_just_read(client):
             json={"language": "python", "code": "print(1)", "projectUid": uid})).status_code == 200
 
 
+async def test_widget_render_allowed_for_viewer(client):
+    """purpose='widget' renders author-defined widget code → a viewer (read access)
+    must be allowed, unlike raw ide:execute."""
+    admin = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(
+        f"{API}/projects", headers=admin, json={"name": {"en": "P"}, "workspaceId": ws}
+    )).json()["uid"]
+    await client.post(f"{API}/users", headers=admin,
+                      json={"username": "val", "password": "pw", "role": "user"})
+    val_id = next(u["id"] for u in (await client.get(f"{API}/users", headers=admin)).json() if u["username"] == "val")
+    val = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'val', 'password': 'pw'})).json()['access_token']}"}
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": val_id, "role": "viewer"})
+
+    # Same viewer that's refused for an IDE run is allowed for a widget render.
+    assert (await client.post(f"{API}/execute", headers=val,
+            json={"language": "python", "code": "print(1)", "projectUid": uid})).status_code == 403
+    assert (await client.post(f"{API}/execute", headers=val,
+            json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "widget"})).status_code == 200
+
+    # A non-member still can't render (no read access).
+    await client.delete(f"{API}/workspaces/{ws}/members/{val_id}", headers=admin)
+    assert (await client.post(f"{API}/execute", headers=val,
+            json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "widget"})).status_code == 403
+
+
 # --- Streaming core (execute_stream) -------------------------------------------
 # These exercise the Kernel directly: the terminal (§07d) streams output chunk by
 # chunk, while the batch execute() wrapper (covered by the tests above) proves the

@@ -66,6 +66,19 @@ async def _require_code_execution(
         )
 
 
+async def _require_widget_render(
+    db: AsyncSession, project_uid: str, user: User
+) -> None:
+    """Rendering a dashboard/patient-data widget runs author-defined code, not code
+    typed at view time — so it's a VIEW operation: any read access to the project
+    is enough (a viewer must see the widgets). Distinct from ide:execute, which
+    gates the IDE where users author and run arbitrary code."""
+    project = await db.get(Project, project_uid)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    await check_project_role(db, project, user, "viewer")
+
+
 async def _require_connection_access(
     db: AsyncSession, connection_id: str, user: User
 ):
@@ -130,7 +143,12 @@ async def execute_code(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "project_uid is required to run code"
         )
-    await _require_code_execution(db, body.project_uid, user)
+    # Widget renders are a view operation (author-defined code) → viewers allowed;
+    # everything else is IDE execution → needs ide:execute.
+    if body.purpose == "widget":
+        await _require_widget_render(db, body.project_uid, user)
+    else:
+        await _require_code_execution(db, body.project_uid, user)
 
     code = body.code
     if body.dataset_file_id and body.language in ("python", "r"):

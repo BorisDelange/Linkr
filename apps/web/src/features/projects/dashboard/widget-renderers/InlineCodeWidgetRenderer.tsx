@@ -40,6 +40,7 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
           projectUid: activeProjectUid ?? undefined,
           datasetFileId: datasetFileId ?? undefined,
           datasetFilters: datasetFileId ? resolveServerFilters(filters, columns) : undefined,
+          purpose: 'widget',
         })
       }
       const executor = await import('@/features/projects/lab/datasets/analysis-executor')
