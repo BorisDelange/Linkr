@@ -19,7 +19,6 @@ import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip, readBinaryFromImportZip } from '@/lib/entity-io'
-import { isServerMode } from '@/lib/api-client'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import {
@@ -243,15 +242,12 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       // front-only persists it to OPFS/IDB and builds the index via DuckDB-WASM.
       if (children.scoresFile) {
         try {
-          if (isServerMode()) {
-            const { persistScoresFileOnServer } = await import('@/lib/api/scores')
-            await persistScoresFileOnServer(projectId, children.scoresFile)
-          } else {
-            const { persistScoresFile } = await import('@/lib/concept-mapping/scores-engine')
-            const { validateScoresFile } = await import('@/lib/concept-mapping/scores-parser')
-            const validation = await validateScoresFile(children.scoresFile)
-            if (validation.ok) await persistScoresFile(projectId, children.scoresFile)
-          }
+          // importScores persists (server or front-only, with its own validation)
+          // AND pushes the fresh index into the scores store, so the editor shows
+          // suggestions immediately — a bare persist left the store's cached index
+          // stale until a full app reload.
+          const { useSuggestionScoresStore } = await import('@/stores/suggestion-scores-store')
+          await useSuggestionScoresStore.getState().importScores(projectId, children.scoresFile)
         } catch {
           /* leave the project without scores */
         }
