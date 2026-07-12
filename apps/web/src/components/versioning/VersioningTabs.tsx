@@ -18,6 +18,10 @@ interface VersioningTabsProps {
   onSaveGitRemote: (config: GitRemoteConfig | null) => void | Promise<void>
   /** Which tab to show first. */
   initialTab?: VersioningTab
+  /** Controlled active tab (with onTabChange). Lets a parent resize around it. */
+  tab?: VersioningTab
+  /** Notified when the active tab changes (controlled or uncontrolled). */
+  onTabChange?: (tab: VersioningTab) => void
   /** When true, fill the available height (page mode). When false, sized for a dialog. */
   fillHeight?: boolean
   /** Scope + id enable the push-only sync panel in the Git tab (server mode). */
@@ -37,20 +41,27 @@ export function VersioningTabs({
   gitRemote,
   onSaveGitRemote,
   initialTab = 'export',
+  tab: controlledTab,
+  onTabChange,
   fillHeight = false,
   syncScope,
   syncId,
   gitOnly = false,
 }: VersioningTabsProps) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState<VersioningTab>(gitOnly ? 'git' : initialTab)
+  const [uncontrolledTab, setUncontrolledTab] = useState<VersioningTab>(gitOnly ? 'git' : initialTab)
+  const tab = controlledTab ?? uncontrolledTab
+  const setTab = (v: VersioningTab) => {
+    setUncontrolledTab(v)
+    onTabChange?.(v)
+  }
 
   // Export content may own its own scroll (e.g. WsExportTab's bounded card), so its tab is a
   // non-scrolling flex container. The Git tab, once linked, is a full-height flex column whose
   // sync panel owns its own scroll — so in page mode it must NOT scroll at the tab level.
   // px-1 (pb-1) gives the inner cards' shadow-sm room so it isn't clipped by overflow ancestors.
-  const exportContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3 px-1' : 'flex min-h-[280px] flex-col pt-3 px-1'
-  const sideContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3 px-1 pb-1' : 'min-h-[280px] pt-3 px-1'
+  const exportContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3 px-1' : 'flex flex-col pt-3 px-1'
+  const sideContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3 px-1 pb-1' : 'pt-3 px-1'
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as VersioningTab)} className={fillHeight ? 'flex min-h-0 flex-1 flex-col' : undefined}>

@@ -53,8 +53,8 @@ function EntityExportContent({
   const [includeData, setIncludeData] = useState(false)
 
   return (
-    <div className="flex min-h-[8rem] flex-1 flex-col gap-3">
-      <div className="flex-1 space-y-3">
+    <div className="flex flex-1 flex-col gap-4">
+      <div className="space-y-3">
         {isLinked ? (
           <p className="text-xs text-muted-foreground leading-relaxed">
             {t('app_versioning.entity_export_git_linked_hint')}
@@ -101,11 +101,15 @@ export function EntityVersioningDialog({
   syncId,
 }: EntityVersioningDialogProps) {
   const { t } = useTranslation()
+  const [tab, setTab] = useState<VersioningTab>(gitOnly ? 'git' : initialTab)
 
-  // The sync panel (once linked) is a full-height file list + diff + commit UI,
-  // so it needs a roomy, fixed-height dialog whose body scrolls internally — same
-  // as a custom export (e.g. the full workspace export).
-  const wide = !!exportContent || !!syncScope
+  // Size the dialog to the active tab so Export stays compact and Git grows to
+  // fit the sync panel (file list + diff + commit). The Git tab needs the room
+  // only when a sync scope is present; a custom export (e.g. the full workspace
+  // export) is roomy on its own tab regardless.
+  const gitNeedsRoom = tab === 'git' && !!syncScope
+  const exportNeedsRoom = tab === 'export' && !!exportContent
+  const wide = gitNeedsRoom || exportNeedsRoom
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -117,6 +121,8 @@ export function EntityVersioningDialog({
 
         <VersioningTabs
           initialTab={initialTab}
+          tab={tab}
+          onTabChange={setTab}
           fillHeight={wide}
           gitOnly={gitOnly}
           syncScope={syncScope}
