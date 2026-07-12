@@ -33,7 +33,7 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, selected, includeData, loadingStatus, committing, error, refreshStatus, loadBranches, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs, reset } =
+  const { status, branches, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs } =
     useGitSyncStore()
   const lfsSet = lfsPaths()
   const [branch, setBranch] = useState(defaultBranch)
@@ -41,11 +41,15 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const [diffPath, setDiffPath] = useState<string | null>(null)
   const [pushed, setPushed] = useState(false)
 
+  // ensureStatus recomputes only when the entity/branch/includeData changed since
+  // the last status (see the store), so switching tabs and returning to the same
+  // mapping project reuses the computed status instead of recomputing from zero.
+  // No reset on unmount — the store keeps the state; a different entity has a
+  // different statusKey and recomputes on its own.
   useEffect(() => {
     void loadBranches(scope, id)
-    void refreshStatus(scope, id, defaultBranch)
-    return () => reset()
-  }, [scope, id, defaultBranch, loadBranches, refreshStatus, reset])
+    void ensureStatus(scope, id, defaultBranch)
+  }, [scope, id, defaultBranch, loadBranches, ensureStatus])
 
   const changeBranch = (b: string) => {
     setBranch(b)
@@ -101,7 +105,9 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           id="git-include-data"
           checked={includeData}
           onCheckedChange={(v) => setIncludeData(scope, id, !!v, branch)}
-          disabled={loadingStatus || committing}
+          // Not disabled during loading: toggling supersedes the in-flight
+          // compute (statusGen) and recomputes immediately — no waiting.
+          disabled={committing}
         />
         {t('versioning.sync_include_data')}
       </label>

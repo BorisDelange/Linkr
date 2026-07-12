@@ -32,7 +32,7 @@ export interface GitSyncError {
 
 // lfsOverrides: forced per-file LFS decisions applied when generating the export's
 // .gitattributes (undefined → use the automatic size/extension rule).
-async function buildZip(
+async function buildZipUncached(
   scope: GitScope,
   id: string,
   includeData: boolean,
@@ -50,6 +50,31 @@ async function buildZip(
   }
   if (!result) throw new Error('export-failed')
   return result.blob
+}
+
+// Building the export ZIP is the expensive step (a mapping project's scores
+// parquet can be ~100MB), so memoize the last one: status, every per-file diff,
+// and commit within the same panel state reuse it instead of rebuilding. The key
+// captures everything that changes the export; refreshStatus/setIncludeData/
+// toggleLfs invalidate by changing the key, and reset() clears it.
+let _zipCache: { key: string; blob: Blob } | null = null
+
+function _zipKey(scope: GitScope, id: string, includeData: boolean, lfsOverrides?: Map<string, boolean>): string {
+  const ov = lfsOverrides ? [...lfsOverrides.entries()].sort().map(([k, v]) => `${k}=${v}`).join(',') : ''
+  return `${scope}|${id}|${includeData}|${ov}`
+}
+
+async function buildZip(
+  scope: GitScope,
+  id: string,
+  includeData: boolean,
+  lfsOverrides?: Map<string, boolean>,
+): Promise<Blob> {
+  const key = _zipKey(scope, id, includeData, lfsOverrides)
+  if (_zipCache && _zipCache.key === key) return _zipCache.blob
+  const blob = await buildZipUncached(scope, id, includeData, lfsOverrides)
+  _zipCache = { key, blob }
+  return blob
 }
 
 // Monotonic token for refreshStatus: a refresh (mount / branch change / refresh
@@ -73,8 +98,13 @@ interface GitSyncState {
   loadingStatus: boolean
   committing: boolean
   error: GitSyncError | null
+  /** Identity (scope|id|branch|includeData) the current status was computed for,
+   *  so remounting the panel on the same entity doesn't recompute from scratch. */
+  statusKey: string | null
 
   refreshStatus: (scope: GitScope, id: string, branch?: string) => Promise<void>
+  /** Compute status only if it isn't already current for this entity+branch. */
+  ensureStatus: (scope: GitScope, id: string, branch?: string) => Promise<void>
   loadBranches: (scope: GitScope, id: string) => Promise<void>
   getDiff: (scope: GitScope, id: string, path: string, branch?: string) => Promise<GitDiff | null>
   commitPush: (scope: GitScope, id: string, message: string, branch?: string) => Promise<GitCommitResult | null>
@@ -97,12 +127,27 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   loadingStatus: false,
   committing: false,
   error: null,
+  statusKey: null,
+
+  ensureStatus: async (scope, id, branch) => {
+    // Moving to a different entity → clear transient panel state (selection,
+    // includeData, overrides, cached ZIP) so nothing leaks across projects.
+    const prevKey = get().statusKey
+    const sameEntity = prevKey?.startsWith(`${scope}|${id}|`)
+    if (prevKey && !sameEntity) get().reset()
+    const key = `${scope}|${id}|${branch ?? ''}|${get().includeData}`
+    // Already computed (or computing) for this exact entity+branch → keep it,
+    // so switching tabs and coming back doesn't recompute from scratch.
+    if (get().statusKey === key && (get().status !== null || get().loadingStatus)) return
+    await get().refreshStatus(scope, id, branch)
+  },
 
   refreshStatus: async (scope, id, branch) => {
     const gen = ++statusGen
-    set({ loadingStatus: true, error: null })
+    const includeData = get().includeData
+    const key = `${scope}|${id}|${branch ?? ''}|${includeData}`
+    set({ loadingStatus: true, error: null, statusKey: key })
     try {
-      const includeData = get().includeData
       const zip = await buildZip(scope, id, includeData)
       const status = await gitStatus(scope, id, zip, branch)
       if (gen !== statusGen) return // superseded by a newer refresh — drop this result
@@ -201,6 +246,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
 
   reset: () => {
     statusGen++ // invalidate any in-flight refresh from the closing panel
-    set({ status: null, branches: null, selected: new Set(), includeData: false, lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false })
+    _zipCache = null // drop the cached export ZIP so the next entity rebuilds fresh
+    set({ status: null, branches: null, selected: new Set(), includeData: false, lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false, statusKey: null })
   },
 }))
