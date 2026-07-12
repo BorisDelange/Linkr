@@ -11,6 +11,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { getGitCorsProxy, setGitCorsProxy, cloneRepoToZip, cleanGitUrl } from '@/lib/git-clone'
 import { gitCloneToZip } from '@/lib/api/git'
@@ -190,7 +191,7 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
               </div>
               <div className="space-y-2">
                 <Label className="text-xs">{t('import_source.git_token')}</Label>
-                <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('import_source.git_token_ph')} className="h-9 text-sm" />
+                <PasswordInput value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('import_source.git_token_ph')} className="h-9 text-sm" />
               </div>
             </div>
             {serverMode ? (

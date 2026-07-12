@@ -89,8 +89,9 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         </Button>
       </div>
 
-      <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+      <label htmlFor="git-include-data" className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
         <Checkbox
+          id="git-include-data"
           checked={includeData}
           onCheckedChange={(v) => setIncludeData(scope, id, !!v, branch)}
           disabled={loadingStatus || committing}

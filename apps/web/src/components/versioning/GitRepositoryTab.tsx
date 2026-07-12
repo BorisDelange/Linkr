@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { GitBranch, KeyRound, Link2Off, Loader2 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
@@ -191,8 +192,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
           {t('versioning.remote_token')}
           {tokenRequired && <span className="ml-1 text-destructive">*</span>}
         </Label>
-        <Input
-          type="password"
+        <PasswordInput
           value={token}
           onChange={(e) => setToken(e.target.value)}
           placeholder={t('versioning.remote_token_placeholder')}

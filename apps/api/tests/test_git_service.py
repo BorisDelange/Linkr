@@ -21,14 +21,15 @@ def _zip(files: dict[str, str]) -> bytes:
     return buf.getvalue()
 
 
-def test_with_credentials_injects_token_into_https():
+def test_with_credentials_injects_token_as_oauth2_password():
+    # oauth2:<token> — the form GitLab accepts for push (not <token>:x-oauth-basic).
     url = g._with_credentials("https://gitlab.com/g/r.git", "ghp_abc")
-    assert url == "https://ghp_abc:x-oauth-basic@gitlab.com/g/r.git"
+    assert url == "https://oauth2:ghp_abc@gitlab.com/g/r.git"
 
 
 def test_with_credentials_replaces_existing_userinfo():
     url = g._with_credentials("https://old@gitlab.com/g/r.git", "tok")
-    assert url == "https://tok:x-oauth-basic@gitlab.com/g/r.git"
+    assert url == "https://oauth2:tok@gitlab.com/g/r.git"
 
 
 def test_with_credentials_leaves_ssh_and_tokenless_urls_untouched():

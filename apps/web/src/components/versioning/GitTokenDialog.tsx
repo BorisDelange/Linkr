@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { gitVerifyRemote } from '@/lib/api/git'
 import { toGitError } from '@/lib/git-error-message'
@@ -48,8 +48,7 @@ export function GitTokenDialog({ url, onSave, onClose }: GitTokenDialogProps) {
         </DialogHeader>
         <div className="space-y-2">
           <Label className="text-xs">{t('versioning.remote_token')}</Label>
-          <Input
-            type="password"
+          <PasswordInput
             value={token}
             autoFocus
             onChange={(e) => setToken(e.target.value)}

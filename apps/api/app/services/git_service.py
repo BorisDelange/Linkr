@@ -117,16 +117,18 @@ def _clean_url(url: str) -> str:
 def _with_credentials(url: str, token: str | None) -> str:
     """Inject an access token into an https remote URL for a single call.
 
-    GitHub/GitLab accept the token as the HTTP basic username (any password),
-    matching the isomorphic-git client behaviour Linkr used before. Non-https
-    URLs (ssh) are returned unchanged — the token doesn't apply there.
+    The token goes in the *password* with a fixed ``oauth2`` username. GitLab
+    requires this for push (the older ``<token>:x-oauth-basic`` form authenticates
+    read/clone but is rejected on push with "HTTP Basic: Access denied"); GitHub
+    accepts it too (it ignores the username for a PAT). Non-https URLs (ssh) are
+    returned unchanged — the token doesn't apply there.
     """
     if not token:
         return url
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
         return url
-    userinfo = f"{quote(token, safe='')}:x-oauth-basic@"
+    userinfo = f"oauth2:{quote(token, safe='')}@"
     netloc = parts.netloc.rsplit("@", 1)[-1]  # drop any existing credentials
     return urlunsplit((parts.scheme, userinfo + netloc, parts.path, parts.query, parts.fragment))
 
