@@ -314,7 +314,6 @@ function OverviewTab({
             value={counts.projects}
             label={t('workspaces.stat_projects')}
             to={projectsPath}
-            sub={counts.projects > 0 ? t('workspaces.stat_projects_sub') : t('workspaces.stat_projects_empty')}
           />
           <StatCard
             icon={<Database size={18} />}
@@ -322,7 +321,6 @@ function OverviewTab({
             value={counts.databases}
             label={t('workspaces.stat_databases')}
             to={databasesPath}
-            sub={counts.databases > 0 ? t('workspaces.stat_databases_sub') : t('workspaces.stat_databases_empty')}
           />
           <StatCard
             icon={<ArrowRightLeft size={18} />}
@@ -330,7 +328,6 @@ function OverviewTab({
             value={counts.mappingProjects}
             label={t('workspaces.stat_mapping_projects')}
             to={mappingPath}
-            sub={counts.mappingProjects > 0 ? t('workspaces.stat_mapping_projects_sub') : t('workspaces.stat_mapping_projects_empty')}
           />
           <StatCard
             icon={<BookOpen size={18} />}
@@ -338,7 +335,6 @@ function OverviewTab({
             value={counts.wikiPages}
             label={t('workspaces.stat_wiki_pages')}
             to={wikiPath}
-            sub={counts.wikiPages > 0 ? t('workspaces.stat_wiki_pages_sub') : t('workspaces.stat_wiki_pages_empty')}
           />
       </div>
     </div>
@@ -491,29 +487,24 @@ function StatCard({
   iconBg,
   value,
   label,
-  sub,
   to,
 }: {
   icon: React.ReactNode
   iconBg: string
   value: number
   label: string
-  sub: string
   to?: string
 }) {
   const content = (
-    <>
-      <div className="flex items-center gap-3">
-        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
-          {icon}
-        </div>
-        <div>
-          <div className="text-2xl font-bold tabular-nums">{value}</div>
-          <div className="text-xs text-muted-foreground">{label}</div>
-        </div>
+    <div className="flex items-center gap-3">
+      <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
+        {icon}
       </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">{sub}</p>
-    </>
+      <div>
+        <div className="text-2xl font-bold tabular-nums">{value}</div>
+        <div className="text-xs text-muted-foreground">{label}</div>
+      </div>
+    </div>
   )
   const className = 'rounded-xl border bg-card p-4 shadow-sm'
   if (to) {

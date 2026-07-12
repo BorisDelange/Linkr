@@ -143,11 +143,6 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
             value={dataSources.length}
             label={t('summary.databases')}
             to={paths.databases(wsUid ?? '', uid)}
-            sub={
-              dataSources.length > 0
-                ? `${stats.connectedCount} ${t('summary.connected')}${stats.errorCount > 0 ? `, ${stats.errorCount} ${t('summary.in_error')}` : ''}`
-                : t('summary.no_databases')
-            }
           />
           <StatCard
             icon={<Users size={18} />}
@@ -155,11 +150,6 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
             value={cohorts.length}
             label={t('summary.cohorts')}
             to={paths.cohorts(wsUid ?? '', uid)}
-            sub={
-              cohorts.length > 0
-                ? `${stats.cohortsWithResults} ${t('summary.with_results')}`
-                : t('summary.no_cohorts')
-            }
           />
           <StatCard
             icon={<Boxes size={18} />}
@@ -167,11 +157,6 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
             value={stats.datasetNodes}
             label={t('summary.datasets')}
             to={paths.datasets(wsUid ?? '', uid)}
-            sub={
-              stats.datasetNodes > 0
-                ? `${stats.successNodes} ${t('summary.success')}${stats.errorNodes > 0 ? `, ${stats.errorNodes} ${t('summary.in_error')}` : ''}`
-                : t('summary.no_datasets')
-            }
           />
           <StatCard
             icon={<LayoutDashboard size={18} />}
@@ -179,11 +164,6 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
             value={dashboards.length}
             label={t('summary.dashboards')}
             to={paths.dashboards(wsUid ?? '', uid)}
-            sub={
-              dashboards.length > 0
-                ? `${stats.tabCount} ${t('summary.tabs')}, ${stats.widgetCount} ${t('summary.widgets')}`
-                : t('summary.no_dashboards')
-            }
           />
         </div>
 
@@ -448,29 +428,24 @@ function StatCard({
   iconBg,
   value,
   label,
-  sub,
   to,
 }: {
   icon: React.ReactNode
   iconBg: string
   value: number
   label: string
-  sub: string
   to?: string
 }) {
   const content = (
-    <>
-      <div className="flex items-center gap-3">
-        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
-          {icon}
-        </div>
-        <div>
-          <div className="text-2xl font-bold tabular-nums">{value}</div>
-          <div className="text-xs text-muted-foreground">{label}</div>
-        </div>
+    <div className="flex items-center gap-3">
+      <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
+        {icon}
       </div>
-      <p className="mt-2 text-[11px] text-muted-foreground">{sub}</p>
-    </>
+      <div>
+        <div className="text-2xl font-bold tabular-nums">{value}</div>
+        <div className="text-xs text-muted-foreground">{label}</div>
+      </div>
+    </div>
   )
   const className = 'rounded-xl border bg-card p-4 shadow-sm'
   if (to) {
