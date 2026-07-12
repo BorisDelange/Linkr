@@ -13,6 +13,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { unmountFileSource } from '@/lib/duckdb/engine'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MAPPING_STATUS_COLORS, CreateMappingProjectDialog } from './CreateMappingProjectDialog'
+import { VersioningTabs } from '@/components/versioning/VersioningTabs'
 import { ConceptSetsTab } from './ConceptSetsTab'
 import { MappingEditorTab } from './MappingEditorTab'
 import { MappingsTab } from './MappingsTab'
@@ -47,7 +48,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const {
     mappingProjects, mappingProjectsLoaded, loadMappingProjects,
     conceptSetsLoaded, loadConceptSets,
-    loadProjectMappings,
+    loadProjectMappings, updateMappingProject,
   } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
@@ -149,6 +150,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             <TabsTrigger value="editor">{t('concept_mapping.tab_editor')}</TabsTrigger>
             <TabsTrigger value="mappings">{t('concept_mapping.tab_mappings')}</TabsTrigger>
             <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
+            <TabsTrigger value="versioning">{t('common.versioning')}</TabsTrigger>
           </TabsList>
         </div>
         {/* Render only the active tab — except the editor, which is kept mounted
@@ -173,6 +175,21 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         </TabsContent>
         <TabsContent value="export" className="flex-1 overflow-hidden">
           {activeTab === 'export' && <ExportTab project={project} dataSource={dataSource} />}
+        </TabsContent>
+        <TabsContent value="versioning" className="flex-1 overflow-auto">
+          {activeTab === 'versioning' && (
+            <div className="mx-auto max-w-2xl px-6 py-6">
+              {/* git-only: the mapping project already has its own Export tab, and
+                  the push/pull sync panel needs a backend git scope not yet defined
+                  for mapping projects — so this mirrors the current "..." dialog. */}
+              <VersioningTabs
+                gitOnly
+                exportContent={null}
+                gitRemote={project.gitRemoteConfig ?? null}
+                onSaveGitRemote={(cfg) => updateMappingProject(project.id, { gitRemoteConfig: cfg ?? undefined })}
+              />
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

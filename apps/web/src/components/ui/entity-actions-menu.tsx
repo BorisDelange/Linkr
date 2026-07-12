@@ -52,6 +52,9 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
    *  opening the versioning dialog — e.g. to navigate to the entity's own export
    *  view. Versioning (git) stays available. */
   onExportOverride?: (item: T) => void
+  /** When set, the Versioning item calls this instead of opening the git dialog —
+   *  e.g. to navigate to the entity's own Versioning tab. */
+  onVersioningOverride?: (item: T) => void
   /** When false, the Edit item is disabled (viewer). Default true. */
   canEdit?: boolean
   /** When false, the Delete item is disabled (non-owner). Default true. */
@@ -80,6 +83,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   align = 'end',
   onDeleted,
   onExportOverride,
+  onVersioningOverride,
   canEdit = true,
   canDelete = true,
   extraItems,
@@ -141,8 +145,12 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
               {t('common.export')}
             </DropdownMenuItem>
           )}
-          {(versioningEnabled || gitOnly) && (
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioning({ item, tab: 'git' }) }}>
+          {(onVersioningOverride || versioningEnabled || gitOnly) && (
+            <DropdownMenuItem onClick={(e) => {
+              e.stopPropagation()
+              if (onVersioningOverride) onVersioningOverride(item)
+              else setVersioning({ item, tab: 'git' })
+            }}>
               <GitBranch size={14} />
               {t('common.versioning')}
             </DropdownMenuItem>

@@ -10,6 +10,8 @@ export interface MappingProjectActions {
   onDelete: (id: string) => Promise<void>
   /** Export navigates to the project's own Export tab instead of downloading a ZIP. */
   onExportOverride: (item: MappingProject) => void
+  /** Versioning navigates to the project's own Versioning tab instead of a dialog. */
+  onVersioningOverride: (item: MappingProject) => void
   getGitRemote: (item: MappingProject) => GitRemoteConfig | null
   onSaveGitRemote: (item: MappingProject, config: GitRemoteConfig | null) => Promise<void>
   exportSupportsIncludeData: boolean
@@ -34,6 +36,11 @@ export function useMappingProjectActions(): MappingProjectActions {
     navigate(`/workspaces/${wsId}/warehouse/concept-mapping/${project.id}?tab=export`)
   }, [navigate, activeWorkspaceId])
 
+  const onVersioningOverride = useCallback((project: MappingProject) => {
+    const wsId = activeWorkspaceId ?? project.workspaceId
+    navigate(`/workspaces/${wsId}/warehouse/concept-mapping/${project.id}?tab=versioning`)
+  }, [navigate, activeWorkspaceId])
+
   const onSaveGitRemote = useCallback(async (p: MappingProject, config: GitRemoteConfig | null) => {
     await getStorage().mappingProjects.update(p.id, { gitRemoteConfig: config ?? undefined })
     await loadMappingProjects()
@@ -42,6 +49,7 @@ export function useMappingProjectActions(): MappingProjectActions {
   return {
     onDelete: (id) => deleteMappingProject(id),
     onExportOverride,
+    onVersioningOverride,
     getGitRemote: (p) => p.gitRemoteConfig ?? null,
     onSaveGitRemote,
     exportSupportsIncludeData: false,
