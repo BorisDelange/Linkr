@@ -4,13 +4,19 @@ import { Check } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { isServerMode } from '@/lib/api-client'
 import type { GitRemoteConfig } from '@/types'
+import type { GitScope } from '@/lib/api/git'
+import { GitSyncPanel } from './GitSyncPanel'
 
 interface GitRepositoryTabProps {
   /** Current git link, or null when unlinked. */
   gitRemote: GitRemoteConfig | null
   /** Persist a git link (or null to unlink). */
   onSave: (config: GitRemoteConfig | null) => void | Promise<void>
+  /** Scope + id enable the push-only sync panel once linked (server mode only). */
+  syncScope?: GitScope
+  syncId?: string
 }
 
 /**
@@ -18,7 +24,7 @@ interface GitRepositoryTabProps {
  * versioning page and the per-entity dialog. Owns its own state so the connect/disconnect
  * feedback works without the parent re-passing a fresh prop.
  */
-export function GitRepositoryTab({ gitRemote, onSave }: GitRepositoryTabProps) {
+export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRepositoryTabProps) {
   const { t } = useTranslation()
   const [url, setUrl] = useState(gitRemote?.url ?? '')
   const [branch, setBranch] = useState(gitRemote?.branch ?? 'main')
@@ -110,6 +116,10 @@ export function GitRepositoryTab({ gitRemote, onSave }: GitRepositoryTabProps) {
           </Button>
         )}
       </div>
+
+      {linked && isServerMode() && syncScope && syncId && (
+        <GitSyncPanel scope={syncScope} id={syncId} defaultBranch={branch || 'main'} />
+      )}
     </div>
   )
 }

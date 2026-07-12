@@ -846,6 +846,7 @@ export interface DqRuleSet extends Seedable, Authored {
   lastRunDurationMs?: number
   /** Score 0-100, percentage of passing checks */
   lastScore?: number
+  gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string
 }

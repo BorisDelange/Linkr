@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import JSONB_or_JSON, Base, TimestampMixin, UUIDPKMixin
@@ -14,6 +14,8 @@ class Workspace(Base, UUIDPKMixin, TimestampMixin):
     # LocalizedString ({"en": ..., "fr": ...}); JSON, not Text.
     readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Fernet ciphertext of the git access token; never returned by the API.
+    git_remote_secret: Mapped[str | None] = mapped_column(Text)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 

@@ -27,6 +27,8 @@ export function AppVersioningPage() {
           gitRemote={remoteConfig}
           onSaveGitRemote={(cfg) => (wsUid ? (cfg ? setRemoteConfig(wsUid, cfg) : clearRemoteConfig(wsUid)) : Promise.resolve())}
           exportContent={<WsExportTab />}
+          syncScope="workspaces"
+          syncId={wsUid ?? undefined}
         />
       </div>
     </div>

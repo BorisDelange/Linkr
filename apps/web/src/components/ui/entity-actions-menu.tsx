@@ -92,7 +92,12 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   const [toDelete, setToDelete] = useState<T | null>(null)
   const [versioning, setVersioning] = useState<{ item: T; tab: 'export' | 'git' } | null>(null)
 
-  const versioningEnabled = !!getGitRemote && !!onSaveGitRemote && !!onExport
+  // Git versioning is available whenever the entity exposes a remote getter/setter.
+  // The Export tab of the dialog needs a real onExport; when the entity exports via
+  // a dedicated page instead (onExportOverride), the dialog shows the Git tab only.
+  const hasGit = !!getGitRemote && !!onSaveGitRemote
+  const versioningEnabled = hasGit && !!onExport
+  const gitOnly = hasGit && !onExport
 
   const handleDelete = async () => {
     if (toDelete) {
@@ -139,7 +144,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
               <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
             </DropdownMenuItem>
           )}
-          {versioningEnabled && (
+          {(versioningEnabled || gitOnly) && (
             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioning({ item, tab: 'git' }) }}>
               <GitBranch size={14} />
               {t('common.versioning')}
@@ -167,15 +172,16 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
           onOpenChange: (open) => { if (!open) setToEdit(null) },
         })}
 
-        {/* Versioning dialog (export + git link) */}
-        {versioning && getGitRemote && onSaveGitRemote && onExport && (
+        {/* Versioning dialog (export + git link, or git-only when export lives elsewhere) */}
+        {versioning && getGitRemote && onSaveGitRemote && (
           <EntityVersioningDialog
             open
             onOpenChange={(open) => { if (!open) setVersioning(null) }}
             initialTab={versioning.tab}
+            gitOnly={gitOnly}
             supportsIncludeData={exportSupportsIncludeData}
             gitRemote={getGitRemote(versioning.item)}
-            onExport={() => onExport(versioning.item)}
+            onExport={onExport ? () => onExport(versioning.item) : undefined}
             onSaveGitRemote={async (config) => {
               await onSaveGitRemote(versioning.item, config)
             }}

@@ -1,4 +1,4 @@
-import type { Seedable, LocalizedString } from './index'
+import type { Seedable, LocalizedString, GitRemoteConfig } from './index'
 import type { Authored } from './author'
 
 // --- Catalog Status ---
@@ -157,6 +157,7 @@ export interface DataCatalog extends Seedable, Authored {
   lastComputeDurationMs?: number
   /** Health-DCAT-AP metadata stored as a JSON-LD object. */
   dcatApMetadata?: Record<string, unknown>
+  gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string
 }

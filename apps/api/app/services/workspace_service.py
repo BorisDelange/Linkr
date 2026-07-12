@@ -9,7 +9,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate
-from app.services import blob_cleanup, project_fs
+from app.services import blob_cleanup, git_secret, project_fs
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Workspace]:
@@ -32,10 +32,11 @@ async def get(db: AsyncSession, workspace_id: str) -> Workspace | None:
 
 
 async def create(db: AsyncSession, data: WorkspaceCreate, owner: User) -> Workspace:
-    workspace = Workspace(
-        **data.model_dump(exclude_none=True),
-        owner_id=owner.id,
-    )
+    payload = data.model_dump(exclude_none=True)
+    workspace = Workspace(owner_id=owner.id)
+    git_secret.apply_to_entity(workspace, payload)
+    for key, value in payload.items():
+        setattr(workspace, key, value)
     db.add(workspace)
     await db.flush()  # assign id before adding the membership row
     db.add(
@@ -49,7 +50,9 @@ async def create(db: AsyncSession, data: WorkspaceCreate, owner: User) -> Worksp
 async def update(
     db: AsyncSession, workspace: Workspace, data: WorkspaceUpdate
 ) -> Workspace:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    git_secret.apply_to_entity(workspace, changes)
+    for key, value in changes.items():
         setattr(workspace, key, value)
     await db.commit()
     await db.refresh(workspace)

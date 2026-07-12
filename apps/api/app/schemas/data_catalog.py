@@ -7,6 +7,7 @@ class DataCatalogCreate(CamelModel):
     id: str
     workspace_id: str
     entity_id: str | None = None
+    git_remote_config: dict | None = None
     name: dict = {}
     description: dict = {}
     data_source_id: str
@@ -27,6 +28,7 @@ class DataCatalogCreate(CamelModel):
 
 class DataCatalogUpdate(CamelModel):
     entity_id: str | None = None
+    git_remote_config: dict | None = None
     name: dict | None = None
     description: dict | None = None
     data_source_id: str | None = None
@@ -46,6 +48,7 @@ class DataCatalogResponse(CamelModel):
     id: str
     workspace_id: str
     entity_id: str | None = None
+    git_remote_config: dict | None = None
     name: dict
     description: dict
     data_source_id: str

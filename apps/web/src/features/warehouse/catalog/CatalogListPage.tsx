@@ -102,6 +102,9 @@ export function CatalogListPage() {
       onNavigate={(id) => navigate(id)}
       onDelete={catalogActions.onDelete}
       onExport={catalogActions.onExport}
+      getGitRemote={catalogActions.getGitRemote}
+      onSaveGitRemote={catalogActions.onSaveGitRemote}
+      exportSupportsIncludeData={catalogActions.exportSupportsIncludeData}
       onImport={handleImport}
       renderCardBody={(catalog) => {
         const statusInfo = STATUS_BADGE[catalog.status]

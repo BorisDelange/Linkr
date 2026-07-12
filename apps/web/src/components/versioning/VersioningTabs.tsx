@@ -5,6 +5,7 @@ import { Download, GitBranch } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { GitRepositoryTab } from './GitRepositoryTab'
 import type { GitRemoteConfig } from '@/types'
+import type { GitScope } from '@/lib/api/git'
 
 export type VersioningTab = 'export' | 'git'
 
@@ -19,6 +20,11 @@ interface VersioningTabsProps {
   initialTab?: VersioningTab
   /** When true, fill the available height (page mode). When false, sized for a dialog. */
   fillHeight?: boolean
+  /** Scope + id enable the push-only sync panel in the Git tab (server mode). */
+  syncScope?: GitScope
+  syncId?: string
+  /** Hide the Export tab and show only Git (e.g. entities whose export lives elsewhere). */
+  gitOnly?: boolean
 }
 
 /**
@@ -32,34 +38,42 @@ export function VersioningTabs({
   onSaveGitRemote,
   initialTab = 'export',
   fillHeight = false,
+  syncScope,
+  syncId,
+  gitOnly = false,
 }: VersioningTabsProps) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState<VersioningTab>(initialTab)
+  const [tab, setTab] = useState<VersioningTab>(gitOnly ? 'git' : initialTab)
 
   // Export content may own its own scroll (e.g. WsExportTab's bounded card), so its tab is a
   // non-scrolling flex container. Git is short → plain (scroll only if needed).
-  const exportContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3' : 'flex min-h-[280px] flex-col pt-3'
-  const sideContentClass = fillHeight ? 'min-h-0 flex-1 overflow-auto pt-3' : 'min-h-[280px] pt-3'
+  // px-1 pb-1 gives the inner cards' shadow-sm room so it isn't clipped by overflow ancestors.
+  const exportContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3 px-1' : 'flex min-h-[280px] flex-col pt-3 px-1'
+  const sideContentClass = fillHeight ? 'min-h-0 flex-1 overflow-auto pt-3 px-1 pb-1' : 'min-h-[280px] pt-3 px-1'
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as VersioningTab)} className={fillHeight ? 'flex min-h-0 flex-1 flex-col' : undefined}>
       <TabsList className="w-full">
-        <TabsTrigger value="export" className="flex-1 gap-1.5">
-          <Download size={14} />
-          {t('versioning.tab_export')}
-        </TabsTrigger>
+        {!gitOnly && (
+          <TabsTrigger value="export" className="flex-1 gap-1.5">
+            <Download size={14} />
+            {t('versioning.tab_export')}
+          </TabsTrigger>
+        )}
         <TabsTrigger value="git" className="flex-1 gap-1.5">
           <GitBranch size={14} />
           {t('app_versioning.tab_git_repository')}
         </TabsTrigger>
       </TabsList>
 
-      <TabsContent value="export" className={exportContentClass}>
-        {exportContent}
-      </TabsContent>
+      {!gitOnly && (
+        <TabsContent value="export" className={exportContentClass}>
+          {exportContent}
+        </TabsContent>
+      )}
 
       <TabsContent value="git" className={sideContentClass}>
-        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} />
+        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} syncScope={syncScope} syncId={syncId} />
       </TabsContent>
     </Tabs>
   )

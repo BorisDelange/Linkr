@@ -7,6 +7,7 @@ class DqRuleSetCreate(CamelModel):
     id: str
     workspace_id: str
     entity_id: str | None = None
+    git_remote_config: dict | None = None
     name: dict = {}
     description: dict = {}
     data_source_id: str
@@ -21,6 +22,7 @@ class DqRuleSetCreate(CamelModel):
 
 class DqRuleSetUpdate(CamelModel):
     entity_id: str | None = None
+    git_remote_config: dict | None = None
     name: dict | None = None
     description: dict | None = None
     data_source_id: str | None = None
@@ -34,6 +36,7 @@ class DqRuleSetResponse(CamelModel):
     id: str
     workspace_id: str
     entity_id: str | None = None
+    git_remote_config: dict | None = None
     name: dict
     description: dict
     data_source_id: str

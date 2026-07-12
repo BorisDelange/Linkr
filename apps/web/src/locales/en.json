@@ -185,7 +185,8 @@
     "import_git_cors_hint": "Browsers cannot clone Git repos directly; a CORS proxy is required. Leave empty to keep metadata only.",
     "import_git_clone": "Clone",
     "import_git_cloned": "Cloned",
-    "import_git_clone_retry": "Retry"
+    "import_git_clone_retry": "Retry",
+    "import_git_server_hint": "Cloning runs on the server. For a private repository, provide an access token."
   },
   "project_nav": {
     "summary": "Summary",
@@ -1478,7 +1479,18 @@
     "import_drop": "Drop a ZIP file here or click to browse",
     "import_button": "Import",
     "coming_soon": "Coming soon",
-    "coming_soon_description": "Version control will let you track changes, create snapshots, and synchronize your project with a remote Git repository."
+    "coming_soon_description": "Version control will let you track changes, create snapshots, and synchronize your project with a remote Git repository.",
+    "sync_branch": "Branch",
+    "sync_refresh": "Refresh",
+    "sync_changes": "Changes to commit",
+    "sync_summary": "{{added}} added · {{modified}} modified · {{deleted}} deleted",
+    "sync_computing": "Computing changes…",
+    "sync_clean": "Nothing to commit — working tree matches the remote.",
+    "sync_message": "Commit message",
+    "sync_message_ph": "Describe your changes",
+    "sync_pushed": "Pushed",
+    "sync_commit_push": "Commit & push",
+    "diff_empty": "No differences."
   },
   "summary": {
     "tab_overview": "Overview",
@@ -3631,7 +3643,8 @@
     "error_network": "Network error while cloning. Check your connection and the proxy.",
     "error_unknown": "Clone failed. Check the URL, branch, token and CORS proxy.",
     "run_local_proxy": "Run a local proxy",
-    "run_local_proxy_hint": "Runs a dependency-free CORS proxy on http://localhost:9999 — paste that into the field above. This only works with a local Linkr instance (npm run dev). A Linkr deployed over HTTPS needs a proxy hosted over HTTPS."
+    "run_local_proxy_hint": "Runs a dependency-free CORS proxy on http://localhost:9999 — paste that into the field above. This only works with a local Linkr instance (npm run dev). A Linkr deployed over HTTPS needs a proxy hosted over HTTPS.",
+    "private_repo_hint": "For a private repository, provide a personal access token. Cloning runs on the server."
   },
   "setup": {
     "title": "Welcome to Linkr",

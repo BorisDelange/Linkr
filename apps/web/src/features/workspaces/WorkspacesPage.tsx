@@ -47,6 +47,7 @@ import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSetti
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { getGitCorsProxy, setGitCorsProxy, canCloneFromGit, cloneRepoToZip } from '@/lib/git-clone'
+import { gitCloneToZip } from '@/lib/api/git'
 import { getStorage } from '@/lib/storage'
 import type { Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
 
@@ -95,7 +96,16 @@ export function WorkspacesPage() {
     const key = `${e.type}-${e.id}`
     setCloneState(s => ({ ...s, [key]: 'pending' }))
     try {
-      const zip = await cloneRepoToZip({ url: e.url, branch: e.branch, token: cloneToken || undefined })
+      let zip
+      if (isServerMode()) {
+        // The backend clones (no CORS proxy); load its ZIP bytes into JSZip so
+        // applyClonedEntity reads it the same way as the in-browser clone.
+        const JSZip = (await import('jszip')).default
+        const blob = await gitCloneToZip(e.url, e.branch, cloneToken || undefined)
+        zip = await JSZip.loadAsync(blob)
+      } else {
+        zip = await cloneRepoToZip({ url: e.url, branch: e.branch, token: cloneToken || undefined })
+      }
       const ok = await applyClonedEntity(zip, e.type, e.id, getStorage())
       setCloneState(s => ({ ...s, [key]: ok ? 'done' : 'error' }))
     } catch {
@@ -900,15 +910,20 @@ export function WorkspacesPage() {
               {t('workspaces.import_git_linked_body', { count: gitLinkedSummary?.length ?? 0 })}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {/* Optional best-effort clone: needs a CORS proxy (empty = disabled). */}
+          {/* Clone the linked entities. Server mode clones via the backend (token
+              only, for private repos); local mode needs a CORS proxy. */}
           <div className="space-y-2 rounded-md border border-border p-3">
-            <Label className="text-[11px] text-muted-foreground">{t('workspaces.import_git_cors_proxy')}</Label>
-            <Input
-              value={corsProxy}
-              onChange={(e) => { setCorsProxy(e.target.value); setGitCorsProxy(e.target.value) }}
-              placeholder="https://cors.isomorphic-git.org"
-              className="h-8 text-xs"
-            />
+            {!isServerMode() && (
+              <>
+                <Label className="text-[11px] text-muted-foreground">{t('workspaces.import_git_cors_proxy')}</Label>
+                <Input
+                  value={corsProxy}
+                  onChange={(e) => { setCorsProxy(e.target.value); setGitCorsProxy(e.target.value) }}
+                  placeholder="https://cors.isomorphic-git.org"
+                  className="h-8 text-xs"
+                />
+              </>
+            )}
             <Input
               type="password"
               value={cloneToken}
@@ -916,7 +931,9 @@ export function WorkspacesPage() {
               placeholder={t('workspaces.import_git_token_optional')}
               className="h-8 text-xs"
             />
-            <p className="text-[10px] text-muted-foreground leading-relaxed">{t('workspaces.import_git_cors_hint')}</p>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              {t(isServerMode() ? 'workspaces.import_git_server_hint' : 'workspaces.import_git_cors_hint')}
+            </p>
           </div>
 
           <div className="max-h-48 overflow-auto rounded-md border border-border">
@@ -929,7 +946,7 @@ export function WorkspacesPage() {
                     <div className="truncate font-medium">{e.name}</div>
                     <div className="truncate text-[10px] text-muted-foreground">{e.url}</div>
                   </div>
-                  {canCloneFromGit() && (
+                  {(canCloneFromGit() || isServerMode()) && (
                     <Button
                       size="sm" variant="outline"
                       className="h-7 shrink-0 gap-1 text-[11px]"

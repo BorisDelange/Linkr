@@ -4,11 +4,14 @@ import { localized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { exportEntityZip, slugify } from '@/lib/entity-io'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
-import type { DqRuleSet } from '@/types'
+import type { DqRuleSet, GitRemoteConfig } from '@/types'
 
 export interface DqRuleSetActions {
   onDelete: (id: string) => Promise<void>
   onExport: (item: DqRuleSet) => void
+  getGitRemote: (item: DqRuleSet) => GitRemoteConfig | null
+  onSaveGitRemote: (item: DqRuleSet, config: GitRemoteConfig | null) => Promise<void>
+  exportSupportsIncludeData: boolean
   renderEditDialog: (props: { item: DqRuleSet; onOpenChange: (open: boolean) => void }) => React.ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
@@ -21,6 +24,7 @@ export interface DqRuleSetActions {
  */
 export function useDqRuleSetActions(): DqRuleSetActions {
   const deleteRuleSet = useDqStore((s) => s.deleteRuleSet)
+  const loadDqRuleSets = useDqStore((s) => s.loadDqRuleSets)
 
   const onExport = useCallback(async (rs: DqRuleSet) => {
     const checks = await getStorage().dqCustomChecks.getByRuleSet(rs.id)
@@ -33,9 +37,17 @@ export function useDqRuleSetActions(): DqRuleSetActions {
     )
   }, [])
 
+  const onSaveGitRemote = useCallback(async (rs: DqRuleSet, config: GitRemoteConfig | null) => {
+    await getStorage().dqRuleSets.update(rs.id, { gitRemoteConfig: config ?? undefined })
+    await loadDqRuleSets()
+  }, [loadDqRuleSets])
+
   return {
     onDelete: (id) => deleteRuleSet(id),
     onExport,
+    getGitRemote: (rs) => rs.gitRemoteConfig ?? null,
+    onSaveGitRemote,
+    exportSupportsIncludeData: false,
     renderEditDialog: ({ item, onOpenChange }) => (
       <CreateDqRuleSetDialog open onOpenChange={onOpenChange} editingRuleSet={item} />
     ),

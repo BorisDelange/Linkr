@@ -29,6 +29,8 @@ interface EntityVersioningDialogProps {
   gitRemote: GitRemoteConfig | null
   /** Persist a git link (or null to unlink) on the entity. */
   onSaveGitRemote: (config: GitRemoteConfig | null) => void | Promise<void>
+  /** Show only the Git tab (for entities whose export lives on a dedicated page). */
+  gitOnly?: boolean
 }
 
 /** Export tab body for a single entity: include-data option + download (or git-linked hint). */
@@ -90,6 +92,7 @@ export function EntityVersioningDialog({
   exportContent,
   gitRemote,
   onSaveGitRemote,
+  gitOnly = false,
 }: EntityVersioningDialogProps) {
   const { t } = useTranslation()
 
@@ -108,6 +111,7 @@ export function EntityVersioningDialog({
         <VersioningTabs
           initialTab={initialTab}
           fillHeight={wide}
+          gitOnly={gitOnly}
           gitRemote={gitRemote}
           onSaveGitRemote={onSaveGitRemote}
           exportContent={

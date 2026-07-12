@@ -27,6 +27,8 @@ export function VersioningPage() {
           gitRemote={remoteConfig}
           onSaveGitRemote={(cfg) => (cfg ? setRemoteConfig(cfg) : clearRemoteConfig())}
           exportContent={<ExportTab />}
+          syncScope="projects"
+          syncId={projectUid ?? undefined}
         />
       </div>
     </div>

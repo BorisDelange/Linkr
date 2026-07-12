@@ -119,6 +119,9 @@ export function DqRuleSetListPage() {
       onNavigate={(id) => navigate(id)}
       onDelete={dqActions.onDelete}
       onExport={dqActions.onExport}
+      getGitRemote={dqActions.getGitRemote}
+      onSaveGitRemote={dqActions.onSaveGitRemote}
+      exportSupportsIncludeData={dqActions.exportSupportsIncludeData}
       onImport={handleImport}
       renderCardBody={(rs) => {
         const statusInfo = STATUS_BADGE[rs.status]

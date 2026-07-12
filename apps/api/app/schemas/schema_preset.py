@@ -9,11 +9,13 @@ class SchemaPresetSave(CamelModel):
     preset_id: str
     workspace_id: str | None = None
     mapping: dict = {}
+    git_remote_config: dict | None = None
 
 
 class SchemaPresetResponse(CamelModel):
     preset_id: str
     workspace_id: str | None = None
     mapping: dict
+    git_remote_config: dict | None = None
     created_at: datetime
     updated_at: datetime

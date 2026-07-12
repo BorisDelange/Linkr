@@ -2,6 +2,8 @@ import { useCallback } from 'react'
 import JSZip from 'jszip'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { getStorage } from '@/lib/storage'
+import { localized } from '@/lib/localized'
+import { slugify } from '@/lib/entity-io'
 import { PluginSettingsDialog } from './PluginSettingsDialog'
 import type { LocalizedString, GitRemoteConfig } from '@/types'
 
@@ -43,12 +45,15 @@ export function usePluginActions(): PluginActions {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    let name = item.id
-    try {
-      const m = JSON.parse(userPlugin.files['plugin.json'] ?? '{}')
-      name = m.id ?? item.id
-    } catch { /* use id */ }
-    a.download = `${name}.zip`
+    // Prefer the user-given Identifier (entityId), then a slug of the name, then the row id.
+    let name = userPlugin.entityId
+    if (!name) {
+      try {
+        const m = JSON.parse(userPlugin.files['plugin.json'] ?? '{}')
+        name = slugify(localized(m.name, 'en')) || m.id
+      } catch { /* fall through */ }
+    }
+    a.download = `${name || item.id}.zip`
     a.click()
     URL.revokeObjectURL(url)
   }, [])

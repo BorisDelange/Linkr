@@ -9,7 +9,7 @@ from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.project import ProjectCreate, ProjectUpdate
-from app.services import blob_cleanup, project_fs
+from app.services import blob_cleanup, git_secret, project_fs
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Project]:
@@ -52,7 +52,11 @@ async def get(db: AsyncSession, project_uid: str) -> Project | None:
 
 
 async def create(db: AsyncSession, data: ProjectCreate, owner: User) -> Project:
-    project = Project(**data.model_dump(exclude_none=True), owner_id=owner.id)
+    payload = data.model_dump(exclude_none=True)
+    project = Project(owner_id=owner.id)
+    git_secret.apply_to_entity(project, payload)
+    for key, value in payload.items():
+        setattr(project, key, value)
     db.add(project)
     await db.commit()
     await db.refresh(project)
@@ -62,7 +66,9 @@ async def create(db: AsyncSession, data: ProjectCreate, owner: User) -> Project:
 async def update(
     db: AsyncSession, project: Project, data: ProjectUpdate
 ) -> Project:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    git_secret.apply_to_entity(project, changes)
+    for key, value in changes.items():
         setattr(project, key, value)
     await db.commit()
     await db.refresh(project)

@@ -27,6 +27,7 @@ class DqRuleSet(Base, TimestampMixin):
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     created_by: Mapped[str | None] = mapped_column(Text)
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
 
 
 class DqCustomCheck(Base, TimestampMixin):

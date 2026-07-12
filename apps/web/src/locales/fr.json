@@ -185,7 +185,8 @@
     "import_git_cors_hint": "Les navigateurs ne peuvent pas cloner un dépôt Git directement ; un proxy CORS est requis. Laissez vide pour ne garder que les métadonnées.",
     "import_git_clone": "Cloner",
     "import_git_cloned": "Cloné",
-    "import_git_clone_retry": "Réessayer"
+    "import_git_clone_retry": "Réessayer",
+    "import_git_server_hint": "Le clonage s'exécute sur le serveur. Pour un dépôt privé, fournissez un jeton d'accès."
   },
   "project_nav": {
     "summary": "Résumé",
@@ -1478,7 +1479,18 @@
     "import_drop": "Déposez un fichier ZIP ici ou cliquez pour parcourir",
     "import_button": "Importer",
     "coming_soon": "Bientôt disponible",
-    "coming_soon_description": "Le versioning vous permettra de suivre les modifications, créer des instantanés et synchroniser votre projet avec un dépôt Git distant."
+    "coming_soon_description": "Le versioning vous permettra de suivre les modifications, créer des instantanés et synchroniser votre projet avec un dépôt Git distant.",
+    "sync_branch": "Branche",
+    "sync_refresh": "Actualiser",
+    "sync_changes": "Modifications à valider",
+    "sync_summary": "{{added}} ajout(s) · {{modified}} modifié(s) · {{deleted}} supprimé(s)",
+    "sync_computing": "Calcul des modifications…",
+    "sync_clean": "Rien à valider — l'arborescence correspond au dépôt distant.",
+    "sync_message": "Message de commit",
+    "sync_message_ph": "Décrivez vos modifications",
+    "sync_pushed": "Poussé",
+    "sync_commit_push": "Valider et pousser",
+    "diff_empty": "Aucune différence."
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",
@@ -3631,7 +3643,8 @@
     "error_network": "Erreur réseau pendant le clonage. Vérifiez votre connexion et le proxy.",
     "error_unknown": "Échec du clonage. Vérifiez l'URL, la branche, le jeton et le proxy CORS.",
     "run_local_proxy": "Lancer un proxy local",
-    "run_local_proxy_hint": "Lance un proxy CORS sans dépendance sur http://localhost:9999 — collez cette adresse dans le champ ci-dessus. Ne fonctionne qu'avec une instance locale de Linkr (npm run dev). Un Linkr déployé en HTTPS nécessite un proxy hébergé en HTTPS."
+    "run_local_proxy_hint": "Lance un proxy CORS sans dépendance sur http://localhost:9999 — collez cette adresse dans le champ ci-dessus. Ne fonctionne qu'avec une instance locale de Linkr (npm run dev). Un Linkr déployé en HTTPS nécessite un proxy hébergé en HTTPS.",
+    "private_repo_hint": "Pour un dépôt privé, fournissez un jeton d'accès personnel. Le clonage s'exécute sur le serveur."
   },
   "setup": {
     "title": "Bienvenue sur Linkr",
