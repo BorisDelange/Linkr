@@ -6,7 +6,7 @@ from app.schemas.base import CamelModel
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_workspace_permission
 from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
 from app.models.user import User
 from app.schemas.mapping_project import (
@@ -41,32 +41,32 @@ _SVC = "/service-mappings"
 
 
 async def _load_project(
-    db: AsyncSession, project_id: str, user: User, min_role: str
+    db: AsyncSession, project_id: str, user: User, permission: str
 ) -> MappingProject:
     project = await svc.get(db, project_id)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await check_workspace_role(db, project.workspace_id, user, min_role)
+    await check_workspace_permission(db, project.workspace_id, user, permission)
     return project
 
 
 async def _load_mapping(
-    db: AsyncSession, mapping_id: str, user: User, min_role: str
+    db: AsyncSession, mapping_id: str, user: User, permission: str
 ) -> ConceptMapping:
     mapping = await svc.get_mapping(db, mapping_id)
     if mapping is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _load_project(db, mapping.project_id, user, min_role)
+    await _load_project(db, mapping.project_id, user, permission)
     return mapping
 
 
 async def _load_service_mapping(
-    db: AsyncSession, mapping_id: str, user: User, min_role: str
+    db: AsyncSession, mapping_id: str, user: User, permission: str
 ) -> ServiceMapping:
     mapping = await svc.get_service_mapping(db, mapping_id)
     if mapping is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await check_workspace_role(db, mapping.workspace_id, user, min_role)
+    await check_workspace_permission(db, mapping.workspace_id, user, permission)
     return mapping
 
 
@@ -79,13 +79,13 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
 ):
     if workspace_id is not None:
-        await check_workspace_role(db, workspace_id, user, "viewer")
+        await check_workspace_permission(db, workspace_id, user, "concept-mapping:read")
         return await svc.list_for_workspace(db, workspace_id)
     projects = await svc.list_all(db)
     visible: list[MappingProject] = []
     for p in projects:
         try:
-            await check_workspace_role(db, p.workspace_id, user, "viewer")
+            await check_workspace_permission(db, p.workspace_id, user, "concept-mapping:read")
             visible.append(p)
         except HTTPException:
             continue
@@ -98,7 +98,7 @@ async def create_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, body.workspace_id, user, "editor")
+    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
     return await svc.create(db, body)
 
 
@@ -108,7 +108,7 @@ async def get_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_project(db, project_id, user, "viewer")
+    return await _load_project(db, project_id, user, "concept-mapping:read")
 
 
 @router.patch(_PROJ + "/{project_id}", response_model=MappingProjectResponse)
@@ -118,7 +118,7 @@ async def update_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _load_project(db, project_id, user, "editor")
+    project = await _load_project(db, project_id, user, "concept-mapping:write")
     return await svc.update(db, project, body)
 
 
@@ -128,7 +128,7 @@ async def delete_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _load_project(db, project_id, user, "editor")
+    project = await _load_project(db, project_id, user, "concept-mapping:delete")
     await svc.delete(db, project)
 
 
@@ -171,7 +171,7 @@ async def global_table_build(
     vocabulary). Call this once when the Table opens or after a data change; then
     hit `/global-table/query` with the returned signature for each page/filter —
     that path reads the Parquet directly and never touches the app DB."""
-    await check_workspace_role(db, body.workspace_id, user, "viewer")
+    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:read")
     mode = _normalize_mode(body.mode)
     project_dicts, mappings_by_project, registry = await _load_global_table_inputs(
         db, body.workspace_id
@@ -217,7 +217,7 @@ async def global_table_query(
     Parquet identified by `signature` — no app-DB reload, no rebuild. If the cache
     for this signature is gone (inputs changed since the last build), return 409
     so the client re-runs `/global-table/build`."""
-    await check_workspace_role(db, body.workspace_id, user, "viewer")
+    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:read")
     mode = _normalize_mode(body.mode)
 
     def _run():
@@ -251,7 +251,7 @@ async def set_raw_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _load_project(db, project_id, user, "editor")
+    project = await _load_project(db, project_id, user, "concept-mapping:write")
     if not blob_store.exists(body.sha):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
     return await svc.update(
@@ -277,7 +277,7 @@ async def query_file_source(
     # Editor, not viewer: this runs arbitrary client SQL over the file source's
     # server-side DuckDB (a distinct, powerful capability), not a read of already
     # projected rows.
-    project = await _load_project(db, project_id, user, "editor")
+    project = await _load_project(db, project_id, user, "concept-mapping:write")
     if not project.raw_file_sha or not blob_store.exists(project.raw_file_sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No source file")
     fsd = project.file_source_data or {}
@@ -316,7 +316,7 @@ async def set_scores_file(
     """Attach an uploaded scores parquet to a project: validate it, build the
     query index, and store the sha pointer. Returns the ScoresIndex the client
     caches for the "has suggestions" badges."""
-    project = await _load_project(db, project_id, user, "editor")
+    project = await _load_project(db, project_id, user, "concept-mapping:write")
     if not blob_store.exists(body.sha):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
     path = str(blob_store.path_for(body.sha))
@@ -338,7 +338,7 @@ async def get_scores_index(
 ):
     """Rebuild the query index from the persisted parquet (no upload). Returns
     null when the project has no scores file."""
-    project = await _load_project(db, project_id, user, "viewer")
+    project = await _load_project(db, project_id, user, "concept-mapping:read")
     if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
         return None
     blob_path = blob_store.path_for(project.scores_file_sha)
@@ -363,7 +363,7 @@ async def query_scores(
     """Score rows for one (vocabulary, code) — the per-source lookup the
     Suggestions panel runs. Reads the parquet server-side; only matching rows
     descend to the browser."""
-    project = await _load_project(db, project_id, user, "viewer")
+    project = await _load_project(db, project_id, user, "concept-mapping:read")
     if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
         return []
     path = str(blob_store.path_for(project.scores_file_sha))
@@ -380,7 +380,7 @@ async def get_scores_file(
 ):
     """Download the scores parquet from the blob store (for export). 404 when the
     project has no scores file."""
-    project = await _load_project(db, project_id, user, "viewer")
+    project = await _load_project(db, project_id, user, "concept-mapping:read")
     if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No scores file")
     data = await blob_store.read_bytes(project.scores_file_sha)
@@ -397,7 +397,7 @@ async def delete_scores_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _load_project(db, project_id, user, "editor")
+    project = await _load_project(db, project_id, user, "concept-mapping:delete")
     await svc.update(
         db, project,
         MappingProjectUpdate(scores_file_sha=None, scores_file_name=None),
@@ -424,7 +424,7 @@ async def preview_file_columns(
     Blobs are globally content-addressed, so gate on editor rights in the target
     workspace: without it any authenticated user could read the schema/row count
     of any workspace's upload by guessing/knowing its sha."""
-    await check_workspace_role(db, body.workspace_id, user, "editor")
+    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
     if not blob_store.exists(body.sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Uploaded file not found")
     path = str(blob_store.path_for(body.sha))
@@ -469,7 +469,7 @@ async def get_raw_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await _load_project(db, project_id, user, "viewer")
+    project = await _load_project(db, project_id, user, "concept-mapping:read")
     if not project.raw_file_sha or not blob_store.exists(project.raw_file_sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No source file")
     data = await blob_store.read_bytes(project.raw_file_sha)
@@ -488,7 +488,7 @@ async def list_mappings(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_project(db, project_id, user, "viewer")
+    await _load_project(db, project_id, user, "concept-mapping:read")
     return await svc.list_mappings(db, project_id)
 
 
@@ -498,7 +498,7 @@ async def delete_mappings_for_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_project(db, project_id, user, "editor")
+    await _load_project(db, project_id, user, "concept-mapping:delete")
     await svc.delete_mappings_for_project(db, project_id)
 
 
@@ -508,7 +508,7 @@ async def create_mapping(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_project(db, body.project_id, user, "editor")
+    await _load_project(db, body.project_id, user, "concept-mapping:write")
     return await svc.create_mapping(db, body)
 
 
@@ -519,7 +519,7 @@ async def create_mappings_batch(
     db: AsyncSession = Depends(get_db),
 ):
     for pid in {m.project_id for m in body.mappings}:
-        await _load_project(db, pid, user, "editor")
+        await _load_project(db, pid, user, "concept-mapping:write")
     await svc.create_mappings_batch(db, body.mappings)
 
 
@@ -530,7 +530,7 @@ async def delete_by_projects(
     db: AsyncSession = Depends(get_db),
 ):
     for pid in body.project_ids:
-        await _load_project(db, pid, user, "editor")
+        await _load_project(db, pid, user, "concept-mapping:delete")
     await svc.delete_mappings_for_projects(db, body.project_ids)
 
 
@@ -554,7 +554,7 @@ async def update_mapping(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    mapping = await _load_mapping(db, mapping_id, user, "editor")
+    mapping = await _load_mapping(db, mapping_id, user, "concept-mapping:write")
     return await svc.update_mapping(db, mapping, body)
 
 
@@ -564,7 +564,7 @@ async def delete_mapping(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    mapping = await _load_mapping(db, mapping_id, user, "editor")
+    mapping = await _load_mapping(db, mapping_id, user, "concept-mapping:delete")
     await svc.delete_mapping(db, mapping)
 
 
@@ -577,13 +577,13 @@ async def list_service_mappings(
     db: AsyncSession = Depends(get_db),
 ):
     if workspace_id is not None:
-        await check_workspace_role(db, workspace_id, user, "viewer")
+        await check_workspace_permission(db, workspace_id, user, "concept-mapping:read")
         return await svc.list_service_mappings_for_workspace(db, workspace_id)
     mappings = await svc.list_service_mappings_all(db)
     visible: list[ServiceMapping] = []
     for m in mappings:
         try:
-            await check_workspace_role(db, m.workspace_id, user, "viewer")
+            await check_workspace_permission(db, m.workspace_id, user, "concept-mapping:read")
             visible.append(m)
         except HTTPException:
             continue
@@ -596,7 +596,7 @@ async def create_service_mapping(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, body.workspace_id, user, "editor")
+    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
     return await svc.create_service_mapping(db, body)
 
 
@@ -606,7 +606,7 @@ async def get_service_mapping(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_service_mapping(db, mapping_id, user, "viewer")
+    return await _load_service_mapping(db, mapping_id, user, "concept-mapping:read")
 
 
 @router.patch(_SVC + "/{mapping_id}", response_model=ServiceMappingResponse)
@@ -616,7 +616,7 @@ async def update_service_mapping(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    mapping = await _load_service_mapping(db, mapping_id, user, "editor")
+    mapping = await _load_service_mapping(db, mapping_id, user, "concept-mapping:write")
     return await svc.update_service_mapping(db, mapping, body)
 
 
@@ -626,5 +626,5 @@ async def delete_service_mapping(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    mapping = await _load_service_mapping(db, mapping_id, user, "editor")
+    mapping = await _load_service_mapping(db, mapping_id, user, "concept-mapping:delete")
     await svc.delete_service_mapping(db, mapping)

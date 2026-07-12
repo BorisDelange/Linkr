@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import require_global_permission, require_workspace_role
+from app.core.permissions import require_global_permission, require_permission
 from app.models.user import User
 from app.schemas.workspace import (
     WorkspaceCreate,
@@ -37,7 +37,7 @@ async def create_workspace(
 @router.get(
     "/{workspace_id}",
     response_model=WorkspaceResponse,
-    dependencies=[Depends(require_workspace_role("viewer"))],
+    dependencies=[Depends(require_permission("workspace-summary:read"))],
 )
 async def get_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
     workspace = await workspace_service.get(db, workspace_id)
@@ -49,7 +49,7 @@ async def get_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
 @router.patch(
     "/{workspace_id}",
     response_model=WorkspaceResponse,
-    dependencies=[Depends(require_workspace_role("editor"))],
+    dependencies=[Depends(require_permission("workspace-settings:write"))],
 )
 async def update_workspace(
     workspace_id: str,
@@ -65,7 +65,7 @@ async def update_workspace(
 @router.delete(
     "/{workspace_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_workspace_role("owner"))],
+    dependencies=[Depends(require_permission("workspace-settings:delete"))],
 )
 async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)):
     workspace = await workspace_service.get(db, workspace_id)

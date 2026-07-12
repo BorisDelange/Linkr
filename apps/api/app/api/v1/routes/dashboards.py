@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_role
+from app.core.permissions import check_project_permission
 from app.models.dashboard import Dashboard, DashboardTab, DashboardWidget
 from app.models.project import Project
 from app.models.user import User
@@ -24,43 +24,43 @@ router = APIRouter(prefix="/dashboards", tags=["dashboards"])
 
 
 async def _require_project_access(
-    db: AsyncSession, project_uid: str, user: User, min_role: str
+    db: AsyncSession, project_uid: str, user: User, permission: str
 ) -> None:
     """Dashboard access derives from the owning project (workspace role inherited,
     with per-project override applied)."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    await check_project_role(db, project, user, min_role)
+    await check_project_permission(db, project, user, permission)
 
 
 async def _load_dashboard(
-    db: AsyncSession, dashboard_id: str, user: User, min_role: str
+    db: AsyncSession, dashboard_id: str, user: User, permission: str
 ) -> Dashboard:
     dashboard = await dashboard_service.get(db, dashboard_id)
     if dashboard is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _require_project_access(db, dashboard.project_uid, user, min_role)
+    await _require_project_access(db, dashboard.project_uid, user, permission)
     return dashboard
 
 
 async def _load_tab(
-    db: AsyncSession, tab_id: str, user: User, min_role: str
+    db: AsyncSession, tab_id: str, user: User, permission: str
 ) -> DashboardTab:
     tab = await dashboard_service.get_tab(db, tab_id)
     if tab is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _load_dashboard(db, tab.dashboard_id, user, min_role)
+    await _load_dashboard(db, tab.dashboard_id, user, permission)
     return tab
 
 
 async def _load_widget(
-    db: AsyncSession, widget_id: str, user: User, min_role: str
+    db: AsyncSession, widget_id: str, user: User, permission: str
 ) -> DashboardWidget:
     widget = await dashboard_service.get_widget(db, widget_id)
     if widget is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _load_tab(db, widget.tab_id, user, min_role)
+    await _load_tab(db, widget.tab_id, user, permission)
     return widget
 
 
@@ -73,7 +73,7 @@ async def list_dashboards(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, project_uid, user, "viewer")
+    await _require_project_access(db, project_uid, user, "dashboards:read")
     return await dashboard_service.list_for_project(db, project_uid)
 
 
@@ -83,7 +83,7 @@ async def create_dashboard(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, body.project_uid, user, "editor")
+    await _require_project_access(db, body.project_uid, user, "dashboards:write")
     return await dashboard_service.create(db, body)
 
 
@@ -93,7 +93,7 @@ async def get_dashboard(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_dashboard(db, dashboard_id, user, "viewer")
+    return await _load_dashboard(db, dashboard_id, user, "dashboards:read")
 
 
 @router.patch("/{dashboard_id}", response_model=DashboardResponse)
@@ -103,7 +103,7 @@ async def update_dashboard(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    dashboard = await _load_dashboard(db, dashboard_id, user, "editor")
+    dashboard = await _load_dashboard(db, dashboard_id, user, "dashboards:write")
     return await dashboard_service.update(db, dashboard, body)
 
 
@@ -113,7 +113,7 @@ async def delete_dashboard(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    dashboard = await _load_dashboard(db, dashboard_id, user, "editor")
+    dashboard = await _load_dashboard(db, dashboard_id, user, "dashboards:delete")
     await dashboard_service.delete(db, dashboard)
 
 
@@ -126,7 +126,7 @@ async def list_tabs(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_dashboard(db, dashboard_id, user, "viewer")
+    await _load_dashboard(db, dashboard_id, user, "dashboards:read")
     return await dashboard_service.list_tabs(db, dashboard_id)
 
 
@@ -138,7 +138,7 @@ async def create_tab(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_dashboard(db, body.dashboard_id, user, "editor")
+    await _load_dashboard(db, body.dashboard_id, user, "dashboards:write")
     return await dashboard_service.create_tab(db, body)
 
 
@@ -148,7 +148,7 @@ async def get_tab(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_tab(db, tab_id, user, "viewer")
+    return await _load_tab(db, tab_id, user, "dashboards:read")
 
 
 @router.patch("/tabs/{tab_id}", response_model=DashboardTabResponse)
@@ -158,7 +158,7 @@ async def update_tab(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    tab = await _load_tab(db, tab_id, user, "editor")
+    tab = await _load_tab(db, tab_id, user, "dashboards:write")
     return await dashboard_service.update_tab(db, tab, body)
 
 
@@ -168,7 +168,7 @@ async def delete_tab(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    tab = await _load_tab(db, tab_id, user, "editor")
+    tab = await _load_tab(db, tab_id, user, "dashboards:delete")
     await dashboard_service.delete_tab(db, tab)
 
 
@@ -180,7 +180,7 @@ async def delete_tabs_for_dashboard(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_dashboard(db, dashboard_id, user, "editor")
+    await _load_dashboard(db, dashboard_id, user, "dashboards:delete")
     await dashboard_service.delete_tabs_for_dashboard(db, dashboard_id)
 
 
@@ -193,7 +193,7 @@ async def list_widgets(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_tab(db, tab_id, user, "viewer")
+    await _load_tab(db, tab_id, user, "dashboards:read")
     return await dashboard_service.list_widgets(db, tab_id)
 
 
@@ -207,7 +207,7 @@ async def create_widget(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_tab(db, body.tab_id, user, "editor")
+    await _load_tab(db, body.tab_id, user, "dashboards:write")
     return await dashboard_service.create_widget(db, body)
 
 
@@ -217,7 +217,7 @@ async def get_widget(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_widget(db, widget_id, user, "viewer")
+    return await _load_widget(db, widget_id, user, "dashboards:read")
 
 
 @router.patch("/widgets/{widget_id}", response_model=DashboardWidgetResponse)
@@ -227,7 +227,7 @@ async def update_widget(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    widget = await _load_widget(db, widget_id, user, "editor")
+    widget = await _load_widget(db, widget_id, user, "dashboards:write")
     return await dashboard_service.update_widget(db, widget, body)
 
 
@@ -237,7 +237,7 @@ async def delete_widget(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    widget = await _load_widget(db, widget_id, user, "editor")
+    widget = await _load_widget(db, widget_id, user, "dashboards:delete")
     await dashboard_service.delete_widget(db, widget)
 
 
@@ -247,5 +247,5 @@ async def delete_widgets_for_tab(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_tab(db, tab_id, user, "editor")
+    await _load_tab(db, tab_id, user, "dashboards:delete")
     await dashboard_service.delete_widgets_for_tab(db, tab_id)

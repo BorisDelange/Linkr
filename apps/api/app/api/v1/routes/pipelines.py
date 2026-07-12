@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_role
+from app.core.permissions import check_project_permission
 from app.models.pipeline import Pipeline
 from app.models.project import Project
 from app.models.user import User
@@ -14,23 +14,23 @@ router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
 
 async def _require_project_access(
-    db: AsyncSession, project_uid: str, user: User, min_role: str
+    db: AsyncSession, project_uid: str, user: User, permission: str
 ) -> None:
     """Pipeline access derives from the owning project (workspace role inherited,
     with per-project override applied)."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    await check_project_role(db, project, user, min_role)
+    await check_project_permission(db, project, user, permission)
 
 
 async def _load(
-    db: AsyncSession, pipeline_id: str, user: User, min_role: str
+    db: AsyncSession, pipeline_id: str, user: User, permission: str
 ) -> Pipeline:
     pipeline = await pipeline_service.get(db, pipeline_id)
     if pipeline is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _require_project_access(db, pipeline.project_uid, user, min_role)
+    await _require_project_access(db, pipeline.project_uid, user, permission)
     return pipeline
 
 
@@ -41,7 +41,7 @@ async def list_pipelines(
     db: AsyncSession = Depends(get_db),
 ):
     if project_uid is not None:
-        await _require_project_access(db, project_uid, user, "viewer")
+        await _require_project_access(db, project_uid, user, "pipeline:read")
         return await pipeline_service.list_for_project(db, project_uid)
     return await pipeline_service.list_for_user(db, user)
 
@@ -52,7 +52,7 @@ async def create_pipeline(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, body.project_uid, user, "editor")
+    await _require_project_access(db, body.project_uid, user, "pipeline:write")
     return await pipeline_service.create(db, body)
 
 
@@ -62,7 +62,7 @@ async def get_pipeline(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load(db, pipeline_id, user, "viewer")
+    return await _load(db, pipeline_id, user, "pipeline:read")
 
 
 @router.patch("/{pipeline_id}", response_model=PipelineResponse)
@@ -72,7 +72,7 @@ async def update_pipeline(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    pipeline = await _load(db, pipeline_id, user, "editor")
+    pipeline = await _load(db, pipeline_id, user, "pipeline:write")
     return await pipeline_service.update(db, pipeline, body)
 
 
@@ -82,5 +82,5 @@ async def delete_pipeline(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    pipeline = await _load(db, pipeline_id, user, "editor")
+    pipeline = await _load(db, pipeline_id, user, "pipeline:delete")
     await pipeline_service.delete(db, pipeline)

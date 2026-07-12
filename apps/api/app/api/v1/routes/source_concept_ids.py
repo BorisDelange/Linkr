@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_workspace_permission
 from app.models.user import User
 from app.schemas.source_concept_id import (
     SourceConceptIdEntryBatch,
@@ -28,7 +28,7 @@ async def list_ranges(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "viewer")
+    await check_workspace_permission(db, workspace_id, user, "concept-mapping:read")
     return await svc.list_ranges(db, workspace_id)
 
 
@@ -39,7 +39,7 @@ async def get_range(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "viewer")
+    await check_workspace_permission(db, workspace_id, user, "concept-mapping:read")
     rng = await svc.get_range(db, workspace_id, badge_label)
     if rng is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
@@ -52,7 +52,7 @@ async def save_range(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, body.workspace_id, user, "editor")
+    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
     return await svc.save_range(db, body)
 
 
@@ -63,7 +63,7 @@ async def delete_range(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "editor")
+    await check_workspace_permission(db, workspace_id, user, "concept-mapping:delete")
     await svc.delete_range(db, workspace_id, badge_label)
 
 
@@ -73,7 +73,7 @@ async def delete_ranges_for_workspace(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "editor")
+    await check_workspace_permission(db, workspace_id, user, "concept-mapping:delete")
     await svc.delete_ranges_for_workspace(db, workspace_id)
 
 
@@ -87,7 +87,7 @@ async def entry_counts(
 ):
     """Per-badge assigned/own counts (integers only) — lets the Source IDs tab
     show counts without downloading every entry."""
-    await check_workspace_role(db, workspace_id, user, "viewer")
+    await check_workspace_permission(db, workspace_id, user, "concept-mapping:read")
     return await svc.count_entries_by_badge(db, workspace_id)
 
 
@@ -98,7 +98,7 @@ async def list_entries(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "viewer")
+    await check_workspace_permission(db, workspace_id, user, "concept-mapping:read")
     if badge_label is not None:
         return await svc.list_entries_for_badge(db, workspace_id, badge_label)
     return await svc.list_entries(db, workspace_id)
@@ -110,7 +110,7 @@ async def save_entry(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, body.workspace_id, user, "editor")
+    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
     await svc.save_entry(db, body)
     return body
 
@@ -123,7 +123,7 @@ async def save_entries_batch(
 ):
     # All entries must target the same accessible workspace(s); authorize each.
     for ws in {e.workspace_id for e in body.entries}:
-        await check_workspace_role(db, ws, user, "editor")
+        await check_workspace_permission(db, ws, user, "concept-mapping:write")
     await svc.save_entries(db, body.entries)
 
 
@@ -134,7 +134,7 @@ async def delete_entries(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "editor")
+    await check_workspace_permission(db, workspace_id, user, "concept-mapping:delete")
     if badge_label is not None:
         await svc.delete_entries_for_badge(db, workspace_id, badge_label)
     else:

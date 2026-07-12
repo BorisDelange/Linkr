@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_project_permission
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.ide_file import (
@@ -22,12 +22,14 @@ from app.services import project_fs
 router = APIRouter(prefix="/ide-files", tags=["ide-files"])
 
 
-async def _check_project(db: AsyncSession, project_uid: str, user: User, min_role: str) -> None:
+async def _check_project(db: AsyncSession, project_uid: str, user: User, permission: str) -> None:
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     if project.workspace_id is not None:
-        await check_workspace_role(db, project.workspace_id, user, min_role)
+        # ide is a project-tier resource → resolve via the project (honours per-
+        # project overrides), not just the raw workspace role.
+        await check_project_permission(db, project, user, permission)
 
 
 def _node(project_uid: str, n: dict, with_content: bool) -> IdeFileResponse:
@@ -47,7 +49,7 @@ async def list_files(
     db: AsyncSession = Depends(get_db),
 ):
     """Scan scripts/ from disk and return the tree with each file's content."""
-    await _check_project(db, project_uid, user, "viewer")
+    await _check_project(db, project_uid, user, "ide:read")
     return [_node(project_uid, n, with_content=True) for n in project_fs.scan_scripts(project_uid)]
 
 
@@ -57,7 +59,7 @@ async def create_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "ide:write")
     try:
         if body.type == "folder":
             project_fs.make_folder(body.project_uid, body.path)
@@ -83,7 +85,7 @@ async def save_content(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "ide:write")
     try:
         project_fs.write_script(body.project_uid, body.path, body.content)
     except ValueError as e:
@@ -96,7 +98,7 @@ async def move_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "ide:write")
     try:
         project_fs.move_script(body.project_uid, body.path, body.new_path)
     except ValueError as e:
@@ -109,7 +111,7 @@ async def delete_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "ide:delete")
     try:
         project_fs.delete_script(body.project_uid, body.path)
     except ValueError as e:

@@ -135,6 +135,38 @@ These permissions apply **inside** a project (via inheritance / the project over
 
 ---
 
+## 🔒 Server-side migration: rank → atomic permission (2026-07-12)
+
+Server routes historically gated on ROLE RANK (`require_project_role("editor")`,
+`check_workspace_role(..., "owner")`). Migrating to ATOMIC PERMISSION checks
+(`resource:action`) so custom roles are honoured server-side, not just in the UI.
+
+New helpers in `permissions.py`: `require_project_permission(perm)` (Depends,
+loads+returns Project), `check_project_permission(db, project, user, perm)` and
+`check_workspace_permission(db, workspace_id, user, perm)` (inline, raising). Admin
+and matching all-workspaces/all-projects grants still pass (via has_*_permission).
+
+**Mapping rule**: map by INTENT, not HTTP verb — read/query → `:read`, create/edit/
+run → `:write`, delete → `:delete`. Resource = what the file manages (cohorts.py →
+cohorts, ide_files.py → ide, data_sources.py → databases, sql_scripts.py →
+sql-scripts, mapping/concept-sets/source-ids → concept-mapping, etc.).
+
+**PO decisions (2026-07-12)**:
+- GET `/workspaces/{id}` → `workspace-summary:read`; GET `/projects/{uid}` →
+  `project-summary:read` (base "can open", not the narrower `*-settings:read`).
+- git.py: project git → `project-settings:read`/`:write`; workspace git →
+  `workspace-settings:read`/`:write`. (`verify-remote`/`clone` stay auth-only.)
+- DELETE project → `project-settings:delete` (owner by default — tightens the old
+  editor-can-delete).
+- Cache-reset DELETEs (stats/results/concept caches) → `:write` (not `:delete`).
+- README-attachment DELETEs → `project-summary`/`workspace-summary:write` (summary
+  has no delete action).
+- Stays open (no gate): all `list_for_user` lists + no-filter "list-all + per-row
+  403" endpoints, `my-role` ×2, `git/verify-remote`, `git/clone`,
+  `data-sources/test-connection`, and the `workspace_id is None` skip branches.
+- Stays as-is: `workspaces POST` (already `workspaces:write`),
+  `concept-mappings/delete-orphans` (raw admin check).
+
 > Audit of 2026-07-09, branch `feature/fastapi-backend`. Answers: "is it
 > effective, on the UI **and** server side, to prevent unauthorized access?" and
 > "are any permissions missing, notably for the SQL query on the application database?".

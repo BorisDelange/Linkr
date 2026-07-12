@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_workspace_permission
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.schemas.concept_cache import (
@@ -40,20 +40,20 @@ router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 
 
 async def _require_source_access(
-    db: AsyncSession, source: DataSource, user: User, min_role: str
+    db: AsyncSession, source: DataSource, user: User, permission: str
 ) -> None:
     """Data source access derives from its workspace membership."""
     if source.workspace_id is not None:
-        await check_workspace_role(db, source.workspace_id, user, min_role)
+        await check_workspace_permission(db, source.workspace_id, user, permission)
 
 
 async def _load_source(
-    db: AsyncSession, source_id: str, user: User, min_role: str
+    db: AsyncSession, source_id: str, user: User, permission: str
 ) -> DataSource:
     source = await data_source_service.get(db, source_id)
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _require_source_access(db, source, user, min_role)
+    await _require_source_access(db, source, user, permission)
     return source
 
 
@@ -64,7 +64,7 @@ async def list_data_sources(
     db: AsyncSession = Depends(get_db),
 ):
     if workspace_id is not None:
-        await check_workspace_role(db, workspace_id, user, "viewer")
+        await check_workspace_permission(db, workspace_id, user, "databases:read")
         return await data_source_service.list_for_workspace(db, workspace_id)
     # No workspace filter: return sources the user can see (admin sees all).
     sources = await data_source_service.list_all(db)
@@ -74,7 +74,7 @@ async def list_data_sources(
             visible.append(s)
             continue
         try:
-            await check_workspace_role(db, s.workspace_id, user, "viewer")
+            await check_workspace_permission(db, s.workspace_id, user, "databases:read")
             visible.append(s)
         except HTTPException:
             continue
@@ -88,7 +88,7 @@ async def create_data_source(
     db: AsyncSession = Depends(get_db),
 ):
     if body.workspace_id is not None:
-        await check_workspace_role(db, body.workspace_id, user, "editor")
+        await check_workspace_permission(db, body.workspace_id, user, "databases:write")
     return await data_source_service.create(db, body, user)
 
 
@@ -116,7 +116,7 @@ async def import_data_source_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_source(db, body.data_source_id, user, "editor")
+    await _load_source(db, body.data_source_id, user, "databases:write")
     if not blob_store.exists(body.sha):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -136,7 +136,7 @@ async def get_data_source_file_blob(
     file = await data_source_service.get_file(db, file_id)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _load_source(db, file.data_source_id, user, "viewer")
+    await _load_source(db, file.data_source_id, user, "databases:read")
     if not blob_store.exists(file.content_hash):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Blob missing")
     data = await blob_store.read_bytes(file.content_hash)
@@ -156,7 +156,7 @@ async def delete_data_source_file(
     file = await data_source_service.get_file(db, file_id)
     if file is None:
         return
-    await _load_source(db, file.data_source_id, user, "editor")
+    await _load_source(db, file.data_source_id, user, "databases:delete")
     await data_source_service.delete_file(db, file)
 
 
@@ -166,7 +166,7 @@ async def get_data_source(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_source(db, source_id, user, "viewer")
+    return await _load_source(db, source_id, user, "databases:read")
 
 
 @router.patch("/{source_id}", response_model=DataSourceResponse)
@@ -176,7 +176,7 @@ async def update_data_source(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    source = await _load_source(db, source_id, user, "editor")
+    source = await _load_source(db, source_id, user, "databases:write")
     return await data_source_service.update(db, source, body)
 
 
@@ -186,7 +186,7 @@ async def delete_data_source(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    source = await _load_source(db, source_id, user, "editor")
+    source = await _load_source(db, source_id, user, "databases:delete")
     await data_source_service.delete(db, source)
 
 
@@ -200,7 +200,7 @@ async def query_data_source(
     """Run read-only SQL server-side against an external source (Postgres) and
     return the result rows. The server-mode counterpart to the browser's
     queryDataSource — the raw tables never reach the client, only results."""
-    source = await _load_source(db, source_id, user, "viewer")
+    source = await _load_source(db, source_id, user, "databases:read")
     try:
         rows = await data_source_service.query(db, source, body.sql)
     except ValueError as e:
@@ -219,7 +219,7 @@ async def retest_data_source(
     """Re-validate a stored external source using its saved (encrypted)
     credentials — no password from the client. Returns ok + introspected tables
     so the UI can refresh status and stats."""
-    source = await _load_source(db, source_id, user, "editor")
+    source = await _load_source(db, source_id, user, "databases:write")
     ok, error, tables = await data_source_service.test_connection_stored(source)
     return TestConnectionResult(ok=ok, error=error, tables=tables)
 
@@ -232,7 +232,7 @@ async def get_data_source_schema(
 ):
     """Introspected tables + columns of an external source, for the schema
     mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
-    source = await _load_source(db, source_id, user, "viewer")
+    source = await _load_source(db, source_id, user, "databases:read")
     return await data_source_service.introspect(db, source)
 
 
@@ -244,7 +244,7 @@ async def concept_cache_status(
 ):
     """Whether the source has a materialized concept-list cache, and its "last
     refreshed" time (the Parquet file's mtime)."""
-    await _load_source(db, source_id, user, "viewer")
+    await _load_source(db, source_id, user, "databases:read")
     return ConceptCacheStatus(
         exists=concept_cache_fs.exists(source_id),
         refreshed_at=concept_cache_fs.refreshed_at(source_id),
@@ -261,7 +261,7 @@ async def refresh_concept_cache(
     """Materialize the concept list to Parquet (shared across users). Editor role,
     since it writes shared state. Atomic: readers keep seeing the old cache until
     the new one is in place."""
-    source = await _load_source(db, source_id, user, "editor")
+    source = await _load_source(db, source_id, user, "databases:write")
     try:
         mtime = await data_source_service.refresh_concept_cache(db, source, body.select_sql)
     except ValueError as e:
@@ -280,7 +280,7 @@ async def query_concept_cache(
 ):
     """Run a page/filter/sort query against the cached concept Parquet (view
     `concepts`). 404 if the cache has not been built yet."""
-    await _load_source(db, source_id, user, "viewer")
+    await _load_source(db, source_id, user, "databases:read")
     try:
         rows = await data_source_service.query_concept_cache(source_id, body.sql)
     except FileNotFoundError:
@@ -300,7 +300,7 @@ async def get_concept_stats(
     db: AsyncSession = Depends(get_db),
 ):
     """Shared cached detail-panel stats for one concept. 404 until first computed."""
-    await _load_source(db, source_id, user, "viewer")
+    await _load_source(db, source_id, user, "databases:read")
     row = await concept_stats_cache_service.get(db, source_id, concept_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stats")
@@ -318,7 +318,7 @@ async def save_concept_stats(
     db: AsyncSession = Depends(get_db),
 ):
     """Persist the stats a client computed for one concept, sharing them."""
-    await _load_source(db, source_id, user, "editor")
+    await _load_source(db, source_id, user, "databases:write")
     return await concept_stats_cache_service.save(db, source_id, concept_id, body.stats)
 
 
@@ -333,7 +333,7 @@ async def get_database_stats_cache(
 ):
     """Shared, precomputed database statistics for this source (null if none).
     Stored server-side so every user of the project reuses one computed payload."""
-    await _load_source(db, source_id, user, "viewer")
+    await _load_source(db, source_id, user, "databases:read")
     row = await stats_cache_service.get(db, _STATS_SCOPE, source_id)
     if row is None:
         return None
@@ -348,7 +348,7 @@ async def save_database_stats_cache(
     db: AsyncSession = Depends(get_db),
 ):
     """Store the statistics a client just computed, sharing them with the project."""
-    await _load_source(db, source_id, user, "editor")
+    await _load_source(db, source_id, user, "databases:write")
     row = await stats_cache_service.save(
         db, _STATS_SCOPE, source_id, body.computed_at, body.payload
     )
@@ -362,7 +362,8 @@ async def delete_database_stats_cache(
     db: AsyncSession = Depends(get_db),
 ):
     """Reset the shared statistics cache for this source (the "reset" button)."""
-    await _load_source(db, source_id, user, "editor")
+    # Cache reset is a recompute, not deleting the source → write, not delete.
+    await _load_source(db, source_id, user, "databases:write")
     await stats_cache_service.delete(db, _STATS_SCOPE, source_id)
 
 
@@ -372,5 +373,5 @@ async def list_data_source_files(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_source(db, source_id, user, "viewer")
+    await _load_source(db, source_id, user, "databases:read")
     return await data_source_service.list_files(db, source_id)

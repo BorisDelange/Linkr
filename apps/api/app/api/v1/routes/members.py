@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import (
-    check_project_role,
-    check_workspace_role,
+    check_project_permission,
+    check_workspace_permission,
     effective_project_permissions,
     effective_project_role,
     effective_workspace_permissions,
@@ -108,7 +108,7 @@ async def list_workspace_members(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "viewer")
+    await check_workspace_permission(db, workspace_id, user, "workspace-members:read")
     rows = await member_service.list_workspace_members(db, workspace_id)
     return [
         WorkspaceMemberResponse(
@@ -133,7 +133,7 @@ async def upsert_workspace_member(
     db: AsyncSession = Depends(get_db),
 ):
     """Add a member or change their role. Requires owner on the workspace."""
-    await check_workspace_role(db, workspace_id, user, "owner")
+    await check_workspace_permission(db, workspace_id, user, "workspace-members:write")
     _validate_role(body.role)
     target_id = await _resolve_user_id(db, body.user_id, body.username)
     member = await member_service.upsert_workspace_member(
@@ -159,7 +159,7 @@ async def remove_workspace_member(
 ):
     """Remove a member. Requires owner. Refuses to drop the last owner so a
     workspace can never be left with nobody able to manage it."""
-    await check_workspace_role(db, workspace_id, user, "owner")
+    await check_workspace_permission(db, workspace_id, user, "workspace-members:delete")
     target = await db.get(WorkspaceMember, (workspace_id, user_id))
     if target is not None and target.role == "owner":
         if await member_service.count_workspace_owners(db, workspace_id) <= 1:
@@ -190,7 +190,7 @@ async def list_project_members(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _load_project(db, project_uid)
-    await check_project_role(db, project, user, "viewer")
+    await check_project_permission(db, project, user, "project-members:read")
     rows = await member_service.list_project_members(db, project_uid)
     return [
         ProjectMemberResponse(
@@ -217,7 +217,7 @@ async def upsert_project_member(
     """Set a per-project role override for a user. Requires owner on the project.
     Role "none" hides the project from that user even if they're a workspace member."""
     project = await _load_project(db, project_uid)
-    await check_project_role(db, project, user, "owner")
+    await check_project_permission(db, project, user, "project-members:write")
     _validate_role(body.role, allow_none=True)
     target_id = await _resolve_user_id(db, body.user_id, body.username)
     member = await member_service.upsert_project_member(
@@ -244,5 +244,5 @@ async def remove_project_member(
     """Drop the override (the user falls back to their inherited workspace role).
     Requires owner on the project."""
     project = await _load_project(db, project_uid)
-    await check_project_role(db, project, user, "owner")
+    await check_project_permission(db, project, user, "project-members:delete")
     await member_service.remove_project_member(db, project_uid, user_id)

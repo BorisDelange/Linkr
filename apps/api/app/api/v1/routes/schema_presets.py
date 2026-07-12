@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_workspace_permission
 from app.models.user import User
 from app.schemas.schema_preset import SchemaPresetResponse, SchemaPresetSave
 from app.services import schema_preset_service
@@ -37,9 +37,9 @@ async def save_schema_preset(
     # somewhere the caller lacks rights), mirroring the delete handler.
     existing = await schema_preset_service.get(db, preset_id)
     if existing is not None and existing.workspace_id is not None:
-        await check_workspace_role(db, existing.workspace_id, user, "editor")
+        await check_workspace_permission(db, existing.workspace_id, user, "schemas:write")
     if body.workspace_id is not None:
-        await check_workspace_role(db, body.workspace_id, user, "editor")
+        await check_workspace_permission(db, body.workspace_id, user, "schemas:write")
     return await schema_preset_service.save(db, body)
 
 
@@ -53,5 +53,5 @@ async def delete_schema_preset(
     if preset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     if preset.workspace_id is not None:
-        await check_workspace_role(db, preset.workspace_id, user, "editor")
+        await check_workspace_permission(db, preset.workspace_id, user, "schemas:delete")
     await schema_preset_service.delete(db, preset)

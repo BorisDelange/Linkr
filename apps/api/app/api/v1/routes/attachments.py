@@ -3,30 +3,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_role, check_workspace_role
+from app.core.permissions import check_project_permission, check_workspace_permission
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.attachment import ReadmeAttachmentResponse, WikiAttachmentResponse
 from app.services import attachment_service, blob_store
 
 
-async def _require_project(db: AsyncSession, project_uid: str, user: User, min_role: str) -> None:
-    project = await db.get(Project, project_uid)
-    if project is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    await check_project_role(db, project, user, min_role)
-
-
 async def _require_readme_scope(
     db: AsyncSession, *, project_uid: str | None, workspace_id: str | None,
-    user: User, min_role: str,
+    user: User, action: str,
 ) -> None:
     """A README attachment is scoped to a project or a workspace; enforce the
-    matching role."""
+    matching summary permission (project-summary / workspace-summary). `action` is
+    "read" or "write" — summary has no delete action, so attachment removal is a
+    write."""
     if project_uid is not None:
-        await _require_project(db, project_uid, user, min_role)
+        project = await db.get(Project, project_uid)
+        if project is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+        await check_project_permission(db, project, user, f"project-summary:{action}")
     elif workspace_id is not None:
-        await check_workspace_role(db, workspace_id, user, min_role)
+        await check_workspace_permission(db, workspace_id, user, f"workspace-summary:{action}")
     else:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "projectUid or workspaceId required")
 
@@ -43,7 +41,7 @@ async def list_readme(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_readme_scope(db, project_uid=project_uid, workspace_id=workspace_id, user=user, min_role="viewer")
+    await _require_readme_scope(db, project_uid=project_uid, workspace_id=workspace_id, user=user, action="read")
     if project_uid is not None:
         return await attachment_service.list_readme(db, project_uid)
     return await attachment_service.list_readme_by_workspace(db, workspace_id)
@@ -61,7 +59,7 @@ async def create_readme(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_readme_scope(db, project_uid=project_uid, workspace_id=workspace_id, user=user, min_role="editor")
+    await _require_readme_scope(db, project_uid=project_uid, workspace_id=workspace_id, user=user, action="write")
     data = await request.body()
     return await attachment_service.create_readme(
         db, id=id, project_uid=project_uid, workspace_id=workspace_id, file_name=file_name,
@@ -78,7 +76,7 @@ async def get_readme_blob(
     att = await attachment_service.get_readme(db, att_id)
     if att is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _require_readme_scope(db, project_uid=att.project_uid, workspace_id=att.workspace_id, user=user, min_role="viewer")
+    await _require_readme_scope(db, project_uid=att.project_uid, workspace_id=att.workspace_id, user=user, action="read")
     data = await blob_store.read_bytes(att.blob_sha)
     return Response(content=data, media_type=att.mime_type or "application/octet-stream",
                     headers={"x-file-name": att.file_name})
@@ -93,7 +91,7 @@ async def delete_readme(
     att = await attachment_service.get_readme(db, att_id)
     if att is None:
         return
-    await _require_readme_scope(db, project_uid=att.project_uid, workspace_id=att.workspace_id, user=user, min_role="editor")
+    await _require_readme_scope(db, project_uid=att.project_uid, workspace_id=att.workspace_id, user=user, action="write")
     await attachment_service.delete_readme(db, att)
 
 
@@ -104,7 +102,7 @@ async def delete_readme_batch(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_readme_scope(db, project_uid=project_uid, workspace_id=workspace_id, user=user, min_role="editor")
+    await _require_readme_scope(db, project_uid=project_uid, workspace_id=workspace_id, user=user, action="write")
     if project_uid is not None:
         await attachment_service.delete_readme_for_project(db, project_uid)
     else:
@@ -126,10 +124,10 @@ async def list_wiki(
     if page_id is not None:
         atts = await attachment_service.list_wiki_by_page(db, page_id)
         if atts:
-            await check_workspace_role(db, atts[0].workspace_id, user, "viewer")
+            await check_workspace_permission(db, atts[0].workspace_id, user, "wiki:read")
         return atts
     if workspace_id is not None:
-        await check_workspace_role(db, workspace_id, user, "viewer")
+        await check_workspace_permission(db, workspace_id, user, "wiki:read")
         return await attachment_service.list_wiki_by_workspace(db, workspace_id)
     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "pageId or workspaceId required")
 
@@ -146,7 +144,7 @@ async def create_wiki(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "editor")
+    await check_workspace_permission(db, workspace_id, user, "wiki:write")
     data = await request.body()
     return await attachment_service.create_wiki(
         db, id=id, page_id=page_id, workspace_id=workspace_id, file_name=file_name,
@@ -163,7 +161,7 @@ async def get_wiki_blob(
     att = await attachment_service.get_wiki(db, att_id)
     if att is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await check_workspace_role(db, att.workspace_id, user, "viewer")
+    await check_workspace_permission(db, att.workspace_id, user, "wiki:read")
     data = await blob_store.read_bytes(att.blob_sha)
     return Response(content=data, media_type=att.mime_type or "application/octet-stream",
                     headers={"x-file-name": att.file_name})
@@ -178,7 +176,7 @@ async def delete_wiki(
     att = await attachment_service.get_wiki(db, att_id)
     if att is None:
         return
-    await check_workspace_role(db, att.workspace_id, user, "editor")
+    await check_workspace_permission(db, att.workspace_id, user, "wiki:delete")
     await attachment_service.delete_wiki(db, att)
 
 
@@ -192,11 +190,11 @@ async def delete_wiki_batch(
     if page_id is not None:
         atts = await attachment_service.list_wiki_by_page(db, page_id)
         if atts:
-            await check_workspace_role(db, atts[0].workspace_id, user, "editor")
+            await check_workspace_permission(db, atts[0].workspace_id, user, "wiki:delete")
         await attachment_service.delete_wiki_for_page(db, page_id)
         return
     if workspace_id is not None:
-        await check_workspace_role(db, workspace_id, user, "editor")
+        await check_workspace_permission(db, workspace_id, user, "wiki:delete")
         await attachment_service.delete_wiki_for_workspace(db, workspace_id)
         return
     raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "pageId or workspaceId required")

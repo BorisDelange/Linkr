@@ -218,6 +218,53 @@ async def test_project_override_restricts(client, db):
     assert (await _make_cohort(client, bob, proj)).status_code == 201
 
 
+async def test_atomic_permission_enforced_server_side(client, db):
+    """Server gates on the exact permission, not rank: if an admin customises the
+    editor role to drop cohorts:write, an editor member can no longer create
+    cohorts even though their rank is editor (proves permission- not rank-based)."""
+    admin = await _bootstrap_admin(client)
+    ws = await _workspace(client, admin)
+    proj = await _project(client, admin, ws)
+    bob_id, bob = await _make_user(db, client, "bob")
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": bob_id, "role": "editor"})
+
+    # Editor can create cohorts by default.
+    assert (await _make_cohort(client, bob, proj)).status_code == 201
+
+    # Admin customises the editor role: strip cohorts:write.
+    editor = next(r for r in (await client.get(f"{API}/roles", headers=admin)).json() if r["name"] == "editor")
+    perms = [p for p in editor["permissions"] if p != "cohorts:write"]
+    assert (await client.patch(f"{API}/roles/{editor['id']}", headers=admin,
+            json={"permissions": perms})).status_code == 200
+
+    # Same editor is now refused — the gate is the atomic permission, not the rank.
+    assert (await _make_cohort(client, bob, proj)).status_code == 403
+    assert (await client.get(f"{API}/cohorts?projectUid={proj}", headers=bob)).status_code == 200
+
+
+async def test_editor_cannot_manage_members_or_delete_project(client, db):
+    """editor holds write on content but NOT members:write nor
+    project-settings:delete — those are owner-only, enforced server-side."""
+    admin = await _bootstrap_admin(client)
+    ws = await _workspace(client, admin)
+    proj = await _project(client, admin, ws)
+    bob_id, bob = await _make_user(db, client, "bob")
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": bob_id, "role": "editor"})
+
+    # Editor can see members but not add/remove them, and can't delete the project.
+    assert (await client.get(f"{API}/workspaces/{ws}/members", headers=bob)).status_code == 200
+    assert (await client.put(f"{API}/workspaces/{ws}/members", headers=bob,
+            json={"userId": bob_id, "role": "owner"})).status_code == 403
+    assert (await client.delete(f"{API}/projects/{proj}", headers=bob)).status_code == 403
+
+    # Owner can.
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": bob_id, "role": "owner"})
+    assert (await client.delete(f"{API}/projects/{proj}", headers=bob)).status_code == 204
+
+
 async def test_project_override_none_hides_from_workspace_member(client, db):
     admin = await _bootstrap_admin(client)
     ws = await _workspace(client, admin)

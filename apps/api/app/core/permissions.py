@@ -116,16 +116,22 @@ _LADDER = {
     "delete": {"read", "write", "delete", "execute"},
 }
 
+# Managing membership (write/delete on *-members) is an owner responsibility: the
+# default viewer/editor roles may READ the member list but not modify it (owner,
+# which holds PERMISSIONS, still can). An admin can grant these to a custom role.
+_MEMBER_RESOURCES = {"workspace-members", "project-members"}
+
 
 def _catalogue_perms(max_action: str) -> list[str]:
-    """Workspace permissions a default role gets: for each resource, every one of
-    its catalogue actions implied by `max_action` (execute ⊆ write)."""
+    """Workspace permissions a default viewer/editor role gets: for each resource,
+    every catalogue action implied by `max_action` (execute ⊆ write) — but for
+    membership resources, only `read` (write/delete stay owner-only)."""
     allowed = _LADDER.get(max_action, {max_action})
     return [
         f"{r}:{a}"
         for r, acts in WORKSPACE_CATALOGUE.items()
         for a in acts
-        if a in allowed
+        if a in allowed and not (r in _MEMBER_RESOURCES and a != "read")
     ]
 
 
@@ -345,12 +351,23 @@ async def effective_project_permissions(
     db: AsyncSession, project: Project, user: User
 ) -> list[str]:
     """The flat permission list the user effectively holds on `project`, for UI
-    gating. admin → every permission; else the effective (override > inherited,
-    widened by all-projects) role's permissions + the user's global-tier grants."""
+    gating. Permission-centric (honours custom role names): admin → every
+    permission; else the override role's perms, or the inherited WORKSPACE role's
+    perms, plus any all-projects grant + the user's global-tier grants."""
     if user.role == "admin":
         return list(ALL_PERMISSIONS)
-    role = await effective_project_role(db, project, user)
-    perms = set(await _role_permissions(db, role)) if role else set()
+    perms: set[str] = set()
+    override = await db.get(ProjectMember, (project.uid, user.id))
+    if override is not None:
+        if override.role != "none":
+            perms |= set(await _role_permissions(db, override.role))
+    elif project.workspace_id is None:
+        perms |= set(PERMISSIONS)  # unassigned project: open
+    else:
+        perms |= set(await effective_workspace_permissions(db, project.workspace_id, user))
+    granted = await global_grant_role(db, user, "all-projects")
+    if granted is not None:
+        perms |= set(await _role_permissions(db, granted))
     perms |= set(await _role_permissions(db, user.role))  # global-tier grants
     return sorted(perms)
 
@@ -360,15 +377,78 @@ async def has_project_permission(
 ) -> bool:
     """True if the user's effective role on `project` grants `permission`.
 
-    Resolves the role across the three dimensions (override > inherited) and then
-    checks that role's permission list — so a per-project override changes not
-    just the rank but the granted permissions too. Global admins always pass."""
+    Permission-centric across the three dimensions (honours CUSTOM role names,
+    unlike the rank-based effective_project_role):
+      - global admin → always True;
+      - a per-project override (project_members) → that role's permissions
+        ("none" = access removed);
+      - else the inherited WORKSPACE role's permissions (custom roles included);
+      - else, for a workspace-less project, open to any user;
+      - plus a global all-projects grant widening everything."""
     if user.role == "admin":
         return True
-    role = await effective_project_role(db, project, user)
-    if role is None:
-        return False
-    return await _role_grants(db, role, permission)
+
+    override = await db.get(ProjectMember, (project.uid, user.id))
+    if override is not None:
+        if override.role != "none" and await _role_grants(db, override.role, permission):
+            return True
+    elif project.workspace_id is None:
+        return True  # unassigned project: no membership model applies
+    elif await has_permission(db, project.workspace_id, user, permission):
+        return True  # inherited workspace role (custom names handled here)
+
+    # A cross-cutting global all-projects grant confers the matching role everywhere.
+    granted = await global_grant_role(db, user, "all-projects")
+    if granted is not None:
+        return await _role_grants(db, granted, permission)
+    return False
+
+
+async def check_project_permission(
+    db: AsyncSession, project: Project, user: User, permission: str
+) -> None:
+    """Enforce that the user's effective role on `project` grants `permission`;
+    raise 403 otherwise. Callable inline from routes/services (mirrors
+    check_project_role but permission-based, i.e. honours custom roles)."""
+    if not await has_project_permission(db, project, user, permission):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient project permissions",
+        )
+
+
+async def check_workspace_permission(
+    db: AsyncSession, workspace_id: str, user: User, permission: str
+) -> None:
+    """Enforce that the user's role on `workspace_id` grants `permission`; raise
+    403 otherwise. Callable inline (mirrors check_workspace_role, permission-based).
+    Admins and matching all-workspaces grants pass via has_permission."""
+    if not await has_permission(db, workspace_id, user, permission):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient workspace permissions",
+        )
+
+
+def require_project_permission(permission: str):
+    """Dependency factory: require `permission` on the path project (3-dimension
+    resolution, custom-role aware). Returns the loaded Project (drop-in for
+    require_project_role)."""
+
+    async def _dep(
+        project_uid: str,
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> Project:
+        project = await db.get(Project, project_uid)
+        if project is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
+            )
+        await check_project_permission(db, project, user, permission)
+        return project
+
+    return _dep
 
 
 def require_global_permission(permission: str):

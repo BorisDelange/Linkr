@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_role
+from app.core.permissions import check_project_permission
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.dataset import (
@@ -32,11 +32,11 @@ from app.services.data import dataset_fs, dataset_rows
 router = APIRouter(prefix="/dataset-files", tags=["dataset-files"])
 
 
-async def _check_project(db: AsyncSession, project_uid: str, user: User, min_role: str) -> None:
+async def _check_project(db: AsyncSession, project_uid: str, user: User, permission: str) -> None:
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    await check_project_role(db, project, user, min_role)
+    await check_project_permission(db, project, user, permission)
 
 
 def _resolve_meta(project_uid: str, node: dict) -> tuple[list[dict] | None, int | None]:
@@ -59,7 +59,7 @@ async def list_dataset_files(
 ):
     """Scan datasets/ from disk. Purges cache entries + reconciles analyses whose
     raw dataset file disappeared (covers files removed outside the app + Refresh)."""
-    await _check_project(db, project_uid, user, "viewer")
+    await _check_project(db, project_uid, user, "datasets:read")
     dataset_fs.purge_orphans(project_uid)
     await dataset_service.reconcile_analyses(db, project_uid)
     out: list[DsNodeResponse] = []
@@ -72,8 +72,8 @@ async def list_dataset_files(
     return out
 
 
-async def _resolve_file(db: AsyncSession, project_uid: str, path: str, user: User, min_role: str) -> dict:
-    await _check_project(db, project_uid, user, min_role)
+async def _resolve_file(db: AsyncSession, project_uid: str, path: str, user: User, permission: str) -> dict:
+    await _check_project(db, project_uid, user, permission)
     try:
         return dataset_fs.resolve_cache(project_uid, path)
     except FileNotFoundError:
@@ -88,7 +88,7 @@ async def query_rows(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    res = await _resolve_file(db, project_uid, path, user, "viewer")
+    res = await _resolve_file(db, project_uid, path, user, "datasets:read")
     col_types = {c["id"]: c["type"] for c in res["columns"]}
     filters = [f.model_dump(by_alias=False) for f in body.filters]
     na = [n.model_dump(by_alias=False) for n in body.na]
@@ -108,7 +108,7 @@ async def column_stats(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    res = await _resolve_file(db, project_uid, path, user, "viewer")
+    res = await _resolve_file(db, project_uid, path, user, "datasets:read")
     col = next((c for c in res["columns"] if c["id"] == col_id), None)
     if col is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
@@ -125,7 +125,7 @@ async def get_raw(
     """Download the raw dataset file from disk (datasets/<path>)."""
     from fastapi.responses import FileResponse
 
-    await _check_project(db, project_uid, user, "viewer")
+    await _check_project(db, project_uid, user, "datasets:read")
     try:
         p = project_fs.dataset_path(project_uid, path)
     except ValueError:
@@ -144,7 +144,7 @@ async def import_dataset(
 ):
     """Land an uploaded raw file into datasets/<path> on disk (the source of truth),
     then parse it into the Parquet cache and return the node with columns/rowCount."""
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "datasets:write")
     if not blob_store.exists(body.sha):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
     try:
@@ -190,7 +190,7 @@ async def reimport_dataset(
     db: AsyncSession = Depends(get_db),
 ):
     """Re-parse the raw file with new options (rebuilds the Parquet cache)."""
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "datasets:write")
     try:
         dataset_fs.resolve_cache(body.project_uid, body.path, body.parse_options, force=True)
     except FileNotFoundError:
@@ -207,7 +207,7 @@ async def duplicate_dataset(
     db: AsyncSession = Depends(get_db),
 ):
     """Copy the raw dataset file to a sibling with a new name."""
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "datasets:write")
     import shutil
 
     try:
@@ -229,7 +229,7 @@ async def create_folder(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "datasets:write")
     try:
         project_fs.dataset_path(body.project_uid, body.path).mkdir(parents=True, exist_ok=True)
     except ValueError as e:
@@ -248,7 +248,7 @@ async def move_dataset(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "datasets:write")
     try:
         src = project_fs.dataset_path(body.project_uid, body.path)
         dst = project_fs.dataset_path(body.project_uid, body.new_path)
@@ -265,7 +265,7 @@ async def delete_dataset(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "datasets:delete")
     import shutil
 
     try:
@@ -289,7 +289,7 @@ async def list_analyses(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _check_project(db, project_uid, user, "viewer")
+    await _check_project(db, project_uid, user, "datasets:read")
     return await dataset_service.list_analyses(db, project_uid, path)
 
 
@@ -299,7 +299,7 @@ async def create_analysis(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _check_project(db, body.project_uid, user, "editor")
+    await _check_project(db, body.project_uid, user, "datasets:write")
     return await dataset_service.create_analysis(db, body)
 
 
@@ -313,7 +313,7 @@ async def update_analysis(
     a = await dataset_service.get_analysis(db, analysis_id)
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _check_project(db, a.project_uid, user, "editor")
+    await _check_project(db, a.project_uid, user, "datasets:write")
     return await dataset_service.update_analysis(db, a, body)
 
 
@@ -326,5 +326,5 @@ async def delete_analysis(
     a = await dataset_service.get_analysis(db, analysis_id)
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _check_project(db, a.project_uid, user, "editor")
+    await _check_project(db, a.project_uid, user, "datasets:delete")
     await dataset_service.delete_analysis(db, a)

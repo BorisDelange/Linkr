@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_workspace_permission
 from app.models.etl_pipeline import EtlFile, EtlPipeline
 from app.models.user import User
 from app.schemas.etl_pipeline import (
@@ -23,22 +23,22 @@ _FILE = "/etl-files"
 
 
 async def _load_pipeline(
-    db: AsyncSession, pipeline_id: str, user: User, min_role: str
+    db: AsyncSession, pipeline_id: str, user: User, permission: str
 ) -> EtlPipeline:
     pipeline = await etl_pipeline_service.get(db, pipeline_id)
     if pipeline is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await check_workspace_role(db, pipeline.workspace_id, user, min_role)
+    await check_workspace_permission(db, pipeline.workspace_id, user, permission)
     return pipeline
 
 
 async def _load_file(
-    db: AsyncSession, file_id: str, user: User, min_role: str
+    db: AsyncSession, file_id: str, user: User, permission: str
 ) -> EtlFile:
     node = await etl_pipeline_service.get_file(db, file_id)
     if node is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _load_pipeline(db, node.pipeline_id, user, min_role)
+    await _load_pipeline(db, node.pipeline_id, user, permission)
     return node
 
 
@@ -51,14 +51,14 @@ async def list_pipelines(
     db: AsyncSession = Depends(get_db),
 ):
     if workspace_id is not None:
-        await check_workspace_role(db, workspace_id, user, "viewer")
+        await check_workspace_permission(db, workspace_id, user, "etl:read")
         return await etl_pipeline_service.list_for_workspace(db, workspace_id)
     # No filter: every pipeline the user can see (mirrors sql-scripts listing).
     pipelines = await etl_pipeline_service.list_all(db)
     visible: list[EtlPipeline] = []
     for p in pipelines:
         try:
-            await check_workspace_role(db, p.workspace_id, user, "viewer")
+            await check_workspace_permission(db, p.workspace_id, user, "etl:read")
             visible.append(p)
         except HTTPException:
             continue
@@ -71,7 +71,7 @@ async def create_pipeline(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, body.workspace_id, user, "editor")
+    await check_workspace_permission(db, body.workspace_id, user, "etl:write")
     return await etl_pipeline_service.create(db, body)
 
 
@@ -81,7 +81,7 @@ async def get_pipeline(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_pipeline(db, pipeline_id, user, "viewer")
+    return await _load_pipeline(db, pipeline_id, user, "etl:read")
 
 
 @router.patch(_PIPE + "/{pipeline_id}", response_model=EtlPipelineResponse)
@@ -91,7 +91,7 @@ async def update_pipeline(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    pipeline = await _load_pipeline(db, pipeline_id, user, "editor")
+    pipeline = await _load_pipeline(db, pipeline_id, user, "etl:write")
     return await etl_pipeline_service.update(db, pipeline, body)
 
 
@@ -101,7 +101,7 @@ async def delete_pipeline(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    pipeline = await _load_pipeline(db, pipeline_id, user, "editor")
+    pipeline = await _load_pipeline(db, pipeline_id, user, "etl:delete")
     await etl_pipeline_service.delete(db, pipeline)
 
 
@@ -113,7 +113,7 @@ async def list_files(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_pipeline(db, pipeline_id, user, "viewer")
+    await _load_pipeline(db, pipeline_id, user, "etl:read")
     return await etl_pipeline_service.list_files(db, pipeline_id)
 
 
@@ -123,7 +123,7 @@ async def delete_files_for_pipeline(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_pipeline(db, pipeline_id, user, "editor")
+    await _load_pipeline(db, pipeline_id, user, "etl:delete")
     await etl_pipeline_service.delete_files_for_pipeline(db, pipeline_id)
 
 
@@ -133,7 +133,7 @@ async def create_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_pipeline(db, body.pipeline_id, user, "editor")
+    await _load_pipeline(db, body.pipeline_id, user, "etl:write")
     return await etl_pipeline_service.create_file(db, body)
 
 
@@ -144,7 +144,7 @@ async def update_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "editor")
+    node = await _load_file(db, file_id, user, "etl:write")
     return await etl_pipeline_service.update_file(db, node, body)
 
 
@@ -154,5 +154,5 @@ async def delete_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "editor")
+    node = await _load_file(db, file_id, user, "etl:delete")
     await etl_pipeline_service.delete_file(db, node)

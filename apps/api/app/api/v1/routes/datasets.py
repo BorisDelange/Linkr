@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_role
+from app.core.permissions import check_project_permission
 from app.models.dataset import DatasetFile
 from app.models.project import Project
 from app.models.user import User
@@ -26,23 +26,23 @@ router = APIRouter(prefix="/datasets", tags=["datasets"])
 
 
 async def _require_project_access(
-    db: AsyncSession, project_uid: str, user: User, min_role: str
+    db: AsyncSession, project_uid: str, user: User, permission: str
 ) -> None:
     """Dataset access derives from the owning project (workspace role inherited,
     with per-project override applied)."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    await check_project_role(db, project, user, min_role)
+    await check_project_permission(db, project, user, permission)
 
 
 async def _load_file(
-    db: AsyncSession, file_id: str, user: User, min_role: str
+    db: AsyncSession, file_id: str, user: User, permission: str
 ) -> DatasetFile:
     node = await dataset_service.get(db, file_id)
     if node is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _require_project_access(db, node.project_uid, user, min_role)
+    await _require_project_access(db, node.project_uid, user, permission)
     return node
 
 
@@ -52,7 +52,7 @@ async def list_datasets(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, project_uid, user, "viewer")
+    await _require_project_access(db, project_uid, user, "datasets:read")
     return await dataset_service.list_for_project(db, project_uid)
 
 
@@ -62,7 +62,7 @@ async def create_dataset(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, body.project_uid, user, "editor")
+    await _require_project_access(db, body.project_uid, user, "datasets:write")
     return await dataset_service.create(db, body, user)
 
 
@@ -72,7 +72,7 @@ async def import_dataset(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, body.project_uid, user, "editor")
+    await _require_project_access(db, body.project_uid, user, "datasets:write")
     if not blob_store.exists(body.sha):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -92,7 +92,7 @@ async def get_dataset(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_file(db, file_id, user, "viewer")
+    return await _load_file(db, file_id, user, "datasets:read")
 
 
 @router.patch("/{file_id}", response_model=DatasetFileResponse)
@@ -102,7 +102,7 @@ async def update_dataset(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "editor")
+    node = await _load_file(db, file_id, user, "datasets:write")
     return await dataset_service.update(db, node, body)
 
 
@@ -112,7 +112,7 @@ async def delete_dataset(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "editor")
+    node = await _load_file(db, file_id, user, "datasets:delete")
     await dataset_service.delete(db, node)
 
 
@@ -123,7 +123,7 @@ async def duplicate_dataset(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "editor")
+    node = await _load_file(db, file_id, user, "datasets:write")
     return await dataset_service.duplicate(db, node, body.name, user)
 
 
@@ -134,7 +134,7 @@ async def reimport_dataset(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "editor")
+    node = await _load_file(db, file_id, user, "datasets:write")
     try:
         return await dataset_service.reimport_file(db, node, body.parse_options)
     except dataset_service.DatasetParseError as e:
@@ -153,7 +153,7 @@ async def get_dataset_data(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "viewer")
+    node = await _load_file(db, file_id, user, "datasets:read")
     return DatasetDataResponse(rows=await dataset_service.read_rows(node))
 
 
@@ -168,7 +168,7 @@ async def query_dataset_rows(
 
     The counterpart to DatasetTable's client-side work — the browser fetches one
     page instead of the whole dataset."""
-    node = await _load_file(db, file_id, user, "viewer")
+    node = await _load_file(db, file_id, user, "datasets:read")
     filters = [
         {
             "colId": f.col_id,
@@ -200,7 +200,7 @@ async def get_column_stats(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "viewer")
+    node = await _load_file(db, file_id, user, "datasets:read")
     return await dataset_service.column_stats(node, col_id)
 
 
@@ -211,7 +211,7 @@ async def get_dataset_raw(
     db: AsyncSession = Depends(get_db),
 ):
     """The original uploaded file, for re-parsing with new options."""
-    node = await _load_file(db, file_id, user, "viewer")
+    node = await _load_file(db, file_id, user, "datasets:read")
     if not node.raw_sha or not blob_store.exists(node.raw_sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No raw file")
     data = await blob_store.read_bytes(node.raw_sha)
@@ -229,7 +229,7 @@ async def put_dataset_data(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "editor")
+    node = await _load_file(db, file_id, user, "datasets:write")
     await dataset_service.write_rows(db, node, body.rows)
 
 

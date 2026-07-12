@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_role
+from app.core.permissions import check_project_permission
 from app.models.cohort import Cohort
 from app.models.project import Project
 from app.models.user import User
@@ -14,21 +14,21 @@ router = APIRouter(prefix="/cohorts", tags=["cohorts"])
 
 
 async def _require_project_access(
-    db: AsyncSession, project_uid: str, user: User, min_role: str
+    db: AsyncSession, project_uid: str, user: User, permission: str
 ) -> None:
     """Cohort access derives from the owning project (workspace role inherited,
-    with per-project override applied)."""
+    with per-project override applied). Gated on the atomic `cohorts:*` permission."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    await check_project_role(db, project, user, min_role)
+    await check_project_permission(db, project, user, permission)
 
 
-async def _load(db: AsyncSession, cohort_id: str, user: User, min_role: str) -> Cohort:
+async def _load(db: AsyncSession, cohort_id: str, user: User, permission: str) -> Cohort:
     cohort = await cohort_service.get(db, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _require_project_access(db, cohort.project_uid, user, min_role)
+    await _require_project_access(db, cohort.project_uid, user, permission)
     return cohort
 
 
@@ -39,7 +39,7 @@ async def list_cohorts(
     db: AsyncSession = Depends(get_db),
 ):
     if project_uid is not None:
-        await _require_project_access(db, project_uid, user, "viewer")
+        await _require_project_access(db, project_uid, user, "cohorts:read")
         return await cohort_service.list_for_project(db, project_uid)
     return await cohort_service.list_for_user(db, user)
 
@@ -50,7 +50,7 @@ async def create_cohort(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, body.project_uid, user, "editor")
+    await _require_project_access(db, body.project_uid, user, "cohorts:write")
     return await cohort_service.create(db, body)
 
 
@@ -60,7 +60,7 @@ async def get_cohort(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load(db, cohort_id, user, "viewer")
+    return await _load(db, cohort_id, user, "cohorts:read")
 
 
 @router.patch("/{cohort_id}", response_model=CohortResponse)
@@ -70,7 +70,7 @@ async def update_cohort(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    cohort = await _load(db, cohort_id, user, "editor")
+    cohort = await _load(db, cohort_id, user, "cohorts:write")
     return await cohort_service.update(db, cohort, body)
 
 
@@ -80,5 +80,5 @@ async def delete_cohort(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    cohort = await _load(db, cohort_id, user, "editor")
+    cohort = await _load(db, cohort_id, user, "cohorts:delete")
     await cohort_service.delete(db, cohort)

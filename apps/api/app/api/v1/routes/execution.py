@@ -9,8 +9,8 @@ from app.config import settings
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import (
-    check_project_role,
-    check_workspace_role,
+    check_project_permission,
+    check_workspace_permission,
     has_project_permission,
 )
 from app.core.ws_auth import authenticate_ws
@@ -40,15 +40,14 @@ router = APIRouter(prefix="/execute", tags=["execution"])
 
 
 async def _require_project_access(
-    db: AsyncSession, project_uid: str, user: User, min_role: str
+    db: AsyncSession, project_uid: str, user: User, permission: str
 ) -> None:
-    """Running code in a project (or attaching a terminal to it) requires the same
-    project role as reading its files (inherited workspace role + per-project
-    override) — mirrors dataset_files/ide_files."""
+    """Reading a project's kernels/sessions needs the matching IDE permission
+    (inherited workspace role + per-project override) — mirrors ide_files."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    await check_project_role(db, project, user, min_role)
+    await check_project_permission(db, project, user, permission)
 
 
 async def _require_code_execution(
@@ -87,9 +86,9 @@ async def _require_execute(
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    # A built-in component render is view-time: any read access suffices.
+    # A built-in component render is view-time: project read access suffices.
     if purpose == "render":
-        await check_project_role(db, project, user, "viewer")
+        await check_project_permission(db, project, user, "project-summary:read")
         return
     permission = _PURPOSE_PERMISSION.get(purpose, "ide:execute")
     if not await has_project_permission(db, project, user, permission):
@@ -107,7 +106,7 @@ async def _require_connection_access(
     if source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
     if source.workspace_id is not None:
-        await check_workspace_role(db, source.workspace_id, user, "viewer")
+        await check_workspace_permission(db, source.workspace_id, user, "databases:read")
     return source
 
 
@@ -219,7 +218,7 @@ async def list_kernels(
 ):
     """The caller's live kernels for a project (language, env, alive, busy, pid,
     rss, idle) — feeds the IDE footer. Per-user: never exposes others' kernels."""
-    await _require_project_access(db, project_uid, user, "viewer")
+    await _require_project_access(db, project_uid, user, "ide:read")
     return kernel.manager.list_for_user(project_uid, user.id)
 
 
@@ -242,7 +241,7 @@ async def list_sessions(
     db: AsyncSession = Depends(get_db),
 ):
     """The caller's named execution sessions for a project (per-user, never shared)."""
-    await _require_project_access(db, project_uid, user, "viewer")
+    await _require_project_access(db, project_uid, user, "ide:read")
     return await execution_session_service.list_for_user(db, project_uid, user.id)
 
 

@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_workspace_permission
 from app.models.sql_script import SqlScriptCollection, SqlScriptFile
 from app.models.user import User
 from app.schemas.sql_script import (
@@ -23,22 +23,22 @@ _FILE = "/sql-script-files"
 
 
 async def _load_collection(
-    db: AsyncSession, collection_id: str, user: User, min_role: str
+    db: AsyncSession, collection_id: str, user: User, permission: str
 ) -> SqlScriptCollection:
     collection = await sql_script_service.get(db, collection_id)
     if collection is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await check_workspace_role(db, collection.workspace_id, user, min_role)
+    await check_workspace_permission(db, collection.workspace_id, user, permission)
     return collection
 
 
 async def _load_file(
-    db: AsyncSession, file_id: str, user: User, min_role: str
+    db: AsyncSession, file_id: str, user: User, permission: str
 ) -> SqlScriptFile:
     node = await sql_script_service.get_file(db, file_id)
     if node is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _load_collection(db, node.collection_id, user, min_role)
+    await _load_collection(db, node.collection_id, user, permission)
     return node
 
 
@@ -51,7 +51,7 @@ async def list_collections(
     db: AsyncSession = Depends(get_db),
 ):
     if workspace_id is not None:
-        await check_workspace_role(db, workspace_id, user, "viewer")
+        await check_workspace_permission(db, workspace_id, user, "sql-scripts:read")
         return await sql_script_service.list_for_workspace(db, workspace_id)
     # No filter: every collection the user can see (admin sees all; members see
     # the workspaces they belong to). Mirrors the data-sources listing.
@@ -59,7 +59,7 @@ async def list_collections(
     visible: list[SqlScriptCollection] = []
     for c in collections:
         try:
-            await check_workspace_role(db, c.workspace_id, user, "viewer")
+            await check_workspace_permission(db, c.workspace_id, user, "sql-scripts:read")
             visible.append(c)
         except HTTPException:
             continue
@@ -72,7 +72,7 @@ async def create_collection(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, body.workspace_id, user, "editor")
+    await check_workspace_permission(db, body.workspace_id, user, "sql-scripts:write")
     return await sql_script_service.create(db, body)
 
 
@@ -82,7 +82,7 @@ async def get_collection(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _load_collection(db, collection_id, user, "viewer")
+    return await _load_collection(db, collection_id, user, "sql-scripts:read")
 
 
 @router.patch(_COLL + "/{collection_id}", response_model=SqlScriptCollectionResponse)
@@ -92,7 +92,7 @@ async def update_collection(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    collection = await _load_collection(db, collection_id, user, "editor")
+    collection = await _load_collection(db, collection_id, user, "sql-scripts:write")
     return await sql_script_service.update(db, collection, body)
 
 
@@ -102,7 +102,7 @@ async def delete_collection(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    collection = await _load_collection(db, collection_id, user, "editor")
+    collection = await _load_collection(db, collection_id, user, "sql-scripts:delete")
     await sql_script_service.delete(db, collection)
 
 
@@ -114,7 +114,7 @@ async def list_files(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_collection(db, collection_id, user, "viewer")
+    await _load_collection(db, collection_id, user, "sql-scripts:read")
     return await sql_script_service.list_files(db, collection_id)
 
 
@@ -124,7 +124,7 @@ async def delete_files_for_collection(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_collection(db, collection_id, user, "editor")
+    await _load_collection(db, collection_id, user, "sql-scripts:delete")
     await sql_script_service.delete_files_for_collection(db, collection_id)
 
 
@@ -134,7 +134,7 @@ async def create_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_collection(db, body.collection_id, user, "editor")
+    await _load_collection(db, body.collection_id, user, "sql-scripts:write")
     return await sql_script_service.create_file(db, body)
 
 
@@ -145,7 +145,7 @@ async def update_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "editor")
+    node = await _load_file(db, file_id, user, "sql-scripts:write")
     return await sql_script_service.update_file(db, node, body)
 
 
@@ -155,5 +155,5 @@ async def delete_file(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    node = await _load_file(db, file_id, user, "editor")
+    node = await _load_file(db, file_id, user, "sql-scripts:delete")
     await sql_script_service.delete_file(db, node)

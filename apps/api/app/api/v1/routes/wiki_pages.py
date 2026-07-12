@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_workspace_permission
 from app.models.user import User
 from app.models.wiki_page import WikiPage
 from app.schemas.wiki_page import WikiPageCreate, WikiPageResponse, WikiPageUpdate
@@ -13,13 +13,13 @@ router = APIRouter(prefix="/wiki-pages", tags=["wiki-pages"])
 
 
 async def _get_page_with_role(
-    page_id: str, user: User, db: AsyncSession, min_role: str
+    page_id: str, user: User, db: AsyncSession, permission: str
 ) -> WikiPage:
     page = await wiki_page_service.get(db, page_id)
     if page is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     if page.workspace_id is not None:
-        await check_workspace_role(db, page.workspace_id, user, min_role)
+        await check_workspace_permission(db, page.workspace_id, user, permission)
     return page
 
 
@@ -29,7 +29,7 @@ async def list_wiki_pages(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "viewer")
+    await check_workspace_permission(db, workspace_id, user, "wiki:read")
     return await wiki_page_service.list_for_workspace(db, workspace_id)
 
 
@@ -39,7 +39,7 @@ async def create_wiki_page(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, body.workspace_id, user, "editor")
+    await check_workspace_permission(db, body.workspace_id, user, "wiki:write")
     return await wiki_page_service.create(db, body)
 
 
@@ -49,7 +49,7 @@ async def delete_wiki_pages_by_workspace(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_role(db, workspace_id, user, "editor")
+    await check_workspace_permission(db, workspace_id, user, "wiki:delete")
     await wiki_page_service.delete_for_workspace(db, workspace_id)
 
 
@@ -59,7 +59,7 @@ async def get_wiki_page(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _get_page_with_role(page_id, user, db, "viewer")
+    return await _get_page_with_role(page_id, user, db, "wiki:read")
 
 
 @router.patch("/{page_id}", response_model=WikiPageResponse)
@@ -69,7 +69,7 @@ async def update_wiki_page(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    page = await _get_page_with_role(page_id, user, db, "editor")
+    page = await _get_page_with_role(page_id, user, db, "wiki:write")
     return await wiki_page_service.update(db, page, body)
 
 
@@ -79,5 +79,5 @@ async def delete_wiki_page(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    page = await _get_page_with_role(page_id, user, db, "editor")
+    page = await _get_page_with_role(page_id, user, db, "wiki:delete")
     await wiki_page_service.delete(db, page)

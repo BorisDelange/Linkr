@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import require_project_role, require_workspace_role
+from app.core.permissions import require_project_permission, require_permission
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.git import (
@@ -68,7 +68,7 @@ def _default_branch(entity, fallback: str | None) -> str:
 async def project_status(
     file: UploadFile = File(...),
     branch: str | None = Form(None),
-    project=Depends(require_project_role("viewer")),
+    project=Depends(require_project_permission("project-settings:read")),
 ):
     result = await _guard(git_service.status(
         git_service.project_repo_getter,
@@ -86,7 +86,7 @@ async def project_diff(
     file: UploadFile = File(...),
     path: str = Form(...),
     branch: str | None = Form(None),
-    project=Depends(require_project_role("viewer")),
+    project=Depends(require_project_permission("project-settings:read")),
 ):
     return await _guard(git_service.diff(
         git_service.project_repo_getter,
@@ -100,7 +100,7 @@ async def project_diff(
 
 
 @router.get("/projects/{project_uid}/branches", response_model=GitBranchesResponse)
-async def project_branches(project=Depends(require_project_role("viewer"))):
+async def project_branches(project=Depends(require_project_permission("project-settings:read"))):
     return await git_service.branches(
         git_service.project_repo_getter,
         project.uid,
@@ -115,7 +115,7 @@ async def project_commit_push(
     message: str = Form(...),
     branch: str | None = Form(None),
     paths: list[str] | None = Form(None),
-    project=Depends(require_project_role("editor")),
+    project=Depends(require_project_permission("project-settings:write")),
 ):
     if _remote_url(project) is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Project is not linked to a git remote")
@@ -147,7 +147,7 @@ async def workspace_status(
     file: UploadFile = File(...),
     branch: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
-    _member=Depends(require_workspace_role("viewer")),
+    _member=Depends(require_permission("workspace-settings:read")),
 ):
     ws = await _load_workspace(workspace_id, db, _member)
     result = await _guard(git_service.status(
@@ -168,7 +168,7 @@ async def workspace_diff(
     path: str = Form(...),
     branch: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
-    _member=Depends(require_workspace_role("viewer")),
+    _member=Depends(require_permission("workspace-settings:read")),
 ):
     ws = await _load_workspace(workspace_id, db, _member)
     return await _guard(git_service.diff(
@@ -186,7 +186,7 @@ async def workspace_diff(
 async def workspace_branches(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _member=Depends(require_workspace_role("viewer")),
+    _member=Depends(require_permission("workspace-settings:read")),
 ):
     ws = await _load_workspace(workspace_id, db, _member)
     return await git_service.branches(
@@ -202,7 +202,7 @@ async def workspace_commit_push(
     branch: str | None = Form(None),
     paths: list[str] | None = Form(None),
     db: AsyncSession = Depends(get_db),
-    _member=Depends(require_workspace_role("editor")),
+    _member=Depends(require_permission("workspace-settings:write")),
 ):
     ws = await _load_workspace(workspace_id, db, _member)
     if _remote_url(ws) is None:
