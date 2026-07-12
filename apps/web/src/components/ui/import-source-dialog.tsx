@@ -115,15 +115,21 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
         blob = await zip.generateAsync({ type: 'blob' })
       }
       const gitRemote = { url: cleanUrl, branch: branch.trim() || 'main', authToken: token || undefined }
-      onOpenChange(false)
+      // Keep the modal open (with the loader) until the import actually finishes —
+      // writing entities, scores and refreshing the list. Closing first unmounted
+      // the dialog mid-import, so suggestions weren't persisted and the list stayed
+      // stale. Only close on success; keep it open to show any error.
+      setImporting(true)
       await onImport(new File([blob], `${repoName(cleanUrl)}.zip`, { type: 'application/zip' }), gitRemote)
+      onOpenChange(false)
     } catch (err) {
-      console.error('[import] git clone failed:', err)
+      console.error('[import] git clone/import failed:', err)
       // One generic line + the full raw error in an info tooltip (GitErrorInline),
       // consistent with the versioning surfaces — no per-case message mapping.
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setCloning(false)
+      setImporting(false)
     }
   }
 
@@ -217,9 +223,10 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
               </div>
             )}
             {error && <GitErrorInline detail={error} />}
-            <div className="flex justify-end">
-              <Button onClick={handleClone} disabled={!url.trim() || (!serverMode && !proxy.trim()) || cloning} className="gap-1.5">
-                {cloning ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
+            <div className="flex items-center justify-end gap-2">
+              {importing && <span className="text-xs text-muted-foreground">{t('import_source.importing')}</span>}
+              <Button onClick={handleClone} disabled={!url.trim() || (!serverMode && !proxy.trim()) || busy} className="gap-1.5">
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
                 {t('import_source.clone_import')}
               </Button>
             </div>
