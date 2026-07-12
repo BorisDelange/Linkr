@@ -13,7 +13,7 @@ import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { getStorage } from '@/lib/storage'
 import { paths } from '@/lib/paths'
-import { buildProjectZip, parseProjectZip, downloadBlob, slugify, deleteProjectData, importProjectContent } from '@/lib/entity-io'
+import { buildProjectZip, parseProjectZip, deleteProjectData, importProjectContent } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -39,7 +39,6 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
-import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
@@ -65,9 +64,6 @@ export function ProjectsPage() {
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ uid: string; name: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState('')
-
-  // Export dialog state
-  const [versioningTarget, setVersioningTarget] = useState<{ uid: string; tab: 'export' | 'git' } | null>(null)
 
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip; otherWorkspaceName?: string } | null>(null)
@@ -150,13 +146,6 @@ export function ProjectsPage() {
     setDeleteConfirm('')
   }
 
-  // --- Export a single project ---
-  const handleExportProject = useCallback(async (options: { includeDataFiles: boolean }) => {
-    if (!versioningTarget) return
-    const result = await buildProjectZip(versioningTarget.uid, getStorage(), options)
-    if (!result) return
-    downloadBlob(result.blob, `${slugify(result.projectName)}.zip`)
-  }, [versioningTarget])
 
   // --- Import ---
   const doImport = useCallback(async (parsed: ParsedProjectZip, duplicate: boolean) => {
@@ -342,11 +331,11 @@ export function ProjectsPage() {
                               <Pencil size={14} />
                               {t('common.edit')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ uid: project.uid, tab: 'export' }) }}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = project.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectVersioning(w, project.uid, 'export')) }}>
                               <Download size={14} />
                               {t('common.export')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ uid: project.uid, tab: 'git' }) }}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = project.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectVersioning(w, project.uid, 'git')) }}>
                               <GitBranch size={14} />
                               {t('common.versioning')}
                             </DropdownMenuItem>
@@ -406,24 +395,6 @@ export function ProjectsPage() {
         onOpenChange={(open) => { if (!open) setEditingProject(null) }}
         workspaceId={wsUid}
       />
-
-      {/* Versioning dialog (export + git link) */}
-      {versioningTarget && (
-        <EntityVersioningDialog
-          open
-          onOpenChange={(open) => { if (!open) setVersioningTarget(null) }}
-          initialTab={versioningTarget.tab}
-          gitRemote={(() => {
-            const p = _projectsRaw.find((p) => p.uid === versioningTarget.uid)
-            return p?.gitRemoteConfig ?? (p?.gitUrl ? { url: p.gitUrl, branch: 'main' } : null)
-          })()}
-          onExport={handleExportProject}
-          onSaveGitRemote={async (config) => {
-            await getStorage().projects.update(versioningTarget.uid, { gitRemoteConfig: config ?? undefined })
-            await loadProjects()
-          }}
-        />
-      )}
 
       {/* Import conflict dialog */}
       <ImportConflictDialog

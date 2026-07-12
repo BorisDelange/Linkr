@@ -12,7 +12,6 @@ import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { formatDate } from '@/lib/format-helpers'
 import { isServerMode } from '@/lib/api-client'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
@@ -39,8 +38,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
-import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
-import { WsExportTab } from '@/features/versioning/WsExportTab'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { EditWorkspaceDialog } from './EditWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -61,7 +58,6 @@ export function WorkspacesPage() {
   const navigate = useNavigate()
   const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace } = useWorkspaceStore()
   const { getWorkspaceProjects, loadProjects } = useAppStore()
-  const { setRemoteConfig, clearRemoteConfig } = useWorkspaceVersioningStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
 
@@ -80,8 +76,6 @@ export function WorkspacesPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
-  // Versioning dialog (export + git link) state
-  const [versioningTarget, setVersioningTarget] = useState<{ id: string; tab: 'export' | 'git' } | null>(null)
 
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
@@ -698,11 +692,11 @@ export function WorkspacesPage() {
                             <Pencil size={14} />
                             {t('common.edit')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ id: ws.id, tab: 'export' }) }}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(paths.workspaceVersioning(ws.id, 'export')) }}>
                             <Download size={14} />
                             {t('common.export')}
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ id: ws.id, tab: 'git' }) }}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(paths.workspaceVersioning(ws.id, 'git')) }}>
                             <GitBranch size={14} />
                             {t('common.versioning')}
                           </DropdownMenuItem>
@@ -760,25 +754,6 @@ export function WorkspacesPage() {
         workspace={editingWorkspace ?? undefined}
         onOpenChange={(open) => { if (!open) setEditingWorkspace(null) }}
       />
-
-      {/* Versioning dialog (export + git link) */}
-      {versioningTarget && (
-        <EntityVersioningDialog
-          open
-          onOpenChange={(open) => { if (!open) setVersioningTarget(null) }}
-          initialTab={versioningTarget.tab}
-          gitRemote={(() => {
-            const w = _workspacesRaw.find((w) => w.id === versioningTarget.id)
-            return w?.gitRemoteConfig?.url ? w.gitRemoteConfig : null
-          })()}
-          onSaveGitRemote={async (cfg) => {
-            if (cfg) await setRemoteConfig(versioningTarget.id, cfg)
-            else await clearRemoteConfig(versioningTarget.id)
-            await useWorkspaceStore.getState().loadWorkspaces()
-          }}
-          exportContent={<WsExportTab workspaceId={versioningTarget.id} />}
-        />
-      )}
 
       {/* Import conflict dialog */}
       <ImportConflictDialog

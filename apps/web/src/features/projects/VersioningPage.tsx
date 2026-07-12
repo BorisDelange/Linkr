@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useVersioningStore } from '@/stores/versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
@@ -8,6 +9,8 @@ import { ExportTab } from './versioning/ExportTab'
 export function VersioningPage() {
   const { t } = useTranslation()
   const projectUid = useAppStore((s) => s.activeProjectUid)
+  const [searchParams] = useSearchParams()
+  const initialTab = searchParams.get('tab') === 'git' ? 'git' : 'export'
   const { remoteConfig, loadRemoteConfig, setRemoteConfig, clearRemoteConfig } = useVersioningStore()
 
   useEffect(() => {
@@ -27,6 +30,7 @@ export function VersioningPage() {
           gitRemote={remoteConfig}
           onSaveGitRemote={(cfg) => (cfg ? setRemoteConfig(cfg) : clearRemoteConfig())}
           exportContent={<ExportTab />}
+          initialTab={initialTab}
           syncScope="projects"
           syncId={projectUid ?? undefined}
         />

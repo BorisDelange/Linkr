@@ -32,11 +32,15 @@ export const paths = {
   workspace: (wsUid: string) => ws(wsUid),
   workspaceHome: (wsUid: string) => `${ws(wsUid)}/home`,
   workspaceSettings: (wsUid: string) => `${ws(wsUid)}/settings`,
+  workspaceVersioning: (wsUid: string, tab?: 'export' | 'git') =>
+    `${ws(wsUid)}/versioning${tab ? `?tab=${tab}` : ''}`,
   projects: (wsUid: string) => `${ws(wsUid)}/projects`,
 
   project: (wsUid: string, projectUid: string) => proj(wsUid, projectUid),
   projectSummary: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/summary`,
   projectSettings: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/settings`,
+  projectVersioning: (wsUid: string, projectUid: string, tab?: 'export' | 'git') =>
+    `${proj(wsUid, projectUid)}/versioning${tab ? `?tab=${tab}` : ''}`,
 
   // --- Project: warehouse ---
   databases: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/warehouse/databases`,
