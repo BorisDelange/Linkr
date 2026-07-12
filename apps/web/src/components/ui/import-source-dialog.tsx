@@ -184,15 +184,13 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
               <Label className="text-xs">{t('import_source.git_url')}</Label>
               <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://gitlab.com/group/repo.git" className="h-9 text-sm" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label className="text-xs">{t('import_source.git_branch')}</Label>
-                <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" className="h-9 text-sm" />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs">{t('import_source.git_token')}</Label>
-                <PasswordInput value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('import_source.git_token_ph')} className="h-9 text-sm" />
-              </div>
+            <div className="space-y-2">
+              <Label className="text-xs">{t('import_source.git_branch')}</Label>
+              <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">{t('import_source.git_token')}</Label>
+              <PasswordInput value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('import_source.git_token_ph')} className="h-9 text-sm" />
             </div>
             {serverMode ? (
               <p className="text-[10px] text-muted-foreground leading-relaxed">{t('import_source.private_repo_hint')}</p>
