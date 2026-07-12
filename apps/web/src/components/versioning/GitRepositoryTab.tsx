@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GitBranch, KeyRound, Link2Off, Loader2 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
@@ -44,6 +44,16 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
   // Whether an access token backs the current link (private repo). The backend
   // never returns the token, so this is only known within the session that set it.
   const [hasToken, setHasToken] = useState(!!gitRemote?.authToken)
+
+  // gitRemote loads asynchronously (store fetch on mount / direct URL open), so
+  // reflect a link that arrives after the first render — otherwise the tab stays
+  // on the empty connect form until the user switches tabs and remounts it.
+  useEffect(() => {
+    if (gitRemote?.url) {
+      setLinked(true)
+      setHasToken(!!gitRemote.authToken)
+    }
+  }, [gitRemote?.url, gitRemote?.authToken])
 
   const canConnect = url.trim().length > 0
   const linkedUrl = gitRemote?.url ?? url
