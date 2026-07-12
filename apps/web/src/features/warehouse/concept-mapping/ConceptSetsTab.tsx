@@ -55,6 +55,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource, discoverTables } from '@/lib/duckdb/engine'
 import { ImportConceptSetDialog, extractMetadata, extractTranslations } from './ImportConceptSetDialog'
@@ -158,6 +159,7 @@ interface ConceptSetsTabProps {
 
 export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const { t, i18n } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const lang = i18n.language
   const { conceptSets, mappings, deleteConceptSetsBatch, updateMappingProject, updateConceptSet } = useConceptMappingStore()
 
@@ -1122,7 +1124,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         size="sm"
                         variant="outline"
                         onClick={handleUpdateAll}
-                        disabled={updateAllRunning}
+                        disabled={updateAllRunning || !canWrite}
                       >
                         {updateAllRunning ? (
                           <Loader2 size={14} className="animate-spin" />
@@ -1138,14 +1140,14 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         {t('concept_mapping.cs_exit_selection')}
                       </Button>
                     ) : (
-                      <Button size="sm" variant="outline" onClick={() => setSelectionMode(true)}>
+                      <Button size="sm" variant="outline" disabled={!canWrite} onClick={() => setSelectionMode(true)}>
                         <Pencil size={14} />
                         {t('concept_mapping.cs_edit')}
                       </Button>
                     )}
                   </>
                 )}
-                <Button size="sm" onClick={() => setImportOpen(true)}>
+                <Button size="sm" disabled={!canWrite} onClick={() => setImportOpen(true)}>
                   <Plus size={14} />
                   {t('concept_mapping.cs_add')}
                 </Button>

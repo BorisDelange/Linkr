@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { unmountFileSource } from '@/lib/duckdb/engine'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MAPPING_STATUS_COLORS, CreateMappingProjectDialog } from './CreateMappingProjectDialog'
@@ -22,6 +23,7 @@ interface MappingProjectPageProps {
 
 export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const activeTab = searchParams.get('tab') ?? 'progress'
@@ -122,7 +124,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         <div className="flex-1" />
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={() => setEditDialogOpen(true)}>
+            <Button variant="ghost" size="icon-sm" disabled={!canWrite} onClick={() => setEditDialogOpen(true)}>
               <Settings2 size={15} />
             </Button>
           </TooltipTrigger>
