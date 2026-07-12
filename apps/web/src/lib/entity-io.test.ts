@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, deleteProjectData, datasetToCsv, importProjectContent } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import type { DatasetFile } from '@/types'
 import type { Storage } from '@/lib/storage'
@@ -12,6 +12,31 @@ vi.mock('@/lib/api/datasets', () => ({ importDatasetOnServer }))
 
 // slugify produces filesystem-safe names for ZIP entries and folders.
 // A bad slug means a file overwrites another or fails to write → data loss.
+// Instance-specific fields must not land in an exported project.json/workspace.json,
+// or a round-trip export→import→export drifts (owner/workspace/git differ per instance)
+// and the repo's own git remote (with a possible token) would be committed into itself.
+describe('stripInstanceFields', () => {
+  it('drops owner, placement, git link, catalog/org and timestamps', () => {
+    const meta = {
+      uid: 'p1', name: { en: 'P' }, config: {},
+      ownerId: 7, createdBy: 3, workspaceId: 'ws-1',
+      gitRemoteConfig: { url: 'https://x/y.git', branch: 'main', authToken: 'secret' },
+      gitUrl: 'https://x/y.git', catalogVisibility: 'public',
+      organization: { id: 'o' }, organizationId: 'o',
+      createdAt: '2020', updatedAt: '2021',
+    }
+    const out = stripInstanceFields(meta)
+    expect(out).toEqual({ uid: 'p1', name: { en: 'P' }, config: {} })
+    // notably the token is gone
+    expect(JSON.stringify(out)).not.toContain('secret')
+  })
+
+  it('leaves portable content untouched', () => {
+    const meta = { uid: 'p1', name: { en: 'P' }, description: { en: 'D' }, badges: [{ id: 'b' }], status: 'active' }
+    expect(stripInstanceFields(meta)).toEqual(meta)
+  })
+})
+
 describe('slugify', () => {
   it('lowercases and hyphenates spaces', () => {
     expect(slugify('My Project')).toBe('my-project')

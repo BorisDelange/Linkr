@@ -313,6 +313,31 @@ function buildDatasetPath(file: DatasetFile, byId: Map<string, DatasetFile>): st
 
 const json = (data: unknown) => JSON.stringify(data, null, 2)
 
+// Fields that are specific to the exporting instance/deployment, not portable
+// project content: the owning user, the workspace placement, the git link
+// (never commit a repo's own remote/token into itself), catalog/org metadata,
+// and local timestamps. Stripped from every exported entity metadata so a
+// round-trip export→import→export is stable across instances.
+const INSTANCE_FIELDS = [
+  'ownerId',
+  'createdBy',
+  'workspaceId',
+  'gitRemoteConfig',
+  'gitUrl',
+  'catalogVisibility',
+  'organization',
+  'organizationId',
+  'createdAt',
+  'updatedAt',
+] as const
+
+/** Return a copy of an entity's metadata without instance-specific fields. */
+export function stripInstanceFields<T extends Record<string, unknown>>(meta: T): Partial<T> {
+  const out = { ...meta }
+  for (const f of INSTANCE_FIELDS) delete out[f]
+  return out
+}
+
 /**
  * Serialize dataset rows to CSV. Rows are keyed by column id (as stored/exported);
  * the header uses column NAMES so a re-parse (front or server) recovers the real columns.
@@ -345,9 +370,10 @@ export async function buildProjectZip(
 
   const zip = new JSZip()
 
-  // --- project.json (without readme/todos/notes — those go in separate files) ---
+  // --- project.json (without readme/todos/notes — those go in separate files —
+  // nor instance-specific fields like ownerId/workspaceId/gitRemoteConfig) ---
   const { readme: _r, todos: _t, notes: _n, ...projectMeta } = project
-  zip.file('project.json', json({ ...projectMeta, appVersion: APP_VERSION }))
+  zip.file('project.json', json({ ...stripInstanceFields(projectMeta), appVersion: APP_VERSION }))
 
   // --- README.md (+ README.<lang>.md per extra language) ---
   writeReadmeFiles(zip, '', project.readme)
@@ -360,7 +386,15 @@ export async function buildProjectZip(
   }
 
   // --- IDE files (under scripts/ in ZIP) ---
-  const ideFiles = await storage.ideFiles.getByProject(projectUid)
+  // In server mode the disk-backed tree exposes a synthetic "scripts" root folder
+  // (parentId null, id = hash of ""), a UI convenience that isn't repo content.
+  // Drop it, and reparent its direct children to null, so scripts/_tree.json
+  // matches a git-authored tree (no phantom root node / dangling parentId).
+  const rawIdeFiles = await storage.ideFiles.getByProject(projectUid)
+  const syntheticRoot = rawIdeFiles.find((f) => f.parentId == null && f.type === 'folder' && f.name === 'scripts')
+  const ideFiles = rawIdeFiles
+    .filter((f) => f !== syntheticRoot)
+    .map((f) => (syntheticRoot && f.parentId === syntheticRoot.id ? { ...f, parentId: null } : f))
   if (ideFiles.length > 0) {
     const byId = new Map(ideFiles.map(f => [f.id, f]))
     zip.file('scripts/_tree.json', json(ideFiles.map(({ content: _, ...meta }) => meta)))
@@ -1249,9 +1283,9 @@ export async function buildWorkspaceZip(
   const includeData = options.includeEntityData ?? {}
   const excluded = options.excludeEntities ?? {}
 
-  // --- workspace.json ---
+  // --- workspace.json (without instance-specific fields) ---
   const { readme: wsReadme, ...wsMeta } = workspace
-  zip.file('workspace.json', json({ ...wsMeta, appVersion: APP_VERSION }))
+  zip.file('workspace.json', json({ ...stripInstanceFields(wsMeta), appVersion: APP_VERSION }))
 
   // --- README.md (+ README.<lang>.md per extra language) ---
   writeReadmeFiles(zip, '', wsReadme)
@@ -1266,8 +1300,10 @@ export async function buildWorkspaceZip(
       if (excluded[project.uid]) continue
       const folder = project.projectId || slugify(resolveProjectName(project))
       const git = resolveGitRemote(project)
-      const { todos: _t, notes: _n, readme: _rd, gitUrl: _gu, ...projectMeta } = project
-      const projectMetaOut = { ...projectMeta, ...(git ? { gitRemoteConfig: git } : {}), appVersion: APP_VERSION }
+      const { todos: _t, notes: _n, readme: _rd, ...projectMeta } = project
+      // Strip instance fields, then re-add gitRemoteConfig deliberately: here it's
+      // the git *pointer* the portal follows to clone the linked project's repo.
+      const projectMetaOut = { ...stripInstanceFields(projectMeta), ...(git ? { gitRemoteConfig: git } : {}), appVersion: APP_VERSION }
 
       if (git) {
         // Metadata + git pointer only — content comes from the linked repo at portal build time.
