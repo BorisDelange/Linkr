@@ -76,7 +76,7 @@ function PluginCard({ plugin, lang, onOpen, onEdit, onDuplicate, onDelete, onVer
     <Card
       key={plugin.id}
       className={cn(
-        'relative transition-colors',
+        'relative gap-0 py-0 transition-colors',
         readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-accent/50',
       )}
       onClick={readOnly ? undefined : () => onOpen(plugin.id)}
