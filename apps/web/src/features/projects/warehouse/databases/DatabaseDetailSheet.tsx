@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig, TableRowCount } from '@/types'
 import { Users, Table, Activity, BedDouble, BarChart3 } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
+import { localized } from '@/lib/localized'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -29,10 +30,10 @@ const statusColors: Record<string, string> = {
   configuring: 'bg-amber-500',
 }
 
-function formatSourceType(source: DataSource): string {
+function formatSourceType(source: DataSource, lang: string): string {
   if (source.sourceType === 'fhir') return 'FHIR Server'
   const mapping = source.schemaMapping
-  if (mapping?.presetLabel) return mapping.presetLabel
+  if (mapping?.presetLabel) return localized(mapping.presetLabel, lang)
   const config = source.connectionConfig as DatabaseConnectionConfig
   return config.engine ? config.engine.charAt(0).toUpperCase() + config.engine.slice(1) : 'Database'
 }
@@ -70,7 +71,7 @@ export function DatabaseDetailSheet({
               </span>
             </div>
           </div>
-          <SheetDescription>{formatSourceType(source)}</SheetDescription>
+          <SheetDescription>{formatSourceType(source, i18n.language)}</SheetDescription>
         </SheetHeader>
 
         <Tabs defaultValue="overview" className="flex flex-1 flex-col min-h-0">
@@ -111,7 +112,7 @@ function OverviewTab({
   source: DataSource
   formatDate: (iso: string) => string
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const hasMappedSchema = !!source.schemaMapping?.patientTable
 
   return (
@@ -127,7 +128,7 @@ function OverviewTab({
       {/* Connection info */}
       <Section title={t('databases.detail_connection')}>
         <InfoGrid>
-          <InfoRow label="Type" value={formatSourceType(source)} />
+          <InfoRow label="Type" value={formatSourceType(source, i18n.language)} />
           {source.sourceType === 'database' && (
             <InfoRow
               label={t('databases.field_engine')}

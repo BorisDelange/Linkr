@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
+import { localized } from '@/lib/localized'
 import { FileSpreadsheet, Database, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -22,7 +23,7 @@ interface MappingProjectPageProps {
 }
 
 export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -118,7 +119,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         {!isFileSource && dataSource && (
           <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             <Database size={12} />
-            {dataSource.name}{dataSource.schemaMapping?.presetLabel ? ` (${dataSource.schemaMapping.presetLabel})` : ''}
+            {dataSource.name}{dataSource.schemaMapping?.presetLabel ? ` (${localized(dataSource.schemaMapping.presetLabel, i18n.language)})` : ''}
           </span>
         )}
         <div className="flex-1" />

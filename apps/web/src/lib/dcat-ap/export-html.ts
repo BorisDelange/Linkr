@@ -174,7 +174,7 @@ ${metadataRenderedHtml}
   <!-- Schema tab: data dictionary with sidebar -->
   <div id="tab-schema" class="tab-content" style="display:none">
     <div class="schema-section">
-      <h2 class="metadata-title">Data Schema${schemaMapping?.presetLabel ? ` — ${esc(schemaMapping.presetLabel)}` : ''}${fullSchema ? ` — ${fullSchema.length} tables` : ''}</h2>
+      <h2 class="metadata-title">Data Schema${schemaMapping?.presetLabel ? ` — ${esc(localized(schemaMapping.presetLabel, 'en'))}` : ''}${fullSchema ? ` — ${fullSchema.length} tables` : ''}</h2>
       <p class="metadata-subtitle">Source warehouse structure · tables and columns</p>
       <div class="schema-layout">
         <aside class="schema-toc" id="schema-toc"></aside>

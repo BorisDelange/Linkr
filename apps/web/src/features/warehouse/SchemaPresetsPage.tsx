@@ -17,7 +17,6 @@ import {
   ArrowLeft,
   RotateCcw,
   Pencil,
-  MoreHorizontal,
   Search,
   ChevronDown,
   ChevronRight,
@@ -47,18 +46,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { EntityIdField } from '@/components/ui/entity-id-field'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { getStorage } from '@/lib/storage'
+import { useAppStore } from '@/stores/app-store'
+import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
+import { localized, setLocalized } from '@/lib/localized'
+import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
+import { useSchemaPresetActions, toSchemaPresetItem } from './use-schema-preset-actions'
+import { Textarea } from '@/components/ui/textarea'
 import { SchemaERD } from './SchemaERD'
 import { DdlERD } from './DdlERD'
 
@@ -296,7 +294,8 @@ function EventTableSection({ label, et }: { label: string; et: EventTable }) {
 }
 
 function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const description = mapping.description ? localized(mapping.description, i18n.language) : ''
 
   const hasAnyContent =
     mapping.patientTable ||
@@ -306,13 +305,18 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
 
   if (!hasAnyContent) {
     return (
-      <p className="text-xs text-muted-foreground italic py-2">
-        {t('settings.schema_preset_no_mapping')}
-      </p>
+      <div className="space-y-3 py-2">
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        <p className="text-xs text-muted-foreground italic">
+          {t('settings.schema_preset_no_mapping')}
+        </p>
+      </div>
     )
   }
 
   return (
+    <div className="space-y-4">
+    {description && <p className="text-sm text-muted-foreground">{description}</p>}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Left column: patient, gender, visit, concept dictionaries */}
       <div className="space-y-4">
@@ -393,6 +397,7 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
           </div>
         )}
       </div>
+    </div>
     </div>
   )
 }
@@ -729,6 +734,7 @@ function PresetEditor({
   onChange: (m: SchemaMapping) => void
 }) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
 
   const addEventTable = () => {
     const eventTables = { ...(mapping.eventTables ?? {}) }
@@ -772,6 +778,26 @@ function PresetEditor({
 
   return (
     <div className="space-y-4">
+      {/* Name + description (bilingual, active language only) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 rounded-md border bg-muted/30 px-3 py-2.5">
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">{t('schemas.field_name')}<RequiredMark /></Label>
+          <Input
+            value={localized(mapping.presetLabel, language)}
+            onChange={(e) => onChange({ ...mapping, presetLabel: setLocalized(mapping.presetLabel, language, e.target.value) })}
+            className="h-8 text-sm"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">{t('schemas.field_description')}</Label>
+          <Textarea
+            value={mapping.description ? localized(mapping.description, language) : ''}
+            onChange={(e) => onChange({ ...mapping, description: setLocalized(mapping.description ?? {}, language, e.target.value) })}
+            className="min-h-8 text-sm"
+            placeholder={t('schemas.field_description_placeholder')}
+          />
+        </div>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left column: patient, gender, visit, concept dictionaries */}
         <div className="space-y-4">
@@ -863,23 +889,13 @@ function PresetEditor({
 function SchemaCard({
   mapping,
   onNavigate,
-  onEdit,
-  onDuplicate,
-  onExport,
-  onDelete,
+  actionsMenu,
 }: {
   mapping: SchemaMapping
   onNavigate: () => void
-  onEdit: () => void
-  onDuplicate: () => void
-  onExport: () => void
-  onDelete?: () => void
+  actionsMenu: React.ReactNode
 }) {
-  const { t } = useTranslation()
-  const { can } = useMyWorkspaceRole()
-  const canWrite = can('schemas:write')
-  const canDelete = can('schemas:delete')
-  const [menuOpen, setMenuOpen] = useState(false)
+  const { t, i18n } = useTranslation()
 
   // Count mapped tables (all distinct table names referenced in the mapping)
   const mappedTableNames = new Set<string>()
@@ -892,14 +908,15 @@ function SchemaCard({
   if (mapping.eventTables) Object.values(mapping.eventTables).forEach((e) => mappedTableNames.add(e.table))
   const mappedCount = mappedTableNames.size
   const totalCount = mapping.knownTables?.length ?? 0
+  const description = mapping.description ? localized(mapping.description, i18n.language) : ''
 
   return (
     <div
       className="rounded-lg border bg-card hover:bg-accent/30 transition-colors cursor-pointer"
-      onClick={() => { if (!menuOpen) onNavigate() }}
+      onClick={onNavigate}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (!menuOpen && (e.key === 'Enter' || e.key === ' ')) onNavigate() }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onNavigate() }}
     >
       <div className="flex w-full items-center gap-3 px-4 py-3">
         <div className="flex flex-1 items-center gap-3 min-w-0">
@@ -908,49 +925,22 @@ function SchemaCard({
           </div>
 
           <div className="flex-1 min-w-0">
-            <span className="text-sm font-medium text-foreground">{mapping.presetLabel}</span>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {totalCount > 0 || mappedCount > 0
+            <span className="text-sm font-medium text-foreground">{localized(mapping.presetLabel, i18n.language)}</span>
+            <p className="truncate text-xs text-muted-foreground mt-0.5">
+              {description || (totalCount > 0 || mappedCount > 0
                 ? [
                     totalCount > 0 ? `${totalCount} ${t('settings.schema_preset_tables').toLowerCase()}` : null,
                     mappedCount > 0 ? `${mappedCount} ${t('settings.schema_preset_mapped_tables').toLowerCase()}` : null,
                   ].filter(Boolean).join(', ')
-                : t('settings.schema_preset_no_mapping')}
+                : t('settings.schema_preset_no_mapping'))}
             </p>
           </div>
         </div>
 
         {/* Actions */}
-        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
-              <MoreHorizontal size={14} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
-            <DropdownMenuItem onSelect={onEdit} disabled={!canWrite}>
-              <Pencil size={14} />
-              {t('common.edit')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onExport}>
-              <Download size={14} />
-              {t('settings.schema_preset_export')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onDuplicate} disabled={!canWrite}>
-              <Copy size={14} />
-              {t('settings.schema_preset_duplicate')}
-            </DropdownMenuItem>
-            {onDelete && canDelete && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
-                  <Trash2 size={14} className="text-destructive" />
-                  {t('common.delete')}
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div onClick={(e) => e.stopPropagation()}>
+          {actionsMenu}
+        </div>
       </div>
     </div>
   )
@@ -966,16 +956,14 @@ function SchemaDetailView({
   onSave,
   onDelete,
   onBack,
-  onRefresh,
 }: {
   schemaId: string
   customPresets: CustomSchemaPreset[]
   onSave: (presetId: string, mapping: SchemaMapping) => Promise<void>
   onDelete: (presetId: string) => Promise<void>
   onBack: () => void
-  onRefresh: () => Promise<void>
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { can } = useMyWorkspaceRole()
   const canWrite = can('schemas:write')
   const canDelete = can('schemas:delete')
@@ -1039,9 +1027,8 @@ function SchemaDetailView({
   }
 
   const handleReset = async () => {
-    // Delete the IDB override → falls back to built-in
-    await getStorage().schemaPresets.delete(schemaId)
-    await onRefresh()
+    // Delete the stored override → falls back to the built-in mapping.
+    await onDelete(schemaId)
     setShowResetConfirm(false)
     setIsEditing(false)
     setEditMapping(null)
@@ -1055,7 +1042,7 @@ function SchemaDetailView({
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `linkr-schema-${displayMapping.presetLabel.replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()}.json`
+    a.download = `linkr-schema-${localized(displayMapping.presetLabel, i18n.language).replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -1068,7 +1055,7 @@ function SchemaDetailView({
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
             <Database size={14} className="text-primary" />
           </div>
-          <h2 className="text-sm font-semibold text-foreground">{displayMapping.presetLabel}</h2>
+          <h2 className="text-sm font-semibold text-foreground">{localized(displayMapping.presetLabel, i18n.language)}</h2>
         </div>
         <div className="flex items-center gap-1">
           {isEditing ? (
@@ -1233,110 +1220,65 @@ export function SchemaPresetsPage() {
   const { t } = useTranslation()
   const { wsUid, raw } = useResolvedParams()
   const navigate = useNavigate()
+  const language = useAppStore((s) => s.language)
   const canWrite = useMyWorkspaceRole().can('schemas:write')
-  const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const canDelete = useMyWorkspaceRole().can('schemas:delete')
+  const customPresets = useSchemaPresetStore((s) => s.presets)
+  const loadPresets = useSchemaPresetStore((s) => s.loadPresets)
+  const storeSave = useSchemaPresetStore((s) => s.savePreset)
+  const storeDelete = useSchemaPresetStore((s) => s.deletePreset)
+  const schemaActions = useSchemaPresetActions()
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPresetName, setNewPresetName] = useState('')
-  const [editingSchema, setEditingSchema] = useState<{ id: string; name: string } | null>(null)
-  const [editName, setEditName] = useState('')
   const importInputRef = useRef<HTMLInputElement>(null)
   const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping } | null>(null)
 
-  const loadCustomPresets = useCallback(async () => {
-    try {
-      const presets = wsUid
-        ? await getStorage().schemaPresets.getByWorkspace(wsUid)
-        : await getStorage().schemaPresets.getAll()
-      setCustomPresets(presets)
-    } catch {
-      // IDB not ready yet
-    }
-  }, [wsUid])
+  const loadCustomPresets = useCallback(() => loadPresets(wsUid), [loadPresets, wsUid])
 
   useEffect(() => {
     loadCustomPresets()
   }, [loadCustomPresets])
 
-  // Collect all schemas: built-in (possibly overridden by IDB) + custom-only
+  // Only show schemas that exist in storage (user-added or added from templates).
   const allSchemas = useMemo(() => {
-    // Only show schemas that exist in IDB (user-added or added from templates)
-    return customPresets.map(cp => ({ id: cp.presetId, mapping: cp.mapping }))
+    return customPresets.map(cp => ({ id: cp.presetId, mapping: cp.mapping, preset: cp }))
   }, [customPresets])
 
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
     const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
-    const now = new Date().toISOString()
     const newMapping: SchemaMapping = {
       ...structuredClone(sourceMapping),
       presetId,
-      presetLabel: t('settings.schema_preset_duplicate_name', { name: sourceMapping.presetLabel }),
+      presetLabel: setLocalized({}, language, t('settings.schema_preset_duplicate_name', { name: localized(sourceMapping.presetLabel, language) })),
     }
     delete (newMapping as { knownTables?: string[] }).knownTables
-    const preset: CustomSchemaPreset = {
-      presetId,
-      mapping: newMapping,
-      createdAt: now,
-      updatedAt: now,
-      workspaceId: wsUid,
-    }
-    await getStorage().schemaPresets.save(preset)
-    await loadCustomPresets()
+    await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid))
   }
 
   const deletePreset = async (presetId: string) => {
-    await getStorage().schemaPresets.delete(presetId)
-    await loadCustomPresets()
+    await storeDelete(presetId)
   }
 
   const savePreset = async (presetId: string, mapping: SchemaMapping) => {
-    const now = new Date().toISOString()
     const existing = customPresets.find((p) => p.presetId === presetId)
-    const preset: CustomSchemaPreset = {
-      presetId,
-      mapping: { ...mapping, presetId },
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      workspaceId: wsUid ?? existing?.workspaceId,
-    }
-    await getStorage().schemaPresets.save(preset)
-    await loadCustomPresets()
-  }
-
-  const exportPreset = (mapping: SchemaMapping) => {
-    const exportData = structuredClone(mapping)
-    delete (exportData as { knownTables?: string[] }).knownTables
-    const json = JSON.stringify(exportData, null, 2)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `linkr-schema-${mapping.presetLabel.replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    await storeSave(buildSchemaPreset(presetId, mapping, existing, wsUid))
   }
 
   const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean) => {
-    const now = new Date().toISOString()
     const presetId = duplicate ? `custom-${crypto.randomUUID().slice(0, 8)}` : mapping.presetId!
+    // Legacy export ZIPs may carry a plain-string label; coerce so it stays bilingual.
+    const label = typeof mapping.presetLabel === 'string' ? { en: mapping.presetLabel, fr: mapping.presetLabel } : mapping.presetLabel
     const importedMapping: SchemaMapping = {
       ...mapping,
       presetId,
-      presetLabel: duplicate ? `${mapping.presetLabel} (copy)` : mapping.presetLabel,
+      presetLabel: duplicate ? setLocalized(label, language, `${localized(label, language)} (copy)`) : label,
     }
     if (!duplicate) {
-      await getStorage().schemaPresets.delete(mapping.presetId!).catch(() => {})
+      await storeDelete(mapping.presetId!).catch(() => {})
     }
-    const preset: CustomSchemaPreset = {
-      presetId,
-      mapping: importedMapping,
-      createdAt: now,
-      updatedAt: now,
-      workspaceId: wsUid,
-    }
-    await getStorage().schemaPresets.save(preset)
-    await loadCustomPresets()
-  }, [wsUid, loadCustomPresets])
+    await storeSave(buildSchemaPreset(presetId, importedMapping, undefined, wsUid))
+  }, [wsUid, language, storeDelete, storeSave])
 
   const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -1348,12 +1290,12 @@ export function SchemaPresetsPage() {
       if (!mapping.presetId || !mapping.presetLabel) return
       const existing = customPresets.find((p) => p.presetId === mapping.presetId)
       if (existing) {
-        setImportConflict({ name: existing.mapping.presetLabel, mapping })
+        setImportConflict({ name: localized(existing.mapping.presetLabel, language), mapping })
       } else {
         await doPresetImport(mapping, false)
       }
     } catch { /* invalid JSON */ }
-  }, [customPresets, doPresetImport])
+  }, [customPresets, language, doPresetImport])
 
   const [createTemplate, setCreateTemplate] = useState<string>('blank')
   const [newPresetId, setNewPresetId] = useState('')
@@ -1369,9 +1311,10 @@ export function SchemaPresetsPage() {
     const name = newPresetName.trim()
     if (!name) return
 
+    const label = setLocalized({}, language, name)
     // If using a built-in template, copy its mapping
     const templateMapping = createTemplate !== 'blank' && SCHEMA_PRESETS[createTemplate]
-      ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: name }
+      ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: label }
       : undefined
 
     // Built-in template keeps its own id (so a deleted default can be restored);
@@ -1379,36 +1322,14 @@ export function SchemaPresetsPage() {
     const presetId = createTemplate !== 'blank'
       ? createTemplate
       : (newPresetId.trim() || `custom-${crypto.randomUUID().slice(0, 8)}`)
-    const now = new Date().toISOString()
     const newMapping: SchemaMapping = templateMapping ?? {
       presetId,
-      presetLabel: name,
+      presetLabel: label,
     }
     newMapping.presetId = presetId
-    const preset: CustomSchemaPreset = {
-      presetId,
-      mapping: newMapping,
-      createdAt: now,
-      updatedAt: now,
-      workspaceId: wsUid,
-    }
-    await getStorage().schemaPresets.save(preset)
-    await loadCustomPresets()
+    await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid))
     setShowCreateDialog(false)
     navigate(presetId)
-  }
-
-  const openEditDialog = (id: string, name: string) => {
-    setEditingSchema({ id, name })
-    setEditName(name)
-  }
-
-  const confirmRenameSchema = async () => {
-    if (!editingSchema || !editName.trim()) return
-    const schema = allSchemas.find((s) => s.id === editingSchema.id)
-    if (!schema) return
-    await savePreset(editingSchema.id, { ...schema.mapping, presetLabel: editName.trim() })
-    setEditingSchema(null)
   }
 
   const navigateToSchema = (presetId: string) => {
@@ -1429,7 +1350,6 @@ export function SchemaPresetsPage() {
         onSave={savePreset}
         onDelete={deletePreset}
         onBack={navigateToList}
-        onRefresh={loadCustomPresets}
       />
     )
   }
@@ -1481,16 +1401,29 @@ export function SchemaPresetsPage() {
             </Card>
           ) : (
           <div className="space-y-2">
-            {allSchemas.map(({ id, mapping }) => {
+            {allSchemas.map(({ id, mapping, preset }) => {
+              const item = toSchemaPresetItem(preset)
               return (
                 <SchemaCard
                   key={id}
                   mapping={mapping}
                   onNavigate={() => navigateToSchema(id)}
-                  onEdit={() => openEditDialog(id, mapping.presetLabel)}
-                  onDuplicate={() => duplicatePreset(mapping)}
-                  onExport={() => exportPreset(mapping)}
-                  onDelete={() => setDeleteConfirmId(id)}
+                  actionsMenu={
+                    <EntityActionsMenu
+                      item={item}
+                      {...schemaActions}
+                      canEdit={canWrite}
+                      canDelete={canDelete}
+                      open={menuOpenId === id}
+                      onOpenChange={(o) => setMenuOpenId(o ? id : null)}
+                      extraItems={
+                        <DropdownMenuItem onSelect={() => duplicatePreset(mapping)} disabled={!canWrite}>
+                          <Copy size={14} />
+                          {t('settings.schema_preset_duplicate')}
+                        </DropdownMenuItem>
+                      }
+                    />
+                  }
                 />
               )
             })}
@@ -1514,7 +1447,7 @@ export function SchemaPresetsPage() {
                       { id: 'blank', label: t('schemas.template_blank') },
                       ...BUILTIN_PRESET_IDS
                         .filter(pid => !customPresets.some(cp => cp.presetId === pid))
-                        .map(pid => ({ id: pid, label: SCHEMA_PRESETS[pid]?.presetLabel ?? pid })),
+                        .map(pid => ({ id: pid, label: SCHEMA_PRESETS[pid]?.presetLabel ? localized(SCHEMA_PRESETS[pid]!.presetLabel, language) : pid })),
                     ].map(tpl => (
                       <button
                         key={tpl.id}
@@ -1542,14 +1475,14 @@ export function SchemaPresetsPage() {
                     value={newPresetName}
                     onChange={(e) => setNewPresetName(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newPresetName.trim() && !customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase())) {
+                      if (e.key === 'Enter' && newPresetName.trim() && !customPresets.some(p => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase())) {
                         e.preventDefault()
                         confirmCreatePreset()
                       }
                     }}
                     autoFocus
                   />
-                  {newPresetName.trim() && customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase()) && (
+                  {newPresetName.trim() && customPresets.some(p => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase()) && (
                     <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
                   )}
                 </div>
@@ -1567,27 +1500,7 @@ export function SchemaPresetsPage() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>
-                <Button onClick={confirmCreatePreset} disabled={!newPresetName.trim() || customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase())}>{t('common.create')}</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          {/* Rename schema dialog */}
-          <Dialog open={!!editingSchema} onOpenChange={(open) => { if (!open) setEditingSchema(null) }}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>{t('common.edit')}</DialogTitle>
-                <DialogDescription>{t('schemas.edit_description')}</DialogDescription>
-              </DialogHeader>
-              <Input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmRenameSchema() } }}
-                autoFocus
-              />
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setEditingSchema(null)}>{t('common.cancel')}</Button>
-                <Button onClick={confirmRenameSchema} disabled={!editName.trim()}>{t('common.save')}</Button>
+                <Button onClick={confirmCreatePreset} disabled={!newPresetName.trim() || customPresets.some(p => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase())}>{t('common.create')}</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -1600,24 +1513,6 @@ export function SchemaPresetsPage() {
             onDuplicate={() => { if (importConflict) doPresetImport(importConflict.mapping, true); setImportConflict(null) }}
             onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false); setImportConflict(null) }}
           />
-
-          {/* Delete confirmation dialog */}
-          <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null) }}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{t('settings.schema_preset_delete')}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t('settings.schema_preset_delete_confirm')}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => { if (deleteConfirmId) deletePreset(deleteConfirmId); setDeleteConfirmId(null) }}>
-                  {t('common.delete')}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </div>
       </div>
     </div>

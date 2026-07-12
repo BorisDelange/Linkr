@@ -1,3 +1,5 @@
+import type { GitRemoteConfig, LocalizedString } from './index'
+
 /**
  * Schema preset identifier.
  * Built-in presets use fixed IDs; custom presets use free-form string IDs (UUID or slug).
@@ -21,7 +23,9 @@ export interface ErdGroup {
  */
 export interface SchemaMapping {
   presetId: SchemaPresetId
-  presetLabel: string
+  presetLabel: LocalizedString
+  /** Optional human-readable description of the schema, bilingual like the label. */
+  description?: LocalizedString
 
   patientTable?: {
     table: string
@@ -226,6 +230,8 @@ export interface CustomSchemaPreset {
   presetId: string
   workspaceId?: string
   mapping: SchemaMapping
+  /** Git repository this preset is linked to. When set, workspace export emits metadata + this pointer only. */
+  gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string
 }

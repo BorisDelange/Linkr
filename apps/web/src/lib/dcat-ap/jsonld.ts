@@ -9,6 +9,7 @@
 
 import type { SchemaMapping, CatalogResultCache, DataCatalog } from '@/types'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
+import { localized } from '@/lib/localized'
 
 /** EHDS Regulation reference — mandatory on Catalog, Dataset, Distribution. */
 const EHDS_LEGISLATION = 'http://data.europa.eu/eli/reg/2025/327'
@@ -421,7 +422,7 @@ function buildCsvwDistribution(mapping: SchemaMapping): Record<string, unknown> 
     '@type': 'dcat:Distribution',
     'dcatap:applicableLegislation': { '@id': EHDS_LEGISLATION },
     'dct:format': { '@id': 'http://publications.europa.eu/resource/authority/file-type/CSV' },
-    'dct:description': `Data dictionary — schema structure (${mapping.presetLabel})`,
+    'dct:description': `Data dictionary — schema structure (${localized(mapping.presetLabel, 'en')})`,
     'csvw:tableGroup': {
       '@type': 'csvw:TableGroup',
       'csvw:table': tables,
@@ -459,7 +460,7 @@ function buildCsvwFromFullSchema(
     return table(tbl.name, tableTitle, columns)
   })
 
-  const presetLabel = schemaMapping?.presetLabel ?? 'introspected'
+  const presetLabel = schemaMapping?.presetLabel ? localized(schemaMapping.presetLabel, 'en') : 'introspected'
 
   return {
     '@type': 'dcat:Distribution',

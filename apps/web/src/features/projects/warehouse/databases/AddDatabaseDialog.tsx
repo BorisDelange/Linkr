@@ -4,6 +4,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
+import { localized } from '@/lib/localized'
 import { extractTableName, generateAlias } from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
@@ -105,6 +106,7 @@ export function AddDatabaseDialog({
   editingSource,
 }: AddDatabaseDialogProps) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const { wsUid } = useResolvedParams()
   const { addDataSource, updateDataSource, removeDataSource, retestDataSource, dataSources } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
@@ -599,7 +601,7 @@ export function AddDatabaseDialog({
                       </SelectItem>
                       {customPresets.map((cp) => (
                         <SelectItem key={cp.presetId} value={cp.presetId}>
-                          {cp.mapping.presetLabel}
+                          {localized(cp.mapping.presetLabel, language)}
                         </SelectItem>
                       ))}
                     </SelectContent>

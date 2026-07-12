@@ -83,7 +83,7 @@ const ATHENA_KNOWN_TABLES = [
 
 const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
   presetId: 'omop-cdm-5.4' as SchemaPresetId,
-  presetLabel: 'ATHENA Vocabulary',
+  presetLabel: { en: 'ATHENA Vocabulary', fr: 'Vocabulaire ATHENA' },
   conceptTables: [{
     key: 'concept',
     table: 'concept',

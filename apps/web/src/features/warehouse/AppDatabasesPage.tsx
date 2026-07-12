@@ -5,6 +5,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
+import { localized } from '@/lib/localized'
 import type { DataSource, CustomSchemaPreset } from '@/types'
 import { Database, Plus, FileCode, Search, Plug, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -73,6 +74,7 @@ function CreateFromPresetDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const { wsUid } = useResolvedParams()
   const { createEmptyDatabase } = useDataSourceStore()
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
@@ -103,12 +105,12 @@ function CreateFromPresetDialog({
   for (const presetId of BUILTIN_PRESET_IDS) {
     const preset = SCHEMA_PRESETS[presetId]
     if (preset?.ddl) {
-      presetsWithDDL.push({ id: presetId, label: preset.presetLabel, ddl: preset.ddl, mapping: preset })
+      presetsWithDDL.push({ id: presetId, label: localized(preset.presetLabel, language), ddl: preset.ddl, mapping: preset })
     }
   }
   for (const cp of customPresets) {
     if (cp.mapping.ddl) {
-      presetsWithDDL.push({ id: cp.presetId, label: cp.mapping.presetLabel, ddl: cp.mapping.ddl, mapping: cp.mapping })
+      presetsWithDDL.push({ id: cp.presetId, label: localized(cp.mapping.presetLabel, language), ddl: cp.mapping.ddl, mapping: cp.mapping })
     }
   }
 

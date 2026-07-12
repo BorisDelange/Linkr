@@ -502,7 +502,7 @@ function DatabaseSidebarDetail({
   label: string
   accentColor: string
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [stats, setStats] = useState<DatabaseStatsCache | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -560,7 +560,7 @@ function DatabaseSidebarDetail({
             <DetailRow label={t('etl.pipeline_db_name')} value={ds.name} />
             <DetailRow label={t('etl.pipeline_db_engine')} value={(ds.connectionConfig && 'engine' in ds.connectionConfig ? ds.connectionConfig.engine : undefined) ?? '—'} />
             {ds.schemaMapping?.presetLabel && (
-              <DetailRow label={t('etl.pipeline_db_schema')} value={ds.schemaMapping.presetLabel} />
+              <DetailRow label={t('etl.pipeline_db_schema')} value={localized(ds.schemaMapping.presetLabel, i18n.language)} />
             )}
             <DetailRow label={t('etl.pipeline_db_type')} value={ds.sourceType ?? '—'} />
           </div>

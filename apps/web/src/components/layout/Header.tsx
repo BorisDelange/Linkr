@@ -12,13 +12,14 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
+import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { localized } from '@/lib/localized'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck, Puzzle } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
@@ -30,6 +31,7 @@ import { useSqlCollectionActions } from '@/features/warehouse/sql-scripts/use-sq
 import { usePluginActions } from '@/features/settings/use-plugin-actions'
 import { useCatalogActions } from '@/features/warehouse/catalog/use-catalog-actions'
 import { useDqRuleSetActions } from '@/features/warehouse/data-quality/use-dq-rule-set-actions'
+import { useSchemaPresetActions, toSchemaPresetItem } from '@/features/warehouse/use-schema-preset-actions'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -149,6 +151,7 @@ export function Header() {
   const catalogEntity = useCatalogStore((s) => catalogId ? resolveByIdPrefix(s.catalogs, catalogId, (c) => c.id) : undefined)
   const cmProject = useConceptMappingStore((s) => cmId ? resolveByIdPrefix(s.mappingProjects, cmId, (p) => p.id) : undefined)
   const dqEntity = useDqStore((s) => dqId ? resolveByIdPrefix(s.dqRuleSets, dqId, (r) => r.id) : undefined)
+  const schemaPreset = useSchemaPresetStore((s) => schemaId ? resolveByIdPrefix(s.presets, schemaId, (p) => p.presetId) : undefined)
 
   // Plugin editor is driven by store state (not a route). When a plugin is open,
   // surface its name as a header badge with the same actions as any entity.
@@ -182,6 +185,8 @@ export function Header() {
   const sqlActions = useSqlCollectionActions()
   const catalogActions = useCatalogActions()
   const dqActions = useDqRuleSetActions()
+  const schemaActions = useSchemaPresetActions()
+  const schemaItem = schemaPreset ? toSchemaPresetItem(schemaPreset) : undefined
   const pluginActions = usePluginActions()
   const [pluginMenuOpen, setPluginMenuOpen] = useState(false)
   const [cmMenuOpen, setCmMenuOpen] = useState(false)
@@ -191,6 +196,7 @@ export function Header() {
   const [sqlMenuOpen, setSqlMenuOpen] = useState(false)
   const [catalogMenuOpen, setCatalogMenuOpen] = useState(false)
   const [dqMenuOpen, setDqMenuOpen] = useState(false)
+  const [schemaMenuOpen, setSchemaMenuOpen] = useState(false)
 
   // After deleting the entity from the header, leave its (now-orphaned) detail
   // page for the list — otherwise the stale id lingers in the URL and the next
@@ -244,7 +250,7 @@ export function Header() {
       const schemaMatch = segment.match(/^warehouse\/schemas\/(.+)$/)
       if (schemaMatch) {
         const preset = SCHEMA_PRESETS[schemaMatch[1]]
-        return preset?.presetLabel ?? schemaMatch[1]
+        return preset?.presetLabel ? localized(preset.presetLabel, language) : schemaMatch[1]
       }
 
       const key = workspaceSegmentTitleKeys[segment]
@@ -428,6 +434,26 @@ export function Header() {
                 >
                   <ShieldCheck size={10} className="text-muted-foreground" />
                   {localized(dqEntity.name, language)}
+                  <MoreHorizontal size={12} className="text-muted-foreground" />
+                </Badge>
+              }
+            />
+          ) : schemaItem ? (
+            <EntityActionsMenu
+              item={schemaItem}
+              {...schemaActions}
+              align="start"
+              onDeleted={handleEntityDeleted}
+              open={schemaMenuOpen}
+              onOpenChange={setSchemaMenuOpen}
+              trigger={
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+                  aria-label={t('common.actions')}
+                >
+                  <FileSpreadsheet size={10} className="text-muted-foreground" />
+                  {localized(schemaItem.name, language)}
                   <MoreHorizontal size={12} className="text-muted-foreground" />
                 </Badge>
               }

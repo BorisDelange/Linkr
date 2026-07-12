@@ -56,6 +56,8 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
   canEdit?: boolean
   /** When false, the Delete item is disabled (non-owner). Default true. */
   canDelete?: boolean
+  /** Extra menu items inserted before the delete separator (e.g. Duplicate). */
+  extraItems?: ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +82,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   onExportOverride,
   canEdit = true,
   canDelete = true,
+  extraItems,
 }: EntityActionsMenuProps<T>) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -150,6 +153,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
               {t('common.versioning')}
             </DropdownMenuItem>
           )}
+          {extraItems}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={!canDelete}

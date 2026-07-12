@@ -68,7 +68,7 @@ const OMOP_ERD_GROUPS: ErdGroup[] = [
 
 const omop54: SchemaMapping = {
   presetId: 'omop-5.4',
-  presetLabel: 'OMOP CDM 5.4',
+  presetLabel: { en: 'OMOP CDM 5.4', fr: 'OMOP CDM 5.4' },
   patientTable: {
     table: 'person',
     idColumn: 'person_id',
@@ -188,7 +188,7 @@ const omop54: SchemaMapping = {
 const omop53: SchemaMapping = {
   ...omop54,
   presetId: 'omop-5.3',
-  presetLabel: 'OMOP CDM 5.3',
+  presetLabel: { en: 'OMOP CDM 5.3', fr: 'OMOP CDM 5.3' },
   deathTable: {
     table: 'death',
     patientIdColumn: 'person_id',
@@ -252,7 +252,7 @@ const MIMIC_III_TABLES = [
 
 const mimicIII: SchemaMapping = {
   presetId: 'mimic-iii',
-  presetLabel: 'MIMIC-III',
+  presetLabel: { en: 'MIMIC-III', fr: 'MIMIC-III' },
   patientTable: {
     table: 'patients',
     idColumn: 'subject_id',
@@ -384,7 +384,7 @@ const MIMIC_IV_TABLES = [
 
 const mimicIV: SchemaMapping = {
   presetId: 'mimic-iv',
-  presetLabel: 'MIMIC-IV',
+  presetLabel: { en: 'MIMIC-IV', fr: 'MIMIC-IV' },
   patientTable: {
     table: 'patients',
     idColumn: 'subject_id',

@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig } from '@/types'
+import { localized } from '@/lib/localized'
 import {
   Database,
   Plug,
@@ -35,7 +36,7 @@ interface DatabaseCardProps {
   canEdit?: boolean
 }
 
-function getSourceSummary(source: DataSource): string {
+function getSourceSummary(source: DataSource, lang: string): string {
   if (source.sourceType === 'fhir') return 'FHIR Server'
 
   const mapping = source.schemaMapping
@@ -43,7 +44,7 @@ function getSourceSummary(source: DataSource): string {
   const parts: string[] = []
 
   if (config.engine) parts.push(config.engine.charAt(0).toUpperCase() + config.engine.slice(1))
-  if (mapping?.presetLabel) parts.push(mapping.presetLabel)
+  if (mapping?.presetLabel) parts.push(localized(mapping.presetLabel, lang))
 
   return parts.join(' / ') || 'Database'
 }
@@ -87,9 +88,9 @@ export const DatabaseCard = memo(function DatabaseCard({
   onRemove,
   canEdit = true,
 }: DatabaseCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
-  const summary = getSourceSummary(source)
+  const summary = getSourceSummary(source, i18n.language)
   const detail = getConnectionDetail(source)
   const config = source.connectionConfig as DatabaseConnectionConfig
   const needsReconnect = config.useFileHandles && source.status === 'disconnected'
