@@ -89,6 +89,31 @@ def _workspace_repo(workspace_id: str) -> Path:
     return d
 
 
+_GH_NAV_SEGMENTS = ("tree", "blob", "commit", "commits", "pull", "pulls", "releases", "tags", "branches", "find", "raw")
+
+
+def _clean_url(url: str) -> str:
+    """Strip browser-navigation cruft from a pasted repo URL (defense in depth;
+    the frontend cleans too). GitLab uses a `/-/` separator; GitHub uses known
+    path segments. Query/fragment are dropped. SSH URLs are left untouched."""
+    url = (url or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        return url
+    url = url.split("?", 1)[0].split("#", 1)[0]
+    cut = url.find("/-/")
+    if cut != -1:
+        url = url[:cut]
+    parts = url.split("/")
+    # parts[:3] = scheme, "", host; scan the path segments after the host. Only
+    # cut at a nav keyword that is *followed* by something (so a repo literally
+    # named "tree" with nothing after it survives).
+    for i in range(3, len(parts) - 1):
+        if parts[i] in _GH_NAV_SEGMENTS:
+            url = "/".join(parts[:i])
+            break
+    return url.rstrip("/")
+
+
 def _with_credentials(url: str, token: str | None) -> str:
     """Inject an access token into an https remote URL for a single call.
 
@@ -394,7 +419,7 @@ async def verify_remote(url: str, token: str | None) -> dict:
     so the caller can refuse to persist an unreachable/unauthorized link."""
 
     def work() -> dict:
-        ls_url = _with_credentials(url, token)
+        ls_url = _with_credentials(_clean_url(url), token)
         proc = subprocess.run(
             ["git", "ls-remote", "--symref", ls_url, "HEAD"],
             capture_output=True,
@@ -435,7 +460,7 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> bytes:
 
         tmp = Path(tempfile.mkdtemp(prefix="linkr-clone-"))
         try:
-            clone_url = _with_credentials(url, token)
+            clone_url = _with_credentials(_clean_url(url), token)
             args = ["clone", "--depth", "1", "--single-branch"]
             if branch:
                 args += ["--branch", branch]

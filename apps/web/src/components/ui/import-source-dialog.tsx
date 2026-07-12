@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { getGitCorsProxy, setGitCorsProxy, cloneRepoToZip } from '@/lib/git-clone'
+import { getGitCorsProxy, setGitCorsProxy, cloneRepoToZip, cleanGitUrl } from '@/lib/git-clone'
 import { gitCloneToZip } from '@/lib/api/git'
 import { isServerMode } from '@/lib/api-client'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
@@ -103,16 +103,19 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
     setError(null)
     setCloning(true)
     try {
+      // Users often paste a repo web-page URL (…/-/tree/main?ref_type=heads); clean
+      // it to the bare clone URL so both the clone and the stored link work.
+      const cleanUrl = cleanGitUrl(url.trim())
       let blob: Blob
       if (serverMode) {
-        blob = await gitCloneToZip(url.trim(), branch.trim() || 'main', token || undefined)
+        blob = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined)
       } else {
-        const zip = await cloneRepoToZip({ url: url.trim(), branch: branch.trim() || 'main', token: token || undefined })
+        const zip = await cloneRepoToZip({ url: cleanUrl, branch: branch.trim() || 'main', token: token || undefined })
         blob = await zip.generateAsync({ type: 'blob' })
       }
-      const gitRemote = { url: url.trim(), branch: branch.trim() || 'main', authToken: token || undefined }
+      const gitRemote = { url: cleanUrl, branch: branch.trim() || 'main', authToken: token || undefined }
       onOpenChange(false)
-      await onImport(new File([blob], `${repoName(url)}.zip`, { type: 'application/zip' }), gitRemote)
+      await onImport(new File([blob], `${repoName(cleanUrl)}.zip`, { type: 'application/zip' }), gitRemote)
     } catch (err) {
       console.error('[import] git clone failed:', err)
       // One generic line + the full raw error in an info tooltip (GitErrorInline),

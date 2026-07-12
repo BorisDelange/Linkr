@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { gitVerifyRemote } from '@/lib/api/git'
+import { cleanGitUrl } from '@/lib/git-clone'
 import { toGitError } from '@/lib/git-error-message'
 import type { GitErrorCode, GitScope } from '@/lib/api/git'
 import type { GitRemoteConfig } from '@/types'
@@ -66,14 +67,18 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
     setSaving(true)
     setError(null)
     try {
+      // Accept a pasted repo web-page URL (…/-/tree/main?…) by cleaning it to the
+      // bare clone URL before verifying and storing.
+      const cleanUrl = cleanGitUrl(url.trim())
       let resolvedBranch = branch
       // Verify the remote is reachable before persisting, so a wrong URL or a
       // missing/invalid token is rejected up front. Detect the default branch too.
       if (isServerMode()) {
-        const check = await gitVerifyRemote(url.trim(), token || undefined)
+        const check = await gitVerifyRemote(cleanUrl, token || undefined)
         if (check.default) resolvedBranch = check.default
       }
-      await onSave({ url: url.trim(), branch: resolvedBranch, authToken: token || undefined })
+      await onSave({ url: cleanUrl, branch: resolvedBranch, authToken: token || undefined })
+      setUrl(cleanUrl)
       setHasToken(!!token)
       setLinked(true)
     } catch (err) {

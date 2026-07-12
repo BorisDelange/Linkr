@@ -77,6 +77,24 @@ async def test_verify_remote_detects_default_branch():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_clean_url_strips_web_navigation():
+    # GitLab /-/ separator + query
+    assert g._clean_url("https://framagit.org/interhop/linkr/test-project/-/tree/main?ref_type=heads") == (
+        "https://framagit.org/interhop/linkr/test-project"
+    )
+    # GitLab subgroups preserved
+    assert g._clean_url("https://framagit.org/a/b/c/repo/-/blob/main/f.py") == "https://framagit.org/a/b/c/repo"
+    # GitHub nav segments
+    assert g._clean_url("https://github.com/owner/repo/tree/main") == "https://github.com/owner/repo"
+    assert g._clean_url("https://github.com/owner/repo/pull/42") == "https://github.com/owner/repo"
+    # plain URL + query/fragment
+    assert g._clean_url("https://github.com/owner/repo?tab=x#y") == "https://github.com/owner/repo"
+    # a repo literally named like a nav segment (nothing after it) survives
+    assert g._clean_url("https://github.com/owner/tree") == "https://github.com/owner/tree"
+    # SSH untouched
+    assert g._clean_url("git@github.com:owner/repo.git") == "git@github.com:owner/repo.git"
+
+
 def test_classify_error_maps_git_stderr_to_codes():
     assert g._classify_error("remote: HTTP Basic: Access denied") == "auth_failed"
     assert g._classify_error("fatal: Authentication failed for 'https://x'") == "auth_failed"
