@@ -177,15 +177,35 @@ def _scrub(text: str, token: str | None) -> str:
 
 
 def _git_env() -> dict:
-    """Environment that keeps git non-interactive: a bad/missing token on a
-    private remote must fail fast, never block on a credential prompt."""
+    """Environment that keeps git non-interactive AND isolated from the host's
+    ambient credentials. Linkr must authenticate ONLY with the token the user
+    supplies for the entity — never a credential helper / keychain / ~/.gitconfig
+    on the machine running the backend (which in local dev would silently clone a
+    "private" repo using the developer's own gitlab.com token).
+
+    - GIT_TERMINAL_PROMPT=0 / GIT_ASKPASS=true: a missing/bad token fails fast.
+    - GIT_CONFIG_NOSYSTEM + HOME=/dev/null-ish: ignore system & user gitconfig.
+    - credential.helper='' via GIT_CONFIG_COUNT: disable any credential helper
+      (osxkeychain, cache, store) so no ambient credentials are ever used.
+    """
     import os
 
     return {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_ASKPASS": "true",
-        "HOME": os.environ.get("HOME", "/tmp"),
+        # No user/system gitconfig → no inherited credential.helper.
+        "HOME": "/nonexistent-linkr-git-home",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        # Inject config for every invocation, independent of any machine config:
+        #  0) credential.helper='' — disable keychain/cache/store (no ambient creds)
+        #  1) init.defaultBranch=main — we ignore user gitconfig, so pin the default
+        #     branch (git would otherwise fall back to 'master' on `git init`).
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "credential.helper",
+        "GIT_CONFIG_VALUE_0": "",
+        "GIT_CONFIG_KEY_1": "init.defaultBranch",
+        "GIT_CONFIG_VALUE_1": "main",
     }
 
 
