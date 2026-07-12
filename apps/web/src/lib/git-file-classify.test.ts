@@ -34,8 +34,15 @@ describe('isDataFile', () => {
 })
 
 describe('defaultSelectedPaths', () => {
+  const f = (path: string, changeType = 'modified') => ({ path, changeType })
+
   it('selects everything except data files', () => {
-    const paths = ['project.json', 'datasets/c/data.csv', 'dashboards/d.json', 'datasets/_tree.json']
-    expect(defaultSelectedPaths(paths)).toEqual(['project.json', 'dashboards/d.json', 'datasets/_tree.json'])
+    const files = [f('project.json'), f('datasets/c/data.csv'), f('dashboards/d.json'), f('datasets/_tree.json')]
+    expect(defaultSelectedPaths(files)).toEqual(['project.json', 'dashboards/d.json', 'datasets/_tree.json'])
+  })
+
+  it('never selects deletions by default (files Linkr does not own, e.g. review/, state.json)', () => {
+    const files = [f('project.json'), f('review/app.js', 'deleted'), f('state.json', 'deleted')]
+    expect(defaultSelectedPaths(files)).toEqual(['project.json'])
   })
 })

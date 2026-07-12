@@ -52,6 +52,13 @@ async function buildZip(
   return result.blob
 }
 
+// Monotonic token for refreshStatus: a refresh (mount / branch change / refresh
+// button / includeData toggle) can be superseded by a newer one while its ZIP
+// build + network call are in flight. Only the latest may write status/selected,
+// so a slow earlier response can't clobber the panel with stale (wrong branch or
+// includeData) results. Module-level so bumping it never triggers a re-render.
+let statusGen = 0
+
 interface GitSyncState {
   status: GitStatus | null
   branches: GitBranches | null
@@ -92,26 +99,33 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   error: null,
 
   refreshStatus: async (scope, id, branch) => {
+    const gen = ++statusGen
     set({ loadingStatus: true, error: null })
     try {
       const includeData = get().includeData
       const zip = await buildZip(scope, id, includeData)
       const status = await gitStatus(scope, id, zip, branch)
+      if (gen !== statusGen) return // superseded by a newer refresh — drop this result
       // Re-seed the selection: keep the user's choices for paths that still
-      // change, default-select new paths (data files default-off unless includeData).
+      // change, default-select new paths. Deletions are never checked by default
+      // (see defaultSelectedPaths); data files only when includeData is on.
       const prev = get().selected
       const hadStatus = get().status !== null
       const changed = status.files.map((f) => f.path)
-      const defaults = new Set(includeData ? changed : defaultSelectedPaths(changed))
+      const defaultList = includeData
+        ? status.files.filter((f) => f.changeType !== 'deleted').map((f) => f.path)
+        : defaultSelectedPaths(status.files)
+      const defaults = new Set(defaultList)
       const selected = new Set(
         changed.filter((p) => (hadStatus ? prev.has(p) : defaults.has(p))),
       )
       if (hadStatus) for (const p of changed) if (!prev.has(p) && defaults.has(p)) selected.add(p)
       set({ status, selected })
     } catch (err) {
+      if (gen !== statusGen) return // a newer refresh owns the state now
       set({ error: toGitError(err) })
     } finally {
-      set({ loadingStatus: false })
+      if (gen === statusGen) set({ loadingStatus: false })
     }
   },
 
@@ -185,6 +199,8 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       return { lfsOverrides: next }
     }),
 
-  reset: () =>
-    set({ status: null, branches: null, selected: new Set(), includeData: false, lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false }),
+  reset: () => {
+    statusGen++ // invalidate any in-flight refresh from the closing panel
+    set({ status: null, branches: null, selected: new Set(), includeData: false, lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false })
+  },
 }))

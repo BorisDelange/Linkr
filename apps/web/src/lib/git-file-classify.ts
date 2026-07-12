@@ -17,7 +17,13 @@ export function isDataFile(path: string): boolean {
   return DATA_EXTENSIONS.some((ext) => p.endsWith(ext))
 }
 
-/** Paths that should be checked by default in the commit list (everything but data). */
-export function defaultSelectedPaths(paths: string[]): string[] {
-  return paths.filter((p) => !isDataFile(p))
+/**
+ * Paths checked by default in the commit list. Excludes data files (health data
+ * isn't pushed by accident) AND deletions: a "deleted" file is one present on the
+ * remote but absent from Linkr's export — often a file created by another tool
+ * (the concept-mapping agent's review/, state.json, …). Linkr shouldn't propose
+ * to erase files it doesn't own without an explicit tick.
+ */
+export function defaultSelectedPaths(files: { path: string; changeType: string }[]): string[] {
+  return files.filter((f) => f.changeType !== 'deleted' && !isDataFile(f.path)).map((f) => f.path)
 }
