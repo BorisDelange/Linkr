@@ -12,6 +12,8 @@ import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
 import { useAppStore } from '@/stores/app-store'
+import { useMyProjectRole } from '@/hooks/use-context-role'
+import { ExecuteNotPermitted } from '@/components/ui/execute-not-permitted'
 
 interface PluginWidgetRendererProps {
   widget: DashboardWidget
@@ -43,6 +45,9 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
   const { t } = useTranslation()
   const { filteredRows, columns, reloadOnTabSwitch, dataSignature, datasetFileId, filters } = useDashboardData()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
+  // Script widgets run R/Python → need dashboards:execute (editor+). A read-only
+  // viewer sees code-less component widgets but not these.
+  const canExecute = useMyProjectRole(activeProjectUid ?? undefined).can('dashboards:execute')
 
   const source = widget.source as { type: 'plugin'; pluginId: string; language?: 'python' | 'r'; config: Record<string, unknown> }
 
@@ -90,10 +95,14 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
   const { result, loading, rerun } = useWidgetExecution({
     widgetId: widget.id,
     signature: `${source.pluginId}|${source.language ?? ''}|${JSON.stringify(source.config)}|${dataSignature}`,
-    ready: columns.length > 0,
+    ready: columns.length > 0 && canExecute,
     alwaysReload: reloadOnTabSwitch,
     run,
   })
+
+  // Read-only user: this widget runs code they can't execute — show a placeholder
+  // instead of firing a request that can only 403.
+  if (!canExecute) return <ExecuteNotPermitted compact />
 
   // No dataset configured
   if (columns.length === 0) {

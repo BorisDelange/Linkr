@@ -10,6 +10,8 @@ import { usePatientChartContext } from './PatientChartContext'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { buildTimelineQuery, buildPatientVisitSummaryQuery } from '@/lib/duckdb/patient-data-queries'
+import { useMyProjectRole } from '@/hooks/use-context-role'
+import { ExecuteNotPermitted } from '@/components/ui/execute-not-permitted'
 
 interface WarehousePluginWidgetRendererProps {
   widgetId: string
@@ -22,6 +24,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
   const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
   const selectedVisitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId[projectUid] ?? null)
+  const canExecute = useMyProjectRole(projectUid).can('patient-data:execute')
 
   const [result, setResult] = useState<RuntimeOutput | null>(null)
   const [loading, setLoading] = useState(false)
@@ -106,14 +109,14 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
     }
   }, [plugin, language, pluginConfig, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId, extraPreamble])
 
-  // Re-execute when patient context or config changes
+  // Re-execute when patient context or config changes (only if allowed to run code).
   useEffect(() => {
-    if (selectedPatientId) {
+    if (selectedPatientId && canExecute) {
       execute()
     } else {
       setResult(null)
     }
-  }, [execute, runCount, selectedPatientId])
+  }, [execute, runCount, selectedPatientId, canExecute])
 
   if (!pluginId || !plugin) {
     return (
@@ -123,6 +126,9 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
       </div>
     )
   }
+
+  // Read-only user: this widget runs R/Python they can't execute.
+  if (!canExecute) return <ExecuteNotPermitted compact />
 
   if (!dataSourceId) {
     return (

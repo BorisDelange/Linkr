@@ -9,6 +9,8 @@ import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
 import { useAppStore } from '@/stores/app-store'
+import { useMyProjectRole } from '@/hooks/use-context-role'
+import { ExecuteNotPermitted } from '@/components/ui/execute-not-permitted'
 
 interface InlineCodeWidgetRendererProps {
   widget: DashboardWidget
@@ -24,6 +26,7 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
   const { t } = useTranslation()
   const { filteredRows, columns, reloadOnTabSwitch, dataSignature, datasetFileId, filters } = useDashboardData()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
+  const canExecute = useMyProjectRole(activeProjectUid ?? undefined).can('dashboards:execute')
 
   const source = widget.source as { type: 'inline'; language: string; code: string; config: Record<string, unknown> }
 
@@ -54,10 +57,13 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
   const { result, loading, rerun } = useWidgetExecution({
     widgetId: widget.id,
     signature: `${source.language}|${source.code}|${dataSignature}`,
-    ready: columns.length > 0,
+    ready: columns.length > 0 && canExecute,
     alwaysReload: reloadOnTabSwitch,
     run,
   })
+
+  // Read-only user: inline code widgets run R/Python they can't execute.
+  if (!canExecute) return <ExecuteNotPermitted compact />
 
   // No dataset configured
   if (columns.length === 0) {

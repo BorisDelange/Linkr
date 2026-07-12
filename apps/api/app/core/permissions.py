@@ -107,35 +107,26 @@ def _perms_for(actions_by_resource: dict[str, list[str]]) -> list[str]:
     return [f"{r}:{a}" for r, acts in actions_by_resource.items() for a in acts]
 
 
-# Resources whose "execute" is a VIEW-time render (widgets/analyses): a viewer
-# gets it by default. Everywhere else (i.e. ide) "execute" means running arbitrary
-# code and is only granted from write up.
-_RENDER_EXECUTE_RESOURCES = {"dashboards", "datasets", "patient-data"}
-
 _LADDER = {
     "read": {"read"},
-    "write": {"read", "write"},
-    "delete": {"read", "write", "delete"},
+    # "execute" comes with write: it means running code (R/Python) — either in the
+    # IDE, or a code-backed widget/analysis. A viewer (read only) sees code-less
+    # (component) widgets but not code-backed ones; editor+ runs code.
+    "write": {"read", "write", "execute"},
+    "delete": {"read", "write", "delete", "execute"},
 }
 
 
 def _catalogue_perms(max_action: str) -> list[str]:
-    """Workspace permissions a default role gets, per resource:
-    - read/write/delete follow the read⊂write⊂delete ladder;
-    - "execute" is granted at read for render resources (dashboards/datasets/
-      patient-data), and at write for everything else (ide)."""
-    base = _LADDER.get(max_action, {max_action})
-    rank = {"read": 0, "write": 1, "delete": 2}.get(max_action, 0)
-    out: list[str] = []
-    for r, acts in WORKSPACE_CATALOGUE.items():
-        for a in acts:
-            if a in base:
-                out.append(f"{r}:{a}")
-            elif a == "execute":
-                needed = 0 if r in _RENDER_EXECUTE_RESOURCES else 1  # read vs write
-                if rank >= needed:
-                    out.append(f"{r}:{a}")
-    return out
+    """Workspace permissions a default role gets: for each resource, every one of
+    its catalogue actions implied by `max_action` (execute ⊆ write)."""
+    allowed = _LADDER.get(max_action, {max_action})
+    return [
+        f"{r}:{a}"
+        for r, acts in WORKSPACE_CATALOGUE.items()
+        for a in acts
+        if a in allowed
+    ]
 
 
 # --- Default system roles -------------------------------------------------
