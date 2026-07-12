@@ -31,14 +31,20 @@ describe('buildGitAttributes', () => {
     expect(buildGitAttributes([])).toBeNull()
   })
 
-  it('emits one lfs rule per path, sorted', () => {
-    expect(buildGitAttributes(['b.parquet', 'a.parquet'])).toBe(
-      'a.parquet filter=lfs diff=lfs merge=lfs -text\nb.parquet filter=lfs diff=lfs merge=lfs -text\n',
+  it('collapses data-extension paths to a single glob (matches the hand-written form)', () => {
+    expect(buildGitAttributes(['b.parquet', 'a.parquet', 'x.xlsx'])).toBe(
+      '*.parquet filter=lfs diff=lfs merge=lfs -text\n*.xlsx filter=lfs diff=lfs merge=lfs -text\n',
     )
   })
 
-  it('quotes paths containing spaces', () => {
-    expect(buildGitAttributes(['my data.parquet'])).toBe('"my data.parquet" filter=lfs diff=lfs merge=lfs -text\n')
+  it('keeps an exact rule for a size-tracked non-data-extension file', () => {
+    expect(buildGitAttributes(['source-concepts.csv', 'big.parquet'])).toBe(
+      '*.parquet filter=lfs diff=lfs merge=lfs -text\nsource-concepts.csv filter=lfs diff=lfs merge=lfs -text\n',
+    )
+  })
+
+  it('quotes an exact path containing spaces', () => {
+    expect(buildGitAttributes(['my data.json'])).toBe('"my data.json" filter=lfs diff=lfs merge=lfs -text\n')
   })
 })
 

@@ -22,13 +22,20 @@ export function isLfsCandidate(entry: ExportEntry): boolean {
 }
 
 /**
- * Build `.gitattributes` content tracking the given entries via LFS, one rule
- * per exact path (paths are quoted / space-safe). Returns null when nothing
- * qualifies, so the caller can skip writing the file entirely.
+ * Build `.gitattributes` content for the given LFS paths. A path whose extension
+ * is a data format collapses to an extension glob (`*.parquet`) — matching the
+ * conventional hand-written form and also covering sibling files of that type;
+ * anything else (a large CSV/JSON tracked by size or override) gets an exact
+ * per-path rule. Returns null when nothing qualifies.
  */
 export function buildGitAttributes(lfsPaths: string[]): string | null {
   if (lfsPaths.length === 0) return null
-  const lines = [...lfsPaths].sort().map((path) => `${quotePattern(path)} filter=lfs diff=lfs merge=lfs -text`)
+  const patterns = new Set<string>()
+  for (const path of lfsPaths) {
+    const ext = LFS_EXTENSIONS.find((e) => path.toLowerCase().endsWith(e))
+    patterns.add(ext ? `*${ext}` : quotePattern(path))
+  }
+  const lines = [...patterns].sort().map((p) => `${p} filter=lfs diff=lfs merge=lfs -text`)
   return lines.join('\n') + '\n'
 }
 
