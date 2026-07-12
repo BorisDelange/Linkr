@@ -29,11 +29,11 @@ export interface GitSyncError {
   raw: string
 }
 
-async function buildZip(scope: GitScope, id: string): Promise<Blob> {
+async function buildZip(scope: GitScope, id: string, includeData: boolean): Promise<Blob> {
   const result =
     scope === 'projects'
-      ? await buildProjectZip(id, getStorage())
-      : await buildWorkspaceZip(id, getStorage())
+      ? await buildProjectZip(id, getStorage(), { includeDataFiles: includeData })
+      : await buildWorkspaceZip(id, getStorage(), { includeDataFiles: includeData })
   if (!result) throw new Error('export-failed')
   return result.blob
 }
@@ -43,6 +43,9 @@ interface GitSyncState {
   branches: GitBranches | null
   /** Paths checked for the next commit; data files are unchecked by default. */
   selected: Set<string>
+  /** Include dataset data files (CSV/parquet/…) in the export — mirrors the export
+   *  tab's toggle. Off by default; off adds .gitignore rules that exclude them. */
+  includeData: boolean
   loadingStatus: boolean
   committing: boolean
   error: GitSyncError | null
@@ -53,6 +56,7 @@ interface GitSyncState {
   commitPush: (scope: GitScope, id: string, message: string, branch?: string) => Promise<GitCommitResult | null>
   togglePath: (path: string) => void
   setAllSelected: (checked: boolean) => void
+  setIncludeData: (scope: GitScope, id: string, value: boolean, branch?: string) => Promise<void>
   reset: () => void
 }
 
@@ -60,6 +64,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   status: null,
   branches: null,
   selected: new Set(),
+  includeData: false,
   loadingStatus: false,
   committing: false,
   error: null,
@@ -67,14 +72,15 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   refreshStatus: async (scope, id, branch) => {
     set({ loadingStatus: true, error: null })
     try {
-      const zip = await buildZip(scope, id)
+      const includeData = get().includeData
+      const zip = await buildZip(scope, id, includeData)
       const status = await gitStatus(scope, id, zip, branch)
       // Re-seed the selection: keep the user's choices for paths that still
-      // change, default-select new non-data paths, drop paths no longer changed.
+      // change, default-select new paths (data files default-off unless includeData).
       const prev = get().selected
       const hadStatus = get().status !== null
       const changed = status.files.map((f) => f.path)
-      const defaults = new Set(defaultSelectedPaths(changed))
+      const defaults = new Set(includeData ? changed : defaultSelectedPaths(changed))
       const selected = new Set(
         changed.filter((p) => (hadStatus ? prev.has(p) : defaults.has(p))),
       )
@@ -97,7 +103,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
 
   getDiff: async (scope, id, path, branch) => {
     try {
-      const zip = await buildZip(scope, id)
+      const zip = await buildZip(scope, id, get().includeData)
       return await gitDiff(scope, id, zip, path, branch)
     } catch (err) {
       set({ error: toGitError(err) })
@@ -109,7 +115,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     set({ committing: true, error: null })
     try {
       const paths = [...get().selected]
-      const zip = await buildZip(scope, id)
+      const zip = await buildZip(scope, id, get().includeData)
       const result = await gitCommitPush(scope, id, zip, message, branch, paths)
       // After a commit the pushed files are clean; refresh so the UI updates.
       await get().refreshStatus(scope, id, branch)
@@ -120,6 +126,13 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     } finally {
       set({ committing: false })
     }
+  },
+
+  setIncludeData: async (scope, id, value, branch) => {
+    // Changing data inclusion changes the export (files + .gitignore), so the
+    // pending changes must be recomputed against the new ZIP.
+    set({ includeData: value })
+    await get().refreshStatus(scope, id, branch)
   },
 
   togglePath: (path) =>
@@ -136,5 +149,5 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     })),
 
   reset: () =>
-    set({ status: null, branches: null, selected: new Set(), error: null, loadingStatus: false, committing: false }),
+    set({ status: null, branches: null, selected: new Set(), includeData: false, error: null, loadingStatus: false, committing: false }),
 }))

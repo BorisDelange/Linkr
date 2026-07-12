@@ -1522,7 +1522,8 @@
     "token_help_gitlab_2": "Créez un jeton avec les portées « read_repository » et « write_repository »",
     "token_help_gitlab_3": "Copiez-le et collez-le ici",
     "git_error_generic": "Une erreur est survenue lors de l'opération git.",
-    "git_error_details": "Afficher l'erreur complète"
+    "git_error_details": "Afficher l'erreur complète",
+    "sync_include_data": "Inclure les fichiers de données (CSV, parquet…)"
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",

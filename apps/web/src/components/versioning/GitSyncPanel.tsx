@@ -27,7 +27,7 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, selected, loadingStatus, committing, error, refreshStatus, loadBranches, commitPush, togglePath, setAllSelected, reset } =
+  const { status, branches, selected, includeData, loadingStatus, committing, error, refreshStatus, loadBranches, commitPush, togglePath, setAllSelected, setIncludeData, reset } =
     useGitSyncStore()
   const [branch, setBranch] = useState(defaultBranch)
   const [message, setMessage] = useState('')
@@ -88,6 +88,15 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           {t('versioning.sync_refresh')}
         </Button>
       </div>
+
+      <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+        <Checkbox
+          checked={includeData}
+          onCheckedChange={(v) => setIncludeData(scope, id, !!v, branch)}
+          disabled={loadingStatus || committing}
+        />
+        {t('versioning.sync_include_data')}
+      </label>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
