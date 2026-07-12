@@ -23,7 +23,7 @@ during implementation; the product owner must **validate it end to end**:
   decided); project role `none` (hide a project); workspace→project inheritance.
 → **Nothing should be considered final until the PO has reviewed this model.**
 
-### 2. UI GATING — DONE (2026-07-12), still to VERIFY in the app
+### 2. UI GATING — DONE + VERIFIED (2026-07-12)
 **Fine-grained gating is implemented on the exact atomic permission** (custom roles
 honoured), not just the viewer/editor/owner rank. `my-role` now returns the effective
 permission list; the frontend hook exposes `can('resource:action')` (front-only →
@@ -40,14 +40,13 @@ always true, admin → always true). Gated surfaces:
 - Delete of a catalogue entity → `:delete`; create/edit/run + delete of a sub-element
   (task, criterion, check, widget, node) → `:write` (decided).
 
-Still to do:
-- **Verify** in server mode with viewer / editor / owner / non-member + a **custom role**
-  (e.g. `cohorts:read` only) that the gates match, on each surface above.
-- **Minor leftovers** (backend already 403s, low visibility): concept-mapping MappingsTab
+Done:
+- **Verified** in server mode with viewer / editor / owner / non-member + a **custom role**
+  (e.g. `cohorts:read` only): the gates match on each surface above.
+- **Minor leftovers gated** (previously backend-only 403s): concept-mapping MappingsTab
   comments/review + SourceIdTab ranges; IDE FileTreeItem rename/delete + connections/env
-  dialogs; dashboard/patient-data per-widget menus (covered by the edit-mode gate but not
-  individually disabled); catalog DCAT add/remove custom value; SQL/ETL file-tree
-  rename/delete. Gate these if a later pass wants full coverage.
+  dialogs; dashboard/patient-data per-widget menus; catalog DCAT add/remove custom value;
+  SQL/ETL file-tree rename/delete. Full coverage reached.
 - **Reminder**: UI gating is only cosmetic — real enforcement is server-side (403).
 
 ---

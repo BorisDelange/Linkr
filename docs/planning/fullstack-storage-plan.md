@@ -228,8 +228,8 @@ v2.1.0). Details per building block in sections §01–§08 above (`[DONE]` anno
   PO** (see `users-authorizations-audit.md`).
 
 ### Backlog (unordered — PO)
-- **Import via git link**: verify the upload from a git link (field in each Import modal).
-- **Project & workspace versioning**: Versioning page connected to a git.
+- **Import via git link**: **[DONE]** upload from a git link verified (field in each Import modal).
+- **Project & workspace versioning**: **[IN PROGRESS]** Versioning page connected to a git.
 - **IDE — environments**: venv/packages per env, one env per terminal (cf. §07c "remaining").
 - **IDE — job management**: tracking/interruption of long processes (± job queue).
 - **Multi-user — concurrent editing**: warn if content has been modified in the meantime
@@ -240,4 +240,4 @@ v2.1.0). Details per building block in sections §01–§08 above (`[DONE]` anno
 - **Pipeline**: make it actually functional.
 - **Reports page**: to implement.
 - **Finishing touches**: editor button's Run in streaming (+ Stop/Ctrl+C); true real-time R streaming
-  (today buffered); inline edit/delete UI gating on the detail pages (backend already at 403).
+  (today buffered).
