@@ -348,6 +348,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
                   value={metadata[field.key]}
                   onChange={(val) => handleFieldChange(field.key, val)}
                   onMultiselectToggle={(val) => handleMultiselectToggle(field.key, val)}
+                  canWrite={canWrite}
                   t={t}
                 />
               ))}
@@ -386,10 +387,11 @@ interface FieldEditorProps {
   value: unknown
   onChange: (val: unknown) => void
   onMultiselectToggle: (val: string) => void
+  canWrite: boolean
   t: (key: string) => string
 }
 
-function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEditorProps) {
+function FieldEditor({ field, value, onChange, onMultiselectToggle, canWrite, t }: FieldEditorProps) {
   const strVal = value != null ? String(value) : ''
   const arrVal = Array.isArray(value) ? value : []
   const [customInput, setCustomInput] = useState('')
