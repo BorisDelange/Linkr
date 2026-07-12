@@ -10,6 +10,7 @@ import {
   Trash2,
   Pencil,
   Settings2,
+  Upload,
   Check,
   X,
 } from 'lucide-react'
@@ -122,6 +123,7 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
   const [renamingFile, setRenamingFile] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
   const [datasets, setDatasets] = useState<{ id: string; name: string; columns: DatasetColumn[] }[]>([])
 
   // Warehouse test context — patients, visits, visit details loaded from DB
@@ -258,6 +260,18 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
     setCreateFileOpen(true)
   }
 
+  // Upload one or more files into the plugin (text content read client-side).
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files
+    e.target.value = ''
+    if (!list || list.length === 0) return
+    for (const file of Array.from(list)) {
+      if (files[file.name] !== undefined) continue  // skip existing
+      const content = await file.text()
+      createFile(file.name, content)
+    }
+  }
+
   const handleCreate = () => {
     const ext = PLUGIN_FILE_TYPES.find((ft) => ft.id === newFileType)?.ext ?? ''
     const raw = newFileName.trim()
@@ -326,6 +340,23 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
               <TooltipContent>{t('plugins.new_file_tooltip')}</TooltipContent>
             </Tooltip>
           )}
+          {!readOnly && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon-xs" onClick={() => uploadInputRef.current?.click()}>
+                  <Upload size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('plugins.upload_file')}</TooltipContent>
+            </Tooltip>
+          )}
+          <input
+            ref={uploadInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleUpload}
+          />
           {/* Test config popover */}
           {(
             <Popover>

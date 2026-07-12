@@ -133,7 +133,7 @@ interface PluginEditorState {
   openFile: (filename: string) => void
   closeFile: (filename: string) => void
   updateFileContent: (filename: string, content: string) => void
-  createFile: (filename: string) => void
+  createFile: (filename: string, content?: string) => void
   deleteFile: (filename: string) => void
   renameFile: (oldName: string, newName: string) => void
   reorderOpenFiles: (fromIndex: number, toIndex: number) => void
@@ -604,10 +604,10 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     set({ files: newFiles, isDirty: dirty, ...clearError })
   },
 
-  createFile(filename: string) {
+  createFile(filename: string, content = '') {
     const { files } = get()
     if (files[filename] !== undefined) return
-    const newFiles = { ...files, [filename]: '' }
+    const newFiles = { ...files, [filename]: content }
     set({ files: newFiles, isDirty: true })
     get().openFile(filename)
   },
