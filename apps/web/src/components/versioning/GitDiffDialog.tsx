@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DiffEditor, type BeforeMount } from '@monaco-editor/react'
+import { Allotment } from 'allotment'
+import 'allotment/dist/style.css'
 import { FileWarning, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -66,73 +68,77 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
           <DialogTitle className="truncate font-mono text-sm">{path}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1">
-          {/* File sidebar — scrolls both ways so long paths are readable in full. */}
-          <div className="w-72 shrink-0 overflow-auto border-r">
-            <ul className="w-max min-w-full p-1">
-              {files.map((f) => {
-                const active = f.path === path
-                return (
-                  <li key={f.path}>
-                    <div
-                      className={cn(
-                        'flex items-center gap-2 rounded-md px-2 py-1.5',
-                        active ? 'bg-muted' : 'hover:bg-muted/50',
-                      )}
-                    >
-                      <Checkbox
-                        checked={selected.has(f.path)}
-                        onCheckedChange={() => onToggle(f.path)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="shrink-0"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setPath(f.path)}
-                        className="flex flex-1 items-center gap-2 text-left"
-                      >
-                        <ChangeBadge changeType={f.changeType} />
-                        <span className="whitespace-nowrap font-mono text-xs">{f.path}</span>
-                      </button>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
+        <div className="min-h-0 flex-1">
+          <Allotment>
+            {/* Resizable file sidebar — scrolls both ways so long paths read in full. */}
+            <Allotment.Pane preferredSize={288} minSize={160} maxSize={560}>
+              <div className="h-full overflow-auto border-r">
+                <ul className="w-max min-w-full p-1">
+                  {files.map((f) => {
+                    const active = f.path === path
+                    return (
+                      <li key={f.path}>
+                        <div
+                          className={cn(
+                            'flex items-center gap-2 rounded-md px-2 py-1.5',
+                            active ? 'bg-muted' : 'hover:bg-muted/50',
+                          )}
+                        >
+                          <Checkbox
+                            checked={selected.has(f.path)}
+                            onCheckedChange={() => onToggle(f.path)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="shrink-0"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setPath(f.path)}
+                            className="flex flex-1 items-center gap-2 text-left"
+                          >
+                            <ChangeBadge changeType={f.changeType} />
+                            <span className="whitespace-nowrap font-mono text-xs">{f.path}</span>
+                          </button>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            </Allotment.Pane>
 
-          {/* Diff pane */}
-          <div className="min-w-0 flex-1">
-            {loading ? (
-              <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
-                <Loader2 size={14} className="animate-spin" />
-                {t('versioning.sync_computing')}
-              </div>
-            ) : diff?.binary || diff?.tooLarge ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
-                <FileWarning size={28} />
-                <p className="text-sm">{t(diff.binary ? 'versioning.diff_binary' : 'versioning.diff_too_large')}</p>
-              </div>
-            ) : (
-              <DiffEditor
-                key={path}
-                original={diff?.oldContent ?? ''}
-                modified={diff?.newContent ?? ''}
-                language={language}
-                theme={darkMode ? 'linkr-dark' : 'linkr-light'}
-                beforeMount={beforeMount}
-                options={{
-                  readOnly: true,
-                  renderSideBySide: true,
-                  wordWrap: 'on',
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                  fontSize: 12,
-                  automaticLayout: true,
-                }}
-              />
-            )}
-          </div>
+            {/* Diff pane */}
+            <Allotment.Pane minSize={320}>
+              {loading ? (
+                <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 size={14} className="animate-spin" />
+                  {t('versioning.sync_computing')}
+                </div>
+              ) : diff?.binary || diff?.tooLarge ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
+                  <FileWarning size={28} />
+                  <p className="text-sm">{t(diff.binary ? 'versioning.diff_binary' : 'versioning.diff_too_large')}</p>
+                </div>
+              ) : (
+                <DiffEditor
+                  key={path}
+                  original={diff?.oldContent ?? ''}
+                  modified={diff?.newContent ?? ''}
+                  language={language}
+                  theme={darkMode ? 'linkr-dark' : 'linkr-light'}
+                  beforeMount={beforeMount}
+                  options={{
+                    readOnly: true,
+                    renderSideBySide: true,
+                    wordWrap: 'on',
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    fontSize: 12,
+                    automaticLayout: true,
+                  }}
+                />
+              )}
+            </Allotment.Pane>
+          </Allotment>
         </div>
       </DialogContent>
     </Dialog>

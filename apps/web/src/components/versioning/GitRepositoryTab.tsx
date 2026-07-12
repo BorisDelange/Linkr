@@ -4,6 +4,7 @@ import { GitBranch, KeyRound, Link2Off, Loader2 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { gitVerifyRemote } from '@/lib/api/git'
 import { toGitError } from '@/lib/git-error-message'
@@ -12,6 +13,7 @@ import type { GitRemoteConfig } from '@/types'
 import { GitSyncPanel } from './GitSyncPanel'
 import { GitErrorNotice } from './GitErrorNotice'
 import { GitTokenDialog } from './GitTokenDialog'
+import { GitTokenHelp } from './GitTokenHelp'
 
 interface GitRepositoryTabProps {
   /** Current git link, or null when unlinked. */
@@ -112,16 +114,25 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
               {t('versioning.remote_private')}
             </span>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 gap-1 text-xs text-muted-foreground"
-            onClick={() => setEditingToken(true)}
-            disabled={saving}
-          >
-            <KeyRound size={13} />
-            {t('versioning.remote_edit_token')}
-          </Button>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 gap-1 text-xs text-muted-foreground"
+                  onClick={() => setEditingToken(true)}
+                  disabled={saving}
+                >
+                  <KeyRound size={13} />
+                  {t('versioning.remote_edit_token')}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <GitTokenHelp />
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <Button
             variant="ghost"
             size="sm"

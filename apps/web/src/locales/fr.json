@@ -1514,7 +1514,13 @@
     "git_err_details": "Afficher les détails",
     "token_dialog_title": "Modifier le jeton d'accès",
     "token_dialog_desc": "Saisissez un nouveau jeton d'accès pour ce dépôt. Il est vérifié avant l'enregistrement.",
-    "token_dialog_save": "Enregistrer le jeton"
+    "token_dialog_save": "Enregistrer le jeton",
+    "token_help_github_1": "Settings → Developer settings → Personal access tokens",
+    "token_help_github_2": "Générez un jeton avec la portée « repo »",
+    "token_help_github_3": "Copiez-le et collez-le ici",
+    "token_help_gitlab_1": "Préférences → Jetons d’accès (ou Paramètres du projet → Jetons d’accès)",
+    "token_help_gitlab_2": "Créez un jeton avec les portées « read_repository » et « write_repository »",
+    "token_help_gitlab_3": "Copiez-le et collez-le ici"
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",

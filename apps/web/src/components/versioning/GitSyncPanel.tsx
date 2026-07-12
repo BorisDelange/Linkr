@@ -11,6 +11,7 @@ import { useGitSyncStore } from '@/stores/git-sync-store'
 import type { GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
 import { ChangeBadge } from './ChangeBadge'
+import { GitErrorNotice } from './GitErrorNotice'
 
 interface GitSyncPanelProps {
   scope: GitScope
@@ -156,7 +157,11 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         />
       </div>
 
-      {error && <p className="shrink-0 whitespace-pre-line text-[11px] text-destructive">{error}</p>}
+      {error && (
+        <div className="shrink-0">
+          <GitErrorNotice code={error.code} raw={error.raw} />
+        </div>
+      )}
 
       <div className="flex shrink-0 items-center justify-end gap-2">
         {pushed && (

@@ -49,10 +49,12 @@ function base(scope: GitScope, id: string): string {
   return `/git/${scope}/${encodeURIComponent(id)}`
 }
 
-/** POST a multipart form (ZIP + fields) through apiFetch, parsing the JSON result. */
+/** POST a multipart form (ZIP + fields) through apiFetch, parsing the JSON result.
+ *  On failure throws a GitRemoteError (code + raw), so callers show a friendly
+ *  message instead of the raw {detail:{…}} JSON. */
 async function postForm<T>(path: string, form: FormData): Promise<T> {
   const res = await apiFetch(`/api/v1${path}`, { method: 'POST', body: form })
-  if (!res.ok) throw new Error((await res.text()) || `Git request failed (${res.status})`)
+  if (!res.ok) throw await gitError(res)
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
 }
 

@@ -10,6 +10,7 @@ import { create } from 'zustand'
 import { buildProjectZip, buildWorkspaceZip } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
 import { defaultSelectedPaths } from '@/lib/git-file-classify'
+import { toGitError } from '@/lib/git-error-message'
 import {
   gitBranches,
   gitCommitPush,
@@ -18,9 +19,15 @@ import {
   type GitBranches,
   type GitCommitResult,
   type GitDiff,
+  type GitErrorCode,
   type GitScope,
   type GitStatus,
 } from '@/lib/api/git'
+
+export interface GitSyncError {
+  code: GitErrorCode
+  raw: string
+}
 
 async function buildZip(scope: GitScope, id: string): Promise<Blob> {
   const result =
@@ -38,7 +45,7 @@ interface GitSyncState {
   selected: Set<string>
   loadingStatus: boolean
   committing: boolean
-  error: string | null
+  error: GitSyncError | null
 
   refreshStatus: (scope: GitScope, id: string, branch?: string) => Promise<void>
   loadBranches: (scope: GitScope, id: string) => Promise<void>
@@ -74,7 +81,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       if (hadStatus) for (const p of changed) if (!prev.has(p) && defaults.has(p)) selected.add(p)
       set({ status, selected })
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) })
+      set({ error: toGitError(err) })
     } finally {
       set({ loadingStatus: false })
     }
@@ -84,7 +91,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     try {
       set({ branches: await gitBranches(scope, id) })
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) })
+      set({ error: toGitError(err) })
     }
   },
 
@@ -93,7 +100,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       const zip = await buildZip(scope, id)
       return await gitDiff(scope, id, zip, path, branch)
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) })
+      set({ error: toGitError(err) })
       return null
     }
   },
@@ -108,7 +115,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       await get().refreshStatus(scope, id, branch)
       return result
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : String(err) })
+      set({ error: toGitError(err) })
       return null
     } finally {
       set({ committing: false })
