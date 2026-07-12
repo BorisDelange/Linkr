@@ -15,7 +15,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -129,12 +128,11 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
             )}
             <div className="space-y-2">
               <Label htmlFor="project-description">{t('projects.field_description')}</Label>
-              <Textarea
+              <Input
                 id="project-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={t('projects.field_description_placeholder')}
-                rows={3}
               />
             </div>
             {isEditing && (

@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
@@ -66,10 +65,10 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
           </div>
           <div className="space-y-1">
             <Label className="text-xs">{t('schemas.field_description')}</Label>
-            <Textarea
+            <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="min-h-16 text-sm"
+              className="h-8 text-sm"
               placeholder={t('schemas.field_description_placeholder')}
             />
           </div>

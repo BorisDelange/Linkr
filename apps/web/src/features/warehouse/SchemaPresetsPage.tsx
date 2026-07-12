@@ -57,7 +57,6 @@ import { localized, setLocalized } from '@/lib/localized'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { useSchemaPresetActions, toSchemaPresetItem } from './use-schema-preset-actions'
 import { useSaveForm } from '@/hooks/use-save-form'
-import { Textarea } from '@/components/ui/textarea'
 import { SchemaERD } from './SchemaERD'
 import { DdlERD } from './DdlERD'
 
@@ -791,10 +790,10 @@ function PresetEditor({
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">{t('schemas.field_description')}</Label>
-          <Textarea
+          <Input
             value={mapping.description ? localized(mapping.description, language) : ''}
             onChange={(e) => onChange({ ...mapping, description: setLocalized(mapping.description ?? {}, language, e.target.value) })}
-            className="min-h-8 text-sm"
+            className="h-8 text-sm"
             placeholder={t('schemas.field_description_placeholder')}
           />
         </div>
@@ -1505,10 +1504,10 @@ export function SchemaPresetsPage() {
                 {/* Description */}
                 <div className="space-y-1.5">
                   <Label className="text-xs">{t('schemas.field_description')}</Label>
-                  <Textarea
+                  <Input
                     value={newPresetDescription}
                     onChange={(e) => setNewPresetDescription(e.target.value)}
-                    className="min-h-16 text-sm"
+                    className="h-8 text-sm"
                     placeholder={t('schemas.field_description_placeholder')}
                   />
                 </div>

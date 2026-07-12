@@ -197,7 +197,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
                 />
               </div>
               <Select value={newRole} onValueChange={(v) => setNewRole(v as ProjectMemberRole)}>
-                <SelectTrigger className="h-8 w-36 text-sm">
+                <SelectTrigger size="sm" className="w-36 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

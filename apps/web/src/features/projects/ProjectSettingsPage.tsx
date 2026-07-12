@@ -1,10 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
-import { useSaveForm } from '@/hooks/use-save-form'
 import { useAppStore } from '@/stores/app-store'
-import { localized } from '@/lib/localized'
 import type { ProjectStatus, BadgeColor, ProjectBadge } from '@/types'
 import { Trash2, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,7 +10,6 @@ import { GatedButton } from '@/components/ui/gated-button'
 import { Input } from '@/components/ui/input'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Card,
   CardContent,
@@ -56,8 +53,6 @@ export function ProjectSettingsPage() {
   const {
     _projectsRaw,
     projects,
-    language,
-    updateProject,
     updateProjectStatus,
     updateProjectBadges,
     deleteProject,
@@ -80,30 +75,6 @@ export function ProjectSettingsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
   const projectDisplayName = project?.name ?? ''
-
-  // Name/description edit the active language only; re-seed when the language
-  // (or project) changes so the fields reflect the value for the current lang.
-  const [nameInput, setNameInput] = useState('')
-  const [descInput, setDescInput] = useState('')
-  useEffect(() => {
-    setNameInput(localized(projectRaw?.name, language))
-    setDescInput(localized(projectRaw?.description, language))
-  }, [projectRaw?.name, projectRaw?.description, language])
-
-  const handleSaveGeneral = () => {
-    if (!uid) return
-    updateProject(uid, nameInput.trim(), descInput.trim())
-  }
-
-  const general = useSaveForm({
-    current: { name: nameInput, description: descInput },
-    baseline: {
-      name: localized(projectRaw?.name, language),
-      description: localized(projectRaw?.description, language),
-    },
-    onSave: handleSaveGeneral,
-    canSave: !!nameInput.trim(),
-  })
 
   const handleAddBadge = () => {
     if (!uid || !newBadgeLabel.trim()) return
@@ -137,53 +108,12 @@ export function ProjectSettingsPage() {
         </h1>
       </div>
 
-      <Tabs defaultValue="general" className="flex min-h-0 flex-1 flex-col px-6">
+      <Tabs defaultValue="members" className="flex min-h-0 flex-1 flex-col px-6">
         <TabsList className="shrink-0 w-fit mx-auto">
-          <TabsTrigger value="general">{t('project_settings.general')}</TabsTrigger>
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="status-badges">{t('project_settings.status_and_badges')}</TabsTrigger>
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('project_settings.danger_zone')}</TabsTrigger>}
         </TabsList>
-
-        {/* General */}
-        <TabsContent value="general" className="min-h-0 flex-1 overflow-auto pb-6">
-          <div className="mx-auto max-w-3xl space-y-6 pt-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">{t('project_settings.general')}</CardTitle>
-                <CardDescription>{t('project_settings.general_description')}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>{t('projects.field_name')}</Label>
-                  <Input
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') general.save() }}
-                  />
-                </div>
-                {projectRaw?.projectId && (
-                  <div className="space-y-2">
-                    <Label className="flex items-center gap-1.5 text-muted-foreground">
-                      {t('entity_id.label')}
-                    </Label>
-                    <Input value={projectRaw.projectId} disabled className="font-mono text-sm opacity-70" />
-                    <p className="text-[11px] text-muted-foreground">{t('entity_id.hint')}</p>
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <Label>{t('projects.field_description')}</Label>
-                  <Textarea
-                    value={descInput}
-                    onChange={(e) => setDescInput(e.target.value)}
-                    rows={3}
-                  />
-                </div>
-                <GatedButton allowed={canEdit} notAllowedReason={t('common.insufficient_permissions')} size="sm" onClick={general.save} disabled={!general.canSaveNow}>{t('common.save')}</GatedButton>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
 
         {/* Members */}
         <TabsContent value="members" className="min-h-0 flex-1 overflow-auto pb-6">

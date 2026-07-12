@@ -71,6 +71,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
 
   const handleSubmit = async () => {
     if (!name.trim() || !sourceId || !activeWorkspaceId) return
+    if (!isEditing && !isEntityIdValid(entityId, existingIds)) return
     setSaving(true)
     try {
       if (isEditing && editingPipeline) {

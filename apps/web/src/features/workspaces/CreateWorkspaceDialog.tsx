@@ -14,7 +14,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { Textarea } from '@/components/ui/textarea'
 import { localized } from '@/lib/localized'
 import {
   Select,
@@ -88,12 +87,11 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
             </div>
             <div className="space-y-2">
               <Label htmlFor="ws-desc">{t('workspaces.field_description')}</Label>
-              <Textarea
+              <Input
                 id="ws-desc"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={t('workspaces.field_description_placeholder')}
-                rows={2}
               />
             </div>
 

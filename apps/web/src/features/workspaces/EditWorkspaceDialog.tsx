@@ -17,7 +17,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { Textarea } from '@/components/ui/textarea'
 
 interface EditWorkspaceDialogProps {
   open: boolean
@@ -83,11 +82,10 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-ws-desc">{t('workspaces.field_description')}</Label>
-              <Textarea
+              <Input
                 id="edit-ws-desc"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                rows={3}
               />
             </div>
           </div>

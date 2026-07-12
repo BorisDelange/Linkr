@@ -129,6 +129,15 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
             />
           )}
           <div>
+            <Label className="text-xs">{t('data_catalog.field_description')}</Label>
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={t('data_catalog.field_description_placeholder')}
+              className="mt-1"
+            />
+          </div>
+          <div>
             <Label className="text-xs">{t('data_catalog.database')}<RequiredMark /></Label>
             <Select value={dataSourceId} onValueChange={setDataSourceId}>
               <SelectTrigger className="mt-1">

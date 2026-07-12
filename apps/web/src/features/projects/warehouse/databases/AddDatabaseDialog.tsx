@@ -43,7 +43,6 @@ import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -553,11 +552,10 @@ export function AddDatabaseDialog({
             </div>
             <div className="space-y-2">
               <Label>{t('databases.field_description')}</Label>
-              <Textarea
+              <Input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={t('databases.field_description_placeholder')}
-                rows={2}
               />
             </div>
               </TabsContent>

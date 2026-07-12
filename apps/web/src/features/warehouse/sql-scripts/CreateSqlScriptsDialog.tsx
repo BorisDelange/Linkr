@@ -69,6 +69,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
 
   const handleSubmit = async () => {
     if (!name.trim() || !activeWorkspaceId) return
+    if (!isEditing && !isEntityIdValid(entityId, existingIds)) return
     setSaving(true)
     try {
       if (isEditing && editingCollection) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/button'
 import { GatedButton } from '@/components/ui/gated-button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -51,46 +50,19 @@ export function WorkspaceSettingsPage() {
   const { can } = useMyWorkspaceRole(wsUid)
   const canEdit = can('workspace-settings:write')
   const canDelete = can('workspace-settings:delete')
-  const requestedTab = searchParams.get('tab') ?? 'general'
-  const defaultTab = requestedTab === 'danger' && !canDelete ? 'general' : requestedTab
+  const requestedTab = searchParams.get('tab') ?? 'members'
+  const defaultTab = requestedTab === 'danger' && !canDelete ? 'members' : requestedTab
   const language = useAppStore((s) => s.language)
   const { _workspacesRaw, updateWorkspace, updateWorkspaceBadges, deleteWorkspace, closeWorkspace } = useWorkspaceStore()
   const { _organizationsRaw, getOrganization } = useOrganizationStore()
 
   const workspace = _workspacesRaw.find((ws) => ws.id === wsUid)
 
-  const [name, setName] = useState(localized(workspace?.name, language))
-  const [description, setDescription] = useState(localized(workspace?.description, language))
-
-  // Re-seed the fields when the active language (or workspace) changes so the
-  // inputs always show the value for the current language, not a stale one.
-  useEffect(() => {
-    setName(localized(workspace?.name, language))
-    setDescription(localized(workspace?.description, language))
-  }, [workspace?.name, workspace?.description, language])
   const [selectedOrgId, setSelectedOrgId] = useState<string>(workspace?.organizationId ?? NONE)
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleteProgress, setDeleteProgress] = useState<{ phaseKey: string } | null>(null)
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
-
-  const handleSaveGeneral = async () => {
-    if (!workspace || !wsUid) return
-    await updateWorkspace(wsUid, {
-      name: { ...workspace.name, [language]: name },
-      description: { ...workspace.description, [language]: description },
-    })
-  }
-
-  const general = useSaveForm({
-    current: { name, description },
-    baseline: {
-      name: localized(workspace?.name, language),
-      description: localized(workspace?.description, language),
-    },
-    onSave: handleSaveGeneral,
-    canSave: !!name.trim(),
-  })
 
   const handleSaveOrganization = async () => {
     if (!wsUid) return
@@ -150,52 +122,11 @@ export function WorkspaceSettingsPage() {
 
       <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-1 flex-col px-6">
         <TabsList className="shrink-0 w-fit mx-auto">
-          <TabsTrigger value="general">{t('workspaces.tab_general')}</TabsTrigger>
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
-          <TabsTrigger value="badges">{t('workspaces.tab_badges')}</TabsTrigger>
           <TabsTrigger value="organization">{t('workspaces.tab_organization')}</TabsTrigger>
+          <TabsTrigger value="badges">{t('workspaces.tab_badges')}</TabsTrigger>
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
-
-        {/* General */}
-        <TabsContent value="general" className="min-h-0 flex-1 overflow-auto pb-6">
-          <div className="mx-auto max-w-3xl space-y-6 pt-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">{t('workspaces.tab_general')}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="ws-name">{t('workspaces.field_name')}</Label>
-                  <Input
-                    id="ws-name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') general.save() }}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ws-desc">{t('workspaces.field_description')}</Label>
-                  <Textarea
-                    id="ws-desc"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    rows={3}
-                  />
-                </div>
-                <GatedButton
-                  allowed={canEdit}
-                  notAllowedReason={t('common.insufficient_permissions')}
-                  size="sm"
-                  onClick={general.save}
-                  disabled={!general.canSaveNow}
-                >
-                  {t('common.save')}
-                </GatedButton>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
 
         {/* Members */}
         <TabsContent value="members" className="min-h-0 flex-1 overflow-auto pb-6">

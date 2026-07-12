@@ -181,12 +181,10 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
 
               <div className="grid gap-2">
                 <Label htmlFor="plugin-desc">{t('common.description')}</Label>
-                <Textarea
+                <Input
                   id="plugin-desc"
                   value={fields.description}
                   onChange={(e) => set('description', e.target.value)}
-                  className="min-h-[64px] resize-none"
-                  rows={3}
                 />
               </div>
 
