@@ -322,6 +322,8 @@ const json = (data: unknown) => JSON.stringify(data, null, 2)
 const INSTANCE_FIELDS = [
   'ownerId',
   'createdBy',
+  'createdByDetails',
+  'origin',
   'workspaceId',
   'gitRemoteConfig',
   'gitUrl',
@@ -406,22 +408,25 @@ export async function buildProjectZip(
     }
   }
 
+  // Sub-entities carry the same instance-specific noise (timestamps, createdBy,
+  // origin) that the backend regenerates on import and never reads back — strip
+  // it so re-exporting an imported project is stable.
   // --- pipeline/ ---
   const pipelines = await storage.pipelines.getByProject(projectUid)
   if (pipelines.length > 0) {
-    zip.file('pipeline/pipeline.json', json(pipelines))
+    zip.file('pipeline/pipeline.json', json(pipelines.map(stripInstanceFields)))
   }
 
   // --- cohorts/ ---
   const cohorts = await storage.cohorts.getByProject(projectUid)
   for (const c of cohorts) {
-    zip.file(`cohorts/${slugify(c.name || c.id)}.json`, json(c))
+    zip.file(`cohorts/${slugify(c.name || c.id)}.json`, json(stripInstanceFields(c)))
   }
 
   // --- databases/ (IDE connections) ---
   const connections = await storage.connections.getByProject(projectUid)
   for (const c of connections) {
-    zip.file(`databases/${slugify(c.name || c.id)}.json`, json(c))
+    zip.file(`databases/${slugify(c.name || c.id)}.json`, json(stripInstanceFields(c)))
   }
 
   // --- dashboards/ (each dashboard = dashboard + tabs + widgets in one file) ---
@@ -432,14 +437,17 @@ export async function buildProjectZip(
     for (const tab of tabs) {
       widgets.push(...(await storage.dashboardWidgets.getByTab(tab.id)))
     }
-    zip.file(`dashboards/${slugify(localized(d.name, 'en') || d.id)}.json`, json({ dashboard: d, tabs, widgets }))
+    zip.file(
+      `dashboards/${slugify(localized(d.name, 'en') || d.id)}.json`,
+      json({ dashboard: stripInstanceFields(d), tabs: tabs.map(stripInstanceFields), widgets: widgets.map(stripInstanceFields) }),
+    )
   }
 
   // --- datasets/ (tree + analyses + optional data CSV) ---
   const datasetFiles = await storage.datasetFiles.getByProject(projectUid)
   if (datasetFiles.length > 0) {
     const byId = new Map(datasetFiles.map(f => [f.id, f]))
-    zip.file('datasets/_tree.json', json(datasetFiles))
+    zip.file('datasets/_tree.json', json(datasetFiles.map(stripInstanceFields)))
 
     for (const df of datasetFiles) {
       if (df.type !== 'file') continue
@@ -452,7 +460,7 @@ export async function buildProjectZip(
 
       const analyses = await storage.datasetAnalyses.getByDataset(df.id)
       for (const a of analyses) {
-        zip.file(`datasets/${folderName}/${slugify(a.name || a.id)}.json`, json(a))
+        zip.file(`datasets/${folderName}/${slugify(a.name || a.id)}.json`, json(stripInstanceFields(a)))
       }
 
       if (includeDataFiles) {
