@@ -51,6 +51,34 @@ export function executeOnServer(
   })
 }
 
+/**
+ * Run a built-in component render server-side from a structured spec. Unlike
+ * executeOnServer this sends no code — the backend owns the analysis program per
+ * `kind` and injects only the (validated) spec, so a viewer can trigger it safely
+ * (project read). Returns the same RuntimeOutput; callers parse out.stdout as before.
+ */
+export function renderOnServer(
+  kind: string,
+  spec: unknown,
+  opts?: { projectUid?: string; envId?: string; datasetFileId?: string; datasetFilters?: unknown[] },
+): Promise<RuntimeOutput> {
+  const projectUid = opts?.projectUid ?? useAppStore.getState().activeProjectUid ?? null
+  if (!projectUid) throw new Error('Cannot render without an active project')
+  const envId =
+    opts?.envId ?? (projectUid ? useSessionStore.getState().getActiveSessionId(projectUid) : 'default')
+  return apiRequest<RuntimeOutput>('/execute/render', {
+    method: 'POST',
+    body: JSON.stringify({
+      kind,
+      spec,
+      projectUid,
+      envId,
+      datasetFileId: opts?.datasetFileId ?? null,
+      datasetFilters: opts?.datasetFilters ?? null,
+    }),
+  })
+}
+
 /** Kill the persistent kernel for (project, language, env) — next run starts fresh. */
 export function restartServerKernel(
   language: RuntimeLanguage,

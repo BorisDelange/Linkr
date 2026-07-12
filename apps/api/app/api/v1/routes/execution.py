@@ -19,6 +19,7 @@ from app.models.user import User
 from app.schemas.execution import (
     ExecuteRequest,
     ExecuteResponse,
+    RenderRequest,
     RestartKernelRequest,
     RuntimeFigureResponse,
 )
@@ -32,7 +33,7 @@ from app.services import (
     execution_session_service,
 )
 from app.services.data import dataset_fs
-from app.services.execution import injection, kernel, pty_kernel, runtime
+from app.services.execution import injection, kernel, pty_kernel, render, runtime
 
 logger = structlog.get_logger()
 
@@ -86,10 +87,15 @@ async def _require_execute(
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    # A built-in component render is view-time: project read access suffices.
+    # A built-in component render must go through POST /execute/render (server-owned
+    # code from a spec). It is REFUSED here: /execute runs the client's `code`
+    # verbatim, so letting purpose="render" downgrade the gate to viewer would let a
+    # viewer run arbitrary code. Renders are viewer-visible only via the spec path.
     if purpose == "render":
-        await check_project_permission(db, project, user, "project-summary:read")
-        return
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "purpose='render' must use POST /execute/render (no free-form code)",
+        )
     permission = _PURPOSE_PERMISSION.get(purpose, "ide:execute")
     if not await has_project_permission(db, project, user, permission):
         raise HTTPException(
@@ -186,12 +192,17 @@ async def execute_code(
             status.HTTP_400_BAD_REQUEST,
             f"Unsupported language: {body.language}",
         )
+    return await _run_in_kernel(body.project_uid, user, body.language, body.env_id, code, resolver)
+
+
+async def _run_in_kernel(
+    project_uid: str, user: User, language: str, env_id: str, code: str, resolver
+) -> ExecuteResponse:
+    """Run `code` in the caller's persistent kernel for (project, language, env)
+    and shape the captured output. Shared by /execute and /execute/render."""
     try:
-        # Reuse a persistent kernel so variables survive between runs (§07).
         try:
-            k = await kernel.manager.get(
-                body.project_uid, user.id, body.language, body.env_id
-            )
+            k = await kernel.manager.get(project_uid, user.id, language, env_id)
         except kernel.KernelLimitReached as e:
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
         out = await k.execute(code, query_resolver=resolver)
@@ -208,6 +219,43 @@ async def execute_code(
         table=out.table,
         html=out.html,
     )
+
+
+@router.post("/render", response_model=ExecuteResponse)
+async def render_component(
+    body: RenderRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run a built-in component's server-side aggregation from a structured spec.
+
+    The server owns the analysis program (per `kind`) and injects only the
+    validated spec — no client `code` — so this is a safe VIEW operation gated at
+    project read (a viewer may see component widgets). This replaces the old
+    purpose="render" path on /execute, which ran client code under the same gate."""
+    if not body.project_uid:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "project_uid is required")
+    if not render.is_known_kind(body.kind):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown render kind: {body.kind}")
+    project = await db.get(Project, body.project_uid)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    # View-time: project read access suffices (the code is server-owned).
+    await check_project_permission(db, project, user, "project-summary:read")
+
+    try:
+        analysis_code = render.build_render_code(body.kind, body.spec)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+    # Renders are Python-only today; the dataset is injected as `dataset` first.
+    code = analysis_code
+    if body.dataset_file_id:
+        preamble = await _dataset_preamble(
+            db, body.dataset_file_id, "python", body.dataset_filters, body.project_uid
+        )
+        code = preamble + "\n" + analysis_code
+    return await _run_in_kernel(body.project_uid, user, "python", body.env_id, code, None)
 
 
 @router.get("/kernels")

@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { TableIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer } from '@/lib/api/execution'
+import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import { buildTable1Code } from './table1-server'
+import { buildTable1Spec } from './table1-server'
 
 // ---------------------------------------------------------------------------
 // Math helpers
@@ -262,14 +262,15 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
   // Stable string keys so the effect only re-fetches when inputs semantically
   // change — not on every render (arrays like columns/selectedColumns/metrics get
   // new references each render, which would loop the fetch forever).
-  const code = server && datasetFileId && columns.length > 0
-    ? buildTable1Code(columns, selectedColumns, groupByColumn, metrics)
+  const spec = server && datasetFileId && columns.length > 0
+    ? buildTable1Spec(columns, selectedColumns, groupByColumn, metrics)
     : null
+  const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   useEffect(() => {
-    if (!server || !datasetFileId || !code) return
+    if (!server || !datasetFileId || !spec) return
     let cancelled = false
-    executeOnServer('python', code, { datasetFileId, datasetFilters, purpose: 'render' })
+    renderOnServer('table1', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerError(out.stderr); return }
@@ -278,7 +279,7 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
       })
       .catch((e) => { if (!cancelled) setServerError(String(e)) })
     return () => { cancelled = true }
-  }, [server, datasetFileId, code, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const table = server ? serverTable : localTable
 

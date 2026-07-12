@@ -28,6 +28,19 @@ class ExecuteRequest(CamelModel):
     purpose: str = "ide"
 
 
+class RenderRequest(CamelModel):
+    """A built-in component render (viewer-visible). Unlike ExecuteRequest it
+    carries NO free-form `code`: the server owns the analysis program per `kind`
+    and injects only the validated `spec`, so a viewer can't run arbitrary code."""
+
+    kind: str  # analysis kind (table1, ...) — must be a server-known render builder
+    spec: dict  # structured, per-kind config (column names + options); validated server-side
+    project_uid: str | None = None
+    env_id: str = "default"
+    dataset_file_id: str | None = None
+    dataset_filters: list[dict] | None = None
+
+
 class RestartKernelRequest(CamelModel):
     language: str
     project_uid: str

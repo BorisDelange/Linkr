@@ -232,6 +232,59 @@ async def test_execute_dataset_not_found_is_404(client):
     assert r.status_code == 404
 
 
+async def test_render_table1_produces_table1data(client):
+    """POST /execute/render runs the server-owned table1 program from a spec (no
+    client code) and returns the same Table1Data shape the component consumes."""
+    headers = await _admin_headers(client)
+    project_uid, path = await _disk_dataset(client, headers)  # cols: age (num), grp
+    r = await client.post(f"{API}/execute/render", headers=headers, json={
+        "kind": "table1",
+        "spec": {"selected": [{"name": "age", "numeric": True}], "group": "grp",
+                 "metrics": ["n", "mean_sd"]},
+        "projectUid": project_uid, "datasetFileId": path,
+    })
+    assert r.status_code == 200, r.text
+    import json
+    data = json.loads(r.json()["stdout"].strip())
+    assert data["groupNames"] == ["a", "b"]
+    assert data["rows"][0]["variable"] == "age"
+    # One row per group is present with the requested metric keys.
+    assert "a::n" in data["rows"][0]["values"] and "b::mean_sd" in data["rows"][0]["values"]
+
+
+async def test_render_rejects_unknown_kind(client):
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.post(f"{API}/execute/render", headers=headers, json={
+        "kind": "totally-not-a-render", "spec": {}, "projectUid": uid,
+    })
+    assert r.status_code == 400
+
+
+async def test_render_rejects_malformed_spec(client):
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.post(f"{API}/execute/render", headers=headers, json={
+        "kind": "table1", "spec": {"selected": "not-a-list"}, "projectUid": uid,
+    })
+    assert r.status_code == 400
+
+
+async def test_execute_refuses_purpose_render_with_free_code(client):
+    """The old hole: a viewer could run arbitrary code under purpose='render'
+    (viewer-gated). /execute must now refuse render entirely — renders go through
+    /execute/render (server-owned code), never as free-form code here."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "python", "code": "print('should not run')",
+        "projectUid": uid, "purpose": "render",
+    })
+    assert r.status_code == 400
+    # The code must not have executed.
+    assert "should not run" not in r.text
+
+
 async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
     headers = await _admin_headers(client)
     # Stub the data-source layer so no real DB is needed: any connection_id
@@ -373,16 +426,22 @@ async def test_render_execute_gated_per_resource(client):
     val_id = next(u["id"] for u in (await client.get(f"{API}/users", headers=admin)).json() if u["username"] == "val")
     val = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'val', 'password': 'pw'})).json()['access_token']}"}
 
-    # Viewer: no code execution (IDE / code-backed widget), BUT a built-in
-    # component render ("render") is a view op → allowed.
+    # Viewer: no code execution (IDE / code-backed widget). A built-in component
+    # render is a view op, but it must go through /execute/render (server-owned
+    # code) — NOT /execute with free-form code, which is now refused for render.
     await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
                      json={"userId": val_id, "role": "viewer"})
     assert (await client.post(f"{API}/execute", headers=val,
             json={"language": "python", "code": "print(1)", "projectUid": uid})).status_code == 403
     assert (await client.post(f"{API}/execute", headers=val,
             json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "dashboards"})).status_code == 403
+    # purpose="render" on /execute is refused outright (closes the viewer-RCE hole).
     assert (await client.post(f"{API}/execute", headers=val,
-            json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "render"})).status_code == 200
+            json={"language": "python", "code": "print(1)", "projectUid": uid, "purpose": "render"})).status_code == 400
+    # The viewer CAN render via the spec endpoint (server owns the code).
+    assert (await client.post(f"{API}/execute/render", headers=val, json={
+        "kind": "table1", "spec": {"selected": [], "group": None, "metrics": []},
+        "projectUid": uid})).status_code == 200
 
     # Editor: holds dashboards:execute (and ide:execute) → both allowed.
     await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
