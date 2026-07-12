@@ -31,10 +31,12 @@ const proj = (wsUid: string, projectUid: string) => `${ws(wsUid)}/projects/${sho
 export const paths = {
   workspace: (wsUid: string) => ws(wsUid),
   workspaceHome: (wsUid: string) => `${ws(wsUid)}/home`,
+  workspaceSettings: (wsUid: string) => `${ws(wsUid)}/settings`,
   projects: (wsUid: string) => `${ws(wsUid)}/projects`,
 
   project: (wsUid: string, projectUid: string) => proj(wsUid, projectUid),
   projectSummary: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/summary`,
+  projectSettings: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/settings`,
 
   // --- Project: warehouse ---
   databases: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/warehouse/databases`,

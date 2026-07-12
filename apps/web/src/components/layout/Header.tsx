@@ -156,15 +156,16 @@ export function Header() {
   const editingPluginFiles = usePluginEditorStore((s) => s.files)
   const editingPluginIsSystem = usePluginEditorStore((s) => s.isSystemPlugin)
   const closePluginEditor = usePluginEditorStore((s) => s.closeEditor)
+  const editingPluginGitRemote = usePluginEditorStore((s) => s.pluginList.find((p) => p.id === s.editingPluginId)?.gitRemoteConfig)
   const pluginItem = useMemo(() => {
     if (!editingPluginId) return undefined
     try {
       const m = JSON.parse(editingPluginFiles['plugin.json'] ?? '{}')
-      return { id: editingPluginId, name: (m.name ?? editingPluginId) as LocalizedString | string }
+      return { id: editingPluginId, name: (m.name ?? editingPluginId) as LocalizedString | string, gitRemoteConfig: editingPluginGitRemote }
     } catch {
-      return { id: editingPluginId, name: editingPluginId as string }
+      return { id: editingPluginId, name: editingPluginId as string, gitRemoteConfig: editingPluginGitRemote }
     }
-  }, [editingPluginId, editingPluginFiles])
+  }, [editingPluginId, editingPluginFiles, editingPluginGitRemote])
 
   const dashboardName = dashboardEntity?.name != null ? localized(dashboardEntity.name, language) : undefined
   const cohortName = cohortEntity?.name
@@ -439,34 +440,68 @@ export function Header() {
           {activeWorkspaceName && (
             <>
               <Separator orientation="vertical" className="!h-4" />
-              <Badge
-                variant="outline"
-                className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-amber-600 border-amber-200 bg-amber-50 transition-colors hover:bg-amber-100 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900"
-                onClick={() => {
-                  if (activeProjectUid) closeProject()
-                  const wsId = useWorkspaceStore.getState().activeWorkspaceId
-                  if (wsId) navigate(paths.workspaceHome(wsId))
-                }}
-              >
-                <Building2 size={10} />
-                {activeWorkspaceName}
-              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-amber-600 border-amber-200 bg-amber-50 transition-colors hover:bg-amber-100 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900"
+                  >
+                    <Building2 size={10} />
+                    {activeWorkspaceName}
+                    <MoreHorizontal size={12} className="text-muted-foreground" />
+                  </Badge>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => {
+                    if (activeProjectUid) closeProject()
+                    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                    if (wsId) navigate(paths.workspaceHome(wsId))
+                  }}>
+                    <LayoutDashboard size={14} />
+                    {t('workspace_nav.home')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => {
+                    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                    if (wsId) navigate(paths.workspaceSettings(wsId))
+                  }}>
+                    <Settings size={14} />
+                    {t('nav.settings')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
           {activeProjectName && (
             <>
               <Separator orientation="vertical" className="!h-4" />
-              <Badge
-                variant="outline"
-                className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-blue-700 border-blue-200 bg-blue-50 transition-colors hover:bg-blue-100 dark:text-blue-400 dark:border-blue-800 dark:bg-blue-950 dark:hover:bg-blue-900"
-                onClick={() => {
-                  const wsId = useWorkspaceStore.getState().activeWorkspaceId
-                  if (wsId && activeProjectUid) navigate(paths.projectSummary(wsId, activeProjectUid))
-                }}
-              >
-                <FolderOpen size={10} />
-                {activeProjectName}
-              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-blue-700 border-blue-200 bg-blue-50 transition-colors hover:bg-blue-100 dark:text-blue-400 dark:border-blue-800 dark:bg-blue-950 dark:hover:bg-blue-900"
+                  >
+                    <FolderOpen size={10} />
+                    {activeProjectName}
+                    <MoreHorizontal size={12} className="text-muted-foreground" />
+                  </Badge>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => {
+                    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                    if (wsId && activeProjectUid) navigate(paths.projectSummary(wsId, activeProjectUid))
+                  }}>
+                    <LayoutDashboard size={14} />
+                    {t('project_nav.summary')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => {
+                    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                    if (wsId && activeProjectUid) navigate(paths.projectSettings(wsId, activeProjectUid))
+                  }}>
+                    <Settings size={14} />
+                    {t('nav.settings')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
         </div>

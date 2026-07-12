@@ -15,7 +15,7 @@ import { getStorage } from '@/lib/storage'
 import { paths } from '@/lib/paths'
 import { buildProjectZip, parseProjectZip, downloadBlob, slugify, deleteProjectData, importProjectContent } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
-import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil } from 'lucide-react'
+import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -341,6 +341,10 @@ export function ProjectsPage() {
                             <DropdownMenuItem disabled={!canEditWs} onClick={(e) => { e.stopPropagation(); const raw = _projectsRaw.find((p) => p.uid === project.uid); if (raw) setEditingProject(raw) }}>
                               <Pencil size={14} />
                               {t('common.edit')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const w = project.workspaceId ?? wsUid ?? activeWorkspaceId; if (w) navigate(paths.projectSettings(w, project.uid)) }}>
+                              <Settings2 size={14} />
+                              {t('nav.settings')}
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ uid: project.uid, tab: 'export' }) }}>
                               <Download size={14} />

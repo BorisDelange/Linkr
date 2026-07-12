@@ -15,7 +15,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { formatDate } from '@/lib/format-helpers'
 import { isServerMode } from '@/lib/api-client'
-import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil } from 'lucide-react'
+import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
@@ -687,6 +687,10 @@ export function WorkspacesPage() {
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); if (raw) setEditingWorkspace(raw) }}>
                             <Pencil size={14} />
                             {t('common.edit')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(paths.workspaceSettings(ws.id)) }}>
+                            <Settings2 size={14} />
+                            {t('nav.settings')}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ id: ws.id, tab: 'export' }) }}>
                             <Download size={14} />
