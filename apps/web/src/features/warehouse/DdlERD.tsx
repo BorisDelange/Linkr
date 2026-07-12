@@ -622,7 +622,9 @@ function ErdFilterSheet({ groups, allTables, hiddenGroups, hiddenTables, open, o
           <SheetDescription>{t('schemas.erd_filter')}</SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 overflow-auto p-3 pt-4">
+        {/* Extra top padding so the first row clears the Sheet's close button
+            (absolute top-4 right-4) now that the visible header is gone. */}
+        <div className="flex-1 overflow-auto p-3 pt-11">
           <div className="space-y-2">
             {groups.map((group) => {
               const groupHidden = hiddenGroups.has(group.id)
