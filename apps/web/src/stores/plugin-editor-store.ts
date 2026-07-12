@@ -9,7 +9,7 @@ import {
   unregisterPlugin,
 } from '@/lib/plugins/registry'
 import { SYSTEM_PLUGIN_IDS } from '@/lib/plugins/builtin-widget-plugins'
-import { buildPlugin } from '@/lib/plugins/default-plugins'
+import { buildPlugin, isBuiltinPluginId } from '@/lib/plugins/default-plugins'
 import { computePluginContentHash } from '@/lib/plugin-hash'
 import { useWorkspaceStore } from './workspace-store'
 import { useOrganizationStore } from './organization-store'
@@ -23,13 +23,23 @@ function requireActiveWorkspace(): string {
 }
 
 export interface PluginListItem {
+  /** Storage row id (unique per workspace). Use for open/edit/delete/versioning. */
   id: string
+  /** Manifest id (shared across workspaces for built-ins). Use for registry lookup,
+   *  system-plugin detection and add-default dedup. */
+  manifestId: string
   manifest: PluginManifest
+  /** App-provided built-in (lab component or warehouse widget). Its code lives in the
+   *  bundle, so it is read-only: not editable, not openable. */
   isBuiltIn: boolean
   /** System plugins are built-in patient data widgets — metadata-only editing, no code. */
   isSystemPlugin: boolean
+  /** Convenience: read-only = built-in or system. Neither can be edited/opened. */
+  readOnly: boolean
   /** entityId from the UserPlugin record (only for user plugins). */
   entityId?: string
+  /** Git remote for export/versioning (from the UserPlugin record). */
+  gitRemoteConfig?: import('@/types').GitRemoteConfig
 }
 
 const SCAFFOLD_MANIFEST_LAB = {
@@ -107,6 +117,12 @@ interface PluginEditorState {
   openPlugin: (id: string) => Promise<void>
   closeEditor: () => void
   createPlugin: (name?: string, scope?: 'lab' | 'warehouse', entityId?: string) => Promise<string>
+  /** Create a plugin from full form fields (create dialog) — writes name/desc/etc. in one shot. */
+  createPluginWithFields: (fields: import('@/types/plugin').PluginFormFields, lang: string, entityId?: string) => Promise<string>
+  /** Apply edited metadata fields to the open plugin's plugin.json and persist. */
+  applyManifestFields: (fields: import('@/types/plugin').PluginFormFields, lang: string) => Promise<void>
+  /** Edit a plugin's metadata by id (from the list, without opening the code editor). */
+  updatePluginMetadata: (pluginId: string, fields: import('@/types/plugin').PluginFormFields, lang: string) => Promise<void>
   /** Copy a built-in plugin from the registry into IDB for the current workspace. */
   addBuiltinPlugin: (pluginId: string) => Promise<string | null>
   duplicatePlugin: (sourceId: string) => Promise<string>
@@ -172,8 +188,10 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     for (const up of userPlugins) {
       try {
         const manifest = JSON.parse(up.files['plugin.json'] ?? '{}') as PluginManifest
-        const id = manifest.id ?? up.id
-        list.push({ id, manifest, isBuiltIn: false, isSystemPlugin: SYSTEM_PLUGIN_IDS.has(id), entityId: up.entityId })
+        const manifestId = manifest.id ?? up.id
+        const isSystemPlugin = SYSTEM_PLUGIN_IDS.has(manifestId)
+        const isBuiltIn = isBuiltinPluginId(manifestId)
+        list.push({ id: up.id, manifestId, manifest, isBuiltIn, isSystemPlugin, readOnly: isBuiltIn || isSystemPlugin, entityId: up.entityId, gitRemoteConfig: up.gitRemoteConfig })
       } catch { /* skip invalid */ }
     }
     set({ pluginList: list })
@@ -191,18 +209,19 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   saveError: null,
 
   async openPlugin(id: string) {
-    const isSystem = SYSTEM_PLUGIN_IDS.has(id)
-
     const storage = getStorage()
-    // Try user plugin first
+    // Try user plugin first (id is the storage row id)
     const userPlugin = await storage.userPlugins.getById(id)
     if (userPlugin) {
       const files = { ...userPlugin.files }
       const firstFile = 'plugin.json'
+      // System-plugin detection is by manifest id, not the (workspace-scoped) row id.
+      let manifestId = id
+      try { manifestId = JSON.parse(files['plugin.json'] ?? '{}').id ?? id } catch { /* keep id */ }
       set({
         editingPluginId: id,
         isBuiltIn: false,
-        isSystemPlugin: isSystem,
+        isSystemPlugin: SYSTEM_PLUGIN_IDS.has(manifestId),
         files,
         originalFiles: { ...files },
         openFiles: [firstFile],
@@ -211,7 +230,8 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       })
       return
     }
-    // Built-in plugin: reconstruct files from registry
+    // Built-in plugin not seeded as a row: reconstruct from registry (id = manifest id).
+    const isSystem = SYSTEM_PLUGIN_IDS.has(id)
     const plugin = getAllPlugins().find(p => p.manifest.id === id)
     if (!plugin) return
     const files: Record<string, string> = {
@@ -284,6 +304,109 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     return id
   },
 
+  async createPluginWithFields(fields, lang, entityId) {
+    const id = `user-plugin-${Date.now()}`
+    const isWarehouse = fields.scope === 'warehouse'
+    const scaffoldManifest = isWarehouse ? SCAFFOLD_MANIFEST_WAREHOUSE : SCAFFOLD_MANIFEST_LAB
+    const scaffoldTemplate = isWarehouse ? SCAFFOLD_TEMPLATE_WAREHOUSE : SCAFFOLD_TEMPLATE_LAB
+    const name = fields.name.trim() || 'New Plugin'
+    const manifest: Record<string, unknown> = {
+      ...scaffoldManifest,
+      id,
+      name: { en: name, fr: name, [lang]: name },
+      description: { en: fields.description, fr: fields.description, [lang]: fields.description },
+      scope: fields.scope,
+      languages: fields.languages.length > 0 ? fields.languages : ['python'],
+      icon: fields.icon || 'Puzzle',
+      iconColor: fields.iconColor,
+      badges: fields.badges,
+      version: fields.version || '1.0.0',
+      catalogVisibility: fields.catalogVisibility,
+      dependencies: { python: fields.pythonDeps, r: fields.rDeps },
+    }
+    const files: Record<string, string> = {
+      'plugin.json': JSON.stringify(manifest, null, 2),
+      'analysis.py.template': scaffoldTemplate,
+    }
+    const now = new Date().toISOString()
+    const wsId = requireActiveWorkspace()
+    await getStorage().userPlugins.create({ id, entityId: entityId || undefined, files, createdAt: now, updatedAt: now, workspaceId: wsId })
+    const plugin = buildPlugin(manifest, { python: scaffoldTemplate })
+    plugin.workspaceId = wsId
+    registerPlugin(plugin)
+    set({
+      editingPluginId: id,
+      isBuiltIn: false,
+      files,
+      originalFiles: { ...files },
+      openFiles: ['plugin.json'],
+      activeFile: 'plugin.json',
+      isDirty: false,
+    })
+    await get().refreshPluginList()
+    return id
+  },
+
+  async updatePluginMetadata(pluginId, fields, lang) {
+    const storage = getStorage()
+    const up = await storage.userPlugins.getById(pluginId)
+    if (!up) return
+    let manifest: Record<string, unknown>
+    try {
+      manifest = JSON.parse(up.files['plugin.json'] ?? '{}')
+    } catch { return }
+    const name = fields.name.trim()
+    manifest.name = { ...(manifest.name as object), en: (manifest.name as Record<string, string>)?.en ?? name, [lang]: name }
+    manifest.description = { ...(manifest.description as object), [lang]: fields.description }
+    manifest.scope = fields.scope
+    manifest.languages = fields.languages
+    manifest.icon = fields.icon || 'Puzzle'
+    manifest.iconColor = fields.iconColor
+    manifest.badges = fields.badges
+    manifest.version = fields.version || '1.0.0'
+    manifest.catalogVisibility = fields.catalogVisibility
+    manifest.dependencies = { python: fields.pythonDeps, r: fields.rDeps }
+    const newFiles = { ...up.files, 'plugin.json': JSON.stringify(manifest, null, 2) }
+    await storage.userPlugins.update(pluginId, { files: newFiles, updatedAt: new Date().toISOString() })
+    // Keep the in-editor state in sync if this same plugin is currently open.
+    if (get().editingPluginId === pluginId) {
+      set({ files: newFiles, originalFiles: { ...newFiles }, isDirty: false })
+    }
+    try {
+      const templates: Record<string, string> = {}
+      for (const [filename, content] of Object.entries(newFiles)) {
+        if (filename.endsWith('.py.template')) templates.python = content
+        else if (filename.endsWith('.R.template')) templates.r = content
+      }
+      const rebuilt = buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null)
+      const existing = getPlugin(manifest.id as string)
+      if (existing?.componentId && !rebuilt.componentId) rebuilt.componentId = existing.componentId
+      registerPlugin(rebuilt)
+    } catch { /* invalid json — still persisted */ }
+    await get().refreshPluginList()
+  },
+
+  async applyManifestFields(fields, lang) {
+    const { files } = get()
+    let manifest: Record<string, unknown>
+    try {
+      manifest = JSON.parse(files['plugin.json'] ?? '{}')
+    } catch { return }
+    const name = fields.name.trim()
+    manifest.name = { ...(manifest.name as object), en: (manifest.name as Record<string, string>)?.en ?? name, [lang]: name }
+    manifest.description = { ...(manifest.description as object), [lang]: fields.description }
+    manifest.scope = fields.scope
+    manifest.languages = fields.languages
+    manifest.icon = fields.icon || 'Puzzle'
+    manifest.iconColor = fields.iconColor
+    manifest.badges = fields.badges
+    manifest.version = fields.version || '1.0.0'
+    manifest.catalogVisibility = fields.catalogVisibility
+    manifest.dependencies = { python: fields.pythonDeps, r: fields.rDeps }
+    get().updateFileContent('plugin.json', JSON.stringify(manifest, null, 2))
+    await get().savePlugin()
+  },
+
   async addBuiltinPlugin(pluginId: string) {
     const plugin = getAllPlugins().find(p => p.manifest.id === pluginId)
     if (!plugin) return null
@@ -298,12 +421,15 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         files[`analysis${ext}`] = content
       }
     }
-    const userPlugin: UserPlugin = { id: pluginId, entityId: pluginId, files, createdAt: now, updatedAt: now, workspaceId: wsId }
+    // Row id must be unique per workspace (global PK); the manifest id lives in
+    // entityId + the plugin.json. Same rule as seedBuiltinPluginsForWorkspace.
+    const rowId = crypto.randomUUID()
+    const userPlugin: UserPlugin = { id: rowId, entityId: pluginId, files, createdAt: now, updatedAt: now, workspaceId: wsId }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     registerPlugin(plugin)
     await get().refreshPluginList()
-    return pluginId
+    return rowId
   },
 
   async duplicatePlugin(sourceId: string) {
@@ -391,7 +517,9 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     try {
       const hash = await computePluginContentHash(files)
       const manifest = JSON.parse(files['plugin.json'] ?? '{}')
-      manifest.id = editingPluginId
+      // Do NOT overwrite manifest.id with editingPluginId: the latter is the storage
+      // row id (a per-workspace UUID), while manifest.id is the shared plugin identity
+      // that the in-memory registry (and rendered widgets) key on.
       manifest.contentHash = hash
 
       // Stamp workspace organization (read-only, inherited)
@@ -437,7 +565,8 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       // The componentId lives only in the in-memory registry (never in the editable files),
       // so carry it over from the existing registration — otherwise the re-registered plugin
       // falls through to the script renderer and reports "templates not found".
-      const existing = getPlugin(editingPluginId)
+      // Look up by manifest id (registry key), not the storage row id.
+      const existing = getPlugin(manifest.id as string)
       if (existing?.componentId && !rebuilt.componentId) rebuilt.componentId = existing.componentId
       registerPlugin(rebuilt)
     } catch { /* invalid plugin.json — still saved to IDB */ }

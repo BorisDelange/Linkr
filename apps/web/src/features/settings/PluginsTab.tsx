@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, Info, Search, Pencil, GitBranch } from 'lucide-react'
+import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, Search, Pencil, GitBranch } from 'lucide-react'
 import JSZip from 'jszip'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { Button } from '@/components/ui/button'
@@ -19,12 +19,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -34,7 +28,6 @@ import {
 import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { getAllPlugins } from '@/lib/plugins/registry'
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
@@ -58,14 +51,6 @@ function LanguageBadge({ language }: { language: string }) {
   )
 }
 
-function ScopeBanner({ text }: { text: string }) {
-  return (
-    <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2.5 dark:border-blue-900 dark:bg-blue-950/40">
-      <Info size={14} className="mt-0.5 shrink-0 text-blue-500" />
-      <p className="text-xs text-blue-700 dark:text-blue-300">{text}</p>
-    </div>
-  )
-}
 
 
 // ---------------------------------------------------------------------------
@@ -194,7 +179,6 @@ export function PluginsTab() {
     openPlugin,
     duplicatePlugin,
     deletePlugin,
-    addBuiltinPlugin,
     activePluginTab: activeTab,
     setActivePluginTab: setActiveTab,
   } = usePluginEditorStore()
@@ -204,21 +188,13 @@ export function PluginsTab() {
   const canWrite = useMyWorkspaceRole().can('plugins:write')
   const pluginActions = usePluginActions()
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [showAddDefaultDialog, setShowAddDefaultDialog] = useState(false)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editTargetId, setEditTargetId] = useState<string | null>(null)
   const [versioningTarget, setVersioningTarget] = useState<{ id: string; tab: 'export' | 'git' } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
+  const [typeFilter, setTypeFilter] = useState<string[]>([])
 
-  // Built-in plugins available to add (not already in this workspace)
-  const currentPluginManifestIds = new Set(pluginList.map(p => p.manifestId))
-  const availableBuiltins = useMemo(() => {
-    return getAllPlugins()
-      .filter(p => !p.workspaceId && !currentPluginManifestIds.has(p.manifest.id))
-      .map(p => p.manifest)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPluginManifestIds.size])
   const importInputRef = useRef<HTMLInputElement>(null)
   const [importConflict, setImportConflict] = useState<{ name: string; files: Record<string, string>; pluginId: string } | null>(null)
 
@@ -256,9 +232,13 @@ export function PluginsTab() {
         const labels = new Set((p.manifest.badges ?? []).map((b) => b.label))
         if (!badgeFilter.some((l) => labels.has(l))) return false
       }
+      if (typeFilter.length) {
+        const kind = p.isBuiltIn ? 'builtin' : 'custom'
+        if (!typeFilter.includes(kind)) return false
+      }
       return true
     })
-  }, [pluginList, searchQuery, badgeFilter])
+  }, [pluginList, searchQuery, badgeFilter, typeFilter])
 
   // Split filtered plugins by scope
   const warehousePlugins = useMemo(
@@ -270,22 +250,68 @@ export function PluginsTab() {
     [filteredPlugins],
   )
 
-  const filterGroups = useMemo<FilterGroup[]>(() => allBadges.length === 0 ? [] : [
-    {
-      key: 'badges',
-      label: t('plugins.filter_badges'),
-      selected: badgeFilter,
-      onChange: setBadgeFilter,
-      options: allBadges.map((b) => ({
-        value: b.label,
-        label: b.label,
-        badgeClass: getBadgeClasses(b.color),
-        badgeStyle: getBadgeStyle(b.color),
-      })),
-    },
-  ], [t, badgeFilter, allBadges])
+  const filterGroups = useMemo<FilterGroup[]>(() => {
+    const groups: FilterGroup[] = [
+      {
+        key: 'type',
+        label: t('plugins.filter_type'),
+        selected: typeFilter,
+        onChange: setTypeFilter,
+        options: [
+          { value: 'custom', label: t('plugins.custom') },
+          { value: 'builtin', label: t('plugins.builtin_badge') },
+        ],
+      },
+    ]
+    if (allBadges.length > 0) {
+      groups.push({
+        key: 'badges',
+        label: t('plugins.filter_badges'),
+        selected: badgeFilter,
+        onChange: setBadgeFilter,
+        options: allBadges.map((b) => ({
+          value: b.label,
+          label: b.label,
+          badgeClass: getBadgeClasses(b.color),
+          badgeStyle: getBadgeStyle(b.color),
+        })),
+      })
+    }
+    return groups
+  }, [t, badgeFilter, typeFilter, allBadges])
 
-  // Import a plugin from ZIP
+  // Import a plugin from ZIP. The row id is a per-workspace UUID; the manifest id
+  // (shared identity) stays in plugin.json + entityId. Conflicts are detected by
+  // manifest id within the current workspace.
+  const doPluginImport = useCallback(async (files: Record<string, string>, manifestId: string, duplicate: boolean) => {
+    const updatedFiles = { ...files }
+    let effectiveManifestId = manifestId
+    if (duplicate) {
+      try {
+        const manifest = JSON.parse(files['plugin.json'] ?? '{}')
+        effectiveManifestId = `${manifest.id ?? manifestId}-copy-${Date.now()}`
+        manifest.id = effectiveManifestId
+        if (manifest.name?.en) manifest.name.en = `${manifest.name.en} (copy)`
+        if (manifest.name?.fr) manifest.name.fr = `${manifest.name.fr} (copie)`
+        updatedFiles['plugin.json'] = JSON.stringify(manifest, null, 2)
+      } catch { /* ignore */ }
+    } else {
+      // Overwrite: delete the existing row(s) with this manifest id in this workspace.
+      const existing = pluginList.find((p) => p.manifestId === manifestId)
+      if (existing) await getStorage().userPlugins.delete(existing.id).catch(() => {})
+    }
+    const nowIso = new Date().toISOString()
+    await getStorage().userPlugins.create({
+      id: crypto.randomUUID(),
+      entityId: effectiveManifestId,
+      files: updatedFiles,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      workspaceId: activeWorkspaceId ?? undefined,
+    })
+    await refreshPluginList()
+  }, [refreshPluginList, pluginList, activeWorkspaceId])
+
   const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -296,44 +322,22 @@ export function PluginsTab() {
       if (entry.dir) continue
       files[path] = await entry.async('string')
     }
-    // Parse plugin.json to get ID
-    let pluginId = crypto.randomUUID()
+    let manifestId = crypto.randomUUID()
     let pluginName = 'Imported Plugin'
     try {
       const manifest = JSON.parse(files['plugin.json'] ?? '{}')
-      if (manifest.id) pluginId = manifest.id
+      if (manifest.id) manifestId = manifest.id
       if (manifest.name?.en) pluginName = manifest.name.en
     } catch { /* ignore */ }
 
-    const existing = await getStorage().userPlugins.getById(pluginId)
+    // Conflict = same manifest id already in THIS workspace.
+    const existing = pluginList.find((p) => p.manifestId === manifestId)
     if (existing) {
-      setImportConflict({ name: pluginName, files, pluginId })
+      setImportConflict({ name: pluginName, files, pluginId: manifestId })
     } else {
-      await doPluginImport(files, pluginId, false)
+      await doPluginImport(files, manifestId, false)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const doPluginImport = useCallback(async (files: Record<string, string>, pluginId: string, duplicate: boolean) => {
-    const id = duplicate ? crypto.randomUUID() : pluginId
-    // If duplicating, update plugin.json with new ID and name
-    const updatedFiles = { ...files }
-    if (duplicate) {
-      try {
-        const manifest = JSON.parse(files['plugin.json'] ?? '{}')
-        manifest.id = id
-        if (manifest.name?.en) manifest.name.en = `${manifest.name.en} (copy)`
-        if (manifest.name?.fr) manifest.name.fr = `${manifest.name.fr} (copie)`
-        updatedFiles['plugin.json'] = JSON.stringify(manifest, null, 2)
-      } catch { /* ignore */ }
-    }
-    if (!duplicate) {
-      // Overwrite: delete old plugin first
-      await getStorage().userPlugins.delete(pluginId).catch(() => {})
-    }
-    const nowIso = new Date().toISOString()
-    await getStorage().userPlugins.create({ id, files: updatedFiles, createdAt: nowIso, updatedAt: nowIso })
-    await refreshPluginList()
-  }, [refreshPluginList])
+  }, [pluginList, doPluginImport])
 
   // If editing a plugin, show the editor instead of the list
   if (editingPluginId) {
@@ -402,12 +406,6 @@ export function PluginsTab() {
             className="hidden"
             onChange={handleImportFile}
           />
-          {availableBuiltins.length > 0 && (
-            <Button size="sm" variant="outline" disabled={!activeWorkspaceId || !canWrite} onClick={() => setShowAddDefaultDialog(true)} className="gap-1 text-xs">
-              <Puzzle size={14} />
-              {t('plugins.add_default')}
-            </Button>
-          )}
           <Button
             size="sm"
             disabled={!activeWorkspaceId || !canWrite}
@@ -435,12 +433,10 @@ export function PluginsTab() {
           <TabsTrigger value="warehouse">{t('plugins.tab_warehouse')}</TabsTrigger>
           <TabsTrigger value="lab">{t('plugins.tab_lab')}</TabsTrigger>
         </TabsList>
-        <TabsContent value="warehouse" className="mt-4 space-y-4">
-          <ScopeBanner text={t('plugins.banner_warehouse')} />
+        <TabsContent value="warehouse" className="mt-4">
           {renderPluginGrid(warehousePlugins)}
         </TabsContent>
-        <TabsContent value="lab" className="mt-4 space-y-4">
-          <ScopeBanner text={t('plugins.banner_lab')} />
+        <TabsContent value="lab" className="mt-4">
           {renderPluginGrid(labPlugins)}
         </TabsContent>
       </Tabs>
@@ -477,45 +473,6 @@ export function PluginsTab() {
           }}
         />
       )}
-
-      {/* Add default plugin dialog */}
-      <Dialog open={showAddDefaultDialog} onOpenChange={setShowAddDefaultDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('plugins.add_default')}</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[50vh] space-y-1.5 overflow-auto py-2">
-            {availableBuiltins.map(manifest => {
-              const Icon = getPluginIcon(manifest.icon)
-              return (
-                <button
-                  key={manifest.id}
-                  type="button"
-                  className="flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-accent"
-                  onClick={async () => {
-                    await addBuiltinPlugin(manifest.id)
-                    setShowAddDefaultDialog(false)
-                  }}
-                >
-                  <Icon size={18} className={cn('shrink-0', getPluginIconColorProps(manifest.iconColor).className)} style={getPluginIconColorProps(manifest.iconColor).style} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{manifest.name?.[lang] ?? manifest.name?.en ?? manifest.id}</p>
-                    {manifest.description && (
-                      <p className="text-xs text-muted-foreground line-clamp-1">{manifest.description?.[lang] ?? manifest.description?.en}</p>
-                    )}
-                  </div>
-                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {manifest.scope === 'warehouse' ? t('plugins.scope_warehouse') : t('plugins.scope_lab')}
-                  </span>
-                </button>
-              )
-            })}
-            {availableBuiltins.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">{t('plugins.no_defaults_available')}</p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Import conflict */}
       <ImportConflictDialog

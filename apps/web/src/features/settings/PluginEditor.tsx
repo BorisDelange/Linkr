@@ -1,20 +1,9 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft, Eye, EyeOff, MoreHorizontal, Download } from 'lucide-react'
+import 'allotment/dist/style.css'
+import { Save, X, ChevronLeft, ChevronRight, PanelLeft, Eye, EyeOff, Keyboard, Play, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   Tooltip,
   TooltipContent,
@@ -23,12 +12,12 @@ import {
 } from '@/components/ui/tooltip'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
-import { IconPicker } from '@/components/ui/icon-picker'
 import { PluginFileList } from './PluginFileList'
 import { PluginTestPanel } from './PluginTestPanel'
-import { bumpVersion, type BumpType } from '@/lib/semver'
+import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
+import { useGlobalShortcuts, matchesCombo, type ShortcutHandlers } from '@/hooks/use-shortcuts'
+import { useShortcutStore } from '@/stores/shortcut-store'
 import { resolveTemplate } from '@/lib/plugins/template-resolver'
 import { executeAnalysisCode, executeAnalysisCodeR } from '@/features/projects/lab/datasets/analysis-executor'
 import { isServerMode } from '@/lib/api-client'
@@ -36,26 +25,11 @@ import { executeOnServer } from '@/lib/api/execution'
 import { listPythonPackages, installPythonPackage } from '@/lib/runtimes/pyodide-engine'
 import { listRPackages, installRPackage } from '@/lib/runtimes/webr-engine'
 import { getStorage } from '@/lib/storage'
-import type { PresetBadgeColor, BadgeColor, CatalogVisibility, DatasetColumn } from '@/types'
-import type { PluginBadge, PluginConfigField } from '@/types/plugin'
+import type { DatasetColumn } from '@/types'
+import type { PluginConfigField } from '@/types/plugin'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { SYSTEM_WIDGET_TYPE_MAP } from '@/lib/plugins/builtin-widget-plugins'
 import type { PatientWidgetType } from '@/stores/patient-chart-store'
-
-const PRESET_COLORS: { value: PresetBadgeColor; swatch: string }[] = [
-  { value: 'red', swatch: 'bg-red-400' },
-  { value: 'blue', swatch: 'bg-blue-400' },
-  { value: 'green', swatch: 'bg-green-400' },
-  { value: 'violet', swatch: 'bg-violet-400' },
-  { value: 'amber', swatch: 'bg-amber-400' },
-  { value: 'rose', swatch: 'bg-rose-400' },
-  { value: 'cyan', swatch: 'bg-cyan-400' },
-  { value: 'slate', swatch: 'bg-slate-400' },
-]
-
-function isCustomColor(color: BadgeColor): boolean {
-  return !PRESET_COLORS.some((pc) => pc.value === color)
-}
 
 const languageFromFilename = (filename: string): string => {
   if (filename.endsWith('.json')) return 'json'
@@ -75,12 +49,8 @@ export function PluginEditor() {
     files,
     openFiles,
     activeFile,
-    isDirty,
     originalFiles,
-    closeEditor,
     savePlugin,
-    duplicatePlugin,
-    deletePlugin,
     openFile,
     closeFile,
     updateFileContent,
@@ -99,6 +69,7 @@ export function PluginEditor() {
   const [editorVisible, setEditorVisible] = useState(true)
   const [outputVisible, setOutputVisible] = useState(true)
   const [activeOutputTab, setActiveOutputTab] = useState<'config' | 'code' | 'results'>('config')
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   // --- Test execution state ---
   const [isExecuting, setIsExecuting] = useState(false)
@@ -144,29 +115,12 @@ export function PluginEditor() {
     el.scrollBy({ left: dir === 'left' ? -120 : 120, behavior: 'smooth' })
   }, [])
 
+  // Save/Cmd+S applies to the currently open file only: enabled when the active
+  // file has unsaved edits (not merely when some other file in the plugin does).
+  const activeFileDirty = !!activeFile && files[activeFile] !== originalFiles[activeFile]
   const handleSave = useCallback(() => {
-    savePlugin()
-  }, [savePlugin])
-
-  // Cmd/Ctrl+S saves when there are unsaved changes.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-        if (isDirty && !isSystemPlugin) handleSave()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [isDirty, isSystemPlugin, handleSave])
-
-  const handleDuplicate = useCallback(() => {
-    if (editingPluginId) duplicatePlugin(editingPluginId)
-  }, [editingPluginId, duplicatePlugin])
-
-  const handleDelete = useCallback(() => {
-    if (editingPluginId) deletePlugin(editingPluginId)
-  }, [editingPluginId, deletePlugin])
+    if (activeFileDirty && !isSystemPlugin) savePlugin()
+  }, [activeFileDirty, isSystemPlugin, savePlugin])
 
   // Parse manifest
   const manifest = useMemo(() => {
@@ -175,81 +129,9 @@ export function PluginEditor() {
     } catch { return {} }
   }, [files])
 
-  const pluginName = manifest.name?.en ?? manifest.id ?? editingPluginId ?? ''
-  const pluginNameFr = manifest.name?.fr ?? ''
-  const pluginDescEn = manifest.description?.en ?? ''
-  const pluginDescFr = manifest.description?.fr ?? ''
-  const pluginVersion = manifest.version ?? '1.0.0'
   const pluginScope = manifest.scope ?? 'lab'
-  const pluginIcon: string = manifest.icon ?? 'Puzzle'
-  const pluginIconColor: BadgeColor | undefined = manifest.iconColor
-  const pluginBadges: PluginBadge[] = manifest.badges ?? []
-  const pluginCatalogVisibility: CatalogVisibility | undefined = manifest.catalogVisibility
-  const pluginPythonDeps: string = (manifest.dependencies?.python ?? []).join('\n')
-  const pluginRDeps: string = (manifest.dependencies?.r ?? []).join('\n')
-
-
-  const handleExport = useCallback(async () => {
-    if (!editingPluginId) return
-    const JSZip = (await import('jszip')).default
-    const zip = new JSZip()
-    for (const [filename, content] of Object.entries(files)) {
-      zip.file(filename, content)
-    }
-    const blob = await zip.generateAsync({ type: 'blob' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${manifest.id ?? editingPluginId}.zip`
-    a.click()
-    URL.revokeObjectURL(url)
-  }, [editingPluginId, files, manifest])
+  const canRunTest = pluginScope === 'warehouse' ? !!testDataSourceId : !!testDatasetFileId
   const pluginLanguages: ('python' | 'r')[] = manifest.languages ?? []
-
-  // Helper to update a field in plugin.json
-  const updateManifestField = useCallback((key: string, value: unknown) => {
-    try {
-      const m = JSON.parse(files['plugin.json'] ?? '{}')
-      m[key] = value
-      updateFileContent('plugin.json', JSON.stringify(m, null, 2))
-    } catch { /* invalid json, skip */ }
-  }, [files, updateFileContent])
-
-  // Helper to update a nested field (e.g. 'name.en', 'dependencies.python')
-  const updateManifestNested = useCallback((path: string, value: unknown) => {
-    try {
-      const m = JSON.parse(files['plugin.json'] ?? '{}')
-      const parts = path.split('.')
-      let obj = m as Record<string, unknown>
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (obj[parts[i]] === undefined || typeof obj[parts[i]] !== 'object') obj[parts[i]] = {}
-        obj = obj[parts[i]] as Record<string, unknown>
-      }
-      obj[parts[parts.length - 1]] = value
-      updateFileContent('plugin.json', JSON.stringify(m, null, 2))
-    } catch { /* invalid json, skip */ }
-  }, [files, updateFileContent])
-
-  // Badge management
-  const [newBadgeLabel, setNewBadgeLabel] = useState('')
-  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
-
-  const handleAddBadge = useCallback(() => {
-    const label = newBadgeLabel.trim()
-    if (!label) return
-    const badge: PluginBadge = { id: `b-${Date.now()}`, label, color: newBadgeColor }
-    updateManifestField('badges', [...pluginBadges, badge])
-    setNewBadgeLabel('')
-  }, [newBadgeLabel, newBadgeColor, pluginBadges, updateManifestField])
-
-  const handleRemoveBadge = useCallback((id: string) => {
-    updateManifestField('badges', pluginBadges.filter(b => b.id !== id))
-  }, [pluginBadges, updateManifestField])
-
-  // Version bump
-  const handleBumpVersion = useCallback((type: BumpType) => {
-    updateManifestField('version', bumpVersion(pluginVersion, type))
-  }, [pluginVersion, updateManifestField])
 
   // Parse configSchema for test execution
   const parsedSchema = useMemo(() => {
@@ -374,432 +256,38 @@ export function PluginEditor() {
     return files[filename] !== originalFiles[filename]
   }
 
+  // Global save shortcut — mirrors the IDE. Monaco already binds save_file
+  // inside the editor (via CodeEditor.onSave); this covers the case where focus
+  // is elsewhere (file sidebar, toolbar). new_file scaffolds a new plugin file.
+  const globalHandlers: ShortcutHandlers = useMemo(
+    () => ({ new_file: () => { if (!isSystemPlugin) usePluginEditorStore.getState().createFile(t('plugins.new_file')) } }),
+    [isSystemPlugin, t],
+  )
+  useGlobalShortcuts(globalHandlers)
+
+  const saveBinding = useShortcutStore((s) => s.shortcuts.save_file.binding)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      const inMonaco = target.closest?.('.monaco-editor')
+      if (inMonaco) return // Monaco handles save_file itself
+      if (matchesCombo(e, saveBinding)) {
+        e.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [saveBinding, handleSave])
+
+  // Force CodeEditor remount when editor-scoped bindings change (same as the IDE).
+  const shortcutVersion = useShortcutStore((s) =>
+    JSON.stringify([s.shortcuts.save_file.binding, s.shortcuts.run_file.binding])
+  )
+
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="flex h-full flex-col">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <Button variant="ghost" size="sm" onClick={closeEditor} className="gap-1 text-xs">
-          <ArrowLeft size={14} />
-          {t('plugins.back_to_list')}
-        </Button>
-        <span className="text-sm font-medium truncate">{pluginName}</span>
-        <span className="text-[10px] text-muted-foreground">v{pluginVersion}</span>
-        {pluginBadges.map((badge) => (
-          <span
-            key={badge.id}
-            className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium leading-tight', getBadgeClasses(badge.color))}
-            style={getBadgeStyle(badge.color)}
-          >
-            {badge.label}
-          </span>
-        ))}
-        {isSystemPlugin && (
-          <Badge variant="outline" className="text-[10px] text-muted-foreground">
-            {t('plugins.system_plugin')}
-          </Badge>
-        )}
-        {isDirty && !isSystemPlugin && (
-          <Badge variant="secondary" className="text-[10px]">
-            {t('plugins.unsaved_changes')}
-          </Badge>
-        )}
-        <div className="ml-auto flex items-center gap-1">
-          {/* Settings popover (appearance, version, badges, publishing) */}
-          {!isSystemPlugin && (
-          <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-1 text-xs">
-                  <Settings size={12} />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-[340px] max-h-[70vh] overflow-auto space-y-4">
-                {/* Scope */}
-                {!isSystemPlugin && (
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium">{t('plugins.scope')}</Label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateManifestField('scope', 'warehouse')}
-                        disabled={!originalFiles['plugin.json']?.includes('"scope"') ? false : undefined}
-                        className={cn(
-                          'rounded-md border px-2.5 py-1 text-xs transition-colors',
-                          pluginScope === 'warehouse'
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border text-muted-foreground hover:bg-accent',
-                        )}
-                      >
-                        {t('plugins.scope_warehouse')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateManifestField('scope', 'lab')}
-                        className={cn(
-                          'rounded-md border px-2.5 py-1 text-xs transition-colors',
-                          pluginScope === 'lab'
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border text-muted-foreground hover:bg-accent',
-                        )}
-                      >
-                        {t('plugins.scope_lab')}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Languages */}
-                {!isSystemPlugin && (
-                  <div className="space-y-2 border-t pt-3">
-                    <Label className="text-xs font-medium">{t('plugins.languages')}</Label>
-                    <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={pluginLanguages.includes('python')}
-                          onChange={(e) => {
-                            const next = e.target.checked
-                              ? [...new Set([...pluginLanguages, 'python' as const])]
-                              : pluginLanguages.filter(l => l !== 'python')
-                            updateManifestField('languages', next)
-                          }}
-                          className="h-3.5 w-3.5 rounded border-border"
-                        />
-                        Python
-                      </label>
-                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={pluginLanguages.includes('r')}
-                          onChange={(e) => {
-                            const next = e.target.checked
-                              ? [...new Set([...pluginLanguages, 'r' as const])]
-                              : pluginLanguages.filter(l => l !== 'r')
-                            updateManifestField('languages', next)
-                          }}
-                          className="h-3.5 w-3.5 rounded border-border"
-                        />
-                        R
-                      </label>
-                    </div>
-                  </div>
-                )}
-
-                {/* Name */}
-                <div className={cn('space-y-2', !isSystemPlugin && 'border-t pt-3')}>
-                  <Label className="text-xs font-medium">{t('plugins.name_label')}</Label>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground w-5 shrink-0">EN</span>
-                      <Input
-                        value={pluginName}
-                        onChange={(e) => updateManifestNested('name.en', e.target.value)}
-                        className="h-7 text-[11px]"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground w-5 shrink-0">FR</span>
-                      <Input
-                        value={pluginNameFr}
-                        onChange={(e) => updateManifestNested('name.fr', e.target.value)}
-                        className="h-7 text-[11px]"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Description */}
-                <div className="space-y-2 border-t pt-3">
-                  <Label className="text-xs font-medium">{t('plugins.description_label')}</Label>
-                  <div className="space-y-1.5">
-                    <div className="flex gap-2">
-                      <span className="text-[10px] text-muted-foreground w-5 shrink-0 pt-1.5">EN</span>
-                      <Textarea
-                        value={pluginDescEn}
-                        onChange={(e) => updateManifestNested('description.en', e.target.value)}
-                        className="min-h-[36px] text-[11px] resize-none"
-                        rows={2}
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <span className="text-[10px] text-muted-foreground w-5 shrink-0 pt-1.5">FR</span>
-                      <Textarea
-                        value={pluginDescFr}
-                        onChange={(e) => updateManifestNested('description.fr', e.target.value)}
-                        className="min-h-[36px] text-[11px] resize-none"
-                        rows={2}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Appearance */}
-                <div className="space-y-3 border-t pt-3">
-                  <Label className="text-xs font-medium">{t('plugins.appearance')}</Label>
-                  <IconPicker
-                    value={pluginIcon}
-                    onChange={(name) => updateManifestField('icon', name)}
-                    iconColor={pluginIconColor && !PRESET_COLORS.some(c => c.value === pluginIconColor) ? pluginIconColor : undefined}
-                  />
-                  <div className="flex flex-wrap items-center gap-1 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => updateManifestField('iconColor', undefined)}
-                      className={cn(
-                        'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[8px] font-medium ring-offset-background transition-all',
-                        !pluginIconColor
-                          ? 'border-foreground/40 ring-2 ring-ring ring-offset-2'
-                          : 'border-muted-foreground/30 hover:ring-1 hover:ring-ring hover:ring-offset-1',
-                      )}
-                    >
-                      <X size={8} className="text-muted-foreground" />
-                    </button>
-                    {PRESET_COLORS.map((c) => (
-                      <button
-                        key={c.value}
-                        type="button"
-                        onClick={() => updateManifestField('iconColor', c.value)}
-                        className={cn(
-                          'h-5 w-5 shrink-0 rounded-full ring-offset-background transition-all',
-                          c.swatch,
-                          pluginIconColor === c.value
-                            ? 'ring-2 ring-ring ring-offset-2'
-                            : 'hover:ring-1 hover:ring-ring hover:ring-offset-1',
-                        )}
-                      />
-                    ))}
-                    <div className="relative shrink-0">
-                      <input
-                        type="color"
-                        value={pluginIconColor && isCustomColor(pluginIconColor) ? pluginIconColor : '#6366f1'}
-                        onChange={(e) => updateManifestField('iconColor', e.target.value)}
-                        className="absolute inset-0 h-5 w-5 cursor-pointer opacity-0"
-                      />
-                      <div
-                        className={cn(
-                          'flex h-5 w-5 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all',
-                          pluginIconColor && isCustomColor(pluginIconColor)
-                            ? 'ring-2 ring-ring ring-offset-2'
-                            : 'hover:border-muted-foreground/60',
-                        )}
-                        style={pluginIconColor && isCustomColor(pluginIconColor) ? { backgroundColor: pluginIconColor, borderStyle: 'solid', borderColor: pluginIconColor } : undefined}
-                      >
-                        {!(pluginIconColor && isCustomColor(pluginIconColor)) && <Plus size={8} />}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Dependencies — only for non-system plugins */}
-                {!isSystemPlugin && (
-                  <div className="space-y-2 border-t pt-3">
-                    <Label className="text-xs font-medium">{t('plugins.dependencies')}</Label>
-                    <div className="space-y-1.5">
-                      <div>
-                        <span className="text-[10px] text-muted-foreground">{t('plugins.python_deps')}</span>
-                        <Textarea
-                          value={pluginPythonDeps}
-                          onChange={(e) => updateManifestNested('dependencies.python', e.target.value.split('\n').filter(Boolean))}
-                          placeholder="pandas&#10;numpy"
-                          className="mt-0.5 min-h-[36px] text-[11px] font-mono resize-none"
-                          rows={2}
-                        />
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-muted-foreground">{t('plugins.r_deps')}</span>
-                        <Textarea
-                          value={pluginRDeps}
-                          onChange={(e) => updateManifestNested('dependencies.r', e.target.value.split('\n').filter(Boolean))}
-                          placeholder="dplyr&#10;ggplot2"
-                          className="mt-0.5 min-h-[36px] text-[11px] font-mono resize-none"
-                          rows={2}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Version */}
-                {!isSystemPlugin && (
-                <div className="space-y-2 border-t pt-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label className="text-xs font-medium">{t('plugins.version')}</Label>
-                    <Input
-                      value={pluginVersion}
-                      onChange={(e) => updateManifestField('version', e.target.value)}
-                      className="h-6 w-24 text-right font-mono text-[11px]"
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {(['patch', 'minor', 'major'] as BumpType[]).map((type) => {
-                      const bumped = bumpVersion(pluginVersion, type)
-                      return (
-                        <Button
-                          key={type}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleBumpVersion(type)}
-                          className="h-auto flex-col gap-0 py-1.5 text-xs"
-                        >
-                          <span className="font-medium">{t(`plugins.bump_${type}`)}</span>
-                          <span className="text-[10px] text-muted-foreground">{bumped}</span>
-                        </Button>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                )}
-
-                {/* Badges */}
-                <div className="space-y-2.5 border-t pt-3">
-                  <Label className="text-xs font-medium">{t('plugins.badges')}</Label>
-                  {pluginBadges.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {pluginBadges.map((badge) => (
-                        <span
-                          key={badge.id}
-                          className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium', getBadgeClasses(badge.color))}
-                          style={getBadgeStyle(badge.color)}
-                        >
-                          {badge.label}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveBadge(badge.id)}
-                            className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20"
-                          >
-                            <X size={10} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <Input
-                    value={newBadgeLabel}
-                    onChange={(e) => setNewBadgeLabel(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddBadge() }}
-                    placeholder={t('plugins.badge_label_placeholder')}
-                    className="h-7 text-[11px]"
-                  />
-                  <div className="flex items-center gap-1">
-                    {PRESET_COLORS.map((c) => (
-                      <button
-                        key={c.value}
-                        type="button"
-                        onClick={() => setNewBadgeColor(c.value)}
-                        className={cn(
-                          'h-5 w-5 rounded-full ring-offset-background transition-all',
-                          c.swatch,
-                          newBadgeColor === c.value
-                            ? 'ring-2 ring-ring ring-offset-2'
-                            : 'hover:ring-1 hover:ring-ring hover:ring-offset-1',
-                        )}
-                      />
-                    ))}
-                    <div className="relative">
-                      <input
-                        type="color"
-                        value={isCustomColor(newBadgeColor) ? newBadgeColor : '#6366f1'}
-                        onChange={(e) => setNewBadgeColor(e.target.value)}
-                        className="absolute inset-0 h-5 w-5 cursor-pointer opacity-0"
-                      />
-                      <div
-                        className={cn(
-                          'flex h-5 w-5 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all',
-                          isCustomColor(newBadgeColor)
-                            ? 'ring-2 ring-ring ring-offset-2'
-                            : 'hover:border-muted-foreground/60',
-                        )}
-                        style={isCustomColor(newBadgeColor) ? { backgroundColor: newBadgeColor, borderStyle: 'solid', borderColor: newBadgeColor } : undefined}
-                      >
-                        {!isCustomColor(newBadgeColor) && <Plus size={8} />}
-                      </div>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleAddBadge}
-                    disabled={!newBadgeLabel.trim()}
-                    className="mt-0.5 h-7 gap-1 text-xs w-full"
-                  >
-                    <Plus size={12} />
-                    {t('plugins.add_badge')}
-                  </Button>
-                </div>
-
-                {/* Publishing — only for non-system plugins */}
-                {!isSystemPlugin && (
-                  <div className="space-y-2 border-t pt-3">
-                    <Label className="text-xs font-medium">{t('plugins.publishing_section')}</Label>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateManifestField('catalogVisibility', 'unlisted')}
-                        className={cn(
-                          'rounded-md border px-2.5 py-1 text-xs transition-colors',
-                          pluginCatalogVisibility !== 'listed'
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border text-muted-foreground hover:bg-accent',
-                        )}
-                      >
-                        {t('catalog.unlisted')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateManifestField('catalogVisibility', 'listed')}
-                        className={cn(
-                          'rounded-md border px-2.5 py-1 text-xs transition-colors',
-                          pluginCatalogVisibility === 'listed'
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border text-muted-foreground hover:bg-accent',
-                        )}
-                      >
-                        {t('catalog.listed')}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </PopoverContent>
-            </Popover>
-          )}
-          {/* "..." dropdown: Export, Duplicate, Delete */}
-          {!isSystemPlugin && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <MoreHorizontal size={14} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleExport}>
-                  <Download size={14} />
-                  {t('plugins.export')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDuplicate}>
-                  <Copy size={14} />
-                  {t('plugins.duplicate')}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onClick={handleDelete}>
-                  <Trash2 size={14} />
-                  {t('common.delete')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          {/* Save — rightmost */}
-          {!isSystemPlugin && saveError && (
-            <span className="text-[10px] text-destructive">{t(`plugins.${saveError}`)}</span>
-          )}
-          {!isSystemPlugin && (
-            <Button size="sm" onClick={handleSave} disabled={!isDirty} className="gap-1 text-xs">
-              <Save size={12} />
-              {t('plugins.save')}
-            </Button>
-          )}
-        </div>
-      </div>
-
       {/* Main area: file sidebar | (tab bar + editor/output) */}
       <div className="min-h-0 flex-1">
         <Allotment>
@@ -807,8 +295,6 @@ export function PluginEditor() {
           <Allotment.Pane preferredSize={180} minSize={120} maxSize={300} visible={explorerVisible}>
             <PluginFileList
               onCollapse={() => setExplorerVisible(false)}
-              isRunning={isExecuting}
-              onRun={handleRunTest}
               readOnly={isSystemPlugin}
               scope={pluginScope as 'lab' | 'warehouse'}
               manifestLanguages={pluginLanguages.length > 0 ? pluginLanguages : undefined}
@@ -818,8 +304,6 @@ export function PluginEditor() {
           {/* Editor + Output column */}
           <Allotment.Pane minSize={200}>
             <div className="flex h-full flex-col">
-              {/* Unified tab bar — same level as file sidebar header */}
-              <TooltipProvider delayDuration={300}>
               {/* Toolbar: icon buttons */}
               <div className="flex items-center gap-1 border-b px-2 py-1.5">
                 {!explorerVisible && (
@@ -844,7 +328,48 @@ export function PluginEditor() {
                   </TooltipTrigger>
                   <TooltipContent>{t('plugins.toggle_editor')}</TooltipContent>
                 </Tooltip>
+
+                <div className="mx-1 h-4 w-px bg-border" />
+
+                {/* Run test — same button style as SQL script collections */}
+                <Button
+                  size="xs"
+                  className="gap-1"
+                  onClick={handleRunTest}
+                  disabled={isExecuting || !canRunTest}
+                >
+                  {isExecuting ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+                  {t('plugins.test_run')}
+                </Button>
+
+                {/* Save (Cmd+S) */}
+                {!isSystemPlugin && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon-xs" onClick={handleSave} disabled={!activeFileDirty}>
+                        <Save size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('plugins.save')} (⌘S)</TooltipContent>
+                  </Tooltip>
+                )}
+
+                {saveError && (
+                  <span className="text-[10px] text-destructive">{t(`plugins.${saveError}`)}</span>
+                )}
+
                 <div className="flex-1" />
+
+                {/* Keyboard shortcuts */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon-xs" onClick={() => setShortcutsOpen(true)}>
+                      <Keyboard size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('plugins.shortcuts')}</TooltipContent>
+                </Tooltip>
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -995,7 +520,6 @@ export function PluginEditor() {
                   </button>
                 ))}
               </div>
-              </TooltipProvider>
 
               {/* Editor + Output split */}
               <div className="min-h-0 flex-1">
@@ -1005,6 +529,7 @@ export function PluginEditor() {
                     <div className="h-full">
                       {activeFile ? (
                         <CodeEditor
+                          key={shortcutVersion}
                           value={activeContent}
                           language={activeLanguage}
                           onChange={(val) => {
@@ -1013,6 +538,8 @@ export function PluginEditor() {
                             }
                           }}
                           onSave={isSystemPlugin ? undefined : handleSave}
+                          onRunFile={handleRunTest}
+                          onRunSelectionOrLine={handleRunTest}
                           readOnly={isSystemPlugin}
                         />
                       ) : (
@@ -1042,6 +569,14 @@ export function PluginEditor() {
           </Allotment.Pane>
         </Allotment>
       </div>
+
+      {/* Keyboard shortcuts — reuse the IDE dialog, editor-relevant actions only */}
+      <KeyboardShortcutsDialog
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+        actionIds={['new_file', 'save_file', 'run_file', 'run_selection_or_line', 'toggle_comment', 'find', 'replace', 'undo', 'redo']}
+      />
     </div>
+    </TooltipProvider>
   )
 }

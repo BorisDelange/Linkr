@@ -15,7 +15,7 @@ export function PluginsPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="px-6 py-6">
+      <div className="mx-auto max-w-4xl px-6 py-10">
         <PluginsTab />
       </div>
     </div>

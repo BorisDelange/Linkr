@@ -9,8 +9,8 @@ import {
   Eye,
   EyeOff,
   Play,
-  PlayCircle,
   Square,
+  Save,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -429,42 +429,45 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                 {editorVisible && selectedFile && (
                   <>
                     <div className="mx-1 h-4 w-px bg-border" />
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={isRunning ? undefined : handleRunFile}
-                          disabled={isRunning || !canWrite}
-                        >
-                          <Play size={14} />
+                    {/* Run — split button (same UI as SQL script collections). */}
+                    {isRunning ? (
+                      <Button size="xs" variant="destructive" className="gap-1" onClick={() => setIsRunning(false)}>
+                        <Square size={12} />
+                        {t('etl.stop')}
+                      </Button>
+                    ) : (
+                      <div className="flex">
+                        <Button size="xs" className="gap-1 rounded-r-none" onClick={handleRunFile} disabled={!canWrite}>
+                          <Play size={12} />
+                          {t('etl.run')}
                         </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('etl.run_file')} (⇧↵)</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={isRunning ? undefined : handleRunAll}
-                          disabled={isRunning || !canWrite}
-                        >
-                          <PlayCircle size={14} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('etl.run_all')} (⌘⇧↵)</TooltipContent>
-                    </Tooltip>
-                    {isRunning && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon-xs" onClick={() => setIsRunning(false)}>
-                            <Square size={14} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('etl.stop')}</TooltipContent>
-                      </Tooltip>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="xs" className="rounded-l-none border-l border-primary-foreground/20 px-1" disabled={!canWrite}>
+                              <ChevronDown size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={handleRunFile}>{t('etl.run_file')}</DropdownMenuItem>
+                            <DropdownMenuItem onClick={handleRunAll}>{t('etl.run_all')}</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     )}
+                    {/* Save current file (Cmd+S) — after Run */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={handleSaveFile}
+                          disabled={_dirtyVersion < 0 || !isFileDirty(selectedFile.id) || !canWrite}
+                        >
+                          <Save size={14} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('etl.save')} (⌘S)</TooltipContent>
+                    </Tooltip>
 
                     {/* Per-file database selector — same picker UI as SQL scripts. */}
                     <div className="mx-1 h-4 w-px bg-border" />

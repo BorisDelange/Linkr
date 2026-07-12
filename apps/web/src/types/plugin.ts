@@ -56,6 +56,21 @@ export interface PluginConfigField {
   }
 }
 
+/** Editable plugin metadata captured by the create/edit dialog (single active language). */
+export interface PluginFormFields {
+  name: string
+  description: string
+  scope: 'lab' | 'warehouse'
+  languages: ('python' | 'r')[]
+  icon: string
+  iconColor?: import('@/types').BadgeColor
+  badges: PluginBadge[]
+  pythonDeps: string[]
+  rDeps: string[]
+  version: string
+  catalogVisibility?: import('@/types').CatalogVisibility
+}
+
 /** Runtime mode(s) the plugin supports. */
 export type PluginRuntime = 'script' | 'component'
 

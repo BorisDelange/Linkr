@@ -453,6 +453,26 @@ export function registerDefaultPlugins() {
 
   // Warehouse system plugins (built-in patient data widgets)
   registerBuiltinWidgetPlugins()
+
+  // Snapshot the canonical built-ins now, before any workspace-scoped user plugin
+  // is registered on top (registerUserPlugins overwrites same-id entries with a
+  // workspaceId set). The seeder must not rely on the mutable registry, otherwise
+  // built-ins look "workspace-scoped" and stop being seeded from the 2nd workspace on.
+  builtinSnapshot = getAllPlugins()
+    .filter((p) => !p.workspaceId)
+    .map((p) => ({ manifest: p.manifest, templates: p.templates }))
+  builtinManifestIds = new Set(builtinSnapshot.map((p) => p.manifest.id))
+}
+
+/** Frozen list of built-in plugins captured at registration time (see above). */
+let builtinSnapshot: { manifest: import('@/types/plugin').PluginManifest; templates: Record<string, string> | null }[] = []
+/** Manifest ids of every app-provided built-in (lab components + warehouse widgets). */
+let builtinManifestIds = new Set<string>()
+
+/** True when a manifest id belongs to an app-provided built-in (read-only: its code
+ *  lives in the bundle, not in editable files). Covers both lab and warehouse built-ins. */
+export function isBuiltinPluginId(manifestId: string): boolean {
+  return builtinManifestIds.has(manifestId)
 }
 
 /** Load user-created plugins from IndexedDB and register them. */
@@ -466,17 +486,31 @@ export function registerDefaultPlugins() {
  */
 export async function seedBuiltinPluginsForWorkspace(workspaceId: string): Promise<void> {
   const storage = getStorage()
-  let existingIds: Set<string>
+  // Idempotence key is the MANIFEST id, not the row id. The row id must be unique
+  // per workspace (it's a global primary key, both in IDB and the SQL backend —
+  // String(36), i.e. a UUID), so we can't reuse manifest.id as the row id: the 2nd
+  // workspace's seed would collide on the PK and silently fail. Track which manifest
+  // ids are already seeded in this workspace via entityId (set to the manifest id).
+  let seededManifestIds: Set<string>
   try {
     const existing = await storage.userPlugins.getByWorkspace(workspaceId)
-    existingIds = new Set(existing.map((p) => p.id))
+    seededManifestIds = new Set(
+      existing.map((p) => {
+        if (p.entityId) return p.entityId
+        try { return JSON.parse(p.files['plugin.json'] ?? '{}').id as string } catch { return p.id }
+      }),
+    )
   } catch {
-    existingIds = new Set()
+    seededManifestIds = new Set()
   }
+  // Iterate the frozen snapshot, not the live registry: once user plugins load,
+  // built-ins in the registry gain a workspaceId and would be skipped otherwise.
+  const builtins = builtinSnapshot.length > 0
+    ? builtinSnapshot
+    : getAllPlugins().filter((p) => !p.workspaceId).map((p) => ({ manifest: p.manifest, templates: p.templates }))
   const now = new Date().toISOString()
-  for (const plugin of getAllPlugins()) {
-    if (plugin.workspaceId) continue  // only built-ins (no workspace)
-    if (existingIds.has(plugin.manifest.id)) continue
+  for (const plugin of builtins) {
+    if (seededManifestIds.has(plugin.manifest.id)) continue
     const files: Record<string, string> = {
       'plugin.json': JSON.stringify(plugin.manifest, null, 2),
     }
@@ -487,7 +521,7 @@ export async function seedBuiltinPluginsForWorkspace(workspaceId: string): Promi
     }
     await storage.userPlugins
       .create({
-        id: plugin.manifest.id,
+        id: crypto.randomUUID(),
         entityId: plugin.manifest.id,
         files,
         createdAt: now,

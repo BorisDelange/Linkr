@@ -930,7 +930,11 @@ export function FilesPage() {
                       language={selectedLanguage as 'python' | 'r' | undefined}
                       projectUid={activeProjectUid ?? undefined}
                     />
-                    {/* Save current file (Cmd+S) */}
+                    {/* Session (kernel namespace) selector — server mode, R/Python only. */}
+                    {(selectedLanguage === 'python' || selectedLanguage === 'r') && activeProjectUid && (
+                      <SessionDropdown projectUid={activeProjectUid} />
+                    )}
+                    {/* Save current file (Cmd+S) — after the environments dropdown */}
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -944,10 +948,6 @@ export function FilesPage() {
                       </TooltipTrigger>
                       <TooltipContent>{t('files.save')} (⌘S)</TooltipContent>
                     </Tooltip>
-                    {/* Session (kernel namespace) selector — server mode, R/Python only. */}
-                    {(selectedLanguage === 'python' || selectedLanguage === 'r') && activeProjectUid && (
-                      <SessionDropdown projectUid={activeProjectUid} />
-                    )}
                     {isSql && activeConnectionId && (
                       <Tooltip>
                         <TooltipTrigger asChild>

@@ -872,6 +872,8 @@ export interface UserPlugin {
   entityId?: string
   workspaceId?: string
   files: Record<string, string>
+  /** Git remote for exporting/versioning the plugin (same pattern as other entities). */
+  gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string
 }

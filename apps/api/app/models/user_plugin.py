@@ -18,3 +18,4 @@ class UserPlugin(Base, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     files: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # filename -> code
+    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)

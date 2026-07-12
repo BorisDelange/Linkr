@@ -2019,7 +2019,15 @@
     "no_results": "No plugins matching your search",
     "filter_badges": "Badges",
     "shortcuts": "Keyboard shortcuts",
-    "name_exists": "A file named \"{{name}}\" already exists"
+    "name_exists": "A file named \"{{name}}\" already exists",
+    "file_name": "File name",
+    "file_type_python": "Python script",
+    "file_type_r": "R script",
+    "file_type_py_template": "Python template",
+    "file_type_r_template": "R template",
+    "file_type_markdown": "Markdown",
+    "file_type_json": "JSON",
+    "filter_type": "Type"
   },
   "profile": {
     "title": "User settings",
@@ -2624,7 +2632,9 @@
     "comparison_tab_statistics": "Statistics",
     "comparison_tab_concepts": "Concepts",
     "comparison_no_mappings": "No concept mappings found. Run the pipeline first or check the source_to_concept_map table.",
-    "comparison_mapping_concepts": "concepts"
+    "comparison_mapping_concepts": "concepts",
+    "run": "Run",
+    "save": "Save"
   },
   "sql_scripts": {
     "title": "Script Collections",

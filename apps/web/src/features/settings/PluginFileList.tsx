@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   File,
@@ -10,12 +10,19 @@ import {
   Trash2,
   Pencil,
   Settings2,
-  Play,
-  Loader2,
+  Check,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Select,
@@ -62,10 +69,18 @@ function getFileIcon(filename: string) {
   return <File size={14} className="shrink-0 text-muted-foreground" />
 }
 
+/** File types offered by the New file modal (mirrors the ETL editor's picker). */
+const PLUGIN_FILE_TYPES = [
+  { id: 'python', ext: '.py', labelKey: 'plugins.file_type_python' },
+  { id: 'r', ext: '.R', labelKey: 'plugins.file_type_r' },
+  { id: 'py_template', ext: '.py.template', labelKey: 'plugins.file_type_py_template' },
+  { id: 'r_template', ext: '.R.template', labelKey: 'plugins.file_type_r_template' },
+  { id: 'markdown', ext: '.md', labelKey: 'plugins.file_type_markdown' },
+  { id: 'json', ext: '.json', labelKey: 'plugins.file_type_json' },
+] as const
+
 interface PluginFileListProps {
   onCollapse?: () => void
-  isRunning?: boolean
-  onRun?: () => void
   /** When true, hide add/delete/rename file actions and test buttons (system plugins). */
   readOnly?: boolean
   /** Plugin scope — determines test config UI (lab: project+dataset, warehouse: database). */
@@ -74,7 +89,7 @@ interface PluginFileListProps {
   manifestLanguages?: ('python' | 'r')[]
 }
 
-export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope = 'lab', manifestLanguages }: PluginFileListProps) {
+export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLanguages }: PluginFileListProps) {
   const { t } = useTranslation()
   const projects = useAppStore((s) => s.projects)
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -101,10 +116,12 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
     setTestVisitDetailId,
   } = usePluginEditorStore()
 
-  const [creating, setCreating] = useState(false)
+  const [createFileOpen, setCreateFileOpen] = useState(false)
   const [newFileName, setNewFileName] = useState('')
+  const [newFileType, setNewFileType] = useState<string>('python')
   const [renamingFile, setRenamingFile] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const renameInputRef = useRef<HTMLInputElement>(null)
   const [datasets, setDatasets] = useState<{ id: string; name: string; columns: DatasetColumn[] }[]>([])
 
   // Warehouse test context — patients, visits, visit details loaded from DB
@@ -130,8 +147,6 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
     [dataSources, testDataSourceId],
   )
 
-  // Whether the Run button should be enabled
-  const canRun = scope === 'warehouse' ? !!testDataSourceId : !!testDatasetFileId
 
   // --- Lab: load datasets ---
   const loadDatasets = useCallback(async (uid: string) => {
@@ -237,23 +252,60 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
     return a.localeCompare(b)
   })
 
-  const handleCreate = () => {
-    const name = newFileName.trim()
-    if (name && !files[name]) {
-      createFile(name)
-      setNewFileName('')
-      setCreating(false)
-    }
+  const openCreateFile = () => {
+    setNewFileName('')
+    setNewFileType('python')
+    setCreateFileOpen(true)
   }
 
+  const handleCreate = () => {
+    const ext = PLUGIN_FILE_TYPES.find((ft) => ft.id === newFileType)?.ext ?? ''
+    const raw = newFileName.trim()
+    if (!raw) return
+    // Append the type extension unless the user already typed one.
+    const name = raw.includes('.') ? raw : `${raw}${ext}`
+    if (files[name]) return
+    createFile(name)
+    setNewFileName('')
+    setCreateFileOpen(false)
+  }
+
+  const trimmedRename = renameValue.trim()
+  const renameClashes =
+    !!renamingFile &&
+    !!trimmedRename &&
+    trimmedRename.toLowerCase() !== renamingFile.toLowerCase() &&
+    files[trimmedRename] !== undefined
+
   const handleRename = (oldName: string) => {
-    const name = renameValue.trim()
-    if (name && name !== oldName && !files[name]) {
-      renameFile(oldName, name)
-    }
+    if (!trimmedRename || renameClashes) { setRenamingFile(null); return }
+    if (trimmedRename !== oldName) renameFile(oldName, trimmedRename)
     setRenamingFile(null)
     setRenameValue('')
   }
+
+  // Focus the rename input and select the base name (before extension) once the
+  // context menu closes and restores focus — same behaviour as the IDE tree.
+  useEffect(() => {
+    if (!renamingFile) return
+    let tries = 0
+    let raf = 0
+    const tick = () => {
+      const el = renameInputRef.current
+      if (el) {
+        if (document.activeElement !== el) el.focus()
+        if (document.activeElement === el) {
+          const dot = renamingFile.lastIndexOf('.')
+          if (dot > 0) el.setSelectionRange(0, dot)
+          else el.select()
+          return
+        }
+      }
+      if (tries++ < 10) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [renamingFile])
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -266,27 +318,12 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  onClick={() => { setCreating(true); setNewFileName('') }}
+                  onClick={openCreateFile}
                 >
                   <FilePlus size={14} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t('plugins.new_file_tooltip')}</TooltipContent>
-            </Tooltip>
-          )}
-          {onRun && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={onRun}
-                  disabled={isRunning || !canRun}
-                >
-                  {isRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('plugins.test_run')}</TooltipContent>
             </Tooltip>
           )}
           {/* Test config popover */}
@@ -454,18 +491,46 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
           <ContextMenu key={filename}>
             <ContextMenuTrigger>
               {renamingFile === filename ? (
-                <div className="px-2 py-0.5">
-                  <Input
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleRename(filename)
-                      if (e.key === 'Escape') setRenamingFile(null)
-                    }}
-                    onBlur={() => handleRename(filename)}
-                    autoFocus
-                    className="h-6 text-xs"
-                  />
+                <div className="flex w-full items-center gap-1.5 px-3 py-1 text-xs">
+                  {getFileIcon(filename)}
+                  <span className={cn(
+                    'flex min-w-0 flex-1 items-center rounded border bg-background',
+                    renameClashes ? 'border-destructive' : 'border-primary',
+                  )}>
+                    <input
+                      ref={renameInputRef}
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      title={renameClashes ? t('plugins.name_exists', { name: trimmedRename }) : undefined}
+                      onKeyDown={(e) => {
+                        e.stopPropagation()
+                        if (e.key === 'Enter') handleRename(filename)
+                        else if (e.key === 'Escape') { e.preventDefault(); setRenamingFile(null) }
+                      }}
+                      className="w-0 min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-label={t('common.cancel')}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setRenamingFile(null)}
+                      className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+                    >
+                      <X size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      disabled={renameClashes || !trimmedRename}
+                      aria-label={t('common.save')}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleRename(filename)}
+                      className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      <Check size={12} />
+                    </button>
+                  </span>
                 </div>
               ) : (
                 <button
@@ -497,24 +562,54 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
             )}
           </ContextMenu>
         ))}
-
-        {creating && (
-          <div className="px-2 py-0.5">
-            <Input
-              value={newFileName}
-              onChange={(e) => setNewFileName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreate()
-                if (e.key === 'Escape') setCreating(false)
-              }}
-              onBlur={() => { if (newFileName.trim()) handleCreate(); else setCreating(false) }}
-              placeholder={t('plugins.new_file')}
-              autoFocus
-              className="h-6 text-xs"
-            />
-          </div>
-        )}
       </div>
+
+      {/* New file modal — same shape as the ETL editor's picker */}
+      <Dialog open={createFileOpen} onOpenChange={setCreateFileOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('plugins.new_file_tooltip')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>{t('files.file_type')}</Label>
+              <Select value={newFileType} onValueChange={setNewFileType}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PLUGIN_FILE_TYPES.map((ft) => (
+                    <SelectItem key={ft.id} value={ft.id}>
+                      {getFileIcon(`x${ft.ext}`)}
+                      <span className="ml-2">
+                        {t(ft.labelKey)} <span className="text-muted-foreground">({ft.ext})</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{t('plugins.file_name')}</Label>
+              <Input
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                placeholder={`analysis${PLUGIN_FILE_TYPES.find((ft) => ft.id === newFileType)?.ext ?? ''}`}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate() } }}
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateFileOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleCreate} disabled={!newFileName.trim()}>
+              {t('common.create')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
     </TooltipProvider>
   )
