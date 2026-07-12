@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import {
@@ -253,6 +254,7 @@ export function AppDatabasesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [projectFilter, setProjectFilter] = useState<string[]>([])
+  const [sort, setSort] = useState<SortState | null>(null)
 
   // Show only databases for the current workspace, hide vocabulary-only sources
   const visibleSources = dataSources.filter((ds) => !ds.isVocabularyReference && ds.workspaceId === wsUid)
@@ -270,7 +272,7 @@ export function AppDatabasesPage() {
   // Fuzzy search + status + linked-project filters.
   const filteredSources = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
-    return visibleSources.filter((ds) => {
+    const matched = visibleSources.filter((ds) => {
       if (words.length) {
         const haystack = `${ds.name} ${ds.description ?? ''}`.toLowerCase()
         if (!words.every((w) => haystack.includes(w))) return false
@@ -282,7 +284,12 @@ export function AppDatabasesPage() {
       }
       return true
     })
-  }, [visibleSources, searchQuery, statusFilter, projectFilter, getLinkedProjects])
+    return applySort(matched, sort, {
+      name: (ds) => ds.name,
+      createdAt: (ds) => ds.createdAt,
+      updatedAt: (ds) => ds.updatedAt,
+    })
+  }, [visibleSources, searchQuery, statusFilter, projectFilter, getLinkedProjects, sort])
 
   const linkedProjectOptions = useMemo(() => {
     const seen = new Map<string, string>()
@@ -365,6 +372,7 @@ export function AppDatabasesPage() {
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('databases.search_placeholder')}
             filterGroups={filterGroups}
+            sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
           />
         )}
 

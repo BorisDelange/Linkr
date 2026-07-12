@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { paths } from '@/lib/paths'
@@ -41,6 +41,8 @@ import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { EditWorkspaceDialog } from './EditWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, visitSortFields } from '@/lib/list-sort'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { getGitCorsProxy, setGitCorsProxy, canCloneFromGit, cloneRepoToZip } from '@/lib/git-clone'
@@ -60,6 +62,53 @@ export function WorkspacesPage() {
   const { getWorkspaceProjects, loadProjects } = useAppStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [badgeFilter, setBadgeFilter] = useState<string[]>([])
+  const [sort, setSort] = useState<SortState | null>(null)
+
+  const allBadges = useMemo(() => {
+    const byLabel = new Map<string, string>()
+    for (const raw of _workspacesRaw) for (const b of raw.badges ?? []) if (!byLabel.has(b.label)) byLabel.set(b.label, b.color)
+    return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
+  }, [_workspacesRaw])
+
+  const filteredWorkspaces = useMemo(() => {
+    const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+    const filtered = workspaces.filter((ws) => {
+      if (words.length) {
+        const hay = `${ws.name} ${ws.organizationName ?? ''}`.toLowerCase()
+        if (!words.every((w) => hay.includes(w))) return false
+      }
+      if (badgeFilter.length) {
+        const labels = new Set((_workspacesRaw.find((w) => w.id === ws.id)?.badges ?? []).map((b) => b.label))
+        if (!badgeFilter.some((l) => labels.has(l))) return false
+      }
+      return true
+    })
+    return applySort(filtered, sort, {
+      name: (ws) => ws.name,
+      createdAt: (ws) => ws.createdAt,
+      updatedAt: (ws) => ws.updatedAt,
+      entityType: 'workspace',
+      id: (ws) => ws.id,
+    })
+  }, [workspaces, _workspacesRaw, searchQuery, badgeFilter, sort])
+
+  const filterGroups = useMemo<FilterGroup[]>(() => [
+    {
+      key: 'badges',
+      label: t('common.badges'),
+      options: allBadges.map((b) => ({
+        value: b.label,
+        label: b.label,
+        badgeClass: getBadgeClasses(b.color),
+        badgeStyle: getBadgeStyle(b.color),
+      })),
+      selected: badgeFilter,
+      onChange: setBadgeFilter,
+    },
+  ], [t, badgeFilter, allBadges])
 
   // Open the create dialog straight away when arriving via "Create a workspace"
   // (?new=1 from the Home empty state), then clear the flag from the URL.
@@ -640,6 +689,16 @@ export function WorkspacesPage() {
           </div>
         </div>
 
+        {workspaces.length > 0 && (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('workspaces.search_placeholder')}
+            filterGroups={filterGroups}
+            sort={{ options: visitSortFields(t), value: sort, onChange: setSort }}
+          />
+        )}
+
         {workspaces.length === 0 ? (
           <Card className="mt-6">
             <div className="flex flex-col items-center py-12">
@@ -652,9 +711,16 @@ export function WorkspacesPage() {
               </p>
             </div>
           </Card>
+        ) : filteredWorkspaces.length === 0 ? (
+          <Card className="mt-6">
+            <div className="flex flex-col items-center py-12">
+              <Building2 size={40} className="text-muted-foreground/30" />
+              <p className="mt-4 text-sm font-medium text-foreground">{t('common.no_results')}</p>
+            </div>
+          </Card>
         ) : (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {workspaces.map((ws) => {
+            {filteredWorkspaces.map((ws) => {
               const projectCount = getWorkspaceProjects(ws.id).length
               const raw = _workspacesRaw.find((w) => w.id === ws.id)
               const badges = raw?.badges ?? []

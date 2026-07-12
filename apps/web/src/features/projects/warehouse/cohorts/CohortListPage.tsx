@@ -10,7 +10,8 @@ import { UsersRound, Plus } from 'lucide-react'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { Card } from '@/components/ui/card'
-import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,17 +38,24 @@ export function CohortListPage() {
   const [editingCohort, setEditingCohort] = useState<Cohort | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Cohort | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
 
   const cohorts = useMemo(() => (uid ? allCohorts.filter((c) => c.projectUid === uid) : []), [uid, allCohorts])
 
   const filteredCohorts = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
-    if (!words.length) return cohorts
-    return cohorts.filter((c) => {
-      const haystack = `${c.name} ${c.description ?? ''}`.toLowerCase()
-      return words.every((w) => haystack.includes(w))
+    const filtered = !words.length
+      ? cohorts
+      : cohorts.filter((c) => {
+          const haystack = `${c.name} ${c.description ?? ''}`.toLowerCase()
+          return words.every((w) => haystack.includes(w))
+        })
+    return applySort(filtered, sort, {
+      name: (c) => c.name,
+      createdAt: (c) => c.createdAt,
+      updatedAt: (c) => c.updatedAt,
     })
-  }, [cohorts, searchQuery])
+  }, [cohorts, searchQuery, sort])
   const basePath = `/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`
 
   const handleCreate = async (data: { name: string; description: string }) => {
@@ -82,6 +90,7 @@ export function CohortListPage() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('cohorts.search_placeholder')}
+            sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
           />
         )}
 

@@ -6,7 +6,8 @@ import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import { cn } from '@/lib/utils'
 import {
   AlertDialog,
@@ -194,6 +195,7 @@ export function PluginsTab() {
   const [searchQuery, setSearchQuery] = useState('')
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const [typeFilter, setTypeFilter] = useState<string[]>([])
+  const [sort, setSort] = useState<SortState | null>(null)
 
   const importInputRef = useRef<HTMLInputElement>(null)
   const [importConflict, setImportConflict] = useState<{ name: string; files: Record<string, string>; pluginId: string } | null>(null)
@@ -227,7 +229,7 @@ export function PluginsTab() {
 
   const filteredPlugins = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
-    return pluginList.filter((p) => {
+    const filtered = pluginList.filter((p) => {
       if (words.length) {
         const text = `${p.manifest.name?.en ?? ''} ${p.manifest.name?.fr ?? ''} ${p.manifest.description?.en ?? ''} ${p.manifest.description?.fr ?? ''}`.toLowerCase()
         if (!words.every((w) => text.includes(w))) return false
@@ -242,7 +244,12 @@ export function PluginsTab() {
       }
       return true
     })
-  }, [pluginList, searchQuery, badgeFilter, typeFilter])
+    return applySort(filtered, sort, {
+      name: (p) => p.manifest.name?.[lang] ?? p.manifest.name?.en ?? p.id,
+      createdAt: (p) => p.createdAt,
+      updatedAt: (p) => p.updatedAt,
+    })
+  }, [pluginList, searchQuery, badgeFilter, typeFilter, sort, lang])
 
   // Split filtered plugins by scope
   const warehousePlugins = useMemo(
@@ -429,6 +436,7 @@ export function PluginsTab() {
           onSearchChange={setSearchQuery}
           searchPlaceholder={t('plugins.search_placeholder')}
           filterGroups={filterGroups}
+          sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
         />
       )}
 

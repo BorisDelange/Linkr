@@ -7,7 +7,8 @@ import { useAppStore } from '@/stores/app-store'
 import type { DataSource } from '@/types'
 import { Database, Link as LinkIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
-import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +55,7 @@ export function DatabasesPage() {
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
+  const [sort, setSort] = useState<SortState | null>(null)
 
   // Mount all data sources for this project when entering the page
   useEffect(() => {
@@ -69,7 +71,7 @@ export function DatabasesPage() {
 
   const filteredSources = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
-    return sources.filter((ds) => {
+    const filtered = sources.filter((ds) => {
       if (words.length) {
         const haystack = `${ds.name} ${ds.description ?? ''}`.toLowerCase()
         if (!words.every((w) => haystack.includes(w))) return false
@@ -77,7 +79,12 @@ export function DatabasesPage() {
       if (statusFilter.length && !statusFilter.includes(ds.status)) return false
       return true
     })
-  }, [sources, searchQuery, statusFilter])
+    return applySort(filtered, sort, {
+      name: (ds) => ds.name,
+      createdAt: (ds) => ds.createdAt,
+      updatedAt: (ds) => ds.updatedAt,
+    })
+  }, [sources, searchQuery, statusFilter, sort])
 
   const filterGroups: FilterGroup[] = [
     {
@@ -153,6 +160,7 @@ export function DatabasesPage() {
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('databases.search_placeholder')}
             filterGroups={filterGroups}
+            sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
           />
         )}
 

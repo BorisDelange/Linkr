@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Search, SlidersHorizontal, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Search, SlidersHorizontal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -39,12 +39,33 @@ export interface FilterGroup {
   onChange: (next: string[]) => void
 }
 
+export type SortDir = 'asc' | 'desc'
+
+export interface SortState {
+  key: string
+  dir: SortDir
+}
+
+export interface SortField {
+  key: string
+  label: string
+}
+
+export interface SortConfig {
+  options: SortField[]
+  /** Active sort, or null when sorting is off (page default order). */
+  value: SortState | null
+  onChange: (next: SortState | null) => void
+}
+
 interface ListPageToolbarProps {
   searchQuery: string
   onSearchChange: (value: string) => void
   searchPlaceholder?: string
   /** Filter groups. When empty/omitted, no Filters button is shown. */
   filterGroups?: FilterGroup[]
+  /** Sort fields. When omitted, no Sort section is shown in the popover. */
+  sort?: SortConfig
   /** Extra content rendered on the right of the row (rarely needed). */
   children?: ReactNode
   className?: string
@@ -64,23 +85,37 @@ export function ListPageToolbar({
   onSearchChange,
   searchPlaceholder,
   filterGroups,
+  sort,
   children,
   className,
 }: ListPageToolbarProps) {
   const { t } = useTranslation()
   const groups = filterGroups?.filter((g) => g.options.length > 0) ?? []
-  const activeCount = groups.reduce((sum, g) => sum + g.selected.length, 0)
+  const sortFields = sort?.options ?? []
+  const hasPopover = groups.length > 0 || sortFields.length > 0
+  const activeCount = groups.reduce((sum, g) => sum + g.selected.length, 0) + (sort?.value ? 1 : 0)
 
   const toggle = (group: FilterGroup, value: string) => {
     if (group.selected.includes(value)) group.onChange(group.selected.filter((v) => v !== value))
     else group.onChange([...group.selected, value])
   }
 
-  const clearAll = () => groups.forEach((g) => g.selected.length && g.onChange([]))
+  // One field active at a time; clicking cycles asc → desc → off.
+  const cycleSort = (key: string) => {
+    if (!sort) return
+    if (sort.value?.key !== key) sort.onChange({ key, dir: 'asc' })
+    else if (sort.value.dir === 'asc') sort.onChange({ key, dir: 'desc' })
+    else sort.onChange(null)
+  }
+
+  const clearAll = () => {
+    groups.forEach((g) => g.selected.length && g.onChange([]))
+    if (sort?.value) sort.onChange(null)
+  }
 
   return (
     <div className={cn('mt-4 flex items-center gap-2', className)}>
-      {groups.length > 0 && (
+      {hasPopover && (
         <Popover>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -101,22 +136,57 @@ export function ListPageToolbar({
             <TooltipContent>{t('common.filters')}</TooltipContent>
           </Tooltip>
           <PopoverContent align="start" className="w-64 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium">{t('common.filters')}</span>
-              {activeCount > 0 && (
+            {/* Clear sits on the right of the first section's header row so it
+                never adds a row of its own. */}
+            {(() => {
+              const clear = activeCount > 0 ? (
                 <button
                   type="button"
                   onClick={clearAll}
-                  className="text-[11px] text-muted-foreground hover:text-foreground"
+                  className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   {t('common.clear')}
                 </button>
-              )}
-            </div>
+              ) : null
+              const sectionHeader = (label: string, first: boolean) => (
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className="truncate text-[11px] font-medium text-muted-foreground">{label}</p>
+                  {first && clear}
+                </div>
+              )
+              return (
             <div className="max-h-80 space-y-3 overflow-y-auto">
-              {groups.map((group) => (
+              {sortFields.length > 0 && (
+                <div>
+                  {sectionHeader(t('common.sort_by'), true)}
+                  <div className="space-y-0.5">
+                    {sortFields.map((field) => {
+                      const active = sort?.value?.key === field.key
+                      const dir = active ? sort!.value!.dir : null
+                      return (
+                        <button
+                          key={field.key}
+                          type="button"
+                          onClick={() => cycleSort(field.key)}
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors',
+                            active ? 'bg-accent/60' : 'hover:bg-accent/30',
+                          )}
+                        >
+                          <span className="flex size-3.5 shrink-0 items-center justify-center">
+                            {dir === 'asc' && <ArrowUp size={13} className="text-primary" strokeWidth={2.5} />}
+                            {dir === 'desc' && <ArrowDown size={13} className="text-primary" strokeWidth={2.5} />}
+                          </span>
+                          <span className="truncate">{field.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              {groups.map((group, gi) => (
                 <div key={group.key}>
-                  <p className="mb-1 text-[11px] font-medium text-muted-foreground">{group.label}</p>
+                  {sectionHeader(group.label, sortFields.length === 0 && gi === 0)}
                   <div className="space-y-0.5">
                     {group.options.map((opt) => {
                       const checked = group.selected.includes(opt.value)
@@ -156,6 +226,8 @@ export function ListPageToolbar({
                 </div>
               ))}
             </div>
+              )
+            })()}
           </PopoverContent>
         </Popover>
       )}

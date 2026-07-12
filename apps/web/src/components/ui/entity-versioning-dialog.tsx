@@ -53,7 +53,7 @@ function EntityExportContent({
   const [includeData, setIncludeData] = useState(false)
 
   return (
-    <div className="flex flex-1 flex-col gap-4">
+    <div className="flex flex-1 flex-col gap-3">
       <div className="space-y-3">
         {isLinked ? (
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -73,7 +73,7 @@ function EntityExportContent({
           <p className="text-xs text-muted-foreground">{t('versioning.export_description')}</p>
         )}
       </div>
-      <div className="flex justify-end">
+      <div className="mt-6 flex justify-end">
         <Button onClick={async () => { await onExport({ includeDataFiles: includeData }); onDone() }} className="gap-1.5">
           <Download size={14} />
           {t('versioning.export_download')}

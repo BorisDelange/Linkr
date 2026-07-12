@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Workflow, Database, ArrowRight } from 'lucide-react'
+import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import { Badge } from '@/components/ui/badge'
 import { useEtlStore } from '@/stores/etl-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -40,6 +42,20 @@ export function EtlListPage() {
   }, [etlPipelinesLoaded, loadEtlPipelines])
 
   const pipelines = activeWorkspaceId ? getWorkspacePipelines(activeWorkspaceId) : []
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
+  const filteredPipelines = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    const filtered = q
+      ? pipelines.filter((p) => `${localized(p.name, language)} ${localized(p.description, language)}`.toLowerCase().includes(q))
+      : pipelines
+    return applySort(filtered, sort, {
+      name: (p) => localized(p.name, language),
+      createdAt: (p) => p.createdAt,
+      updatedAt: (p) => p.updatedAt,
+    })
+  }, [pipelines, searchQuery, sort, language])
 
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('etl.unknown_source')
@@ -112,7 +128,17 @@ export function EtlListPage() {
       deleteConfirmTitleKey={etlActions.deleteConfirmTitleKey}
       deleteConfirmDescriptionKey={etlActions.deleteConfirmDescriptionKey}
       emptyIcon={Workflow}
-      items={pipelines}
+      items={filteredPipelines}
+      toolbar={
+        pipelines.length > 0 ? (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('common.search')}
+            sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
+          />
+        ) : undefined
+      }
       onNavigate={(id) => navigate(id)}
       onDelete={etlActions.onDelete}
       onExport={etlActions.onExport}

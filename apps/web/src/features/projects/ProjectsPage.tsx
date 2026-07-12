@@ -19,7 +19,8 @@ import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, visitSortFields } from '@/lib/list-sort'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,6 +60,7 @@ export function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
+  const [sort, setSort] = useState<SortState | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 
   // Delete confirmation state
@@ -89,7 +91,7 @@ export function ProjectsPage() {
 
   const filteredProjects = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
-    return displayProjects.filter((p) => {
+    const filtered = displayProjects.filter((p) => {
       if (words.length) {
         const text = `${p.name} ${p.description ?? ''}`.toLowerCase()
         if (!words.every((w) => text.includes(w))) return false
@@ -102,7 +104,14 @@ export function ProjectsPage() {
       }
       return true
     })
-  }, [displayProjects, searchQuery, statusFilter, badgeFilter, rawByUid])
+    return applySort(filtered, sort, {
+      name: (p) => p.name,
+      createdAt: (p) => p.createdAt,
+      updatedAt: (p) => p.updatedAt,
+      entityType: 'project',
+      id: (p) => p.uid,
+    })
+  }, [displayProjects, searchQuery, statusFilter, badgeFilter, rawByUid, sort])
 
   const filterGroups = useMemo<FilterGroup[]>(() => [
     {
@@ -278,6 +287,7 @@ export function ProjectsPage() {
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('projects.search_placeholder')}
             filterGroups={filterGroups}
+            sort={{ options: visitSortFields(t), value: sort, onChange: setSort }}
           />
         )}
 

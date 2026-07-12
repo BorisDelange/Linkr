@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ShieldCheck, Database } from 'lucide-react'
+import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { localized, setLocalized } from '@/lib/localized'
@@ -49,6 +51,20 @@ export function DqRuleSetListPage() {
   }, [dqRuleSetsLoaded, loadDqRuleSets])
 
   const ruleSets = activeWorkspaceId ? getWorkspaceRuleSets(activeWorkspaceId) : []
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
+  const filteredRuleSets = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    const filtered = q
+      ? ruleSets.filter((rs) => `${localized(rs.name, language)} ${localized(rs.description, language)}`.toLowerCase().includes(q))
+      : ruleSets
+    return applySort(filtered, sort, {
+      name: (rs) => localized(rs.name, language),
+      createdAt: (rs) => rs.createdAt,
+      updatedAt: (rs) => rs.updatedAt,
+    })
+  }, [ruleSets, searchQuery, sort, language])
 
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? '—'
@@ -115,7 +131,17 @@ export function DqRuleSetListPage() {
       deleteConfirmTitleKey={dqActions.deleteConfirmTitleKey}
       deleteConfirmDescriptionKey={dqActions.deleteConfirmDescriptionKey}
       emptyIcon={ShieldCheck}
-      items={ruleSets}
+      items={filteredRuleSets}
+      toolbar={
+        ruleSets.length > 0 ? (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('common.search')}
+            sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
+          />
+        ) : undefined
+      }
       onNavigate={(id) => navigate(id)}
       onDelete={dqActions.onDelete}
       onExport={dqActions.onExport}

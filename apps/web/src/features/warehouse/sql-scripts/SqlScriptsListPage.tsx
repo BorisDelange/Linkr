@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { SquareTerminal } from 'lucide-react'
+import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
@@ -16,6 +19,7 @@ import { useSqlCollectionActions } from './use-sql-collection-actions'
 import type { SqlScriptCollection } from '@/types'
 
 export function SqlScriptsListPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { atLeast } = useMyWorkspaceRole()
@@ -28,6 +32,20 @@ export function SqlScriptsListPage() {
   }, [collectionsLoaded, loadCollections])
 
   const collections = activeWorkspaceId ? getWorkspaceCollections(activeWorkspaceId) : []
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
+  const filteredCollections = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    const filtered = q
+      ? collections.filter((c) => `${localized(c.name, language)} ${localized(c.description, language)}`.toLowerCase().includes(q))
+      : collections
+    return applySort(filtered, sort, {
+      name: (c) => localized(c.name, language),
+      createdAt: (c) => c.createdAt,
+      updatedAt: (c) => c.updatedAt,
+    })
+  }, [collections, searchQuery, sort, language])
 
   // --- Import ---
   const [conflict, setConflict] = useState<{ name: string; pending: SqlScriptCollection; pendingFiles: import('@/types').SqlScriptFile[] } | null>(null)
@@ -96,7 +114,17 @@ export function SqlScriptsListPage() {
       deleteConfirmTitleKey={sqlActions.deleteConfirmTitleKey}
       deleteConfirmDescriptionKey={sqlActions.deleteConfirmDescriptionKey}
       emptyIcon={SquareTerminal}
-      items={collections}
+      items={filteredCollections}
+      toolbar={
+        collections.length > 0 ? (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('common.search')}
+            sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
+          />
+        ) : undefined
+      }
       onNavigate={(id) => navigate(id)}
       onDelete={sqlActions.onDelete}
       onExport={sqlActions.onExport}

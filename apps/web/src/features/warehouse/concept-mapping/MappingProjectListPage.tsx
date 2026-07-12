@@ -11,12 +11,13 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
+import { applySort, visitSortFields } from '@/lib/list-sort'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip, readBinaryFromImportZip } from '@/lib/entity-io'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -116,6 +117,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
+  const [sort, setSort] = useState<SortState | null>(null)
 
   // All distinct custom badges across the workspace's projects, keeping the first-seen
   // colour per label so the filter options match the badges shown on the cards.
@@ -127,7 +129,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
 
   const filteredProjects = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    return projects.filter((p) => {
+    const filtered = projects.filter((p) => {
       if (q && !(`${localized(p.name, language)} ${localized(p.description, language)}`.toLowerCase().includes(q))) return false
       if (statusFilter.length > 0 && (!p.status || !statusFilter.includes(p.status))) return false
       if (badgeFilter.length > 0) {
@@ -136,7 +138,14 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       }
       return true
     })
-  }, [projects, searchQuery, statusFilter, badgeFilter, language])
+    return applySort(filtered, sort, {
+      name: (p) => localized(p.name, language),
+      createdAt: (p) => p.createdAt,
+      updatedAt: (p) => p.updatedAt,
+      entityType: 'mapping-project',
+      id: (p) => p.id,
+    })
+  }, [projects, searchQuery, statusFilter, badgeFilter, sort, language])
 
   const filterGroups: FilterGroup[] = [
     {
@@ -442,6 +451,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('common.search')}
             filterGroups={filterGroups}
+            sort={{ options: visitSortFields(t), value: sort, onChange: setSort }}
           />
         }
         renderCardBody={(project) => {

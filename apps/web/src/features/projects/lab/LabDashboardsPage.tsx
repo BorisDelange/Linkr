@@ -8,7 +8,7 @@ import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { TruncatedText } from '@/components/ui/truncated-text'
-import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
@@ -43,6 +43,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { localized, setLocalized } from '@/lib/localized'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import { DashboardEditDialog } from './DashboardEditDialog'
 
 export function LabDashboardsPage() {
@@ -63,6 +64,7 @@ export function LabDashboardsPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [editTarget, setEditTarget] = useState<Dashboard | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
 
   useEffect(() => {
     loadProjectDashboards(projectUid)
@@ -75,12 +77,18 @@ export function LabDashboardsPage() {
 
   const filteredDashboards = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
-    if (!words.length) return projectDashboards
-    return projectDashboards.filter((d) => {
-      const name = localized(d.name, language).toLowerCase()
-      return words.every((w) => name.includes(w))
+    const filtered = words.length
+      ? projectDashboards.filter((d) => {
+          const name = localized(d.name, language).toLowerCase()
+          return words.every((w) => name.includes(w))
+        })
+      : projectDashboards
+    return applySort(filtered, sort, {
+      name: (d) => localized(d.name, language),
+      createdAt: (d) => d.createdAt,
+      updatedAt: (d) => d.updatedAt,
     })
-  }, [projectDashboards, searchQuery, language])
+  }, [projectDashboards, searchQuery, language, sort])
 
 
   const handleCreate = async () => {
@@ -124,6 +132,7 @@ export function LabDashboardsPage() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('dashboard.search_placeholder')}
+            sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
           />
         )}
 

@@ -40,6 +40,8 @@ export interface PluginListItem {
   entityId?: string
   /** Git remote for export/versioning (from the UserPlugin record). */
   gitRemoteConfig?: import('@/types').GitRemoteConfig
+  createdAt?: string
+  updatedAt?: string
 }
 
 const SCAFFOLD_MANIFEST_LAB = {
@@ -196,7 +198,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         const manifestId = manifest.id ?? up.id
         const isSystemPlugin = SYSTEM_PLUGIN_IDS.has(manifestId)
         const isBuiltIn = isBuiltinPluginId(manifestId)
-        list.push({ id: up.id, manifestId, manifest, isBuiltIn, isSystemPlugin, readOnly: isBuiltIn || isSystemPlugin, entityId: up.entityId, gitRemoteConfig: up.gitRemoteConfig })
+        list.push({ id: up.id, manifestId, manifest, isBuiltIn, isSystemPlugin, readOnly: isBuiltIn || isSystemPlugin, entityId: up.entityId, gitRemoteConfig: up.gitRemoteConfig, createdAt: up.createdAt, updatedAt: up.updatedAt })
       } catch { /* skip invalid */ }
     }
     set({ pluginList: list, pluginListWorkspaceId: wsId ?? null })

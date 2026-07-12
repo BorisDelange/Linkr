@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { BookOpen, Database } from 'lucide-react'
+import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import { Badge } from '@/components/ui/badge'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -41,6 +43,20 @@ export function CatalogListPage() {
   }, [catalogsLoaded, loadCatalogs])
 
   const catalogs = activeWorkspaceId ? getWorkspaceCatalogs(activeWorkspaceId) : []
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
+  const filteredCatalogs = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    const filtered = q
+      ? catalogs.filter((c) => `${localized(c.name, language)} ${localized(c.description, language)}`.toLowerCase().includes(q))
+      : catalogs
+    return applySort(filtered, sort, {
+      name: (c) => localized(c.name, language),
+      createdAt: (c) => c.createdAt,
+      updatedAt: (c) => c.updatedAt,
+    })
+  }, [catalogs, searchQuery, sort, language])
 
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? '—'
@@ -98,7 +114,17 @@ export function CatalogListPage() {
       deleteConfirmTitleKey={catalogActions.deleteConfirmTitleKey}
       deleteConfirmDescriptionKey={catalogActions.deleteConfirmDescriptionKey}
       emptyIcon={BookOpen}
-      items={catalogs}
+      items={filteredCatalogs}
+      toolbar={
+        catalogs.length > 0 ? (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('common.search')}
+            sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
+          />
+        ) : undefined
+      }
       onNavigate={(id) => navigate(id)}
       onDelete={catalogActions.onDelete}
       onExport={catalogActions.onExport}
