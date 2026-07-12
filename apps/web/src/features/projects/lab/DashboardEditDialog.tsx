@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useAppStore } from '@/stores/app-store'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { localized, setLocalized } from '@/lib/localized'
 import type { Dashboard } from '@/types'
 
@@ -22,17 +23,25 @@ export function DashboardEditDialog({ item, onOpenChange }: { item: Dashboard; o
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const updateDashboard = useDashboardStore((s) => s.updateDashboard)
-  const [name, setName] = useState(() => localized(item.name, language))
-  const [description, setDescription] = useState(() => (item.description ? localized(item.description, language) : ''))
+  const initialName = localized(item.name, language)
+  const initialDescription = item.description ? localized(item.description, language) : ''
+  const [name, setName] = useState(initialName)
+  const [description, setDescription] = useState(initialDescription)
 
-  const handleSave = () => {
-    if (!name.trim()) return
+  const doSave = () => {
     updateDashboard(item.id, {
       name: setLocalized(item.name, language, name.trim()),
       description: setLocalized(item.description ?? {}, language, description.trim()),
     })
     onOpenChange(false)
   }
+
+  const { canSaveNow, save } = useSaveForm({
+    current: { name: name.trim(), description: description.trim() },
+    baseline: { name: initialName, description: initialDescription },
+    onSave: doSave,
+    canSave: name.trim().length > 0,
+  })
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
@@ -48,7 +57,7 @@ export function DashboardEditDialog({ item, onOpenChange }: { item: Dashboard; o
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="h-8 text-sm"
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSave() } }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
               autoFocus
             />
           </div>
@@ -66,7 +75,7 @@ export function DashboardEditDialog({ item, onOpenChange }: { item: Dashboard; o
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={!name.trim()}>
+          <Button size="sm" onClick={save} disabled={!canSaveNow}>
             {t('common.save')}
           </Button>
         </DialogFooter>

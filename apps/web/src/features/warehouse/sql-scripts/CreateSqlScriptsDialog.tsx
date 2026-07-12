@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -113,6 +114,22 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
       setSaving(false)
     }
   }
+
+  const canSubmit = !!name.trim() && !saving && (isEditing || isEntityIdValid(entityId, existingIds))
+  useSaveForm({
+    current: { name: name.trim(), entityId, description: description.trim(), defaultDbId },
+    baseline: isEditing
+      ? {
+          name: localized(editingCollection?.name, language),
+          entityId: editingCollection?.entityId ?? '',
+          description: localized(editingCollection?.description, language),
+          defaultDbId: editingCollection?.defaultDataSourceId ?? '',
+        }
+      : { name: '', entityId: '', description: '', defaultDbId: '' },
+    onSave: handleSubmit,
+    canSave: canSubmit,
+    enabled: open,
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

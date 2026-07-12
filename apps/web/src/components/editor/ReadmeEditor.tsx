@@ -138,51 +138,57 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEd
     const selected = text.substring(start, end)
     const { before, after, placeholder, newlinePrefix } = getFormatTokens(format)
 
-    let replacement: string
+    // Each branch decides which span of the current text to replace (rangeStart..
+    // rangeEnd) and what to insert there, plus where the selection lands afterwards
+    // (offsets relative to the whole document, post-insert).
+    let rangeStart = start
+    let rangeEnd = end
+    let insert: string
     let cursorStart: number
     let cursorEnd: number
 
     if (newlinePrefix) {
       if (selected) {
         const prefixed = selected.split('\n').map((line) => `${newlinePrefix}${line}`).join('\n')
-        replacement = text.substring(0, start) + prefixed + text.substring(end)
+        insert = prefixed
         cursorStart = start
         cursorEnd = start + prefixed.length
       } else {
         const lineStart = text.lastIndexOf('\n', start - 1) + 1
-        replacement = text.substring(0, lineStart) + newlinePrefix + text.substring(lineStart)
+        rangeStart = rangeEnd = lineStart
+        insert = newlinePrefix
         cursorStart = cursorEnd = lineStart + newlinePrefix.length + (start - lineStart)
       }
     } else if (format === 'footnote') {
+      // Ref goes at the cursor; the definition is appended at the very end.
       const ref = `[^1]`
       const def = `\n\n[^1]: Your footnote text`
-      replacement = text.substring(0, end) + ref + text.substring(end) + def
-      cursorStart = end + ref.length + def.length - 19
-      cursorEnd = end + ref.length + def.length
+      rangeStart = end
+      rangeEnd = text.length
+      insert = ref + text.substring(end) + def
+      // Selection lands on the placeholder words of the appended definition.
+      const insertedLen = ref.length + (text.length - end) + def.length
+      cursorStart = end + insertedLen - 19
+      cursorEnd = end + insertedLen
     } else if (format === 'table') {
-      const tableTemplate = '\n| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n| | | |\n'
-      replacement = text.substring(0, start) + tableTemplate + text.substring(end)
-      cursorStart = cursorEnd = start + tableTemplate.length
+      insert = '\n| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n| | | |\n'
+      cursorStart = cursorEnd = start + insert.length
     } else if (format === 'hr') {
-      const hr = '\n\n---\n\n'
-      replacement = text.substring(0, start) + hr + text.substring(end)
-      cursorStart = cursorEnd = start + hr.length
+      insert = '\n\n---\n\n'
+      cursorStart = cursorEnd = start + insert.length
     } else if (format === 'link') {
       if (selected) {
-        const insert = `[${selected}](url)`
-        replacement = text.substring(0, start) + insert + text.substring(end)
+        insert = `[${selected}](url)`
         cursorStart = start + selected.length + 3
         cursorEnd = cursorStart + 3
       } else {
-        const insert = `[${placeholder}](url)`
-        replacement = text.substring(0, start) + insert + text.substring(end)
+        insert = `[${placeholder}](url)`
         cursorStart = start + 1
         cursorEnd = start + 1 + placeholder.length
       }
     } else if (format === 'image') {
       const label = selected || placeholder
-      const insert = `![${label}](url)`
-      replacement = text.substring(0, start) + insert + text.substring(end)
+      insert = `![${label}](url)`
       if (selected) {
         cursorStart = start + selected.length + 4
         cursorEnd = cursorStart + 3
@@ -192,17 +198,28 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEd
       }
     } else {
       if (selected) {
-        replacement = text.substring(0, start) + before + selected + after + text.substring(end)
+        insert = before + selected + after
         cursorStart = start + before.length
         cursorEnd = cursorStart + selected.length
       } else {
-        replacement = text.substring(0, start) + before + placeholder + after + text.substring(end)
+        insert = before + placeholder + after
         cursorStart = start + before.length
         cursorEnd = cursorStart + placeholder.length
       }
     }
 
-    setLocalReadme(replacement)
+    // Insert through the native editing API so the change joins the textarea's own
+    // undo history — a plain setState replacement would make Cmd+Z skip it.
+    ta.focus()
+    ta.setSelectionRange(rangeStart, rangeEnd)
+    const inserted = document.execCommand('insertText', false, insert)
+    if (!inserted) {
+      // Fallback for engines without execCommand: mutate value directly (not undoable).
+      const next = text.substring(0, rangeStart) + insert + text.substring(rangeEnd)
+      setLocalReadme(next)
+    }
+    // On success, execCommand fires the textarea's input event, so onChange already
+    // synced React state — nothing more to set here.
     requestAnimationFrame(() => {
       ta.focus()
       ta.setSelectionRange(cursorStart, cursorEnd)

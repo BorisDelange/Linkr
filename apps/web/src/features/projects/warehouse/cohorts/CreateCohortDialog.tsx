@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useSaveForm } from '@/hooks/use-save-form'
 
 interface CreateCohortDialogProps {
   open: boolean
@@ -39,6 +40,16 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit, editing }: Cr
     onSubmit({ name: name.trim(), description: description.trim() })
     onOpenChange(false)
   }
+
+  // Wire Cmd/Ctrl+S → submit. The hook installs the shortcut listener itself; the
+  // returned `save` is guarded (no-op unless dirty + valid), so nothing else to call.
+  useSaveForm({
+    current: { name: name.trim(), description: description.trim() },
+    baseline: { name: editing?.name ?? '', description: editing?.description ?? '' },
+    onSave: handleSubmit,
+    canSave: name.trim().length > 0,
+    enabled: open,
+  })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

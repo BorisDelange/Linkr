@@ -19,7 +19,7 @@ import { resolveByIdPrefix } from '@/lib/short-id'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
@@ -42,6 +42,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog'
+import { EditWorkspaceDialog } from '@/features/workspaces/EditWorkspaceDialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -96,7 +108,9 @@ export function Header() {
   const location = useLocation()
   const navigate = useNavigate()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
-  const activeProjectNameRaw = useAppStore((s) => s._projectsRaw.find((p) => p.uid === s.activeProjectUid)?.name)
+  const activeProjectRaw = useAppStore((s) => s._projectsRaw.find((p) => p.uid === s.activeProjectUid))
+  const activeProjectNameRaw = activeProjectRaw?.name
+  const deleteProject = useAppStore((s) => s.deleteProject)
   const closeProject = useAppStore((s) => s.closeProject)
   const darkMode = useAppStore((s) => s.darkMode)
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
@@ -111,11 +125,17 @@ export function Header() {
     // In server mode, also clear JWT tokens so AuthGate returns to the login page.
     if (isServerMode) authLogout()
   }
-  const activeWorkspaceNameRaw = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === s.activeWorkspaceId)?.name)
+  const activeWorkspaceRaw = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === s.activeWorkspaceId))
+  const activeWorkspaceNameRaw = activeWorkspaceRaw?.name
+  const deleteWorkspace = useWorkspaceStore((s) => s.deleteWorkspace)
   // Resolve names live from the raw entities so they follow the active language and renames.
   const activeProjectName = activeProjectNameRaw ? localized(activeProjectNameRaw, language) : (useAppStore.getState().activeProjectName ?? undefined)
   const activeWorkspaceName = activeWorkspaceNameRaw ? localized(activeWorkspaceNameRaw, language) : (useWorkspaceStore.getState().activeWorkspaceName ?? undefined)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
+  const [editWorkspaceOpen, setEditWorkspaceOpen] = useState(false)
+  const [editProjectOpen, setEditProjectOpen] = useState(false)
+  const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false)
+  const [deleteProjectOpen, setDeleteProjectOpen] = useState(false)
 
   // --- Entity name resolution (only read the store that matches the current route) ---
   const pathname = location.pathname
@@ -486,12 +506,38 @@ export function Header() {
                     <LayoutDashboard size={14} />
                     {t('workspace_nav.home')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setEditWorkspaceOpen(true)}>
+                    <Pencil size={14} />
+                    {t('common.edit')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => {
+                    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                    if (wsId) navigate(paths.workspaceVersioning(wsId, 'export'))
+                  }}>
+                    <Download size={14} />
+                    {t('common.export')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => {
+                    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                    if (wsId) navigate(paths.workspaceVersioning(wsId, 'git'))
+                  }}>
+                    <GitBranch size={14} />
+                    {t('common.versioning')}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => {
                     const wsId = useWorkspaceStore.getState().activeWorkspaceId
                     if (wsId) navigate(paths.workspaceSettings(wsId))
                   }}>
                     <Settings2 size={14} />
                     {t('nav.settings')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setDeleteWorkspaceOpen(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 size={14} className="text-destructive" />
+                    {t('common.delete')}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -519,12 +565,38 @@ export function Header() {
                     <LayoutDashboard size={14} />
                     {t('project_nav.summary')}
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setEditProjectOpen(true)}>
+                    <Pencil size={14} />
+                    {t('common.edit')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => {
+                    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                    if (wsId && activeProjectUid) navigate(paths.projectVersioning(wsId, activeProjectUid, 'export'))
+                  }}>
+                    <Download size={14} />
+                    {t('common.export')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => {
+                    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                    if (wsId && activeProjectUid) navigate(paths.projectVersioning(wsId, activeProjectUid, 'git'))
+                  }}>
+                    <GitBranch size={14} />
+                    {t('common.versioning')}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => {
                     const wsId = useWorkspaceStore.getState().activeWorkspaceId
                     if (wsId && activeProjectUid) navigate(paths.projectSettings(wsId, activeProjectUid))
                   }}>
                     <Settings2 size={14} />
                     {t('nav.settings')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setDeleteProjectOpen(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 size={14} className="text-destructive" />
+                    {t('common.delete')}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -605,6 +677,72 @@ export function Header() {
           </div>
         </div>
       </header>
+
+      {/* Workspace edit dialog (from the workspace badge menu) */}
+      <EditWorkspaceDialog
+        open={editWorkspaceOpen}
+        onOpenChange={setEditWorkspaceOpen}
+        workspace={activeWorkspaceRaw}
+      />
+
+      {/* Project edit dialog (from the project badge menu) */}
+      <CreateProjectDialog
+        open={editProjectOpen}
+        editingProject={activeProjectRaw ?? undefined}
+        onOpenChange={setEditProjectOpen}
+      />
+
+      {/* Delete workspace confirmation */}
+      <AlertDialog open={deleteWorkspaceOpen} onOpenChange={setDeleteWorkspaceOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('workspaces.delete_workspace')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('workspaces.delete_workspace_description')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="!bg-destructive !text-white hover:!bg-destructive/90"
+              onClick={async () => {
+                const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                setDeleteWorkspaceOpen(false)
+                if (activeProjectUid) closeProject()
+                if (wsId) { await deleteWorkspace(wsId); navigate('/workspaces') }
+              }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete project confirmation */}
+      <AlertDialog open={deleteProjectOpen} onOpenChange={setDeleteProjectOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('project_settings.delete_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('project_settings.delete_confirm_description')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="!bg-destructive !text-white hover:!bg-destructive/90"
+              onClick={async () => {
+                const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                const uid = activeProjectUid
+                setDeleteProjectOpen(false)
+                if (uid) {
+                  await deleteProject(uid)
+                  closeProject()
+                  if (wsId) navigate(paths.workspaceHome(wsId))
+                }
+              }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
         <DialogContent className="sm:max-w-md">

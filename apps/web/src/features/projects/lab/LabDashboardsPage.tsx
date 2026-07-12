@@ -7,6 +7,7 @@ import { paths } from '@/lib/paths'
 import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -54,7 +55,7 @@ export function LabDashboardsPage() {
   const canEdit = atLeast('editor')
   const canDelete = atLeast('owner')
 
-  const { dashboards, tabs, widgets, loaded, loadProjectDashboards, createDashboard, deleteDashboard } = useDashboardStore()
+  const { dashboards, loaded, loadProjectDashboards, createDashboard, deleteDashboard } = useDashboardStore()
   const { loadProjectDatasets } = useDatasetStore()
 
   const [createOpen, setCreateOpen] = useState(false)
@@ -81,11 +82,6 @@ export function LabDashboardsPage() {
     })
   }, [projectDashboards, searchQuery, language])
 
-  const getWidgetCount = (dashboardId: string) => {
-    const dashTabs = tabs.filter((t) => t.dashboardId === dashboardId)
-    const tabIds = new Set(dashTabs.map((t) => t.id))
-    return widgets.filter((w) => tabIds.has(w.tabId)).length
-  }
 
   const handleCreate = async () => {
     const name = createName.trim()
@@ -155,7 +151,7 @@ export function LabDashboardsPage() {
         ) : (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {filteredDashboards.map((dash) => {
-              const widgetCount = getWidgetCount(dash.id)
+              const description = dash.description ? localized(dash.description, language) : ''
               return (
                 <Card
                   key={dash.id}
@@ -196,9 +192,12 @@ export function LabDashboardsPage() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      <span>{t('dashboard.card_widgets', { count: widgetCount })}</span>
-                    </div>
+                    {description && (
+                      <TruncatedText
+                        text={description}
+                        className="mt-2 text-xs text-muted-foreground"
+                      />
+                    )}
                   </div>
                 </Card>
               )

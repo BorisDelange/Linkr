@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useVisitStore } from '@/stores/visit-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { unmountFileSource } from '@/lib/duckdb/engine'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -58,6 +59,10 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   useEffect(() => {
     loadProjectMappings(projectId)
   }, [projectId, loadProjectMappings])
+
+  useEffect(() => {
+    if (projectId) useVisitStore.getState().recordVisit('mapping-project', projectId)
+  }, [projectId])
 
   // Free DuckDB memory when leaving the project. The CSV file source can hold ~200 MB
   // of in-memory tables — releasing it lets the user open another large project without

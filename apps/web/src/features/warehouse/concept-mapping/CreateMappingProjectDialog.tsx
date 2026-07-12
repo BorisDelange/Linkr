@@ -32,6 +32,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
@@ -619,6 +620,16 @@ export function CreateMappingProjectDialog({
       onCreated?.(id)
     }
   }
+
+  // Cmd/Ctrl+S submits when the form is valid. `canSubmit` already encodes all the
+  // validity gates; only active on the main page (not the import-settings sub-page).
+  useSaveForm({
+    current: canSubmit,
+    baseline: false,
+    onSave: handleSubmit,
+    canSave: canSubmit,
+    enabled: open && page === 'main',
+  })
 
   const buildParseOptions = (): FileSourceData['parseOptions'] => {
     const opts: NonNullable<FileSourceData['parseOptions']> = {}

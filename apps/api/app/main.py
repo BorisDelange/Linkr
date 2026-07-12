@@ -38,6 +38,7 @@ from app.api.v1.routes.pipelines import router as pipelines_router
 from app.api.v1.routes.projects import router as projects_router
 from app.api.v1.routes.roles import router as roles_router
 from app.api.v1.routes.schema_presets import router as schema_presets_router
+from app.api.v1.routes.entity_visits import router as entity_visits_router
 from app.api.v1.routes.setup import router as setup_router
 from app.api.v1.routes.sql_scripts import router as sql_scripts_router
 from app.api.v1.routes.uploads import router as uploads_router
@@ -136,6 +137,7 @@ app.include_router(projects_router, prefix="/api/v1")
 app.include_router(members_router, prefix="/api/v1")
 app.include_router(organizations_router, prefix="/api/v1")
 app.include_router(schema_presets_router, prefix="/api/v1")
+app.include_router(entity_visits_router, prefix="/api/v1")
 app.include_router(sql_scripts_router, prefix="/api/v1")
 app.include_router(wiki_pages_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")

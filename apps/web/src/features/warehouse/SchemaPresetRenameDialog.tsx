@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { localized, setLocalized } from '@/lib/localized'
 import type { CustomSchemaPreset } from '@/types'
 
@@ -23,20 +24,27 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const savePreset = useSchemaPresetStore((s) => s.savePreset)
-  const [name, setName] = useState(() => localized(item.mapping.presetLabel, language))
-  const [description, setDescription] = useState(() => (item.mapping.description ? localized(item.mapping.description, language) : ''))
+  const initialName = localized(item.mapping.presetLabel, language)
+  const initialDescription = item.mapping.description ? localized(item.mapping.description, language) : ''
+  const [name, setName] = useState(initialName)
+  const [description, setDescription] = useState(initialDescription)
 
-  const handleSave = async () => {
-    const label = name.trim()
-    if (!label) return
+  const doSave = async () => {
     const mapping = {
       ...item.mapping,
-      presetLabel: setLocalized(item.mapping.presetLabel, language, label),
+      presetLabel: setLocalized(item.mapping.presetLabel, language, name.trim()),
       description: setLocalized(item.mapping.description ?? {}, language, description.trim()),
     }
     await savePreset(buildSchemaPreset(item.presetId, mapping, item, item.workspaceId))
     onOpenChange(false)
   }
+
+  const { canSaveNow, save } = useSaveForm({
+    current: { name: name.trim(), description: description.trim() },
+    baseline: { name: initialName, description: initialDescription },
+    onSave: doSave,
+    canSave: name.trim().length > 0,
+  })
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
@@ -51,7 +59,7 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSave() } }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
               className="h-8 text-sm"
               autoFocus
             />
@@ -68,7 +76,7 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
-          <Button onClick={handleSave} disabled={!name.trim()}>{t('common.save')}</Button>
+          <Button onClick={save} disabled={!canSaveNow}>{t('common.save')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

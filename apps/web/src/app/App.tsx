@@ -9,6 +9,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCatalogStore } from '@/stores/catalog-store'
+import { useVisitStore } from '@/stores/visit-store'
 import { seedDatabases } from '@/lib/seed-loader'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
@@ -102,6 +103,19 @@ export function App() {
       mountProjectSources(activeProjectUid)
     }
   }, [activeProjectUid, dataSourcesLoaded, mountProjectSources])
+
+  // Per-user recency: load this user's visit history, then record a visit whenever
+  // the active workspace/project changes. Powers the "recent" lists' ordering.
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const loadVisits = useVisitStore((s) => s.loadVisits)
+  const recordVisit = useVisitStore((s) => s.recordVisit)
+  useEffect(() => { loadVisits() }, [loadVisits])
+  useEffect(() => {
+    if (activeWorkspaceId) recordVisit('workspace', activeWorkspaceId)
+  }, [activeWorkspaceId, recordVisit])
+  useEffect(() => {
+    if (activeProjectUid) recordVisit('project', activeProjectUid)
+  }, [activeProjectUid, recordVisit])
 
   if (!organizationsLoaded || !workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded || !catalogsLoaded || !serviceMappingsLoaded) {
     return (

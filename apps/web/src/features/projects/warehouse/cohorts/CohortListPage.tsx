@@ -29,13 +29,16 @@ export function CohortListPage() {
   const { projectUid: uid, wsUid } = useResolvedParams()
   const { can } = useMyProjectRole(uid)
   const navigate = useNavigate()
-  const { getProjectCohorts, addCohort, removeCohort, updateCohort } = useCohortStore()
+  const { addCohort, removeCohort, updateCohort } = useCohortStore()
+  // Subscribe to the cohorts array itself (not the getProjectCohorts action, whose
+  // reference is stable) so the list re-derives when a cohort is added/removed.
+  const allCohorts = useCohortStore((s) => s.cohorts)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingCohort, setEditingCohort] = useState<Cohort | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Cohort | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
-  const cohorts = useMemo(() => (uid ? getProjectCohorts(uid) : []), [uid, getProjectCohorts])
+  const cohorts = useMemo(() => (uid ? allCohorts.filter((c) => c.projectUid === uid) : []), [uid, allCohorts])
 
   const filteredCohorts = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)

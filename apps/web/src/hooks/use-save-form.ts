@@ -9,6 +9,9 @@ interface UseSaveFormOptions<T> {
   onSave: () => void | Promise<void>
   /** When true, Save stays disabled even if dirty (e.g. invalid input). */
   canSave?: boolean
+  /** When false, the Cmd/Ctrl+S listener is not installed (e.g. a dialog that
+   *  stays mounted while closed). Defaults to true. */
+  enabled?: boolean
 }
 
 interface UseSaveFormResult {
@@ -30,6 +33,7 @@ export function useSaveForm<T>({
   baseline,
   onSave,
   canSave = true,
+  enabled = true,
 }: UseSaveFormOptions<T>): UseSaveFormResult {
   const isDirty = useMemo(
     () => JSON.stringify(current) !== JSON.stringify(baseline),
@@ -42,6 +46,7 @@ export function useSaveForm<T>({
   }, [canSaveNow, onSave])
 
   useEffect(() => {
+    if (!enabled) return
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
@@ -50,7 +55,7 @@ export function useSaveForm<T>({
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [save])
+  }, [save, enabled])
 
   return { isDirty, canSaveNow, save }
 }

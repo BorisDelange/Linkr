@@ -7,11 +7,9 @@ import { paths } from '@/lib/paths'
 import {
   Database,
   Copy,
-  Trash2,
   Plus,
   X,
   Check,
-  Download,
   Upload,
   Code,
   ArrowLeft,
@@ -963,10 +961,9 @@ function SchemaDetailView({
   onDelete: (presetId: string) => Promise<void>
   onBack: () => void
 }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { can } = useMyWorkspaceRole()
   const canWrite = can('schemas:write')
-  const canDelete = can('schemas:delete')
   const isBuiltin = BUILTIN_PRESET_IDS.includes(schemaId)
 
   // Resolve mapping: IDB override > built-in > custom
@@ -982,7 +979,6 @@ function SchemaDetailView({
 
   const [isEditing, setIsEditing] = useState(false)
   const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const ddlEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
 
@@ -1021,11 +1017,6 @@ function SchemaDetailView({
     setEditMapping(null)
   }
 
-  const handleDelete = async () => {
-    await onDelete(schemaId)
-    onBack()
-  }
-
   const handleReset = async () => {
     // Delete the stored override → falls back to the built-in mapping.
     await onDelete(schemaId)
@@ -1034,69 +1025,13 @@ function SchemaDetailView({
     setEditMapping(null)
   }
 
-  const exportMapping = () => {
-    const exportData = structuredClone(displayMapping)
-    delete (exportData as { knownTables?: string[] }).knownTables
-    const json = JSON.stringify(exportData, null, 2)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `linkr-schema-${localized(displayMapping.presetLabel, i18n.language).replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b px-6 py-3 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
-            <Database size={14} className="text-primary" />
-          </div>
-          <h2 className="text-sm font-semibold text-foreground">{localized(displayMapping.presetLabel, i18n.language)}</h2>
-        </div>
-        <div className="flex items-center gap-1">
-          {isEditing ? (
-            <>
-              <Button variant="ghost" size="sm" onClick={cancelEdit} className="gap-1.5 text-xs">
-                <X size={13} />
-                {t('common.cancel')}
-              </Button>
-              <Button variant="default" size="sm" onClick={handleSave} className="gap-1.5 text-xs">
-                <Check size={13} />
-                {t('common.save')}
-              </Button>
-            </>
-          ) : (
-            <>
-              {isBuiltin && hasCustomOverride && (
-                <Button variant="ghost" size="sm" disabled={!canWrite} onClick={() => setShowResetConfirm(true)} className="gap-1.5 text-xs">
-                  <RotateCcw size={12} />
-                  {t('schemas.reset_to_default')}
-                </Button>
-              )}
-              <Button variant="outline" size="sm" disabled={!canWrite} onClick={startEdit} className="gap-1.5 text-xs">
-                <Pencil size={12} />
-                {t('common.edit')}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={exportMapping} className="gap-1.5 text-xs">
-                <Download size={12} />
-                {t('settings.schema_preset_export')}
-              </Button>
-              <Button variant="ghost" size="sm" disabled={!canDelete} onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-xs text-destructive">
-                <Trash2 size={12} />
-                {t('common.delete')}
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Tabs */}
+      {/* Tabs — the Edit/Save controls sit on this row, top-right. The schema's
+          name, export and delete now live in the global header badge menu. */}
       <Tabs defaultValue="erd-ddl" className="flex-1 flex flex-col min-h-0">
-        <div className="flex justify-center px-6 pt-2 shrink-0">
+        <div className="flex items-center px-6 pt-2 shrink-0">
+          <div className="flex-1" />
           <TabsList>
             <TabsTrigger value="erd-ddl">{t('schemas.tab_schema_ddl')}</TabsTrigger>
             <TabsTrigger value="ddl" className="gap-1.5">
@@ -1106,6 +1041,33 @@ function SchemaDetailView({
             <TabsTrigger value="mapping">{t('schemas.tab_mapping')}</TabsTrigger>
             <TabsTrigger value="erd-mapping">{t('schemas.tab_schema_mapping')}</TabsTrigger>
           </TabsList>
+          <div className="flex flex-1 items-center justify-end gap-1">
+            {isEditing ? (
+              <>
+                <Button variant="ghost" size="xs" onClick={cancelEdit} className="gap-1">
+                  <X size={12} />
+                  {t('common.cancel')}
+                </Button>
+                <Button size="xs" onClick={handleSave} className="gap-1">
+                  <Check size={12} />
+                  {t('common.save')}
+                </Button>
+              </>
+            ) : (
+              <>
+                {isBuiltin && hasCustomOverride && (
+                  <Button variant="ghost" size="xs" disabled={!canWrite} onClick={() => setShowResetConfirm(true)} className="gap-1">
+                    <RotateCcw size={12} />
+                    {t('schemas.reset_to_default')}
+                  </Button>
+                )}
+                <Button variant="outline" size="xs" disabled={!canWrite} onClick={startEdit} className="gap-1">
+                  <Pencil size={12} />
+                  {t('common.edit')}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Tab 1: ERD from DDL */}
@@ -1177,22 +1139,6 @@ function SchemaDetailView({
         </TabsContent>
       </Tabs>
 
-      {/* Delete confirmation */}
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('settings.schema_preset_delete')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('settings.schema_preset_delete_confirm')}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDelete}>
-              {t('common.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Reset confirmation */}
       <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
         <AlertDialogContent>
@@ -1231,6 +1177,7 @@ export function SchemaPresetsPage() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPresetName, setNewPresetName] = useState('')
+  const [newPresetDescription, setNewPresetDescription] = useState('')
   const importInputRef = useRef<HTMLInputElement>(null)
   const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping } | null>(null)
 
@@ -1302,6 +1249,7 @@ export function SchemaPresetsPage() {
 
   const openCreateDialog = () => {
     setNewPresetName(t('settings.schema_preset_new_name'))
+    setNewPresetDescription('')
     setNewPresetId('')
     setCreateTemplate('blank')
     setShowCreateDialog(true)
@@ -1312,9 +1260,10 @@ export function SchemaPresetsPage() {
     if (!name) return
 
     const label = setLocalized({}, language, name)
+    const description = newPresetDescription.trim() ? setLocalized({}, language, newPresetDescription.trim()) : undefined
     // If using a built-in template, copy its mapping
     const templateMapping = createTemplate !== 'blank' && SCHEMA_PRESETS[createTemplate]
-      ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: label }
+      ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: label, description }
       : undefined
 
     // Built-in template keeps its own id (so a deleted default can be restored);
@@ -1325,6 +1274,7 @@ export function SchemaPresetsPage() {
     const newMapping: SchemaMapping = templateMapping ?? {
       presetId,
       presetLabel: label,
+      description,
     }
     newMapping.presetId = presetId
     await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid))
@@ -1485,6 +1435,16 @@ export function SchemaPresetsPage() {
                   {newPresetName.trim() && customPresets.some(p => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase()) && (
                     <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
                   )}
+                </div>
+                {/* Description */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t('schemas.field_description')}</Label>
+                  <Textarea
+                    value={newPresetDescription}
+                    onChange={(e) => setNewPresetDescription(e.target.value)}
+                    className="min-h-16 text-sm"
+                    placeholder={t('schemas.field_description_placeholder')}
+                  />
                 </div>
                 {/* Identifier — only for blank schemas; a template reuses its own preset id. */}
                 {createTemplate === 'blank' && (

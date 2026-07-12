@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import { Link, useNavigate } from 'react-router'
@@ -8,6 +8,7 @@ import { localized } from '@/lib/localized'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
+import { useVisitStore, sortByRecency } from '@/stores/visit-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWikiStore } from '@/stores/wiki-store'
@@ -54,9 +55,14 @@ export function WorkspaceHomePage() {
   const workspace = _workspacesRaw.find((ws) => ws.id === wsUid)
   const projects = wsUid ? getWorkspaceProjects(wsUid) : []
 
-  const recentProjects = [...projects]
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, MAX_RECENT)
+  // Subscribe so the recent lists re-sort when this user's visit history changes.
+  const lastVisited = useVisitStore((s) => s.lastVisited)
+
+  const recentProjects = useMemo(
+    () => sortByRecency(projects, 'project', (p) => p.uid, (p) => p.updatedAt).slice(0, MAX_RECENT),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [projects, lastVisited],
+  )
 
   // Populate the stores so the overview's counts are accurate even when landing here directly.
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
@@ -76,9 +82,11 @@ export function WorkspaceHomePage() {
   const wsMappingProjects = mappingProjects.filter((m) => m.workspaceId === wsUid)
   const wsWikiPages = wikiPages.filter((p) => p.workspaceId === wsUid)
 
-  const recentMappingProjects = [...wsMappingProjects]
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, MAX_RECENT)
+  const recentMappingProjects = useMemo(
+    () => sortByRecency(wsMappingProjects, 'mapping-project', (m) => m.id, (m) => m.updatedAt).slice(0, MAX_RECENT),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wsMappingProjects, lastVisited],
+  )
 
   const handleOpenProject = (uid: string, name: string) => {
     openProject(uid, name)

@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useVisitStore, sortByRecency } from '@/stores/visit-store'
 
 const quickActions = [
   {
@@ -42,10 +44,15 @@ export function HomePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { workspaces, openWorkspace } = useWorkspaceStore()
+  // Subscribe so the list re-sorts when this user's visit history changes.
+  const lastVisited = useVisitStore((s) => s.lastVisited)
 
-  const recentWorkspaces = [...workspaces]
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, MAX_RECENT)
+  const recentWorkspaces = useMemo(
+    () => sortByRecency(workspaces, 'workspace', (w) => w.id, (w) => w.updatedAt).slice(0, MAX_RECENT),
+    // lastVisited drives the sort inside sortByRecency (read via getState).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspaces, lastVisited],
+  )
 
   const handleOpenWorkspace = (id: string, name: string) => {
     openWorkspace(id, name)
