@@ -3685,7 +3685,7 @@
     "error_unknown": "Échec du clonage. Vérifiez l'URL, la branche, le jeton et le proxy CORS.",
     "run_local_proxy": "Lancer un proxy local",
     "run_local_proxy_hint": "Lance un proxy CORS sans dépendance sur http://localhost:9999 — collez cette adresse dans le champ ci-dessus. Ne fonctionne qu'avec une instance locale de Linkr (npm run dev). Un Linkr déployé en HTTPS nécessite un proxy hébergé en HTTPS.",
-    "private_repo_hint": "Pour un dépôt privé, fournissez un jeton d'accès personnel. Le clonage s'exécute sur le serveur."
+    "private_repo_hint": "Pour un dépôt privé, fournissez un jeton d'accès personnel."
   },
   "setup": {
     "title": "Bienvenue sur Linkr",

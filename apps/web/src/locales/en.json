@@ -3685,7 +3685,7 @@
     "error_unknown": "Clone failed. Check the URL, branch, token and CORS proxy.",
     "run_local_proxy": "Run a local proxy",
     "run_local_proxy_hint": "Runs a dependency-free CORS proxy on http://localhost:9999 — paste that into the field above. This only works with a local Linkr instance (npm run dev). A Linkr deployed over HTTPS needs a proxy hosted over HTTPS.",
-    "private_repo_hint": "For a private repository, provide a personal access token. Cloning runs on the server."
+    "private_repo_hint": "For a private repository, provide a personal access token."
   },
   "setup": {
     "title": "Welcome to Linkr",
