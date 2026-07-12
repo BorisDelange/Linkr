@@ -40,7 +40,13 @@ export function GatedButton({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="inline-flex cursor-not-allowed">
+          {/* Swallow clicks so a disabled action never bubbles to a parent
+              (e.g. a clickable card row) and triggers navigation/opening. */}
+          <span
+            className="inline-flex cursor-not-allowed"
+            onClickCapture={(e) => { e.stopPropagation(); e.preventDefault() }}
+            onPointerDownCapture={(e) => { e.stopPropagation(); e.preventDefault() }}
+          >
             <Button
               disabled
               tabIndex={-1}

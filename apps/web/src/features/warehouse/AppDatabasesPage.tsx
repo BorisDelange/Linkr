@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
@@ -234,6 +235,7 @@ function CreateFromPresetDialog({
 export function AppDatabasesPage() {
   const { t } = useTranslation()
   const { wsUid } = useResolvedParams()
+  const canWrite = useMyWorkspaceRole().can('databases:write')
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { testConnection, disconnectDataSource, removeDataSource, reconnectDataSource, retestDataSource } = useDataSourceStore()
   // In server mode the DB lives on the server: (re)connecting means re-testing
@@ -336,7 +338,7 @@ export function AppDatabasesPage() {
           <div className="flex items-center gap-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" className="gap-1 text-xs">
+                <Button size="sm" className="gap-1 text-xs" disabled={!canWrite}>
                   <Plus size={14} />
                   {t('databases.add_database')}
                   <ChevronDown size={14} className="ml-1 opacity-60" />

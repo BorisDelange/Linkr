@@ -1449,6 +1449,7 @@ export function SchemaPresetsPage() {
                 variant="outline"
                 size="sm"
                 className="gap-1 text-xs"
+                disabled={!canWrite}
                 onClick={() => importInputRef.current?.click()}
               >
                 <Upload size={14} />
