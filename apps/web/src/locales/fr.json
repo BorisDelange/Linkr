@@ -1493,6 +1493,8 @@
     "sync_message": "Message de commit",
     "sync_message_ph": "Décrivez vos modifications",
     "sync_pushed": "Poussé",
+    "sync_behind": "Le dépôt distant contient des modifications que vous n'avez pas encore. Mettez à jour (bientôt disponible).",
+    "sync_diverged": "Vous et le dépôt distant avez tous deux changé depuis la dernière synchronisation. À résoudre lors de la mise à jour (bientôt disponible).",
     "sync_commit_push": "Valider et pousser",
     "diff_empty": "Aucune différence.",
     "remote_private": "Privé",
@@ -2465,7 +2467,14 @@
     "replaced": "remplacé(s)",
     "versioning": "Versioning",
     "all": "Tout",
-    "actions": "Actions"
+    "actions": "Actions",
+    "affiliation": "Affiliation",
+    "profession": "Profession",
+    "organization": "Organisation",
+    "type": "Type",
+    "location": "Localisation",
+    "website": "Site web",
+    "reference_id": "Identifiant de référence"
   },
   "user_menu": {
     "profile": "Paramètres",

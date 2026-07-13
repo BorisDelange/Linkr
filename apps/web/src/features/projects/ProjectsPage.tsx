@@ -402,6 +402,7 @@ export function ProjectsPage() {
                       createdById={raw?.createdById}
                       createdBy={raw?.createdBy}
                       createdByDetails={raw?.createdByDetails}
+                      organization={raw?.organization}
                       createdAt={project.createdAt}
                       updatedAt={project.updatedAt}
                     />

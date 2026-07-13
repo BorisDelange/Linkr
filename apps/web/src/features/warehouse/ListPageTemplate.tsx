@@ -6,7 +6,7 @@ import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { shortenIdAmong } from '@/lib/short-id'
 import type { GitScope } from '@/lib/api/git'
-import type { GitRemoteConfig, LocalizedString } from '@/types'
+import type { GitRemoteConfig, LocalizedString, OrganizationInfo } from '@/types'
 import type { AuthorDetails } from '@/types/author'
 import { Button } from '@/components/ui/button'
 import { GatedButton } from '@/components/ui/gated-button'
@@ -21,7 +21,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdById?: number; createdBy?: string; createdByDetails?: AuthorDetails }> {
+interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdById?: number; createdBy?: string; createdByDetails?: AuthorDetails; organization?: OrganizationInfo }> {
   /** Page title i18n key */
   titleKey: string
   /** Page description i18n key */
@@ -93,7 +93,7 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
 // Component
 // ---------------------------------------------------------------------------
 
-export function ListPageTemplate<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdById?: number; createdBy?: string; createdByDetails?: AuthorDetails }>({
+export function ListPageTemplate<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdById?: number; createdBy?: string; createdByDetails?: AuthorDetails; organization?: OrganizationInfo }>({
   titleKey,
   descriptionKey,
   newButtonKey,
@@ -227,6 +227,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     createdById={item.createdById}
                     createdBy={item.createdBy}
                     createdByDetails={item.createdByDetails}
+                    organization={item.organization}
                     createdAt={item.createdAt}
                     updatedAt={item.updatedAt}
                   />

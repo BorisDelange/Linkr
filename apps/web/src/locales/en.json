@@ -1494,6 +1494,8 @@
     "sync_message_ph": "Describe your changes",
     "sync_pushed": "Pushed",
     "sync_commit_push": "Commit & push",
+    "sync_behind": "The remote has changes you don't have yet. Pull to update (coming soon).",
+    "sync_diverged": "You and the remote have both changed since the last sync. This will need resolving on pull (coming soon).",
     "diff_empty": "No differences.",
     "remote_private": "Private",
     "remote_token_hint": "Optional. Required only for a private repository (personal access token).",
@@ -2465,7 +2467,14 @@
     "replaced": "replaced",
     "versioning": "Versioning",
     "all": "All",
-    "actions": "Actions"
+    "actions": "Actions",
+    "affiliation": "Affiliation",
+    "profession": "Profession",
+    "organization": "Organization",
+    "type": "Type",
+    "location": "Location",
+    "website": "Website",
+    "reference_id": "Reference ID"
   },
   "user_menu": {
     "profile": "Settings",

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -62,6 +63,7 @@ export function WorkspacesPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace } = useWorkspaceStore()
+  const getOrganization = useOrganizationStore((s) => s.getOrganization)
   const { getWorkspaceProjects, loadProjects } = useAppStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
@@ -816,6 +818,7 @@ export function WorkspacesPage() {
                       createdById={raw?.createdById}
                       createdBy={raw?.createdBy}
                       createdByDetails={raw?.createdByDetails}
+                      organization={raw?.organizationId ? getOrganization(raw.organizationId) : raw?.organization}
                       createdAt={ws.createdAt}
                       updatedAt={ws.updatedAt}
                     />
