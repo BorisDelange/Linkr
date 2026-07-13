@@ -1156,6 +1156,20 @@ export async function buildSqlCollectionFolder(
  * overrides. SQL scripts are text, so LFS rarely triggers, but keeping the same
  * shape means the sync panel's per-file LFS control works uniformly.
  */
+/** Write the .gitattributes (auto LFS rule + overrides) from the ZIP's own entry
+ *  sizes, then emit the blob — shared tail of every single-entity git zip. */
+async function finalizeEntityZip(zip: JSZip, lfsOverrides?: Map<string, boolean>): Promise<Blob> {
+  const { resolveLfsPaths, buildGitAttributes } = await import('@/lib/git-lfs')
+  const entries = await Promise.all(
+    Object.values(zip.files)
+      .filter((f) => !f.dir)
+      .map(async (f) => ({ path: f.name, size: (await f.async('uint8array')).byteLength })),
+  )
+  const attrs = buildGitAttributes(resolveLfsPaths(entries, lfsOverrides ?? new Map()))
+  if (attrs) zip.file('.gitattributes', attrs)
+  return zip.generateAsync({ type: 'blob' })
+}
+
 export async function buildSqlCollectionZip(
   collectionId: string,
   storage: Storage,
@@ -1165,18 +1179,120 @@ export async function buildSqlCollectionZip(
   if (!collection) return null
   const zip = new JSZip()
   await buildSqlCollectionFolder(zip, '', collection, storage)
-
-  const { resolveLfsPaths, buildGitAttributes } = await import('@/lib/git-lfs')
-  const entries = await Promise.all(
-    Object.values(zip.files)
-      .filter((f) => !f.dir)
-      .map(async (f) => ({ path: f.name, size: (await f.async('uint8array')).byteLength })),
-  )
-  const attrs = buildGitAttributes(resolveLfsPaths(entries, options.lfsOverrides ?? new Map()))
-  if (attrs) zip.file('.gitattributes', attrs)
-
-  const blob = await zip.generateAsync({ type: 'blob' })
+  const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(collection.name, 'en') || collection.id }
+}
+
+export async function buildEtlPipelineZip(
+  pipelineId: string,
+  storage: Storage,
+  options: { lfsOverrides?: Map<string, boolean> } = {},
+): Promise<{ blob: Blob; name: string } | null> {
+  const pipeline = await storage.etlPipelines.getById(pipelineId)
+  if (!pipeline) return null
+  const zip = new JSZip()
+  await buildEtlPipelineFolder(zip, '', pipeline, storage)
+  const blob = await finalizeEntityZip(zip, options.lfsOverrides)
+  return { blob, name: localized(pipeline.name, 'en') || pipeline.id }
+}
+
+/** Folder layout for one data catalog's git repo: just its config (stripped).
+ *  Service mappings are workspace-level siblings, not owned by a single catalog,
+ *  so they are not part of the catalog's own repo. */
+export async function buildDataCatalogFolder(
+  zip: JSZip,
+  prefix: string,
+  catalog: DataCatalog,
+): Promise<void> {
+  zip.file(`${prefix}catalog.json`, json(stripInstanceFields(catalog)))
+}
+
+export async function buildDataCatalogZip(
+  catalogId: string,
+  storage: Storage,
+  options: { lfsOverrides?: Map<string, boolean> } = {},
+): Promise<{ blob: Blob; name: string } | null> {
+  const catalog = await storage.dataCatalogs.getById(catalogId)
+  if (!catalog) return null
+  const zip = new JSZip()
+  await buildDataCatalogFolder(zip, '', catalog)
+  const blob = await finalizeEntityZip(zip, options.lfsOverrides)
+  return { blob, name: localized(catalog.name, 'en') || catalog.id }
+}
+
+/** Folder layout for one DQ rule set's git repo: the rule set (stripped) plus its
+ *  custom checks (they belong to the rule set, not the workspace). */
+export async function buildDqRuleSetFolder(
+  zip: JSZip,
+  prefix: string,
+  ruleSet: DqRuleSet,
+  storage: Storage,
+): Promise<void> {
+  zip.file(`${prefix}rule-set.json`, json(stripInstanceFields(ruleSet)))
+  const checks = await storage.dqCustomChecks.getByRuleSet(ruleSet.id)
+  if (checks.length > 0) zip.file(`${prefix}checks.json`, json(checks))
+}
+
+export async function buildDqRuleSetZip(
+  ruleSetId: string,
+  storage: Storage,
+  options: { lfsOverrides?: Map<string, boolean> } = {},
+): Promise<{ blob: Blob; name: string } | null> {
+  const ruleSet = await storage.dqRuleSets.getById(ruleSetId)
+  if (!ruleSet) return null
+  const zip = new JSZip()
+  await buildDqRuleSetFolder(zip, '', ruleSet, storage)
+  const blob = await finalizeEntityZip(zip, options.lfsOverrides)
+  return { blob, name: localized(ruleSet.name, 'en') || ruleSet.id }
+}
+
+/** Folder layout for one schema preset's git repo: its mapping config (stripped).
+ *  Keyed on presetId (its primary key), not id. */
+export async function buildSchemaPresetFolder(
+  zip: JSZip,
+  prefix: string,
+  preset: CustomSchemaPreset,
+): Promise<void> {
+  zip.file(`${prefix}preset.json`, json(stripInstanceFields(preset)))
+}
+
+export async function buildSchemaPresetZip(
+  presetId: string,
+  storage: Storage,
+  options: { lfsOverrides?: Map<string, boolean> } = {},
+): Promise<{ blob: Blob; name: string } | null> {
+  const preset = await storage.schemaPresets.getById(presetId)
+  if (!preset) return null
+  const zip = new JSZip()
+  await buildSchemaPresetFolder(zip, '', preset)
+  const blob = await finalizeEntityZip(zip, options.lfsOverrides)
+  return { blob, name: preset.presetId }
+}
+
+/** Folder layout for one user plugin's git repo: a metadata pointer plus each
+ *  source file (filename → code) at the root, mirroring the workspace export. */
+export async function buildUserPluginFolder(
+  zip: JSZip,
+  prefix: string,
+  plugin: UserPlugin,
+): Promise<void> {
+  zip.file(`${prefix}_plugin.json`, json({ id: plugin.id, entityId: plugin.entityId }))
+  for (const [filename, content] of Object.entries(plugin.files)) {
+    zip.file(`${prefix}${filename}`, content)
+  }
+}
+
+export async function buildUserPluginZip(
+  pluginId: string,
+  storage: Storage,
+  options: { lfsOverrides?: Map<string, boolean> } = {},
+): Promise<{ blob: Blob; name: string } | null> {
+  const plugin = await storage.userPlugins.getById(pluginId)
+  if (!plugin) return null
+  const zip = new JSZip()
+  await buildUserPluginFolder(zip, '', plugin)
+  const blob = await finalizeEntityZip(zip, options.lfsOverrides)
+  return { blob, name: plugin.entityId || plugin.id }
 }
 
 /**
@@ -1262,7 +1378,7 @@ export async function buildEtlPipelineFolder(
   pipeline: EtlPipeline,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}_pipeline.json`, json(pipeline))
+  zip.file(`${prefix}_pipeline.json`, json(stripInstanceFields(pipeline)))
   const files = await storage.etlFiles.getByPipeline(pipeline.id)
   const byId = new Map(files.map(f => [f.id, f]))
   zip.file(`${prefix}_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))

@@ -1439,6 +1439,7 @@ export function SchemaPresetsPage() {
                     <EntityActionsMenu
                       item={item}
                       {...schemaActions}
+                      syncScope="schema-presets"
                       canEdit={canWrite}
                       canDelete={canDelete}
                       open={menuOpenId === id}

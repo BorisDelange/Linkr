@@ -300,6 +300,7 @@ export function Header() {
             <EntityActionsMenu
               item={pluginItem}
               {...pluginActions}
+              syncScope="user-plugins"
               canEdit={!editingPluginIsSystem}
               canDelete={!editingPluginIsSystem}
               align="start"
@@ -382,6 +383,7 @@ export function Header() {
             <EntityActionsMenu
               item={etlEntity}
               {...etlActions}
+              syncScope="etl-pipelines"
               align="start"
               onDeleted={handleEntityDeleted}
               open={etlMenuOpen}
@@ -423,6 +425,7 @@ export function Header() {
             <EntityActionsMenu
               item={catalogEntity}
               {...catalogActions}
+              syncScope="data-catalogs"
               align="start"
               onDeleted={handleEntityDeleted}
               open={catalogMenuOpen}
@@ -443,6 +446,7 @@ export function Header() {
             <EntityActionsMenu
               item={dqEntity}
               {...dqActions}
+              syncScope="dq-rule-sets"
               align="start"
               onDeleted={handleEntityDeleted}
               open={dqMenuOpen}

@@ -47,6 +47,21 @@ async function buildZipUncached(
   } else if (scope === 'sql-script-collections') {
     const { buildSqlCollectionZip } = await import('@/lib/entity-io')
     result = await buildSqlCollectionZip(id, storage, { lfsOverrides })
+  } else if (scope === 'etl-pipelines') {
+    const { buildEtlPipelineZip } = await import('@/lib/entity-io')
+    result = await buildEtlPipelineZip(id, storage, { lfsOverrides })
+  } else if (scope === 'data-catalogs') {
+    const { buildDataCatalogZip } = await import('@/lib/entity-io')
+    result = await buildDataCatalogZip(id, storage, { lfsOverrides })
+  } else if (scope === 'dq-rule-sets') {
+    const { buildDqRuleSetZip } = await import('@/lib/entity-io')
+    result = await buildDqRuleSetZip(id, storage, { lfsOverrides })
+  } else if (scope === 'schema-presets') {
+    const { buildSchemaPresetZip } = await import('@/lib/entity-io')
+    result = await buildSchemaPresetZip(id, storage, { lfsOverrides })
+  } else if (scope === 'user-plugins') {
+    const { buildUserPluginZip } = await import('@/lib/entity-io')
+    result = await buildUserPluginZip(id, storage, { lfsOverrides })
   } else {
     const { buildMappingProjectZip } = await import('@/lib/concept-mapping/export')
     result = await buildMappingProjectZip(id, storage, { includeData, lfsOverrides })

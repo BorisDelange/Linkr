@@ -478,6 +478,8 @@ export function PluginsTab() {
           onOpenChange={(open) => { if (!open) setVersioningTarget(null) }}
           initialTab={versioningTarget.tab}
           supportsIncludeData={false}
+          syncScope="user-plugins"
+          syncId={versioningTarget.id}
           gitRemote={pluginList.find((p) => p.id === versioningTarget.id)?.gitRemoteConfig ?? null}
           onExport={() => pluginActions.onExport({ id: versioningTarget.id, name: versioningTarget.id })}
           onSaveGitRemote={async (config) => {

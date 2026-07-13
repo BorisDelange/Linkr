@@ -145,6 +145,7 @@ export function EtlListPage() {
       getGitRemote={etlActions.getGitRemote}
       onSaveGitRemote={etlActions.onSaveGitRemote}
       exportSupportsIncludeData={etlActions.exportSupportsIncludeData}
+      syncScope="etl-pipelines"
       onImport={handleImport}
       renderCardBody={(pipeline) => {
         const statusInfo = STATUS_BADGE[pipeline.status]

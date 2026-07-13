@@ -148,6 +148,7 @@ export function DqRuleSetListPage() {
       getGitRemote={dqActions.getGitRemote}
       onSaveGitRemote={dqActions.onSaveGitRemote}
       exportSupportsIncludeData={dqActions.exportSupportsIncludeData}
+      syncScope="dq-rule-sets"
       onImport={handleImport}
       renderCardBody={(rs) => {
         const statusInfo = STATUS_BADGE[rs.status]

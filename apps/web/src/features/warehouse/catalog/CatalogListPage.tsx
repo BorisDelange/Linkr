@@ -131,6 +131,7 @@ export function CatalogListPage() {
       getGitRemote={catalogActions.getGitRemote}
       onSaveGitRemote={catalogActions.onSaveGitRemote}
       exportSupportsIncludeData={catalogActions.exportSupportsIncludeData}
+      syncScope="data-catalogs"
       onImport={handleImport}
       renderCardBody={(catalog) => {
         const statusInfo = STATUS_BADGE[catalog.status]
