@@ -5,6 +5,7 @@ import { formatDate } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
 import { useUserDirectoryStore } from '@/stores/user-directory-store'
+import { useAppStore } from '@/stores/app-store'
 import type { AuthorDetails } from '@/types/author'
 import type { OrganizationInfo } from '@/types'
 
@@ -129,6 +130,10 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
   const { t, i18n } = useTranslation()
   // Prefer the live directory name (reflects profile renames); fall back to the
   // snapshot taken at creation when the id can't be resolved (author gone / import).
+  // Also subscribe to the current user so the author's OWN cards re-render right
+  // after they rename their profile (resolveName reads the live app-store value
+  // for id === me.id, which isn't a directory-store change on its own).
+  useAppStore((s) => (createdById != null && s.user?.id === createdById ? s.user : null))
   const resolved = useUserDirectoryStore((s) => (createdById != null ? s.resolveName(createdById) : ''))
   const label = resolved || authorLabel(createdBy, createdByDetails)
   const created = createdAt ? formatDate(createdAt, i18n.language) : ''

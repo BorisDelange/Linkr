@@ -38,14 +38,16 @@ export const useUserDirectoryStore = create<UserDirectoryState>((set, get) => ({
   },
 
   resolveName: (id) => {
-    const u = get().byId[id]
-    if (u) return displayName(u)
-    // Front-only (or directory not loaded): fall back to the current user.
+    // The current user is the freshest source for their own name: the directory
+    // is a boot-time snapshot, so a profile rename wouldn't show on their own
+    // cards until reload. Prefer the live app-store value for id === me.id.
     const me = useAppStore.getState().user
     if (me && me.id === id) {
       const full = [me.firstName, me.lastName].filter(Boolean).join(' ').trim()
       return full || me.username
     }
+    const u = get().byId[id]
+    if (u) return displayName(u)
     return ''
   },
 }))
