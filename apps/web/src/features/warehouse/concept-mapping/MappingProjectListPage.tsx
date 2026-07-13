@@ -34,6 +34,7 @@ import {
 import { AlertTriangle } from 'lucide-react'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { BadgeStrip } from '@/components/ui/badge-strip'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -454,66 +455,56 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
             sort={{ options: visitSortFields(t), value: sort, onChange: setSort }}
           />
         }
-        renderCardBody={(project) => {
+        renderCardBody={(project, actionsMenu) => {
           const progress = getProgress(project)
           const total = getTotalSourceConcepts(project)
           const mapped = project.stats?.mappedCount ?? 0
           const approved = project.stats?.approvedCount ?? 0
           return (
-            <>
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-                <ArrowRightLeft size={20} className="text-teal-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                {/* Title row: name + status pill (right) */}
-                <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+                {/* Row 1: icon + title + status pill + actions */}
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+                    <ArrowRightLeft size={20} className="text-teal-600" />
+                  </div>
                   <span className="truncate text-sm font-medium">{localized(project.name, language)}</span>
                   {project.status && (
-                    <span className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${MAPPING_STATUS_COLORS[project.status].bg} ${MAPPING_STATUS_COLORS[project.status].text}`}>
+                    <span className={`ml-auto shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${MAPPING_STATUS_COLORS[project.status].bg} ${MAPPING_STATUS_COLORS[project.status].text}`}>
                       <span className={`size-1.5 rounded-full ${MAPPING_STATUS_COLORS[project.status].dot}`} />
                       {t(`concept_mapping.project_status_${project.status}`)}
                     </span>
                   )}
+                  <div className={project.status ? 'shrink-0' : 'ml-auto shrink-0'}>{actionsMenu}</div>
+                </div>
+                {/* Description */}
+                <div className="mt-2 h-4">
+                  {localized(project.description, language) && (
+                    <TruncatedText text={localized(project.description, language)} className="text-xs text-muted-foreground" />
+                  )}
                 </div>
                 {/* Source row */}
-                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                   {project.sourceType === 'file' ? (
                     <>
-                      <FileSpreadsheet size={12} />
-                      <span className="truncate">{project.fileSourceData?.fileName ?? t('concept_mapping.source_file')}</span>
+                      <FileSpreadsheet size={12} className="shrink-0" />
+                      <span className="truncate">{t('concept_mapping.source_file')}</span>
                     </>
                   ) : (
                     <>
-                      <Database size={12} />
+                      <Database size={12} className="shrink-0" />
                       <span className="truncate">{getSourceName(project.dataSourceId)}</span>
                     </>
                   )}
                 </div>
-                {localized(project.description, language) && (
-                  <TruncatedText
-                    text={localized(project.description, language)}
-                    className="mt-0.5 text-xs text-muted-foreground"
-                  />
-                )}
                 {/* Badges + approved count (right) */}
-                {((project.badges && project.badges.length > 0) || total > 0) && (
-                  <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                    {project.badges?.map((badge) => (
-                      <span
-                        key={badge.id}
-                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${getBadgeClasses(badge.color)}`}
-                        style={getBadgeStyle(badge.color)}
-                      >
-                        {badge.label}
-                      </span>
-                    ))}
-                    {mapped > 0 && (
-                      <span className="ml-auto text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                        {t('concept_mapping.card_approved_label', { approved, total: mapped })}
-                      </span>
-                    )}
-                  </div>
-                )}
+                <div className="mt-2 flex h-5 items-center gap-1.5">
+                  <BadgeStrip badges={project.badges ?? []} className="min-w-0 flex-1" />
+                  {mapped > 0 && (
+                    <span className="ml-auto shrink-0 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                      {t('concept_mapping.card_approved_label', { approved, total: mapped })}
+                    </span>
+                  )}
+                </div>
                 {/* Progress bar */}
                 {total > 0 && (
                   <div className="mt-2">
@@ -529,8 +520,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
                     </div>
                   </div>
                 )}
-              </div>
-            </>
+            </div>
           )
         }}
         renderCreateDialog={({ open, onOpenChange, onCreated }) => (

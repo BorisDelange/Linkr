@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { BadgeStrip } from '@/components/ui/badge-strip'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { cn } from '@/lib/utils'
 import {
@@ -77,17 +80,17 @@ function PluginCard({ plugin, lang, onOpen, onEdit, onDuplicate, onDelete, onVer
     <Card
       key={plugin.id}
       className={cn(
-        'relative gap-0 py-0 transition-colors',
+        'relative flex min-h-44 flex-col gap-0 py-0 transition-colors',
         readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-accent/50',
       )}
       onClick={readOnly ? undefined : () => onOpen(plugin.id)}
     >
-      <div className="p-4">
+      <div className="flex flex-1 flex-col px-4 pt-5">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
               {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
-              <Icon size={16} className={iconProps.className ?? 'text-primary'} style={iconProps.style} />
+              <Icon size={20} className={iconProps.className ?? 'text-primary'} style={iconProps.style} />
             </div>
             <span className="truncate text-sm font-medium text-card-foreground">
               {plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.id}
@@ -137,30 +140,25 @@ function PluginCard({ plugin, lang, onOpen, onEdit, onDuplicate, onDelete, onVer
             )}
           </div>
         </div>
-        {(plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en) && (
-          <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-            {plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en}
-          </p>
-        )}
-        <div className="mt-2 flex flex-wrap items-center gap-1">
-          {plugin.manifest.badges?.map((badge) => (
-            <span
-              key={badge.id}
-              className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium leading-tight', getBadgeClasses(badge.color))}
-              style={getBadgeStyle(badge.color)}
-            >
-              {badge.label}
-            </span>
-          ))}
-          <div className="ml-auto flex items-center gap-1.5">
-            {plugin.manifest.languages?.map((l) => (
-              <LanguageBadge key={l} language={l} />
-            ))}
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              v{plugin.manifest.version ?? '1.0.0'}
-            </span>
-          </div>
+        <div className="mt-0.5 h-4">
+          {(plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en) && (
+            <TruncatedText
+              text={plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en ?? ''}
+              className="text-xs text-muted-foreground"
+            />
+          )}
         </div>
+        <BadgeStrip badges={plugin.manifest.badges ?? []} className="mt-2 h-5" />
+        {/* Languages + version pinned to the bottom-right, just above the footer bar. */}
+        <div className="mt-auto flex items-center justify-end gap-1.5 pt-2">
+          {plugin.manifest.languages?.map((l) => (
+            <LanguageBadge key={l} language={l} />
+          ))}
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            v{plugin.manifest.version ?? '1.0.0'}
+          </span>
+        </div>
+        <CardMetaFooter createdAt={plugin.createdAt} updatedAt={plugin.updatedAt} />
       </div>
     </Card>
   )

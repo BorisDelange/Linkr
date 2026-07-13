@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { BadgeStrip } from '@/components/ui/badge-strip'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import {
   DropdownMenu,
@@ -317,14 +319,15 @@ export function ProjectsPage() {
               return (
                 <Card
                   key={project.uid}
-                  className="relative cursor-pointer transition-colors hover:bg-accent/50"
+                  className="relative flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
                   onClick={() => handleOpenProject(project.uid, project.name)}
                 >
-                  <div className="p-4">
+                  <div className="flex flex-1 flex-col px-4 pt-5">
+                   <div className="flex flex-1 flex-col justify-center">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                          <FolderOpen size={16} className="text-primary" />
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+                          <FolderOpen size={20} className="text-blue-600 dark:text-blue-400" />
                         </div>
                         <span className="truncate text-sm font-medium text-card-foreground">{project.name}</span>
                       </div>
@@ -373,25 +376,19 @@ export function ProjectsPage() {
                         </DropdownMenu>
                       </div>
                     </div>
-                    {project.description && (
-                      <TruncatedText
-                        text={project.description}
-                        className="mt-2 text-xs text-muted-foreground"
-                      />
-                    )}
-                    {badges.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {badges.map((badge) => (
-                          <span
-                            key={badge.id}
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getBadgeClasses(badge.color)}`}
-                            style={getBadgeStyle(badge.color)}
-                          >
-                            {badge.label}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    <div className="mt-2 h-4">
+                      {project.description && (
+                        <TruncatedText text={project.description} className="text-xs text-muted-foreground" />
+                      )}
+                    </div>
+                    <BadgeStrip badges={badges} className="mt-1.5 h-5" />
+                   </div>
+                    <CardMetaFooter
+                      createdBy={raw?.createdBy}
+                      createdByDetails={raw?.createdByDetails}
+                      createdAt={project.createdAt}
+                      updatedAt={project.updatedAt}
+                    />
                   </div>
                 </Card>
               )

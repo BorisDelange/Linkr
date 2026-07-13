@@ -133,21 +133,21 @@ export function SqlScriptsListPage() {
       exportSupportsIncludeData={sqlActions.exportSupportsIncludeData}
       syncScope="sql-script-collections"
       onImport={handleImport}
-      renderCardBody={(collection) => (
-        <>
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-            <SquareTerminal size={20} className="text-teal-500" />
-          </div>
-          <div className="min-w-0 flex-1">
+      renderCardBody={(collection, actionsMenu) => (
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+              <SquareTerminal size={20} className="text-teal-500" />
+            </div>
             <span className="truncate text-sm font-medium">{localized(collection.name, language)}</span>
+            <div className="ml-auto shrink-0">{actionsMenu}</div>
+          </div>
+          <div className="mt-2 h-4">
             {localized(collection.description, language) && (
-              <TruncatedText
-                text={localized(collection.description, language)}
-                className="mt-0.5 text-xs text-muted-foreground"
-              />
+              <TruncatedText text={localized(collection.description, language)} className="text-xs text-muted-foreground" />
             )}
           </div>
-        </>
+        </div>
       )}
       renderCreateDialog={({ open, onOpenChange, onCreated }) => (
         <CreateSqlScriptsDialog open={open} onOpenChange={onOpenChange} onCreated={onCreated} />

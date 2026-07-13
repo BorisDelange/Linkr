@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
 import type { Project, ProjectStatus, ProjectBadge, BadgeColor } from '@/types'
-import { Plus, X } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { EditableBadge } from '@/components/ui/editable-badge'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -24,7 +25,7 @@ import {
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { getBadgeClasses, getBadgeStyle, getStatusDotClass } from './ProjectSettingsPage'
+import { getStatusDotClass } from './ProjectSettingsPage'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
 
 const STATUS_OPTIONS: ProjectStatus[] = ['active', 'completed', 'archived', 'draft']
@@ -69,15 +70,20 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
   const canSubmit = name.trim().length > 0 && (isEditing || isEntityIdValid(entityId, existingIds))
 
   const handleAddBadge = () => {
-    if (!newBadgeLabel.trim()) return
+    const label = newBadgeLabel.trim()
+    if (!label) return
+    // No duplicate labels on the same element (case-insensitive).
+    if (badges.some((b) => b.label.toLowerCase() === label.toLowerCase())) return
     const badge: ProjectBadge = {
       id: `b-${Date.now()}`,
-      label: newBadgeLabel.trim(),
+      label,
       color: newBadgeColor,
     }
     setBadges((prev) => [...prev, badge])
     setNewBadgeLabel('')
   }
+
+  const badgeLabelExists = !!newBadgeLabel.trim() && badges.some((b) => b.label.toLowerCase() === newBadgeLabel.trim().toLowerCase())
 
   const handleRemoveBadge = (id: string) => {
     setBadges((prev) => prev.filter((b) => b.id !== id))
@@ -91,7 +97,9 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       updateProjectStatus(editingProject.uid, status)
       updateProjectBadges(editingProject.uid, badges)
     } else {
-      await addProject(name.trim(), description.trim(), workspaceId, entityId)
+      const uid = await addProject(name.trim(), description.trim(), workspaceId, entityId)
+      if (status !== 'active') updateProjectStatus(uid, status)
+      if (badges.length > 0) updateProjectBadges(uid, badges)
     }
     onOpenChange(false)
   }
@@ -135,72 +143,63 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 placeholder={t('projects.field_description_placeholder')}
               />
             </div>
-            {isEditing && (
-              <>
-                <div className="space-y-2">
-                  <Label>{t('project_settings.status')}</Label>
-                  <Select value={status} onValueChange={(value) => setStatus(value as ProjectStatus)}>
-                    <SelectTrigger className="w-48">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STATUS_OPTIONS.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          <span className="flex items-center gap-2">
-                            <span className={`h-2 w-2 rounded-full ${getStatusDotClass(s)}`} />
-                            {t(`project_settings.status_${s}`)}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('project_settings.badges')}</Label>
-                  {badges.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {badges.map((badge) => (
-                        <span
-                          key={badge.id}
-                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${getBadgeClasses(badge.color)}`}
-                          style={getBadgeStyle(badge.color)}
-                        >
-                          {badge.label}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveBadge(badge.id)}
-                            className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20"
-                          >
-                            <X size={12} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={newBadgeLabel}
-                      onChange={(e) => setNewBadgeLabel(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBadge() } }}
-                      placeholder={t('project_settings.badge_label_placeholder')}
-                      className="h-8 flex-1 text-sm"
+            <div className="space-y-2">
+              <Label>{t('project_settings.status')}</Label>
+              <Select value={status} onValueChange={(value) => setStatus(value as ProjectStatus)}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUS_OPTIONS.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      <span className="flex items-center gap-2">
+                        <span className={`h-2 w-2 rounded-full ${getStatusDotClass(s)}`} />
+                        {t(`project_settings.status_${s}`)}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{t('project_settings.badges')}</Label>
+              {badges.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {badges.map((badge) => (
+                    <EditableBadge
+                      key={badge.id}
+                      label={badge.label}
+                      color={badge.color}
+                      onRemove={() => handleRemoveBadge(badge.id)}
                     />
-                    <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={handleAddBadge}
-                      disabled={!newBadgeLabel.trim()}
-                      className="gap-1"
-                    >
-                      <Plus size={14} />
-                      {t('project_settings.add_badge')}
-                    </Button>
-                  </div>
+                  ))}
                 </div>
-              </>
-            )}
+              )}
+              <div className="flex items-center gap-2">
+                <Input
+                  value={newBadgeLabel}
+                  onChange={(e) => setNewBadgeLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBadge() } }}
+                  placeholder={t('project_settings.badge_label_placeholder')}
+                  className="h-8 flex-1 text-sm"
+                />
+                <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleAddBadge}
+                  disabled={!newBadgeLabel.trim() || badgeLabelExists}
+                  className="gap-1"
+                >
+                  <Plus size={14} />
+                  {t('project_settings.add_badge')}
+                </Button>
+              </div>
+              {badgeLabelExists && (
+                <p className="text-xs text-destructive">{t('project_settings.badge_label_exists')}</p>
+              )}
+            </div>
           </div>
           <DialogFooter className="mt-6">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

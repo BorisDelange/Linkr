@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router'
 import { ShieldCheck, Database } from 'lucide-react'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -19,15 +18,7 @@ import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
 import { useDqRuleSetActions } from './use-dq-rule-set-actions'
-import type { DqRuleSet, DqRuleSetStatus } from '@/types'
-
-const STATUS_BADGE: Record<DqRuleSetStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
-  draft: { variant: 'secondary', label: 'data_quality.rs_status_draft' },
-  ready: { variant: 'outline', label: 'data_quality.rs_status_ready' },
-  running: { variant: 'default', label: 'data_quality.rs_status_running' },
-  success: { variant: 'default', label: 'data_quality.rs_status_success' },
-  error: { variant: 'destructive', label: 'data_quality.rs_status_error' },
-}
+import type { DqRuleSet } from '@/types'
 
 function scoreColor(score?: number) {
   if (score == null) return ''
@@ -150,43 +141,34 @@ export function DqRuleSetListPage() {
       exportSupportsIncludeData={dqActions.exportSupportsIncludeData}
       syncScope="dq-rule-sets"
       onImport={handleImport}
-      renderCardBody={(rs) => {
-        const statusInfo = STATUS_BADGE[rs.status]
+      renderCardBody={(rs, actionsMenu) => {
         return (
-          <>
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-              <ShieldCheck size={20} className="text-teal-500" />
+          <div className="min-w-0 flex-1">
+            {/* Row 1: icon + title (+ score) + actions — like Projects */}
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+                <ShieldCheck size={20} className="text-teal-500" />
+              </div>
+              <span className="truncate text-sm font-medium">{localized(rs.name, language)}</span>
+              {rs.lastScore != null && (
+                <span className={cn('shrink-0 font-mono text-xs font-medium', scoreColor(rs.lastScore))}>
+                  {rs.lastScore}%
+                </span>
+              )}
+              <div className="ml-auto shrink-0">{actionsMenu}</div>
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium">{localized(rs.name, language)}</span>
-                <Badge variant={statusInfo.variant} className="text-[10px]">
-                  {t(statusInfo.label)}
-                </Badge>
-                {rs.lastScore != null && (
-                  <span className={cn('text-xs font-mono font-medium', scoreColor(rs.lastScore))}>
-                    {rs.lastScore}%
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Database size={12} />
-                <span>{getSourceName(rs.dataSourceId)}</span>
-              </div>
+            {/* Description — full-width line below */}
+            <div className="mt-2 h-4">
               {localized(rs.description, language) && (
-                <TruncatedText
-                  text={localized(rs.description, language)}
-                  className="mt-0.5 text-xs text-muted-foreground"
-                />
-              )}
-              {rs.lastRunAt && (
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {t('data_quality.last_run')}: {new Date(rs.lastRunAt).toLocaleString()}
-                  {rs.lastRunDurationMs != null && ` (${(rs.lastRunDurationMs / 1000).toFixed(1)}s)`}
-                </p>
+                <TruncatedText text={localized(rs.description, language)} className="text-xs text-muted-foreground" />
               )}
             </div>
-          </>
+            {/* Database — full-width line below */}
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Database size={12} className="shrink-0" />
+              <span className="truncate">{getSourceName(rs.dataSourceId)}</span>
+            </div>
+          </div>
         )
       }}
       renderCreateDialog={({ open, onOpenChange, onCreated }) => (

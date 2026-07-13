@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Workflow, Database, ArrowRight } from 'lucide-react'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
-import { Badge } from '@/components/ui/badge'
 import { useEtlStore } from '@/stores/etl-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -17,15 +17,7 @@ import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateEtlDialog } from './CreateEtlDialog'
 import { useEtlActions } from './use-etl-actions'
-import type { EtlPipeline, EtlPipelineStatus } from '@/types'
-
-const STATUS_BADGE: Record<EtlPipelineStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
-  draft: { variant: 'secondary', label: 'etl.status_draft' },
-  ready: { variant: 'outline', label: 'etl.status_ready' },
-  running: { variant: 'default', label: 'etl.status_running' },
-  success: { variant: 'default', label: 'etl.status_success' },
-  error: { variant: 'destructive', label: 'etl.status_error' },
-}
+import type { EtlPipeline } from '@/types'
 
 export function EtlListPage() {
   const { t } = useTranslation()
@@ -147,38 +139,32 @@ export function EtlListPage() {
       exportSupportsIncludeData={etlActions.exportSupportsIncludeData}
       syncScope="etl-pipelines"
       onImport={handleImport}
-      renderCardBody={(pipeline) => {
-        const statusInfo = STATUS_BADGE[pipeline.status]
+      renderCardBody={(pipeline, actionsMenu) => {
         return (
-          <>
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-              <Workflow size={20} className="text-teal-500" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+                <Workflow size={20} className="text-teal-500" />
+              </div>
+              <span className="truncate text-sm font-medium">{localized(pipeline.name, language)}</span>
+              <div className="ml-auto shrink-0">{actionsMenu}</div>
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium">{localized(pipeline.name, language)}</span>
-                <Badge variant={statusInfo.variant} className="text-[10px]">
-                  {t(statusInfo.label)}
-                </Badge>
-              </div>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Database size={12} />
-                <span>{getSourceName(pipeline.sourceDataSourceId)}</span>
-                {pipeline.targetDataSourceId && (
-                  <>
-                    <ArrowRight size={10} />
-                    <span>{getSourceName(pipeline.targetDataSourceId)}</span>
-                  </>
-                )}
-              </div>
-              {pipeline.lastRunAt && (
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {t('etl.last_run')}: {new Date(pipeline.lastRunAt).toLocaleString()}
-                  {pipeline.lastRunDurationMs != null && ` (${(pipeline.lastRunDurationMs / 1000).toFixed(1)}s)`}
-                </p>
+            <div className="mt-2 h-4">
+              {localized(pipeline.description, language) && (
+                <TruncatedText text={localized(pipeline.description, language)} className="text-xs text-muted-foreground" />
               )}
             </div>
-          </>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Database size={12} className="shrink-0" />
+              <span className="truncate">{getSourceName(pipeline.sourceDataSourceId)}</span>
+              {pipeline.targetDataSourceId && (
+                <>
+                  <ArrowRight size={10} className="shrink-0" />
+                  <span className="truncate">{getSourceName(pipeline.targetDataSourceId)}</span>
+                </>
+              )}
+            </div>
+          </div>
         )
       }}
       renderCreateDialog={({ open, onOpenChange, onCreated }) => (

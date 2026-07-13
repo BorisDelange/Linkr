@@ -334,7 +334,7 @@ export function AppDatabasesPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
+      <div className="mx-auto max-w-4xl px-6 py-10">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">{t('app_warehouse.nav_databases')}</h1>
@@ -394,41 +394,41 @@ export function AppDatabasesPage() {
           <p className="mt-2 text-sm text-muted-foreground">{t('databases.no_results')}</p>
         </div>
       ) : (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {filteredSources.map((ds) => {
             const linkedProjects = getLinkedProjects(ds.id)
             return (
-              <div key={ds.id} className="space-y-1">
-                <DatabaseCard
-                  source={ds}
-                  onClick={() => setSelectedSource(ds)}
-                  onTestConnection={() => connectAction(ds.id)}
-                  onDisconnect={() => disconnectDataSource(ds.id)}
-                  onReconnect={() => reconnectAction(ds.id)}
-                  onEdit={() => setSourceToEdit(ds)}
-                  onRemove={() => setSourceToRemove(ds)}
-                />
-                {linkedProjects.length > 0 && (
-                  <div className="flex items-center gap-1.5 pl-4">
-                    <span className="text-[10px] text-muted-foreground">
-                      {t('app_warehouse.linked_projects')}:
-                    </span>
-                    {linkedProjects.map((p) => {
-                      const name = p.name[language] ?? p.name['en'] ?? Object.values(p.name)[0] ?? ''
-                      return (
-                        <Badge key={p.uid} variant="secondary" className="text-[10px] px-1.5 py-0">
-                          {name}
-                        </Badge>
-                      )
-                    })}
-                  </div>
-                )}
-                {linkedProjects.length === 0 && (
-                  <p className="pl-4 text-[10px] text-muted-foreground/60">
-                    {t('app_warehouse.no_linked_projects')}
-                  </p>
-                )}
-              </div>
+              <DatabaseCard
+                key={ds.id}
+                source={ds}
+                onClick={() => setSelectedSource(ds)}
+                onTestConnection={() => connectAction(ds.id)}
+                onDisconnect={() => disconnectDataSource(ds.id)}
+                onReconnect={() => reconnectAction(ds.id)}
+                onEdit={() => setSourceToEdit(ds)}
+                onRemove={() => setSourceToRemove(ds)}
+                belowStats={
+                  linkedProjects.length > 0 ? (
+                    <div className="mt-1 flex items-center gap-1 overflow-hidden">
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {t('app_warehouse.linked_projects')}:
+                      </span>
+                      {linkedProjects.map((p) => {
+                        const name = p.name[language] ?? p.name['en'] ?? Object.values(p.name)[0] ?? ''
+                        return (
+                          <Badge key={p.uid} variant="secondary" className="shrink-0 truncate px-1.5 py-0 text-[10px]">
+                            {name}
+                          </Badge>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-[10px] text-muted-foreground/60">
+                      {t('app_warehouse.no_linked_projects')}
+                    </p>
+                  )
+                }
+              />
             )
           })}
         </div>

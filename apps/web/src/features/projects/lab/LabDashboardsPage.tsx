@@ -7,6 +7,7 @@ import { paths } from '@/lib/paths'
 import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { Input } from '@/components/ui/input'
@@ -164,14 +165,15 @@ export function LabDashboardsPage() {
               return (
                 <Card
                   key={dash.id}
-                  className="cursor-pointer transition-colors hover:bg-accent/50"
+                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
                   onClick={() => navigate(paths.dashboard(wsUid ?? '', projectUid, dash.id))}
                 >
-                  <div className="p-4">
+                  <div className="flex flex-1 flex-col px-4 pt-5">
+                   <div className="flex flex-1 flex-col justify-center">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                          <LayoutGrid size={16} className="text-primary" />
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-rose-500/10">
+                          <LayoutGrid size={20} className="text-rose-500" />
                         </div>
                         <span className="truncate text-sm font-medium text-card-foreground">
                           {localized(dash.name, language)}
@@ -182,7 +184,7 @@ export function LabDashboardsPage() {
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            className="shrink-0"
+                            className="-mt-1 shrink-0 self-start"
                             onClick={(e) => e.stopPropagation()}
                           >
                             <MoreHorizontal size={14} />
@@ -201,12 +203,18 @@ export function LabDashboardsPage() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                    {description && (
-                      <TruncatedText
-                        text={description}
-                        className="mt-2 text-xs text-muted-foreground"
-                      />
-                    )}
+                    <div className="mt-2 h-4">
+                      {description && (
+                        <TruncatedText text={description} className="text-xs text-muted-foreground" />
+                      )}
+                    </div>
+                   </div>
+                    <CardMetaFooter
+                      createdBy={dash.createdBy}
+                      createdByDetails={dash.createdByDetails}
+                      createdAt={dash.createdAt}
+                      updatedAt={dash.updatedAt}
+                    />
                   </div>
                 </Card>
               )

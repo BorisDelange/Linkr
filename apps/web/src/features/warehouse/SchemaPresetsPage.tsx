@@ -55,6 +55,9 @@ import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
+import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { applySort, baseSortFields } from '@/lib/list-sort'
 import { useSchemaPresetActions, toSchemaPresetItem } from './use-schema-preset-actions'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { SchemaERD } from './SchemaERD'
@@ -888,10 +891,14 @@ function PresetEditor({
 
 function SchemaCard({
   mapping,
+  createdAt,
+  updatedAt,
   onNavigate,
   actionsMenu,
 }: {
   mapping: SchemaMapping
+  createdAt?: string
+  updatedAt?: string
   onNavigate: () => void
   actionsMenu: React.ReactNode
 }) {
@@ -911,22 +918,22 @@ function SchemaCard({
   const description = mapping.description ? localized(mapping.description, i18n.language) : ''
 
   return (
-    <div
-      className="rounded-lg border bg-card hover:bg-accent/30 transition-colors cursor-pointer"
+    <Card
+      className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
       onClick={onNavigate}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onNavigate() }}
     >
-      <div className="flex w-full items-center gap-3 px-4 py-3">
-        <div className="flex flex-1 items-center gap-3 min-w-0">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
-            <Database size={14} className="text-primary" />
+      <div className="flex flex-1 flex-col px-4 pt-5">
+        <div className="flex flex-1 items-center gap-4">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+            <Database size={20} className="text-teal-500" />
           </div>
 
-          <div className="flex-1 min-w-0">
-            <span className="text-sm font-medium text-foreground">{localized(mapping.presetLabel, i18n.language)}</span>
-            <p className="truncate text-xs text-muted-foreground mt-0.5">
+          <div className="min-w-0 flex-1">
+            <span className="truncate text-sm font-medium">{localized(mapping.presetLabel, i18n.language)}</span>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {description || (totalCount > 0 || mappedCount > 0
                 ? [
                     totalCount > 0 ? `${totalCount} ${t('settings.schema_preset_tables').toLowerCase()}` : null,
@@ -935,14 +942,15 @@ function SchemaCard({
                 : t('settings.schema_preset_no_mapping'))}
             </p>
           </div>
-        </div>
 
-        {/* Actions */}
-        <div onClick={(e) => e.stopPropagation()}>
-          {actionsMenu}
+          {/* Actions */}
+          <div className="-mt-1 self-start" onClick={(e) => e.stopPropagation()}>
+            {actionsMenu}
+          </div>
         </div>
+        <CardMetaFooter className="mt-auto" createdAt={createdAt} updatedAt={updatedAt} />
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -1257,6 +1265,21 @@ export function SchemaPresetsPage() {
     return customPresets.map(cp => ({ id: cp.presetId, mapping: cp.mapping, preset: cp }))
   }, [customPresets])
 
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
+  const filteredSchemas = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    const filtered = q
+      ? allSchemas.filter(({ mapping }) =>
+          `${localized(mapping.presetLabel, language)} ${mapping.description ? localized(mapping.description, language) : ''}`.toLowerCase().includes(q))
+      : allSchemas
+    return applySort(filtered, sort, {
+      name: (s) => localized(s.mapping.presetLabel, language),
+      createdAt: (s) => s.preset.createdAt,
+      updatedAt: (s) => s.preset.updatedAt,
+    })
+  }, [allSchemas, searchQuery, sort, language])
+
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
     const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
     const newMapping: SchemaMapping = {
@@ -1384,7 +1407,7 @@ export function SchemaPresetsPage() {
   // ── Otherwise, show list ──
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
+      <div className="mx-auto max-w-4xl px-6 py-10">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -1416,6 +1439,15 @@ export function SchemaPresetsPage() {
             </div>
           </div>
 
+          {allSchemas.length > 0 && (
+            <ListPageToolbar
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              searchPlaceholder={t('schemas.search_placeholder')}
+              sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
+            />
+          )}
+
           {allSchemas.length === 0 ? (
             <Card className="mt-6">
               <div className="flex flex-col items-center py-12">
@@ -1426,14 +1458,21 @@ export function SchemaPresetsPage() {
                 </p>
               </div>
             </Card>
+          ) : filteredSchemas.length === 0 ? (
+            <div className="mt-6 flex flex-col items-center py-8">
+              <FileSpreadsheet size={24} className="text-muted-foreground/50" />
+              <p className="mt-2 text-sm text-muted-foreground">{t('common.no_results')}</p>
+            </div>
           ) : (
-          <div className="space-y-2">
-            {allSchemas.map(({ id, mapping, preset }) => {
+          <div className="grid gap-3 sm:grid-cols-2">
+            {filteredSchemas.map(({ id, mapping, preset }) => {
               const item = toSchemaPresetItem(preset)
               return (
                 <SchemaCard
                   key={id}
                   mapping={mapping}
+                  createdAt={preset.createdAt}
+                  updatedAt={preset.updatedAt}
                   onNavigate={() => navigateToSchema(id)}
                   actionsMenu={
                     <EntityActionsMenu

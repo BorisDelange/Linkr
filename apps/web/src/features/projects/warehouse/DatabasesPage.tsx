@@ -140,7 +140,7 @@ export function DatabasesPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
+      <div className="mx-auto max-w-4xl px-6 py-10">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
@@ -182,7 +182,7 @@ export function DatabasesPage() {
             <p className="mt-2 text-sm text-muted-foreground">{t('databases.no_results')}</p>
           </div>
         ) : (
-          <div className="mt-6 space-y-3">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {filteredSources.map((ds) => (
               <DatabaseCard
                 key={ds.id}

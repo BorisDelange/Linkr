@@ -4,7 +4,8 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
-import type { Workspace } from '@/types'
+import type { Workspace, ProjectBadge, BadgeColor } from '@/types'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -16,6 +17,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { EditableBadge } from '@/components/ui/editable-badge'
+import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { RequiredMark } from '@/components/ui/required-mark'
 
 interface EditWorkspaceDialogProps {
@@ -26,17 +29,43 @@ interface EditWorkspaceDialogProps {
 
 export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorkspaceDialogProps) {
   const { t } = useTranslation()
-  const { updateWorkspace } = useWorkspaceStore()
+  const { updateWorkspace, updateWorkspaceBadges } = useWorkspaceStore()
   const language = useAppStore((s) => s.language)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [badges, setBadges] = useState<ProjectBadge[]>([])
+  const [newBadgeLabel, setNewBadgeLabel] = useState('')
+  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
 
   useEffect(() => {
     if (open && workspace) {
       setName(localized(workspace.name, language))
       setDescription(localized(workspace.description, language))
+      setBadges(workspace.badges ?? [])
+      setNewBadgeLabel('')
+      setNewBadgeColor('blue')
     }
   }, [open, workspace, language])
+
+  const handleAddBadge = () => {
+    const label = newBadgeLabel.trim()
+    if (!label) return
+    // No duplicate labels on the same element (case-insensitive).
+    if (badges.some((b) => b.label.toLowerCase() === label.toLowerCase())) return
+    const badge: ProjectBadge = {
+      id: `b-${Date.now()}`,
+      label,
+      color: newBadgeColor,
+    }
+    setBadges((prev) => [...prev, badge])
+    setNewBadgeLabel('')
+  }
+
+  const badgeLabelExists = !!newBadgeLabel.trim() && badges.some((b) => b.label.toLowerCase() === newBadgeLabel.trim().toLowerCase())
+
+  const handleRemoveBadge = (id: string) => {
+    setBadges((prev) => prev.filter((b) => b.id !== id))
+  }
 
   const doSave = async () => {
     if (!workspace) return
@@ -44,14 +73,16 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
       name: setLocalized(workspace.name, language, name.trim()),
       description: setLocalized(workspace.description, language, description.trim()),
     })
+    await updateWorkspaceBadges(workspace.id, badges)
     onOpenChange(false)
   }
 
   const { canSaveNow, save } = useSaveForm({
-    current: { name, description },
+    current: { name, description, badges },
     baseline: {
       name: localized(workspace?.name, language),
       description: localized(workspace?.description, language),
+      badges: workspace?.badges ?? [],
     },
     onSave: doSave,
     canSave: name.trim().length > 0,
@@ -87,6 +118,45 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>{t('project_settings.badges')}</Label>
+              {badges.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {badges.map((badge) => (
+                    <EditableBadge
+                      key={badge.id}
+                      label={badge.label}
+                      color={badge.color}
+                      onRemove={() => handleRemoveBadge(badge.id)}
+                    />
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Input
+                  value={newBadgeLabel}
+                  onChange={(e) => setNewBadgeLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBadge() } }}
+                  placeholder={t('project_settings.badge_label_placeholder')}
+                  className="h-8 flex-1 text-sm"
+                />
+                <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleAddBadge}
+                  disabled={!newBadgeLabel.trim() || badgeLabelExists}
+                  className="gap-1"
+                >
+                  <Plus size={14} />
+                  {t('project_settings.add_badge')}
+                </Button>
+              </div>
+              {badgeLabelExists && (
+                <p className="text-xs text-destructive">{t('project_settings.badge_label_exists')}</p>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-6">

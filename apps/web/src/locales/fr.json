@@ -1772,6 +1772,7 @@
     "badge_label_placeholder": "ex. Réanimation, Recherche, Tableau de bord...",
     "badge_color": "Couleur",
     "add_badge": "Ajouter",
+    "badge_label_exists": "Un badge avec ce libellé existe déjà.",
     "status_and_badges": "Statut & Badges",
     "danger_zone": "Supprimer le projet",
     "danger_zone_description": "Cette action supprimera définitivement le projet et toutes ses données.",
@@ -1962,6 +1963,7 @@
   "schemas": {
     "title": "Schémas",
     "description": "Les schémas définissent comment les tables et colonnes sont mappées dans vos bases de données.",
+    "search_placeholder": "Rechercher un schéma...",
     "new_schema": "Nouveau schéma",
     "template": "Modèle",
     "template_blank": "Schéma vide",
@@ -2387,6 +2389,8 @@
   "common": {
     "filters": "Filtres",
     "badges": "Badges",
+    "created_on": "Créé le {{date}}",
+    "last_modified": "Modifié le {{date}}",
     "sort_by": "Trier par",
     "sort_alphabetical": "Alphabétique",
     "sort_created": "Date de création",
@@ -2395,6 +2399,7 @@
     "no_access_title": "Accès non disponible",
     "no_access_description": "Votre compte n'a pas les droits pour accéder à cette section.",
     "insufficient_permissions": "Vous n'avez pas les droits pour effectuer cette action.",
+    "identifier_help": "Identifiant permanent et compatible avec les URL, utilisé comme nom de dossier dans les exports et Git. Ne peut pas être modifié après la création.",
     "execute_not_permitted": "L'affichage nécessite le droit d'exécution de code.",
     "entity_not_found_title": "{{entity}} introuvable",
     "entity_not_found_description": "Il a peut-être été supprimé, ou le lien est incorrect.",

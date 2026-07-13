@@ -1772,6 +1772,7 @@
     "badge_label_placeholder": "e.g. ICU, Research, Dashboard...",
     "badge_color": "Color",
     "add_badge": "Add",
+    "badge_label_exists": "A badge with this label already exists.",
     "status_and_badges": "Status & Badges",
     "danger_zone": "Delete project",
     "danger_zone_description": "This will permanently delete the project and all its data.",
@@ -1962,6 +1963,7 @@
   "schemas": {
     "title": "Schemas",
     "description": "Schemas define how tables and columns are mapped in your databases.",
+    "search_placeholder": "Search schemas...",
     "new_schema": "New schema",
     "template": "Template",
     "template_blank": "Blank schema",
@@ -2387,6 +2389,8 @@
   "common": {
     "filters": "Filters",
     "badges": "Badges",
+    "created_on": "Created on {{date}}",
+    "last_modified": "Last modified {{date}}",
     "sort_by": "Sort by",
     "sort_alphabetical": "Alphabetical",
     "sort_created": "Creation date",
@@ -2395,6 +2399,7 @@
     "no_access_title": "Access not available",
     "no_access_description": "Your account doesn't have permission to access this section.",
     "insufficient_permissions": "You don't have permission to do this.",
+    "identifier_help": "Permanent, URL-safe identifier used as folder name in exports and git. Cannot be changed after creation.",
     "execute_not_permitted": "Running this requires code-execution permission.",
     "entity_not_found_title": "{{entity}} not found",
     "entity_not_found_description": "It may have been deleted, or the link is incorrect.",

@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Lock } from 'lucide-react'
+import { Lock, Info } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { slugifyId } from '@/lib/slugify-id'
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/
@@ -58,6 +59,14 @@ export function EntityIdField({
         <Lock size={12} className="text-muted-foreground" />
         {t('entity_id.label')}
         {required && <RequiredMark />}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info size={13} className="text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">{t('common.identifier_help')}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </Label>
       <IdInput
         htmlId={htmlId}

@@ -12,7 +12,6 @@ import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { formatDate } from '@/lib/format-helpers'
 import { isServerMode } from '@/lib/api-client'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -42,6 +41,9 @@ import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { EditWorkspaceDialog } from './EditWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { BadgeStrip } from '@/components/ui/badge-strip'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
@@ -56,7 +58,7 @@ function copyLocalizedName(name: LocalizedString): LocalizedString {
 }
 
 export function WorkspacesPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace } = useWorkspaceStore()
   const { getWorkspaceProjects, loadProjects } = useAppStore()
@@ -727,14 +729,15 @@ export function WorkspacesPage() {
               return (
                 <Card
                   key={ws.id}
-                  className="cursor-pointer transition-colors hover:bg-accent/50"
+                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
                   onClick={() => handleOpenWorkspace(ws.id, ws.name)}
                 >
-                  <div className="p-4">
+                  <div className="flex flex-1 flex-col px-4 pt-5">
+                   <div className="flex flex-1 flex-col justify-center">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                          <Building2 size={16} className="text-primary" />
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+                          <Building2 size={20} className="text-amber-500" />
                         </div>
                         <div className="min-w-0">
                           <span className="block truncate text-sm font-medium text-card-foreground">
@@ -781,30 +784,22 @@ export function WorkspacesPage() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                    {ws.description && (
-                      <p className="mt-2 truncate text-xs text-muted-foreground" title={ws.description}>
-                        {ws.description}
-                      </p>
-                    )}
-                    {badges.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {badges.map((badge) => (
-                          <span
-                            key={badge.id}
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getBadgeClasses(badge.color)}`}
-                            style={getBadgeStyle(badge.color)}
-                          >
-                            {badge.label}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
-                      <span>
-                        {projectCount} {projectCount === 1 ? t('workspaces.project_count_one') : t('workspaces.project_count_other')}
-                      </span>
-                      <span>{formatDate(ws.createdAt, i18n.language)}</span>
+                    <div className="mt-2 h-4">
+                      {ws.description && (
+                        <TruncatedText text={ws.description} className="text-xs text-muted-foreground" />
+                      )}
                     </div>
+                    <BadgeStrip badges={badges} className="mt-1.5 h-5" />
+                    <div className="mt-1.5 text-[11px] text-muted-foreground">
+                      {projectCount} {projectCount === 1 ? t('workspaces.project_count_one') : t('workspaces.project_count_other')}
+                    </div>
+                   </div>
+                    <CardMetaFooter
+                      createdBy={raw?.createdBy}
+                      createdByDetails={raw?.createdByDetails}
+                      createdAt={ws.createdAt}
+                      updatedAt={ws.updatedAt}
+                    />
                   </div>
                 </Card>
               )

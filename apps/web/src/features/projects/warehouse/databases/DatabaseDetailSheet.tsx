@@ -296,7 +296,7 @@ function LoadStatisticsPrompt({
         <br />
         {t('databases.load_statistics_hint_2')}
       </p>
-      <Button size="sm" variant="outline" onClick={onLoad} className="gap-1.5">
+      <Button size="sm" onClick={onLoad} className="gap-1.5 bg-foreground text-background hover:bg-foreground/90">
         <BarChart3 size={14} />
         {t('databases.load_statistics')}
       </Button>

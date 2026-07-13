@@ -42,6 +42,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
   const [entityId, setEntityId] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
 
@@ -52,10 +53,12 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   useEffect(() => {
     if (editingRuleSet) {
       setName(localized(editingRuleSet.name, language))
+      setDescription(localized(editingRuleSet.description, language))
       setEntityId(editingRuleSet.entityId ?? '')
       setDataSourceId(editingRuleSet.dataSourceId)
     } else {
       setName('')
+      setDescription('')
       setEntityId('')
       setDataSourceId('')
     }
@@ -65,7 +68,11 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
     if (!name.trim() || !dataSourceId || !activeWorkspaceId) return
 
     if (isEdit && editingRuleSet) {
-      await updateRuleSet(editingRuleSet.id, { name: setLocalized(editingRuleSet.name, language, name.trim()), dataSourceId })
+      await updateRuleSet(editingRuleSet.id, {
+        name: setLocalized(editingRuleSet.name, language, name.trim()),
+        description: setLocalized(editingRuleSet.description, language, description.trim()),
+        dataSourceId,
+      })
       onOpenChange(false)
     } else {
       const id = crypto.randomUUID()
@@ -75,7 +82,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         entityId: entityId || undefined,
         workspaceId: activeWorkspaceId,
         name: setLocalized(undefined, language, name.trim()),
-        description: {},
+        description: setLocalized(undefined, language, description.trim()),
         dataSourceId,
         status: 'draft',
         ...stampAuthored(),
@@ -104,6 +111,14 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               placeholder={t('data_quality.rs_name_placeholder')}
               className="mt-1"
               autoFocus
+            />
+          </div>
+          <div>
+            <Label className="text-xs">{t('common.description')}</Label>
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="mt-1"
             />
           </div>
           {!isEdit && (

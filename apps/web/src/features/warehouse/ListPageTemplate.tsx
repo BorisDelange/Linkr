@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next'
 import { Plus, Upload, type LucideIcon } from 'lucide-react'
 import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { shortenIdAmong } from '@/lib/short-id'
 import type { GitScope } from '@/lib/api/git'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
+import type { AuthorDetails } from '@/types/author'
 import { Button } from '@/components/ui/button'
 import { GatedButton } from '@/components/ui/gated-button'
 import { Card } from '@/components/ui/card'
@@ -19,7 +21,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | string }> {
+interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdBy?: string; createdByDetails?: AuthorDetails }> {
   /** Page title i18n key */
   titleKey: string
   /** Page description i18n key */
@@ -65,8 +67,9 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
   /** File accept filter for import (default: ".zip") */
   importAccept?: string
 
-  /** Render the card body for each item (icon + middle content). Dropdown is handled by the template. */
-  renderCardBody: (item: T) => ReactNode
+  /** Render the card body for each item. Receives the actions menu (⋯) to place
+   *  on the title row so it aligns with the title (see the reference cards). */
+  renderCardBody: (item: T, actionsMenu: ReactNode) => ReactNode
 
   /** Render the create dialog */
   renderCreateDialog: (props: { open: boolean; onOpenChange: (open: boolean) => void; onCreated: (id: string) => void }) => ReactNode
@@ -88,7 +91,7 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
 // Component
 // ---------------------------------------------------------------------------
 
-export function ListPageTemplate<T extends { id: string; name: LocalizedString | string }>({
+export function ListPageTemplate<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdBy?: string; createdByDetails?: AuthorDetails }>({
   titleKey,
   descriptionKey,
   newButtonKey,
@@ -125,7 +128,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
+      <div className="mx-auto max-w-4xl px-6 py-10">
         {/* Header */}
         <div>
           {backAction && <div className="mb-1">{backAction}</div>}
@@ -188,30 +191,41 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
             </div>
           </Card>
         ) : (
-          <div className="mt-6 grid grid-cols-1 gap-3">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {items.map((item) => (
               <Card
                 key={item.id}
-                className="min-w-0 cursor-pointer transition-colors hover:bg-accent/50"
+                className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
                 onClick={() => onNavigate(shortenIdAmong(item.id, items.map((i) => i.id)))}
               >
-                <div className="flex items-start gap-4 p-4">
-                  {renderCardBody(item)}
-                  <EntityActionsMenu
-                    item={item}
-                    onDelete={onDelete}
-                    onExport={onExport}
-                    onExportOverride={onExportOverride}
-                    onVersioningOverride={onVersioningOverride}
-                    getGitRemote={getGitRemote}
-                    onSaveGitRemote={onSaveGitRemote}
-                    exportSupportsIncludeData={exportSupportsIncludeData}
-                    syncScope={syncScope}
-                    renderEditDialog={renderEditDialog}
-                    deleteConfirmTitleKey={deleteConfirmTitleKey}
-                    deleteConfirmDescriptionKey={deleteConfirmDescriptionKey}
-                    canEdit={canEdit}
-                    canDelete={canDelete}
+                <div className="flex flex-1 flex-col px-4 pt-5">
+                  <div className="flex flex-1 items-center gap-4">
+                    {renderCardBody(
+                      item,
+                      <EntityActionsMenu
+                        item={item}
+                        onDelete={onDelete}
+                        onExport={onExport}
+                        onExportOverride={onExportOverride}
+                        onVersioningOverride={onVersioningOverride}
+                        getGitRemote={getGitRemote}
+                        onSaveGitRemote={onSaveGitRemote}
+                        exportSupportsIncludeData={exportSupportsIncludeData}
+                        syncScope={syncScope}
+                        renderEditDialog={renderEditDialog}
+                        deleteConfirmTitleKey={deleteConfirmTitleKey}
+                        deleteConfirmDescriptionKey={deleteConfirmDescriptionKey}
+                        canEdit={canEdit}
+                        canDelete={canDelete}
+                      />,
+                    )}
+                  </div>
+                  <CardMetaFooter
+                    className="mt-auto"
+                    createdBy={item.createdBy}
+                    createdByDetails={item.createdByDetails}
+                    createdAt={item.createdAt}
+                    updatedAt={item.updatedAt}
                   />
                 </div>
               </Card>

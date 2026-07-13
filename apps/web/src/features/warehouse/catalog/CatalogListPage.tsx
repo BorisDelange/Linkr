@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router'
 import { BookOpen, Database } from 'lucide-react'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
-import { Badge } from '@/components/ui/badge'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -18,15 +17,7 @@ import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateCatalogDialog } from './CreateCatalogDialog'
 import { useCatalogActions } from './use-catalog-actions'
-import type { DataCatalog, CatalogStatus } from '@/types'
-
-const STATUS_BADGE: Record<CatalogStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
-  draft: { variant: 'secondary', label: 'data_catalog.status_draft' },
-  ready: { variant: 'outline', label: 'data_catalog.status_ready' },
-  computing: { variant: 'default', label: 'data_catalog.status_computing' },
-  success: { variant: 'default', label: 'data_catalog.status_success' },
-  error: { variant: 'destructive', label: 'data_catalog.status_error' },
-}
+import type { DataCatalog } from '@/types'
 
 export function CatalogListPage() {
   const { t } = useTranslation()
@@ -133,38 +124,26 @@ export function CatalogListPage() {
       exportSupportsIncludeData={catalogActions.exportSupportsIncludeData}
       syncScope="data-catalogs"
       onImport={handleImport}
-      renderCardBody={(catalog) => {
-        const statusInfo = STATUS_BADGE[catalog.status]
+      renderCardBody={(catalog, actionsMenu) => {
         return (
-          <>
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-              <BookOpen size={20} className="text-teal-500" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+                <BookOpen size={20} className="text-teal-500" />
+              </div>
+              <span className="truncate text-sm font-medium">{localized(catalog.name, language)}</span>
+              <div className="ml-auto shrink-0">{actionsMenu}</div>
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium">{localized(catalog.name, language)}</span>
-                <Badge variant={statusInfo.variant} className="text-[10px]">
-                  {t(statusInfo.label)}
-                </Badge>
-              </div>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Database size={12} />
-                <span>{getSourceName(catalog.dataSourceId)}</span>
-              </div>
+            <div className="mt-2 h-4">
               {localized(catalog.description, language) && (
-                <TruncatedText
-                  text={localized(catalog.description, language)}
-                  className="mt-0.5 text-xs text-muted-foreground"
-                />
-              )}
-              {catalog.lastComputedAt && (
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {t('data_catalog.last_computed')}: {new Date(catalog.lastComputedAt).toLocaleString()}
-                  {catalog.lastComputeDurationMs != null && ` (${(catalog.lastComputeDurationMs / 1000).toFixed(1)}s)`}
-                </p>
+                <TruncatedText text={localized(catalog.description, language)} className="text-xs text-muted-foreground" />
               )}
             </div>
-          </>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Database size={12} className="shrink-0" />
+              <span className="truncate">{getSourceName(catalog.dataSourceId)}</span>
+            </div>
+          </div>
         )
       }}
       renderCreateDialog={({ open, onOpenChange, onCreated }) => (

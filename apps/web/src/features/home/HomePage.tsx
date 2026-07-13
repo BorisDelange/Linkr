@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useVisitStore, sortByRecency } from '@/stores/visit-store'
@@ -117,9 +118,7 @@ export function HomePage() {
                       </div>
                     </div>
                     {ws.description && (
-                      <p className="mt-2 truncate text-xs text-muted-foreground" title={ws.description}>
-                        {ws.description}
-                      </p>
+                      <TruncatedText text={ws.description} className="mt-2 text-xs text-muted-foreground" />
                     )}
                   </div>
                 </Card>

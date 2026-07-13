@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Info, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import {
   Dialog,
@@ -83,15 +83,15 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
             <div className="space-y-4 py-2">
               <div className="space-y-2">
                 <Label>{t('profile.current_password')}</Label>
-                <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+                <PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
               </div>
               <div className="space-y-2">
                 <Label>{t('profile.new_password')}</Label>
-                <Input type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
+                <PasswordInput value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
               </div>
               <div className="space-y-2">
                 <Label>{t('profile.confirm_password')}</Label>
-                <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+                <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
               </div>
               {error && <p className="text-xs text-destructive">{error}</p>}
             </div>

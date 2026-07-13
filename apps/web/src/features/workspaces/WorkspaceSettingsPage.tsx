@@ -7,19 +7,15 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { localized } from '@/lib/localized'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
-import type { BadgeColor, ProjectBadge } from '@/types'
-import { Building2, MapPin, Globe, Mail, Info, Plus, X, Trash2, Loader2 } from 'lucide-react'
+import { Building2, MapPin, Globe, Mail, Info, Trash2, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { GatedButton } from '@/components/ui/gated-button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MembersTab } from '@/features/settings/MembersTab'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import {
   Select,
   SelectContent,
@@ -53,7 +49,7 @@ export function WorkspaceSettingsPage() {
   const requestedTab = searchParams.get('tab') ?? 'members'
   const defaultTab = requestedTab === 'danger' && !canDelete ? 'members' : requestedTab
   const language = useAppStore((s) => s.language)
-  const { _workspacesRaw, updateWorkspace, updateWorkspaceBadges, deleteWorkspace, closeWorkspace } = useWorkspaceStore()
+  const { _workspacesRaw, updateWorkspace, deleteWorkspace, closeWorkspace } = useWorkspaceStore()
   const { _organizationsRaw, getOrganization } = useOrganizationStore()
 
   const workspace = _workspacesRaw.find((ws) => ws.id === wsUid)
@@ -61,8 +57,6 @@ export function WorkspaceSettingsPage() {
   const [selectedOrgId, setSelectedOrgId] = useState<string>(workspace?.organizationId ?? NONE)
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleteProgress, setDeleteProgress] = useState<{ phaseKey: string } | null>(null)
-  const [newBadgeLabel, setNewBadgeLabel] = useState('')
-  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
 
   const handleSaveOrganization = async () => {
     if (!wsUid) return
@@ -77,23 +71,6 @@ export function WorkspaceSettingsPage() {
   })
 
   if (!workspace || !wsUid) return null
-
-  const badges = workspace.badges ?? []
-
-  const handleAddBadge = () => {
-    if (!newBadgeLabel.trim()) return
-    const badge: ProjectBadge = {
-      id: `b-${Date.now()}`,
-      label: newBadgeLabel.trim(),
-      color: newBadgeColor,
-    }
-    updateWorkspaceBadges(wsUid, [...badges, badge])
-    setNewBadgeLabel('')
-  }
-
-  const handleRemoveBadge = (id: string) => {
-    updateWorkspaceBadges(wsUid, badges.filter((b) => b.id !== id))
-  }
 
   const linkedOrg = workspace.organizationId ? getOrganization(workspace.organizationId) : null
   // Fallback to embedded org for legacy data
@@ -124,72 +101,12 @@ export function WorkspaceSettingsPage() {
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="organization">{t('workspaces.tab_organization')}</TabsTrigger>
-          <TabsTrigger value="badges">{t('workspaces.tab_badges')}</TabsTrigger>
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
 
         {/* Members */}
         <TabsContent value="members" className="min-h-0 flex-1 overflow-auto pb-6">
           <MembersTab scope="workspace" targetId={wsUid} />
-        </TabsContent>
-
-        {/* Badges */}
-        <TabsContent value="badges" className="min-h-0 flex-1 overflow-auto pb-6">
-          <div className="mx-auto max-w-2xl space-y-6 pt-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">{t('project_settings.badges')}</CardTitle>
-                <CardDescription>{t('workspaces.badges_description')}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {badges.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {badges.map((badge) => (
-                      <span
-                        key={badge.id}
-                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${getBadgeClasses(badge.color)}`}
-                        style={getBadgeStyle(badge.color)}
-                      >
-                        {badge.label}
-                        {canEdit && (
-                          <button
-                            onClick={() => handleRemoveBadge(badge.id)}
-                            className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20"
-                          >
-                            <X size={12} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <Label>{t('project_settings.badge_label')}</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={newBadgeLabel}
-                      onChange={(e) => setNewBadgeLabel(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleAddBadge()}
-                      placeholder={t('project_settings.badge_label_placeholder')}
-                      className="h-8 flex-1 text-sm"
-                    />
-                    <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
-                    <GatedButton
-                      allowed={canEdit}
-                      notAllowedReason={t('common.insufficient_permissions')}
-                      size="sm"
-                      onClick={handleAddBadge}
-                      disabled={!newBadgeLabel.trim()}
-                      className="gap-1"
-                    >
-                      <Plus size={14} />
-                      {t('project_settings.add_badge')}
-                    </GatedButton>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
         </TabsContent>
 
         {/* Organization */}

@@ -8,7 +8,9 @@ import {
   Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,39 +55,29 @@ export function CohortCard({
 
   return (
     <Card
-      className="hover:border-primary/30 hover:bg-accent/50 transition-colors cursor-pointer"
+      className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
+      role="button"
+      tabIndex={0}
+      onClick={handleClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
     >
-      <CardContent
-        className="p-5"
-        role="button"
-        tabIndex={0}
-        onClick={handleClick}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
-      >
-        {/* Header row */}
-        <div className="flex items-start justify-between">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
-              <UsersRound size={18} className="text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold truncate">{cohort.name}</h3>
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0 ${levelColors[cohort.level] ?? ''}`}>
-                  {levelLabel}
-                </span>
-              </div>
-              {cohort.description && (
-                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{cohort.description}</p>
-              )}
-            </div>
+      <div className="flex flex-1 flex-col px-4 pt-5">
+       <div className="flex flex-1 flex-col justify-center">
+        {/* Row 1: icon + title + level pill + actions */}
+        <div className="flex items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+            <UsersRound size={20} className="text-teal-500" />
           </div>
-
+          <h3 className="truncate text-sm font-medium">{cohort.name}</h3>
+          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${levelColors[cohort.level] ?? ''}`}>
+            {levelLabel}
+          </span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="ml-auto shrink-0"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal size={14} />
@@ -108,9 +100,14 @@ export function CohortCard({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-
-        {/* Stats */}
-        <div className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+        {/* Description */}
+        <div className="mt-2 h-4">
+          {cohort.description && (
+            <TruncatedText text={cohort.description} className="text-xs text-muted-foreground" />
+          )}
+        </div>
+        {/* Criteria + results */}
+        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
           <span>{t('cohorts.card_criteria', { count: criteriaCount })}</span>
           {cohort.resultCount != null && (
             <span className="font-medium text-foreground">
@@ -118,7 +115,9 @@ export function CohortCard({
             </span>
           )}
         </div>
-      </CardContent>
+       </div>
+        <CardMetaFooter createdAt={cohort.createdAt} updatedAt={cohort.updatedAt} />
+      </div>
     </Card>
   )
 }
