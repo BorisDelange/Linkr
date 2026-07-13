@@ -11,16 +11,23 @@ detail of the ZIP format so the spec stays readable:
 
 Run:  python3 build_zip.py spec.json out.zip
 
-Spec shape (see SKILL.md for the full reference):
+Spec shape (see SKILL.md + references/ for the full reference):
 {
   "appVersion": "2.0.20",
   "project": {
     "projectId": "icu-activity",
     "name": {"en": "...", "fr": "..."},
     "description": {"en": "...", "fr": "..."},
-    "readme": "markdown string (optional)",
-    "badges": [{"label": "ICU", "color": "red"}]        # optional
+    "readme": "markdown string (optional)",     # or "readmeFile": "README.md"
+    "todos": [{"text": "...", "done": false}],   # optional (-> tasks.json)
+    "notes": "markdown string (optional)",       # optional (-> tasks.json)
+    "badges": [{"label": "ICU", "color": "red"}] # optional
   },
+  "ide": [                             # optional — files under Lab > IDE (scripts/)
+    {"path": "analysis.py", "file": "analysis.py"},   # content from a file, OR
+    {"path": "utils/helpers.r", "content": "..."},    # inline content
+    {"path": "notes.md", "content": "# Notes\n..."}
+  ],
   "datasets": [
     {
       "slug": "icu-stays",           # folder + file name
@@ -342,6 +349,63 @@ def build_dashboard(dash, datasets_by_slug):
     return {"dashboard": dashboard, "tabs": tabs, "widgets": widgets}
 
 
+def build_ide_tree(ide_specs, project_uid, spec_dir):
+    """Turn a flat list of {path, file|content} specs into IdeFile[] + a
+    path->content map. Folders in a path become folder IdeFiles (parentId chain);
+    files carry `language` inferred from extension. Mirrors buildIdePath on import:
+    the ZIP entry path is scripts/<path>, and the tree encodes the same hierarchy."""
+    nodes = []
+    contents = {}  # rel path under scripts/ -> content string
+    folder_ids = {}  # folder path -> id
+
+    def ensure_folder(folder_path):
+        if folder_path in folder_ids:
+            return folder_ids[folder_path]
+        parent_id = None
+        if "/" in folder_path:
+            parent_id = ensure_folder(folder_path.rsplit("/", 1)[0])
+        fid = str(uuid.uuid4())
+        folder_ids[folder_path] = fid
+        nodes.append({
+            "id": fid, "projectUid": project_uid,
+            "name": folder_path.rsplit("/", 1)[-1],
+            "type": "folder", "parentId": parent_id, "createdAt": TS,
+        })
+        return fid
+
+    for spec in ide_specs:
+        path = spec["path"].strip("/")
+        name = path.rsplit("/", 1)[-1]
+        parent_id = ensure_folder(path.rsplit("/", 1)[0]) if "/" in path else None
+        if "content" in spec:
+            content = spec["content"]
+        elif "file" in spec:
+            with open(os.path.join(spec_dir, spec["file"]), encoding="utf-8") as f:
+                content = f.read()
+        else:
+            raise SystemExit(f"IDE entry '{path}' needs 'content' or 'file'")
+        nodes.append({
+            "id": str(uuid.uuid4()), "projectUid": project_uid, "name": name,
+            "type": "file", "parentId": parent_id,
+            "language": monaco_language_for(name), "createdAt": TS,
+        })
+        contents[path] = content
+    return nodes, contents
+
+
+BY_EXTENSION = {
+    "json": "json", "md": "markdown", "py": "python", "r": "r", "sql": "sql",
+    "sh": "shell", "csv": "plaintext", "txt": "plaintext", "yaml": "yaml",
+    "yml": "yaml", "html": "html", "css": "css", "js": "javascript",
+    "ts": "typescript", "gitignore": "plaintext",
+}
+
+
+def monaco_language_for(name):
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else name.lower()
+    return BY_EXTENSION.get(ext, "plaintext")
+
+
 def json_bytes(obj):
     return json.dumps(obj, indent=2, ensure_ascii=False).encode("utf-8")
 
@@ -378,6 +442,15 @@ def main():
     if "workspaceId" in p:
         project["workspaceId"] = p["workspaceId"]
 
+    # Resolve readme (inline or from a file).
+    readme = p.get("readme")
+    if not readme and p.get("readmeFile"):
+        with open(os.path.join(spec_dir, p["readmeFile"]), encoding="utf-8") as f:
+            readme = f.read()
+
+    # Build IDE files (scripts/).
+    ide_nodes, ide_contents = build_ide_tree(spec.get("ide", []), project_uid, spec_dir)
+
     # Build datasets.
     datasets = []
     datasets_by_slug = {}
@@ -399,9 +472,18 @@ def main():
     # Assemble ZIP.
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("project.json", json_bytes({**project, "appVersion": app_version}))
-        if p.get("readme"):
-            z.writestr("README.md", p["readme"])
-        z.writestr("tasks.json", json_bytes({"todos": p.get("todos", []), "notes": p.get("notes", "")}))
+        if readme:
+            z.writestr("README.md", readme)
+        # tasks.json is written only when there is something in it (mirrors the app).
+        todos, notes = p.get("todos", []), p.get("notes", "")
+        if todos or notes:
+            z.writestr("tasks.json", json_bytes({"todos": todos, "notes": notes}))
+
+        # scripts/ (IDE files): tree metadata + one entry per file at its path.
+        if ide_nodes:
+            z.writestr("scripts/_tree.json", json_bytes(ide_nodes))
+            for rel_path, content in ide_contents.items():
+                z.writestr(f"scripts/{rel_path}", content)
 
         if datasets:
             tree = [ds["file"] for ds in datasets]
@@ -428,9 +510,10 @@ def main():
 
     n_ds = len(datasets)
     n_w = sum(len(b["widgets"]) for b in dashboards)
+    n_ide = sum(1 for n in ide_nodes if n["type"] == "file")
     print(f"Wrote {out_path}")
     print(f"  project: {project['projectId']}  uid={project_uid}")
-    print(f"  datasets: {n_ds}  dashboards: {len(dashboards)}  widgets: {n_w}")
+    print(f"  datasets: {n_ds}  dashboards: {len(dashboards)}  widgets: {n_w}  ide files: {n_ide}")
 
 
 def csv_escape(v):

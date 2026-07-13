@@ -1,159 +1,77 @@
 ---
 name: create-project
-description: Generate a ready-to-import Linkr project ZIP — a project with synthetic dataset(s) and a wired dashboard (KPIs + charts), assembled into the importable project ZIP format. Use when the user wants a demo project, sample data, or a dashboard built from scratch to drag into the app.
+description: Generate a ready-to-import Linkr project ZIP — a project with synthetic dataset(s), a wired dashboard (KPIs + charts + filters), IDE analysis scripts (.py/.r/.sql/.md), and README/tasks, assembled into the importable project ZIP format. Use when the user wants a demo project, sample data, a dashboard, or analysis scripts built from scratch to drag into the app.
 argument-hint: [theme] [n-rows]
 ---
 
 # Create an importable Linkr project
 
-You build a **project ZIP** the user can import via "Import a project" in the app.
+You build a **project ZIP** the user imports via "Import a project" in the app.
 You never touch app source code — the output is a data artifact.
 
-The mechanical ZIP assembly (col-N ids, `_data.json`, dashboard/tab/widget ids,
-48-col grid layout, `appVersion`, `.gitignore`) is owned by `assets/build_zip.py`.
-Your job is to author **one CSV per dataset** and **one `spec.json`**, then run the script.
+All mechanical ZIP assembly (col-N ids, tree/parent ids, 48-col grid layout,
+`appVersion`, IDE `scripts/` layout, `.gitignore`) is owned by
+`assets/build_zip.py`. Your job is to author **CSV(s)**, optional **IDE script
+files**, and **one `spec.json`**, then run the script.
 
-## Step 1 — Gather requirements
+## What a project ZIP can contain
 
-Ask the user (unless already given):
-1. **Theme / clinical domain** (e.g. ICU activity, sepsis cohort).
-2. **What indicators/charts** they want on the dashboard.
-3. **Row count** for the synthetic data (default ~200; more = more realistic distributions).
-4. **Languages** — project name/description are localized `{en, fr}`. Fill both.
+| Brick | In ZIP? | This skill | Reference |
+|-------|---------|-----------|-----------|
+| Project metadata (name, description, badges) | ✅ | ✅ | `references/project-meta.md` |
+| README + tasks (todos/notes) | ✅ | ✅ | `references/project-meta.md` |
+| Datasets (CSV → table) | ✅ | ✅ | `references/datasets.md` |
+| Dashboards (KPIs + charts + filters) | ✅ | ✅ | `references/dashboards.md` |
+| IDE files (`.py` / `.r` / `.sql` / `.md` in Lab › IDE) | ✅ | ✅ | `references/ide-files.md` |
+| Cohorts, DB connections, pipelines | ✅ | ❌ (out of scope) | — |
+| **Patient Data page** | ❌ | ❌ **impossible** | see below |
 
-## Step 2 — Author the CSV(s)
+**Patient Data is NOT seedable.** It is computed live by SQL against a connected
+OMOP database (`features/…/patient-data/use-patient-data.ts`); there is no
+patient-data payload in the ZIP. The only way to populate it is a real OMOP
+database + connection + schema mapping — outside the scope of a synthetic-data
+project. If the user asks for it, say so and offer an OMOP-shaped dataset instead.
 
-Write one CSV per dataset into the working directory. First row = headers (real
-column names like `person_id`, `age`, `sex`). Make the data **clinically coherent**:
-correlate fields (older age ↔ higher mortality), use plausible ranges and units,
-and include the categorical columns your charts will group by. A few hundred rows
-is enough — write them out fully (you may generate them programmatically in your
-head or with a throwaway inline loop, but the CSV must be literal in the file).
+## Workflow
 
-Column types are inferred (number if all values parse as numbers, else string).
-Dates should be strings like `2185-01-17 20:11`; override with `"types"` in the
-spec if inference guesses wrong.
+1. **Gather requirements** — theme/clinical domain; what indicators/charts;
+   whether they want IDE analysis scripts; row count (default ~200); languages
+   (name/description are `{en, fr}` — fill both).
+2. **Author the CSV(s)** — one per dataset, clinically coherent. → `references/datasets.md`
+3. **Author IDE files** (if requested) — real `.py`/`.r`/`.sql`/`.md`. → `references/ide-files.md`
+4. **Author `spec.json`** — read the reference for each brick you use. Start from
+   `examples/spec.json` (a complete, working example).
+5. **Build**: `python3 .claude/skills/create-project/assets/build_zip.py spec.json <slug>.zip`
+6. **Verify & hand off** — see below.
 
-## Step 3 — Author spec.json
-
-One JSON file describing the project, datasets, and dashboards. Widgets reference
-columns **by header name** — the script remaps them to `col-N`. Full field
-reference is the docstring at the top of `assets/build_zip.py`; the essentials:
+## spec.json at a glance
 
 ```json
 {
   "appVersion": "2.0.20",
-  "project": {
-    "projectId": "icu-activity",
-    "name": {"en": "ICU Activity", "fr": "Activité de réanimation"},
-    "description": {"en": "...", "fr": "..."},
-    "readme": "# ICU Activity\n\nDescription...",
-    "badges": [{"label": "ICU", "color": "red"}, {"label": "Demo", "color": "blue"}]
-  },
-  "datasets": [
-    {"slug": "icu-stays", "name": "ICU stays", "csv": "icu-stays.csv"}
-  ],
-  "dashboards": [
-    {
-      "name": "ICU Activity",
-      "filters": [
-        {"dataset": "icu-stays", "column": "sex"},
-        {"dataset": "icu-stays", "column": "icu_unit", "label": "Unit"},
-        {"dataset": "icu-stays", "column": "age"}
-      ],
-      "tabs": [
-        {
-          "name": "Demographics",
-          "widgets": [
-            {"kind": "kpi", "dataset": "icu-stays", "name": "Unique patients",
-             "column": "person_id", "uniquePer": "person_id", "aggregate": "count",
-             "icon": "Users", "color": "blue"},
-            {"kind": "kpi", "dataset": "icu-stays", "name": "ICU mortality",
-             "column": "deceased_in_icu", "uniquePer": "person_id",
-             "aggregate": "proportion", "targetValue": "1",
-             "icon": "HeartPulse", "color": "red", "decimals": 1, "chartType": "pie"},
-            {"kind": "plot", "dataset": "icu-stays", "name": "Age distribution",
-             "plotType": "histogram", "xColumn": "age", "groupColumn": "sex",
-             "binMode": "width", "binWidth": 5, "xLabel": "Age", "yLabel": "Count"},
-            {"kind": "plot", "dataset": "icu-stays", "name": "Stays per unit",
-             "plotType": "bar", "xColumn": "icu_unit", "uniquePer": "visit_detail_id"}
-          ]
-        }
-      ]
-    }
-  ]
+  "project":   { … },        // references/project-meta.md
+  "ide":       [ … ],        // references/ide-files.md  (optional)
+  "datasets":  [ … ],        // references/datasets.md
+  "dashboards":[ … ]         // references/dashboards.md
 }
 ```
 
-### Widget cheatsheet
+The full field reference is also in the docstring at the top of `assets/build_zip.py`.
+`examples/spec.json` + `examples/*.csv` + `examples/scripts/` are a runnable set —
+copy and adapt rather than starting blank.
 
-- **KPI** (`kind: "kpi"`, plugin `linkr-analysis-key-indicator`): one number.
-  `aggregate` ∈ `count | mean | median | sum | min | max | proportion`.
-  `proportion` needs `targetValue` (string). `uniquePer` de-duplicates rows before
-  aggregating (e.g. count unique patients). `chartType` ∈ `none | histogram | pie`.
-  `icon` = a Lucide name (`Users`, `BedDouble`, `HeartPulse`, `Calendar`, `Activity`).
-  `color` ∈ `blue | red | green | orange | slate | ...`. Optional `unit`, `decimals`,
-  `subtitleStats` (e.g. `["median","min","max"]`).
-- **Plot** (`kind: "plot"`, plugin `linkr-analysis-plot-builder`): a chart.
-  `plotType` ∈ `histogram | bar | line | scatter | box`. `xColumn` required;
-  `yColumn`/`groupColumn` optional (grouping auto-enables the legend). Extras:
-  `binMode`/`binWidth` (histogram), `barMode` (`stacked`/`grouped`), `xLabel`,
-  `yLabel`, `uniquePer`, `showGrid`, `showLegend`, `cardColor`, `opacity`.
-- **raw** (`kind: "raw"`): escape hatch. Provide a full `source` object; reference
-  columns by `col-N` yourself. Use only when kpi/plot can't express it.
+## Step 6 — Verify and hand off
 
-### Dashboard filters (optional)
-
-Add a `"filters"` array on a dashboard. Each entry references a dataset by `slug`
-and a column by header `name`; the sidebar renders one input per filter and they
-apply across all matching datasets/widgets automatically.
-
-```json
-"filters": [
-  {"dataset": "icu-stays", "column": "sex"},
-  {"dataset": "icu-stays", "column": "icu_unit", "label": "ICU unit"},
-  {"dataset": "icu-stays", "column": "age"}
-]
-```
-
-`type` / `inputType` default from the column type and rarely need overriding:
-- `string`/`boolean` → categorical `multi-select`
-- `number` → numeric `range`
-- `date` → date `range`
-Override with `"inputType"` (`checkbox | multi-select | single-select | range | double-range`)
-or `"type"` if needed. Optional `"label"` renames the filter in the sidebar.
-
-Layout is automatic: widgets flow left-to-right on a 48-col grid, wrapping rows.
-KPIs default to 12×8, plots to 24×16. Override per-widget with `"w"` / `"h"`.
-For a 4-across KPI strip use `"w": 12`; a full-width chart is `"w": 48`, half is 24.
-
-## Step 4 — Build the ZIP
-
-```bash
-python3 .claude/skills/create-project/assets/build_zip.py spec.json <project-slug>.zip
-```
-
-The script prints the project id and counts. It needs only the Python stdlib.
-
-## Step 5 — Verify and hand off
-
-- Sanity-check the ZIP: `unzip -l <out>.zip` should show `project.json`,
-  `datasets/<slug>/_data.json`, and `dashboards/<name>.json`.
-- Optionally validate the JSON: `python3 -c "import json,zipfile;z=zipfile.ZipFile('out.zip');[json.loads(z.read(n)) for n in z.namelist() if n.endswith('.json')]"`.
+- `unzip -l <out>.zip` should show `project.json`, `datasets/<name>/_data.json`,
+  `dashboards/<name>.json`, and (if you added IDE files) `scripts/_tree.json` +
+  each `scripts/<path>`.
+- Validate JSON:
+  `python3 -c "import json,zipfile;z=zipfile.ZipFile('out.zip');[json.loads(z.read(n)) for n in z.namelist() if n.endswith('.json')];print('ok')"`
 - Tell the user the ZIP path and that they import it via the project import flow.
-  Every id is regenerated on import, so re-importing makes a fresh copy (no collision).
+  Every id is regenerated on import, so re-importing makes a fresh copy.
 
 ## Format invariants (do not break)
 
-These mirror `apps/web/src/lib/entity-io.ts` (`buildProjectZip` / `parseProjectZip`).
-If that file's layout changes, update `build_zip.py` to match.
-
-- `datasets/_tree.json` = `DatasetFile[]`; each dataset's rows live in
-  `datasets/<slug>/_data.json` as `{ "rows": [...] }`, keyed by **column id** (`col-N`).
-- `datasets/<slug>/_columns.json` = `DatasetColumn[]` (`{id, name, type, order}`),
-  `type` ∈ `string | number | boolean | date | unknown`.
-- A dashboard file = `{ "dashboard": Dashboard, "tabs": DashboardTab[], "widgets": DashboardWidget[] }`.
-- A widget's `datasetFileId` must equal the target `DatasetFile.id` string (the script
-  guarantees this). Widget grid uses `gridV: 2` (48 columns).
-- `project.json` carries `appVersion` and omits `readme`/`todos`/`notes` (those go to
-  `README.md` / `tasks.json`).
+These mirror `apps/web/src/lib/entity-io.ts` (`buildProjectZip` / `parseProjectZip`)
+and `seed-loader.ts`. If that file's layout changes, update `build_zip.py` to match.
+The per-brick reference files document each invariant next to the brick it governs.
