@@ -7,7 +7,6 @@ import {
   BarChart3,
   ChevronRight,
   Database,
-  FileSpreadsheet,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
@@ -482,20 +481,13 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
                     <TruncatedText text={localized(project.description, language)} className="text-xs text-muted-foreground" />
                   )}
                 </div>
-                {/* Source row */}
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  {project.sourceType === 'file' ? (
-                    <>
-                      <FileSpreadsheet size={12} className="shrink-0" />
-                      <span className="truncate">{t('concept_mapping.source_file')}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Database size={12} className="shrink-0" />
-                      <span className="truncate">{getSourceName(project.dataSourceId)}</span>
-                    </>
-                  )}
-                </div>
+                {/* Source row — only for database-backed projects (file source hidden) */}
+                {project.sourceType !== 'file' && (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Database size={12} className="shrink-0" />
+                    <span className="truncate">{getSourceName(project.dataSourceId)}</span>
+                  </div>
+                )}
                 {/* Badges + approved count (right) */}
                 <div className="mt-2 flex h-5 items-center gap-1.5">
                   <BadgeStrip badges={project.badges ?? []} className="min-w-0 flex-1" />

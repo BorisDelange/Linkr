@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { apiRequest, isServerMode } from '@/lib/api-client'
 import { deleteProjectData } from '@/lib/entity-io'
 import { slugifyId } from '@/lib/slugify-id'
 import { setLocalized, toLocalized, isShellHtml } from '@/lib/localized'
@@ -193,10 +194,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   user: { id: 1, username: 'admin', firstName: prefs.userFirstName ?? '', lastName: prefs.userLastName ?? '', role: 'admin', affiliation: prefs.userAffiliation ?? '', profession: prefs.userProfession ?? '', orcid: prefs.userOrcid ?? '' },
   login: (user) => set({ user }),
   logout: () => set({ user: null }),
-  updateUser: (changes) => set((s) => {
-    if (!s.user) return s
-    return { user: { ...s.user, ...changes } }
-  }),
+  updateUser: (changes) => {
+    set((s) => (s.user ? { user: { ...s.user, ...changes } } : s))
+    // Server mode: persist to the backend so the edit survives a reload (front-only
+    // mode is covered by the localStorage prefs subscription below). Best-effort —
+    // the optimistic in-memory update already reflects the change in the UI.
+    if (isServerMode()) {
+      apiRequest('/auth/me', { method: 'PATCH', body: JSON.stringify(changes) })
+        .catch(() => { /* leave the optimistic value; next /auth/me reconciles */ })
+    }
+  },
   getUserDisplayName: () => {
     const u = get().user
     if (!u) return ''

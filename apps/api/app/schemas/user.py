@@ -29,6 +29,18 @@ class UserUpdate(CamelModel):
     password: str | None = None  # optional reset
 
 
+class ProfileUpdate(CamelModel):
+    """Self-service profile edit (PATCH /auth/me). Only fields a user may change
+    on their own account — never role/is_active/username/password."""
+
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    affiliation: str | None = None
+    profession: str | None = None
+    orcid: str | None = None
+
+
 class UserDirectoryEntry(CamelModel):
     """Minimal user info for member pickers (no email/role/secrets)."""
 

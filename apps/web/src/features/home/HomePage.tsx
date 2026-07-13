@@ -100,26 +100,27 @@ export function HomePage() {
               {recentWorkspaces.map((ws) => (
                 <Card
                   key={ws.id}
-                  className="cursor-pointer transition-colors hover:bg-accent"
+                  className="cursor-pointer gap-0 py-0 transition-colors hover:bg-accent"
                   onClick={() => handleOpenWorkspace(ws.id, ws.name)}
                 >
                   <div className="p-4">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                        <Building2 size={16} className="text-primary" />
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+                        <Building2 size={20} className="text-amber-500" />
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-card-foreground">
                           {ws.name}
                         </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {ws.organizationName}
-                        </span>
+                        {ws.organizationName ? (
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {ws.organizationName}
+                          </span>
+                        ) : ws.description ? (
+                          <TruncatedText text={ws.description} className="text-xs text-muted-foreground" />
+                        ) : null}
                       </div>
                     </div>
-                    {ws.description && (
-                      <TruncatedText text={ws.description} className="mt-2 text-xs text-muted-foreground" />
-                    )}
                   </div>
                 </Card>
               ))}

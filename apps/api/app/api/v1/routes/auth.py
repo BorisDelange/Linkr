@@ -23,6 +23,7 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
+from app.schemas.user import ProfileUpdate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -89,13 +90,7 @@ async def logout(user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.get("/me", response_model=MeResponse)
-async def me(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Return the current user + the global-tier permissions their role grants
-    (admins get everything). The UI uses these to gate admin pages/tools."""
+async def _build_me(user: User, db: AsyncSession) -> MeResponse:
     if user.role == "admin":
         permissions = ALL_PERMISSIONS
     else:
@@ -114,3 +109,28 @@ async def me(
         profession=user.profession,
         orcid=user.orcid,
     )
+
+
+@router.get("/me", response_model=MeResponse)
+async def me(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the current user + the global-tier permissions their role grants
+    (admins get everything). The UI uses these to gate admin pages/tools."""
+    return await _build_me(user, db)
+
+
+@router.patch("/me", response_model=MeResponse)
+async def update_me(
+    body: ProfileUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service profile update. Only the user's own editable fields —
+    role/is_active/username/password are deliberately not accepted here."""
+    for key, value in body.model_dump(exclude_unset=True).items():
+        setattr(user, key, value)
+    await db.commit()
+    await db.refresh(user)
+    return await _build_me(user, db)
