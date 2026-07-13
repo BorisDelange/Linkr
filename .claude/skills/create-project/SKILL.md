@@ -64,7 +64,9 @@ copy and adapt rather than starting blank.
 
 - `unzip -l <out>.zip` should show `project.json`, `datasets/<name>/_data.json`,
   `dashboards/<name>.json`, and (if you added IDE files) `scripts/_tree.json` +
-  each `scripts/<path>`.
+  each `scripts/<path>`. Confirm every folder/file name is **ASCII** (no accents) —
+  a non-ASCII dataset folder imports directly but is silently dropped after a
+  macOS/git round-trip (see Format invariants).
 - Validate JSON:
   `python3 -c "import json,zipfile;z=zipfile.ZipFile('out.zip');[json.loads(z.read(n)) for n in z.namelist() if n.endswith('.json')];print('ok')"`
 - Tell the user the ZIP path and that they import it via the project import flow.
@@ -75,3 +77,7 @@ copy and adapt rather than starting blank.
 These mirror `apps/web/src/lib/entity-io.ts` (`buildProjectZip` / `parseProjectZip`)
 and `seed-loader.ts`. If that file's layout changes, update `build_zip.py` to match.
 The per-brick reference files document each invariant next to the brick it governs.
+
+- **Dataset names and IDE paths must be ASCII (no accents/spaces)** — they become ZIP
+  folder paths and non-ASCII silently breaks import after a macOS/git round-trip (NFC vs
+  NFD + exact-string lookup in `parseNewLayout`). `build_zip.py` enforces this.

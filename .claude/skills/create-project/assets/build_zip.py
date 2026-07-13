@@ -478,6 +478,7 @@ def build_ide_tree(ide_specs, project_uid, spec_dir):
 
     for spec in ide_specs:
         path = spec["path"].strip("/")
+        assert_ascii_path(path, "IDE path")
         name = path.rsplit("/", 1)[-1]
         parent_id = ensure_folder(path.rsplit("/", 1)[0]) if "/" in path else None
         if "content" in spec:

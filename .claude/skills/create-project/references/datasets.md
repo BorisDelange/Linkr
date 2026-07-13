@@ -43,5 +43,16 @@ types: `string | number | boolean | date | unknown`.
 - `datasets/<name>/_columns.json` = `DatasetColumn[]` (`{id, name, type, order}`).
 - The dataset folder is derived from the dataset's **`name`** (minus any trailing
   extension), matching `buildDatasetPath`. The CSV file inside is named from `slug`.
+- **The dataset `name` (and anything else that becomes a ZIP folder/file path — dataset
+  names, IDE folder/file paths) MUST be ASCII, no accents, ideally no spaces.** The
+  folder name has to survive a macOS NFD filesystem round-trip and an exact-string ZIP
+  lookup in `parseNewLayout` (entity-io.ts). macOS (APFS/HFS+) stores filenames in NFD
+  while the JSON keeps NFC, so a name like `Données CLIP-MIR` imports fine *directly*
+  but is **silently dropped** once the project is unpacked to disk / a git repo (how the
+  linkr-portal stores projects) and re-zipped — you get the dashboard but no dataset and
+  no error. Keep `name` a plain slug (e.g. `clip_mir_data`; NeoCLIP uses `table_agregee`)
+  and put the human-readable/localized label elsewhere. Display localization of the
+  dataset is not driven by this folder name anyway. `build_zip.py` hard-errors on a
+  non-ASCII `name`/IDE path and warns on spaces.
 - Widgets and filters reference columns by **header name**; the script remaps them
   to `col-N` at build time (see `references/dashboards.md`).

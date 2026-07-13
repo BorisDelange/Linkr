@@ -28,7 +28,7 @@
   "datasets": [
     {
       "slug": "icu-stays",
-      "name": "ICU stays",
+      "name": "icu_stays",
       "csv": "icu-stays.csv",
       "types": {"admission_datetime": "date"}
     }
