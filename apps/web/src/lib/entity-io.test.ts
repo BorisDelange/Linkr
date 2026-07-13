@@ -328,6 +328,16 @@ describe('attachEntityOrganization — inlines inherited org into entity meta', 
     const meta = JSON.parse(await zip.files['project.json'].async('string'))
     expect(meta.organization).toBeUndefined()
   })
+
+  it('prefers the entity own snapshot over the workspace org (re-export keeps origin)', async () => {
+    const zip = zipWithMeta({ uid: 'p1' })
+    // Workspace here has a DIFFERENT org; the imported entity's frozen snapshot must win.
+    const store = makeStore({ id: 'w1', organizationId: 'ws-org' }, { id: 'ws-org', name: { en: 'Host' } })
+    const snapshot = { id: 'origin-org', name: { en: 'Origin', fr: 'Origine' } }
+    await attachEntityOrganization(zip, 'project.json', { workspaceId: 'w1', organization: snapshot }, store)
+    const meta = JSON.parse(await zip.files['project.json'].async('string'))
+    expect(meta.organization).toEqual(snapshot)
+  })
 })
 
 // Pre-import cleanup runs against a project uid that may not exist on the backend yet.

@@ -19,7 +19,7 @@ import type {
   DataSource, CustomSchemaPreset,
   GitRemoteConfig,
   LocalizedString, TodoItem,
-  Organization,
+  Organization, OrganizationInfo,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -1224,10 +1224,14 @@ async function resolveEntityOrganization(
 export async function attachEntityOrganization(
   zip: JSZip,
   metaPath: string,
-  entity: { workspaceId?: string },
+  entity: { workspaceId?: string; organization?: OrganizationInfo | null },
   storage: Storage,
 ): Promise<void> {
-  const org = await resolveEntityOrganization(entity, storage)
+  // Prefer the entity's own frozen provenance snapshot (e.g. set by the author
+  // editor or carried over from a prior import) so a re-export keeps the origin
+  // organization. Only fall back to resolving from the parent workspace when the
+  // entity has no snapshot of its own — the first export inherits it that way.
+  const org = entity.organization ?? await resolveEntityOrganization(entity, storage)
   const entry = zip.files[metaPath]
   if (!org || !entry) return
   const meta = JSON.parse(await entry.async('string'))
