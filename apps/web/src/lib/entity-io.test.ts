@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import type { DatasetFile } from '@/types'
 import type { Storage } from '@/lib/storage'
@@ -206,6 +206,41 @@ describe('parseProjectZip — dataset data sidecars', () => {
     // Both datasets' rows are loaded.
     expect(parsed!.datasetData).toHaveLength(2)
     expect(parsed!.datasetData.every((d) => d.rows.length === 2)).toBe(true)
+  })
+})
+
+// A workspace's linked organization travels in organization.json (by UUID) so an
+// import can reconstitute it on an instance that has never seen that org. Both the
+// pointer (workspace.organizationId) and the full record must survive parsing.
+describe('parseWorkspaceZip — organization bundle', () => {
+  const makeZip = async (withOrg: boolean) => {
+    const zip = new JSZip()
+    zip.file('workspace.json', JSON.stringify({
+      id: 'w1', name: { en: 'W' }, description: {},
+      ...(withOrg ? { organizationId: 'org-123' } : {}),
+    }))
+    if (withOrg) {
+      zip.file('organization.json', JSON.stringify({
+        id: 'org-123', name: { en: 'Acme Hospital' }, type: 'hospital',
+        referenceId: 'https://ror.org/xxxx', createdAt: '2020', updatedAt: '2021',
+      }))
+    }
+    return await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+  }
+
+  it('reads organization.json and keeps the workspace pointer', async () => {
+    const parsed = await parseWorkspaceZip(await makeZip(true))
+    expect(parsed).not.toBeNull()
+    expect(parsed!.workspace.organizationId).toBe('org-123')
+    expect(parsed!.organization?.id).toBe('org-123')
+    expect(parsed!.organization?.referenceId).toBe('https://ror.org/xxxx')
+  })
+
+  it('leaves organization undefined when the ZIP has none', async () => {
+    const parsed = await parseWorkspaceZip(await makeZip(false))
+    expect(parsed).not.toBeNull()
+    expect(parsed!.organization).toBeUndefined()
+    expect(parsed!.workspace.organizationId).toBeUndefined()
   })
 })
 

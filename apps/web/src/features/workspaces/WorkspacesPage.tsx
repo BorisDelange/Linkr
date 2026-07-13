@@ -211,6 +211,15 @@ export function WorkspacesPage() {
     reportPhase('workspaces.import_phase_workspace')
     await yieldToBrowser()
 
+    // Reconstitute the linked organization first so the workspace's
+    // organizationId FK resolves. Upsert by UUID: an org already present on this
+    // instance (or shared by a sibling workspace / a duplicate) is left as-is;
+    // only a genuinely new org is created. Duplicating keeps the same org link.
+    if (parsed.organization?.id) {
+      const existingOrg = await storage.organizations.getById(parsed.organization.id)
+      if (!existingOrg) await storage.organizations.create(parsed.organization)
+    }
+
     // Create workspace if it doesn't exist yet, or update if overwriting
     const existingWs = await storage.workspaces.getById(targetWsId)
     if (existingWs && !duplicate) {

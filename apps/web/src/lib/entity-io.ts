@@ -19,6 +19,7 @@ import type {
   DataSource, CustomSchemaPreset,
   GitRemoteConfig,
   LocalizedString, TodoItem,
+  Organization,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -1461,8 +1462,24 @@ export async function buildWorkspaceZip(
   const excluded = options.excludeEntities ?? {}
 
   // --- workspace.json (without instance-specific fields) ---
+  // organizationId is stripped as an instance field, then re-added deliberately:
+  // an organization's UUID is stable across instances (it's the catalog index),
+  // so a workspace keeps pointing at the org it was exported with. The full org
+  // record travels alongside in organization.json.
   const { readme: wsReadme, ...wsMeta } = workspace
-  zip.file('workspace.json', json({ ...stripInstanceFields(wsMeta), appVersion: APP_VERSION }))
+  zip.file('workspace.json', json({
+    ...stripInstanceFields(wsMeta),
+    ...(workspace.organizationId ? { organizationId: workspace.organizationId } : {}),
+    appVersion: APP_VERSION,
+  }))
+
+  // --- organization.json ---
+  // The linked organization travels with the workspace so an import can
+  // reconstitute it (upsert by UUID) without a shared org registry.
+  if (workspace.organizationId) {
+    const org = await storage.organizations.getById(workspace.organizationId)
+    if (org) zip.file('organization.json', json(org))
+  }
 
   // --- README.md (+ README.<lang>.md per extra language) ---
   writeReadmeFiles(zip, '', wsReadme)
@@ -1719,6 +1736,8 @@ export interface ParsedProjectEntry {
 
 export interface ParsedWorkspaceZip {
   workspace: Workspace & { appVersion?: string }
+  /** Organization the workspace is linked to, travelling by UUID for cross-instance upsert. */
+  organization?: Organization
   /** Full project data (legacy format: complete project ZIP inside workspace ZIP). */
   projects: Map<string, ParsedProjectZip>
   /** Lightweight project entries (new format: metadata + README only). */
@@ -1777,6 +1796,12 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   if (!wsFile) return null
   const workspace = JSON.parse(await wsFile.async('string')) as Workspace & { appVersion?: string }
   if (!workspace?.id) return null
+
+  // --- organization.json (optional) ---
+  const orgFile = zipData.files['organization.json']
+  const organization = orgFile
+    ? (JSON.parse(await orgFile.async('string')) as Organization)
+    : undefined
 
   // --- README.md (README.md = en, README.<lang>.md = other langs) ---
   const wsReadmeByLang: LocalizedString = {}
@@ -2021,7 +2046,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
 
   return {
-    workspace, projects, projectEntries, schemas, databases,
+    workspace, organization, projects, projectEntries, schemas, databases,
     wikiPages, wikiAttachmentsMeta, wikiAttachmentBlobs,
     sqlCollections, etlPipelines, dqRuleSets, conceptSets,
     mappingProjects, sourceConceptIdRanges, sourceConceptIdEntries,
