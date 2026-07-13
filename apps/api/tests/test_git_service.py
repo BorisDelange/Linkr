@@ -421,6 +421,41 @@ async def test_pull_preview_returns_base_and_remote_content():
 
 
 @pytest.mark.asyncio
+async def test_commit_push_refuses_when_behind_the_anchor():
+    """Pushing while the remote moved past our anchor would fast-forward over the
+    un-pulled remote work and drop it → must raise pull_required. Passing the
+    up-to-date anchor (or none) allows the push."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)
+        first = await g.commit_push(getter, "u", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+        old_oid = first["commit"]["oid"]
+        # Simulate someone else pushing v2 from another clone.
+        tmp2 = Path(tempfile.mkdtemp())
+        try:
+            def getter2(_uid):
+                return tmp2 / "repo"
+            await g.commit_push(getter2, "u", _zip({"project.json": '{"a":2}'}), "main", "v2", remote, None)
+        finally:
+            shutil.rmtree(tmp2, ignore_errors=True)
+
+        # Our anchor is still v1 → the remote is ahead → push must be refused.
+        with pytest.raises(g.GitError) as exc:
+            await g.commit_push(getter, "u", _zip({"project.json": '{"a":3}'}), "main", "v3", remote, None, None, old_oid)
+        assert exc.value.code == "pull_required"
+
+        # No anchor passed → first-push semantics, allowed (won't refuse).
+        r = await g.commit_push(getter, "u", _zip({"project.json": '{"a":3}'}), "main", "v3", remote, None, None, None)
+        assert r["committed"]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 async def test_pull_file_bytes_returns_remote_content():
     """pull_file_bytes returns a managed file's bytes at the remote head — the raw
     content the pull needs when taking the remote version of a whole-list family."""

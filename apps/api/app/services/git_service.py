@@ -610,20 +610,28 @@ async def pull_preview(
                 files[name] = _blob_at(repo, commit, name)
             stats: dict[str, dict] = {}
             for name in _PULL_STAT_FILES:
-                raw = _blob_at(repo, commit, name)
-                if raw is None:
+                # The git blob oid uniquely fingerprints the file's content at this
+                # commit (for an LFS file, the blob IS the pointer, whose oid changes
+                # iff the tracked content changes). Comparing base↔remote oids tells
+                # us "did the remote change this file" WITHOUT smudging the LFS blob —
+                # a row count would need the real content (expensive, and impossible
+                # here since we skip smudge). So oid is the reliable "changed" signal.
+                oid = _run(repo, "rev-parse", f"{commit}:{name}", check=False).strip() or None
+                if oid is None:
                     stats[name] = {"present": False}
-                elif raw.startswith("version https://git-lfs"):
-                    # LFS pointer we couldn't smudge — report size from the pointer.
-                    size = 0
+                    continue
+                raw = _blob_at(repo, commit, name)
+                stat: dict = {"present": True, "oid": oid}
+                if raw and raw.startswith("version https://git-lfs"):
+                    stat["lfs"] = True
                     for line in raw.splitlines():
                         if line.startswith("size "):
-                            size = int(line.split(" ", 1)[1] or 0)
-                    stats[name] = {"present": True, "lfs": True, "byteSize": size}
-                elif name.endswith(".csv"):
-                    stats[name] = {"present": True, "rowCount": _csv_line_count(raw), "byteSize": len(raw.encode("utf-8", "ignore"))}
-                else:
-                    stats[name] = {"present": True, "byteSize": len(raw.encode("utf-8", "ignore"))}
+                            stat["byteSize"] = int(line.split(" ", 1)[1] or 0)
+                elif raw is not None:
+                    stat["byteSize"] = len(raw.encode("utf-8", "ignore"))
+                    if name.endswith(".csv"):
+                        stat["rowCount"] = _csv_line_count(raw)  # only when not LFS
+                stats[name] = stat
             return {"files": files, "stats": stats}
 
         return {
@@ -810,14 +818,30 @@ async def commit_push(
     remote_url: str | None,
     token: str | None,
     paths: list[str] | None = None,
+    synced_oid: str | None = None,
 ) -> dict:
     """Unpack the export and commit the selected files (all if paths is None) on
-    top of the fetched remote branch, then push. Push-only flow."""
+    top of the fetched remote branch, then push. Push-only flow.
+
+    Guard against clobbering un-pulled remote work: the commit is built on top of
+    the fetched remote head from the LOCAL export, which does NOT contain whatever
+    the remote gained since our anchor (synced_oid). Pushing that would fast-forward
+    the remote and silently drop those changes. So if the remote moved past our
+    anchor, refuse with a `pull_required` GitError — the user must pull first.
+    """
 
     def work() -> dict:
         repo = repo_getter(uid)
         _ensure_repo(repo, remote_url)
-        _sync_remote_branch(repo, branch, remote_url, token)
+        has_remote = _sync_remote_branch(repo, branch, remote_url, token)
+        # Refuse to push over un-pulled remote changes (see docstring). Any move of
+        # the remote head off our anchor — fast-forward or diverged — means the local
+        # export lacks remote content, so pushing would drop it. Only guard when we
+        # have an anchor; a first push (no anchor / no remote branch) is allowed.
+        if has_remote and synced_oid:
+            remote_head = _run(repo, "rev-parse", "FETCH_HEAD", check=False).strip()
+            if remote_head and remote_head != synced_oid:
+                raise GitError("remote has changes you don't have; pull first", "pull_required")
         _unpack_zip_into(zip_bytes, repo)
         if paths is None:
             _run(repo, "add", "-A")

@@ -77,6 +77,10 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const files = status?.files ?? []
   const nothingToCommit = !loadingStatus && files.length === 0
   const allChecked = files.length > 0 && files.every((f) => selected.has(f.path))
+  // Block the push while the remote is ahead — pushing the local export would
+  // fast-forward over the un-pulled remote work and drop it. The backend refuses
+  // too (pull_required); this just disables the button up front.
+  const mustPullFirst = !!syncState && (syncState.behind || syncState.diverged)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -213,7 +217,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
 
       {error && (
         <div className="shrink-0">
-          <GitErrorInline detail={error.raw} />
+          <GitErrorInline detail={error.code === 'pull_required' ? t('versioning.sync_push_blocked') : error.raw} />
         </div>
       )}
 
@@ -224,9 +228,12 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
             {t('versioning.sync_pushed')}
           </span>
         )}
+        {mustPullFirst && (
+          <span className="text-[11px] text-amber-700 dark:text-amber-400">{t('versioning.sync_pull_first')}</span>
+        )}
         <Button
           onClick={handleCommit}
-          disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing}
+          disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing || mustPullFirst}
           className="gap-1.5"
         >
           {committing ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}

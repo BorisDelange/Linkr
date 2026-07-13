@@ -140,7 +140,7 @@ export interface GitVerifyResult {
 }
 
 /** Git error codes the backend classifies; the UI maps these to friendly text. */
-export type GitErrorCode = 'auth_required' | 'auth_failed' | 'not_found' | 'network' | 'unknown'
+export type GitErrorCode = 'auth_required' | 'auth_failed' | 'not_found' | 'network' | 'pull_required' | 'unknown'
 
 /** A git operation failed: `code` drives the friendly message, `rawMessage` is
  *  the underlying git output shown on demand. */
@@ -205,8 +205,10 @@ export async function gitCloneToZip(
 export interface GitPullSide {
   /** Managed JSON files → full text (null if absent at that commit). */
   files: Record<string, string | null>
-  /** Heavy whole-list families → stats only ({present, rowCount?, byteSize?, lfs?}). */
-  stats: Record<string, { present: boolean; rowCount?: number; byteSize?: number; lfs?: boolean }>
+  /** Heavy whole-list families → stats only. `oid` fingerprints the content at
+   *  this commit (for LFS, the pointer's oid), so base↔remote oid tells "changed"
+   *  without smudging. rowCount is present only for non-LFS CSVs. */
+  stats: Record<string, { present: boolean; oid?: string; rowCount?: number; byteSize?: number; lfs?: boolean }>
 }
 
 export interface GitPullPreview {

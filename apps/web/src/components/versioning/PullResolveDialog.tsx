@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowDownToLine, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, Loader2, Table2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { prepareMappingProjectPull, type PullResolution, type PreparedPull } from '@/lib/concept-mapping/pull'
-import type { MappingProjectMerge, MappingChange } from '@/lib/concept-mapping/merge'
-import type { ConceptMapping } from '@/types'
+import type { MappingProjectMerge } from '@/lib/concept-mapping/merge'
+import { PullMappingsTable } from './PullMappingsTable'
 
 interface PullResolveDialogProps {
   projectId: string
@@ -19,37 +19,55 @@ interface PullResolveDialogProps {
   onResolve: (prepared: PreparedPull, resolution: PullResolution) => void | Promise<void>
 }
 
-/** Short "source → target" label for a mapping, for the change list. */
-function mappingLabel(m: ConceptMapping | null): string {
-  if (!m) return '—'
-  const src = m.sourceConceptName || m.sourceConceptCode || String(m.sourceConceptId)
-  const tgt = m.targetConceptName || m.targetConceptCode || String(m.targetConceptId)
-  return `${src} → ${tgt}`
+// Persist the prepared merge + the user's in-progress choices across close/reopen
+// (keyed by project+branch), so reopening the dialog doesn't recompute from zero
+// and doesn't lose a half-made resolution. Cleared after a successful apply.
+interface PullDraft {
+  prepared: PreparedPull
+  keptMappings: Set<string>
+  mappingChoices: Record<string, 'remote' | 'local'>
+  keptMeta: Set<string>
+  metaChoices: Record<string, 'remote' | 'local'>
+  takeSource: boolean
+  takeScores: boolean
+}
+const _draftCache = new Map<string, PullDraft>()
+const draftKey = (projectId: string, branch: string) => `${projectId}|${branch}`
+
+function humanBytes(n?: number): string {
+  if (!n) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
 /**
- * Entity-level pull resolution: shows what the remote changed (mappings by
- * source→target, metadata by field, source-concepts / scores as whole-list
- * blocks) and lets the user apply clean changes and pick a side per conflict —
- * never a raw file diff. See docs/planning/git-pull-sync-plan.md §3.3.
+ * Entity-level pull resolution. Mappings are summarised (counts by change type)
+ * with a button opening a full datatable to pick individual ones — the inline
+ * list doesn't scale to hundreds. Metadata is per-field; source concepts and
+ * scores are whole-list blocks. Never a raw file diff. State is cached so closing
+ * and reopening keeps the fetched merge + the user's choices.
  */
 export function PullResolveDialog({ projectId, branch, onClose, onResolve }: PullResolveDialogProps) {
   const { t } = useTranslation()
-  const [prepared, setPrepared] = useState<PreparedPull | null>(null)
+  const key = draftKey(projectId, branch)
+  const [prepared, setPrepared] = useState<PreparedPull | null>(() => _draftCache.get(key)?.prepared ?? null)
   const merge: MappingProjectMerge | null = prepared?.merge ?? null
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!_draftCache.has(key))
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
+  const [tableOpen, setTableOpen] = useState(false)
 
-  // User choices.
-  const [keptClean, setKeptClean] = useState<Set<string>>(new Set())
-  const [mappingChoices, setMappingChoices] = useState<Record<string, 'remote' | 'local'>>({})
-  const [keptMeta, setKeptMeta] = useState<Set<string>>(new Set())
-  const [metaChoices, setMetaChoices] = useState<Record<string, 'remote' | 'local'>>({})
-  const [takeSource, setTakeSource] = useState(false)
-  const [takeScores, setTakeScores] = useState(false)
+  const cached = _draftCache.get(key)
+  const [keptMappings, setKeptMappings] = useState<Set<string>>(cached?.keptMappings ?? new Set())
+  const [mappingChoices, setMappingChoices] = useState<Record<string, 'remote' | 'local'>>(cached?.mappingChoices ?? {})
+  const [keptMeta, setKeptMeta] = useState<Set<string>>(cached?.keptMeta ?? new Set())
+  const [metaChoices, setMetaChoices] = useState<Record<string, 'remote' | 'local'>>(cached?.metaChoices ?? {})
+  const [takeSource, setTakeSource] = useState(cached?.takeSource ?? false)
+  const [takeScores, setTakeScores] = useState(cached?.takeScores ?? false)
 
   useEffect(() => {
+    if (_draftCache.has(key)) return // already prepared — keep the cached draft
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -58,12 +76,10 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
         if (cancelled) return
         setPrepared(p)
         const m = p.merge
-        // Default: keep every clean change + take remote blocks; conflicts default
-        // to "remote" (their pushed version) but the user can flip per item.
-        setKeptClean(new Set(m.mappings.filter((c) => c.type !== 'conflict').map((c) => c.key)))
-        setMappingChoices(Object.fromEntries(m.mappings.filter((c) => c.type === 'conflict').map((c) => [c.key, 'remote'])))
+        setKeptMappings(new Set(m.mappings.filter((c) => c.type !== 'conflict').map((c) => c.key)))
+        setMappingChoices(Object.fromEntries(m.mappings.filter((c) => c.type === 'conflict').map((c) => [c.key, 'remote' as const])))
         setKeptMeta(new Set(m.metadata.cleanUpdates.map((u) => u.field)))
-        setMetaChoices(Object.fromEntries(m.metadata.conflicts.map((c) => [c.field, 'remote'])))
+        setMetaChoices(Object.fromEntries(m.metadata.conflicts.map((c) => [c.field, 'remote' as const])))
         setTakeSource(m.sourceConcepts.changed)
         setTakeScores(m.scores.changed)
         setLoading(false)
@@ -74,10 +90,31 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
         setLoading(false)
       })
     return () => { cancelled = true }
-  }, [projectId, branch])
+  }, [projectId, branch, key])
 
-  const clean = useMemo(() => (merge?.mappings ?? []).filter((c) => c.type !== 'conflict'), [merge])
-  const conflicts = useMemo(() => (merge?.mappings ?? []).filter((c) => c.type === 'conflict'), [merge])
+  // Persist the draft on every change so a close/reopen restores it.
+  useEffect(() => {
+    if (!prepared) return
+    _draftCache.set(key, { prepared, keptMappings, mappingChoices, keptMeta, metaChoices, takeSource, takeScores })
+  }, [key, prepared, keptMappings, mappingChoices, keptMeta, metaChoices, takeSource, takeScores])
+
+  // Mapping counts by change type, for the summary.
+  const counts = useMemo(() => {
+    const c = { add: 0, update: 0, delete: 0, conflict: 0 }
+    for (const ch of merge?.mappings ?? []) c[ch.type]++
+    return c
+  }, [merge])
+
+  // How many mapping changes are actually selected (clean kept + conflicts→remote).
+  const selectedMappingCount = useMemo(() => {
+    if (!merge) return 0
+    let n = 0
+    for (const ch of merge.mappings) {
+      if (ch.type === 'conflict') { if ((mappingChoices[ch.key] ?? 'remote') === 'remote') n++ }
+      else if (keptMappings.has(ch.key)) n++
+    }
+    return n
+  }, [merge, keptMappings, mappingChoices])
 
   const nothingToPull =
     merge != null &&
@@ -87,25 +124,28 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
     !merge.sourceConcepts.changed &&
     !merge.scores.changed
 
-  const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => {
-    const next = new Set(set)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    setter(next)
+  const toggleMeta = (fieldName: string) => {
+    const next = new Set(keptMeta)
+    if (next.has(fieldName)) next.delete(fieldName)
+    else next.add(fieldName)
+    setKeptMeta(next)
   }
 
   const handleApply = async () => {
     if (!merge || !prepared || applying) return
     setApplying(true)
     try {
+      // Selected clean mapping changes + conflicts resolved as 'remote'.
+      const cleanKept = merge.mappings.filter((c) => c.type !== 'conflict' && keptMappings.has(c.key))
       await onResolve(prepared, {
-        mappings: clean.filter((c) => keptClean.has(c.key)),
+        mappings: cleanKept,
         mappingConflictChoices: mappingChoices,
         metadataUpdates: merge.metadata.cleanUpdates.filter((u) => keptMeta.has(u.field)),
         metadataConflictChoices: metaChoices,
         takeRemoteSourceConcepts: takeSource,
         takeRemoteScores: takeScores,
       })
+      _draftCache.delete(key) // applied → the draft is stale
     } finally {
       setApplying(false)
     }
@@ -113,7 +153,7 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex h-[85vh] w-[92vw] max-w-[900px] flex-col gap-0 overflow-hidden p-0">
+      <DialogContent className="flex max-h-[70vh] w-[92vw] max-w-[620px] flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
           <DialogTitle className="flex items-center gap-2 text-sm">
             <ArrowDownToLine size={16} />
@@ -122,28 +162,49 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
         </DialogHeader>
 
         {loading ? (
-          <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-1 items-center justify-center gap-2 py-10 text-xs text-muted-foreground">
             <Loader2 size={14} className="animate-spin" />
             {t('versioning.pull_computing')}
           </div>
         ) : error ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-destructive">
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center text-sm text-destructive">
             <AlertTriangle size={24} />
             {error}
           </div>
         ) : nothingToPull ? (
-          <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+          <div className="flex flex-1 items-center justify-center px-6 py-10 text-center text-sm text-muted-foreground">
             {t('versioning.pull_nothing')}
           </div>
         ) : (
           <ScrollArea className="min-h-0 flex-1">
-            <div className="space-y-5 p-4">
+            <div className="space-y-4 p-4">
+              {/* Mappings — summary + open the picker table */}
+              {merge && merge.mappings.length > 0 && (
+                <Section title={t('versioning.pull_section_mappings')}>
+                  <div className="flex items-center justify-between gap-3 py-1">
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      {counts.add > 0 && <Tag cls="emerald" label={t('versioning.pull_count_add', { count: counts.add })} />}
+                      {counts.update > 0 && <Tag cls="sky" label={t('versioning.pull_count_update', { count: counts.update })} />}
+                      {counts.delete > 0 && <Tag cls="rose" label={t('versioning.pull_count_delete', { count: counts.delete })} />}
+                      {counts.conflict > 0 && <Tag cls="amber" label={t('versioning.pull_count_conflict', { count: counts.conflict })} />}
+                    </div>
+                    <Button variant="outline" size="sm" className="h-7 shrink-0 gap-1 text-xs" onClick={() => setTableOpen(true)}>
+                      <Table2 size={12} />
+                      {t('versioning.pull_open_table')}
+                    </Button>
+                  </div>
+                  <div className="pb-1 text-[11px] text-muted-foreground">
+                    {t('versioning.pull_selected_count', { count: selectedMappingCount, total: merge.mappings.length })}
+                  </div>
+                </Section>
+              )}
+
               {/* Metadata */}
               {merge && (merge.metadata.cleanUpdates.length > 0 || merge.metadata.conflicts.length > 0) && (
                 <Section title={t('versioning.pull_section_metadata')}>
                   {merge.metadata.cleanUpdates.map((u) => (
                     <label key={u.field} className="flex items-center gap-2 py-1 text-xs">
-                      <Checkbox checked={keptMeta.has(u.field)} onCheckedChange={() => toggle(keptMeta, u.field, setKeptMeta)} />
+                      <Checkbox checked={keptMeta.has(u.field)} onCheckedChange={() => toggleMeta(u.field)} />
                       <span className="font-medium">{u.field}</span>
                       <span className="text-muted-foreground">{t('versioning.pull_apply_remote')}</span>
                     </label>
@@ -163,43 +224,12 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
                 </Section>
               )}
 
-              {/* Mappings — clean */}
-              {clean.length > 0 && (
-                <Section title={t('versioning.pull_section_mappings')}>
-                  {clean.map((c) => (
-                    <label key={c.key} className="flex items-center gap-2 py-1 text-xs">
-                      <Checkbox checked={keptClean.has(c.key)} onCheckedChange={() => toggle(keptClean, c.key, setKeptClean)} />
-                      <ChangeTag type={c.type} />
-                      <span className="truncate">{mappingLabel(c.remote ?? c.local)}</span>
-                    </label>
-                  ))}
-                </Section>
-              )}
-
-              {/* Mappings — conflicts */}
-              {conflicts.length > 0 && (
-                <Section title={t('versioning.pull_section_conflicts')}>
-                  {conflicts.map((c) => (
-                    <ConflictRow
-                      key={c.key}
-                      label={mappingLabel(c.local ?? c.remote)}
-                      mineLabel={t('versioning.pull_keep_mine')}
-                      theirsLabel={t('versioning.pull_take_theirs')}
-                      choice={mappingChoices[c.key] ?? 'remote'}
-                      onChoice={(v) => setMappingChoices((s) => ({ ...s, [c.key]: v }))}
-                      mine={c.local ? `${c.local.status} · ${mappingLabel(c.local)}` : t('versioning.pull_deleted')}
-                      theirs={c.remote ? `${c.remote.status} · ${mappingLabel(c.remote)}` : t('versioning.pull_deleted')}
-                    />
-                  ))}
-                </Section>
-              )}
-
               {/* Source concepts — whole-list block */}
               {merge?.sourceConcepts.changed && (
                 <Section title={t('versioning.pull_section_source')}>
                   <label className="flex items-center gap-2 py-1 text-xs">
                     <Checkbox checked={takeSource} onCheckedChange={(v) => setTakeSource(!!v)} />
-                    <span>{t('versioning.pull_source_replace', { local: merge.sourceConcepts.localCount, remote: merge.sourceConcepts.remoteCount })}</span>
+                    <span>{t('versioning.pull_source_replace_v2', { remote: describeList(merge.sourceConcepts) })}</span>
                   </label>
                 </Section>
               )}
@@ -209,7 +239,7 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
                 <Section title={t('versioning.pull_section_scores')}>
                   <label className="flex items-center gap-2 py-1 text-xs">
                     <Checkbox checked={takeScores} onCheckedChange={(v) => setTakeScores(!!v)} />
-                    <span>{t('versioning.pull_scores_replace', { remote: merge.scores.remoteCount })}</span>
+                    <span>{t('versioning.pull_scores_replace_v2', { remote: describeList(merge.scores) })}</span>
                   </label>
                 </Section>
               )}
@@ -227,8 +257,29 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
           </Button>
         </div>
       </DialogContent>
+
+      {tableOpen && merge && (
+        <PullMappingsTable
+          changes={merge.mappings}
+          selected={keptMappings}
+          conflictChoices={mappingChoices}
+          onClose={() => setTableOpen(false)}
+          onApply={(sel, choices) => {
+            setKeptMappings(sel)
+            setMappingChoices(choices)
+            setTableOpen(false)
+          }}
+        />
+      )}
     </Dialog>
   )
+}
+
+/** Human label for a whole-list family: row count if known, else size / "LFS". */
+function describeList(s: { remoteCount: number; remoteByteSize?: number; remoteLfs?: boolean }): string {
+  if (s.remoteCount > 0) return `${s.remoteCount}`
+  if (s.remoteByteSize) return humanBytes(s.remoteByteSize)
+  return s.remoteLfs ? 'LFS' : '?'
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -240,19 +291,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function ChangeTag({ type }: { type: MappingChange['type'] }) {
-  const { t } = useTranslation()
-  const cls: Record<string, string> = {
-    add: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
-    update: 'bg-sky-500/15 text-sky-700 dark:text-sky-400',
-    delete: 'bg-rose-500/15 text-rose-700 dark:text-rose-400',
-    conflict: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+function Tag({ cls, label }: { cls: 'emerald' | 'sky' | 'rose' | 'amber'; label: string }) {
+  const map = {
+    emerald: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
+    sky: 'bg-sky-500/15 text-sky-700 dark:text-sky-400',
+    rose: 'bg-rose-500/15 text-rose-700 dark:text-rose-400',
+    amber: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
   }
-  return (
-    <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase', cls[type])}>
-      {t(`versioning.pull_change_${type}`)}
-    </span>
-  )
+  return <span className={cn('rounded px-1.5 py-0.5 font-semibold', map[cls])}>{label}</span>
 }
 
 function ConflictRow({

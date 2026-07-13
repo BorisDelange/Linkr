@@ -37,10 +37,15 @@ function parseJson<T>(side: GitPullSide, name: string, fallback: T): T {
   }
 }
 
-function statList(side: GitPullSide, name: string): { count: number; present: boolean } {
-  const s = side.stats[name]
-  if (!s?.present) return { count: 0, present: false }
-  return { count: s.rowCount ?? 0, present: true }
+/** Did the remote change a whole-list file since BASE? Compare content oids — for
+ *  an LFS file the oid is the pointer's, so this is reliable without smudging. If
+ *  BASE is absent (never synced there) fall back to "present remotely = changed". */
+function listChangedByOid(preview: { base: GitPullSide; remote: GitPullSide }, name: string): boolean {
+  const b = preview.base.stats[name]
+  const r = preview.remote.stats[name]
+  if (!r?.present) return false // nothing remote → nothing to take
+  if (!b?.present) return true // remote has it, base didn't → a change to pull
+  return b.oid !== r.oid
 }
 
 /**
@@ -63,17 +68,27 @@ export async function prepareMappingProjectPull(projectId: string, branch?: stri
   const mappings = mergeMappings(baseMappings, remoteMappings, localMappings)
   const metadata = mergeMetadata(baseProject, remoteProject, localProject ?? {})
 
-  // Source concepts: whole-list block choice — compare REMOTE stat to the local
-  // count (we can't cheaply diff the CSV here; the UI fetches a preview on demand).
-  const remoteCsv = statList(preview.remote, 'source-concepts.csv')
+  // Source concepts: whole-list block choice — "changed" iff the remote blob oid
+  // differs from BASE (reliable for LFS; a row count would need smudging). The
+  // remote row count/size is informational for the UI (may be absent for LFS).
+  const remoteCsv = preview.remote.stats['source-concepts.csv']
   const localCsvCount = localProject?.fileSourceData?.totalRowCount ?? 0
-  const sourceConcepts = listDiffStat(localCsvCount, remoteCsv.count, remoteCsv.present && remoteCsv.count !== localCsvCount)
+  const sourceConcepts = listDiffStat(
+    localCsvCount,
+    remoteCsv?.rowCount ?? 0,
+    listChangedByOid(preview, 'source-concepts.csv'),
+    { remoteByteSize: remoteCsv?.byteSize, remoteLfs: remoteCsv?.lfs },
+  )
 
-  // Scores: remote-wins block. "changed" = the remote has scores at all (we take
-  // them wholesale); count is informational.
+  // Scores: remote-wins block, changed iff the remote parquet oid differs from BASE.
   const remoteScores = preview.remote.stats['similarity-scores.parquet']
   const localScores = await getLocalScoreCount(projectId)
-  const scores = listDiffStat(localScores, remoteScores?.rowCount ?? 0, !!remoteScores?.present)
+  const scores = listDiffStat(
+    localScores,
+    remoteScores?.rowCount ?? 0,
+    listChangedByOid(preview, 'similarity-scores.parquet'),
+    { remoteByteSize: remoteScores?.byteSize, remoteLfs: remoteScores?.lfs },
+  )
 
   return {
     merge: { mappings, metadata, sourceConcepts, scores },

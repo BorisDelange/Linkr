@@ -99,6 +99,10 @@ export interface ListDiffStat {
   changed: boolean
   localCount: number
   remoteCount: number
+  /** Remote byte size when the row count is unknown (LFS files) — for the label. */
+  remoteByteSize?: number
+  /** The remote file is LFS-tracked (row count unavailable without smudging). */
+  remoteLfs?: boolean
 }
 
 export interface MappingProjectMerge {
@@ -203,8 +207,13 @@ function metaEqual(a: unknown, b: unknown): boolean {
 
 // --- Whole-list families ---------------------------------------------------
 
-export function listDiffStat(localCount: number, remoteCount: number, changed: boolean): ListDiffStat {
-  return { changed, localCount, remoteCount }
+export function listDiffStat(
+  localCount: number,
+  remoteCount: number,
+  changed: boolean,
+  extra?: { remoteByteSize?: number; remoteLfs?: boolean },
+): ListDiffStat {
+  return { changed, localCount, remoteCount, ...extra }
 }
 
 /** Localized-string display helper reused by the UI layer (kept here so the

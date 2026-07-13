@@ -383,6 +383,7 @@ async def mapping_project_commit_push(
     if _remote_url(mp) is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mapping project is not linked to a git remote")
     resolved_branch = _default_branch(mp, branch)
+    row = await git_sync_state_service.get(db, "mapping-projects", mp.id, resolved_branch)
     result = await _guard(git_service.commit_push(
         git_service.mapping_project_repo_getter,
         mp.id,
@@ -392,6 +393,7 @@ async def mapping_project_commit_push(
         _remote_url(mp),
         git_secret.token_for(mp),
         paths,
+        row.synced_oid if row else None,
     ))
     # A successful push means the pushed commit is now the synced point → move the anchor.
     if result.get("pushed") and result.get("commit"):
