@@ -117,8 +117,13 @@ async def test_directory_available_to_any_user(client, db):
     assert r.status_code == 200
     entries = r.json()
     assert any(e["username"] == "bob" for e in entries)
-    # No sensitive fields leaked.
-    assert all(set(e.keys()) == {"id", "username"} for e in entries)
+    # The directory exposes id/username + public professional identity fields
+    # (used to build author provenance snapshots) but must NOT leak sensitive
+    # fields (email, role, password, is_active).
+    allowed = {"id", "username", "firstName", "lastName", "affiliation", "profession", "orcid"}
+    for e in entries:
+        assert set(e.keys()) <= allowed
+        assert "email" not in e and "role" not in e and "isActive" not in e
 
 
 async def test_cannot_remove_last_admin(client):
