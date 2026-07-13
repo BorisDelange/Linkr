@@ -1571,8 +1571,7 @@
     "file_desc_plugin_meta": "L'identité du plugin au sein de cette instance.",
     "file_desc_plugin_manifest": "Le manifeste du plugin : son nom, sa version et ses paramètres déclarés.",
     "file_desc_plugin_source": "Un fichier source du plugin (son code).",
-    "file_desc_gitattributes": "Configuration Git listant les fichiers volumineux suivis via Git LFS.",
-    "file_desc_other": "Un fichier inclus dans l'export de cet élément."
+    "file_desc_gitattributes": "Configuration Git listant les fichiers volumineux suivis via Git LFS."
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",

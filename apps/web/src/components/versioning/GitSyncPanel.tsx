@@ -242,7 +242,8 @@ interface GitFileRowProps {
  *  right-click menu to add/remove LFS tracking. */
 function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, onOpenDiff }: GitFileRowProps) {
   const { t } = useTranslation()
-  const description = t(gitFileMeta(scope, file.path).descriptionKey)
+  const descriptionKey = gitFileMeta(scope, file.path).descriptionKey
+  const description = descriptionKey ? t(descriptionKey) : null
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -266,16 +267,18 @@ function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, 
               LFS
             </button>
           )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="shrink-0 cursor-help text-muted-foreground/60 hover:text-muted-foreground" aria-label={description}>
-                <Info size={12} />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-xs text-xs">
-              {description}
-            </TooltipContent>
-          </Tooltip>
+          {description && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0 cursor-help text-muted-foreground/60 hover:text-muted-foreground" aria-label={description}>
+                  <Info size={12} />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-xs text-xs">
+                {description}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </li>
       </ContextMenuTrigger>
       <ContextMenuContent>

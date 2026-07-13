@@ -15,8 +15,10 @@ export interface GitFileMeta {
   category: string
   /** Sort order of the category within the list (lower = first). */
   order: number
-  /** i18n key for the hover description (`versioning.file_desc_<...>`). */
-  descriptionKey: string
+  /** i18n key for the hover description (`versioning.file_desc_<...>`), or
+   *  undefined when the file is unrecognised — the UI then shows no info icon
+   *  rather than a generic, contentless tooltip. */
+  descriptionKey?: string
 }
 
 interface Rule {
@@ -118,7 +120,9 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   ],
 }
 
-const OTHER: GitFileMeta = { category: 'other', order: CAT.other, descriptionKey: 'versioning.file_desc_other' }
+// Unrecognised files: grouped under "other", with no description — the row then
+// shows no info icon rather than a generic tooltip that says nothing useful.
+const OTHER: GitFileMeta = { category: 'other', order: CAT.other }
 
 /** Resolve a file's category + description for a scope (falls back to "other"). */
 export function gitFileMeta(scope: GitScope, path: string): GitFileMeta {

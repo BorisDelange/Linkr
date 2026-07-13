@@ -38,9 +38,12 @@ describe('gitFileMeta', () => {
     }
   })
 
-  it('falls back to "other" for unknown paths', () => {
-    expect(gitFileMeta('projects', 'weird/unknown.xyz').category).toBe('other')
-    expect(gitFileMeta('data-catalogs', 'not-a-known-file.txt').category).toBe('other')
+  it('falls back to "other" with no description for unknown paths', () => {
+    const m = gitFileMeta('projects', 'weird/unknown.xyz')
+    expect(m.category).toBe('other')
+    // No descriptionKey → the row shows no info icon (rather than a useless tooltip).
+    expect(m.descriptionKey).toBeUndefined()
+    expect(gitFileMeta('data-catalogs', 'not-a-known-file.txt').descriptionKey).toBeUndefined()
   })
 
   it('classifies the new entity scopes', () => {
