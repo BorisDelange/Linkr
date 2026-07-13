@@ -79,7 +79,8 @@ export type BadgeColor = PresetBadgeColor | (string & {})
 
 export interface ProjectBadge {
   id: string
-  label: string
+  /** Multilingual; legacy plain-string values are read transparently via localized(). */
+  label: LocalizedString | string
   color: BadgeColor
 }
 

@@ -1,9 +1,10 @@
-import type { BadgeColor, OrganizationInfo, CatalogVisibility, PluginOrigin, ParentRef, ChangelogEntry } from '@/types'
+import type { BadgeColor, LocalizedString, OrganizationInfo, CatalogVisibility, PluginOrigin, ParentRef, ChangelogEntry } from '@/types'
 
 /** A colored label badge on a plugin (same pattern as project badges). */
 export interface PluginBadge {
   id: string
-  label: string
+  /** Multilingual; legacy plain-string values are read transparently via localized(). */
+  label: LocalizedString | string
   color: BadgeColor
 }
 

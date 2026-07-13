@@ -131,8 +131,8 @@ export function CreateMappingProjectDialog({
 
   /** Badges already attached to the current project, indexed by label (case-insensitive). */
   const currentBadgeLabels = useMemo(
-    () => new Set(badges.map((b) => b.label.toLowerCase())),
-    [badges],
+    () => new Set(badges.map((b) => localized(b.label, language).toLowerCase())),
+    [badges, language],
   )
 
   /** Suggestions = distinct badges from other workspace mapping projects (excluding the current one).
@@ -144,18 +144,19 @@ export function CreateMappingProjectDialog({
       if (p.workspaceId !== activeWorkspaceId) continue
       if (editingProject && p.id === editingProject.id) continue
       for (const b of p.badges ?? []) {
-        if (!b.label) continue
-        const key = b.label.toLowerCase()
+        const resolved = localized(b.label, language)
+        if (!resolved) continue
+        const key = resolved.toLowerCase()
         if (!seen.has(key)) seen.set(key, b)
       }
     }
-    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
-  }, [mappingProjects, activeWorkspaceId, editingProject])
+    return [...seen.values()].sort((a, b) => localized(a.label, language).localeCompare(localized(b.label, language)))
+  }, [mappingProjects, activeWorkspaceId, editingProject, language])
 
   /** Set of badge labels (case-insensitive) used in any other project of this workspace. */
   const otherProjectBadgeLabels = useMemo(
-    () => new Set(badgeSuggestions.map((b) => b.label.toLowerCase())),
-    [badgeSuggestions],
+    () => new Set(badgeSuggestions.map((b) => localized(b.label, language).toLowerCase())),
+    [badgeSuggestions, language],
   )
 
   /** Reasons we may forbid creating a new badge with this label. */
@@ -172,9 +173,9 @@ export function CreateMappingProjectDialog({
    *  Note: callers should pre-check against other-project conflicts; this function only blocks
    *  same-project duplicates so suggestion clicks (which reuse an existing badge) still work. */
   const addBadge = (badge: ProjectBadge) => {
-    const trimmed = badge.label.trim()
+    const trimmed = localized(badge.label, language).trim()
     if (!trimmed || currentBadgeLabels.has(trimmed.toLowerCase())) return
-    setBadges([...badges, { ...badge, id: `b-${Date.now()}`, label: trimmed }])
+    setBadges([...badges, { ...badge, id: `b-${Date.now()}`, label: setLocalized(badge.label, language, trimmed) }])
     setNewBadgeLabel('')
   }
 
@@ -1011,7 +1012,7 @@ export function CreateMappingProjectDialog({
                       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${getBadgeClasses(badge.color)}`}
                       style={getBadgeStyle(badge.color)}
                     >
-                      {badge.label}
+                      {localized(badge.label, language)}
                       <button
                         type="button"
                         className="ml-0.5 opacity-60 hover:opacity-100"
@@ -1025,7 +1026,7 @@ export function CreateMappingProjectDialog({
               )}
               {/* Suggestions: badges already used in other projects of the workspace */}
               {(() => {
-                const availableSuggestions = badgeSuggestions.filter((b) => !currentBadgeLabels.has(b.label.toLowerCase()))
+                const availableSuggestions = badgeSuggestions.filter((b) => !currentBadgeLabels.has(localized(b.label, language).toLowerCase()))
                 if (availableSuggestions.length === 0) return null
                 return (
                   <div className="rounded-md border border-dashed bg-muted/20 p-2">
@@ -1035,7 +1036,7 @@ export function CreateMappingProjectDialog({
                     <div className="flex flex-wrap gap-1.5">
                       {availableSuggestions.map((badge) => (
                         <button
-                          key={badge.label}
+                          key={localized(badge.label, language)}
                           type="button"
                           className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 ${getBadgeClasses(badge.color)}`}
                           style={getBadgeStyle(badge.color)}
@@ -1043,7 +1044,7 @@ export function CreateMappingProjectDialog({
                           title={t('concept_mapping.badge_suggestion_add')}
                         >
                           <Plus size={10} />
-                          {badge.label}
+                          {localized(badge.label, language)}
                         </button>
                       ))}
                     </div>

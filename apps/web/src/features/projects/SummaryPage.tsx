@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useAppStore } from '@/stores/app-store'
+import { localized } from '@/lib/localized'
 import { Calendar, User } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
@@ -58,7 +59,7 @@ export function SummaryPage() {
               className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getBadgeClasses(badge.color)}`}
               style={getBadgeStyle(badge.color)}
             >
-              {badge.label}
+              {localized(badge.label, language)}
             </span>
           ))}
         </div>

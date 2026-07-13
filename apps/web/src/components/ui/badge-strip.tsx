@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
 import type { ProjectBadge } from '@/types'
 
@@ -24,6 +26,8 @@ const badgeClass =
  * tooltip; hidden badges are listed (bulleted) in the "+N" chip's tooltip.
  */
 export function BadgeStrip({ badges, className }: BadgeStripProps) {
+  const { i18n } = useTranslation()
+  const label = (b: ProjectBadge) => localized(b.label, i18n.language)
   const containerRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(badges.length)
@@ -84,7 +88,7 @@ export function BadgeStrip({ badges, className }: BadgeStripProps) {
             className={badgeClass}
             style={getBadgeStyle(badge.color)}
           >
-            {badge.label}
+            {label(badge)}
           </span>
         ))}
         <span data-measure-more className="inline-block rounded-full px-2 py-0.5 text-[10px] font-medium">+{badges.length}</span>
@@ -94,10 +98,10 @@ export function BadgeStrip({ badges, className }: BadgeStripProps) {
         <Tooltip key={badge.id}>
           <TooltipTrigger asChild>
             <span className={cn(badgeClass, getBadgeClasses(badge.color))} style={getBadgeStyle(badge.color)}>
-              {badge.label}
+              {label(badge)}
             </span>
           </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs">{badge.label}</TooltipContent>
+          <TooltipContent side="top" className="text-xs">{label(badge)}</TooltipContent>
         </Tooltip>
       ))}
       {hidden.length > 0 && (
@@ -110,7 +114,7 @@ export function BadgeStrip({ badges, className }: BadgeStripProps) {
           <TooltipContent side="top" className="text-xs">
             <ul className="list-disc space-y-0.5 pl-3.5">
               {hidden.map((b) => (
-                <li key={b.id}>{b.label}</li>
+                <li key={b.id}>{label(b)}</li>
               ))}
             </ul>
           </TooltipContent>

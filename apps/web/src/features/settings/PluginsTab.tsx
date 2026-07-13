@@ -11,6 +11,7 @@ import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
+import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
 import {
   AlertDialog,
@@ -221,9 +222,12 @@ export function PluginsTab() {
   // All badge labels across plugins (for the filter dropdown)
   const allBadges = useMemo(() => {
     const byLabel = new Map<string, string>()
-    for (const p of pluginList) for (const b of p.manifest.badges ?? []) if (b.label && !byLabel.has(b.label)) byLabel.set(b.label, b.color)
+    for (const p of pluginList) for (const b of p.manifest.badges ?? []) {
+      const label = localized(b.label, lang)
+      if (label && !byLabel.has(label)) byLabel.set(label, b.color)
+    }
     return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
-  }, [pluginList])
+  }, [pluginList, lang])
 
   const filteredPlugins = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
@@ -233,7 +237,7 @@ export function PluginsTab() {
         if (!words.every((w) => text.includes(w))) return false
       }
       if (badgeFilter.length) {
-        const labels = new Set((p.manifest.badges ?? []).map((b) => b.label))
+        const labels = new Set((p.manifest.badges ?? []).map((b) => localized(b.label, lang)))
         if (!badgeFilter.some((l) => labels.has(l))) return false
       }
       if (typeFilter.length) {

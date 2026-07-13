@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label'
 import { EditableBadge } from '@/components/ui/editable-badge'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { localized } from '@/lib/localized'
+import { localized, setLocalized } from '@/lib/localized'
 import {
   Select,
   SelectContent,
@@ -53,20 +53,24 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     const label = newBadgeLabel.trim()
     if (!label) return
     // No duplicate labels on the same element (case-insensitive).
-    if (badges.some((b) => b.label.toLowerCase() === label.toLowerCase())) return
+    if (badges.some((b) => localized(b.label, i18n.language).toLowerCase() === label.toLowerCase())) return
     const badge: ProjectBadge = {
       id: `b-${Date.now()}`,
-      label,
+      label: setLocalized({}, i18n.language, label),
       color: newBadgeColor,
     }
     setBadges((prev) => [...prev, badge])
     setNewBadgeLabel('')
   }
 
-  const badgeLabelExists = !!newBadgeLabel.trim() && badges.some((b) => b.label.toLowerCase() === newBadgeLabel.trim().toLowerCase())
+  const badgeLabelExists = !!newBadgeLabel.trim() && badges.some((b) => localized(b.label, i18n.language).toLowerCase() === newBadgeLabel.trim().toLowerCase())
 
   const handleRemoveBadge = (id: string) => {
     setBadges((prev) => prev.filter((b) => b.id !== id))
+  }
+
+  const handleRenameBadge = (id: string, next: string) => {
+    setBadges((prev) => prev.map((b) => (b.id === id ? { ...b, label: setLocalized(b.label, i18n.language, next) } : b)))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -134,9 +138,10 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                   {badges.map((badge) => (
                     <EditableBadge
                       key={badge.id}
-                      label={badge.label}
+                      label={localized(badge.label, i18n.language)}
                       color={badge.color}
                       onRemove={() => handleRemoveBadge(badge.id)}
+                      onRename={(next) => handleRenameBadge(badge.id, next)}
                     />
                   ))}
                 </div>

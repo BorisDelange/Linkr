@@ -51,20 +51,24 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
     const label = newBadgeLabel.trim()
     if (!label) return
     // No duplicate labels on the same element (case-insensitive).
-    if (badges.some((b) => b.label.toLowerCase() === label.toLowerCase())) return
+    if (badges.some((b) => localized(b.label, language).toLowerCase() === label.toLowerCase())) return
     const badge: ProjectBadge = {
       id: `b-${Date.now()}`,
-      label,
+      label: setLocalized({}, language, label),
       color: newBadgeColor,
     }
     setBadges((prev) => [...prev, badge])
     setNewBadgeLabel('')
   }
 
-  const badgeLabelExists = !!newBadgeLabel.trim() && badges.some((b) => b.label.toLowerCase() === newBadgeLabel.trim().toLowerCase())
+  const badgeLabelExists = !!newBadgeLabel.trim() && badges.some((b) => localized(b.label, language).toLowerCase() === newBadgeLabel.trim().toLowerCase())
 
   const handleRemoveBadge = (id: string) => {
     setBadges((prev) => prev.filter((b) => b.id !== id))
+  }
+
+  const handleRenameBadge = (id: string, next: string) => {
+    setBadges((prev) => prev.map((b) => (b.id === id ? { ...b, label: setLocalized(b.label, language, next) } : b)))
   }
 
   const doSave = async () => {
@@ -126,9 +130,10 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
                   {badges.map((badge) => (
                     <EditableBadge
                       key={badge.id}
-                      label={badge.label}
+                      label={localized(badge.label, language)}
                       color={badge.color}
                       onRemove={() => handleRemoveBadge(badge.id)}
+                      onRename={(next) => handleRenameBadge(badge.id, next)}
                     />
                   ))}
                 </div>

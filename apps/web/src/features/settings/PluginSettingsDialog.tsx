@@ -19,7 +19,7 @@ import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { cn } from '@/lib/utils'
-import { localized } from '@/lib/localized'
+import { localized, setLocalized } from '@/lib/localized'
 import { isCustomColor } from '@/lib/badge-colors'
 import { useAppStore } from '@/stores/app-store'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
@@ -112,9 +112,9 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
   const handleAddBadge = useCallback(() => {
     const label = newBadgeLabel.trim()
     if (!label) return
-    setFields((f) => ({ ...f, badges: [...f.badges, { id: `b-${Date.now()}`, label, color: newBadgeColor }] }))
+    setFields((f) => ({ ...f, badges: [...f.badges, { id: `b-${Date.now()}`, label: setLocalized({}, language, label), color: newBadgeColor }] }))
     setNewBadgeLabel('')
-  }, [newBadgeLabel, newBadgeColor])
+  }, [newBadgeLabel, newBadgeColor, language])
 
   const canSubmit = !!fields.name.trim()
     && !nameTaken
@@ -231,7 +231,7 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
                         className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium', getBadgeClasses(badge.color))}
                         style={getBadgeStyle(badge.color)}
                       >
-                        {badge.label}
+                        {localized(badge.label, language)}
                         <button
                           type="button"
                           className="ml-0.5 opacity-60 hover:opacity-100"

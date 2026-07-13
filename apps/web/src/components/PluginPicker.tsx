@@ -9,6 +9,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { localized } from '@/lib/localized'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import type { Plugin, PluginBadge } from '@/types/plugin'
 import type { BadgeColor } from '@/types'
@@ -87,18 +88,19 @@ export function PluginPicker({
     const map = new Map<string, PluginBadge>()
     for (const p of plugins) {
       for (const b of p.manifest.badges ?? []) {
-        if (!map.has(b.label)) map.set(b.label, b)
+        const key = localized(b.label, lang)
+        if (!map.has(key)) map.set(key, b)
       }
     }
     return Array.from(map.values())
-  }, [plugins])
+  }, [plugins, lang])
 
   // Filter plugins by search query and badge filters
   const filteredPlugins = useMemo(() => {
     return plugins.filter((p) => {
       const m = p.manifest
       if (activeBadgeFilters.size > 0) {
-        const pluginBadgeLabels = new Set((m.badges ?? []).map(b => b.label))
+        const pluginBadgeLabels = new Set((m.badges ?? []).map(b => localized(b.label, lang)))
         const hasMatchingBadge = Array.from(activeBadgeFilters).some(f => pluginBadgeLabels.has(f))
         if (!hasMatchingBadge) return false
       }
@@ -134,23 +136,26 @@ export function PluginPicker({
       </div>
       {allBadges.length > 0 && (
         <div className="flex flex-wrap gap-1 shrink-0">
-          {allBadges.map((badge) => (
+          {allBadges.map((badge) => {
+            const badgeLabel = localized(badge.label, lang)
+            return (
             <button
-              key={badge.label}
+              key={badgeLabel}
               type="button"
-              onClick={() => toggleBadgeFilter(badge.label)}
+              onClick={() => toggleBadgeFilter(badgeLabel)}
               className={cn(
                 'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all',
-                activeBadgeFilters.has(badge.label)
+                activeBadgeFilters.has(badgeLabel)
                   ? 'ring-1 ring-ring ring-offset-1 ring-offset-background'
                   : 'opacity-70 hover:opacity-100',
                 getBadgeClasses(badge.color),
               )}
               style={getBadgeStyle(badge.color)}
             >
-              {badge.label}
+              {badgeLabel}
             </button>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -227,7 +232,7 @@ export function PluginPicker({
                       className={cn('shrink-0 rounded-full px-1.5 py-px text-[9px] font-medium leading-none', getBadgeClasses(badge.color))}
                       style={getBadgeStyle(badge.color)}
                     >
-                      {badge.label}
+                      {localized(badge.label, lang)}
                     </span>
                   ))}
                   <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
