@@ -56,18 +56,14 @@ def _remote_url(entity) -> str | None:
     return cfg.get("url") or None
 
 
-async def _sync_state(db, scope, repo_getter, entity_id, zip_bytes, branch, remote_url, token) -> dict:
-    """Run the git sync-state check, reading/writing the DB anchor around it: pass
-    the stored synced_oid in, and persist a lazily-adopted oid (fresh import in
-    sync) so the next call sees the anchor. Returns the API-shaped dict."""
+async def _sync_state(db, scope, repo_getter, entity_id, branch, remote_url, token) -> dict:
+    """Run the git sync-state check (behind/diverged) reading the DB anchor. No ZIP:
+    the check only compares oids on the remote, so the client needn't rebuild the
+    export just to learn it's out of date."""
     row = await git_sync_state_service.get(db, scope, entity_id, branch)
     result = await _guard(git_service.sync_state(
-        repo_getter, entity_id, zip_bytes, branch, remote_url, row.synced_oid if row else None, token,
+        repo_getter, entity_id, branch, remote_url, row.synced_oid if row else None, token,
     ))
-    adopt = result.pop("adoptOid", None)
-    if adopt:
-        await git_sync_state_service.set_oid(db, scope, entity_id, branch, adopt)
-        result["syncedOid"] = adopt
     return {"linked": remote_url is not None, "branch": branch, **result}
 
 
@@ -303,18 +299,17 @@ async def mapping_project_branches(
     )
 
 
-@router.post("/mapping-projects/{mapping_project_id}/sync-state", response_model=GitSyncStateResponse)
+@router.get("/mapping-projects/{mapping_project_id}/sync-state", response_model=GitSyncStateResponse)
 async def mapping_project_sync_state(
     mapping_project_id: str,
-    file: UploadFile = File(...),
-    branch: str | None = Form(None),
+    branch: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
     return await _sync_state(
         db, "mapping-projects", git_service.mapping_project_repo_getter, mp.id,
-        await file.read(), _default_branch(mp, branch), _remote_url(mp), git_secret.token_for(mp),
+        _default_branch(mp, branch), _remote_url(mp), git_secret.token_for(mp),
     )
 
 

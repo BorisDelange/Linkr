@@ -53,9 +53,8 @@ class GitSyncStateResponse(CamelModel):
     branch: str
     remote_head: str | None = None
     synced_oid: str | None = None
-    behind: bool = False  # the remote moved past our anchor
-    diverged: bool = False  # both the remote and our local export moved
-    local_dirty: bool = False  # local export differs from the remote head
+    behind: bool = False  # the remote moved past our anchor (fast-forward)
+    diverged: bool = False  # the anchor is not an ancestor of the remote head (rewrite)
 
 
 class GitSetSyncStateRequest(CamelModel):

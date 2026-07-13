@@ -161,6 +161,10 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     const prevKey = get().statusKey
     const sameEntity = prevKey?.startsWith(`${scope}|${id}|`)
     if (prevKey && !sameEntity) get().reset()
+    // Mapping projects version their source concepts + scores, so data files are
+    // part of the tracked content → default the "include data" toggle on. Only on
+    // a fresh entry (no status yet), so it never overrides a user's manual choice.
+    if (scope === 'mapping-projects' && get().statusKey === null) set({ includeData: true })
     const key = `${scope}|${id}|${branch ?? ''}|${get().includeData}`
     // Already computed (or computing) for this exact entity+branch → keep it,
     // so switching tabs and coming back doesn't recompute from scratch.
@@ -213,10 +217,9 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
 
   loadSyncState: async (scope, id, branch) => {
     try {
-      // Same export the status/commit build uses, so the "clean import" test (for
-      // lazy anchor adoption) reflects the file set the user would actually push.
-      const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
-      set({ syncState: await gitSyncState(scope, id, zip, branch) })
+      // Cheap oid-only check on the server — no export ZIP to build, so opening the
+      // Versioning tab doesn't pay the (heavy) export cost just to show the banner.
+      set({ syncState: await gitSyncState(scope, id, branch) })
     } catch (err) {
       set({ error: toGitError(err) })
     }

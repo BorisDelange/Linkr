@@ -67,10 +67,8 @@ export interface GitSyncState {
   syncedOid: string | null
   /** The remote moved past our anchor (there are commits to pull). */
   behind: boolean
-  /** Both the remote and our local export moved since the anchor (the risky case). */
+  /** The anchor isn't an ancestor of the remote head (history rewritten). */
   diverged: boolean
-  /** The local export differs from the remote head (unpushed local changes). */
-  localDirty: boolean
 }
 
 export interface GitCommitResult {
@@ -126,11 +124,13 @@ export async function gitBranches(scope: GitScope, id: string): Promise<GitBranc
   return apiRequest<GitBranches>(`${base(scope, id)}/branches`)
 }
 
-/** Where the entity stands vs the remote branch (behind / diverged / dirty).
- *  Uploads the export ZIP so the backend can tell a clean import from local edits
- *  (and lazily adopt the anchor on the first clean sync). v1: mapping-projects. */
-export async function gitSyncState(scope: GitScope, id: string, zip: Blob, branch?: string): Promise<GitSyncState> {
-  return postForm<GitSyncState>(`${base(scope, id)}/sync-state`, zipForm(zip, branch ? { branch } : {}))
+/** Where the entity stands vs the remote branch (behind / diverged). Cheap: a GET
+ *  that only compares oids on the remote — no export ZIP, so the client needn't
+ *  rebuild the (possibly heavy) export just to learn it's out of date. The anchor
+ *  is set at import and moved on push. v1: mapping-projects. */
+export async function gitSyncState(scope: GitScope, id: string, branch?: string): Promise<GitSyncState> {
+  const qs = branch ? `?branch=${encodeURIComponent(branch)}` : ''
+  return apiRequest<GitSyncState>(`${base(scope, id)}/sync-state${qs}`)
 }
 
 export interface GitVerifyResult {

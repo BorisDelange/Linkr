@@ -423,7 +423,6 @@ async def status(repo_getter, uid: str, zip_bytes: bytes, branch: str, remote_ur
 async def sync_state(
     repo_getter,
     uid: str,
-    zip_bytes: bytes,
     branch: str,
     remote_url: str | None,
     synced_oid: str | None,
@@ -432,60 +431,64 @@ async def sync_state(
     """Report where the entity stands vs the remote branch, given the DB anchor
     `synced_oid` (last commit we know we were in sync with; None if never).
 
-    Returns, in git terms only (the route owns the DB write):
+    Cheap by design: it only fetches the remote ref and compares oids via
+    merge-base — it does NOT need the local export (no ZIP upload, no unpack), so
+    the client can call it without rebuilding the potentially-heavy export tree.
+    Detecting whether the local content differs (ahead / dirty) is the status
+    endpoint's job; here we only answer "did the remote move past our anchor?".
+
+    Returns, in git terms only:
       remote_head : oid of origin/<branch>, or None if the branch/remote is absent
       synced_oid  : the anchor passed in (echoed for the response)
       behind      : remote moved past our anchor (anchor is an ancestor of remote_head)
-      diverged    : both moved (neither is an ancestor of the other)
-      local_dirty : the local export differs from remote_head (uncommitted local edits)
-      adopt_oid   : set when we should lazily adopt remote_head as the anchor — i.e.
-                    no anchor yet AND the local export equals remote_head (a fresh
-                    import / after-the-fact git-link is trivially in sync). The route
-                    persists it. None when there's nothing to adopt.
+      diverged    : anchor is set but is NOT an ancestor of remote_head (history was
+                    rewritten/force-pushed, or the anchor is stale) — treat as "needs
+                    attention on pull" like behind, distinct wording.
 
-    'ahead' (local edits not yet pushed) is already conveyed by the status endpoint's
-    file list, so it isn't recomputed here; local_dirty is the same signal, surfaced
-    for the banner ("you have local changes AND the remote moved" = the risky case).
+    The anchor is initialised at import time (set-sync-state) and moved on push, so
+    an unanchored+existing-remote case here just means "no baseline yet" → neither
+    behind nor diverged until the first push/import anchors it.
     """
 
     def work() -> dict:
         repo = repo_getter(uid)
         _ensure_repo(repo, remote_url)
-        has_remote = _sync_remote_branch(repo, branch, remote_url, token)
-        if not has_remote:
-            # No remote branch (never pushed) → nothing upstream to be behind of.
-            return {
-                "remoteHead": None, "syncedOid": synced_oid,
-                "behind": False, "diverged": False, "localDirty": False, "adoptOid": None,
-            }
-        remote_head = _run(repo, "rev-parse", "FETCH_HEAD", check=False).strip() or None
-        # Is the local export identical to the remote tree? (the "clean" test).
-        _unpack_zip_into(zip_bytes, repo)
-        _run(repo, "add", "-A")
-        local_dirty = bool(_porcelain_status(repo))
+        if not remote_url:
+            return {"remoteHead": None, "syncedOid": synced_oid, "behind": False, "diverged": False}
+        _reject_internal_host(remote_url)
+        ls_url = _with_credentials(remote_url, token)
+        # A single ls-remote gives the remote head without fetching any objects —
+        # far cheaper than _sync_remote_branch (no fetch, no LFS, no working tree).
+        out = _run(repo, "ls-remote", "--heads", ls_url, branch, token=token, check=False)
+        remote_head = None
+        for line in out.splitlines():
+            if f"refs/heads/{branch}" in line:
+                remote_head = line.split()[0].strip()
+                break
+        if not remote_head:
+            return {"remoteHead": None, "syncedOid": synced_oid, "behind": False, "diverged": False}
 
         behind = diverged = False
-        adopt_oid = None
-        if remote_head and synced_oid and synced_oid != remote_head:
-            # is-ancestor exit code 0 → synced_oid is reachable from remote_head.
+        if synced_oid and synced_oid != remote_head:
+            # The remote moved off our anchor → at least "behind". To tell a clean
+            # fast-forward (behind) from a rewrite (diverged) we need both commits
+            # locally and a merge-base test. Fetch the tip's history (no --depth, so
+            # the shared ancestor is reachable) and the anchor object; skip LFS blobs.
+            skip_lfs = {"GIT_LFS_SKIP_SMUDGE": "1"}
+            _run(repo, "fetch", "-q", ls_url, remote_head, token=token, env_extra=skip_lfs, check=False)
+            _run(repo, "fetch", "-q", ls_url, synced_oid, token=token, env_extra=skip_lfs, check=False)
             anc = subprocess.run(
                 ["git", "-C", str(repo), "merge-base", "--is-ancestor", synced_oid, remote_head],
                 capture_output=True, timeout=_GIT_TIMEOUT, env=_git_env(),
             )
-            if anc.returncode == 0:
-                behind = True
-            else:
-                diverged = True
-        elif remote_head and not synced_oid and not local_dirty:
-            # No anchor and the export matches the remote → we just imported and are
-            # in sync; adopt the remote head as the anchor (lazy initialisation).
-            adopt_oid = remote_head
+            # exit 0 → anchor is an ancestor of remote_head (clean fast-forward = behind).
+            # exit 1 → not an ancestor (diverged/rewritten). Any other code (anchor
+            # object still missing) → can't prove ancestry; report the less alarming
+            # "behind" rather than "diverged".
+            diverged = anc.returncode == 1
+            behind = not diverged
 
-        return {
-            "remoteHead": remote_head, "syncedOid": synced_oid,
-            "behind": behind, "diverged": diverged, "localDirty": local_dirty,
-            "adoptOid": adopt_oid,
-        }
+        return {"remoteHead": remote_head, "syncedOid": synced_oid, "behind": behind, "diverged": diverged}
 
     async with _lock_for(repo_getter(uid)):
         return await asyncio.to_thread(work)
