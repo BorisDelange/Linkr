@@ -11,6 +11,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useGitSyncStore } from '@/stores/git-sync-store'
 import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
 import { monacoLanguageFor } from '@/lib/monaco-language'
+import { groupGitFiles } from '@/lib/git-file-meta'
 import { ChangeBadge } from './ChangeBadge'
 import type { GitDiff, GitFileChange, GitScope } from '@/lib/api/git'
 
@@ -83,36 +84,44 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
             {/* Resizable file sidebar — scrolls both ways so long paths read in full. */}
             <Allotment.Pane preferredSize={288} minSize={160} maxSize={560}>
               <div className="h-full overflow-auto border-r">
-                <ul className="w-max min-w-full p-1">
-                  {files.map((f) => {
-                    const active = f.path === path
-                    return (
-                      <li key={f.path}>
-                        <div
-                          className={cn(
-                            'flex items-center gap-2 rounded-md px-2 py-1.5',
-                            active ? 'bg-muted' : 'hover:bg-muted/50',
-                          )}
-                        >
-                          <Checkbox
-                            checked={selected.has(f.path)}
-                            onCheckedChange={() => onToggle(f.path)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="shrink-0"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setPath(f.path)}
-                            className="flex flex-1 items-center gap-2 text-left"
-                          >
-                            <ChangeBadge changeType={f.changeType} />
-                            <span className="whitespace-nowrap font-mono text-xs">{f.path}</span>
-                          </button>
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
+                {/* Grouped + ordered by category, mirroring the sync panel's list. */}
+                {groupGitFiles(scope, files, (f) => f.path).map((group) => (
+                  <div key={group.category}>
+                    <div className="sticky top-0 z-10 bg-muted/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                      {t(`versioning.file_cat_${group.category}`)}
+                    </div>
+                    <ul className="w-max min-w-full p-1">
+                      {group.files.map((f) => {
+                        const active = f.path === path
+                        return (
+                          <li key={f.path}>
+                            <div
+                              className={cn(
+                                'flex items-center gap-2 rounded-md px-2 py-1.5',
+                                active ? 'bg-muted' : 'hover:bg-muted/50',
+                              )}
+                            >
+                              <Checkbox
+                                checked={selected.has(f.path)}
+                                onCheckedChange={() => onToggle(f.path)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="shrink-0"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setPath(f.path)}
+                                className="flex flex-1 items-center gap-2 text-left"
+                              >
+                                <ChangeBadge changeType={f.changeType} />
+                                <span className="whitespace-nowrap font-mono text-xs">{f.path}</span>
+                              </button>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                ))}
               </div>
             </Allotment.Pane>
 
