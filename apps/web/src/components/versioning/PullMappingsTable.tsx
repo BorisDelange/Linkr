@@ -198,8 +198,6 @@ export function PullMappingsTable({ changes, selected, conflictChoices, onClose,
         </DialogHeader>
 
         <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setAllVisible(true)}>{t('versioning.pull_select_all')}</Button>
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setAllVisible(false)}>{t('versioning.pull_select_none')}</Button>
           <span className="text-[11px] text-muted-foreground">{t('versioning.pull_selected_count', { count: sel.size, total: changes.length })}</span>
         </div>
 

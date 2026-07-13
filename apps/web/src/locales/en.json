@@ -1533,8 +1533,6 @@
     "pull_open_table": "Review mappings",
     "pull_selected_count": "{{count}} of {{total}} selected",
     "pull_mappings_pick": "Select mappings to pull",
-    "pull_select_all": "Select all",
-    "pull_select_none": "Select none",
     "pull_col_change": "Change",
     "pull_col_resolution": "Resolution",
     "diff_empty": "No differences.",

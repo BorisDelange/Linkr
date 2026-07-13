@@ -1532,8 +1532,6 @@
     "pull_open_table": "Examiner les mappings",
     "pull_selected_count": "{{count}} sur {{total}} sélectionnés",
     "pull_mappings_pick": "Sélectionner les mappings à récupérer",
-    "pull_select_all": "Tout sélectionner",
-    "pull_select_none": "Tout désélectionner",
     "pull_col_change": "Changement",
     "pull_col_resolution": "Résolution",
     "sync_commit_push": "Valider et pousser",
