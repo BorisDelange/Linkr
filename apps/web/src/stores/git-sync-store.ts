@@ -166,7 +166,10 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     const key = `${scope}|${id}|${branch ?? ''}|${includeData}`
     set({ loadingStatus: true, error: null, statusKey: key })
     try {
-      const zip = await buildZip(scope, id, includeData)
+      // Include the LFS overrides so the status reflects the .gitattributes the
+      // user actually chose — otherwise unchecking LFS for a big file has no effect
+      // until commit, and it keeps showing as changed (its blob vs an LFS pointer).
+      const zip = await buildZip(scope, id, includeData, get().lfsOverrides)
       const status = await gitStatus(scope, id, zip, branch)
       if (gen !== statusGen) return // superseded by a newer refresh — drop this result
       // Re-seed the selection: keep the user's choices for paths that still
@@ -202,7 +205,9 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
 
   getDiff: async (scope, id, path, branch) => {
     try {
-      const zip = await buildZip(scope, id, get().includeData)
+      // Same .gitattributes as the status/commit build, so the diff of a big file
+      // matches its chosen LFS state (pointer vs blob) rather than the default rule.
+      const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
       return await gitDiff(scope, id, zip, path, branch)
     } catch (err) {
       set({ error: toGitError(err) })
