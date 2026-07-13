@@ -43,6 +43,9 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
   const [resolvedLoading, setResolvedLoading] = useState(false)
   const [resolvedError, setResolvedError] = useState<string | null>(null)
   const [resolvedLoaded, setResolvedLoaded] = useState(false)
+  // Controlled so the chosen tab survives switching to another concept set (the
+  // sheet doesn't remount). NOT reset on conceptSet change — only the data is.
+  const [activeTab, setActiveTab] = useState('description')
 
   // Resizable width
   const [width, setWidth] = useState(DEFAULT_WIDTH)
@@ -94,6 +97,14 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
     setResolvedError(null)
     setResolvedLoaded(false)
   }, [conceptSet?.id])
+
+  // If the persisted tab is "resolved" but the new concept set has no resolved
+  // URL (that tab is disabled), fall back to description so nothing shows blank.
+  useEffect(() => {
+    if (activeTab === 'resolved' && conceptSet && !getResolvedUrl(conceptSet.sourceUrl)) {
+      setActiveTab('description')
+    }
+  }, [activeTab, conceptSet])
 
   const handleLoadResolved = useCallback(async () => {
     if (!conceptSet || resolvedLoaded) return
@@ -179,7 +190,7 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
           )}
         </SheetHeader>
 
-        <Tabs defaultValue="description" className="flex flex-col flex-1 min-h-0">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
           <TabsList variant="line" className="shrink-0 w-full justify-start rounded-none border-b px-3 mb-0">
             <TabsTrigger value="description" className="text-xs px-3">
               {t('concept_mapping.cs_detail_description')}

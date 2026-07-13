@@ -485,7 +485,8 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     setRelationsUnavailable(false)
     setHierarchyUnavailable(false)
     setSynonymsUnavailable(false)
-    setActiveTab('details')
+    // Keep the user's current tab across concepts (don't force back to details) —
+    // the per-tab reload effects below refetch the data for the new concept.
     setHierarchyStack([])
     setHierarchyWarn(null)
   }, [target?.concept_id])
@@ -558,6 +559,16 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     if (activeTab !== 'hierarchy' || !target) return
     if (hierarchySelf) return
     loadHierarchyForIdRef.current(target.concept_id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, target?.concept_id])
+
+  // Relations/synonyms are lazy (loaded on tab click), so when the concept changes
+  // while one of those tabs stays active, refetch for the new concept — otherwise
+  // the tab would show the just-cleared (empty) data. Mirrors the hierarchy effect.
+  useEffect(() => {
+    if (!target) return
+    if (activeTab === 'relations' && relations.length === 0 && !relationsUnavailable && !loadingRelations) loadRelations()
+    if (activeTab === 'synonyms' && synonyms.length === 0 && !synonymsUnavailable && !loadingSynonyms) loadSynonyms()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, target?.concept_id])
 

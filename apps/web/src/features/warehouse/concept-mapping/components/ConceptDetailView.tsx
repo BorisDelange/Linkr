@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { CodeEditor } from '@/components/editor/CodeEditor'
 import { niceStep, niceTicks } from '@/lib/chart-ticks'
 import type { SourceConceptRow } from '../MappingEditorTab'
 
@@ -168,10 +169,8 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
               )}
             </DialogTitle>
           </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-auto">
-            <pre className="overflow-x-auto whitespace-pre rounded-md bg-muted/50 p-4 text-[11px] leading-relaxed">
-              {JSON.stringify(info, null, 2)}
-            </pre>
+          <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
+            <CodeEditor value={JSON.stringify(info, null, 2)} language="json" readOnly height="60vh" />
           </div>
         </DialogContent>
       </Dialog>
