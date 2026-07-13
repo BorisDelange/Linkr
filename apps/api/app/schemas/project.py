@@ -45,6 +45,10 @@ class ProjectUpdate(CamelModel):
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
     catalog_visibility: str | None = None
+    # Editable authoring provenance (author re-attribution + org snapshot).
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
 
 
 class ProjectResponse(CamelModel):

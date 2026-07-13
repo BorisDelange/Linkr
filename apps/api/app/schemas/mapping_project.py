@@ -28,6 +28,9 @@ class MappingProjectCreate(CamelModel):
 
 
 class MappingProjectUpdate(CamelModel):
+    # Editable organization provenance snapshot (no author fields — mapping
+    # projects don't carry created_by* yet; see the lineage/authoring backlog).
+    organization: dict | None = None
     entity_id: str | None = None
     name: dict | None = None
     description: dict | None = None

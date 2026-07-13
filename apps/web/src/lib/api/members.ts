@@ -38,6 +38,9 @@ export interface DirectoryUser {
   username: string
   firstName?: string
   lastName?: string
+  affiliation?: string
+  profession?: string
+  orcid?: string
 }
 
 export const membersApi = {

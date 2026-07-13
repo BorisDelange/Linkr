@@ -76,6 +76,31 @@ async def test_organization_snapshot_persisted(client):
     assert got["organization"]["referenceId"] == "https://ror.org/xxxx"
 
 
+async def test_authoring_reattribution_via_update(client, db):
+    # The Edit dialog re-attributes authorship: PATCH can set created_by* and the
+    # organization snapshot. Both must persist (author editor / provenance edit).
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    c = await _collection(client, headers, ws)
+
+    other = User(username="dana", password_hash=hash_password("pw"), orcid="0000-0003-3333-4444")
+    db.add(other)
+    await db.commit()
+    await db.refresh(other)
+
+    r = await client.patch(f"{API}/sql-script-collections/{c['id']}", headers=headers, json={
+        "createdById": other.id,
+        "createdBy": "Dana Elsewhere",
+        "createdByDetails": {"orcid": "0000-0003-3333-4444"},
+        "organization": {"id": "org-9", "name": {"en": "New Org"}},
+    })
+    assert r.status_code == 200
+    got = r.json()
+    assert got["createdById"] == other.id
+    assert got["createdBy"] == "Dana Elsewhere"
+    assert got["organization"]["name"] == {"en": "New Org"}
+
+
 async def test_list_all_without_workspace_filter(client):
     # The store loads collections app-wide (no workspaceId) — must not 422.
     headers = await _admin_headers(client)

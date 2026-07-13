@@ -27,6 +27,7 @@ _TABLES = (
     "etl_pipelines",
     "dq_rule_sets",
     "data_catalogs",
+    "mapping_projects",
 )
 
 

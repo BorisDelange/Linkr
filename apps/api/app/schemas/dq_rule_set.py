@@ -32,6 +32,11 @@ class DqRuleSetUpdate(CamelModel):
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
     last_score: float | None = None
+    # Editable authoring provenance (author re-attribution + org snapshot).
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
+    organization: dict | None = None
 
 
 class DqRuleSetResponse(CamelModel):

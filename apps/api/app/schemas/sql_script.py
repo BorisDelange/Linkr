@@ -23,6 +23,11 @@ class SqlScriptCollectionUpdate(CamelModel):
     description: dict | None = None
     default_data_source_id: str | None = None
     git_remote_config: dict | None = None
+    # Editable authoring provenance (author re-attribution + org snapshot).
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
+    organization: dict | None = None
 
 
 class SqlScriptCollectionResponse(CamelModel):

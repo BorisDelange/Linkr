@@ -44,6 +44,11 @@ class DataCatalogUpdate(CamelModel):
     last_computed_at: str | None = None
     last_compute_duration_ms: int | None = None
     dcat_ap_metadata: dict | None = None
+    # Editable authoring provenance (author re-attribution + org snapshot).
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
+    organization: dict | None = None
 
 
 class DataCatalogResponse(CamelModel):

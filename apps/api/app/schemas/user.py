@@ -42,13 +42,18 @@ class ProfileUpdate(CamelModel):
 
 
 class UserDirectoryEntry(CamelModel):
-    """Minimal user info for member pickers + author-name resolution
-    (no email/role/secrets)."""
+    """Minimal user info for member pickers + author-name resolution, plus the
+    public professional identity fields (affiliation / profession / ORCID) needed
+    to build an author provenance snapshot when re-attributing authorship. Still
+    exposes no email, role, or secrets."""
 
     id: int
     username: str
     first_name: str | None = None
     last_name: str | None = None
+    affiliation: str | None = None
+    profession: str | None = None
+    orcid: str | None = None
 
 
 class UserResponse(CamelModel):

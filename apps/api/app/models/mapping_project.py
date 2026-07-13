@@ -40,6 +40,8 @@ class MappingProject(Base, TimestampMixin):
     # Fernet ciphertext of the git access token; never returned by the API.
     git_remote_secret: Mapped[str | None] = mapped_column(Text)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
+    # Frozen provenance snapshot of the origin organization (not a live link).
+    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
 
 
 class ConceptMapping(Base, TimestampMixin):
