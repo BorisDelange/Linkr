@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import type { DatasetFile } from '@/types'
 import type { Storage } from '@/lib/storage'
@@ -241,6 +241,42 @@ describe('parseWorkspaceZip — organization bundle', () => {
     expect(parsed).not.toBeNull()
     expect(parsed!.organization).toBeUndefined()
     expect(parsed!.workspace.organizationId).toBeUndefined()
+  })
+})
+
+// A standalone entity (SQL collection, ETL, mapping project…) has no org link of
+// its own — it inherits the org managed at its parent workspace. Export must resolve
+// workspaceId → workspace.organizationId → the org and bundle it, so the ZIP/repo is
+// self-sufficient for a cross-instance catalog (org identified by its stable UUID).
+describe('attachEntityOrganization — inherits org from parent workspace', () => {
+  const makeStore = (workspace: unknown, org: unknown) => ({
+    workspaces: { getById: async (id: string) => ((workspace as { id?: string })?.id === id ? workspace : undefined) },
+    organizations: { getById: async (id: string) => ((org as { id?: string })?.id === id ? org : undefined) },
+  }) as unknown as Storage
+
+  it('writes organization.json resolved through the workspace', async () => {
+    const zip = new JSZip()
+    const store = makeStore(
+      { id: 'w1', organizationId: 'org-9' },
+      { id: 'org-9', name: { en: 'Acme' } },
+    )
+    await attachEntityOrganization(zip, { workspaceId: 'w1' }, store)
+    const entry = zip.files['organization.json']
+    expect(entry).toBeDefined()
+    expect(JSON.parse(await entry.async('string')).id).toBe('org-9')
+  })
+
+  it('is a no-op when the entity has no workspace', async () => {
+    const zip = new JSZip()
+    await attachEntityOrganization(zip, {}, makeStore(undefined, undefined))
+    expect(zip.files['organization.json']).toBeUndefined()
+  })
+
+  it('is a no-op when the workspace has no organization', async () => {
+    const zip = new JSZip()
+    const store = makeStore({ id: 'w1' }, undefined)
+    await attachEntityOrganization(zip, { workspaceId: 'w1' }, store)
+    expect(zip.files['organization.json']).toBeUndefined()
   })
 })
 

@@ -1,6 +1,6 @@
 import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 import { localized } from '@/lib/localized'
-import { stripInstanceFields } from '@/lib/entity-io'
+import { stripInstanceFields, attachEntityOrganization } from '@/lib/entity-io'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -694,6 +694,7 @@ export async function buildMappingProjectZip(
   const JSZip = (await import('jszip')).default
   const zip = new JSZip()
   await buildMappingProjectFolder(zip, '', project, storage, { includeScores: !!options.includeData })
+  await attachEntityOrganization(zip, project, storage)
 
   // Track heavy/large files via LFS (see git-lfs.ts): the automatic size/
   // extension rule, adjusted by the user's per-file overrides. Computed from the

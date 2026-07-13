@@ -1174,6 +1174,28 @@ export async function buildSqlCollectionFolder(
  */
 /** Write the .gitattributes (auto LFS rule + overrides) from the ZIP's own entry
  *  sizes, then emit the blob — shared tail of every single-entity git zip. */
+/**
+ * Write organization.json into a standalone-entity ZIP by inheriting the org
+ * from the entity's parent workspace. A SQL collection / ETL pipeline / mapping
+ * project / DQ rule set / catalog has no org link of its own — its org is the
+ * one managed at the workspace level — so we resolve workspaceId → workspace →
+ * organizationId → the full org record. This makes the exported ZIP or git repo
+ * self-sufficient: it carries both the author snapshot (with ORCID) and the
+ * organization (with its stable UUID), the two keys a cross-instance catalog
+ * indexes on. No-op when the entity has no workspace or the workspace no org.
+ */
+export async function attachEntityOrganization(
+  zip: JSZip,
+  entity: { workspaceId?: string },
+  storage: Storage,
+): Promise<void> {
+  if (!entity.workspaceId) return
+  const workspace = await storage.workspaces.getById(entity.workspaceId)
+  if (!workspace?.organizationId) return
+  const org = await storage.organizations.getById(workspace.organizationId)
+  if (org) zip.file('organization.json', json(org))
+}
+
 async function finalizeEntityZip(zip: JSZip, lfsOverrides?: Map<string, boolean>): Promise<Blob> {
   const { resolveLfsPaths, buildGitAttributes } = await import('@/lib/git-lfs')
   const entries = await Promise.all(
@@ -1195,6 +1217,7 @@ export async function buildSqlCollectionZip(
   if (!collection) return null
   const zip = new JSZip()
   await buildSqlCollectionFolder(zip, '', collection, storage)
+  await attachEntityOrganization(zip, collection, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(collection.name, 'en') || collection.id }
 }
@@ -1208,6 +1231,7 @@ export async function buildEtlPipelineZip(
   if (!pipeline) return null
   const zip = new JSZip()
   await buildEtlPipelineFolder(zip, '', pipeline, storage)
+  await attachEntityOrganization(zip, pipeline, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(pipeline.name, 'en') || pipeline.id }
 }
@@ -1232,6 +1256,7 @@ export async function buildDataCatalogZip(
   if (!catalog) return null
   const zip = new JSZip()
   await buildDataCatalogFolder(zip, '', catalog)
+  await attachEntityOrganization(zip, catalog, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(catalog.name, 'en') || catalog.id }
 }
@@ -1258,6 +1283,7 @@ export async function buildDqRuleSetZip(
   if (!ruleSet) return null
   const zip = new JSZip()
   await buildDqRuleSetFolder(zip, '', ruleSet, storage)
+  await attachEntityOrganization(zip, ruleSet, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(ruleSet.name, 'en') || ruleSet.id }
 }
