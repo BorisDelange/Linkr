@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import type { ProjectBadge, BadgeColor } from '@/types'
-import { Plus } from 'lucide-react'
+import { Plus, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -33,21 +34,17 @@ interface CreateWorkspaceDialogProps {
 }
 
 const NONE = '__none__'
-const CREATE_NEW = '__create_new__'
 
 export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDialogProps) {
   const { t, i18n } = useTranslation()
   const { addWorkspace, updateWorkspaceBadges } = useWorkspaceStore()
-  const { _organizationsRaw, addOrganization } = useOrganizationStore()
+  const { _organizationsRaw } = useOrganizationStore()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [selectedOrgId, setSelectedOrgId] = useState<string>(NONE)
-  const [newOrgName, setNewOrgName] = useState('')
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
-
-  const isCreatingNew = selectedOrgId === CREATE_NEW
 
   const handleAddBadge = () => {
     const label = newBadgeLabel.trim()
@@ -77,23 +74,15 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     e.preventDefault()
     if (!name.trim()) return
 
-    let orgId: string | undefined
-    if (isCreatingNew && newOrgName.trim()) {
-      orgId = await addOrganization({ name: newOrgName.trim() })
-    } else if (selectedOrgId !== NONE) {
-      orgId = selectedOrgId
-    }
-
     const newId = await addWorkspace({
       name: name.trim(),
       description: description.trim(),
-      organizationId: orgId,
+      organizationId: selectedOrgId !== NONE ? selectedOrgId : undefined,
     })
     if (badges.length > 0) await updateWorkspaceBadges(newId, badges)
     setName('')
     setDescription('')
     setSelectedOrgId(NONE)
-    setNewOrgName('')
     setBadges([])
     setNewBadgeLabel('')
     setNewBadgeColor('blue')
@@ -188,17 +177,22 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                         {org.type ? ` (${t(`workspaces.org_type_${org.type}`)})` : ''}
                       </SelectItem>
                     ))}
-                    <SelectItem value={CREATE_NEW}>{t('workspaces.create_new_organization')}</SelectItem>
                   </SelectContent>
                 </Select>
 
-                {isCreatingNew && (
-                  <Input
-                    value={newOrgName}
-                    onChange={(e) => setNewOrgName(e.target.value)}
-                    placeholder={t('workspaces.field_org_name_placeholder')}
-                  />
-                )}
+                <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+                  <Info size={14} className="mt-0.5 shrink-0" />
+                  <p>
+                    {t('workspaces.org_create_hint')}{' '}
+                    <Link
+                      to="/settings?tab=organizations"
+                      className="font-medium underline underline-offset-2"
+                      onClick={() => onOpenChange(false)}
+                    >
+                      {t('workspaces.org_create_hint_link')}
+                    </Link>
+                  </p>
+                </div>
               </div>
             </div>
           </div>

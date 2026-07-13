@@ -2,27 +2,16 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
-import { useSaveForm } from '@/hooks/use-save-form'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { localized } from '@/lib/localized'
-import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
-import { Building2, MapPin, Globe, Mail, Info, Trash2, Loader2 } from 'lucide-react'
+import { Trash2, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { GatedButton } from '@/components/ui/gated-button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,46 +24,29 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 
-const NONE = '__none__'
-
 export function WorkspaceSettingsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
   const [searchParams] = useSearchParams()
-  // Editing needs editor+, deleting needs owner (both enforced server-side too).
+  // Deleting needs owner (enforced server-side too).
   const { can } = useMyWorkspaceRole(wsUid)
-  const canEdit = can('workspace-settings:write')
   const canDelete = can('workspace-settings:delete')
+  // 'organization' is no longer a tab here (moved to the Edit Workspace dialog);
+  // redirect legacy deep-links, and gate the owner-only danger tab.
   const requestedTab = searchParams.get('tab') ?? 'members'
-  const defaultTab = requestedTab === 'danger' && !canDelete ? 'members' : requestedTab
+  const defaultTab = (requestedTab === 'danger' && !canDelete) || requestedTab === 'organization'
+    ? 'members'
+    : requestedTab
   const language = useAppStore((s) => s.language)
-  const { _workspacesRaw, updateWorkspace, deleteWorkspace, closeWorkspace } = useWorkspaceStore()
-  const { _organizationsRaw, getOrganization } = useOrganizationStore()
+  const { _workspacesRaw, deleteWorkspace, closeWorkspace } = useWorkspaceStore()
 
   const workspace = _workspacesRaw.find((ws) => ws.id === wsUid)
 
-  const [selectedOrgId, setSelectedOrgId] = useState<string>(workspace?.organizationId ?? NONE)
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleteProgress, setDeleteProgress] = useState<{ phaseKey: string } | null>(null)
 
-  const handleSaveOrganization = async () => {
-    if (!wsUid) return
-    const orgId = selectedOrgId === NONE ? undefined : selectedOrgId
-    await updateWorkspace(wsUid, { organizationId: orgId })
-  }
-
-  const organization = useSaveForm({
-    current: selectedOrgId,
-    baseline: workspace?.organizationId ?? NONE,
-    onSave: handleSaveOrganization,
-  })
-
   if (!workspace || !wsUid) return null
-
-  const linkedOrg = workspace.organizationId ? getOrganization(workspace.organizationId) : null
-  // Fallback to embedded org for legacy data
-  const displayOrg = linkedOrg ?? (workspace.organization?.name ? workspace.organization : null)
 
   const handleDelete = async () => {
     setDeleteProgress({ phaseKey: 'workspaces.delete_phase_projects' })
@@ -100,94 +72,12 @@ export function WorkspaceSettingsPage() {
       <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-1 flex-col px-6">
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
-          <TabsTrigger value="organization">{t('workspaces.tab_organization')}</TabsTrigger>
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
 
         {/* Members */}
         <TabsContent value="members" className="min-h-0 flex-1 overflow-auto pb-6">
           <MembersTab scope="workspace" targetId={wsUid} />
-        </TabsContent>
-
-        {/* Organization */}
-        <TabsContent value="organization" className="min-h-0 flex-1 overflow-auto pb-6">
-          <div className="mx-auto max-w-3xl space-y-6 pt-2">
-            {/* Current linked org display */}
-            {displayOrg && (
-              <Card>
-                <CardContent className="flex items-start gap-4 p-5">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                    <Building2 size={20} className="text-primary" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-card-foreground">{localized(displayOrg.name, language)}</p>
-                      {displayOrg.type && (
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          {displayOrg.type === 'other' && displayOrg.customType ? localized(displayOrg.customType, language) : t(`workspaces.org_type_${displayOrg.type}`)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      {(displayOrg.location || displayOrg.country) && (
-                        <span className="flex items-center gap-1">
-                          <MapPin size={12} />
-                          {[localized(displayOrg.location, language), localized(displayOrg.country, language)].filter(Boolean).join(', ')}
-                        </span>
-                      )}
-                      {displayOrg.website && (
-                        <span className="flex items-center gap-1"><Globe size={12} />{displayOrg.website}</span>
-                      )}
-                      {displayOrg.email && (
-                        <span className="flex items-center gap-1"><Mail size={12} />{displayOrg.email}</span>
-                      )}
-                    </div>
-                    {displayOrg.referenceId && (
-                      <p className="mt-1 text-[11px] text-muted-foreground/60">
-                        ID: {displayOrg.referenceId}
-                      </p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Change organization */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">{t('workspaces.change_organization')}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400">
-                  <Info size={14} className="mt-0.5 shrink-0" />
-                  <span>{t('workspaces.organization_shared_note')}</span>
-                </div>
-                <Select value={selectedOrgId} onValueChange={setSelectedOrgId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('workspaces.select_organization')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>{t('workspaces.no_organization')}</SelectItem>
-                    {_organizationsRaw.map((org) => (
-                      <SelectItem key={org.id} value={org.id}>
-                        {localized(org.name, language)}
-                        {org.type ? ` (${t(`workspaces.org_type_${org.type}`)})` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <GatedButton
-                  allowed={canEdit}
-                  notAllowedReason={t('common.insufficient_permissions')}
-                  size="sm"
-                  onClick={organization.save}
-                  disabled={!organization.canSaveNow}
-                >
-                  {t('common.save')}
-                </GatedButton>
-              </CardContent>
-            </Card>
-          </div>
         </TabsContent>
 
         {/* Danger zone — owner only */}

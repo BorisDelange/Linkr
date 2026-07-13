@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Database,
-  CheckCircle2,
   Loader2,
   ChevronRight,
   ChevronLeft,
@@ -230,7 +229,7 @@ function StepDot({ active, completed, label }: { active: boolean; completed: boo
             : 'bg-muted text-muted-foreground'
       }`}
     >
-      {completed ? <CheckCircle2 size={14} /> : label}
+      {label}
     </div>
   )
 }

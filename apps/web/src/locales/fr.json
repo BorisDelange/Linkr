@@ -187,7 +187,9 @@
     "import_git_clone": "Cloner",
     "import_git_cloned": "Cloné",
     "import_git_clone_retry": "Réessayer",
-    "import_git_server_hint": "Le clonage s'exécute sur le serveur. Pour un dépôt privé, fournissez un jeton d'accès."
+    "import_git_server_hint": "Le clonage s'exécute sur le serveur. Pour un dépôt privé, fournissez un jeton d'accès.",
+    "org_create_hint": "Pour créer une nouvelle organisation, rendez-vous dans les paramètres.",
+    "org_create_hint_link": "Ouvrir les paramètres des organisations"
   },
   "project_nav": {
     "summary": "Résumé",

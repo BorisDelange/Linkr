@@ -187,7 +187,9 @@
     "import_git_clone": "Clone",
     "import_git_cloned": "Cloned",
     "import_git_clone_retry": "Retry",
-    "import_git_server_hint": "Cloning runs on the server. For a private repository, provide an access token."
+    "import_git_server_hint": "Cloning runs on the server. For a private repository, provide an access token.",
+    "org_create_hint": "To create a new organization, go to Settings.",
+    "org_create_hint_link": "Open organization settings"
   },
   "project_nav": {
     "summary": "Summary",
