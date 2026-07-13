@@ -16,12 +16,6 @@ interface ImportConflictDialogProps {
   existingName: string
   onDuplicate: () => void
   onOverwrite: () => void
-  /**
-   * When the existing item lives in a different workspace than the current one, pass its
-   * workspace name to explain *where* the conflict is (the user can't see it locally) and
-   * warn that overwriting would move it out of that workspace.
-   */
-  existingWorkspaceName?: string
 }
 
 export function ImportConflictDialog({
@@ -30,7 +24,6 @@ export function ImportConflictDialog({
   existingName,
   onDuplicate,
   onOverwrite,
-  existingWorkspaceName,
 }: ImportConflictDialogProps) {
   const { t } = useTranslation()
 
@@ -39,26 +32,8 @@ export function ImportConflictDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{t('common.import_conflict_title')}</AlertDialogTitle>
-          <AlertDialogDescription asChild>
-            {existingWorkspaceName ? (
-              <div className="space-y-2">
-                <p>{t('common.import_conflict_other_workspace_intro', { name: existingName, workspace: existingWorkspaceName })}</p>
-                <ul className="space-y-1">
-                  <li>
-                    <span className="font-medium text-foreground">{t('common.import_duplicate')}</span>
-                    {' — '}
-                    {t('common.import_conflict_other_workspace_duplicate')}
-                  </li>
-                  <li>
-                    <span className="font-medium text-foreground">{t('common.import_overwrite')}</span>
-                    {' — '}
-                    {t('common.import_conflict_other_workspace_overwrite', { workspace: existingWorkspaceName })}
-                  </li>
-                </ul>
-              </div>
-            ) : (
-              <span>{t('common.import_conflict_description', { name: existingName })}</span>
-            )}
+          <AlertDialogDescription>
+            {t('common.import_conflict_description', { name: existingName })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

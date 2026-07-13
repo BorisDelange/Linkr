@@ -20,6 +20,8 @@ class ProjectCreate(CamelModel):
     readme: dict | str | None = None
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     catalog_visibility: str | None = None
     origin: str = "user"
     # Preserved on import (round-trip); for fresh creates the server stamps the
@@ -44,6 +46,8 @@ class ProjectUpdate(CamelModel):
     readme: dict | str | None = None
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     catalog_visibility: str | None = None
     # Editable authoring provenance (author re-attribution + org snapshot).
     created_by_id: int | None = None
@@ -67,6 +71,8 @@ class ProjectResponse(CamelModel):
     readme: dict | str | None = None
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     catalog_visibility: str | None = None
     origin: str
     owner_id: int | None = None

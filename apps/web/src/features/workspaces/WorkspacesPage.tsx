@@ -241,6 +241,10 @@ export function WorkspacesPage() {
           : wsMeta.name,
         updatedAt: now,
         ...(duplicate ? { createdAt: now } : {}),
+        // Fork on duplicate (new lineage + parent), keep lineage on plain import.
+        ...(duplicate
+          ? { lineageId: crypto.randomUUID(), parentLineageId: wsMeta.lineageId }
+          : { lineageId: wsMeta.lineageId ?? crypto.randomUUID() }),
       })
     }
 
@@ -268,6 +272,10 @@ export function WorkspacesPage() {
           : project.name,
         updatedAt: now,
         ...(duplicate ? { createdAt: now } : {}),
+        // Fork on duplicate (new lineage + parent), keep lineage on plain import.
+        ...(duplicate
+          ? { lineageId: crypto.randomUUID(), parentLineageId: project.lineageId }
+          : { lineageId: project.lineageId ?? crypto.randomUUID() }),
       }
 
       // Clean up existing data
@@ -403,7 +411,9 @@ export function WorkspacesPage() {
       }
       await storage.sqlScriptCollections.create({
         ...collection, id, workspaceId: targetWsId, updatedAt: now,
-        ...(duplicate ? { name: copyLocalizedName(collection.name), createdAt: now } : {}),
+        ...(duplicate
+          ? { name: copyLocalizedName(collection.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: collection.lineageId }
+          : { lineageId: collection.lineageId ?? crypto.randomUUID() }),
       })
       const fileIdMap = new Map<string, string>()
       const mapFileId = (oldId: string): string => {
@@ -432,7 +442,9 @@ export function WorkspacesPage() {
       }
       await storage.etlPipelines.create({
         ...pipeline, id, workspaceId: targetWsId, updatedAt: now,
-        ...(duplicate ? { name: copyLocalizedName(pipeline.name), createdAt: now } : {}),
+        ...(duplicate
+          ? { name: copyLocalizedName(pipeline.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: pipeline.lineageId }
+          : { lineageId: pipeline.lineageId ?? crypto.randomUUID() }),
       })
       const fileIdMap = new Map<string, string>()
       const mapFileId = (oldId: string): string => {
@@ -461,7 +473,9 @@ export function WorkspacesPage() {
       }
       await storage.dqRuleSets.create({
         ...ruleSet, id, workspaceId: targetWsId, updatedAt: now,
-        ...(duplicate ? { name: copyLocalizedName(ruleSet.name), createdAt: now } : {}),
+        ...(duplicate
+          ? { name: copyLocalizedName(ruleSet.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: ruleSet.lineageId }
+          : { lineageId: ruleSet.lineageId ?? crypto.randomUUID() }),
       })
       for (const check of checks) {
         await storage.dqCustomChecks.create({
@@ -499,7 +513,9 @@ export function WorkspacesPage() {
         }
         await storage.mappingProjects.create({
           ...mp, id, workspaceId: targetWsId, updatedAt: now,
-          ...(duplicate ? { name: copyLocalizedName(mp.name), createdAt: now } : {}),
+          ...(duplicate
+            ? { name: copyLocalizedName(mp.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: mp.lineageId }
+            : { lineageId: mp.lineageId ?? crypto.randomUUID() }),
         })
         if (scoresFile) {
           // Untrusted ZIP input — validate columns before persisting, same as the interactive load flow.

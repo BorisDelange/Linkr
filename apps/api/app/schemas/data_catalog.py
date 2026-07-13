@@ -26,6 +26,8 @@ class DataCatalogCreate(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class DataCatalogUpdate(CamelModel):
@@ -49,6 +51,8 @@ class DataCatalogUpdate(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class DataCatalogResponse(CamelModel):
@@ -74,5 +78,7 @@ class DataCatalogResponse(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     created_at: datetime
     updated_at: datetime

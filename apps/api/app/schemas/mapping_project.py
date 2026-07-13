@@ -28,6 +28,8 @@ class MappingProjectCreate(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class MappingProjectUpdate(CamelModel):
@@ -36,6 +38,8 @@ class MappingProjectUpdate(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     entity_id: str | None = None
     name: dict | None = None
     description: dict | None = None
@@ -80,6 +84,8 @@ class MappingProjectResponse(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

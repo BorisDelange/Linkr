@@ -15,6 +15,8 @@ class WorkspaceCreate(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class WorkspaceUpdate(CamelModel):
@@ -28,6 +30,8 @@ class WorkspaceUpdate(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class WorkspaceResponse(CamelModel):
@@ -43,5 +47,7 @@ class WorkspaceResponse(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     created_at: datetime
     updated_at: datetime

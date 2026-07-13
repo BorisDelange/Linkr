@@ -34,6 +34,10 @@ class Project(Base, TimestampMixin):
     readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     linked_data_source_ids: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Stable cross-instance identity (separate from the local PK). Preserved across
+    # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
+    lineage_id: Mapped[str | None] = mapped_column(String(36))
+    parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     catalog_visibility: Mapped[str | None] = mapped_column(String(20))
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

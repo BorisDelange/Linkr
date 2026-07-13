@@ -24,7 +24,7 @@ import { RequiredMark } from '@/components/ui/required-mark'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
-import { useAppStore, stampAuthored } from '@/stores/app-store'
+import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import type { SqlScriptCollection, SqlScriptFile } from '@/types'
 
@@ -94,6 +94,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           description: setLocalized({}, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
           ...stampAuthored(),
+          ...stampLineage(),
           createdAt: now,
           updatedAt: now,
         }

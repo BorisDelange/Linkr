@@ -1,5 +1,5 @@
 import type { Seedable, LocalizedString } from './index'
-import type { AuthorDetails, Authored } from './author'
+import type { AuthorDetails, Authored, Lineaged } from './author'
 
 // --- Concept Mapping Enums ---
 
@@ -165,7 +165,7 @@ export interface FileSourceData {
 export type MappingProjectStatus = 'in_progress' | 'on_hold' | 'completed'
 
 /** A workspace-level mapping project linked to a database or file. */
-export interface MappingProject extends Seedable, Authored {
+export interface MappingProject extends Seedable, Authored, Lineaged {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string

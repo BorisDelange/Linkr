@@ -4,8 +4,8 @@ export type { ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImpor
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
 export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache, PeriodConfig, CatalogPeriodRow } from './catalog'
 export { getDefaultDimensions } from './catalog'
-export type { AuthorDetails, Authored } from './author'
-import type { Authored } from './author'
+export type { AuthorDetails, Authored, Lineaged } from './author'
+import type { Authored, Lineaged } from './author'
 
 export interface User {
   id: number
@@ -139,7 +139,7 @@ export interface ChangelogEntry {
 // --- Workspace ---
 
 /** A workspace is an organizational container for projects, like a GitHub Organization. */
-export interface Workspace extends Seedable, Authored {
+export interface Workspace extends Seedable, Authored, Lineaged {
   id: string
   name: LocalizedString
   description: LocalizedString
@@ -155,7 +155,7 @@ export interface Workspace extends Seedable, Authored {
 
 // --- Project ---
 
-export interface Project extends Seedable, Authored {
+export interface Project extends Seedable, Authored, Lineaged {
   uid: string
   /** Human-readable, URL-safe identifier (e.g. "mimic-iv-sepsis"). Set once at creation, never changes. Used as folder name in exports/git. */
   projectId?: string
@@ -728,7 +728,7 @@ export interface ColumnStats {
 
 export type EtlPipelineStatus = 'draft' | 'ready' | 'running' | 'success' | 'error'
 
-export interface EtlPipeline extends Seedable, Authored {
+export interface EtlPipeline extends Seedable, Authored, Lineaged {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
@@ -806,7 +806,7 @@ export interface EtlSourceProfile {
 
 // --- SQL Script Types ---
 
-export interface SqlScriptCollection extends Authored {
+export interface SqlScriptCollection extends Authored, Lineaged {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
@@ -838,7 +838,7 @@ export interface SqlScriptFile {
 
 export type DqRuleSetStatus = 'draft' | 'ready' | 'running' | 'success' | 'error'
 
-export interface DqRuleSet extends Seedable, Authored {
+export interface DqRuleSet extends Seedable, Authored, Lineaged {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string

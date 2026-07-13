@@ -196,6 +196,29 @@ async def test_foreign_created_by_id_never_persisted(client):
     assert r.json()["createdBy"] == "Ghost"
 
 
+async def test_lineage_identity_preserved_and_forkable(client):
+    # lineage_id is a stable cross-instance identity, distinct from uid: the API
+    # stores the client-supplied value verbatim (import keeps the same work), and
+    # a PATCH can set parent_lineage_id (fork records its source).
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/projects",
+        headers=headers,
+        json={"name": {"en": "P"}, "uid": "proj-l", "lineageId": "lin-123"},
+    )
+    assert r.status_code == 201
+    assert r.json()["lineageId"] == "lin-123"
+
+    r = await client.patch(
+        f"{API}/projects/proj-l",
+        headers=headers,
+        json={"lineageId": "lin-456", "parentLineageId": "lin-123"},
+    )
+    assert r.status_code == 200
+    assert r.json()["lineageId"] == "lin-456"
+    assert r.json()["parentLineageId"] == "lin-123"
+
+
 async def test_cascade_delete_with_workspace(client, db):
     headers = await _bootstrap_admin(client)
     ws_id = await _make_workspace(client, headers)

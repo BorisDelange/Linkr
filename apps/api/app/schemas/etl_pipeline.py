@@ -21,6 +21,8 @@ class EtlPipelineCreate(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class EtlPipelineUpdate(CamelModel):
@@ -39,6 +41,8 @@ class EtlPipelineUpdate(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class EtlPipelineResponse(CamelModel):
@@ -59,6 +63,8 @@ class EtlPipelineResponse(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

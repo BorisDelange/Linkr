@@ -32,6 +32,10 @@ class DqRuleSet(Base, TimestampMixin):
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Frozen provenance snapshot of the origin organization (not a live link).
     organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Stable cross-instance identity (separate from the local PK). Preserved across
+    # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
+    lineage_id: Mapped[str | None] = mapped_column(String(36))
+    parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Encrypted git access token (Fernet); kept out of git_remote_config so it's
     # never returned by the API. Mirrors DataSource.connection_secret.

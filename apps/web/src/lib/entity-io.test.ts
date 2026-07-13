@@ -53,6 +53,15 @@ describe('stripInstanceFields', () => {
     const meta = { uid: 'p1', name: { en: 'P' }, description: { en: 'D' }, badges: [{ id: 'b' }], status: 'active' }
     expect(stripInstanceFields(meta)).toEqual(meta)
   })
+
+  // lineageId is the cross-instance identity — it MUST survive export (the local
+  // PK uid is what gets regenerated on import, not the lineage).
+  it('preserves lineageId and parentLineageId', () => {
+    const meta = { uid: 'p1', name: { en: 'P' }, lineageId: 'lin-1', parentLineageId: 'lin-0' }
+    const out = stripInstanceFields(meta)
+    expect(out.lineageId).toBe('lin-1')
+    expect(out.parentLineageId).toBe('lin-0')
+  })
 })
 
 // On import, a createdById from the exporting instance is a foreign local user id

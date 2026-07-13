@@ -20,7 +20,7 @@ import {
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
-import { useAppStore, stampAuthored } from '@/stores/app-store'
+import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -91,6 +91,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         dataSourceId,
         status: 'draft',
         ...stampAuthored(),
+        ...stampLineage(),
         createdAt: now,
         updatedAt: now,
       })

@@ -20,3 +20,16 @@ export interface Authored {
   createdBy?: string
   createdByDetails?: AuthorDetails
 }
+
+/** Mixin giving a standalone-exportable entity a stable cross-instance identity,
+ *  separate from its local primary key (id/uid). The PK may be regenerated on
+ *  import/duplicate to keep local uniqueness; `lineageId` is preserved verbatim
+ *  so the *same work* stays recognizable across instances (catalog dedup, "same
+ *  element" detection). A duplicate/fork mints a fresh `lineageId` and records
+ *  the original in `parentLineageId` — a weak reference (the parent may not be
+ *  present locally or in a catalog; the link resolves if it later appears).
+ *  Optional → old data and old exports stay valid. */
+export interface Lineaged {
+  lineageId?: string
+  parentLineageId?: string
+}

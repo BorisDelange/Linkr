@@ -1,5 +1,5 @@
 import type { Seedable, LocalizedString, GitRemoteConfig, OrganizationInfo } from './index'
-import type { Authored } from './author'
+import type { Authored, Lineaged } from './author'
 
 // --- Catalog Status ---
 
@@ -129,7 +129,7 @@ export interface CatalogPeriodRow {
 
 // --- Data Catalog ---
 
-export interface DataCatalog extends Seedable, Authored {
+export interface DataCatalog extends Seedable, Authored, Lineaged {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string

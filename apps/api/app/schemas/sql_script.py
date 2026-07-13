@@ -15,6 +15,8 @@ class SqlScriptCollectionCreate(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class SqlScriptCollectionUpdate(CamelModel):
@@ -28,6 +30,8 @@ class SqlScriptCollectionUpdate(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class SqlScriptCollectionResponse(CamelModel):
@@ -42,6 +46,8 @@ class SqlScriptCollectionResponse(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

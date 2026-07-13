@@ -71,7 +71,7 @@ export function ProjectsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
   // Import conflict state
-  const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip; otherWorkspaceName?: string; gitRemote?: ImportGitRemote } | null>(null)
+  const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip; gitRemote?: ImportGitRemote } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -205,6 +205,12 @@ export function ProjectsPage() {
         : project.name,
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
+      // Lineage: a duplicate is a fork — mint a fresh lineageId and record the
+      // source in parentLineageId. A plain import is the *same work*, so keep the
+      // ZIP's lineageId verbatim (mint one only if a legacy export lacked it).
+      ...(duplicate
+        ? { lineageId: crypto.randomUUID(), parentLineageId: project.lineageId }
+        : { lineageId: project.lineageId ?? crypto.randomUUID() }),
       // Imported from a git repo → pre-link its Versioning page to that repo
       // (with the token, if one was supplied at import).
       ...(gitRemote ? { gitRemoteConfig: gitRemote } : {}),
@@ -249,18 +255,19 @@ export function ProjectsPage() {
         return
       }
 
-      const existing = await getStorage().projects.getById(parsed.project.uid)
+      // A conflict is "the same work already here" — same lineageId (falling back
+      // to uid for legacy exports) *within the target workspace*. The same project
+      // living in another workspace is fine: importing it here is a legitimate,
+      // independent copy, so we don't warn about it anymore.
+      const currentWs = wsUid ?? activeWorkspaceId
+      const all = useAppStore.getState()._projectsRaw
+      const existing = all.find((p) =>
+        p.workspaceId === currentWs
+        && ((parsed.project.lineageId && p.lineageId === parsed.project.lineageId)
+          || p.uid === parsed.project.uid))
       if (existing) {
         const existingName = typeof existing.name === 'string' ? existing.name : (existing.name.en || Object.values(existing.name)[0] || '')
-        // If the existing project lives in a different workspace, surface which one — the user
-        // can't see it from here, so a bare "already exists" is confusing.
-        const currentWs = wsUid ?? activeWorkspaceId
-        let otherWorkspaceName: string | undefined
-        if (existing.workspaceId && existing.workspaceId !== currentWs) {
-          const ws = await getStorage().workspaces.getById(existing.workspaceId)
-          if (ws) otherWorkspaceName = typeof ws.name === 'string' ? ws.name : (ws.name.en || Object.values(ws.name)[0] || '')
-        }
-        setImportConflict({ name: existingName, pending: parsed, otherWorkspaceName, gitRemote })
+        setImportConflict({ name: existingName, pending: parsed, gitRemote })
       } else {
         await doImport(parsed, false, gitRemote)
       }
@@ -428,7 +435,6 @@ export function ProjectsPage() {
         open={!!importConflict}
         onOpenChange={(open) => { if (!open) setImportConflict(null) }}
         existingName={importConflict?.name ?? ''}
-        existingWorkspaceName={importConflict?.otherWorkspaceName}
         onDuplicate={() => { if (importConflict) doImport(importConflict.pending, true, importConflict.gitRemote); setImportConflict(null) }}
         onOverwrite={() => { if (importConflict) doImport(importConflict.pending, false, importConflict.gitRemote); setImportConflict(null) }}
       />

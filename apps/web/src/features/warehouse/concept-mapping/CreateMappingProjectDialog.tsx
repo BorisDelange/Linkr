@@ -30,7 +30,7 @@ import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { useAppStore, stampAuthored } from '@/stores/app-store'
+import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
@@ -607,6 +607,7 @@ export function CreateMappingProjectDialog({
         dataSourceId: sourceType === 'database' ? dataSourceId : '',
         conceptSetIds: [],
         ...stampAuthored(),
+        ...stampLineage(),
         createdAt: now,
         updatedAt: now,
       }
