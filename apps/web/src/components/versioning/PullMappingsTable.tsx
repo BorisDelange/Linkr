@@ -38,7 +38,7 @@ interface Row {
   sourceVocab: string
   targetName: string
   targetCode: string
-  status: string
+  mappedBy: string
 }
 
 function toRow(c: MappingChange): Row {
@@ -51,7 +51,7 @@ function toRow(c: MappingChange): Row {
     sourceVocab: m?.sourceVocabularyId ?? '',
     targetName: m?.targetConceptName ?? '',
     targetCode: m?.targetConceptCode ?? '',
-    status: m?.status ?? '',
+    mappedBy: m?.mappedBy ?? '',
   }
 }
 
@@ -66,7 +66,10 @@ type SortState = { columnId: string; desc: boolean } | null
 export function PullMappingsTable({ changes, selected, conflictChoices, onClose, onApply }: PullMappingsTableProps) {
   const { t } = useTranslation()
   const [sel, setSel] = useState<Set<string>>(new Set(selected))
-  const [choices, setChoices] = useState<Record<string, 'remote' | 'local'>>({ ...conflictChoices })
+  // Conflict resolutions are no longer editable in this table (the resolution
+  // column was dropped); each conflict keeps its incoming default (remote), which
+  // we pass straight back on apply.
+  const [choices] = useState<Record<string, 'remote' | 'local'>>({ ...conflictChoices })
   const [sorting, setSorting] = useState<SortState>(null)
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [columnSizing, setColumnSizing] = useState({})
@@ -150,33 +153,9 @@ export function PullMappingsTable({ changes, selected, conflictChoices, onClose,
     { id: 'sourceName', header: () => t('concept_mapping.col_source_concept_name'), cell: ({ row }) => row.original.sourceName, size: 220, minSize: 80 },
     { id: 'targetCode', header: () => t('concept_mapping.col_target_concept_code'), cell: ({ row }) => row.original.targetCode, size: 110, minSize: 50 },
     { id: 'targetName', header: () => t('concept_mapping.col_target_concept_name'), cell: ({ row }) => row.original.targetName, size: 220, minSize: 80 },
-    { id: 'status', header: () => t('concept_mapping.col_status'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.status}</span>, size: 100, minSize: 60 },
-    {
-      id: '_resolution',
-      header: () => t('versioning.pull_col_resolution'),
-      cell: ({ row }) => {
-        if (row.original.type !== 'conflict') return <span className="text-[10px] text-muted-foreground">—</span>
-        const key = row.original.key
-        const choice = choices[key] ?? 'remote'
-        return (
-          <div className="flex gap-1">
-            <button onClick={() => setChoices((s) => ({ ...s, [key]: 'local' }))}
-              className={cn('rounded border px-1.5 py-0.5 text-[10px]', choice === 'local' ? 'border-primary bg-primary/10' : 'border-border text-muted-foreground')}>
-              {t('versioning.pull_keep_mine')}
-            </button>
-            <button onClick={() => setChoices((s) => ({ ...s, [key]: 'remote' }))}
-              className={cn('rounded border px-1.5 py-0.5 text-[10px]', choice === 'remote' ? 'border-primary bg-primary/10' : 'border-border text-muted-foreground')}>
-              {t('versioning.pull_take_theirs')}
-            </button>
-          </div>
-        )
-      },
-      size: 150,
-      minSize: 120,
-      enableResizing: false,
-    },
+    { id: 'mappedBy', header: () => t('concept_mapping.col_mapped_by'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.mappedBy}</span>, size: 140, minSize: 60 },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [t, sel, choices, allVisibleSelected])
+  ], [t, sel, allVisibleSelected])
 
   const table = useReactTable({
     data: rows,
@@ -187,8 +166,8 @@ export function PullMappingsTable({ changes, selected, conflictChoices, onClose,
     getCoreRowModel: getCoreRowModel(),
   })
 
-  const NON_SORTABLE = new Set(['_select', '_resolution'])
-  const NON_FILTERABLE = new Set(['_select', '_resolution'])
+  const NON_SORTABLE = new Set(['_select'])
+  const NON_FILTERABLE = new Set(['_select'])
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>

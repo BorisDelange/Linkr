@@ -197,7 +197,9 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
                   {organizations.map((org) => (
                     <SelectItem key={org.id} value={org.id}>
                       {localized(org.name, language)}
-                      {org.type ? ` (${t(`workspaces.org_type_${org.type}`)})` : ''}
+                      {org.type
+                        ? ` (${org.type === 'other' && org.customType ? localized(org.customType, language) : t(`workspaces.org_type_${org.type}`)})`
+                        : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -83,7 +83,12 @@ function AuthorChip({
   if (organization) {
     const orgName = localized(organization.name, lang)
     if (orgName) orgRows.push(<DetailRow key="oname" label={t('common.organization')} value={orgName} />)
-    if (organization.type) orgRows.push(<DetailRow key="otype" label={t('common.type')} value={t(`workspaces.org_type_${organization.type}`)} />)
+    if (organization.type) {
+      const orgType = organization.type === 'other' && organization.customType
+        ? localized(organization.customType, lang)
+        : t(`workspaces.org_type_${organization.type}`)
+      orgRows.push(<DetailRow key="otype" label={t('common.type')} value={orgType} />)
+    }
     const loc = [localized(organization.location, lang), localized(organization.country, lang)].filter(Boolean).join(', ')
     if (loc) orgRows.push(<DetailRow key="oloc" label={t('common.location')} value={loc} />)
     if (organization.website) orgRows.push(<DetailRow key="oweb" label={t('common.website')} value={organization.website} />)

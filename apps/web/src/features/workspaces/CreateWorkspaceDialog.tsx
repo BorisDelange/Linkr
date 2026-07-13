@@ -174,7 +174,9 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                     {_organizationsRaw.map((org) => (
                       <SelectItem key={org.id} value={org.id}>
                         {localized(org.name, i18n.language)}
-                        {org.type ? ` (${t(`workspaces.org_type_${org.type}`)})` : ''}
+                        {org.type
+                          ? ` (${org.type === 'other' && org.customType ? localized(org.customType, i18n.language) : t(`workspaces.org_type_${org.type}`)})`
+                          : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
