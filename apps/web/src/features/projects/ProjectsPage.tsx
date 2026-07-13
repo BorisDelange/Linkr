@@ -23,6 +23,7 @@ import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { applySort, visitSortFields } from '@/lib/list-sort'
+import { localized } from '@/lib/localized'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,7 +49,7 @@ import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } f
 import type { Project } from '@/types'
 
 export function ProjectsPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { wsUid } = useResolvedParams()
@@ -87,9 +88,12 @@ export function ProjectsPage() {
 
   const allBadges = useMemo(() => {
     const byLabel = new Map<string, string>()
-    for (const p of displayProjects) for (const b of rawByUid.get(p.uid)?.badges ?? []) if (b.label && !byLabel.has(b.label)) byLabel.set(b.label, b.color)
+    for (const p of displayProjects) for (const b of rawByUid.get(p.uid)?.badges ?? []) {
+      const label = localized(b.label, i18n.language)
+      if (label && !byLabel.has(label)) byLabel.set(label, b.color)
+    }
     return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
-  }, [displayProjects, rawByUid])
+  }, [displayProjects, rawByUid, i18n.language])
 
   const filteredProjects = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
@@ -101,7 +105,7 @@ export function ProjectsPage() {
       const raw = rawByUid.get(p.uid)
       if (statusFilter.length && !statusFilter.includes(raw?.status ?? 'active')) return false
       if (badgeFilter.length) {
-        const labels = new Set((raw?.badges ?? []).map((b) => b.label))
+        const labels = new Set((raw?.badges ?? []).map((b) => localized(b.label, i18n.language)))
         if (!badgeFilter.some((l) => labels.has(l))) return false
       }
       return true
@@ -113,7 +117,7 @@ export function ProjectsPage() {
       entityType: 'project',
       id: (p) => p.uid,
     })
-  }, [displayProjects, searchQuery, statusFilter, badgeFilter, rawByUid, sort])
+  }, [displayProjects, searchQuery, statusFilter, badgeFilter, rawByUid, sort, i18n.language])
 
   const filterGroups = useMemo<FilterGroup[]>(() => [
     {

@@ -123,9 +123,12 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   // colour per label so the filter options match the badges shown on the cards.
   const allBadges = useMemo(() => {
     const byLabel = new Map<string, string>()
-    for (const p of projects) for (const b of p.badges ?? []) if (b.label && !byLabel.has(b.label)) byLabel.set(b.label, b.color)
+    for (const p of projects) for (const b of p.badges ?? []) {
+      const label = localized(b.label, language)
+      if (label && !byLabel.has(label)) byLabel.set(label, b.color)
+    }
     return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
-  }, [projects])
+  }, [projects, language])
 
   const filteredProjects = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -133,7 +136,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       if (q && !(`${localized(p.name, language)} ${localized(p.description, language)}`.toLowerCase().includes(q))) return false
       if (statusFilter.length > 0 && (!p.status || !statusFilter.includes(p.status))) return false
       if (badgeFilter.length > 0) {
-        const labels = new Set((p.badges ?? []).map((b) => b.label))
+        const labels = new Set((p.badges ?? []).map((b) => localized(b.label, language)))
         if (!badgeFilter.some((l) => labels.has(l))) return false
       }
       return true

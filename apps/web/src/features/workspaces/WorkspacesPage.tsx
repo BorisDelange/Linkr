@@ -45,6 +45,7 @@ import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, visitSortFields } from '@/lib/list-sort'
+import { localized } from '@/lib/localized'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { getGitCorsProxy, setGitCorsProxy, canCloneFromGit, cloneRepoToZip } from '@/lib/git-clone'
@@ -58,7 +59,7 @@ function copyLocalizedName(name: LocalizedString): LocalizedString {
 }
 
 export function WorkspacesPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace } = useWorkspaceStore()
   const { getWorkspaceProjects, loadProjects } = useAppStore()
@@ -71,9 +72,12 @@ export function WorkspacesPage() {
 
   const allBadges = useMemo(() => {
     const byLabel = new Map<string, string>()
-    for (const raw of _workspacesRaw) for (const b of raw.badges ?? []) if (!byLabel.has(b.label)) byLabel.set(b.label, b.color)
+    for (const raw of _workspacesRaw) for (const b of raw.badges ?? []) {
+      const label = localized(b.label, i18n.language)
+      if (label && !byLabel.has(label)) byLabel.set(label, b.color)
+    }
     return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
-  }, [_workspacesRaw])
+  }, [_workspacesRaw, i18n.language])
 
   const filteredWorkspaces = useMemo(() => {
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
@@ -83,7 +87,7 @@ export function WorkspacesPage() {
         if (!words.every((w) => hay.includes(w))) return false
       }
       if (badgeFilter.length) {
-        const labels = new Set((_workspacesRaw.find((w) => w.id === ws.id)?.badges ?? []).map((b) => b.label))
+        const labels = new Set((_workspacesRaw.find((w) => w.id === ws.id)?.badges ?? []).map((b) => localized(b.label, i18n.language)))
         if (!badgeFilter.some((l) => labels.has(l))) return false
       }
       return true
@@ -95,7 +99,7 @@ export function WorkspacesPage() {
       entityType: 'workspace',
       id: (ws) => ws.id,
     })
-  }, [workspaces, _workspacesRaw, searchQuery, badgeFilter, sort])
+  }, [workspaces, _workspacesRaw, searchQuery, badgeFilter, sort, i18n.language])
 
   const filterGroups = useMemo<FilterGroup[]>(() => [
     {
