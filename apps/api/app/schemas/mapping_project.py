@@ -24,12 +24,17 @@ class MappingProjectCreate(CamelModel):
     import_batches: list | None = None
     git_remote_config: dict | None = None
     origin: str = "user"
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
     organization: dict | None = None
 
 
 class MappingProjectUpdate(CamelModel):
-    # Editable organization provenance snapshot (no author fields — mapping
-    # projects don't carry created_by* yet; see the lineage/authoring backlog).
+    # Editable authoring provenance (author re-attribution + org snapshot).
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
     organization: dict | None = None
     entity_id: str | None = None
     name: dict | None = None
@@ -71,6 +76,9 @@ class MappingProjectResponse(CamelModel):
     import_batches: list | None = None
     git_remote_config: dict | None = None
     origin: str
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
     organization: dict | None = None
     created_at: datetime
     updated_at: datetime

@@ -37,6 +37,26 @@ async def _project(client, headers, ws: str, pid="mp1", source_type="database") 
     })).json()
 
 
+async def test_creator_stamped_and_reattributed(client):
+    # Creation stamps the authenticated user as the author; a PATCH can
+    # re-attribute author + organization (Edit dialog), and both persist.
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _project(client, headers, ws)
+    me = (await client.get(f"{API}/auth/me", headers=headers)).json()
+    assert p["createdById"] == me["id"] and p["createdBy"]
+
+    r = await client.patch(f"{API}/mapping-projects/{p['id']}", headers=headers, json={
+        "createdBy": "Origin Author",
+        "createdByDetails": {"orcid": "0000-0004-4444-5555"},
+        "organization": {"id": "org-3", "name": {"en": "Origin Org", "fr": "Org d'origine"}},
+    })
+    assert r.status_code == 200
+    got = r.json()
+    assert got["createdBy"] == "Origin Author"
+    assert got["organization"]["name"]["fr"] == "Org d'origine"
+
+
 async def test_project_crud(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)

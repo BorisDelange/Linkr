@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
+from app.models.user import User
 from app.schemas.mapping_project import (
     ConceptMappingCreate,
     ConceptMappingUpdate,
@@ -11,7 +12,7 @@ from app.schemas.mapping_project import (
     ServiceMappingCreate,
     ServiceMappingUpdate,
 )
-from app.services import blob_store, git_secret
+from app.services import author_provenance, blob_store, git_secret
 
 
 async def _sha_still_referenced(db: AsyncSession, sha: str) -> bool:
@@ -47,12 +48,16 @@ async def get(db: AsyncSession, project_id: str) -> MappingProject | None:
     return await db.get(MappingProject, project_id)
 
 
-async def create(db: AsyncSession, data: MappingProjectCreate) -> MappingProject:
+async def create(db: AsyncSession, data: MappingProjectCreate, owner: User) -> MappingProject:
     payload = data.model_dump(exclude_none=True)
+    # A foreign instance's created_by_id is meaningless here — never persist it;
+    # stamp_creator derives the right local id (ORCID/email match, or NULL).
+    payload.pop("created_by_id", None)
     project = MappingProject()
     git_secret.apply_to_entity(project, payload)
     for key, value in payload.items():
         setattr(project, key, value)
+    await author_provenance.stamp_creator(db, project, payload, owner)
     db.add(project)
     await db.commit()
     await db.refresh(project)

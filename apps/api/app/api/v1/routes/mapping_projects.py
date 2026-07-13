@@ -99,7 +99,7 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
-    return await svc.create(db, body)
+    return await svc.create(db, body, user)
 
 
 @router.get(_PROJ + "/{project_id}", response_model=MappingProjectResponse)
