@@ -296,7 +296,7 @@ export function OrganizationsTab() {
                 placeholder={t('workspaces.field_org_country_placeholder')}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 sm:col-span-2">
               <Label>{t('workspaces.field_org_website')}</Label>
               <Input
                 value={form.website ?? ''}
@@ -304,7 +304,7 @@ export function OrganizationsTab() {
                 placeholder={t('workspaces.field_org_website_placeholder')}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 sm:col-span-2">
               <Label>{t('workspaces.field_org_email')}</Label>
               <Input
                 value={form.email ?? ''}
