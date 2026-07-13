@@ -237,8 +237,8 @@ interface GitFileRowProps {
   onOpenDiff: () => void
 }
 
-/** One row of the changes list: commit checkbox, change badge, path, an info
- *  icon (hover = what the file is for), an LFS chip (click to toggle), and a
+/** One row of the changes list: commit checkbox, change badge, path, an LFS chip
+ *  (click to toggle), an info icon (hover = what the file is for), and a
  *  right-click menu to add/remove LFS tracking. */
 function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, onOpenDiff }: GitFileRowProps) {
   const { t } = useTranslation()
@@ -256,16 +256,6 @@ function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, 
             <ChangeBadge changeType={file.changeType} />
             <span className="truncate font-mono">{file.path}</span>
           </button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="shrink-0 cursor-help text-muted-foreground/60 hover:text-muted-foreground" aria-label={description}>
-                <Info size={12} />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-xs text-xs">
-              {description}
-            </TooltipContent>
-          </Tooltip>
           {isLfs && (
             <button
               type="button"
@@ -276,6 +266,16 @@ function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, 
               LFS
             </button>
           )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="shrink-0 cursor-help text-muted-foreground/60 hover:text-muted-foreground" aria-label={description}>
+                <Info size={12} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-xs text-xs">
+              {description}
+            </TooltipContent>
+          </Tooltip>
         </li>
       </ContextMenuTrigger>
       <ContextMenuContent>
