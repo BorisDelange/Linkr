@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GitCommitVertical, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
+import { GitCommitVertical, Info, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -14,6 +15,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { useGitSyncStore } from '@/stores/git-sync-store'
+import { gitFileMeta, groupGitFiles } from '@/lib/git-file-meta'
 import type { GitFileChange, GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
 import { ChangeBadge } from './ChangeBadge'
@@ -139,19 +141,31 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
         ) : (
           <ScrollArea className="min-h-0 flex-1">
-            <ul className="divide-y">
-              {files.map((f) => (
-                <GitFileRow
-                  key={f.path}
-                  file={f}
-                  checked={selected.has(f.path)}
-                  isLfs={lfsSet.has(f.path)}
-                  onToggleSelect={() => togglePath(f.path)}
-                  onToggleLfs={() => toggleLfs(f.path)}
-                  onOpenDiff={() => setDiffPath(f.path)}
-                />
+            <TooltipProvider delayDuration={200}>
+              {groupGitFiles(scope, files, (f) => f.path).map((group) => (
+                <div key={group.category}>
+                  {/* Category header — helps a non-developer see what kind of
+                      content each file is (General, Datasets, Dashboards, …). */}
+                  <div className="sticky top-0 z-10 bg-muted/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                    {t(`versioning.file_cat_${group.category}`)}
+                  </div>
+                  <ul className="divide-y">
+                    {group.files.map((f) => (
+                      <GitFileRow
+                        key={f.path}
+                        scope={scope}
+                        file={f}
+                        checked={selected.has(f.path)}
+                        isLfs={lfsSet.has(f.path)}
+                        onToggleSelect={() => togglePath(f.path)}
+                        onToggleLfs={() => toggleLfs(f.path)}
+                        onOpenDiff={() => setDiffPath(f.path)}
+                      />
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </TooltipProvider>
           </ScrollArea>
         )}
       </div>
@@ -214,6 +228,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
 }
 
 interface GitFileRowProps {
+  scope: GitScope
   file: GitFileChange
   checked: boolean
   isLfs: boolean
@@ -222,10 +237,12 @@ interface GitFileRowProps {
   onOpenDiff: () => void
 }
 
-/** One row of the changes list: commit checkbox, change badge, path, an LFS
- *  chip (click to toggle), and a right-click menu to add/remove LFS tracking. */
-function GitFileRow({ file, checked, isLfs, onToggleSelect, onToggleLfs, onOpenDiff }: GitFileRowProps) {
+/** One row of the changes list: commit checkbox, change badge, path, an info
+ *  icon (hover = what the file is for), an LFS chip (click to toggle), and a
+ *  right-click menu to add/remove LFS tracking. */
+function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, onOpenDiff }: GitFileRowProps) {
   const { t } = useTranslation()
+  const description = t(gitFileMeta(scope, file.path).descriptionKey)
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -239,6 +256,16 @@ function GitFileRow({ file, checked, isLfs, onToggleSelect, onToggleLfs, onOpenD
             <ChangeBadge changeType={file.changeType} />
             <span className="truncate font-mono">{file.path}</span>
           </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="shrink-0 cursor-help text-muted-foreground/60 hover:text-muted-foreground" aria-label={description}>
+                <Info size={12} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-xs text-xs">
+              {description}
+            </TooltipContent>
+          </Tooltip>
           {isLfs && (
             <button
               type="button"
