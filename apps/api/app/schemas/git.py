@@ -21,7 +21,13 @@ class GitDiffResponse(CamelModel):
     change_type: str
     old_content: str
     new_content: str
-    truncated: bool = False  # preview capped to the first lines/bytes of a large file
+    truncated: bool = False  # some content was dropped (see truncation_mode for how)
+    # "none"              = full content
+    # "head"              = oversized file: first lines/bytes only
+    # "hunks"             = oversized modified file condensed to its changed blocks + context
+    # "eol_only"          = flagged modified but only the line-ending style differs (CRLF↔LF)
+    # "no_content_change" = identical bytes; flagged modified by a storage-mode switch (e.g. text→LFS)
+    truncation_mode: str = "none"
     binary: bool = False
 
 

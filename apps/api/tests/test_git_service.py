@@ -163,6 +163,54 @@ def test_diff_payload_truncates_large_and_flags_binary():
     assert content.startswith("0\n1\n")  # keeps the head
 
 
+def test_condense_hunks_shows_change_past_line_cap():
+    # A single edit far below the line cap must still be visible (the whole point:
+    # positional head-truncation would have hidden it).
+    n = g._DIFF_MAX_LINES + 500
+    old = "\n".join(f"row{i}" for i in range(n))
+    edit_line = g._DIFF_MAX_LINES + 200
+    new = "\n".join("CHANGED" if i == edit_line else f"row{i}" for i in range(n))
+
+    old_c, new_c, trunc = g._condense_hunks(old, new)
+    assert trunc is False
+    assert "CHANGED" in new_c and f"row{edit_line}" in old_c
+    # Condensed, not the whole file: far smaller than the input, head not included.
+    assert new_c.count("\n") + 1 < g._DIFF_MAX_LINES
+    assert "row0" not in old_c
+    # Both sides carry the same "@@" markers so Monaco aligns them as context.
+    assert old_c.count("@@") == new_c.count("@@") >= 1
+    # Context lines around the edit are present on both sides.
+    assert f"row{edit_line - 1}" in new_c and f"row{edit_line + 1}" in new_c
+
+
+def test_condense_hunks_caps_number_of_hunks():
+    # More separated changes than the hunk cap → truncated=True and bounded output.
+    step = 2 * g._DIFF_HUNK_CONTEXT + 4  # spacing so hunks never merge
+    count = g._DIFF_MAX_HUNKS + 50
+    n = count * step
+    old = "\n".join(f"row{i}" for i in range(n))
+    changed = {k * step for k in range(count)}
+    new = "\n".join("X" if i in changed else f"row{i}" for i in range(n))
+
+    old_c, new_c, trunc = g._condense_hunks(old, new)
+    assert trunc is True
+    markers = sum(1 for line in old_c.split("\n") if line.startswith("@@"))
+    assert markers == g._DIFF_MAX_HUNKS
+
+
+def test_condense_hunks_identical_is_empty():
+    same = "\n".join(f"row{i}" for i in range(2000))
+    old_c, new_c, trunc = g._condense_hunks(same, same)
+    assert old_c == "" and new_c == "" and trunc is False
+
+
+def test_normalize_eol_collapses_crlf_and_cr():
+    assert g._normalize_eol("a\r\nb\rc\nd") == "a\nb\nc\nd"
+    # A file that only changed line-ending style becomes byte-identical.
+    body = "\n".join(f"row{i}" for i in range(10))
+    assert g._normalize_eol(body.replace("\n", "\r\n")) == body
+
+
 @pytest.mark.asyncio
 async def test_status_commit_diff_cycle():
     tmp = Path(tempfile.mkdtemp())
@@ -190,8 +238,71 @@ async def test_status_commit_diff_cycle():
         d = await g.diff(getter, "u", z2, "main", "project.json", None)
         assert d["changeType"] == "modified"
         assert d["oldContent"] == '{"a":1}' and d["newContent"] == '{"a":2}'
+        assert d["truncationMode"] == "none"
 
         br = await g.branches(getter, "u", None, None)
         assert br["current"] == "main" and "main" in br["branches"]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_diff_content_flags_eol_only_vs_no_content_change():
+    """The empty-diff wording depends on WHY git flags a file modified: identical
+    bytes → no_content_change (a storage-mode switch, e.g. text→LFS); identical only
+    after normalizing line endings → eol_only. This is the pure decision the diff()
+    early-return encodes; the full flow is covered by the integration tests below.
+    (In a repo with core.autocrlf, git normalizes CRLF on `add`, so eol_only rarely
+    survives to diff() — no_content_change catches it — hence a unit-level check.)"""
+    lf = "line 0\nline 1\nline 2"
+    crlf = lf.replace("\n", "\r\n")
+
+    # Byte-identical → not an EOL change.
+    assert (lf == lf) and g._normalize_eol(lf) == g._normalize_eol(lf)
+    # Differ raw, equal once normalized → an EOL-only change.
+    assert lf != crlf and g._normalize_eol(lf) == g._normalize_eol(crlf)
+
+
+@pytest.mark.asyncio
+async def test_diff_reports_eol_only_change():
+    """A file whose only difference is line-ending style is flagged modified by git
+    but must diff as an empty content notice — not an empty hunk view. Depending on
+    the repo's autocrlf setting git may normalize on `add`, so the result is one of
+    the two 'no real change' modes."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        body = "\n".join(f"line {i}" for i in range(50))
+        await g.commit_push(getter, "u", _zip({"data.csv": body}), "main", "lf", None, None)
+
+        crlf = _zip({"data.csv": body.replace("\n", "\r\n")})
+        d = await g.diff(getter, "u", crlf, "main", "data.csv", None)
+        assert d["truncationMode"] in ("eol_only", "no_content_change")
+        assert d["oldContent"] == "" and d["newContent"] == ""
+        assert d["binary"] is False
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_diff_reports_no_content_change_for_byte_identical_content():
+    """Byte-identical content (same line endings too) must diff as no_content_change
+    — the case a text→LFS storage-mode switch produces, where git flags the file
+    modified but nothing about the content actually changed."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        body = "\n".join(f"line {i}" for i in range(50))
+        await g.commit_push(getter, "u", _zip({"data.csv": body}), "main", "init", None, None)
+
+        d = await g.diff(getter, "u", _zip({"data.csv": body}), "main", "data.csv", None)
+        assert d["truncationMode"] == "no_content_change"
+        assert d["oldContent"] == "" and d["newContent"] == ""
+        assert d["binary"] is False
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

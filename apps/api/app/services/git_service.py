@@ -21,6 +21,7 @@ asyncio.to_thread to keep the event loop responsive (mirrors blob_store).
 """
 
 import asyncio
+import difflib
 import io
 import ipaddress
 import shutil
@@ -424,6 +425,23 @@ async def status(repo_getter, uid: str, zip_bytes: bytes, branch: str, remote_ur
 # the user still sees the head of a big CSV/JSON instead of "too large".
 _DIFF_MAX_BYTES = 256 * 1024
 _DIFF_MAX_LINES = 1000
+# For an oversized *modified* file we don't truncate by position (that hides any
+# change past line 1000); instead we condense to just the changed blocks + a few
+# context lines — the first _DIFF_MAX_HUNKS of them — like GitHub's big-file view.
+_DIFF_HUNK_CONTEXT = 3
+_DIFF_MAX_HUNKS = 1000
+# difflib is ~O(n·m); on a huge file where most lines differ it can take minutes.
+# Above this line count on either side we don't attempt a hunk diff and fall back
+# to the head preview, keeping the request responsive.
+_DIFF_HUNK_MAX_LINES = 200_000
+
+
+def _normalize_eol(text: str) -> str:
+    """Collapse CRLF/CR to LF so a file that only changed line endings doesn't show
+    as modified (and doesn't blow up difflib into its O(n²) worst case, where every
+    line differs by a trailing \\r). Line-ending style is not a meaningful diff for
+    the text files we version."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _diff_payload(text: str) -> tuple[str, bool, bool]:
@@ -442,6 +460,48 @@ def _diff_payload(text: str) -> tuple[str, bool, bool]:
     if len(preview.encode("utf-8", errors="ignore")) > _DIFF_MAX_BYTES:
         preview = preview.encode("utf-8", errors="ignore")[:_DIFF_MAX_BYTES].decode("utf-8", errors="ignore")
     return preview, True, False
+
+
+def _condense_hunks(old_text: str, new_text: str) -> tuple[str, str, bool]:
+    """Condense a large file's diff to just the changed blocks + context, so the
+    viewer shows every real change (even past line 1000) instead of a positional
+    head-of-file preview. Returns (old_condensed, new_condensed, truncated), where
+    each side is the changed regions joined by "@@ …" markers; truncated is True
+    when more than _DIFF_MAX_HUNKS change groups were dropped.
+
+    Both sides share the same marker lines, so Monaco renders them as identical
+    context and only the real +/- lines get highlighted."""
+    old_lines = old_text.split("\n")
+    new_lines = new_text.split("\n")
+    ctx = _DIFF_HUNK_CONTEXT
+    opcodes = difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False).get_opcodes()
+
+    # Group each change with its surrounding context, merging groups whose context
+    # windows touch, so adjacent edits read as one block rather than many tiny ones.
+    ranges: list[tuple[int, int, int, int]] = []  # (o1, o2, n1, n2) inclusive-exclusive
+    for tag, o1, o2, n1, n2 in opcodes:
+        if tag == "equal":
+            continue
+        lo_o, hi_o = max(0, o1 - ctx), min(len(old_lines), o2 + ctx)
+        lo_n, hi_n = max(0, n1 - ctx), min(len(new_lines), n2 + ctx)
+        if ranges and lo_o <= ranges[-1][1] and lo_n <= ranges[-1][3]:
+            po1, _, pn1, _ = ranges[-1]
+            ranges[-1] = (po1, hi_o, pn1, hi_n)
+        else:
+            ranges.append((lo_o, hi_o, lo_n, hi_n))
+
+    truncated = len(ranges) > _DIFF_MAX_HUNKS
+    ranges = ranges[:_DIFF_MAX_HUNKS]
+
+    old_out: list[str] = []
+    new_out: list[str] = []
+    for o1, o2, n1, n2 in ranges:
+        marker = f"@@ -{o1 + 1},{o2 - o1} +{n1 + 1},{n2 - n1} @@"
+        old_out.append(marker)
+        new_out.append(marker)
+        old_out.extend(old_lines[o1:o2])
+        new_out.extend(new_lines[n1:n2])
+    return "\n".join(old_out), "\n".join(new_out), truncated
 
 
 async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, remote_url: str | None, token: str | None = None) -> dict:
@@ -468,17 +528,56 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
             old_is_lfs = True
         else:
             old_is_lfs = False
+        # Byte-identical already? Then git flags "modified" for a reason unrelated to
+        # content — most often a storage-mode switch, e.g. a file committed as plain
+        # text that .gitattributes now routes through the Git LFS clean filter (HEAD
+        # blob = text, working tree = LFS pointer). Distinguish that from a pure
+        # line-ending change so the viewer can explain the right thing.
+        content_identical = old_raw == new_raw and not old_is_lfs
+        # Compare content, not line-ending style: normalize before diffing so an
+        # export that rewrote CRLF→LF (or vice-versa) doesn't read as "modified"
+        # (and doesn't push difflib into its O(n²) every-line-differs worst case).
+        old_raw = _normalize_eol(old_raw)
+        new_raw = _normalize_eol(new_raw)
         old, old_trunc, old_bin = _diff_payload(old_raw)
         new, new_trunc, new_bin = _diff_payload(new_raw)
         old_bin = old_bin or old_is_lfs
-        return {
-            "path": path,
-            "changeType": status_files.get(path, "modified"),
-            "oldContent": old,
-            "newContent": new,
-            "truncated": old_trunc or new_trunc,
-            "binary": old_bin or new_bin,
-        }
+        binary = old_bin or new_bin
+        change_type = status_files.get(path, "modified")
+        oversized = old_trunc or new_trunc
+
+        def result(content_old: str, content_new: str, mode: str, trunc: bool) -> dict:
+            return {
+                "path": path,
+                "changeType": change_type,
+                "oldContent": content_old,
+                "newContent": content_new,
+                "truncated": trunc,
+                "truncationMode": mode,
+                "binary": binary,
+            }
+
+        # Git flags "modified" but the content is unchanged — show a plain notice
+        # instead of an empty diff. Two sub-cases, distinguished for a clearer
+        # message: identical bytes (storage-mode switch, e.g. text→LFS) vs identical
+        # only after normalizing line endings (CRLF↔LF). Done before difflib, which
+        # is slow on huge inputs even when they're identical.
+        if not binary and old_raw == new_raw:
+            return result("", "", "no_content_change" if content_identical else "eol_only", False)
+
+        # Oversized text file modified in place: condense to just the changed blocks
+        # so every real change is visible (not only the head). Skip for binary/LFS,
+        # pure add/delete (nothing to compare), or files so large difflib would hang
+        # — those fall back to the head preview below.
+        both_sides = bool(old_raw) and bool(new_raw)
+        within_hunk_budget = (
+            old_raw.count("\n") < _DIFF_HUNK_MAX_LINES and new_raw.count("\n") < _DIFF_HUNK_MAX_LINES
+        )
+        if not binary and oversized and both_sides and within_hunk_budget:
+            old_h, new_h, hunk_trunc = _condense_hunks(old_raw, new_raw)
+            return result(old_h, new_h, "hunks", hunk_trunc)
+
+        return result(old, new, "head" if oversized else "none", oversized)
 
     async with _lock_for(repo_getter(uid)):
         return await asyncio.to_thread(work)
@@ -622,6 +721,22 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> bytes:
                 msg = _scrub(proc.stderr.strip(), token)
                 raise GitError(msg, _classify_error(msg))
             repo = tmp / "repo"
+            # Resolve Git LFS pointers to their real content. _git_env() isolates git
+            # from the host config (HOME=/nonexistent, GIT_CONFIG_NOSYSTEM), so the
+            # LFS smudge filter never ran during clone — a tracked file (e.g. a large
+            # source-concepts.csv) would otherwise land in the ZIP as a 3-line pointer
+            # and import as an empty source. Install the filter locally and pull the
+            # blobs, reusing the tokenized origin URL for the private LFS endpoint.
+            # Best-effort: a partial LFS failure must not lose the rest of the tree.
+            if _has_git_lfs() and (repo / ".gitattributes").is_file():
+                _run(repo, "lfs", "install", "--local", check=False)
+                lfs = subprocess.run(
+                    ["git", "-C", str(repo), "lfs", "pull"],
+                    capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env(),
+                )
+                if lfs.returncode != 0:
+                    logger.warning("git lfs pull failed during clone (%s); large files may remain pointers",
+                                   _scrub(lfs.stderr.strip(), token))
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for p in repo.rglob("*"):

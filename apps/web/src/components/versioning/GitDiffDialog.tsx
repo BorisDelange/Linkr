@@ -128,14 +128,26 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
                   <FileWarning size={28} />
                   <p className="text-sm">{t('versioning.diff_binary')}</p>
                 </div>
+              ) : diff?.truncationMode === 'eol_only' || diff?.truncationMode === 'no_content_change' ? (
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
+                  <FileWarning size={28} />
+                  <p className="max-w-md whitespace-pre-line text-sm">
+                    {t(diff.truncationMode === 'eol_only' ? 'versioning.diff_eol_only' : 'versioning.diff_no_content_change')}
+                  </p>
+                </div>
               ) : (
                 <div className="flex h-full flex-col">
-                  {diff?.truncated && (
+                  {diff?.truncationMode === 'hunks' ? (
+                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-sky-500/10 px-3 py-1.5 text-[11px] text-sky-700 dark:text-sky-400">
+                      <FileWarning size={12} />
+                      {diff.truncated ? t('versioning.diff_hunks_capped') : t('versioning.diff_hunks')}
+                    </div>
+                  ) : diff?.truncated ? (
                     <div className="flex shrink-0 items-center gap-1.5 border-b bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
                       <FileWarning size={12} />
                       {t('versioning.diff_truncated')}
                     </div>
-                  )}
+                  ) : null}
                   <div className="min-h-0 flex-1">
                     <DiffEditor
                       key={path}

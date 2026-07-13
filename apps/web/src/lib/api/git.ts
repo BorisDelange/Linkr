@@ -40,8 +40,16 @@ export interface GitDiff {
   changeType: FileChangeType | 'renamed'
   oldContent: string
   newContent: string
-  /** Content is a preview capped to the first lines/bytes of a large file. */
+  /** Some content was dropped; truncationMode says how it was rendered. */
   truncated: boolean
+  /**
+   * 'none'              — full content
+   * 'head'              — oversized file: first lines/bytes only
+   * 'hunks'             — oversized modified file condensed to its changed blocks + context
+   * 'eol_only'          — flagged modified but only the line-ending style differs (CRLF↔LF)
+   * 'no_content_change' — identical bytes; flagged modified by a storage-mode switch (e.g. text→LFS)
+   */
+  truncationMode: 'none' | 'head' | 'hunks' | 'eol_only' | 'no_content_change'
   binary: boolean
 }
 
