@@ -1,5 +1,6 @@
 import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 import { localized } from '@/lib/localized'
+import { stripInstanceFields } from '@/lib/entity-io'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -21,6 +22,11 @@ export function csvEscape(value: string | number | undefined | null): string {
  */
 export function restoreFileSourceDataFromCsv(project: MappingProject, csvText: string): void {
   if (!project.fileSourceData || project.sourceType !== 'file') return
+  // An unresolved Git LFS pointer (server clone couldn't smudge it, e.g. private
+  // LFS endpoint auth failed) is a 3-line stub, not the CSV. Importing it would
+  // silently yield zero source concepts — better to skip so the file stays absent
+  // and the failure is visible, rather than materializing a bogus tiny source.
+  if (csvText.startsWith('version https://git-lfs')) return
   project.fileSourceData.rawFileBuffer = new TextEncoder().encode(csvText)
   const headerLine = csvText.split('\n')[0]?.trim()
   if (!headerLine) return
@@ -557,7 +563,11 @@ export async function buildMappingProjectFolder(
 
   // Core data files (concept sets and import history excluded — reimportable from ATHENA)
   // rawFileBuffer excluded — binary data, not JSON-serializable, exported separately as source-concepts.csv
-  const { conceptSetIds: _, importBatches: _ib, fileSourceData, ...projectClean } = project
+  // Instance-specific fields (gitRemoteConfig, ownerId, timestamps, …) stripped so the
+  // exported project.json is portable — matches buildProjectZip. In a workspace export a
+  // git-linked entity's pointer is re-added by the caller (see entity-io.ts).
+  const { conceptSetIds: _, importBatches: _ib, fileSourceData, ...projectRest } = project
+  const projectClean = stripInstanceFields(projectRest)
   const projectJson = {
     ...projectClean,
     ...(fileSourceData ? {

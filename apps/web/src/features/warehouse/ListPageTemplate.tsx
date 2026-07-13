@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Upload, type LucideIcon } from 'lucide-react'
-import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
+import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { shortenIdAmong } from '@/lib/short-id'
@@ -62,8 +62,10 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
   /** When set, the versioning dialog's Git tab shows the push-only sync panel for
    *  this scope (server mode), using each item's id as the sync id. */
   syncScope?: GitScope
-  /** Import from a file. When provided, the Import header button is enabled. */
-  onImport?: (file: File) => void
+  /** Import from a file. When provided, the Import header button is enabled.
+   *  `gitRemote` is set when the source was cloned from git, so the caller can
+   *  pre-link the entity's Versioning page to that repo (url/branch/token). */
+  onImport?: (file: File, gitRemote?: ImportGitRemote) => void
   /** File accept filter for import (default: ".zip") */
   importAccept?: string
 

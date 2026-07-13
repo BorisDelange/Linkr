@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { exportToJson } from './export'
+import JSZip from 'jszip'
+import { exportToJson, buildMappingProjectFolder, restoreFileSourceDataFromCsv } from './export'
+import type { Storage } from '@/lib/storage'
 import type { ConceptMapping, MappingProject } from '@/types'
 
 const project = {
@@ -74,5 +76,54 @@ describe('exportToJson — author details round-trip', () => {
     const m = parsed.mappings[0]
     expect(m.mappedBy).toBe('Boris Delange')
     expect(m.mappedByDetails).toBeUndefined()
+  })
+})
+
+describe('buildMappingProjectFolder — portable project.json', () => {
+  it('strips instance-specific fields (gitRemoteConfig, ownerId, timestamps)', async () => {
+    const linked = {
+      ...project,
+      gitRemoteConfig: { url: 'https://gitlab.com/x/y', branch: 'main' },
+      ownerId: 'user-42',
+      workspaceId: 'ws-1',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-02T00:00:00Z',
+    } as unknown as MappingProject
+    const storage = {
+      conceptMappings: { getByProject: async () => [] },
+    } as unknown as Storage
+
+    const zip = new JSZip()
+    await buildMappingProjectFolder(zip, '', linked, storage)
+    const parsed = JSON.parse(await zip.file('project.json')!.async('string'))
+
+    // Portable metadata only — instance fields are the caller's to re-add (workspace export).
+    expect(parsed.gitRemoteConfig).toBeUndefined()
+    expect(parsed.ownerId).toBeUndefined()
+    expect(parsed.workspaceId).toBeUndefined()
+    expect(parsed.createdAt).toBeUndefined()
+    // Genuine content survives.
+    expect(parsed.id).toBe('proj1')
+  })
+})
+
+describe('restoreFileSourceDataFromCsv — LFS pointer guard', () => {
+  const base = () => ({
+    sourceType: 'file',
+    fileSourceData: { fileName: 'source-concepts.csv', columnMapping: {}, columns: [], rows: [] },
+  }) as unknown as MappingProject
+
+  it('ignores an unresolved Git LFS pointer instead of importing a 3-line stub', () => {
+    const p = base()
+    const pointer = 'version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 25427900\n'
+    restoreFileSourceDataFromCsv(p, pointer)
+    expect(p.fileSourceData!.rawFileBuffer).toBeUndefined()
+  })
+
+  it('restores real CSV content', () => {
+    const p = base()
+    restoreFileSourceDataFromCsv(p, 'terminology_code,concept_code\nADICAP,0000')
+    expect(p.fileSourceData!.rawFileBuffer?.byteLength).toBeGreaterThan(0)
+    expect(p.fileSourceData!.columns).toEqual(['terminology_code', 'concept_code'])
   })
 })

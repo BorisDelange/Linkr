@@ -36,6 +36,7 @@ import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSetti
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
 import { ListPageTemplate } from '../ListPageTemplate'
+import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
 import { useMappingProjectActions } from './use-mapping-project-actions'
@@ -269,7 +270,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     }
   }, [activeWorkspaceId, loadMappingProjects]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleImport = useCallback(async (file: File) => {
+  const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     try {
       const parsed = await parseImportZip(file)
       const project = parsed['project.json'] as MappingProject | undefined
@@ -277,6 +278,10 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         setImportError(t('concept_mapping.import_invalid_zip'))
         return
       }
+      // Imported from a git repo → pre-link the Versioning page to that repo (with
+      // the token, if supplied), mirroring project import. buildMappingProjectFolder
+      // strips gitRemoteConfig on export, so it's only ever set from the import source.
+      if (gitRemote) project.gitRemoteConfig = gitRemote
       const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
       // Precomputed suggestion scores (optional, large binary — read as bytes, not
       // via parseImportZip which decodes every entry as text and corrupts parquet).
