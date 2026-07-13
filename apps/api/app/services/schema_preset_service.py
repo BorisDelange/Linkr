@@ -5,6 +5,7 @@ from app.models.schema_preset import SchemaPreset
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.schema_preset import SchemaPresetSave
+from app.services import git_secret
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[SchemaPreset]:
@@ -32,14 +33,26 @@ async def get(db: AsyncSession, preset_id: str) -> SchemaPreset | None:
 
 
 async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
-    """Upsert by preset_id."""
+    """Upsert by preset_id.
+
+    The whole payload is applied on both branches so a git-link save (which comes
+    through this PUT, not a PATCH) persists git_remote_config; git_secret strips
+    and encrypts any authToken. The earlier update branch dropped git_remote_config.
+    """
+    payload = data.model_dump()
     preset = await db.get(SchemaPreset, data.preset_id)
     if preset is None:
-        preset = SchemaPreset(**data.model_dump())
+        preset = SchemaPreset()
+        git_secret.apply_to_entity(preset, payload)
+        for key, value in payload.items():
+            setattr(preset, key, value)
         db.add(preset)
     else:
-        preset.workspace_id = data.workspace_id
-        preset.mapping = data.mapping
+        git_secret.apply_to_entity(preset, payload)
+        # preset_id is the PK — never reassign it on update.
+        payload.pop("preset_id", None)
+        for key, value in payload.items():
+            setattr(preset, key, value)
     await db.commit()
     await db.refresh(preset)
     return preset

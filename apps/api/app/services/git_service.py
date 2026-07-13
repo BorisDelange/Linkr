@@ -107,6 +107,14 @@ def _sql_collection_repo(collection_id: str) -> Path:
     return d
 
 
+def _entity_repo(kind: str, entity_id: str) -> Path:
+    """Working-tree dir for a workspace-scoped versionable entity (kind = a stable
+    folder name under data_path). One repo per entity, mirroring the others."""
+    d = settings.data_path / kind / entity_id / "versioning"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 _GH_NAV_SEGMENTS = ("tree", "blob", "commit", "commits", "pull", "pulls", "releases", "tags", "branches", "find", "raw")
 
 
@@ -643,3 +651,23 @@ def mapping_project_repo_getter(uid: str) -> Path:
 
 def sql_collection_repo_getter(uid: str) -> Path:
     return _sql_collection_repo(uid)
+
+
+def etl_pipeline_repo_getter(uid: str) -> Path:
+    return _entity_repo("etl-pipelines", uid)
+
+
+def data_catalog_repo_getter(uid: str) -> Path:
+    return _entity_repo("data-catalogs", uid)
+
+
+def dq_rule_set_repo_getter(uid: str) -> Path:
+    return _entity_repo("dq-rule-sets", uid)
+
+
+def schema_preset_repo_getter(uid: str) -> Path:
+    return _entity_repo("schema-presets", uid)
+
+
+def user_plugin_repo_getter(uid: str) -> Path:
+    return _entity_repo("user-plugins", uid)

@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import JSONB_or_JSON, Base, TimestampMixin
@@ -14,3 +14,6 @@ class SchemaPreset(Base, TimestampMixin):
     )
     mapping: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Encrypted git access token (Fernet); kept out of git_remote_config so it's
+    # never returned by the API. Mirrors DataSource.connection_secret.
+    git_remote_secret: Mapped[str | None] = mapped_column(Text)

@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.data_catalog import DataCatalog
 from app.schemas.data_catalog import DataCatalogCreate, DataCatalogUpdate
+from app.services import git_secret
 
 
 async def list_all(db: AsyncSession) -> list[DataCatalog]:
@@ -22,7 +23,11 @@ async def get(db: AsyncSession, catalog_id: str) -> DataCatalog | None:
 
 
 async def create(db: AsyncSession, data: DataCatalogCreate) -> DataCatalog:
-    catalog = DataCatalog(**data.model_dump(exclude_none=True))
+    payload = data.model_dump(exclude_none=True)
+    catalog = DataCatalog()
+    git_secret.apply_to_entity(catalog, payload)
+    for key, value in payload.items():
+        setattr(catalog, key, value)
     db.add(catalog)
     await db.commit()
     await db.refresh(catalog)
@@ -32,7 +37,9 @@ async def create(db: AsyncSession, data: DataCatalogCreate) -> DataCatalog:
 async def update(
     db: AsyncSession, catalog: DataCatalog, data: DataCatalogUpdate
 ) -> DataCatalog:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    git_secret.apply_to_entity(catalog, changes)
+    for key, value in changes.items():
         setattr(catalog, key, value)
     await db.commit()
     await db.refresh(catalog)

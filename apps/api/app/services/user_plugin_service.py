@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user_plugin import UserPlugin
 from app.schemas.user_plugin import UserPluginCreate, UserPluginUpdate
+from app.services import git_secret
 
 
 async def list_all(db: AsyncSession) -> list[UserPlugin]:
@@ -22,7 +23,11 @@ async def get(db: AsyncSession, plugin_id: str) -> UserPlugin | None:
 
 
 async def create(db: AsyncSession, data: UserPluginCreate) -> UserPlugin:
-    plugin = UserPlugin(**data.model_dump(exclude_none=True))
+    payload = data.model_dump(exclude_none=True)
+    plugin = UserPlugin()
+    git_secret.apply_to_entity(plugin, payload)
+    for key, value in payload.items():
+        setattr(plugin, key, value)
     db.add(plugin)
     await db.commit()
     await db.refresh(plugin)
@@ -30,7 +35,9 @@ async def create(db: AsyncSession, data: UserPluginCreate) -> UserPlugin:
 
 
 async def update(db: AsyncSession, plugin: UserPlugin, data: UserPluginUpdate) -> UserPlugin:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    git_secret.apply_to_entity(plugin, changes)
+    for key, value in changes.items():
         setattr(plugin, key, value)
     await db.commit()
     await db.refresh(plugin)

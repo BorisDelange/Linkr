@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet
+from app.services import git_secret
 from app.schemas.dq_rule_set import (
     DqCustomCheckCreate,
     DqCustomCheckUpdate,
@@ -30,7 +31,11 @@ async def get(db: AsyncSession, rule_set_id: str) -> DqRuleSet | None:
 
 
 async def create(db: AsyncSession, data: DqRuleSetCreate) -> DqRuleSet:
-    rule_set = DqRuleSet(**data.model_dump(exclude_none=True))
+    payload = data.model_dump(exclude_none=True)
+    rule_set = DqRuleSet()
+    git_secret.apply_to_entity(rule_set, payload)
+    for key, value in payload.items():
+        setattr(rule_set, key, value)
     db.add(rule_set)
     await db.commit()
     await db.refresh(rule_set)
@@ -40,7 +45,9 @@ async def create(db: AsyncSession, data: DqRuleSetCreate) -> DqRuleSet:
 async def update(
     db: AsyncSession, rule_set: DqRuleSet, data: DqRuleSetUpdate
 ) -> DqRuleSet:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    git_secret.apply_to_entity(rule_set, changes)
+    for key, value in changes.items():
         setattr(rule_set, key, value)
     await db.commit()
     await db.refresh(rule_set)

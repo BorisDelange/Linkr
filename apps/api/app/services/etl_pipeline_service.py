@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.etl_pipeline import EtlFile, EtlPipeline
+from app.services import git_secret
 from app.schemas.etl_pipeline import (
     EtlFileCreate,
     EtlFileUpdate,
@@ -30,7 +31,11 @@ async def get(db: AsyncSession, pipeline_id: str) -> EtlPipeline | None:
 
 
 async def create(db: AsyncSession, data: EtlPipelineCreate) -> EtlPipeline:
-    pipeline = EtlPipeline(**data.model_dump(exclude_none=True))
+    payload = data.model_dump(exclude_none=True)
+    pipeline = EtlPipeline()
+    git_secret.apply_to_entity(pipeline, payload)
+    for key, value in payload.items():
+        setattr(pipeline, key, value)
     db.add(pipeline)
     await db.commit()
     await db.refresh(pipeline)
@@ -40,7 +45,9 @@ async def create(db: AsyncSession, data: EtlPipelineCreate) -> EtlPipeline:
 async def update(
     db: AsyncSession, pipeline: EtlPipeline, data: EtlPipelineUpdate
 ) -> EtlPipeline:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    git_secret.apply_to_entity(pipeline, changes)
+    for key, value in changes.items():
         setattr(pipeline, key, value)
     await db.commit()
     await db.refresh(pipeline)
