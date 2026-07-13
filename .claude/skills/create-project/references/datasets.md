@@ -13,14 +13,20 @@ dataset** and one entry in the spec's `"datasets"` array.
   file — you may generate them with a throwaway inline loop, but the CSV on disk
   must contain real rows, not a generator.
 - Dates as strings like `2185-01-17 20:11`.
+- **Prefix synthetic datasets with `synth_`** (e.g. `synth_icu_stays`). These
+  projects ship fictional data; the prefix appears on the dataset name, its
+  folder, and the CSV filename, so anyone opening the project or browsing the
+  repo immediately sees the data is not real. Reserve unprefixed names for
+  datasets backed by (de-identified) real data.
 
 ## Spec entry
 
 ```json
 "datasets": [
   {
-    "slug": "icu-stays",         // folder + csv file name in the ZIP
-    "name": "ICU stays",         // display name (also the dataset folder)
+    "slug": "synth_icu_stays",   // ASCII slug → folder + csv file name in the ZIP
+    "name": "synth_icu_stays",   // ASCII, no spaces (becomes the dataset folder);
+                                 // `synth_` prefix flags fictional data
     "csv":  "icu-stays.csv",     // path relative to spec.json
     "types": {"age": "number"}   // optional per-column type override
   }
