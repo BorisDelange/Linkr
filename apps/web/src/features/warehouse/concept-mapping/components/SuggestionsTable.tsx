@@ -107,6 +107,30 @@ interface SuggestionsTableProps {
   onConceptSet: (s: SuggestionCandidate) => void
   /** uniqueId → concept set name, for concept sets present locally. */
   conceptSetNamesByUid: Map<string, string>
+  /** Persisted table view state (column visibility / sorting / sizing). Lifted to
+   *  the parent so it survives this table being unmounted while suggestions reload
+   *  on a source-concept change — otherwise the user's column choices reset. */
+  view?: SuggestionsTableView
+  onViewChange?: (next: SuggestionsTableView) => void
+}
+
+export interface SuggestionsTableView {
+  columnVisibility: VisibilityState
+  sorting: Sorting
+  columnSizing: Record<string, number>
+}
+
+export const DEFAULT_SUGGESTIONS_VIEW: SuggestionsTableView = {
+  columnVisibility: {
+    concept_id: false,
+    concept_code: false,
+    domain_id: false,
+    concept_class_id: false,
+    comment: false,
+    concept_set: false,
+  },
+  sorting: { columnId: 'combined_score', desc: true },
+  columnSizing: {},
 }
 
 function getColLabel(cols: ColumnDef<SuggestionCandidate>[], id: string): string {
@@ -121,19 +145,27 @@ function getColLabel(cols: ColumnDef<SuggestionCandidate>[], id: string): string
   return id.replace(/_/g, ' ')
 }
 
-export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selectedConceptId, onSelect, onInfo, onConceptSet, conceptSetNamesByUid }: SuggestionsTableProps) {
+export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selectedConceptId, onSelect, onInfo, onConceptSet, conceptSetNamesByUid, view, onViewChange }: SuggestionsTableProps) {
   const { t } = useTranslation()
-  const [sorting, setSorting] = useState<Sorting>({ columnId: 'combined_score', desc: true })
+  // Filters are transient (per source concept) so they stay internal. Column
+  // visibility / sorting / sizing are persisted via the parent when `view` is
+  // provided, so they survive a remount; otherwise fall back to internal state.
   const [filters, setFilters] = useState<Filters>({})
-  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
-    concept_id: false,
-    concept_code: false,
-    domain_id: false,
-    concept_class_id: false,
-    comment: false,
-    concept_set: false,
-  })
+  const [internalView, setInternalView] = useState<SuggestionsTableView>(DEFAULT_SUGGESTIONS_VIEW)
+  const activeView = view ?? internalView
+  const setView = (updater: (prev: SuggestionsTableView) => SuggestionsTableView) => {
+    if (view && onViewChange) onViewChange(updater(view))
+    else setInternalView(updater)
+  }
+  const sorting = activeView.sorting
+  const columnSizing = activeView.columnSizing
+  const columnVisibility = activeView.columnVisibility
+  const setSorting = (next: Sorting | ((s: Sorting) => Sorting)) =>
+    setView((prev) => ({ ...prev, sorting: typeof next === 'function' ? (next as (s: Sorting) => Sorting)(prev.sorting) : next }))
+  const setColumnSizing = (next: Record<string, number> | ((s: Record<string, number>) => Record<string, number>)) =>
+    setView((prev) => ({ ...prev, columnSizing: typeof next === 'function' ? (next as (s: Record<string, number>) => Record<string, number>)(prev.columnSizing) : next }))
+  const setColumnVisibility = (next: VisibilityState | ((s: VisibilityState) => VisibilityState)) =>
+    setView((prev) => ({ ...prev, columnVisibility: typeof next === 'function' ? (next as (s: VisibilityState) => VisibilityState)(prev.columnVisibility) : next }))
 
   const handleSort = (columnId: string) => {
     if (columnId === '_check') return

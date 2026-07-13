@@ -3068,7 +3068,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           <TableBody>
             {visibleItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-xs text-muted-foreground">
                   {projectMappings.length === 0
                     ? t('concept_mapping.prog_empty')
                     : t('common.no_results')}
