@@ -36,6 +36,12 @@ def validate_spec(spec: dict) -> dict:
         alpha = float(raw_alpha)
     except (TypeError, ValueError):
         raise ValueError("statistical-tests spec.alpha must be a number")
+    # alpha is a fraction in (0, 1): a NaN/inf/out-of-range value flows into
+    # t.ppf(1 - alpha/2, …) and surfaces as bare `NaN` in the JSON output (invalid
+    # JSON on the wire). Reject non-finite, clamp to the open interval.
+    if alpha != alpha or alpha in (float("inf"), float("-inf")):
+        raise ValueError("statistical-tests spec.alpha must be finite")
+    alpha = min(max(alpha, 1e-6), 1 - 1e-6)
     return {"group": group, "values": values, "preference": preference, "alpha": alpha}
 
 

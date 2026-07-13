@@ -62,10 +62,15 @@ def validate_spec(spec: dict) -> dict:
         chart_bins = int(spec.get("chartBins", 15))
     except (TypeError, ValueError):
         chart_bins = 15
+    # Clamp ≥1: chartBins=0 makes the bin-width `(vmax-vmin)/bins` a div-by-zero in
+    # _KPI_PY → an uncaught 500 instead of a clean chart.
+    chart_bins = max(1, chart_bins)
     try:
         decimals = int(spec.get("decimals", 1))
     except (TypeError, ValueError):
         decimals = 1
+    # Clamp ≥0: a negative decimals raises ValueError in format(v, ".%df" % d).
+    decimals = max(0, decimals)
 
     return {
         "column": column,

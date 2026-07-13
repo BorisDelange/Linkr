@@ -3261,6 +3261,7 @@
     "col_source_category": "Catégorie source",
     "col_target_vocabulary": "Vocabulaire cible",
     "col_target_concept_id": "ID concept cible",
+    "col_target_concept_code": "Code concept cible",
     "col_target_concept_name": "Nom concept cible",
     "col_code": "Code",
     "col_concept_class_id": "Classe de concept",

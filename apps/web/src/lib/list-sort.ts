@@ -52,7 +52,9 @@ export function applySort<T>(items: T[], sort: SortState | null, acc: SortAccess
   const mult = effective.dir === 'asc' ? 1 : -1
 
   if (effective.key === SORT_KEYS.name) {
-    return [...items].sort((a, b) => mult * acc.name(a).localeCompare(acc.name(b)))
+    // Coerce to '' — a null/undefined name (legacy/partial entity) would throw on
+    // .localeCompare and break the whole list sort.
+    return [...items].sort((a, b) => mult * (acc.name(a) ?? '').localeCompare(acc.name(b) ?? ''))
   }
   if (effective.key === SORT_KEYS.created) {
     return [...items].sort((a, b) => mult * (time(acc.createdAt(a)) - time(acc.createdAt(b))))

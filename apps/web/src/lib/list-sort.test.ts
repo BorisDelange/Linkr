@@ -49,6 +49,15 @@ describe('applySort', () => {
     expect(ids(applySort(items, { key: SORT_KEYS.updated, dir: 'desc' }, acc))).toEqual(['a', 'b', 'c'])
   })
 
+  it('does not throw on a null/undefined name (coerces to empty string)', () => {
+    const withNull: Item[] = [
+      { id: 'x', label: 'Zebra', createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+      { id: 'y', label: null as unknown as string, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+    ]
+    // The null name sorts as '' (first ascending); no throw.
+    expect(ids(applySort(withNull, { key: SORT_KEYS.name, dir: 'asc' }, acc))).toEqual(['y', 'x'])
+  })
+
   it('does not mutate the input array', () => {
     const before = ids(items)
     applySort(items, { key: SORT_KEYS.name, dir: 'desc' }, acc)

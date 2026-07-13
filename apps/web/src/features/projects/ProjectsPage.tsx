@@ -168,8 +168,23 @@ export function ProjectsPage() {
     if (!project?.uid) return
 
     const now = new Date().toISOString()
-    const uid = duplicate ? crypto.randomUUID() : project.uid
     const storage = getStorage()
+
+    // Resolve the target uid. A duplicate always gets a fresh one. A plain import
+    // keeps the ZIP's uid so a git round-trip and a workspace-scoped overwrite line
+    // up — EXCEPT when that uid already belongs to a project in ANOTHER workspace:
+    // importing here is meant to be an independent copy, and reusing the uid would
+    // make the delete-then-create below wipe that other workspace's project (silent
+    // cross-workspace data loss). In that case mint a fresh uid, keeping lineageId.
+    // (Mirrors the global-collision guard in MappingProjectListPage.)
+    let uid: string
+    if (duplicate) {
+      uid = crypto.randomUUID()
+    } else {
+      const currentWs = wsUid ?? activeWorkspaceId
+      const globalExisting = useAppStore.getState()._projectsRaw.find((p) => p.uid === project.uid)
+      uid = globalExisting && globalExisting.workspaceId !== currentWs ? crypto.randomUUID() : project.uid
+    }
 
     // The project's organization travels inline (project.organization) as an
     // immutable provenance snapshot — like the author snapshot. We do NOT create

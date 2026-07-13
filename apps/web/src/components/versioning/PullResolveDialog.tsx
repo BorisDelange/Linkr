@@ -13,6 +13,10 @@ import { PullMappingsTable } from './PullMappingsTable'
 interface PullResolveDialogProps {
   projectId: string
   branch: string
+  /** The remote head the panel currently knows about. A cached draft prepared
+   *  against a different head is stale (the remote advanced) and is discarded so
+   *  we never apply an out-of-date merge or advance the anchor to a stale head. */
+  remoteHead: string | null
   onClose: () => void
   /** Called with the prepared pull + the user's resolution when they confirm.
    *  The caller applies it (DB write + anchor) and refreshes the panel. */
@@ -48,9 +52,15 @@ function humanBytes(n?: number): string {
  * scores are whole-list blocks. Never a raw file diff. State is cached so closing
  * and reopening keeps the fetched merge + the user's choices.
  */
-export function PullResolveDialog({ projectId, branch, onClose, onResolve }: PullResolveDialogProps) {
+export function PullResolveDialog({ projectId, branch, remoteHead, onClose, onResolve }: PullResolveDialogProps) {
   const { t } = useTranslation()
   const key = draftKey(projectId, branch)
+  // Drop a cached draft prepared against a now-stale remote head before it seeds
+  // any state — otherwise a remote that advanced between opens would let the user
+  // apply an out-of-date merge and advance the anchor to the wrong head.
+  const staleCached = _draftCache.get(key)
+  if (staleCached && staleCached.prepared.remoteHead !== remoteHead) _draftCache.delete(key)
+
   const [prepared, setPrepared] = useState<PreparedPull | null>(() => _draftCache.get(key)?.prepared ?? null)
   const merge: MappingProjectMerge | null = prepared?.merge ?? null
   const [loading, setLoading] = useState(!_draftCache.has(key))
@@ -90,7 +100,9 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
         setLoading(false)
       })
     return () => { cancelled = true }
-  }, [projectId, branch, key])
+    // remoteHead is a dep so a remote that advances while the dialog is open
+    // re-runs the fetch (the stale-draft delete above already cleared the cache).
+  }, [projectId, branch, key, remoteHead])
 
   // Persist the draft on every change so a close/reopen restores it.
   useEffect(() => {

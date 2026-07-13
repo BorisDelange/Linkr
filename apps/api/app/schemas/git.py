@@ -1,4 +1,14 @@
+import re
+
+from pydantic import field_validator
+
 from app.schemas.base import CamelModel
+
+# A git object id is 40 hex chars (SHA-1) or 64 (SHA-256); accept an abbreviated
+# form too. This is a hard guard: synced_oid/branch flow into git subprocess
+# argv (see git_service._run, which has no `--` separator), so an unvalidated
+# value like "--upload-pack=<cmd>" would be option-injection / RCE on the host.
+_OID_RE = re.compile(r"^[0-9a-f]{7,64}$")
 
 
 class GitFileChange(CamelModel):
@@ -80,6 +90,13 @@ class GitSetSyncStateRequest(CamelModel):
 
     branch: str
     synced_oid: str
+
+    @field_validator("synced_oid")
+    @classmethod
+    def _check_oid(cls, v: str) -> str:
+        if not _OID_RE.match(v):
+            raise ValueError("synced_oid must be a git object id (7–64 hex chars)")
+        return v
 
 
 class GitCloneRequest(CamelModel):

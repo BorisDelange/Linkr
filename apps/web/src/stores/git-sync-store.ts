@@ -140,6 +140,11 @@ interface GitSyncState {
   lfsPaths: () => Set<string>
   /** Force a file's LFS state on/off (used by the badge + context menu). */
   toggleLfs: (path: string) => void
+  /** Drop the cached export ZIP without changing entity — call after something
+   *  mutated the entity's DB content out-of-band (e.g. a pull applied changes) so
+   *  the next refreshStatus rebuilds the ZIP from the fresh state, not the stale
+   *  cache (same scope|id|includeData key would otherwise be reused). */
+  invalidateZip: () => void
   reset: () => void
 }
 
@@ -291,6 +296,10 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       next.set(path, !current)
       return { lfsOverrides: next }
     }),
+
+  invalidateZip: () => {
+    _zipCache = null
+  },
 
   reset: () => {
     statusGen++ // invalidate any in-flight refresh from the closing panel

@@ -4,7 +4,12 @@ boundary), so they get unit tests independent of the kernel."""
 import pytest
 
 from app.services.execution import render
-from app.services.execution.render import table1
+from app.services.execution.render import (
+    key_indicator,
+    regression,
+    statistical_tests,
+    table1,
+)
 
 
 # The 9 built-in analyses and a minimal valid spec for each (column names +
@@ -84,3 +89,50 @@ def test_table1_build_code_embeds_spec_as_json_not_source():
     assert "_json.loads(" in code
     assert "import os#" not in code.split("_json.loads(")[0]  # not in the program body
     assert "_linkr_print_table1(dataset" in code
+
+
+# --- Crafted-spec numeric guards (a bad value must 400 or clamp, never 500) ---
+
+
+@pytest.mark.parametrize("bad", ["inf", "-inf", "nan"])
+def test_regression_confidence_rejects_non_finite(bad):
+    with pytest.raises(ValueError):
+        regression.validate_spec({
+            "outcome": {"name": "y", "numeric": True},
+            "predictors": [{"name": "x", "numeric": True}],
+            "confidenceLevel": float(bad),
+        })
+
+
+def test_regression_confidence_clamps_out_of_range():
+    out = regression.validate_spec({
+        "outcome": {"name": "y", "numeric": True},
+        "predictors": [{"name": "x", "numeric": True}],
+        "confidenceLevel": 0,
+    })
+    assert out["confidenceLevel"] == 1e-6  # clamped away from 0 (alpha would be 1)
+
+
+@pytest.mark.parametrize("bad", ["inf", "nan"])
+def test_statistical_tests_alpha_rejects_non_finite(bad):
+    with pytest.raises(ValueError):
+        statistical_tests.validate_spec({
+            "group": "g", "values": [{"name": "v", "type": "numeric"}], "alpha": float(bad),
+        })
+
+
+def test_statistical_tests_alpha_clamps():
+    out = statistical_tests.validate_spec({
+        "group": "g", "values": [{"name": "v", "type": "numeric"}], "alpha": 5,
+    })
+    assert out["alpha"] == 1 - 1e-6
+
+
+def test_key_indicator_clamps_chart_bins_and_decimals():
+    # chartBins=0 would be a div-by-zero; decimals=-1 a format() error — both 500s.
+    out = key_indicator.validate_spec({
+        "column": {"name": "c", "numeric": True},
+        "aggregate": "mean", "chartType": "histogram", "chartBins": 0, "decimals": -3,
+    })
+    assert out["chartBins"] == 1
+    assert out["decimals"] == 0

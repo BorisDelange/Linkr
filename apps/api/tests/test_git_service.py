@@ -88,6 +88,64 @@ async def test_diff_rejects_traversing_path():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_set_sync_state_schema_validates_oid():
+    import pydantic
+
+    from app.schemas.git import GitSetSyncStateRequest
+
+    # A real oid is accepted; an option-injection payload is rejected at the API
+    # boundary so it can never reach `git fetch` argv.
+    GitSetSyncStateRequest(branch="main", syncedOid="a1b2c3d4e5f6")
+    for bad in ("--upload-pack=touch /tmp/x", "-x", "HEAD", "not hex", ""):
+        with pytest.raises(pydantic.ValidationError):
+            GitSetSyncStateRequest(branch="main", syncedOid=bad)
+
+
+def test_safe_ref_rejects_option_injection():
+    # Legit branch names pass through unchanged.
+    for ok in ("main", "release/1.2", "feature-x", "v2.0.1", "dev_branch"):
+        assert g._safe_ref(ok) == ok
+    # A leading dash (option injection like --upload-pack=<cmd>) and shell/space
+    # metacharacters are refused — these reach git argv with no `--` separator.
+    for bad in (
+        "--upload-pack=touch /tmp/pwned",
+        "-x",
+        "main; rm -rf /",
+        "main branch",
+        "",
+        "..",
+    ):
+        with pytest.raises(g.GitError):
+            g._safe_ref(bad)
+
+
+def test_safe_oid_rejects_option_injection():
+    # A real (abbreviated) oid passes; a dash-leading or non-hex value is refused.
+    assert g._safe_oid("a1b2c3d") == "a1b2c3d"
+    assert g._safe_oid("0" * 40) == "0" * 40
+    for bad in ("--upload-pack=touch /tmp/x", "-x", "HEAD", "ab", "g" * 40, ""):
+        with pytest.raises(g.GitError):
+            g._safe_oid(bad)
+
+
+@pytest.mark.asyncio
+async def test_sync_state_rejects_malicious_branch_and_oid():
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        # A malicious branch or synced_oid must be rejected before any git call,
+        # even with a remote_url present (would otherwise reach `git fetch` argv).
+        with pytest.raises(g.GitError):
+            await g.sync_state(getter, "u", "--upload-pack=x", "https://example.invalid/r.git", None)
+        with pytest.raises(g.GitError):
+            await g.sync_state(getter, "u", "main", "https://example.invalid/r.git", "--upload-pack=x")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_reject_internal_host_blocks_ssrf_targets():
     # Metadata endpoint, loopback, and private ranges must be refused.
     for bad in (

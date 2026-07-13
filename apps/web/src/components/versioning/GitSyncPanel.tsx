@@ -36,7 +36,7 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, syncState, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs } =
+  const { status, branches, syncState, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs, invalidateZip } =
     useGitSyncStore()
   // Behind/diverged detection is only wired for mapping projects in v1.
   const syncStateSupported = scope === 'mapping-projects'
@@ -258,13 +258,26 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         <PullResolveDialog
           projectId={id}
           branch={branch}
+          remoteHead={syncState?.remoteHead ?? null}
           onClose={() => setPullOpen(false)}
           onResolve={async (prepared, resolution) => {
             const { applyMappingProjectPull } = await import('@/lib/concept-mapping/pull')
             await applyMappingProjectPull(id, branch, prepared, resolution)
             setPullOpen(false)
-            // The DB changed and the anchor advanced → refresh both the change list
-            // and the banner so the panel reflects the post-pull state.
+            // The pull wrote to the DB, but the mapping-project views read from the
+            // in-memory stores — reload them so the mappings table + summary/metadata
+            // reflect the pulled changes without a manual page refresh. (Scores, if
+            // taken, are already re-indexed inside applyMappingProjectPull.)
+            const { useConceptMappingStore } = await import('@/stores/concept-mapping-store')
+            const cm = useConceptMappingStore.getState()
+            await cm.loadProjectMappings(id, { force: true })
+            await cm.loadMappingProjects()
+            // The DB changed and the anchor advanced → recompute the versioning view
+            // against the fresh state. The export ZIP is cached by scope|id|includeData
+            // (unchanged by a pull), so drop it first or refreshStatus would rebuild
+            // status from the pre-pull export and still show the pulled rows as local
+            // changes to push.
+            invalidateZip()
             await refreshStatus(scope, id, branch)
             if (syncStateSupported) await loadSyncState(scope, id, branch)
           }}

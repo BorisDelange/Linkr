@@ -24,6 +24,7 @@ import asyncio
 import difflib
 import io
 import ipaddress
+import re
 import shutil
 import socket
 import subprocess
@@ -67,6 +68,33 @@ class GitError(RuntimeError):
     def __init__(self, message: str, code: str = "unknown") -> None:
         super().__init__(message)
         self.code = code
+
+
+# A branch name is client-supplied and reaches git as a positional refspec (with
+# no `--` separator in _run), so a value like "--upload-pack=<cmd>" would be
+# option-injection / RCE on the host. Restrict to a conservative git-refname
+# subset: no leading dash, and only word chars plus ./-/_ (covers "main",
+# "release/1.2", "feature-x"; rejects options, spaces, and shell metacharacters).
+_REF_RE = re.compile(r"^[A-Za-z0-9_][\w./-]*$")
+
+
+def _safe_ref(branch: str) -> str:
+    if not isinstance(branch, str) or not _REF_RE.match(branch):
+        raise GitError(f"invalid branch name: {branch!r}", "unknown")
+    return branch
+
+
+# A git object id fed as a positional refspec (fetch <url> <oid>) needs the same
+# no-leading-dash guard as a branch. The API schema already validates it, but the
+# service is also called with anchors read back from the DB — validate here too
+# so a bad value can never reach argv regardless of the caller.
+_OID_RE = re.compile(r"^[0-9a-f]{7,64}$")
+
+
+def _safe_oid(oid: str) -> str:
+    if not isinstance(oid, str) or not _OID_RE.match(oid):
+        raise GitError(f"invalid git object id: {oid!r}", "unknown")
+    return oid
 
 
 def _classify_error(text: str) -> str:
@@ -405,6 +433,7 @@ def _summarize(files: list[dict]) -> dict:
 async def status(repo_getter, uid: str, zip_bytes: bytes, branch: str, remote_url: str | None, token: str | None = None) -> dict:
     """Materialize the export into the repo and report what would be committed
     against the actual remote content (fetched first)."""
+    _safe_ref(branch)
 
     def work() -> dict:
         repo = repo_getter(uid)
@@ -449,6 +478,9 @@ async def sync_state(
     an unanchored+existing-remote case here just means "no baseline yet" → neither
     behind nor diverged until the first push/import anchors it.
     """
+    _safe_ref(branch)
+    if synced_oid is not None:
+        _safe_oid(synced_oid)
 
     def work() -> dict:
         repo = repo_getter(uid)
@@ -508,6 +540,7 @@ async def pull_file_bytes(
     where the block choice is "take the remote version": the client needs the
     actual content to write into the DB, which the (stats-only) preview omits.
     """
+    _safe_ref(branch)
 
     def work() -> bytes:
         repo = repo_getter(uid)
@@ -585,6 +618,9 @@ async def pull_preview(
     are fetched on resolution, not for the preview. LOCAL is NOT read here: the
     client already has it in the database.
     """
+    _safe_ref(branch)
+    if synced_oid is not None:
+        _safe_oid(synced_oid)
 
     def work() -> dict:
         repo = repo_getter(uid)
@@ -735,6 +771,7 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
 
     Oversized/binary files return no content (too_large/binary flags) so the
     viewer never tries to render a multi-megabyte or non-text diff."""
+    _safe_ref(branch)
 
     def work() -> dict:
         repo = repo_getter(uid)
@@ -829,6 +866,9 @@ async def commit_push(
     the remote and silently drop those changes. So if the remote moved past our
     anchor, refuse with a `pull_required` GitError — the user must pull first.
     """
+    _safe_ref(branch)
+    if synced_oid is not None:
+        _safe_oid(synced_oid)
 
     def work() -> dict:
         repo = repo_getter(uid)
@@ -945,6 +985,8 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
     git_sync_state to it (it IS the base we imported from → later pushes to the
     same remote are detected as "behind" against this anchor).
     """
+    if branch:
+        _safe_ref(branch)
 
     def work() -> tuple[bytes, str | None]:
         import tempfile

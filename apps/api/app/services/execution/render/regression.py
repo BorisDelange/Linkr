@@ -38,6 +38,12 @@ def validate_spec(spec: dict) -> dict:
         conf = float(spec.get("confidenceLevel", 95))
     except (TypeError, ValueError):
         raise ValueError("regression spec.confidenceLevel must be a number")
+    # Reject non-finite and clamp to (0, 100] — a crafted NaN/inf would flow into
+    # norm.ppf() and surface as bare `NaN` in the JSON output (invalid JSON on the
+    # wire → the component reads it as an error). Mirrors kaplan_meier.
+    if conf != conf or conf in (float("inf"), float("-inf")):
+        raise ValueError("regression spec.confidenceLevel must be finite")
+    conf = min(max(conf, 1e-6), 100.0)
     return {
         "outcome": outcome,
         "predictors": predictors,
