@@ -12,13 +12,26 @@
 > - **[FAIT]** Détection : table `git_sync_state`, bandeau behind/diverged, ancrage à
 >   l'import, sync-state serveur léger (sans ZIP). Commits `2503da91`, `5521e1bc`,
 >   `d9b08e43`.
-> - **[FAIT]** Pull mapping project (§3), par sous-étapes :
->   - **[FAIT]** merger pur `concept-mapping/merge.ts` + tests ; endpoint `pull-preview`
->     (BASE+REMOTE) + test backend.
->   - **[FAIT]** UI de résolution `PullResolveDialog` + orchestration `concept-mapping/pull.ts`.
->   - **[FAIT]** écriture en base des choix (mappings, métadonnées, remplacement bloc
->     source-concepts + scores via l'endpoint `pull-file`) + MAJ de l'ancre.
-> - **[À TESTER]** flux complet bout-en-bout (2 workspaces, pull/push).
+> - **[FAIT]** Pull mapping project (§3) :
+>   - merger pur `concept-mapping/merge.ts` + tests ; endpoint `pull-preview` (BASE+REMOTE).
+>   - UI de résolution `PullResolveDialog` (synthèse) + datatable `PullMappingsTable`
+>     (tri/filtres/resize par colonne, comme l'onglet Mappings) + orchestration
+>     `concept-mapping/pull.ts`.
+>   - écriture en base des choix (mappings, métadonnées, remplacement bloc source-concepts
+>     + scores via `pull-file` LFS-résolu) + MAJ de l'ancre.
+>   - garde-fou : **push refusé tant qu'on est behind** (`pull_required`) pour ne pas
+>     écraser le travail distant.
+>   - Commits `a4aa3242`, `3cff0f3e`, `0653fc4d`, `743af8e6`, `8fb00a89`, `d0077b07`.
+> - **[À TESTER]** flux complet bout-en-bout (2 workspaces, pull/push), en particulier le
+>   chemin **LFS** de `pull-file` (source CSV / scores parquet) contre un vrai endpoint —
+>   validé en logique seulement jusqu'ici.
+>
+> **Sémantique de pull retenue (mapping projects) :** sélection fine (case par mapping,
+> mien/leur par conflit, case par champ de métadonnée, blocs source/scores séparés).
+> **Décocher un mapping distant = le rejeter = il sera supprimé pour tous au prochain
+> push** (choix assumé, comportement git naturel : l'état local fait autorité au push).
+> L'ancre avance au head distant dès qu'on *applique* une résolution (même partielle),
+> ce qui débloque le push ; fermer sans appliquer laisse behind (push toujours bloqué).
 
 ---
 
@@ -358,3 +371,41 @@ champ-par-champ des mappings ; commit de merge git.)*
   logique critique à couvrir — `concept-mapping/merge.test.ts` : appariement des mappings
   par clé, détection ajout/modif/suppr/conflit, résolution par champ des métadonnées,
   bloc source-concepts, choix des scores.
+
+---
+
+## 8 — Pull pour les autres scopes (À FAIRE PLUS TARD, au cas par cas)
+
+Seul le **mapping project** a un pull complet. Les autres scopes versionnables n'ont pour
+l'instant que la **détection** (le bandeau behind/diverged est généralisable) ; le pull lui-
+même reste à concevoir **composant par composant**. Ce n'est pas mécanique : chaque type a
+ses propres familles de contenu, donc sa propre logique de merge ET sa propre UI de
+résolution. Il faut **réfléchir à la logique métier de chaque composant avant de coder**.
+
+Point important : la brique réutilisable est l'**infra** (table `git_sync_state`, ancre,
+endpoints `pull-preview`/`pull-file`, garde-fou push, patron datatable de review). Ce qui
+n'est PAS réutilisable tel quel, c'est le **merger** (clé d'appariement + champs comparés)
+et les **sections d'UI** — à repenser par scope.
+
+Questions à trancher pour chaque scope quand on s'y attaquera :
+- **Quelle est l'unité de merge ?** (l'objet métier, pas le fichier) et **quelle clé stable**
+  l'identifie entre instances (rappel : les `id` sont régénérés à l'import — cf. §3.1.1).
+- **Quelles familles de contenu** et quelle stratégie chacune (ligne à ligne / bloc / champ).
+- **À quoi ressemble l'UI de résolution** pour ce contenu (une datatable ? un diff ? un
+  simple bloc mien/leur ?).
+
+Esquisse par scope (à valider, non figé) :
+
+| Scope | Unité probable | Familles / points à penser |
+|---|---|---|
+| **projects** | hétérogène | dashboards (arbre onglets/widgets), scripts IDE (fichiers), datasets (métadonnées), README, badges, pipeline. Sans doute plusieurs sous-UI, pas un seul merger. Le plus complexe. |
+| **sql-script-collections** | un script | fichiers SQL (nom + contenu) → diff texte par script + métadonnées. |
+| **etl-pipelines** | une étape / un fichier | scripts inline + config du pipeline. |
+| **data-catalogs** | une entrée | config/DCAT-AP JSON ; `catalog_results` = cache (ne pas merger). |
+| **dq-rule-sets** | une règle | SQL inline + custom checks. |
+| **schema-presets** | un preset | JSON de schéma. |
+| **user-plugins** | un fichier de code | code inline. |
+| **workspaces** | agrégat | surtout un conteneur d'entités git-liées ; le pull d'un workspace = orchestrer le pull de ses entités ? À réfléchir séparément. |
+
+Aucun de ces scopes n'est engagé : chacun fera l'objet de sa propre étude (logique + UI)
+avant implémentation.
