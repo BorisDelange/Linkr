@@ -385,6 +385,42 @@ async def test_sync_state_reports_behind_when_remote_advanced():
 
 
 @pytest.mark.asyncio
+async def test_pull_preview_returns_base_and_remote_content():
+    """pull_preview returns the managed JSON files at BASE (synced_oid) and REMOTE
+    (head), plus stats for heavy families — the raw material for the client 3-way."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)
+        base_csv = "code,name\nA,alpha\nB,beta\n"  # 2 data rows
+        first = await g.commit_push(
+            getter, "u",
+            _zip({"mappings.json": '[{"a":1}]', "project.json": '{"name":"v1"}', "source-concepts.csv": base_csv}),
+            "main", "v1", remote, None,
+        )
+        base_oid = first["commit"]["oid"]
+        await g.commit_push(
+            getter, "u",
+            _zip({"mappings.json": '[{"a":2}]', "project.json": '{"name":"v2"}', "source-concepts.csv": base_csv + "C,gamma\n"}),
+            "main", "v2", remote, None,
+        )
+
+        pv = await g.pull_preview(getter, "u", "main", remote, base_oid)
+        assert pv["base"]["files"]["mappings.json"] == '[{"a":1}]'
+        assert pv["remote"]["files"]["mappings.json"] == '[{"a":2}]'
+        assert pv["base"]["files"]["project.json"] == '{"name":"v1"}'
+        assert pv["remote"]["files"]["project.json"] == '{"name":"v2"}'
+        # CSV stats (row count excludes the header).
+        assert pv["base"]["stats"]["source-concepts.csv"]["rowCount"] == 2
+        assert pv["remote"]["stats"]["source-concepts.csv"]["rowCount"] == 3
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 async def test_clone_to_zip_returns_head_oid():
     """clone_to_zip must return the cloned HEAD so the import can anchor the new
     entity's sync state to it (else 'behind' can never be detected for an imported

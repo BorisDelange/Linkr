@@ -1,12 +1,22 @@
 # Versioning : passer du push-only au pull (sync bidirectionnel)
 
-> Document de conception. Aucun code écrit à ce stade — on pose l'architecture, les
-> décisions de fond et les inconnues à trancher avant d'implémenter.
+> Document de conception + suivi d'implémentation.
 >
-> État actuel : le versioning est **push-only** (voir l'en-tête de
-> [git_service.py](../../apps/api/app/services/git_service.py)). Le seul chemin de
-> *lecture* du remote aujourd'hui est l'**import** (`clone_to_zip` → nouvelle entité),
-> jamais une mise à jour d'une entité existante.
+> **Périmètre confirmé : le pull ne concerne QUE les mapping projects.** Pour tous les
+> autres scopes versionnables (projects, sql-collections, etl-pipelines, data-catalogs,
+> dq-rule-sets, schema-presets, user-plugins, workspaces), le pull sera **revu au cas par
+> cas plus tard** — chaque type a des familles de contenu différentes et mérite sa propre
+> stratégie de merge. La détection (bandeau behind/diverged) reste, elle, généralisable.
+>
+> **Avancement :**
+> - **[FAIT]** Détection : table `git_sync_state`, bandeau behind/diverged, ancrage à
+>   l'import, sync-state serveur léger (sans ZIP). Commits `2503da91`, `5521e1bc`,
+>   `d9b08e43`.
+> - **[EN COURS]** Pull mapping project (§3), par sous-étapes :
+>   - **[FAIT]** merger pur `concept-mapping/merge.ts` + tests ; endpoint `pull-preview`
+>     (BASE+REMOTE) + test backend.
+>   - **[TODO]** UI de résolution `PullResolveDialog`.
+>   - **[TODO]** écriture en base des choix + MAJ de l'ancre.
 
 ---
 
@@ -161,7 +171,7 @@ ses familles**, chacune avec sa propre stratégie de merge (décidées avec l'ut
 
 | Famille | Fichier(s) | Unité | Stratégie de merge |
 |---|---|---|---|
-| **Mappings** | `mappings.json` | un mapping (clé stable : `id`, à défaut `sourceConceptId`+`sourceVocabularyId`) | **3-way ligne par ligne**, résolution **par mapping** : ajout/modif/suppr propres appliqués ; conflit = choix binaire *le mien* / *le leur* **pour ce mapping** (« prends celui poussé ailleurs, garde le mien pas encore committé »). |
+| **Mappings** | `mappings.json` | un mapping (clé = voir §3.1.1 — **PAS** `id`) | **3-way ligne par ligne**, résolution **par mapping** : ajout/modif/suppr propres appliqués ; conflit = choix binaire *le mien* / *le leur* **pour ce mapping** (« prends celui poussé ailleurs, garde le mien pas encore committé »). |
 | **Source concepts** | `source-concepts.csv` (souvent LFS) | la liste entière | **En bloc** : choix *mien* / *leur* pour toute la liste (pas de résolution ligne à ligne). Mais afficher des **infos + un aperçu** avant de choisir : nombre de lignes local vs distant, et les **100–1000 premières lignes ajoutées / supprimées** (même esprit que le diff hunks) pour comprendre ce qui change. |
 | **Similarity scores** | `similarity-scores.parquet` (LFS) | la liste entière | **Version distante en bloc** (donnée dérivée/recalculable). Afficher des **infos de diff** avant de remplacer : nombre de scores local vs distant, date de modification. Pas de conflit possible. |
 | **Métadonnées** | `project.json` (nom, description, badges…) | chaque champ | **3-way par champ** ; conflit = les deux ont changé le même champ depuis la base → choix *mien* / *leur* **par champ** (garder mon nom, prendre leur description). |
@@ -171,6 +181,39 @@ tree de fichiers en ces familles, (b) apparier/differ selon la stratégie de cha
 (c) produire une liste de changements proposés + conflits. La généralisation aux autres
 scopes (projects, SQL, ETL…) est **hors périmètre v1** — on valide toute l'infra sur le
 mapping project d'abord.
+
+### 3.1.1 La clé d'appariement des mappings (vérifié dans le code)
+
+Décisif pour tout le merge. **Le `id` d'un mapping n'est PAS stable entre instances** :
+à l'import, `MappingProjectListPage.doImport` régénère `id: crypto.randomUUID()` pour
+chaque mapping. Donc l'`id` dans le `mappings.json` distant (REMOTE) ne correspond à aucun
+`id` local (LOCAL) — l'appariement par `id` échoue systématiquement (tout paraîtrait
+« ajouté chez eux + supprimé chez moi »).
+
+L'identité stable inter-instances est le **concept source**. Mais la table
+`concept_mappings` n'a **aucune contrainte d'unicité** sur la source → un même concept
+source peut avoir **plusieurs mappings** (plusieurs cibles). Deux clés possibles :
+
+- **(K1) source seule** : `sourceConceptId | sourceVocabularyId | sourceConceptCode`.
+  - *Re-cibler* un concept (changer sa target) = **une modification** (intuitif).
+  - Mais si un concept a **plusieurs targets**, K1 les confond (ne distingue pas « j'ai
+    ajouté une 2ᵉ cible » de « j'ai changé la cible ») → appariement ambigu, voire
+    plusieurs mappings LOCAL/REMOTE pour la même clé (indécidable proprement).
+- **(K2) source + target** : `…source… → targetConceptId | targetVocabularyId | targetConceptCode`.
+  - Gère nativement le multi-cibles (chaque paire est une unité distincte).
+  - Mais *re-cibler* un concept devient **une suppression + un ajout** (moins intuitif à
+    lire, mais sémantiquement exact : l'ancienne paire n'existe plus, une nouvelle apparaît).
+
+**Décision : K2** (source + target) — validé. Le modèle autorise le multi-cibles et K1 y
+devient ambigu. Le coût (re-cibler = suppr+ajout) est acceptable et se corrige à
+l'affichage : on peut *détecter* qu'une suppression et un ajout partagent la même source et
+les présenter comme « cible modifiée » dans l'UI, sans compliquer la clé de merge.
+
+Clé exacte : `${sourceConceptId}|${sourceVocabularyId}|${sourceConceptCode}»→»${targetConceptId}|${targetVocabularyId}|${targetConceptCode}`
+(les champs nuls normalisés en chaîne vide, pour un appariement déterministe).
+
+*(Champs comparés pour un « modifié » sous K2 : equivalence, status, comments, reviews,
+mappedBy/reviewedBy + détails, reviewComment, matchScore — pas les timestamps ni les `id`.)*
 
 ### 3.2 Où tourne le merge ?
 

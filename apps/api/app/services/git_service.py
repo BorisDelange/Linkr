@@ -494,6 +494,97 @@ async def sync_state(
         return await asyncio.to_thread(work)
 
 
+# Files a mapping-project pull merges as JSON (small — full content is returned).
+_PULL_TEXT_FILES = ("mappings.json", "project.json")
+# Whole-list families: too big to ship for a 3-way, so we return stats only; the
+# actual bytes are pulled on resolution. (line count for CSV; presence for parquet.)
+_PULL_STAT_FILES = ("source-concepts.csv", "similarity-scores.parquet")
+
+
+def _blob_at(repo: Path, commit: str, path: str) -> str | None:
+    """Text content of `path` at `commit`, or None if the file is absent there.
+    An unresolved LFS pointer is returned as-is (the caller decides)."""
+    out = _run(repo, "show", f"{commit}:{path}", check=False)
+    return out if out else None
+
+
+def _csv_line_count(text: str) -> int:
+    """Data-row count of a CSV (excludes the header, ignores a trailing newline)."""
+    n = text.count("\n")
+    if text and not text.endswith("\n"):
+        n += 1
+    return max(0, n - 1)  # minus the header row
+
+
+async def pull_preview(
+    repo_getter,
+    uid: str,
+    branch: str,
+    remote_url: str | None,
+    synced_oid: str | None,
+    token: str | None = None,
+) -> dict:
+    """Fetch BASE (synced_oid) and REMOTE (remote head), returning the managed
+    files' content for the client to 3-way merge against its own DB (LOCAL).
+
+    JSON families (mappings/project) come back as full text; heavy whole-list
+    families (source CSV, scores parquet) come back as stats only — their bytes
+    are fetched on resolution, not for the preview. LOCAL is NOT read here: the
+    client already has it in the database.
+    """
+
+    def work() -> dict:
+        repo = repo_getter(uid)
+        _ensure_repo(repo, remote_url)
+        if not remote_url:
+            raise GitError("mapping project is not linked to a git remote", "unknown")
+        # Fetch both commits' trees + LFS for the CSV line count. This is the one
+        # place we DO want file contents (unlike sync_state), so smudge LFS.
+        has_remote = _sync_remote_branch(repo, branch, remote_url, token)
+        if not has_remote:
+            raise GitError("remote branch not found", "not_found")
+        remote_head = _run(repo, "rev-parse", "FETCH_HEAD", check=False).strip()
+        ls_url = _with_credentials(remote_url, token)
+        if synced_oid:
+            _run(repo, "fetch", "-q", ls_url, synced_oid, token=token,
+                 env_extra={"GIT_LFS_SKIP_SMUDGE": "1"}, check=False)
+
+        def side(commit: str | None) -> dict:
+            if not commit:
+                return {"files": {}, "stats": {}}
+            files: dict[str, str | None] = {}
+            for name in _PULL_TEXT_FILES:
+                files[name] = _blob_at(repo, commit, name)
+            stats: dict[str, dict] = {}
+            for name in _PULL_STAT_FILES:
+                raw = _blob_at(repo, commit, name)
+                if raw is None:
+                    stats[name] = {"present": False}
+                elif raw.startswith("version https://git-lfs"):
+                    # LFS pointer we couldn't smudge — report size from the pointer.
+                    size = 0
+                    for line in raw.splitlines():
+                        if line.startswith("size "):
+                            size = int(line.split(" ", 1)[1] or 0)
+                    stats[name] = {"present": True, "lfs": True, "byteSize": size}
+                elif name.endswith(".csv"):
+                    stats[name] = {"present": True, "rowCount": _csv_line_count(raw), "byteSize": len(raw.encode("utf-8", "ignore"))}
+                else:
+                    stats[name] = {"present": True, "byteSize": len(raw.encode("utf-8", "ignore"))}
+            return {"files": files, "stats": stats}
+
+        return {
+            "branch": branch,
+            "remoteHead": remote_head,
+            "syncedOid": synced_oid,
+            "base": side(synced_oid),
+            "remote": side(remote_head),
+        }
+
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
+
+
 # Shipping megabytes to the browser (and diffing them, LCS is O(n²)) would freeze
 # the UI, so an oversized text file is truncated to a preview rather than dropped:
 # the user still sees the head of a big CSV/JSON instead of "too large".

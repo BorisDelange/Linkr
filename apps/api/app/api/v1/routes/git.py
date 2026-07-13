@@ -23,6 +23,7 @@ from app.schemas.git import (
     GitCloneRequest,
     GitCommitResponse,
     GitDiffResponse,
+    GitPullPreviewResponse,
     GitSetSyncStateRequest,
     GitStatusResponse,
     GitSyncStateResponse,
@@ -311,6 +312,24 @@ async def mapping_project_sync_state(
         db, "mapping-projects", git_service.mapping_project_repo_getter, mp.id,
         _default_branch(mp, branch), _remote_url(mp), git_secret.token_for(mp),
     )
+
+
+@router.get("/mapping-projects/{mapping_project_id}/pull-preview", response_model=GitPullPreviewResponse)
+async def mapping_project_pull_preview(
+    mapping_project_id: str,
+    branch: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Fetch BASE + REMOTE managed-file content so the client can 3-way merge them
+    against its DB (LOCAL) and present a resolution UI. Read access is enough — the
+    pull only writes the DB once the user resolves (via the entity's own APIs)."""
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    row = await git_sync_state_service.get(db, "mapping-projects", mp.id, _default_branch(mp, branch))
+    return await _guard(git_service.pull_preview(
+        git_service.mapping_project_repo_getter, mp.id, _default_branch(mp, branch),
+        _remote_url(mp), row.synced_oid if row else None, git_secret.token_for(mp),
+    ))
 
 
 @router.post("/mapping-projects/{mapping_project_id}/set-sync-state", status_code=status.HTTP_204_NO_CONTENT)

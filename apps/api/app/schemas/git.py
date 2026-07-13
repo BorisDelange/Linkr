@@ -57,6 +57,23 @@ class GitSyncStateResponse(CamelModel):
     diverged: bool = False  # the anchor is not an ancestor of the remote head (rewrite)
 
 
+class GitPullSide(CamelModel):
+    """One snapshot (BASE or REMOTE) of the managed files for a pull preview."""
+
+    # name → full text content (null if absent at that commit). JSON families only.
+    files: dict[str, str | None] = {}
+    # name → stats ({present, rowCount?, byteSize?, lfs?}) for heavy whole-list families.
+    stats: dict[str, dict] = {}
+
+
+class GitPullPreviewResponse(CamelModel):
+    branch: str
+    remote_head: str | None = None
+    synced_oid: str | None = None
+    base: GitPullSide
+    remote: GitPullSide
+
+
 class GitSetSyncStateRequest(CamelModel):
     """Anchor an entity's sync state to a known remote commit (used right after a
     git import, where the cloned HEAD is the base we imported from)."""
