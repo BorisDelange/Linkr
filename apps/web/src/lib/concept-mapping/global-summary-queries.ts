@@ -205,7 +205,7 @@ export async function populateDedupTable(
 
   for (const m of allMappings) {
     const p = projectMap.get(m.projectId)
-    const allBadges = (p?.badges ?? []).map((b) => b.label).filter(Boolean)
+    const allBadges = (p?.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean)
     if (allBadges.length === 0) continue
     const badgeKey = [...allBadges].sort().join('|')
     const sourceKey = `${badgeKey}__${m.sourceVocabularyId}__${m.sourceConceptCode ?? m.sourceConceptId}`
@@ -238,7 +238,7 @@ export async function populateDedupTable(
   for (const [projectId, sourceConcepts] of allSourceConceptsByProject) {
     const p = projectMap.get(projectId)
     if (!p) continue
-    const allBadges = (p.badges ?? []).map((b) => b.label).filter(Boolean)
+    const allBadges = (p.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean)
     if (allBadges.length === 0) continue
     const badgeKey = [...allBadges].sort().join('|')
     const isArtificialId = p.sourceType === 'database'

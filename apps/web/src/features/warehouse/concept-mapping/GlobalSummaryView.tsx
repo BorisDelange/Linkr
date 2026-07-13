@@ -179,7 +179,7 @@ function computeGroupStats(
   // in badge mode — 'Other' when it has none).
   const projectKeys = (p: MappingProject): string[] => {
     if (groupMode === 'project') return [localized(p.name, 'en')]
-    const labels = (p.badges ?? []).map((b) => b.label).filter(Boolean)
+    const labels = (p.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean)
     return labels.length > 0 ? labels : ['Other']
   }
 
@@ -731,7 +731,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
   const allBadgeLabels = useMemo(() => {
     const labels = new Set<string>()
-    for (const p of projects) for (const b of p.badges ?? []) if (b.label) labels.add(b.label)
+    for (const p of projects) for (const b of p.badges ?? []) { const l = localized(b.label, 'en'); if (l) labels.add(l) }
     return Array.from(labels).sort()
   }, [projects])
 
@@ -760,7 +760,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       ? allMappings.filter((m) => {
           const p = projects.find((proj) => proj.id === m.projectId)
           if (groupMode === 'badge') {
-            const labels = (p?.badges ?? []).map((b) => b.label)
+            const labels = (p?.badges ?? []).map((b) => localized(b.label, 'en'))
             return labels.some((l) => exportGroupFilter.has(l))
           }
           const name = p ? localized(p.name, 'en') : m.projectId
@@ -790,7 +790,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       if (hasGroupFilter) {
         const p = projects.find((proj) => proj.id === m.projectId)
         if (groupMode === 'badge') {
-          const labels = (p?.badges ?? []).map((b) => b.label)
+          const labels = (p?.badges ?? []).map((b) => localized(b.label, 'en'))
           if (!labels.some((l) => exportGroupFilter.has(l))) return false
         } else {
           // project mode
@@ -838,7 +838,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const exportGroupOptions = useMemo(() => {
     if (groupMode === 'badge') {
       const labels = new Set<string>()
-      for (const p of projects) for (const b of p.badges ?? []) if (b.label) labels.add(b.label)
+      for (const p of projects) for (const b of p.badges ?? []) { const l = localized(b.label, 'en'); if (l) labels.add(l) }
       return Array.from(labels).sort()
     }
     return projects.map((p) => localized(p.name, 'en')).sort()
@@ -861,7 +861,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       // Collect ALL source concepts across all filtered projects
       const filteredProjectIds = exportGroupFilter.size > 0
         ? new Set(projects.filter((p) => {
-            const labels = (p.badges ?? []).map((b) => b.label)
+            const labels = (p.badges ?? []).map((b) => localized(b.label, 'en'))
             return groupMode === 'badge'
               ? labels.some((l) => exportGroupFilter.has(l))
               : exportGroupFilter.has(localized(p.name, 'en'))

@@ -82,6 +82,7 @@ import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-bad
 import { fuzzyTextMatch } from '@/lib/fuzzy-search'
 import { escSql } from '@/lib/format-helpers'
 import { getStorage } from '@/lib/storage'
+import { localized } from '@/lib/localized'
 
 interface MappingsTabProps {
   project: MappingProject
@@ -944,7 +945,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     let cancelled = false
     const load = async () => {
       const wsId = project.workspaceId
-      const badgeLabels = (project.badges ?? []).map((b) => b.label).filter(Boolean)
+      const badgeLabels = (project.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean)
       if (!wsId || badgeLabels.length === 0) {
         if (!cancelled) setSourceConceptIdMap(new Map())
         return

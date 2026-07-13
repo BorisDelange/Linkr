@@ -260,7 +260,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       bg: 'bg-blue-50 dark:bg-blue-950/30',
       generate: async () => {
         // Load registry entries for the project's badge labels
-        const badgeLabels = (project.badges ?? []).map((b) => b.label).filter(Boolean)
+        const badgeLabels = (project.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean)
         let registryEntries = undefined
         if (badgeLabels.length > 0 && project.workspaceId) {
           const allEntries = await Promise.all(

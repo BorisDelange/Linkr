@@ -88,6 +88,10 @@ export interface ProjectBadge {
 
 /** Organization or author metadata. */
 export interface OrganizationInfo {
+  /** Original organization id, preserved on an inline provenance snapshot (an
+   *  entity's `organization` field) so the source org stays identifiable. The
+   *  first-class Organization entity narrows this to a required id. */
+  id?: string
   /** Multilingual; legacy string values are read transparently via localized(). */
   name: LocalizedString | string
   /** Type of organization (e.g. hospital, university, research_institute, company, consortium). */

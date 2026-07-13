@@ -16,6 +16,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { getStorage } from '@/lib/storage'
+import { localized } from '@/lib/localized'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
@@ -84,7 +85,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
 
   // Distinct badge labels across all projects
   const allBadgeLabels: string[] = Array.from(
-    new Set(projects.flatMap((p) => (p.badges ?? []).map((b) => b.label).filter(Boolean))),
+    new Set(projects.flatMap((p) => (p.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean))),
   ).sort()
 
   const load = useCallback(async () => {
@@ -190,7 +191,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       // Gather all (vocabularyId, conceptCode) pairs from projects that have this badge
       // — includes ALL source concepts, not just mapped ones
       const projectsWithBadge = projects.filter((p) =>
-        (p.badges ?? []).some((b) => b.label === badgeLabel),
+        (p.badges ?? []).some((b) => localized(b.label, 'en') === badgeLabel),
       )
 
       if (projectsWithBadge.length === 0) {

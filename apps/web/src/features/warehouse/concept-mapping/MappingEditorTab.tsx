@@ -18,6 +18,7 @@ import {
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 import { getStorage } from '@/lib/storage'
+import { localized } from '@/lib/localized'
 import { SourceConceptTable, type MappingStatusFilter } from './components/SourceConceptTable'
 import { TargetConceptPanel } from './components/TargetConceptPanel'
 import { ConceptDetailView } from './components/ConceptDetailView'
@@ -74,7 +75,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     let cancelled = false
     const load = async () => {
       const wsId = project.workspaceId
-      const badgeLabels = (project.badges ?? []).map((b) => b.label).filter(Boolean)
+      const badgeLabels = (project.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean)
       if (!wsId || badgeLabels.length === 0) {
         if (!cancelled) setSourceConceptIdMap(new Map())
         return

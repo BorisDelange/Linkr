@@ -17,6 +17,7 @@ import type JSZip from 'jszip'
 
 import type { Storage } from '@/lib/storage'
 import type { MappingProject, SourceConceptIdEntry, SourceConceptIdRange } from '@/types'
+import { localized } from '@/lib/localized'
 
 /** Compact JSON format for source-concept-id entries (smaller than one object per entry). */
 export interface CompactSourceConceptIdEntries {
@@ -68,7 +69,9 @@ export async function buildProjectSourceConceptIds(
   project: MappingProject,
   storage: Storage,
 ): Promise<void> {
-  const labels = (project.badges ?? []).map(b => b.label)
+  // Badge labels key the workspace registry, so resolve to the canonical 'en'
+  // value (stable across the UI language) — never the active-language string.
+  const labels = (project.badges ?? []).map(b => localized(b.label, 'en')).filter(Boolean)
   if (labels.length === 0) return
 
   const ranges: SourceConceptIdRange[] = []
