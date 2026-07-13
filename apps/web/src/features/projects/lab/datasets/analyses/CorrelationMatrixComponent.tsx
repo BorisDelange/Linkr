@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { Grid3X3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer } from '@/lib/api/execution'
+import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import { buildCorrelationMatrixCode } from './correlation-matrix-server'
+import { buildCorrelationMatrixSpec } from './correlation-matrix-server'
 
 // ===========================================================================
 // Types
@@ -281,17 +281,19 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
     () => (server ? null : computeCorrelationMatrix(rows, columns, selectedColumns, method)),
     [server, rows, columns, selectedColumns, method],
   )
-  // Stable string keys so the effect only re-fetches on a semantic change.
-  const serverCode = server && datasetFileId
-    ? buildCorrelationMatrixCode(columns, selectedColumns, method)
+  // Stable string keys so the effect only re-fetches on a semantic change (the spec
+  // object gets a new reference each render, so key the effect on its JSON instead).
+  const spec = server && datasetFileId
+    ? buildCorrelationMatrixSpec(columns, selectedColumns, method)
     : null
+  const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverResult, setServerResult] = useState<CorrelationResult | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   useEffect(() => {
-    if (!server || !datasetFileId || !serverCode) return
+    if (!server || !datasetFileId || !spec) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'render' })
+    renderOnServer('correlation-matrix', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerError(out.stderr); return }
@@ -300,7 +302,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
       })
       .catch((e) => { if (!cancelled) setServerError(String(e)) })
     return () => { cancelled = true }
-  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const result = server ? serverResult : localResult
   const totalN = result?.totalN ?? rows.length

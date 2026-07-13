@@ -1,6 +1,23 @@
 # Plan: server-generated render code (close the viewer-RCE hole)
 
-**Status:** IN PROGRESS (2026-07-13). Socle + first component (table1) DONE:
+**Status:** DONE (2026-07-13). ALL 9 built-in analyses migrated — the viewer-RCE
+hole is fully closed: `/execute` refuses `purpose="render"`, and every render goes
+through `POST /execute/render` with a server-owned program + validated spec.
+Registry `render/__init__.py` wires all 9 kinds (table1, correlation-matrix, map,
+kaplan-meier, sankey, key-indicator, regression, plot-builder, statistical-tests).
+Two correctness fixes applied during migration: kaplan-meier & regression
+`confidenceLevel` is a 0–100 percentage (default 95, not the 0.95 fraction the first
+draft used — `_KM_PY`/`_REG_PY` compute `alpha = 1 - conf/100`). Tests: test_render.py
+covers all 9 (validate + build + compile + non-dict rejection + registry completeness);
+test_execution.py has end-to-end table1 + correlation-matrix through the real kernel +
+the security-gating test (viewer render via /render OK; free code under purpose=render
+→ 400). REMAINING cleanup (optional, non-blocking): `render` is still an accepted value
+in ExecuteRequest.purpose's enum/docstring even though /execute now refuses it — could be
+dropped from the enum for tidiness. Original plan detail below.
+
+---
+
+Socle + first component (table1) DONE:
 - `POST /execute/render` added (viewer-gated, `{kind, spec}`, no free code); `/execute`
   now REFUSES `purpose="render"` — the hole is closed for any migrated kind.
 - Server render registry: `app/services/execution/render/` (`__init__.py` + `table1.py`,

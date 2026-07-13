@@ -17,9 +17,9 @@ import { cn } from '@/lib/utils'
 import { resolveColor, getLucideIcon, aggregateByEntity, resolvePalette } from '@/lib/plugins/shared-styles'
 import { TruncatedTick } from './chart-axis-helpers'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer } from '@/lib/api/execution'
+import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import { buildKeyIndicatorCode } from './key-indicator-server'
+import { buildKeyIndicatorSpec } from './key-indicator-server'
 
 // ---------------------------------------------------------------------------
 // Aggregate functions
@@ -261,16 +261,17 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
   // Server mode: the backend computes the aggregate + stats + already-binned chart
   // data on the Parquet (rows never leave the server). Stable string keys so the
   // effect only re-fetches when inputs semantically change — never every render.
-  const serverCode = server && datasetFileId && column
-    ? buildKeyIndicatorCode(columns, config)
+  const spec = server && datasetFileId && column
+    ? buildKeyIndicatorSpec(columns, config)
     : null
+  const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<KpiServerData | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   useEffect(() => {
-    if (!server || !datasetFileId || !serverCode) return
+    if (!server || !datasetFileId || !spec) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'render' })
+    renderOnServer('key-indicator', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerError(out.stderr); return }
@@ -279,7 +280,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
       })
       .catch((e) => { if (!cancelled) setServerError(String(e)) })
     return () => { cancelled = true }
-  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Aggregate rows per entity if uniquePer is set
   const sourceRows = useMemo(() => {

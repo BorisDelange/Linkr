@@ -8,9 +8,9 @@ import { cn } from '@/lib/utils'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { getLucideIcon, resolvePalette } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer } from '@/lib/api/execution'
+import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import { buildSankeyCode } from './sankey-server'
+import { buildSankeySpec } from './sankey-server'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -187,17 +187,19 @@ export function SankeyComponent({ config, columns, rows, compact, datasetFileId,
   const linkColorMode = (config.linkColorMode as string) ?? 'source'
   const palette = resolvePalette((config.colorPalette as string) ?? 'default', (config.customPalette as string) ?? '')
 
-  // Server mode: the backend reconstructs flows + counts links on the Parquet. Stable
-  // string keys so the effect only re-fetches on a semantic change.
-  const serverCode = server && datasetFileId
-    ? buildSankeyCode(columns, config)
+  // Server mode: the backend reconstructs flows + counts links on the Parquet from
+  // a validated spec (never client code). Stable string keys so the effect only
+  // re-fetches on a semantic change.
+  const spec = server && datasetFileId
+    ? buildSankeySpec(columns, config)
     : null
+  const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<SankeyServerData | null>(null)
   useEffect(() => {
-    if (!server || !datasetFileId || !serverCode) return
+    if (!server || !datasetFileId || !spec) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'render' })
+    renderOnServer('sankey', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerData({ nodes: [], links: [], total: 0, error: null }); return }
@@ -206,7 +208,7 @@ export function SankeyComponent({ config, columns, rows, compact, datasetFileId,
       })
       .catch(() => { if (!cancelled) setServerData({ nodes: [], links: [], total: 0, error: null }) })
     return () => { cancelled = true }
-  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Build flows then link counts ---
   const { nodes, links, total, error } = useMemo(() => {

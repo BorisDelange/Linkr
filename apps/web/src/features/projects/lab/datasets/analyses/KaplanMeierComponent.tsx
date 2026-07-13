@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { Activity, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer } from '@/lib/api/execution'
+import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import { buildKaplanMeierCode } from './kaplan-meier-server'
+import { buildKaplanMeierSpec } from './kaplan-meier-server'
 
 // ===========================================================================
 // Types
@@ -742,17 +742,18 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
     [server, rows, columns, timeId, eventId, groupId, confidenceLevel],
   )
   // Stable string keys so the effect only re-fetches on a semantic change.
-  const serverCode = server && datasetFileId && timeId && eventId
-    ? buildKaplanMeierCode(columns, timeId, eventId, groupId, confidenceLevel)
+  const spec = server && datasetFileId && timeId && eventId
+    ? buildKaplanMeierSpec(columns, timeId, eventId, groupId, confidenceLevel)
     : null
+  const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverResult, setServerResult] = useState<KMResult | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   const [serverLoaded, setServerLoaded] = useState(false)
   useEffect(() => {
-    if (!server || !datasetFileId || !serverCode) return
+    if (!server || !datasetFileId || !spec) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'render' })
+    renderOnServer('kaplan-meier', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
         setServerLoaded(true)
@@ -764,7 +765,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
       })
       .catch((e) => { if (!cancelled) { setServerLoaded(true); setServerError(String(e)) } })
     return () => { cancelled = true }
-  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const result = server ? serverResult : localResult
 

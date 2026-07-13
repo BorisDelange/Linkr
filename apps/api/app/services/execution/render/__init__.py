@@ -14,12 +14,31 @@ spliced into Python source (same discipline as injection.py).
 
 from collections.abc import Callable
 
-from app.services.execution.render import table1
+from app.services.execution.render import (
+    correlation_matrix,
+    kaplan_meier,
+    key_indicator,
+    map as map_,
+    plot_builder,
+    regression,
+    sankey,
+    statistical_tests,
+    table1,
+)
 
-# kind → (spec validator/normalizer, python builder). Add one entry per migrated
+# kind → (spec validator/normalizer, python builder). One entry per built-in
 # analysis. A kind absent here is rejected by the route (unknown render kind).
+# The kind strings match what the frontend components send to renderOnServer().
 _BUILDERS: dict[str, tuple[Callable[[dict], dict], Callable[[dict], str]]] = {
     "table1": (table1.validate_spec, table1.build_code),
+    "correlation-matrix": (correlation_matrix.validate_spec, correlation_matrix.build_code),
+    "map": (map_.validate_spec, map_.build_code),
+    "kaplan-meier": (kaplan_meier.validate_spec, kaplan_meier.build_code),
+    "sankey": (sankey.validate_spec, sankey.build_code),
+    "key-indicator": (key_indicator.validate_spec, key_indicator.build_code),
+    "regression": (regression.validate_spec, regression.build_code),
+    "plot-builder": (plot_builder.validate_spec, plot_builder.build_code),
+    "statistical-tests": (statistical_tests.validate_spec, statistical_tests.build_code),
 }
 
 

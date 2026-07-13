@@ -7,9 +7,40 @@ from app.services.execution import render
 from app.services.execution.render import table1
 
 
-def test_registry_knows_table1_only_for_now():
-    assert render.is_known_kind("table1")
+# The 9 built-in analyses and a minimal valid spec for each (column names +
+# options), enough for validate_spec to pass and build_code to emit runnable code.
+_KINDS = {
+    "table1": {"selected": [{"name": "age", "numeric": True}], "group": None, "metrics": ["n"]},
+    "correlation-matrix": {"names": ["a", "b"], "method": "pearson"},
+    "map": {"lat": "lat", "lon": "lon", "popup": []},
+    "kaplan-meier": {"time": "t", "event": "e", "group": None, "confidenceLevel": 95},
+    "sankey": {"sourceMode": "long", "entity": "id", "stage": "s"},
+    "key-indicator": {"column": {"name": "x", "numeric": True}, "aggregate": "mean"},
+    "regression": {"outcome": {"name": "y", "numeric": True},
+                   "predictors": [{"name": "x", "numeric": True}], "regressionType": "auto"},
+    "plot-builder": {"plotType": "scatter", "x": "a", "y": "b"},
+    "statistical-tests": {"group": "g", "values": [{"name": "x", "type": "number"}]},
+}
+
+
+def test_registry_has_all_nine_builtin_kinds():
+    assert set(_KINDS) == set(render._BUILDERS), "registry drifted from the 9 built-in analyses"
     assert not render.is_known_kind("nope")
+
+
+@pytest.mark.parametrize("kind, spec", list(_KINDS.items()))
+def test_each_kind_builds_runnable_code(kind, spec):
+    """Every registered kind validates its minimal spec and emits Python that
+    parses the spec via _json.loads (data embedded, never spliced as source)."""
+    code = render.build_render_code(kind, spec)
+    assert "_json.loads(" in code
+    compile(code, f"<render:{kind}>", "exec")  # syntactically valid Python
+
+
+@pytest.mark.parametrize("kind", list(_KINDS))
+def test_each_kind_rejects_a_non_dict_spec(kind):
+    with pytest.raises(ValueError):
+        render.build_render_code(kind, "not-a-dict")
 
 
 def test_build_render_code_unknown_kind_raises():

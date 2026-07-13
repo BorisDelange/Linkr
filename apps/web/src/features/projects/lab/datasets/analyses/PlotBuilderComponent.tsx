@@ -21,9 +21,9 @@ import { niceTicks } from '@/lib/chart-ticks'
 import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette } from '@/lib/plugins/shared-styles'
 import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel } from './chart-axis-helpers'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer } from '@/lib/api/execution'
+import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import { buildPlotBuilderCode } from './plot-builder-server'
+import { buildPlotBuilderSpec } from './plot-builder-server'
 
 // Server-computed chart payloads (parity with each sub-plot's front-only useMemo shape).
 interface PlotScatterSeries { name: string; data: { x: number; y: number }[] }
@@ -538,18 +538,20 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   }, [groupCol, columns, sourceRows])
 
   // Server mode: the backend computes the chart data (aggregates for bar/histogram/box,
-  // raw points for scatter/line) on the Parquet. Stable string keys so the effect only
-  // re-fetches on a semantic change, never every render.
-  const serverCode = server && datasetFileId
-    ? buildPlotBuilderCode(columns, config)
+  // raw points for scatter/line) on the Parquet from a validated spec — it owns the
+  // program, so a viewer can't run arbitrary code. Stable string keys so the effect
+  // only re-fetches on a semantic change, never every render.
+  const spec = server && datasetFileId && columns.length > 0
+    ? buildPlotBuilderSpec(columns, config)
     : null
+  const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<PlotServerData | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   useEffect(() => {
-    if (!server || !datasetFileId || !serverCode) return
+    if (!server || !datasetFileId || !spec) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'render' })
+    renderOnServer('plot-builder', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerError(out.stderr); return }
@@ -558,7 +560,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
       })
       .catch((e) => { if (!cancelled) setServerError(String(e)) })
     return () => { cancelled = true }
-  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Validate
   const xColumn = columns.find(c => c.id === xCol)

@@ -6,9 +6,9 @@ import 'leaflet/dist/leaflet.css'
 import { cn } from '@/lib/utils'
 import { resolveColor, getLucideIcon, resolvePalette, DEFAULT_COLOR } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer } from '@/lib/api/execution'
+import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import { buildMapCode } from './map-server'
+import { buildMapSpec } from './map-server'
 
 interface MapServerRow {
   lat: number
@@ -120,15 +120,16 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
 
   // Server mode: the backend extracts the per-row plotting fields (valid coords +
   // popup values) + category/size metadata. Palette + radius resolution stay here.
-  const serverCode = server && datasetFileId && latCol && lonCol
-    ? buildMapCode(columns, config)
+  const spec = server && datasetFileId && latCol && lonCol
+    ? buildMapSpec(columns, config)
     : null
+  const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<MapServerData | null>(null)
   useEffect(() => {
-    if (!server || !datasetFileId || !serverCode) return
+    if (!server || !datasetFileId || !spec) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'render' })
+    renderOnServer('map', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerData({ rows: [], colorCats: [], sizeMin: null, sizeMax: null }); return }
@@ -137,7 +138,7 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
       })
       .catch(() => { if (!cancelled) setServerData({ rows: [], colorCats: [], sizeMin: null, sizeMax: null }) })
     return () => { cancelled = true }
-  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Map each distinct category value to a palette color
   const colorScale = useMemo(() => {

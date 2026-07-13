@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { FlaskConical, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer } from '@/lib/api/execution'
+import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import { buildStatisticalTestsCode } from './statistical-tests-server'
+import { buildStatisticalTestsSpec } from './statistical-tests-server'
 
 // ===========================================================================
 // Types
@@ -1080,16 +1080,17 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
     [server, rows, columns, groupColumnId, valueColumnIds, testPreference, alpha],
   )
   // Stable string keys so the effect only re-fetches on a semantic change.
-  const serverCode = server && datasetFileId && groupColumnId
-    ? buildStatisticalTestsCode(columns, groupColumnId, valueColumnIds, testPreference, alpha)
+  const spec = server && datasetFileId && groupColumnId
+    ? buildStatisticalTestsSpec(columns, groupColumnId, valueColumnIds, testPreference, alpha)
     : null
+  const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverResults, setServerResults] = useState<TestResult[] | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   useEffect(() => {
-    if (!server || !datasetFileId || !serverCode) return
+    if (!server || !datasetFileId || !spec) return
     let cancelled = false
-    executeOnServer('python', serverCode, { datasetFileId, datasetFilters, purpose: 'render' })
+    renderOnServer('statistical-tests', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
         if (out.stderr) { setServerError(out.stderr); return }
@@ -1098,7 +1099,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
       })
       .catch((e) => { if (!cancelled) setServerError(String(e)) })
     return () => { cancelled = true }
-  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const results = useMemo(() => (server ? serverResults : localResults) ?? [], [server, serverResults, localResults])
 

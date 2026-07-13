@@ -252,6 +252,28 @@ async def test_render_table1_produces_table1data(client):
     assert "a::n" in data["rows"][0]["values"] and "b::mean_sd" in data["rows"][0]["values"]
 
 
+async def test_render_correlation_matrix_end_to_end(client):
+    """A second kind through the real kernel (scipy) — proves the render path is
+    generic, not table1-specific."""
+    from app.services import project_fs
+
+    headers = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+    (project_fs.datasets_dir(uid) / "d.csv").write_text("a,b\n1,2\n2,4\n3,6\n4,8\n")
+    r = await client.post(f"{API}/execute/render", headers=headers, json={
+        "kind": "correlation-matrix",
+        "spec": {"names": ["a", "b"], "method": "pearson"},
+        "projectUid": uid, "datasetFileId": "d.csv",
+    })
+    assert r.status_code == 200, r.text
+    import json
+    data = json.loads(r.json()["stdout"].strip())
+    assert data["names"] == ["a", "b"]
+    # a and b are perfectly correlated (b = 2a) → r ≈ 1.
+    assert data["matrix"][0][1]["r"] > 0.999
+
+
 async def test_render_rejects_unknown_kind(client):
     headers = await _admin_headers(client)
     uid = await _project(client, headers)
