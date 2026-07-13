@@ -21,7 +21,7 @@ files**, and **one `spec.json`**, then run the script.
 | Project metadata (name, description, badges) | ✅ | ✅ | `references/project-meta.md` |
 | README + tasks (todos/notes) | ✅ | ✅ | `references/project-meta.md` |
 | Datasets (CSV → table) | ✅ | ✅ | `references/datasets.md` |
-| Dashboards (KPIs + charts + filters) | ✅ | ✅ | `references/dashboards.md` |
+| Dashboards (8 built-in widgets: KPI, plot, table1, correlation, stat-tests, regression, Kaplan-Meier, map, sankey + inline code + filters) | ✅ | ✅ | `references/dashboards.md` |
 | IDE files (`.py` / `.r` / `.sql` / `.md` in Lab › IDE) | ✅ | ✅ | `references/ide-files.md` |
 | Cohorts, DB connections, pipelines | ✅ | ❌ (out of scope) | — |
 | **Patient Data page** | ❌ | ❌ **impossible** | see below |

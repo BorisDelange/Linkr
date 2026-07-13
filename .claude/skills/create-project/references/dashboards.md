@@ -23,7 +23,77 @@ and columns by **header name** — the script remaps names → `col-N`.
 ]
 ```
 
-## Widget cheatsheet
+## Built-in widget inventory
+
+A Lab dashboard widget is one of two `source.type`s: **`plugin`** (a registered
+built-in) or **`inline`** (user Python/R/SQL code). There is **no** native
+markdown/image/iframe widget. These are ALL 8 built-in Lab plugins — use them,
+don't reinvent with `raw`:
+
+| pluginId | What it does | spec `kind` |
+|----------|--------------|-------------|
+| `linkr-analysis-key-indicator` | Single KPI value + icon + optional mini-chart | `kpi` (shortcut) |
+| `linkr-analysis-plot-builder` | scatter / line / bar / histogram / box / violin | `plot` (shortcut) |
+| `linkr-analysis-table1` | Descriptive "Table 1" (n, mean±sd, median[IQR]…), optional group-by | `plugin` |
+| `linkr-analysis-correlation-matrix` | Correlation heatmap (pearson/spearman) | `plugin` |
+| `linkr-analysis-statistical-tests` | Group-comparison tests (t/Mann-Whitney/χ²…) | `plugin` |
+| `linkr-analysis-regression` | Linear / logistic regression, forest plot | `plugin` |
+| `linkr-analysis-kaplan-meier` | Survival curves | `plugin` |
+| `linkr-analysis-map` | Geographic point map | `plugin` |
+| `linkr-analysis-sankey` | Flow / Sankey diagram | `plugin` |
+
+`kpi` and `plot` have dedicated ergonomic shapes (below). The other six use the
+generic **`kind: "plugin"`** shape: give `pluginId` + a `config` object where
+column-select keys are **header names** (the script resolves them to `col-N`).
+
+### Generic plugin widget — `kind: "plugin"`
+
+```json
+{"kind": "plugin", "pluginId": "linkr-analysis-table1", "dataset": "icu-stays",
+ "name": "Baseline characteristics",
+ "config": {
+   "selectedColumns": ["age", "sex", "sofa_score"],   // multi column → col-N array
+   "groupByColumn": "deceased_in_icu",                // single column → col-N
+   "metrics": ["n", "mean_sd", "median_iqr"]          // non-column → verbatim
+ }}
+```
+
+Column-select keys per plugin (given as header names; single = string,
+multi = array). Everything else in `config` is passed through verbatim.
+
+- **table1** — cols: `selectedColumns` (multi), `groupByColumn`. other:
+  `metrics` ∈ `n|missing|mean_sd|median_iqr|min_max|range|categories`.
+- **correlation-matrix** — cols: `selectedColumns` (multi). other:
+  `method` ∈ `pearson|spearman`, `showValues`, `showSignificance`, `alpha`.
+- **statistical-tests** — cols: `valueColumns` (multi), `groupColumn`. other:
+  `testPreference` ∈ `auto|nonparametric|parametric`, `alpha`,
+  `visibleColumns` ∈ `test|statistic|df|p|ci|effectSize|descriptive`.
+- **regression** — cols: `predictorColumns` (multi), `outcomeColumn`. other:
+  `regressionType` ∈ `auto|linear|logistic`, `confidenceLevel`, `showForestPlot`,
+  `visibleColumns` ∈ `estimate|se|ci|statistic|p`.
+- **kaplan-meier** — cols: `timeColumn`, `eventColumn`, `groupColumn`. other:
+  `confidenceLevel`, `showCI`, `showAtRisk`, `showMedian`, `showCensor`, `timeLabel`.
+- **map** — cols: `latColumn`, `lonColumn`, `colorColumn`, `sizeColumn`,
+  `labelColumn`, `popupColumns` (multi). other: `basemap` ∈
+  `osm|carto-light|carto-dark|none`, `pointSize`, `opacity`, `colorPalette`.
+- **sankey** — cols: `entityColumn`, `stageColumn`, `orderColumn`, `pathColumn`,
+  `levelColumns` (multi). other: `sourceMode` ∈ `long|levels|path`, `pathSeparator`,
+  `displayMode` ∈ `diagram|table|both|both-tabs`, `valueDisplay` ∈ `none|count|percent`.
+
+Default sizes: table1 & tests & regression → 48 wide; correlation-matrix → 24×24;
+others → 24×16. Override with `"w"`/`"h"`.
+
+### Inline code widget — `kind: "inline"`
+
+User-authored code, no plugin. `language` ∈ `python | r | sql` (SQL is only
+meaningful for DB-backed datasets). Reference columns by col-N in your code.
+
+```json
+{"kind": "inline", "dataset": "icu-stays", "name": "Custom",
+ "language": "python", "code": "print(df.describe())"}
+```
+
+## Widget cheatsheet — KPI & plot shortcuts
 
 ### KPI — `kind: "kpi"` (plugin `linkr-analysis-key-indicator`)
 One number, optionally with a mini chart.
@@ -61,9 +131,10 @@ A chart.
   `xLabel`, `yLabel`, `uniquePer`, `showGrid`, `showLegend`, `cardColor`,
   `opacity`, `colorPalette`.
 
-### raw — `kind: "raw"` (escape hatch)
-Provide a full `source` object and reference columns by `col-N` yourself. Use
-only when kpi/plot can't express it.
+### raw — `kind: "raw"` (last-resort escape hatch)
+Provide a full `source` object and reference columns by `col-N` yourself. Rarely
+needed now that `kind: "plugin"` covers every built-in — use it only for a
+pluginId not in the inventory above, or a hand-crafted source.
 
 ```json
 {"kind": "raw", "dataset": "icu-stays", "name": "Custom",

@@ -78,6 +78,24 @@ WIDGETS — each widget references a dataset by slug and columns by CSV HEADER N
     "config": { ... }               # optional extra raw config keys, merged last
   }
 
+  PLUGIN (any built-in Lab plugin — table1, map, statistical-tests, regression,
+          kaplan-meier, correlation-matrix, sankey, or kpi/plot by id):
+  {
+    "kind": "plugin",
+    "pluginId": "linkr-analysis-table1",
+    "dataset": "icu-stays",
+    "name": "Baseline table",
+    "config": {                     # column-select keys given as HEADER NAMES
+      "selectedColumns": ["age", "sex", "sofa_score"],   # multi -> col-N array
+      "groupByColumn": "deceased_in_icu",                # single -> col-N
+      "metrics": ["n", "mean_sd", "median_iqr"]          # non-column: verbatim
+    }
+  }
+  See references/dashboards.md for each plugin's config + which keys are columns.
+
+  INLINE (user code): {"kind": "inline", "dataset": "...", "name": "...",
+                       "language": "python"|"r"|"sql", "code": "...", "config": {}}
+
   RAW (escape hatch): {"kind": "raw", "dataset": "...", "name": "...",
                        "source": { full DashboardWidgetSource object }}
   In raw source config, reference columns by col-N yourself.
@@ -258,6 +276,58 @@ def build_plot_source(w, dataset):
     return {"type": "plugin", "pluginId": "linkr-analysis-plot-builder", "config": cfg}
 
 
+# Built-in Lab plugins and their column-select config keys, so the generic
+# `plugin` widget kind can resolve header names -> col-N (single vs multi array).
+# Mirrors each plugin.json configSchema (fields with type "column-select").
+# Keys not listed here are copied verbatim from the widget's "config".
+PLUGIN_COLUMN_KEYS = {
+    "linkr-analysis-key-indicator": {"single": ["column", "uniquePer"], "multi": []},
+    "linkr-analysis-plot-builder": {
+        "single": ["xColumn", "yColumn", "groupColumn", "uniquePer"], "multi": []},
+    "linkr-analysis-table1": {
+        "single": ["groupByColumn"], "multi": ["selectedColumns"]},
+    "linkr-analysis-map": {
+        "single": ["latColumn", "lonColumn", "colorColumn", "sizeColumn", "labelColumn"],
+        "multi": ["popupColumns"]},
+    "linkr-analysis-statistical-tests": {
+        "single": ["groupColumn"], "multi": ["valueColumns"]},
+    "linkr-analysis-regression": {
+        "single": ["outcomeColumn"], "multi": ["predictorColumns"]},
+    "linkr-analysis-kaplan-meier": {
+        "single": ["timeColumn", "eventColumn", "groupColumn"], "multi": []},
+    "linkr-analysis-correlation-matrix": {"single": [], "multi": ["selectedColumns"]},
+    "linkr-analysis-sankey": {
+        "single": ["entityColumn", "stageColumn", "orderColumn", "pathColumn"],
+        "multi": ["levelColumns"]},
+}
+
+# Default widget size (w, h on the 48-col grid) per plugin.
+PLUGIN_DEFAULT_SIZE = {
+    "linkr-analysis-key-indicator": (12, 8),
+    "linkr-analysis-table1": (48, 20),
+    "linkr-analysis-correlation-matrix": (24, 24),
+    "linkr-analysis-statistical-tests": (48, 16),
+    "linkr-analysis-regression": (48, 16),
+}
+
+
+def build_plugin_source(w, dataset):
+    """Generic built-in plugin widget: {kind:"plugin", pluginId, config}.
+    Column-select config keys (per PLUGIN_COLUMN_KEYS) are given as header names
+    (string or list) and resolved to col-N; everything else is passed through."""
+    plugin_id = w["pluginId"]
+    col_keys = PLUGIN_COLUMN_KEYS.get(plugin_id, {"single": [], "multi": []})
+    cfg = {"title": w.get("name", "")}
+    for key, value in w.get("config", {}).items():
+        if key in col_keys["single"]:
+            cfg[key] = resolve_col(dataset, value)
+        elif key in col_keys["multi"]:
+            cfg[key] = [resolve_col(dataset, v) for v in value]
+        else:
+            cfg[key] = value
+    return {"type": "plugin", "pluginId": plugin_id, "config": cfg}
+
+
 def layout_next(cursor, w, h):
     """Flow widgets left-to-right on GRID_COLS, wrapping to a new row."""
     if cursor["x"] + w > GRID_COLS:
@@ -332,6 +402,13 @@ def build_dashboard(dash, datasets_by_slug):
             elif kind == "plot":
                 default_w, default_h = 24, 16
                 source = build_plot_source(w, ds)
+            elif kind == "plugin":
+                default_w, default_h = PLUGIN_DEFAULT_SIZE.get(w["pluginId"], (24, 16))
+                source = build_plugin_source(w, ds)
+            elif kind == "inline":
+                default_w, default_h = 24, 16
+                source = {"type": "inline", "language": w.get("language", "python"),
+                          "code": w["code"], "config": w.get("config", {})}
             elif kind == "raw":
                 default_w, default_h = 24, 16
                 source = w["source"]

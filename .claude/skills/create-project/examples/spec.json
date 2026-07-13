@@ -76,7 +76,14 @@
              "binMode": "width", "binWidth": 1, "xLabel": "LOS (days)", "yLabel": "Count", "w": 24},
             {"kind": "plot", "dataset": "icu-stays", "name": "SOFA by unit",
              "plotType": "box", "xColumn": "icu_unit", "yColumn": "sofa_score",
-             "xLabel": "Unit", "yLabel": "SOFA", "w": 48}
+             "xLabel": "Unit", "yLabel": "SOFA", "w": 48},
+            {"kind": "plugin", "pluginId": "linkr-analysis-table1", "dataset": "icu-stays",
+             "name": "Baseline characteristics by outcome",
+             "config": {
+               "selectedColumns": ["age", "sex", "sofa_score", "los_days", "mechanical_ventilation"],
+               "groupByColumn": "deceased_in_icu",
+               "metrics": ["n", "mean_sd", "median_iqr"]
+             }, "w": 48}
           ]
         }
       ]
