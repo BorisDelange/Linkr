@@ -21,6 +21,15 @@ def _zip(files: dict[str, str]) -> bytes:
     return buf.getvalue()
 
 
+def _bare_remote(tmp: Path) -> str:
+    """Create a bare git repo on disk to act as `origin`, returning its path (a
+    local filesystem URL — _reject_internal_host only guards http(s), so it passes
+    through, letting sync_state fetch a real remote branch without network)."""
+    remote = tmp / "remote.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True, env=g._git_env())
+    return str(remote)
+
+
 def test_with_credentials_injects_token_as_oauth2_password():
     # oauth2:<token> — the form GitLab accepts for push (not <token>:x-oauth-basic).
     url = g._with_credentials("https://gitlab.com/g/r.git", "ghp_abc")
@@ -304,5 +313,81 @@ async def test_diff_reports_no_content_change_for_byte_identical_content():
         assert d["truncationMode"] == "no_content_change"
         assert d["oldContent"] == "" and d["newContent"] == ""
         assert d["binary"] is False
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_sync_state_no_remote_branch_is_neutral():
+    """No remote branch (never pushed) → nothing upstream, so not behind/diverged
+    and no anchor to adopt."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)  # bare but empty: branch 'main' doesn't exist yet
+        s = await g.sync_state(getter, "u", _zip({"project.json": "{}"}), "main", remote, None)
+        assert s["remoteHead"] is None
+        assert s["behind"] is False and s["diverged"] is False
+        assert s["adoptOid"] is None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_sync_state_adopts_remote_head_when_clean_and_unanchored():
+    """Fresh import: no anchor yet and the local export matches the remote head →
+    we're trivially in sync, so adopt the remote head as the anchor."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)
+        z = _zip({"project.json": '{"a":1}'})
+        pushed = await g.commit_push(getter, "u", z, "main", "init", remote, None)
+        assert pushed["pushed"]
+        head = pushed["commit"]["oid"]
+
+        # Same export, no anchor → adopt the remote head.
+        s = await g.sync_state(getter, "u", z, "main", remote, None)
+        assert s["remoteHead"] == head
+        assert s["localDirty"] is False
+        assert s["adoptOid"] == head
+        assert s["behind"] is False and s["diverged"] is False
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_sync_state_reports_behind_when_remote_advanced():
+    """Anchored at an old commit, the remote moved on → behind (the anchor is an
+    ancestor of the remote head), and we do NOT re-adopt (an anchor exists)."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)
+        first = await g.commit_push(getter, "u", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+        old_oid = first["commit"]["oid"]
+        second = await g.commit_push(getter, "u", _zip({"project.json": '{"a":2}'}), "main", "v2", remote, None)
+        new_oid = second["commit"]["oid"]
+        assert old_oid != new_oid
+
+        # Anchored at v1; export matches the current remote (v2) so it's clean, but
+        # the anchor lags → behind, no adoption.
+        s = await g.sync_state(getter, "u", _zip({"project.json": '{"a":2}'}), "main", remote, old_oid)
+        assert s["remoteHead"] == new_oid
+        assert s["behind"] is True and s["diverged"] is False
+        assert s["adoptOid"] is None
+
+        # Anchored at the current head → in sync, not behind.
+        s2 = await g.sync_state(getter, "u", _zip({"project.json": '{"a":2}'}), "main", remote, new_oid)
+        assert s2["behind"] is False and s2["diverged"] is False
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

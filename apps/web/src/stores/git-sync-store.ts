@@ -17,12 +17,14 @@ import {
   gitCommitPush,
   gitDiff,
   gitStatus,
+  gitSyncState,
   type GitBranches,
   type GitCommitResult,
   type GitDiff,
   type GitErrorCode,
   type GitScope,
   type GitStatus,
+  type GitSyncState as GitSyncStateResult,
 } from '@/lib/api/git'
 
 export interface GitSyncError {
@@ -105,6 +107,9 @@ let statusGen = 0
 interface GitSyncState {
   status: GitStatus | null
   branches: GitBranches | null
+  /** Standing vs the remote branch (behind / diverged); null until loaded. Drives
+   *  the "N commits upstream" banner. Only computed for scopes that support it. */
+  syncState: GitSyncStateResult | null
   /** Paths checked for the next commit; data files are unchecked by default. */
   selected: Set<string>
   /** Include dataset data files (CSV/parquet/…) in the export — mirrors the export
@@ -124,6 +129,8 @@ interface GitSyncState {
   /** Compute status only if it isn't already current for this entity+branch. */
   ensureStatus: (scope: GitScope, id: string, branch?: string) => Promise<void>
   loadBranches: (scope: GitScope, id: string) => Promise<void>
+  /** Load where the entity stands vs the remote (behind/diverged banner). */
+  loadSyncState: (scope: GitScope, id: string, branch?: string) => Promise<void>
   getDiff: (scope: GitScope, id: string, path: string, branch?: string) => Promise<GitDiff | null>
   commitPush: (scope: GitScope, id: string, message: string, branch?: string) => Promise<GitCommitResult | null>
   togglePath: (path: string) => void
@@ -139,6 +146,7 @@ interface GitSyncState {
 export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   status: null,
   branches: null,
+  syncState: null,
   selected: new Set(),
   includeData: false,
   lfsOverrides: new Map(),
@@ -203,6 +211,17 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     }
   },
 
+  loadSyncState: async (scope, id, branch) => {
+    try {
+      // Same export the status/commit build uses, so the "clean import" test (for
+      // lazy anchor adoption) reflects the file set the user would actually push.
+      const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
+      set({ syncState: await gitSyncState(scope, id, zip, branch) })
+    } catch (err) {
+      set({ error: toGitError(err) })
+    }
+  },
+
   getDiff: async (scope, id, path, branch) => {
     try {
       // Same .gitattributes as the status/commit build, so the diff of a big file
@@ -221,8 +240,11 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       const paths = [...get().selected]
       const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
       const result = await gitCommitPush(scope, id, zip, message, branch, paths)
-      // After a commit the pushed files are clean; refresh so the UI updates.
+      // After a commit the pushed files are clean; refresh so the UI updates. The
+      // push advanced the anchor server-side, so re-load the sync state too (clears
+      // any "behind" banner once we're level with the remote again).
       await get().refreshStatus(scope, id, branch)
+      if (get().syncState) await get().loadSyncState(scope, id, branch)
       return result
     } catch (err) {
       set({ error: toGitError(err) })
@@ -270,6 +292,6 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   reset: () => {
     statusGen++ // invalidate any in-flight refresh from the closing panel
     _zipCache = null // drop the cached export ZIP so the next entity rebuilds fresh
-    set({ status: null, branches: null, selected: new Set(), includeData: false, lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false, statusKey: null })
+    set({ status: null, branches: null, syncState: null, selected: new Set(), includeData: false, lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false, statusKey: null })
   },
 }))

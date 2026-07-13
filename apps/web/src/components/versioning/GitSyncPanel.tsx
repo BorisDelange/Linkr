@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GitCommitVertical, Info, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
+import { ArrowDownToLine, GitCommitVertical, Info, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -35,8 +35,10 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs } =
+  const { status, branches, syncState, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs } =
     useGitSyncStore()
+  // Behind/diverged detection is only wired for mapping projects in v1.
+  const syncStateSupported = scope === 'mapping-projects'
   const lfsSet = lfsPaths()
   const [branch, setBranch] = useState(defaultBranch)
   const [message, setMessage] = useState('')
@@ -51,11 +53,13 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   useEffect(() => {
     void loadBranches(scope, id)
     void ensureStatus(scope, id, defaultBranch)
-  }, [scope, id, defaultBranch, loadBranches, ensureStatus])
+    if (syncStateSupported) void loadSyncState(scope, id, defaultBranch)
+  }, [scope, id, defaultBranch, loadBranches, ensureStatus, loadSyncState, syncStateSupported])
 
   const changeBranch = (b: string) => {
     setBranch(b)
     void refreshStatus(scope, id, b)
+    if (syncStateSupported) void loadSyncState(scope, id, b)
   }
 
   const handleCommit = async () => {
@@ -101,6 +105,19 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           {t('versioning.sync_refresh')}
         </Button>
       </div>
+
+      {syncState && (syncState.behind || syncState.diverged) && (
+        <div
+          className={
+            syncState.diverged
+              ? 'flex shrink-0 items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400'
+              : 'flex shrink-0 items-center gap-2 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-400'
+          }
+        >
+          <ArrowDownToLine size={14} className="shrink-0" />
+          <span>{t(syncState.diverged ? 'versioning.sync_diverged' : 'versioning.sync_behind')}</span>
+        </div>
+      )}
 
       <label htmlFor="git-include-data" className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
         <Checkbox

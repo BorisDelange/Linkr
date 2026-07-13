@@ -24,10 +24,11 @@ from app.schemas.git import (
     GitCommitResponse,
     GitDiffResponse,
     GitStatusResponse,
+    GitSyncStateResponse,
     GitVerifyRequest,
     GitVerifyResponse,
 )
-from app.services import git_secret, git_service, workspace_service
+from app.services import git_secret, git_service, git_sync_state_service, workspace_service
 
 router = APIRouter(prefix="/git", tags=["git"])
 
@@ -52,6 +53,21 @@ async def _guard(coro) -> dict:
 def _remote_url(entity) -> str | None:
     cfg = getattr(entity, "git_remote_config", None) or {}
     return cfg.get("url") or None
+
+
+async def _sync_state(db, scope, repo_getter, entity_id, zip_bytes, branch, remote_url, token) -> dict:
+    """Run the git sync-state check, reading/writing the DB anchor around it: pass
+    the stored synced_oid in, and persist a lazily-adopted oid (fresh import in
+    sync) so the next call sees the anchor. Returns the API-shaped dict."""
+    row = await git_sync_state_service.get(db, scope, entity_id, branch)
+    result = await _guard(git_service.sync_state(
+        repo_getter, entity_id, zip_bytes, branch, remote_url, row.synced_oid if row else None, token,
+    ))
+    adopt = result.pop("adoptOid", None)
+    if adopt:
+        await git_sync_state_service.set_oid(db, scope, entity_id, branch, adopt)
+        result["syncedOid"] = adopt
+    return {"linked": remote_url is not None, "branch": branch, **result}
 
 
 def _default_branch(entity, fallback: str | None) -> str:
@@ -286,6 +302,21 @@ async def mapping_project_branches(
     )
 
 
+@router.post("/mapping-projects/{mapping_project_id}/sync-state", response_model=GitSyncStateResponse)
+async def mapping_project_sync_state(
+    mapping_project_id: str,
+    file: UploadFile = File(...),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    return await _sync_state(
+        db, "mapping-projects", git_service.mapping_project_repo_getter, mp.id,
+        await file.read(), _default_branch(mp, branch), _remote_url(mp), git_secret.token_for(mp),
+    )
+
+
 @router.post("/mapping-projects/{mapping_project_id}/commit-push", response_model=GitCommitResponse)
 async def mapping_project_commit_push(
     mapping_project_id: str,
@@ -299,16 +330,23 @@ async def mapping_project_commit_push(
     mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:write")
     if _remote_url(mp) is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mapping project is not linked to a git remote")
-    return await _guard(git_service.commit_push(
+    resolved_branch = _default_branch(mp, branch)
+    result = await _guard(git_service.commit_push(
         git_service.mapping_project_repo_getter,
         mp.id,
         await file.read(),
-        _default_branch(mp, branch),
+        resolved_branch,
         message,
         _remote_url(mp),
         git_secret.token_for(mp),
         paths,
     ))
+    # A successful push means the pushed commit is now the synced point → move the anchor.
+    if result.get("pushed") and result.get("commit"):
+        await git_sync_state_service.set_oid(
+            db, "mapping-projects", mp.id, resolved_branch, result["commit"]["oid"],
+        )
+    return result
 
 
 # --- SQL script collection scope ------------------------------------------

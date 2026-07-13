@@ -58,6 +58,21 @@ export interface GitBranches {
   current: string | null
 }
 
+export interface GitSyncState {
+  linked: boolean
+  branch: string
+  /** oid of origin/<branch>, or null when the remote/branch doesn't exist yet. */
+  remoteHead: string | null
+  /** Last commit we know we were in sync with, or null if never anchored. */
+  syncedOid: string | null
+  /** The remote moved past our anchor (there are commits to pull). */
+  behind: boolean
+  /** Both the remote and our local export moved since the anchor (the risky case). */
+  diverged: boolean
+  /** The local export differs from the remote head (unpushed local changes). */
+  localDirty: boolean
+}
+
 export interface GitCommitResult {
   committed: boolean
   pushed: boolean
@@ -109,6 +124,13 @@ export async function gitCommitPush(
 
 export async function gitBranches(scope: GitScope, id: string): Promise<GitBranches> {
   return apiRequest<GitBranches>(`${base(scope, id)}/branches`)
+}
+
+/** Where the entity stands vs the remote branch (behind / diverged / dirty).
+ *  Uploads the export ZIP so the backend can tell a clean import from local edits
+ *  (and lazily adopt the anchor on the first clean sync). v1: mapping-projects. */
+export async function gitSyncState(scope: GitScope, id: string, zip: Blob, branch?: string): Promise<GitSyncState> {
+  return postForm<GitSyncState>(`${base(scope, id)}/sync-state`, zipForm(zip, branch ? { branch } : {}))
 }
 
 export interface GitVerifyResult {

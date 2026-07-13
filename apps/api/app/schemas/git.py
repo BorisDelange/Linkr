@@ -48,6 +48,16 @@ class GitCommitResponse(CamelModel):
     commit: GitCommitInfo | None = None
 
 
+class GitSyncStateResponse(CamelModel):
+    linked: bool
+    branch: str
+    remote_head: str | None = None
+    synced_oid: str | None = None
+    behind: bool = False  # the remote moved past our anchor
+    diverged: bool = False  # both the remote and our local export moved
+    local_dirty: bool = False  # local export differs from the remote head
+
+
 class GitCloneRequest(CamelModel):
     url: str
     branch: str | None = None
