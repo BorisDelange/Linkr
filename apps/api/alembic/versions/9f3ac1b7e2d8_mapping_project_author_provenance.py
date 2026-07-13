@@ -1,7 +1,7 @@
 """mapping projects: author provenance
 
-Revision ID: f2a3b4c5d6e7
-Revises: e1f2a3b4c5d6
+Revision ID: 9f3ac1b7e2d8
+Revises: f2a3b4c5d6e7
 Create Date: 2026-07-13
 
 Brings mapping projects in line with the other authored entities: adds
@@ -13,8 +13,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "f2a3b4c5d6e7"
-down_revision = "e1f2a3b4c5d6"
+revision = "9f3ac1b7e2d8"
+down_revision = "f2a3b4c5d6e7"
 branch_labels = None
 depends_on = None
 
