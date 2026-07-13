@@ -52,6 +52,30 @@ async def test_collection_crud(client):
     assert (await client.get(f"{API}/sql-script-collections/{c['id']}", headers=headers)).status_code == 404
 
 
+async def test_organization_snapshot_persisted(client):
+    # A standalone entity carries a frozen organization provenance snapshot
+    # (inlined at export). It must round-trip through create → response → get,
+    # multilingual fields included, as an opaque JSON blob.
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    org = {
+        "id": "org-42",
+        "name": {"en": "Acme Hospital", "fr": "Hôpital Acme"},
+        "type": "hospital",
+        "location": {"en": "Rennes", "fr": "Rennes"},
+        "referenceId": "https://ror.org/xxxx",
+    }
+    c = (await client.post(f"{API}/sql-script-collections", headers=headers, json={
+        "id": "c-org", "workspaceId": ws, "name": {"en": "Q"}, "description": {},
+        "organization": org,
+    })).json()
+    assert c["organization"] == org
+
+    got = (await client.get(f"{API}/sql-script-collections/{c['id']}", headers=headers)).json()
+    assert got["organization"]["name"] == {"en": "Acme Hospital", "fr": "Hôpital Acme"}
+    assert got["organization"]["referenceId"] == "https://ror.org/xxxx"
+
+
 async def test_list_all_without_workspace_filter(client):
     # The store loads collections app-wide (no workspaceId) — must not 422.
     headers = await _admin_headers(client)

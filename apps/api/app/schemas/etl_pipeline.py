@@ -20,6 +20,7 @@ class EtlPipelineCreate(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    organization: dict | None = None
 
 
 class EtlPipelineUpdate(CamelModel):
@@ -52,6 +53,7 @@ class EtlPipelineResponse(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    organization: dict | None = None
     created_at: datetime
     updated_at: datetime
 

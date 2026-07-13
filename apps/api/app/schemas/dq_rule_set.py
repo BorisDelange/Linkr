@@ -19,6 +19,7 @@ class DqRuleSetCreate(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    organization: dict | None = None
 
 
 class DqRuleSetUpdate(CamelModel):
@@ -49,6 +50,7 @@ class DqRuleSetResponse(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    organization: dict | None = None
     created_at: datetime
     updated_at: datetime
 

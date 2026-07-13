@@ -24,6 +24,7 @@ class MappingProjectCreate(CamelModel):
     import_batches: list | None = None
     git_remote_config: dict | None = None
     origin: str = "user"
+    organization: dict | None = None
 
 
 class MappingProjectUpdate(CamelModel):
@@ -67,6 +68,7 @@ class MappingProjectResponse(CamelModel):
     import_batches: list | None = None
     git_remote_config: dict | None = None
     origin: str
+    organization: dict | None = None
     created_at: datetime
     updated_at: datetime
 

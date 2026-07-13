@@ -30,6 +30,8 @@ class DqRuleSet(Base, TimestampMixin):
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Frozen provenance snapshot of the origin organization (not a live link).
+    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Encrypted git access token (Fernet); kept out of git_remote_config so it's
     # never returned by the API. Mirrors DataSource.connection_secret.
