@@ -24,6 +24,8 @@ export interface ImportGitRemote {
   url: string
   branch: string
   authToken?: string
+  /** HEAD oid of the clone (server mode) — the base to anchor sync state to. */
+  syncedOid?: string
 }
 
 interface ImportSourceDialogProps {
@@ -108,13 +110,16 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
       // it to the bare clone URL so both the clone and the stored link work.
       const cleanUrl = cleanGitUrl(url.trim())
       let blob: Blob
+      let syncedOid: string | undefined
       if (serverMode) {
-        blob = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined)
+        const cloned = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined)
+        blob = cloned.blob
+        syncedOid = cloned.oid ?? undefined
       } else {
         const zip = await cloneRepoToZip({ url: cleanUrl, branch: branch.trim() || 'main', token: token || undefined })
         blob = await zip.generateAsync({ type: 'blob' })
       }
-      const gitRemote = { url: cleanUrl, branch: branch.trim() || 'main', authToken: token || undefined }
+      const gitRemote = { url: cleanUrl, branch: branch.trim() || 'main', authToken: token || undefined, syncedOid }
       // Keep the modal open (with the loader) until the import actually finishes —
       // writing entities, scores and refreshing the list. Closing first unmounted
       // the dialog mid-import, so suggestions weren't persisted and the list stayed

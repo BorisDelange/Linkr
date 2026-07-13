@@ -185,12 +185,29 @@ export async function gitVerifyRemote(url: string, token?: string): Promise<GitV
   return res.json()
 }
 
-/** Clone a remote server-side, returning its content as a ZIP Blob for import. */
-export async function gitCloneToZip(url: string, branch: string, token?: string): Promise<Blob> {
+/** Clone a remote server-side, returning its content as a ZIP Blob for import,
+ *  plus the cloned HEAD oid (so the import can anchor the new entity's sync
+ *  state to it — see gitSetSyncState). */
+export async function gitCloneToZip(
+  url: string,
+  branch: string,
+  token?: string,
+): Promise<{ blob: Blob; oid: string | null }> {
   const res = await apiFetch('/api/v1/git/clone', {
     method: 'POST',
     body: JSON.stringify({ url, branch, token: token || undefined }),
   })
   if (!res.ok) throw await gitError(res)
-  return res.blob()
+  const oid = res.headers.get('X-Git-Cloned-Oid')
+  return { blob: await res.blob(), oid }
+}
+
+/** Anchor an entity's sync state to a known remote commit (used right after a git
+ *  import). Without this the entity has no base and "behind" can't be detected. */
+export async function gitSetSyncState(scope: GitScope, id: string, branch: string, syncedOid: string): Promise<void> {
+  const res = await apiFetch(`/api/v1${base(scope, id)}/set-sync-state`, {
+    method: 'POST',
+    body: JSON.stringify({ branch, syncedOid }),
+  })
+  if (!res.ok) throw await gitError(res)
 }

@@ -202,8 +202,15 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       const globalExisting = await getStorage().mappingProjects.getById(project.id)
       projectId = globalExisting ? crypto.randomUUID() : project.id
     }
+    // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
+    // persisted — capture it for anchoring, then strip it from the stored config.
+    const syncedOid = project.gitRemoteConfig?.syncedOid
+    const gitRemoteConfig = project.gitRemoteConfig
+      ? { url: project.gitRemoteConfig.url, branch: project.gitRemoteConfig.branch, authToken: project.gitRemoteConfig.authToken }
+      : project.gitRemoteConfig
     const entity: MappingProject = {
       ...project,
+      gitRemoteConfig,
       id: projectId,
       workspaceId: activeWorkspaceId ?? project.workspaceId,
       conceptSetIds: project.conceptSetIds ?? [],
@@ -223,6 +230,16 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     // already exists server-side, so it has to appear without a manual reload.
     try {
       await getStorage().mappingProjects.create(entity)
+
+      // Anchor sync state to the commit we cloned (server mode git import only):
+      // it's the base this workspace imported from, so a later push elsewhere is
+      // detected as "behind". Best-effort — a failure just means no banner yet.
+      if (syncedOid) {
+        try {
+          const { gitSetSyncState } = await import('@/lib/api/git')
+          await gitSetSyncState('mapping-projects', projectId, gitRemoteConfig?.branch ?? 'main', syncedOid)
+        } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
+      }
 
       const toCreate = children.mappings.map((m) => {
         // Migrate legacy `comment` string → `comments[]` array

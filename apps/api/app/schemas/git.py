@@ -58,6 +58,14 @@ class GitSyncStateResponse(CamelModel):
     local_dirty: bool = False  # local export differs from the remote head
 
 
+class GitSetSyncStateRequest(CamelModel):
+    """Anchor an entity's sync state to a known remote commit (used right after a
+    git import, where the cloned HEAD is the base we imported from)."""
+
+    branch: str
+    synced_oid: str
+
+
 class GitCloneRequest(CamelModel):
     url: str
     branch: str | None = None

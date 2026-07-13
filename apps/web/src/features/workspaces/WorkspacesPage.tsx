@@ -152,8 +152,8 @@ export function WorkspacesPage() {
         // The backend clones (no CORS proxy); load its ZIP bytes into JSZip so
         // applyClonedEntity reads it the same way as the in-browser clone.
         const JSZip = (await import('jszip')).default
-        const blob = await gitCloneToZip(e.url, e.branch, cloneToken || undefined)
-        zip = await JSZip.loadAsync(blob)
+        const cloned = await gitCloneToZip(e.url, e.branch, cloneToken || undefined)
+        zip = await JSZip.loadAsync(cloned.blob)
       } else {
         zip = await cloneRepoToZip({ url: e.url, branch: e.branch, token: cloneToken || undefined })
       }

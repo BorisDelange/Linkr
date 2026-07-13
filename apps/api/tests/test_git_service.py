@@ -391,3 +391,27 @@ async def test_sync_state_reports_behind_when_remote_advanced():
         assert s2["behind"] is False and s2["diverged"] is False
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_clone_to_zip_returns_head_oid():
+    """clone_to_zip must return the cloned HEAD so the import can anchor the new
+    entity's sync state to it (else 'behind' can never be detected for an imported
+    copy that was never pushed from)."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)
+        pushed = await g.commit_push(getter, "u", _zip({"project.json": '{"a":1}'}), "main", "seed", remote, None)
+        head = pushed["commit"]["oid"]
+
+        data, oid = await g.clone_to_zip(remote, "main", None)
+        assert oid == head
+        # The ZIP carries the tree without .git.
+        names = zipfile.ZipFile(io.BytesIO(data)).namelist()
+        assert "project.json" in names and not any(n.startswith(".git/") for n in names)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

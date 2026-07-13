@@ -23,6 +23,7 @@ from app.schemas.git import (
     GitCloneRequest,
     GitCommitResponse,
     GitDiffResponse,
+    GitSetSyncStateRequest,
     GitStatusResponse,
     GitSyncStateResponse,
     GitVerifyRequest,
@@ -317,6 +318,20 @@ async def mapping_project_sync_state(
     )
 
 
+@router.post("/mapping-projects/{mapping_project_id}/set-sync-state", status_code=status.HTTP_204_NO_CONTENT)
+async def mapping_project_set_sync_state(
+    mapping_project_id: str,
+    body: GitSetSyncStateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Anchor the entity's sync state to a known remote commit — called right after
+    a git import so the freshly-created project has a base to compare against (a
+    later push elsewhere is then detected as 'behind'). Write access required."""
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:write")
+    await git_sync_state_service.set_oid(db, "mapping-projects", mp.id, body.branch, body.synced_oid)
+
+
 @router.post("/mapping-projects/{mapping_project_id}/commit-push", response_model=GitCommitResponse)
 async def mapping_project_commit_push(
     mapping_project_id: str,
@@ -587,11 +602,14 @@ async def clone(body: GitCloneRequest, _user: User = Depends(get_current_user)):
     from fastapi.responses import Response
 
     try:
-        data = await git_service.clone_to_zip(body.url, body.branch or "main", body.token)
+        data, cloned_oid = await git_service.clone_to_zip(body.url, body.branch or "main", body.token)
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
-    return Response(
-        content=data,
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="repo.zip"'},
-    )
+    headers = {"Content-Disposition": 'attachment; filename="repo.zip"'}
+    # Expose the cloned HEAD so the import flow can anchor the new entity's sync
+    # state to it (see mapping_project_set_sync_state). Custom header must be
+    # explicitly exposed for the browser fetch to read it.
+    if cloned_oid:
+        headers["X-Git-Cloned-Oid"] = cloned_oid
+        headers["Access-Control-Expose-Headers"] = "X-Git-Cloned-Oid"
+    return Response(content=data, media_type="application/zip", headers=headers)

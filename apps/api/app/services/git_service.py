@@ -764,15 +764,18 @@ async def verify_remote(url: str, token: str | None) -> dict:
     return await asyncio.to_thread(work)
 
 
-async def clone_to_zip(url: str, branch: str, token: str | None) -> bytes:
-    """Shallow-clone a remote into a temp dir and return its content as a ZIP.
+async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes, str | None]:
+    """Shallow-clone a remote into a temp dir and return (zip_bytes, cloned_oid).
 
     Used by the import flow in server mode (replaces the in-browser
     isomorphic-git clone, so no CORS proxy is needed). The .git dir is excluded
-    — the caller treats the result as an importable export tree.
+    — the caller treats the result as an importable export tree. `cloned_oid` is
+    the HEAD commit of the clone, so the caller can anchor the new entity's
+    git_sync_state to it (it IS the base we imported from → later pushes to the
+    same remote are detected as "behind" against this anchor).
     """
 
-    def work() -> bytes:
+    def work() -> tuple[bytes, str | None]:
         import tempfile
 
         tmp = Path(tempfile.mkdtemp(prefix="linkr-clone-"))
@@ -808,6 +811,7 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> bytes:
                 if lfs.returncode != 0:
                     logger.warning("git lfs pull failed during clone (%s); large files may remain pointers",
                                    _scrub(lfs.stderr.strip(), token))
+            cloned_oid = _run(repo, "rev-parse", "HEAD", check=False).strip() or None
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for p in repo.rglob("*"):
@@ -815,7 +819,7 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> bytes:
                         continue
                     if p.is_file():
                         zf.write(p, p.relative_to(repo).as_posix())
-            return buf.getvalue()
+            return buf.getvalue(), cloned_oid
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

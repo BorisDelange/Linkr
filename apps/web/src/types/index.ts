@@ -571,6 +571,9 @@ export interface GitRemoteConfig {
   url: string
   branch: string
   authToken?: string
+  /** Transient (import only): HEAD oid of the clone, used to anchor sync state
+   *  right after import. Never persisted — stripped before the entity is stored. */
+  syncedOid?: string
 }
 
 export type FileChangeType = 'added' | 'modified' | 'deleted'
