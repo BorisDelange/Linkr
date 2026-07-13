@@ -9,7 +9,7 @@ from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.project import ProjectCreate, ProjectUpdate
-from app.services import blob_cleanup, git_secret, project_fs
+from app.services import author_provenance, blob_cleanup, git_secret, project_fs
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Project]:
@@ -53,29 +53,14 @@ async def get(db: AsyncSession, project_uid: str) -> Project | None:
 
 async def create(db: AsyncSession, data: ProjectCreate, owner: User) -> Project:
     payload = data.model_dump(exclude_none=True)
+    # A foreign instance's created_by_id is meaningless here — never persist it;
+    # stamp_creator derives the right local id (ORCID/email match, or NULL).
+    payload.pop("created_by_id", None)
     project = Project(owner_id=owner.id)
     git_secret.apply_to_entity(project, payload)
     for key, value in payload.items():
         setattr(project, key, value)
-    # Stamp creator provenance: the id is always the authenticated user; the
-    # display snapshot falls back to the current user when the payload (import)
-    # didn't carry one.
-    project.created_by_id = owner.id
-    if not payload.get("created_by"):
-        full = f"{owner.first_name or ''} {owner.last_name or ''}".strip()
-        project.created_by = full or owner.username
-    if not payload.get("created_by_details"):
-        project.created_by_details = {
-            k: v
-            for k, v in {
-                "firstName": owner.first_name,
-                "lastName": owner.last_name,
-                "affiliation": owner.affiliation,
-                "profession": owner.profession,
-                "orcid": owner.orcid,
-            }.items()
-            if v
-        }
+    await author_provenance.stamp_creator(db, project, payload, owner)
     db.add(project)
     await db.commit()
     await db.refresh(project)

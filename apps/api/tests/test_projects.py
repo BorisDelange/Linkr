@@ -1,3 +1,5 @@
+from sqlalchemy import select
+
 from app.core.security import hash_password
 from app.models.user import User
 
@@ -106,6 +108,92 @@ async def test_non_member_cannot_access_project(client, db):
         json={"name": {"en": "Nope"}, "workspaceId": ws_id},
     )
     assert r.status_code == 403
+
+
+async def test_create_stamps_author_from_creator(client):
+    # A plain creation (no author snapshot in the payload) stamps the
+    # authenticated user as the original author.
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/projects", headers=headers, json={"name": {"en": "P"}}
+    )
+    p = r.json()
+    me = (await client.get(f"{API}/auth/me", headers=headers)).json()
+    assert p["createdById"] == me["id"]
+    assert p["createdBy"]  # non-empty display name
+
+
+async def test_import_keeps_author_snapshot_when_no_local_match(client):
+    # An imported project carries the original author's snapshot but no local
+    # user matches (unknown ORCID) — keep the snapshot, createdById stays NULL.
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/projects",
+        headers=headers,
+        json={
+            "name": {"en": "Imported"},
+            "createdBy": "Original Author",
+            "createdByDetails": {
+                "firstName": "Original",
+                "lastName": "Author",
+                "orcid": "0000-0001-2345-6789",
+            },
+        },
+    )
+    p = r.json()
+    assert p["createdBy"] == "Original Author"
+    assert p["createdByDetails"]["orcid"] == "0000-0001-2345-6789"
+    assert p["createdById"] is None
+
+
+async def test_import_relinks_author_by_orcid(client, db):
+    # An imported project whose author has an ORCID matching a local account
+    # re-links createdById to that local user (live name resolution).
+    headers = await _bootstrap_admin(client)
+    db.add(
+        User(
+            username="carol",
+            password_hash=hash_password("pw"),
+            orcid="0000-0002-1111-2222",
+        )
+    )
+    await db.commit()
+    carol = (
+        await db.execute(select(User).where(User.username == "carol"))
+    ).scalars().first()
+
+    r = await client.post(
+        f"{API}/projects",
+        headers=headers,
+        json={
+            "name": {"en": "Imported"},
+            "createdBy": "Carol Elsewhere",
+            "createdByDetails": {"orcid": "0000-0002-1111-2222"},
+        },
+    )
+    p = r.json()
+    assert p["createdById"] == carol.id
+    # The frozen snapshot is still kept for round-trip export stability.
+    assert p["createdBy"] == "Carol Elsewhere"
+
+
+async def test_foreign_created_by_id_never_persisted(client):
+    # A createdById in the payload is a foreign instance's local id — it must be
+    # ignored, not written verbatim (which would corrupt the FK / attribution).
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/projects",
+        headers=headers,
+        json={
+            "name": {"en": "Forged"},
+            "createdById": 99999,
+            "createdBy": "Ghost",
+            "createdByDetails": {"orcid": "0000-0009-9999-9999"},
+        },
+    )
+    # No local user 99999 and no ORCID match → NULL, snapshot kept.
+    assert r.json()["createdById"] is None
+    assert r.json()["createdBy"] == "Ghost"
 
 
 async def test_cascade_delete_with_workspace(client, db):

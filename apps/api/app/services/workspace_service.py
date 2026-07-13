@@ -9,7 +9,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate
-from app.services import blob_cleanup, git_secret, project_fs
+from app.services import author_provenance, blob_cleanup, git_secret, project_fs
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Workspace]:
@@ -33,29 +33,14 @@ async def get(db: AsyncSession, workspace_id: str) -> Workspace | None:
 
 async def create(db: AsyncSession, data: WorkspaceCreate, owner: User) -> Workspace:
     payload = data.model_dump(exclude_none=True)
+    # A foreign instance's created_by_id is meaningless here — never persist it;
+    # stamp_creator derives the right local id (ORCID/email match, or NULL).
+    payload.pop("created_by_id", None)
     workspace = Workspace(owner_id=owner.id)
     git_secret.apply_to_entity(workspace, payload)
     for key, value in payload.items():
         setattr(workspace, key, value)
-    # Stamp creator provenance: the id is always the authenticated user; the
-    # display snapshot falls back to the current user when the payload (import)
-    # didn't carry one.
-    workspace.created_by_id = owner.id
-    if not payload.get("created_by"):
-        full = f"{owner.first_name or ''} {owner.last_name or ''}".strip()
-        workspace.created_by = full or owner.username
-    if not payload.get("created_by_details"):
-        workspace.created_by_details = {
-            k: v
-            for k, v in {
-                "firstName": owner.first_name,
-                "lastName": owner.last_name,
-                "affiliation": owner.affiliation,
-                "profession": owner.profession,
-                "orcid": owner.orcid,
-            }.items()
-            if v
-        }
+    await author_provenance.stamp_creator(db, workspace, payload, owner)
     db.add(workspace)
     await db.flush()  # assign id before adding the membership row
     db.add(

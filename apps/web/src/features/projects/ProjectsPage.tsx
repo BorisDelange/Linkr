@@ -185,6 +185,11 @@ export function ProjectsPage() {
     const entity: Project = {
       ...project,
       uid,
+      // An imported ZIP carries the original author's display snapshot
+      // (createdBy/createdByDetails) but no meaningful local id — in server mode
+      // the backend re-resolves createdById by ORCID/email; here we just make
+      // sure a stray foreign id never lands verbatim.
+      createdById: undefined,
       projectId: duplicate ? (project.projectId ? `${project.projectId}-copy` : undefined) : project.projectId,
       workspaceId,
       name: duplicate

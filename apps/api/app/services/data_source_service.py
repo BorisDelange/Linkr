@@ -11,7 +11,7 @@ from app.schemas.data_source import (
     DataSourceFileImportRequest,
     DataSourceUpdate,
 )
-from app.services import blob_store, concept_stats_cache_service
+from app.services import author_provenance, blob_store, concept_stats_cache_service
 from app.services.data import concept_cache_fs, connection_pool, db_connect
 
 # External network databases reached via DuckDB's ATTACH extensions.
@@ -86,6 +86,9 @@ async def get(db: AsyncSession, source_id: str) -> DataSource | None:
 
 async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataSource:
     payload = data.model_dump(exclude_none=True)
+    # A foreign instance's created_by_id is meaningless here — never persist it;
+    # stamp_creator derives the right local id (ORCID/email match, or NULL).
+    payload.pop("created_by_id", None)
     config = payload.get("connection_config")
     secret = _extract_secret(config)
     payload["connection_config"] = strip_secrets(config)
@@ -94,25 +97,7 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
         owner_id=owner.id,
         connection_secret=crypto.encrypt(secret) if secret else None,
     )
-    # Stamp creator provenance: the id is always the authenticated user; the
-    # display snapshot falls back to the current user when the payload (import)
-    # didn't carry one.
-    source.created_by_id = owner.id
-    if not payload.get("created_by"):
-        full = f"{owner.first_name or ''} {owner.last_name or ''}".strip()
-        source.created_by = full or owner.username
-    if not payload.get("created_by_details"):
-        source.created_by_details = {
-            k: v
-            for k, v in {
-                "firstName": owner.first_name,
-                "lastName": owner.last_name,
-                "affiliation": owner.affiliation,
-                "profession": owner.profession,
-                "orcid": owner.orcid,
-            }.items()
-            if v
-        }
+    await author_provenance.stamp_creator(db, source, payload, owner)
     db.add(source)
     await db.commit()
     await db.refresh(source)

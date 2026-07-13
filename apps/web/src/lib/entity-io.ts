@@ -319,10 +319,15 @@ const json = (data: unknown) => JSON.stringify(data, null, 2)
 // (never commit a repo's own remote/token into itself), catalog/org metadata,
 // and local timestamps. Stripped from every exported entity metadata so a
 // round-trip export→import→export is stable across instances.
+//
+// NB: createdBy / createdByDetails are deliberately NOT stripped — they are the
+// original author's display snapshot and must survive a cross-instance import so
+// the importer isn't credited as the creator. createdById IS stripped, because a
+// local user id is meaningless in another instance (the importing backend
+// re-resolves it by ORCID/email, falling back to NULL + the snapshot).
 const INSTANCE_FIELDS = [
   'ownerId',
-  'createdBy',
-  'createdByDetails',
+  'createdById',
   'origin',
   'workspaceId',
   'gitRemoteConfig',
@@ -340,6 +345,16 @@ export function stripInstanceFields<T extends object>(meta: T): Partial<T> {
   const out: Partial<T> = { ...meta }
   for (const f of INSTANCE_FIELDS) delete (out as Record<string, unknown>)[f]
   return out
+}
+
+/**
+ * Drop a createdById carried by an imported record: it's a foreign instance's
+ * local user id and must never be persisted. The author snapshot
+ * (createdBy/createdByDetails) is kept, so the record still shows the original
+ * author; in server mode the backend re-resolves a local id by ORCID/email.
+ */
+export function dropForeignAuthorId<T extends object>(rec: T): T {
+  return 'createdById' in rec ? { ...rec, createdById: undefined } : rec
 }
 
 /**
@@ -669,10 +684,10 @@ export async function importProjectContent(
     await storage.ideFiles.create({ ...f, id: mapId(f.id), projectUid, parentId: f.parentId ? mapId(f.parentId) : null })
   }
   for (const p of parsed.pipelines) {
-    await storage.pipelines.create({ ...p, id: mapId(p.id), projectUid })
+    await storage.pipelines.create(dropForeignAuthorId({ ...p, id: mapId(p.id), projectUid }))
   }
   for (const c of parsed.cohorts) {
-    await storage.cohorts.create({ ...c, id: mapId(c.id), projectUid })
+    await storage.cohorts.create(dropForeignAuthorId({ ...c, id: mapId(c.id), projectUid }))
   }
   for (const c of parsed.connections) {
     await storage.connections.create({ ...c, id: mapId(c.id), projectUid })
@@ -685,13 +700,13 @@ export async function importProjectContent(
       ...(f.scope?.type === 'tabs' ? { scope: { ...f.scope, tabIds: f.scope.tabIds.map(mapId) } } : {}),
       ...(f.scope?.type === 'widgets' ? { scope: { ...f.scope, widgetIds: f.scope.widgetIds.map(mapId) } } : {}),
     }))
-    await storage.dashboards.create({
+    await storage.dashboards.create(dropForeignAuthorId({
       ...d,
       id: mapId(d.id),
       projectUid,
       filterConfig,
       defaultDatasetFileId: d.defaultDatasetFileId ? resolveDatasetId(d.defaultDatasetFileId) : d.defaultDatasetFileId,
-    })
+    }))
   }
   for (const tab of parsed.dashboardTabs) {
     await storage.dashboardTabs.create({ ...tab, id: mapId(tab.id), dashboardId: mapId(tab.dashboardId), parentTabId: tab.parentTabId ? mapId(tab.parentTabId) : (tab.parentTabId ?? null) })
@@ -1338,7 +1353,7 @@ export async function applyClonedEntity(
     const byId = new Map(tree.map(f => [f.id, f as { id: string; name: string; parentId: string | null }]))
     const fkKey = type === 'sql-collection' ? 'collectionId' : 'pipelineId'
     for (const f of tree) {
-      const rec: Record<string, unknown> = { ...f, [fkKey]: targetId }
+      const rec: Record<string, unknown> = dropForeignAuthorId({ ...f, [fkKey]: targetId })
       if (f.type === 'file') {
         const entry = zip.files[buildTreePath(f, byId)]
         if (entry) rec.content = await entry.async('string')

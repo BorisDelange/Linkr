@@ -13,7 +13,7 @@ from app.schemas.dataset import (
     DatasetFileUpdate,
     DatasetImportRequest,
 )
-from app.services import blob_store
+from app.services import author_provenance, blob_store
 from app.services.data import dataset_rows
 from app.services.data.dataset_parser import parse_blob
 
@@ -33,26 +33,11 @@ async def get(db: AsyncSession, file_id: str) -> DatasetFile | None:
 
 async def create(db: AsyncSession, data: DatasetFileCreate, owner: User) -> DatasetFile:
     payload = data.model_dump(exclude_none=True)
+    # A foreign instance's created_by_id is meaningless here — never persist it;
+    # stamp_creator derives the right local id (ORCID/email match, or NULL).
+    payload.pop("created_by_id", None)
     node = DatasetFile(**payload, owner_id=owner.id)
-    # Stamp creator provenance: the id is always the authenticated user; the
-    # display snapshot falls back to the current user when the payload (import)
-    # didn't carry one.
-    node.created_by_id = owner.id
-    if not payload.get("created_by"):
-        full = f"{owner.first_name or ''} {owner.last_name or ''}".strip()
-        node.created_by = full or owner.username
-    if not payload.get("created_by_details"):
-        node.created_by_details = {
-            k: v
-            for k, v in {
-                "firstName": owner.first_name,
-                "lastName": owner.last_name,
-                "affiliation": owner.affiliation,
-                "profession": owner.profession,
-                "orcid": owner.orcid,
-            }.items()
-            if v
-        }
+    await author_provenance.stamp_creator(db, node, payload, owner)
     db.add(node)
     await db.commit()
     await db.refresh(node)

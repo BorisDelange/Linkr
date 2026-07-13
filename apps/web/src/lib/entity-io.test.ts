@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import type { DatasetFile } from '@/types'
 import type { Storage } from '@/lib/storage'
@@ -16,10 +16,10 @@ vi.mock('@/lib/api/datasets', () => ({ importDatasetOnServer }))
 // or a round-trip export→import→export drifts (owner/workspace/git differ per instance)
 // and the repo's own git remote (with a possible token) would be committed into itself.
 describe('stripInstanceFields', () => {
-  it('drops owner, placement, git link, catalog/org and timestamps', () => {
+  it('drops owner, local author id, placement, git link, catalog/org and timestamps', () => {
     const meta = {
       uid: 'p1', name: { en: 'P' }, config: {},
-      ownerId: 7, createdBy: 3, workspaceId: 'ws-1',
+      ownerId: 7, createdById: 3, workspaceId: 'ws-1',
       gitRemoteConfig: { url: 'https://x/y.git', branch: 'main', authToken: 'secret' },
       gitUrl: 'https://x/y.git', catalogVisibility: 'public',
       organization: { id: 'o' }, organizationId: 'o',
@@ -31,9 +31,41 @@ describe('stripInstanceFields', () => {
     expect(JSON.stringify(out)).not.toContain('secret')
   })
 
+  // The original author's display snapshot must SURVIVE an export so the importer
+  // isn't credited as the creator; only the (instance-local) createdById is dropped.
+  it('preserves the original-author snapshot but drops the local author id', () => {
+    const meta = {
+      uid: 'p1', name: { en: 'P' },
+      createdById: 42,
+      createdBy: 'Jane Doe',
+      createdByDetails: { firstName: 'Jane', lastName: 'Doe', orcid: '0000-0001-2345-6789' },
+    }
+    const out = stripInstanceFields(meta)
+    expect(out).toEqual({
+      uid: 'p1', name: { en: 'P' },
+      createdBy: 'Jane Doe',
+      createdByDetails: { firstName: 'Jane', lastName: 'Doe', orcid: '0000-0001-2345-6789' },
+    })
+    expect('createdById' in out).toBe(false)
+  })
+
   it('leaves portable content untouched', () => {
     const meta = { uid: 'p1', name: { en: 'P' }, description: { en: 'D' }, badges: [{ id: 'b' }], status: 'active' }
     expect(stripInstanceFields(meta)).toEqual(meta)
+  })
+})
+
+// On import, a createdById from the exporting instance is a foreign local user id
+// and must never be persisted verbatim — the snapshot is what identifies the author.
+describe('dropForeignAuthorId', () => {
+  it('clears createdById while keeping the author snapshot', () => {
+    const rec = { id: 'x', createdById: 7, createdBy: 'Jane', createdByDetails: { orcid: 'o' } }
+    expect(dropForeignAuthorId(rec)).toEqual({ id: 'x', createdById: undefined, createdBy: 'Jane', createdByDetails: { orcid: 'o' } })
+  })
+
+  it('is a no-op for records without createdById', () => {
+    const rec = { id: 'x', name: 'n' }
+    expect(dropForeignAuthorId(rec)).toBe(rec)
   })
 })
 

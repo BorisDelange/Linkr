@@ -219,6 +219,10 @@ export function WorkspacesPage() {
       await storage.workspaces.create({
         ...wsMeta,
         id: targetWsId,
+        // Imported: keep the author snapshot, drop the foreign local id — the
+        // backend re-resolves createdById by ORCID/email (see doImport in
+        // ProjectsPage for the full rationale).
+        createdById: undefined,
         name: duplicate
           ? (typeof wsMeta.name === 'string'
             ? `${wsMeta.name} (copy)` as unknown as typeof wsMeta.name
@@ -243,6 +247,7 @@ export function WorkspacesPage() {
       const entity: Project = {
         ...project,
         uid,
+        createdById: undefined,
         projectId: duplicate ? (project.projectId ? `${project.projectId}-copy` : undefined) : project.projectId,
         workspaceId: targetWsId,
         name: duplicate
