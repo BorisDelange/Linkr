@@ -30,7 +30,8 @@ import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, stampAuthored } from '@/stores/app-store'
+import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -90,6 +91,7 @@ export function CreateMappingProjectDialog({
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
+  const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
   const [sourceType, setSourceType] = useState<MappingProjectSourceType>('file')
 
   // --- Database source ---
@@ -191,6 +193,7 @@ export function CreateMappingProjectDialog({
       if (editingProject.fileSourceData?.columnMapping) {
         setColumnMapping(editingProject.fileSourceData.columnMapping)
       }
+      setAuthoring({})
       setMainTab('info')
     } else if (open) {
       setName('')
@@ -217,6 +220,7 @@ export function CreateMappingProjectDialog({
       setSelectedSheet('')
       setColumnMapping({})
       setPage('main')
+      setAuthoring({})
       setMainTab('info')
     }
   }, [editingProject, open, language])
@@ -562,6 +566,7 @@ export function CreateMappingProjectDialog({
         status,
         badges,
         sourceType,
+        ...authoring,
       }
       if (sourceType === 'database') {
         changes.dataSourceId = dataSourceId
@@ -601,6 +606,7 @@ export function CreateMappingProjectDialog({
         sourceType,
         dataSourceId: sourceType === 'database' ? dataSourceId : '',
         conceptSetIds: [],
+        ...stampAuthored(),
         createdAt: now,
         updatedAt: now,
       }
@@ -1095,6 +1101,20 @@ export function CreateMappingProjectDialog({
                 })()}
               </div>
             </div>
+
+            {isEdit && editingProject && (
+              <div className="border-t pt-4">
+                <AuthoringFields
+                  value={{
+                    createdById: 'createdById' in authoring ? authoring.createdById : editingProject.createdById,
+                    createdBy: authoring.createdBy ?? editingProject.createdBy,
+                    createdByDetails: authoring.createdByDetails ?? editingProject.createdByDetails,
+                    organization: authoring.organization ?? editingProject.organization,
+                  }}
+                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                />
+              </div>
+            )}
 
               </TabsContent>
 
