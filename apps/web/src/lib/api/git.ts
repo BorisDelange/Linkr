@@ -202,6 +202,28 @@ export async function gitCloneToZip(
   return { blob: await res.blob(), oid }
 }
 
+export interface GitPullSide {
+  /** Managed JSON files → full text (null if absent at that commit). */
+  files: Record<string, string | null>
+  /** Heavy whole-list families → stats only ({present, rowCount?, byteSize?, lfs?}). */
+  stats: Record<string, { present: boolean; rowCount?: number; byteSize?: number; lfs?: boolean }>
+}
+
+export interface GitPullPreview {
+  branch: string
+  remoteHead: string | null
+  syncedOid: string | null
+  base: GitPullSide
+  remote: GitPullSide
+}
+
+/** Fetch BASE + REMOTE managed-file content for a 3-way merge against the local DB.
+ *  Cheap: JSON families come as text, heavy families as stats. v1: mapping-projects. */
+export async function gitPullPreview(scope: GitScope, id: string, branch?: string): Promise<GitPullPreview> {
+  const qs = branch ? `?branch=${encodeURIComponent(branch)}` : ''
+  return apiRequest<GitPullPreview>(`${base(scope, id)}/pull-preview${qs}`)
+}
+
 /** Anchor an entity's sync state to a known remote commit (used right after a git
  *  import). Without this the entity has no base and "behind" can't be detected. */
 export async function gitSetSyncState(scope: GitScope, id: string, branch: string, syncedOid: string): Promise<void> {

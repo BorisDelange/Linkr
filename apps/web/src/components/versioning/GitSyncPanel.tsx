@@ -18,6 +18,7 @@ import { useGitSyncStore } from '@/stores/git-sync-store'
 import { gitFileMeta, groupGitFiles } from '@/lib/git-file-meta'
 import type { GitFileChange, GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
+import { PullResolveDialog } from './PullResolveDialog'
 import { ChangeBadge } from './ChangeBadge'
 import { GitErrorInline } from './GitErrorInline'
 
@@ -44,6 +45,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const [message, setMessage] = useState('')
   const [diffPath, setDiffPath] = useState<string | null>(null)
   const [pushed, setPushed] = useState(false)
+  const [pullOpen, setPullOpen] = useState(false)
 
   // ensureStatus recomputes only when the entity/branch/includeData changed since
   // the last status (see the store), so switching tabs and returning to the same
@@ -115,7 +117,11 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           }
         >
           <ArrowDownToLine size={14} className="shrink-0" />
-          <span>{t(syncState.diverged ? 'versioning.sync_diverged' : 'versioning.sync_behind')}</span>
+          <span className="flex-1">{t(syncState.diverged ? 'versioning.sync_diverged' : 'versioning.sync_behind')}</span>
+          <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-xs" onClick={() => setPullOpen(true)}>
+            <ArrowDownToLine size={12} />
+            {t('versioning.pull_action')}
+          </Button>
         </div>
       )}
 
@@ -238,6 +244,20 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           selected={selected}
           onToggle={togglePath}
           onClose={() => setDiffPath(null)}
+        />
+      )}
+
+      {pullOpen && (
+        <PullResolveDialog
+          projectId={id}
+          branch={branch}
+          onClose={() => setPullOpen(false)}
+          onResolve={async (resolution) => {
+            // Sub-step 3 wires the DB write + anchor update here. For now, hand the
+            // plan back (logged) and close, so the resolution UI can be validated.
+            console.info('[pull] resolution (write not wired yet):', resolution)
+            setPullOpen(false)
+          }}
         />
       )}
     </div>
