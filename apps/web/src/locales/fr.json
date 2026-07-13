@@ -2474,6 +2474,7 @@
     "optional": "Optionnel",
     "edit": "Modifier",
     "search": "Rechercher...",
+    "filter": "Filtrer…",
     "no_results": "Aucun résultat",
     "refine_search": "{{shown}} sur {{total}} affichés — affinez votre recherche",
     "results": "résultats",
