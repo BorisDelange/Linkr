@@ -520,7 +520,10 @@ import type JSZip from 'jszip'
 import type { Storage } from '@/lib/storage'
 
 interface BuildMappingProjectFolderOptions {
-  /** DuckDB query function — needed for DB-based source concepts export. */
+  /** DuckDB query function — needed for DB-based source concepts export.
+   *  Pass a paging query (queryDataSourceAll): in server mode a single response
+   *  is capped at MAX_QUERY_ROWS (~10k), which would silently truncate a large
+   *  source concept set. */
   queryDataSource?: (dsId: string, sql: string) => Promise<Record<string, unknown>[]>
   /** Ensure data source is mounted before querying. */
   ensureMounted?: (dsId: string) => Promise<void>

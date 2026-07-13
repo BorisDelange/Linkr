@@ -10,7 +10,7 @@ import { getScoresFile } from '@/lib/concept-mapping/scores-storage'
 import { isServerMode } from '@/lib/api-client'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
+import { queryDataSource, queryDataSourceAll, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
@@ -167,7 +167,10 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           )
         }
         const dsId = fileSourceDataSourceId(project.id)
-        const rows = await queryDataSource(dsId, 'SELECT vocabulary_id, concept_code, concept_name FROM source_concepts')
+        // queryDataSourceAll (not queryDataSource): server mode caps a single
+        // response at MAX_QUERY_ROWS (~10k), silently truncating large source
+        // concept sets in the export. Page through to get every row.
+        const rows = await queryDataSourceAll(dsId, 'SELECT vocabulary_id, concept_code, concept_name FROM source_concepts')
         const out = rows.map((r: Record<string, unknown>) => ({
           vocabularyId: String(r.vocabulary_id ?? localized(project.name, 'en')),
           conceptCode: String(r.concept_code ?? ''),
@@ -196,7 +199,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         await ensureMounted(dataSource.id)
         const sql = buildSourceConceptsAllQuery(dataSource.schemaMapping, {})
         if (sql) {
-          const rows = await queryDataSource(dataSource.id, sql)
+          const rows = await queryDataSourceAll(dataSource.id, sql)
           return rows.map((r) => ({
             vocabularyId: String(r.vocabulary_id ?? dataSource.id),
             conceptCode: String(r.concept_code ?? ''),
@@ -309,7 +312,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     try {
       const zip = new JSZip()
       await buildMappingProjectFolder(zip, '', project, getStorage(), {
-        queryDataSource,
+        queryDataSource: queryDataSourceAll,
         ensureMounted,
         dataSources,
         includeScores: withScores,
