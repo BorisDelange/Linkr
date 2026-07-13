@@ -17,8 +17,8 @@
     "notes": {"en": "All data is synthetic — see README.",
               "fr": "Toutes les données sont synthétiques — voir le README."},
     "badges": [
-      {"label": "ICU", "color": "red"},
-      {"label": "Demo", "color": "blue"}
+      {"label": {"en": "ICU", "fr": "Réa"}, "color": "red"},
+      {"label": {"en": "Demo", "fr": "Démo"}, "color": "blue"}
     ]
   },
   "ide": [

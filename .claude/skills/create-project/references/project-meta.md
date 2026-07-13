@@ -11,7 +11,7 @@ The `"project"` object in `spec.json` plus the optional README/tasks it produces
   "readme":     {"en": "# ICU Activity\n\nMarkdown…", "fr": {"file": "README.fr.md"}},
   "todos":  [{"text": {"en": "Validate mortality", "fr": "Valider la mortalité"}, "done": false}],
   "notes":  {"en": "Scratchpad.", "fr": "Bloc-notes."},
-  "badges": [{"label": "ICU", "color": "red"}, {"label": "Demo", "color": "blue"}],
+  "badges": [{"label": {"en": "ICU", "fr": "Réa"}, "color": "red"}, {"label": "Demo", "color": "blue"}],
   "status": "active"
 }
 ```
@@ -34,6 +34,7 @@ The `"project"` object in `spec.json` plus the optional README/tasks it produces
 - **`notes`** — free-form notes, **localized** (`{en, fr}` or a string → English).
   `todos`+`notes` → `tasks.json` (written only if non-empty, mirroring the app).
 - **`badges`** *(array)* — `{label, color}` chips on the project card.
+  **`label` is localized** (`{en, fr}`, or a plain string treated as English).
   Colors: `blue | red | green | orange | slate | purple | yellow | teal | pink`
   (any CSS-token color the badge component supports; stick to these for safety).
 - **`status`** — `active` (default) | `archived` | `draft`.

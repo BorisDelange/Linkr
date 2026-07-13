@@ -25,7 +25,8 @@ Spec shape (see SKILL.md + references/ for the full reference):
     # todos[].text and notes are localized too (string => en)
     "todos": [{"text": {"en": "Review", "fr": "Relire"}, "done": false}],
     "notes": {"en": "…", "fr": "…"},             # optional (-> tasks.json)
-    "badges": [{"label": "ICU", "color": "red"}] # optional
+    # badge label is localized too (string => en)
+    "badges": [{"label": {"en": "ICU", "fr": "Réa"}, "color": "red"}]
   },
   "ide": [                             # optional — files under Lab > IDE (scripts/)
     {"path": "analysis.py", "file": "analysis.py"},   # content from a file, OR
@@ -572,8 +573,9 @@ def main():
     project_uid = str(uuid.uuid4())
 
     p = spec["project"]
+    # Badge labels are localized ({en, fr}); a plain string is treated as English.
     badges = [
-        {"id": f"b{i}", "label": b["label"], "color": b.get("color", "blue")}
+        {"id": f"b{i}", "label": localize(b["label"]), "color": b.get("color", "blue")}
         for i, b in enumerate(p.get("badges", []))
     ]
     project = {
