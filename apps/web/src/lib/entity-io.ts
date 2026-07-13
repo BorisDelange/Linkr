@@ -521,7 +521,7 @@ export async function buildProjectZip(
   // The project has no org link of its own; it belongs to whatever org its
   // workspace is attached to. workspaceId is stripped from project.json (instance
   // field) but still present on the in-memory record, so we resolve it here.
-  await attachEntityOrganization(zip, project, storage)
+  await attachEntityOrganization(zip, 'project.json', project, storage)
 
   const blob = await zip.generateAsync({ type: 'blob' })
   return { blob, projectName: resolveProjectName(project) }
@@ -774,11 +774,16 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   // Strip export-only fields
   const { appVersion: _av, ...projectMeta } = projectRaw as Project & { appVersion?: string }
 
-  // --- organization.json (optional; inherited from the parent workspace at export) ---
-  const orgFile = zipData.files['organization.json']
-  const organization = orgFile
-    ? (JSON.parse(await orgFile.async('string')) as Organization)
-    : undefined
+  // Organization provenance snapshot: for a standalone project ZIP it's inlined
+  // on project.json (project.organization). A legacy root organization.json is
+  // still honored as a fallback. The snapshot stays on projectMeta so it's kept
+  // as immutable provenance on the imported record (like createdByDetails) — it
+  // is NOT re-linked to a local org entity.
+  if (!projectMeta.organization) {
+    const orgFile = zipData.files['organization.json']
+    if (orgFile) projectMeta.organization = JSON.parse(await orgFile.async('string')) as Organization
+  }
+  const organization = projectMeta.organization as Organization | undefined
 
   // Reconstruct readme (README.md = en, README.<lang>.md = other langs), todos, notes
   const readmeByLang: LocalizedString = {}
@@ -1189,25 +1194,45 @@ export async function buildSqlCollectionFolder(
 /** Write the .gitattributes (auto LFS rule + overrides) from the ZIP's own entry
  *  sizes, then emit the blob — shared tail of every single-entity git zip. */
 /**
- * Write organization.json into a standalone-entity ZIP by inheriting the org
- * from the entity's parent workspace. A SQL collection / ETL pipeline / mapping
- * project / DQ rule set / catalog has no org link of its own — its org is the
- * one managed at the workspace level — so we resolve workspaceId → workspace →
- * organizationId → the full org record. This makes the exported ZIP or git repo
- * self-sufficient: it carries both the author snapshot (with ORCID) and the
- * organization (with its stable UUID), the two keys a cross-instance catalog
- * indexes on. No-op when the entity has no workspace or the workspace no org.
+ * Resolve the organization a standalone entity inherits from its parent
+ * workspace: a SQL collection / ETL pipeline / mapping project / DQ rule set /
+ * catalog / project has no org link of its own — its org is the one managed at
+ * the workspace level (workspaceId → workspace.organizationId → the full record).
+ * Returns undefined when the entity has no workspace or the workspace no org.
+ */
+async function resolveEntityOrganization(
+  entity: { workspaceId?: string },
+  storage: Storage,
+): Promise<Organization | undefined> {
+  if (!entity.workspaceId) return undefined
+  const workspace = await storage.workspaces.getById(entity.workspaceId)
+  if (!workspace?.organizationId) return undefined
+  return storage.organizations.getById(workspace.organizationId)
+}
+
+/**
+ * Inline the inherited organization as an `organization` field on a standalone
+ * entity's already-written metadata JSON inside the ZIP. Used for single-entity
+ * exports (one project / mapping project / collection per ZIP): there's exactly
+ * one org, so embedding the full record keeps the file self-sufficient and
+ * human-readable without a sidecar. (A multi-entity workspace ZIP instead
+ * factors the org into one root organization.json — see buildWorkspaceZip — to
+ * avoid repeating it across every entity.) The record carries the org's stable
+ * UUID, so import upserts by id whether it comes from inline or the sidecar.
+ * No-op when there's no org to attach or the meta entry is missing.
  */
 export async function attachEntityOrganization(
   zip: JSZip,
+  metaPath: string,
   entity: { workspaceId?: string },
   storage: Storage,
 ): Promise<void> {
-  if (!entity.workspaceId) return
-  const workspace = await storage.workspaces.getById(entity.workspaceId)
-  if (!workspace?.organizationId) return
-  const org = await storage.organizations.getById(workspace.organizationId)
-  if (org) zip.file('organization.json', json(org))
+  const org = await resolveEntityOrganization(entity, storage)
+  const entry = zip.files[metaPath]
+  if (!org || !entry) return
+  const meta = JSON.parse(await entry.async('string'))
+  meta.organization = org
+  zip.file(metaPath, json(meta))
 }
 
 async function finalizeEntityZip(zip: JSZip, lfsOverrides?: Map<string, boolean>): Promise<Blob> {
@@ -1231,7 +1256,7 @@ export async function buildSqlCollectionZip(
   if (!collection) return null
   const zip = new JSZip()
   await buildSqlCollectionFolder(zip, '', collection, storage)
-  await attachEntityOrganization(zip, collection, storage)
+  await attachEntityOrganization(zip, '_collection.json', collection, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(collection.name, 'en') || collection.id }
 }
@@ -1245,7 +1270,7 @@ export async function buildEtlPipelineZip(
   if (!pipeline) return null
   const zip = new JSZip()
   await buildEtlPipelineFolder(zip, '', pipeline, storage)
-  await attachEntityOrganization(zip, pipeline, storage)
+  await attachEntityOrganization(zip, '_pipeline.json', pipeline, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(pipeline.name, 'en') || pipeline.id }
 }
@@ -1270,7 +1295,7 @@ export async function buildDataCatalogZip(
   if (!catalog) return null
   const zip = new JSZip()
   await buildDataCatalogFolder(zip, '', catalog)
-  await attachEntityOrganization(zip, catalog, storage)
+  await attachEntityOrganization(zip, 'catalog.json', catalog, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(catalog.name, 'en') || catalog.id }
 }
@@ -1297,7 +1322,7 @@ export async function buildDqRuleSetZip(
   if (!ruleSet) return null
   const zip = new JSZip()
   await buildDqRuleSetFolder(zip, '', ruleSet, storage)
-  await attachEntityOrganization(zip, ruleSet, storage)
+  await attachEntityOrganization(zip, 'rule-set.json', ruleSet, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(ruleSet.name, 'en') || ruleSet.id }
 }

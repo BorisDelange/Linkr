@@ -213,28 +213,38 @@ describe('parseProjectZip — dataset data sidecars', () => {
 // no org fields, but organization.json rides alongside). Import must surface it
 // so doImport can upsert the org by UUID on the target instance.
 describe('parseProjectZip — organization bundle', () => {
-  const makeZip = async (withOrg: boolean) => {
+  const ORG = {
+    id: 'org-7', name: { en: 'Acme', fr: 'Acme SA' }, type: 'hospital',
+    location: { en: 'Rennes', fr: 'Rennes' }, createdAt: '2020', updatedAt: '2021',
+  }
+  const makeZip = async (mode: 'inline' | 'sidecar' | 'none') => {
     const zip = new JSZip()
-    zip.file('project.json', JSON.stringify({ uid: 'p1', name: { en: 'P' } }))
-    if (withOrg) {
-      zip.file('organization.json', JSON.stringify({
-        id: 'org-7', name: { en: 'Acme', fr: 'Acme SA' }, type: 'hospital',
-        location: { en: 'Rennes', fr: 'Rennes' }, createdAt: '2020', updatedAt: '2021',
-      }))
-    }
+    zip.file('project.json', JSON.stringify({
+      uid: 'p1', name: { en: 'P' }, ...(mode === 'inline' ? { organization: ORG } : {}),
+    }))
+    if (mode === 'sidecar') zip.file('organization.json', JSON.stringify(ORG))
     return await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
   }
 
-  it('reads organization.json and preserves its multilingual fields', async () => {
-    const parsed = await parseProjectZip(await makeZip(true))
+  it('reads the inlined organization and preserves its multilingual fields', async () => {
+    const parsed = await parseProjectZip(await makeZip('inline'))
     expect(parsed!.organization?.id).toBe('org-7')
     expect(parsed!.organization?.name).toEqual({ en: 'Acme', fr: 'Acme SA' })
     expect(parsed!.organization?.location).toEqual({ en: 'Rennes', fr: 'Rennes' })
+    // The snapshot is also kept on the project record itself (immutable provenance).
+    expect(parsed!.project.organization?.id).toBe('org-7')
+  })
+
+  it('still honors a legacy sidecar organization.json', async () => {
+    const parsed = await parseProjectZip(await makeZip('sidecar'))
+    expect(parsed!.organization?.id).toBe('org-7')
+    expect(parsed!.project.organization?.id).toBe('org-7')
   })
 
   it('leaves organization undefined when the ZIP has none', async () => {
-    const parsed = await parseProjectZip(await makeZip(false))
+    const parsed = await parseProjectZip(await makeZip('none'))
     expect(parsed!.organization).toBeUndefined()
+    expect(parsed!.project.organization).toBeUndefined()
   })
 })
 
@@ -275,37 +285,48 @@ describe('parseWorkspaceZip — organization bundle', () => {
 
 // A standalone entity (SQL collection, ETL, mapping project…) has no org link of
 // its own — it inherits the org managed at its parent workspace. Export must resolve
-// workspaceId → workspace.organizationId → the org and bundle it, so the ZIP/repo is
-// self-sufficient for a cross-instance catalog (org identified by its stable UUID).
-describe('attachEntityOrganization — inherits org from parent workspace', () => {
+// workspaceId → workspace.organizationId → the org, then inline it as an
+// `organization` field on the entity's own metadata JSON (single-entity export:
+// one org, embedded for a self-sufficient, human-readable file).
+describe('attachEntityOrganization — inlines inherited org into entity meta', () => {
   const makeStore = (workspace: unknown, org: unknown) => ({
     workspaces: { getById: async (id: string) => ((workspace as { id?: string })?.id === id ? workspace : undefined) },
     organizations: { getById: async (id: string) => ((org as { id?: string })?.id === id ? org : undefined) },
   }) as unknown as Storage
 
-  it('writes organization.json resolved through the workspace', async () => {
+  const zipWithMeta = (meta: object) => {
     const zip = new JSZip()
+    zip.file('project.json', JSON.stringify(meta))
+    return zip
+  }
+
+  it('inlines the resolved org onto the meta JSON', async () => {
+    const zip = zipWithMeta({ uid: 'p1', name: { en: 'P' } })
     const store = makeStore(
       { id: 'w1', organizationId: 'org-9' },
-      { id: 'org-9', name: { en: 'Acme' } },
+      { id: 'org-9', name: { en: 'Acme', fr: 'Acme SA' } },
     )
-    await attachEntityOrganization(zip, { workspaceId: 'w1' }, store)
-    const entry = zip.files['organization.json']
-    expect(entry).toBeDefined()
-    expect(JSON.parse(await entry.async('string')).id).toBe('org-9')
-  })
-
-  it('is a no-op when the entity has no workspace', async () => {
-    const zip = new JSZip()
-    await attachEntityOrganization(zip, {}, makeStore(undefined, undefined))
+    await attachEntityOrganization(zip, 'project.json', { workspaceId: 'w1' }, store)
+    const meta = JSON.parse(await zip.files['project.json'].async('string'))
+    expect(meta.organization.id).toBe('org-9')
+    expect(meta.organization.name).toEqual({ en: 'Acme', fr: 'Acme SA' })
+    // No separate sidecar is written.
     expect(zip.files['organization.json']).toBeUndefined()
   })
 
-  it('is a no-op when the workspace has no organization', async () => {
-    const zip = new JSZip()
+  it('leaves the meta untouched when the entity has no workspace', async () => {
+    const zip = zipWithMeta({ uid: 'p1' })
+    await attachEntityOrganization(zip, 'project.json', {}, makeStore(undefined, undefined))
+    const meta = JSON.parse(await zip.files['project.json'].async('string'))
+    expect(meta.organization).toBeUndefined()
+  })
+
+  it('leaves the meta untouched when the workspace has no organization', async () => {
+    const zip = zipWithMeta({ uid: 'p1' })
     const store = makeStore({ id: 'w1' }, undefined)
-    await attachEntityOrganization(zip, { workspaceId: 'w1' }, store)
-    expect(zip.files['organization.json']).toBeUndefined()
+    await attachEntityOrganization(zip, 'project.json', { workspaceId: 'w1' }, store)
+    const meta = JSON.parse(await zip.files['project.json'].async('string'))
+    expect(meta.organization).toBeUndefined()
   })
 })
 

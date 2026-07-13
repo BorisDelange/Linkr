@@ -193,6 +193,8 @@ export interface MappingProject extends Seedable {
   importBatches?: ConceptSetImportBatch[]
   /** Git repository this mapping project is linked to. When set, workspace export emits metadata + this pointer only. */
   gitRemoteConfig?: import('./index').GitRemoteConfig
+  /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
+  organization?: import('./index').OrganizationInfo
   createdAt: string
   updatedAt: string
 }

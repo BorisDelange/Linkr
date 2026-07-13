@@ -743,6 +743,8 @@ export interface EtlPipeline extends Seedable, Authored {
   lastRunDurationMs?: number
   /** Git repository this pipeline is linked to. When set, workspace export emits metadata + this pointer only. */
   gitRemoteConfig?: GitRemoteConfig
+  /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
+  organization?: OrganizationInfo
   createdAt: string
   updatedAt: string
 }
@@ -814,6 +816,8 @@ export interface SqlScriptCollection extends Authored {
   defaultDataSourceId?: string
   /** Git repository this collection is linked to. When set, workspace export emits metadata + this pointer only. */
   gitRemoteConfig?: GitRemoteConfig
+  /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
+  organization?: OrganizationInfo
   createdAt: string
   updatedAt: string
 }
@@ -849,6 +853,8 @@ export interface DqRuleSet extends Seedable, Authored {
   /** Score 0-100, percentage of passing checks */
   lastScore?: number
   gitRemoteConfig?: GitRemoteConfig
+  /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
+  organization?: OrganizationInfo
   createdAt: string
   updatedAt: string
 }
