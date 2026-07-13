@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
 import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { SUGGESTION_CATEGORIES } from '@/types'
 
@@ -1879,6 +1880,50 @@ class IDBConceptMappingStorage implements ConceptMappingStorage {
   async getById(id: string): Promise<ConceptMapping | undefined> {
     const db = await getDB()
     return db.get('concept_mappings', id)
+  }
+
+  async getStats(projectId: string): Promise<MappingCountStats> {
+    // Mirror mapping_project_service.compute_project_stats (server) — dedup by
+    // source key using effective (review-derived) status.
+    const mappings = await this.getByProject(projectId)
+    const ignored = new Set<string>()
+    const mapped = new Set<string>()
+    const approved = new Set<string>()
+    const flagged = new Set<string>()
+    for (const m of mappings) {
+      const eff = effectiveMappingStatus(m)
+      const key = sourceKey(m)
+      if (eff === 'ignored') {
+        ignored.add(key)
+        continue
+      }
+      mapped.add(key)
+      if (eff === 'approved') approved.add(key)
+      else if (eff === 'flagged') flagged.add(key)
+    }
+    return {
+      mappedCount: mapped.size,
+      approvedCount: approved.size,
+      flaggedCount: flagged.size,
+      ignoredCount: ignored.size,
+    }
+  }
+
+  async getMappedKeysForWorkspace(workspaceId: string, excludeProjectId: string): Promise<Set<string>> {
+    // Mirror mapping_project_service.workspace_mapped_keys (server) — raw status
+    // + targetConceptId, keyed with ':' (not the NUL sourceKey separator).
+    const db = await getDB()
+    const projects = await db.getAllFromIndex('mapping_projects', 'by-workspace', workspaceId)
+    const keys = new Set<string>()
+    for (const p of projects) {
+      if (p.id === excludeProjectId) continue
+      const mappings = await db.getAllFromIndex('concept_mappings', 'by-project', p.id)
+      for (const m of mappings) {
+        if (m.status === 'ignored' || m.targetConceptId === 0) continue
+        keys.add(`${m.sourceVocabularyId}:${m.sourceConceptCode}`)
+      }
+    }
+    return keys
   }
 
   async create(mapping: ConceptMapping): Promise<void> {

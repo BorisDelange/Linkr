@@ -13,6 +13,7 @@ from app.schemas.mapping_project import (
     ServiceMappingUpdate,
 )
 from app.services import author_provenance, blob_store, git_secret
+from app.services.data.mapping_status import effective_mapping_status, source_key
 
 
 async def _sha_still_referenced(db: AsyncSession, sha: str) -> bool:
@@ -98,6 +99,80 @@ async def list_mappings(db: AsyncSession, project_id: str) -> list[ConceptMappin
 
 async def get_mapping(db: AsyncSession, mapping_id: str) -> ConceptMapping | None:
     return await db.get(ConceptMapping, mapping_id)
+
+
+# Columns needed to derive stats / mapped-keys — loading only these keeps the
+# aggregate cheap even for high-row-count projects (never rehydrate full rows).
+_STAT_COLS = (
+    ConceptMapping.status,
+    ConceptMapping.reviews,
+    ConceptMapping.source_vocabulary_id,
+    ConceptMapping.source_concept_code,
+    ConceptMapping.target_concept_id,
+)
+
+
+async def compute_project_stats(db: AsyncSession, project_id: str) -> dict:
+    """Server-side equivalent of the client's `recomputeProjectStats`: dedup by
+    (vocab, code) using the effective (review-derived) status. `totalSourceConcepts`
+    / `unmappedCount` depend on the source table and are left at 0 (set client-side)."""
+    result = await db.execute(
+        select(*_STAT_COLS).where(ConceptMapping.project_id == project_id)
+    )
+    ignored: set[str] = set()
+    mapped: set[str] = set()
+    approved: set[str] = set()
+    flagged: set[str] = set()
+    for row in result:
+        m = ConceptMapping(
+            status=row.status,
+            reviews=row.reviews,
+            source_vocabulary_id=row.source_vocabulary_id,
+            source_concept_code=row.source_concept_code,
+        )
+        eff = effective_mapping_status(m)
+        key = source_key(m)
+        if eff == "ignored":
+            ignored.add(key)
+            continue
+        mapped.add(key)
+        if eff == "approved":
+            approved.add(key)
+        elif eff == "flagged":
+            flagged.add(key)
+    return {
+        "totalSourceConcepts": 0,
+        "mappedCount": len(mapped),
+        "approvedCount": len(approved),
+        "flaggedCount": len(flagged),
+        "ignoredCount": len(ignored),
+        "unmappedCount": 0,
+    }
+
+
+async def workspace_mapped_keys(
+    db: AsyncSession, workspace_id: str, exclude_project_id: str | None
+) -> list[str]:
+    """Distinct `vocab:code` keys mapped in a workspace's OTHER projects — the set
+    the editor uses to flag "already mapped elsewhere". Mirrors the client's
+    `loadOtherProjectsMappedKeys`: skip ignored + unmapped (targetConceptId == 0),
+    join with ':' (NOT the NUL sourceKey separator — the client uses ':' here)."""
+    project_ids_q = select(MappingProject.id).where(
+        MappingProject.workspace_id == workspace_id
+    )
+    if exclude_project_id is not None:
+        project_ids_q = project_ids_q.where(MappingProject.id != exclude_project_id)
+    stmt = select(
+        ConceptMapping.source_vocabulary_id,
+        ConceptMapping.source_concept_code,
+    ).where(
+        ConceptMapping.project_id.in_(project_ids_q),
+        ConceptMapping.status != "ignored",
+        ConceptMapping.target_concept_id != 0,
+    )
+    result = await db.execute(stmt)
+    keys = {f"{vocab}:{code}" for vocab, code in result}
+    return sorted(keys)
 
 
 async def create_mapping(db: AsyncSession, data: ConceptMappingCreate) -> ConceptMapping:

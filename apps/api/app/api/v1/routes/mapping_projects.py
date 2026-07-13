@@ -492,6 +492,34 @@ async def list_mappings(
     return await svc.list_mappings(db, project_id)
 
 
+@router.get(_PROJ + "/{project_id}/stats")
+async def get_project_stats(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Review-aware mapped/approved/flagged/ignored counts computed server-side
+    (dedup by source key), so the client never rehydrates every mapping just to
+    recount after a vote. totalSourceConcepts/unmappedCount are 0 here (the
+    source table lives client- or DuckDB-side)."""
+    await _load_project(db, project_id, user, "concept-mapping:read")
+    return await svc.compute_project_stats(db, project_id)
+
+
+@router.get("/workspaces/{workspace_id}/mapping-mapped-keys")
+async def get_workspace_mapped_keys(
+    workspace_id: str,
+    exclude: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[str]:
+    """Distinct `vocab:code` keys mapped in this workspace's OTHER mapping
+    projects — the "already mapped elsewhere" set. One query instead of the
+    client's per-project scan."""
+    await check_workspace_permission(db, workspace_id, user, "concept-mapping:read")
+    return await svc.workspace_mapped_keys(db, workspace_id, exclude)
+
+
 @router.delete(_PROJ + "/{project_id}/mappings", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_mappings_for_project(
     project_id: str,

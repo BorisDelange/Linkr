@@ -334,6 +334,60 @@ async def test_file_source_query_xlsx_sheet(client):
     assert rows[0]["vocabulary_id"] == "SNOMED"
 
 
+async def test_project_stats_dedup_and_effective_status(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _project(client, headers, ws)
+
+    # Two mappings on the SAME source key (LOINC:C0) → one deduped source concept.
+    # One approved by a review vote (effective status wins over stored 'mapped'),
+    # one flagged. A third source (C1) is stored-ignored. A fourth (C2) mapped.
+    await client.post(f"{API}/concept-mappings/batch", headers=headers, json={"mappings": [
+        {"id": "m0", "projectId": p["id"], "sourceVocabularyId": "LOINC", "sourceConceptCode": "C0",
+         "targetConceptId": 3000, "status": "mapped", "reviews": [{"status": "approved"}]},
+        {"id": "m1", "projectId": p["id"], "sourceVocabularyId": "LOINC", "sourceConceptCode": "C0",
+         "targetConceptId": 3001, "status": "flagged"},
+        {"id": "m2", "projectId": p["id"], "sourceVocabularyId": "LOINC", "sourceConceptCode": "C1",
+         "targetConceptId": 3002, "status": "ignored"},
+        {"id": "m3", "projectId": p["id"], "sourceVocabularyId": "LOINC", "sourceConceptCode": "C2",
+         "targetConceptId": 3003, "status": "mapped"},
+    ]})
+
+    stats = (await client.get(f"{API}/mapping-projects/{p['id']}/stats", headers=headers)).json()
+    # Deduped keys: C0 (mapped, approved via review), C2 (mapped). C1 is ignored.
+    assert stats["mappedCount"] == 2
+    assert stats["approvedCount"] == 1  # only C0
+    assert stats["ignoredCount"] == 1   # C1
+    # totalSourceConcepts / unmappedCount come from the source table, not here.
+    assert stats["totalSourceConcepts"] == 0
+
+
+async def test_workspace_mapped_keys_excludes_current_project(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    a = await _project(client, headers, ws, pid="pa")
+    b = await _project(client, headers, ws, pid="pb")
+
+    await client.post(f"{API}/concept-mappings/batch", headers=headers, json={"mappings": [
+        # Project A: one mapped, one ignored (excluded), one unmapped target=0 (excluded).
+        {"id": "a0", "projectId": a["id"], "sourceVocabularyId": "LOINC", "sourceConceptCode": "X",
+         "targetConceptId": 10, "status": "mapped"},
+        {"id": "a1", "projectId": a["id"], "sourceVocabularyId": "LOINC", "sourceConceptCode": "Y",
+         "targetConceptId": 11, "status": "ignored"},
+        {"id": "a2", "projectId": a["id"], "sourceVocabularyId": "LOINC", "sourceConceptCode": "Z",
+         "targetConceptId": 0, "status": "mapped"},
+        # Project B: one mapped — should NOT appear when excluding B.
+        {"id": "b0", "projectId": b["id"], "sourceVocabularyId": "SNOMED", "sourceConceptCode": "S",
+         "targetConceptId": 20, "status": "mapped"},
+    ]})
+
+    # From B's point of view, "mapped elsewhere" = A's valid keys only.
+    keys = (await client.get(
+        f"{API}/workspaces/{ws}/mapping-mapped-keys?exclude={b['id']}", headers=headers
+    )).json()
+    assert keys == ["LOINC:X"]  # Y ignored, Z target=0, S excluded (own project)
+
+
 async def test_service_mapping_crud(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)

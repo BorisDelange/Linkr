@@ -2,6 +2,7 @@ import { apiFetch, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
 import type {
   ConceptMappingStorage,
+  MappingCountStats,
   MappingProjectStorage,
   ServiceMappingStorage,
 } from '@/lib/storage'
@@ -214,6 +215,16 @@ export const apiMappingProjectStorage: MappingProjectStorage = {
 export const apiConceptMappingStorage: ConceptMappingStorage = {
   getByProject: (projectId) =>
     apiRequest<ConceptMapping[]>(`${PROJ}/${projectId}/mappings`),
+
+  getStats: (projectId) =>
+    apiRequest<MappingCountStats>(`${PROJ}/${projectId}/stats`),
+
+  getMappedKeysForWorkspace: async (workspaceId, excludeProjectId) => {
+    const keys = await apiRequest<string[]>(
+      `/workspaces/${encodeURIComponent(workspaceId)}/mapping-mapped-keys?exclude=${encodeURIComponent(excludeProjectId)}`,
+    )
+    return new Set(keys)
+  },
 
   getById: async (id) => {
     void id

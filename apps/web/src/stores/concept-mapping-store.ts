@@ -2,8 +2,28 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
-import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import type { ConceptSet, MappingProject, ConceptMapping, MappingStatus, MappingProjectStats } from '@/types'
+
+/** Coalesce stats recomputes per project: a burst of votes/creates collapses
+ *  into a single deferred recompute (one server round-trip in fullstack mode,
+ *  one array scan in standalone) instead of one per mutation. */
+const _statsRecomputeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const STATS_RECOMPUTE_DELAY_MS = 250
+
+function scheduleStatsRecompute(
+  projectId: string,
+  run: (projectId: string) => Promise<unknown>,
+): void {
+  const existing = _statsRecomputeTimers.get(projectId)
+  if (existing) clearTimeout(existing)
+  _statsRecomputeTimers.set(
+    projectId,
+    setTimeout(() => {
+      _statsRecomputeTimers.delete(projectId)
+      void run(projectId).catch(() => {})
+    }, STATS_RECOMPUTE_DELAY_MS),
+  )
+}
 
 /** Summary of a single mapping made in another project (for cross-project tooltips & import). */
 export interface ExternalMappingInfo {
@@ -263,7 +283,7 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
         _otherDetailsLoadedFor: null,
       }
     })
-    void get().recomputeProjectStats(mapping.projectId).catch(() => {})
+    scheduleStatsRecompute(mapping.projectId, get().recomputeProjectStats)
   },
 
   createMappingsBatch: async (mappings) => {
@@ -298,7 +318,7 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     // Recompute stats for each affected project (usually one, but bulk imports may span several)
     const affectedProjects = new Set(filtered.map((m) => m.projectId))
     for (const pid of affectedProjects) {
-      void get().recomputeProjectStats(pid).catch(() => {})
+      scheduleStatsRecompute(pid, get().recomputeProjectStats)
     }
   },
 
@@ -344,7 +364,7 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       }
     })
     await getStorage().conceptMappings.update(id, changes)
-    void get().recomputeProjectStats(affectedProjectId).catch(() => {})
+    scheduleStatsRecompute(affectedProjectId, get().recomputeProjectStats)
   },
 
   deleteMapping: async (id) => {
@@ -361,7 +381,7 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       }
     })
     if (affectedProjectId) {
-      void get().recomputeProjectStats(affectedProjectId).catch(() => {})
+      scheduleStatsRecompute(affectedProjectId, get().recomputeProjectStats)
     }
   },
 
@@ -394,7 +414,7 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       }
     })
     for (const pid of affectedProjects) {
-      void get().recomputeProjectStats(pid).catch(() => {})
+      scheduleStatsRecompute(pid, get().recomputeProjectStats)
     }
   },
 
@@ -454,31 +474,21 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
 
   // --- Stats ---
   recomputeProjectStats: async (projectId) => {
-    const mappings = get().activeProjectId === projectId
-      ? get().mappings
-      : await getStorage().conceptMappings.getByProject(projectId)
-
-    // Dedup by (vocabularyId, conceptCode) — same key as ProgressTab / Mapping Editor / Export.
-    // Use effectiveMappingStatus so review-derived status is reflected.
-    const ignoredKeys = new Set(
-      mappings.filter((m) => effectiveMappingStatus(m) === 'ignored').map(sourceKey),
-    )
-    const nonIgnored = mappings.filter((m) => effectiveMappingStatus(m) !== 'ignored')
-    const mappedKeys = new Set(nonIgnored.map(sourceKey))
-    const approvedKeys = new Set(
-      nonIgnored.filter((m) => effectiveMappingStatus(m) === 'approved').map(sourceKey),
-    )
-    const flaggedKeys = new Set(
-      nonIgnored.filter((m) => effectiveMappingStatus(m) === 'flagged').map(sourceKey),
-    )
-
+    // Offloaded to storage.getStats: server-side SQL/Python in fullstack mode,
+    // JS in standalone — so a vote/add doesn't rescan the whole array on the
+    // main thread and re-persist on every click. Keep the existing totals
+    // (totalSourceConcepts/unmappedCount come from the DuckDB source query, not
+    // from the mappings), only refresh the dedup counts.
+    const counts = await getStorage().conceptMappings.getStats(projectId)
+    const prev = get().mappingProjects.find((p) => p.id === projectId)?.stats
+    const total = prev?.totalSourceConcepts ?? 0
     const stats: MappingProjectStats = {
-      totalSourceConcepts: 0, // Must be set externally (from DuckDB query)
-      mappedCount: mappedKeys.size,
-      approvedCount: approvedKeys.size,
-      flaggedCount: flaggedKeys.size,
-      ignoredCount: ignoredKeys.size,
-      unmappedCount: 0, // totalSourceConcepts - mappedCount
+      totalSourceConcepts: total,
+      mappedCount: counts.mappedCount,
+      approvedCount: counts.approvedCount,
+      flaggedCount: counts.flaggedCount,
+      ignoredCount: counts.ignoredCount,
+      unmappedCount: Math.max(0, total - counts.mappedCount),
     }
 
     await getStorage().mappingProjects.update(projectId, { stats })
@@ -499,19 +509,12 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   loadOtherProjectsMappedKeys: async (currentProjectId, workspaceId) => {
     const cacheKey = `${workspaceId}::${currentProjectId}`
     if (get()._otherKeysLoadedFor === cacheKey) return
-    const storage = getStorage()
-    const projects = get().mappingProjects.filter((p) => p.workspaceId === workspaceId && p.id !== currentProjectId)
-    const keys = new Set<string>()
-    for (const p of projects) {
-      // Use the project's stats array if available to avoid scanning every mapping. Fallback to a
-      // mappings scan that pulls only the columns we need from IDB. Either way, no full record
-      // is held in memory beyond what's needed for the Set.
-      const mappings = await storage.conceptMappings.getByProject(p.id)
-      for (const m of mappings) {
-        if (m.status === 'ignored' || m.targetConceptId === 0) continue
-        keys.add(`${m.sourceVocabularyId}:${m.sourceConceptCode}`)
-      }
-    }
+    // One aggregate call (server SQL in fullstack, single IDB pass in standalone)
+    // instead of a per-project getByProject scan over the whole workspace.
+    const keys = await getStorage().conceptMappings.getMappedKeysForWorkspace(
+      workspaceId,
+      currentProjectId,
+    )
     set({ otherProjectsMappedKeys: keys, _otherKeysLoadedFor: cacheKey })
   },
   loadOtherProjectsDetails: async (currentProjectId, workspaceId) => {

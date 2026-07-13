@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -320,9 +320,25 @@ export interface MappingProjectStorage {
   delete(id: string): Promise<void>
 }
 
+/** Server-computable stats without materializing every mapping.
+ *  `totalSourceConcepts` / `unmappedCount` depend on the source table and are
+ *  filled in by the caller (DuckDB); the four dedup counts are computed here. */
+export type MappingCountStats = Pick<
+  MappingProjectStats,
+  'mappedCount' | 'approvedCount' | 'flaggedCount' | 'ignoredCount'
+>
+
 /** Storage interface for concept mapping persistence. */
 export interface ConceptMappingStorage {
   getByProject(projectId: string): Promise<ConceptMapping[]>
+  /** Review-aware dedup counts for a project, computed server-side in fullstack
+   *  mode (SQL/Python) or in JS in standalone mode — so a vote/add doesn't force
+   *  the client to recount the whole in-memory array + persist on every click. */
+  getStats(projectId: string): Promise<MappingCountStats>
+  /** Distinct `vocab:code` keys mapped in a workspace's OTHER projects (the
+   *  "mapped elsewhere" set). One aggregate call instead of scanning every
+   *  other project's mappings. */
+  getMappedKeysForWorkspace(workspaceId: string, excludeProjectId: string): Promise<Set<string>>
   getById(id: string): Promise<ConceptMapping | undefined>
   create(mapping: ConceptMapping): Promise<void>
   createBatch(mappings: ConceptMapping[]): Promise<void>
