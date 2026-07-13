@@ -18,9 +18,13 @@ Spec shape (see SKILL.md + references/ for the full reference):
     "projectId": "icu-activity",
     "name": {"en": "...", "fr": "..."},
     "description": {"en": "...", "fr": "..."},
-    "readme": "markdown string (optional)",     # or "readmeFile": "README.md"
-    "todos": [{"text": "...", "done": false}],   # optional (-> tasks.json)
-    "notes": "markdown string (optional)",       # optional (-> tasks.json)
+    # readme: string (en) OR {en, fr} where each value is text or {"file": path}
+    "readme": {"en": "# Title…", "fr": {"file": "README.fr.md"}},
+    # readmeFile: string path (en) OR {en, fr} of paths — alt to inline "readme"
+    "readmeFile": {"en": "README.md", "fr": "README.fr.md"},
+    # todos[].text and notes are localized too (string => en)
+    "todos": [{"text": {"en": "Review", "fr": "Relire"}, "done": false}],
+    "notes": {"en": "…", "fr": "…"},             # optional (-> tasks.json)
     "badges": [{"label": "ICU", "color": "red"}] # optional
   },
   "ide": [                             # optional — files under Lab > IDE (scripts/)
@@ -169,7 +173,29 @@ def load_csv(path):
     return header, body
 
 
+def assert_ascii_path(value, what):
+    """A dataset `name` / IDE path becomes a ZIP folder path, and parseNewLayout
+    (entity-io.ts) does an exact-string lookup on it. macOS stores filenames in
+    NFD while the JSON keeps NFC, so a non-ASCII path imports fine directly but is
+    SILENTLY DROPPED after a git/disk round-trip (the portal stores projects
+    unpacked in a git repo). Reject non-ASCII up front; only warn on spaces."""
+    if not value.isascii():
+        raise SystemExit(
+            f"{what} {value!r} contains non-ASCII characters.\n"
+            "  It becomes a ZIP folder path, and a non-ASCII path is silently\n"
+            "  dropped on import after a macOS/git filesystem round-trip (NFC vs NFD).\n"
+            "  Use a plain ASCII slug (e.g. 'table_agregee', 'clip_mir_data') and\n"
+            "  put the human-readable/localized label elsewhere."
+        )
+    if " " in value:
+        sys.stderr.write(
+            f"WARNING: {what} {value!r} contains a space. It becomes a ZIP folder\n"
+            "  path; prefer an ASCII slug with no spaces to be safe.\n"
+        )
+
+
 def build_dataset(ds, spec_dir):
+    assert_ascii_path(ds["name"], "dataset name")
     csv_path = os.path.join(spec_dir, ds["csv"])
     header, body = load_csv(csv_path)
 
@@ -483,6 +509,52 @@ def monaco_language_for(name):
     return BY_EXTENSION.get(ext, "plaintext")
 
 
+def localize(value):
+    """Coerce a value into a {lang: str} map. A plain string becomes {'en': str}."""
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if v}
+    return {"en": value} if value else {}
+
+
+def resolve_readme(project, spec_dir):
+    """Return {lang: markdown}. Sources, in priority order:
+      project["readme"]     — string (en) or {lang: string | {"file": path}}
+      project["readmeFile"] — string path (en) or {lang: path}
+    A per-language value of {"file": "x.md"} (or a bare path in readmeFile) is
+    read from disk relative to the spec file."""
+    def read_file(path):
+        with open(os.path.join(spec_dir, path), encoding="utf-8") as f:
+            return f.read()
+
+    out = {}
+    readme = project.get("readme")
+    if isinstance(readme, str):
+        out["en"] = readme
+    elif isinstance(readme, dict):
+        for lang, val in readme.items():
+            if isinstance(val, dict) and "file" in val:
+                out[lang] = read_file(val["file"])
+            elif val:
+                out[lang] = val
+
+    readme_file = project.get("readmeFile")
+    if isinstance(readme_file, str):
+        out.setdefault("en", read_file(readme_file))
+    elif isinstance(readme_file, dict):
+        for lang, path in readme_file.items():
+            out.setdefault(lang, read_file(path))
+    return out
+
+
+def normalize_todo(todo, index):
+    """A todo's `text` is localized; a plain string is treated as English."""
+    return {
+        "id": str(todo.get("id", index)),
+        "text": localize(todo.get("text", "")),
+        "done": bool(todo.get("done", False)),
+    }
+
+
 def json_bytes(obj):
     return json.dumps(obj, indent=2, ensure_ascii=False).encode("utf-8")
 
@@ -519,11 +591,10 @@ def main():
     if "workspaceId" in p:
         project["workspaceId"] = p["workspaceId"]
 
-    # Resolve readme (inline or from a file).
-    readme = p.get("readme")
-    if not readme and p.get("readmeFile"):
-        with open(os.path.join(spec_dir, p["readmeFile"]), encoding="utf-8") as f:
-            readme = f.read()
+    # Resolve readme per language. Accepts a plain string (-> English) or a
+    # {lang: value} map; values may be inline text or {"file": "path"}.
+    # `readme` wins over `readmeFile` when both are present.
+    readme_by_lang = resolve_readme(p, spec_dir)
 
     # Build IDE files (scripts/).
     ide_nodes, ide_contents = build_ide_tree(spec.get("ide", []), project_uid, spec_dir)
@@ -549,11 +620,17 @@ def main():
     # Assemble ZIP.
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("project.json", json_bytes({**project, "appVersion": app_version}))
-        if readme:
-            z.writestr("README.md", readme)
+        # README.md = primary language (en if present), README.<lang>.md = others.
+        if readme_by_lang:
+            primary = "en" if "en" in readme_by_lang else next(iter(readme_by_lang))
+            for lang, text in readme_by_lang.items():
+                suffix = "" if lang == primary else f".{lang}"
+                z.writestr(f"README{suffix}.md", text)
         # tasks.json is written only when there is something in it (mirrors the app).
-        todos, notes = p.get("todos", []), p.get("notes", "")
-        if todos or notes:
+        # todos[].text and notes are localized ({en, fr}); strings are treated as en.
+        todos = [normalize_todo(t, i) for i, t in enumerate(p.get("todos", []))]
+        notes = localize(p.get("notes", ""))
+        if todos or any(notes.values()):
             z.writestr("tasks.json", json_bytes({"todos": todos, "notes": notes}))
 
         # scripts/ (IDE files): tree metadata + one entry per file at its path.

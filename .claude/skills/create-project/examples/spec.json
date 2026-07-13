@@ -7,12 +7,15 @@
       "en": "Synthetic ICU activity, severity, and outcomes demo.",
       "fr": "Démo synthétique d'activité, de gravité et de devenir en réanimation."
     },
-    "readmeFile": "README.md",
+    "readmeFile": {"en": "README.md", "fr": "README.fr.md"},
     "todos": [
-      {"text": "Review mortality by unit with the clinical team", "done": false},
-      {"text": "Add a LOS vs SOFA scatter", "done": false}
+      {"text": {"en": "Review mortality by unit with the clinical team",
+                "fr": "Revoir la mortalité par unité avec l'équipe clinique"}, "done": false},
+      {"text": {"en": "Add a LOS vs SOFA scatter",
+                "fr": "Ajouter un nuage de points DDS vs SOFA"}, "done": false}
     ],
-    "notes": "All data is synthetic — see README.",
+    "notes": {"en": "All data is synthetic — see README.",
+              "fr": "Toutes les données sont synthétiques — voir le README."},
     "badges": [
       {"label": "ICU", "color": "red"},
       {"label": "Demo", "color": "blue"}
