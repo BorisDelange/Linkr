@@ -104,7 +104,22 @@ registerPlugin(
 
 Place lab plugins with the other lab plugins, warehouse plugins with the warehouse section.
 
-## Step 4: Verify
+## Step 4: Keep the create-project inventory in sync
+
+The `create-project` skill hard-lists every built-in Lab plugin so it can wire
+dashboard widgets. **Adding, removing, or renaming a Lab plugin (or changing its
+column-select config keys) makes that inventory stale.** Update it in the same change:
+
+- `.claude/skills/create-project/references/dashboards.md` — the widget inventory
+  table + the per-plugin config/column-key notes.
+- `.claude/skills/create-project/assets/build_zip.py` — `PLUGIN_COLUMN_KEYS`
+  (which config keys are single vs. multi column-selects) and, if relevant,
+  `PLUGIN_DEFAULT_SIZE`.
+
+(Warehouse plugins are not part of that inventory — patient-data widgets aren't
+seedable via a project ZIP — so only Lab-plugin changes require this step.)
+
+## Step 5: Verify
 
 Run `npx tsc --noEmit` from the `apps/web` directory and fix any TypeScript errors.
 
@@ -116,4 +131,5 @@ Run `npx tsc --noEmit` from the `apps/web` directory and fix any TypeScript erro
 - [ ] Python template uses `matplotlib.use('Agg')` before `import matplotlib.pyplot as plt`
 - [ ] Warehouse plugin uses `await sql_query()` in Python, `sql_query()` in R
 - [ ] Plugin is registered in `default-plugins.ts`
+- [ ] For a Lab plugin: create-project inventory updated (Step 4)
 - [ ] TypeScript compiles without errors
