@@ -27,7 +27,10 @@ export interface VirtualFileNode {
   showInIde?: true
 }
 
-/** Bridge node for dataset files: NOT virtual (editable), but delegates CRUD to dataset-store. */
+// Retained for FileTreeItem's type narrowing. The tree no longer emits bridge
+// nodes (datasets/ is now a read-only virtual view), so `datasetBridge` is never
+// set at runtime — every isBridge check resolves false — but the shape keeps the
+// existing item component compiling without edits.
 export interface DatasetBridgeNode {
   id: string
   name: string
@@ -44,7 +47,6 @@ export interface DatasetBridgeNode {
 export type TreeNode =
   | (FileNode & { virtual?: false; readOnly?: false })
   | VirtualFileNode
-  | DatasetBridgeNode
 
 // --- Helpers ---
 

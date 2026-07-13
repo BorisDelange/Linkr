@@ -137,8 +137,11 @@ export function FileTreeItem({
   const [renameValue, setRenameValue] = useState(node.name)
   const renameRef = useRef<HTMLInputElement>(null)
 
-  const isBridge = 'datasetBridge' in node && (node as DatasetBridgeNode).datasetBridge === true
-  const bridgeDatasetFileId = isBridge ? (node as DatasetBridgeNode).datasetFileId : undefined
+  // datasets/ is now a read-only virtual view, so no node is a bridge anymore;
+  // these resolve false/undefined at runtime. Kept so the surrounding branches
+  // (which still reference them) compile unchanged.
+  const isBridge = 'datasetBridge' in node && (node as unknown as DatasetBridgeNode).datasetBridge === true
+  const bridgeDatasetFileId = isBridge ? (node as unknown as DatasetBridgeNode).datasetFileId : undefined
   const isVirtual = node.virtual === true
   const isFolder = node.type === 'folder'
   const isExpanded = expandedFolders.includes(node.id)

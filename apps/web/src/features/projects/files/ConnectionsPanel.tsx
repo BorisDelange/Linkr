@@ -193,7 +193,7 @@ export function ConnectionsPanel({ open, onOpenChange, projectUid }: Connections
                 <Button
                   variant="outline"
                   size="sm"
-                  className="mt-4 w-full gap-1.5"
+                  className="mt-4 w-full gap-1.5 text-foreground"
                   disabled={!canWrite}
                   onClick={() => setAddDialogOpen(true)}
                 >
