@@ -596,6 +596,42 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     setSelectedTarget(null)
   }
 
+  /** Align the current source concept onto a resolved concept-set concept (from
+   *  the concept-set detail sheet), mirroring handleAddSelectedMapping. */
+  const alignResolvedConcept = useCallback(async (target: ResolvedConcept, predicate: MappingEquivalence) => {
+    if (!sourceConcept) return
+    if (existingMappings.some((m) => m.targetConceptId === target.conceptId)) return
+    if (!requireIdentity()) return
+    const now = new Date().toISOString()
+    await createMapping({
+      id: crypto.randomUUID(),
+      projectId: project.id,
+      sourceConceptId: sourceConcept.concept_id,
+      sourceConceptName: sourceConcept.concept_name,
+      sourceVocabularyId: sourceConcept.vocabulary_id ?? '',
+      sourceDomainId: sourceConcept.domain_id ?? '',
+      sourceConceptCode: sourceConcept.concept_code ?? '',
+      sourceFrequency: sourceConcept.record_count,
+      sourceCategoryId: sourceConcept.category,
+      sourceSubcategoryId: sourceConcept.subcategory,
+      targetConceptId: target.conceptId,
+      targetConceptName: target.conceptName,
+      targetVocabularyId: target.vocabularyId,
+      targetDomainId: target.domainId,
+      targetConceptCode: target.conceptCode,
+      targetConceptClassId: target.conceptClassId,
+      targetStandardConcept: target.standardConcept ?? undefined,
+      mappingType: 'maps_to',
+      equivalence: predicate,
+      status: 'unchecked',
+      mappedBy: getUserDisplayName(),
+      mappedByDetails: getAuthorDetails(),
+      mappedOn: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+  }, [sourceConcept, existingMappings, requireIdentity, createMapping, project.id, getUserDisplayName, getAuthorDetails])
+
   /** Submit from the "Map with comment" dialog. */
   const handleCommentDialogSubmit = () => {
     handleAddSelectedMapping(commentEquivalence, commentText.trim())
@@ -2404,6 +2440,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         conceptSet={detailSheetCs}
         open={detailSheetOpen}
         onOpenChange={setDetailSheetOpen}
+        alignContext={sourceConcept ? {
+          onAlign: alignResolvedConcept,
+          isMapped: (conceptId) => existingMappings.some((m) => m.targetConceptId === conceptId),
+        } : undefined}
       />
 
       {/* Concept set referenced by an AI suggestion but not imported in this workspace */}

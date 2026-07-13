@@ -3135,6 +3135,7 @@
     "cs_batch_delete_description": "Cette action supprimera définitivement tous les concept sets de ce lot d'import. Cette action est irréversible.",
     "cs_detail_expression": "Expression",
     "cs_detail_resolved": "Concepts résolus",
+    "align_action": "Aligner",
     "cs_detail_concept_name": "Nom du concept",
     "cs_detail_vocabulary": "Vocabulaire",
     "cs_detail_domain": "Domaine",

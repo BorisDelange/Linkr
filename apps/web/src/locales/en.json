@@ -3135,6 +3135,7 @@
     "cs_batch_delete_description": "This will permanently delete all concept sets from this import batch. This action cannot be undone.",
     "cs_detail_expression": "Expression",
     "cs_detail_resolved": "Resolved Concepts",
+    "align_action": "Align",
     "cs_detail_concept_name": "Concept Name",
     "cs_detail_vocabulary": "Vocabulary",
     "cs_detail_domain": "Domain",

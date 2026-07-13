@@ -10,17 +10,27 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
+import { AlignConceptButton } from './components/AlignConceptButton'
 import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card } from '@/components/ui/card'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
-import type { ConceptSet, ConceptSetItem, ResolvedConcept } from '@/types'
+import type { ConceptSet, ConceptSetItem, ResolvedConcept, MappingEquivalence } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
+
+/** When the sheet is opened from the mapping editor with a source concept
+ *  selected, this lets the resolved-concepts table align onto one of its rows
+ *  directly (same as the global search). Absent → no align column. */
+export interface ConceptSetAlignContext {
+  onAlign: (target: ResolvedConcept, predicate: MappingEquivalence) => void
+  isMapped: (conceptId: number) => boolean
+}
 
 interface ConceptSetDetailSheetProps {
   conceptSet: ConceptSet | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  alignContext?: ConceptSetAlignContext
 }
 
 /** Derive the resolved concept set URL from the source URL. */
@@ -35,7 +45,7 @@ const MIN_WIDTH = 400
 const MAX_WIDTH = 1600
 const DEFAULT_WIDTH = Math.round(window.innerWidth * 0.58)
 
-export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: ConceptSetDetailSheetProps) {
+export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignContext }: ConceptSetDetailSheetProps) {
   const { t, i18n } = useTranslation()
   const csI18n = conceptSet ? getConceptSetI18n(conceptSet, i18n.language) : null
 
@@ -70,14 +80,36 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
     dragging.current = false
   }, [])
 
-  const resolvedColumns = useMemo<ConceptColumn<ResolvedConcept>[]>(() => [
-    { id: 'conceptName', header: t('concept_mapping.cs_detail_concept_name'), accessor: (c) => c.conceptName, filter: 'text', size: 220, minSize: 120 },
-    { id: 'conceptId', header: t('concept_mapping.col_concept_id'), accessor: (c) => c.conceptId, filter: 'number', size: 80, minSize: 50, cell: (c) => <span className="font-mono text-xs text-muted-foreground">{c.conceptId}</span> },
-    { id: 'vocabularyId', header: t('concept_mapping.cs_detail_vocabulary'), accessor: (c) => c.vocabularyId, filter: 'select', size: 90, minSize: 50 },
-    { id: 'domainId', header: t('concept_mapping.cs_detail_domain'), accessor: (c) => c.domainId, filter: 'select', size: 100, minSize: 50 },
-    { id: 'conceptClassId', header: t('concept_mapping.cs_detail_class'), accessor: (c) => c.conceptClassId, filter: 'select', size: 100, minSize: 50 },
-    { id: 'standardConcept', header: t('concept_mapping.col_std'), accessor: (c) => c.standardConcept ?? '', filter: 'select', size: 70, minSize: 50, center: true, cell: (c) => <StandardConceptBadge value={c.standardConcept} /> },
-  ], [t])
+  const resolvedColumns = useMemo<ConceptColumn<ResolvedConcept>[]>(() => {
+    const cols: ConceptColumn<ResolvedConcept>[] = [
+      { id: 'conceptName', header: t('concept_mapping.cs_detail_concept_name'), accessor: (c) => c.conceptName, filter: 'text', size: 220, minSize: 120 },
+      { id: 'conceptId', header: t('concept_mapping.col_concept_id'), accessor: (c) => c.conceptId, filter: 'number', size: 80, minSize: 50, cell: (c) => <span className="font-mono text-xs text-muted-foreground">{c.conceptId}</span> },
+      { id: 'vocabularyId', header: t('concept_mapping.cs_detail_vocabulary'), accessor: (c) => c.vocabularyId, filter: 'select', size: 90, minSize: 50 },
+      { id: 'domainId', header: t('concept_mapping.cs_detail_domain'), accessor: (c) => c.domainId, filter: 'select', size: 100, minSize: 50 },
+      { id: 'conceptClassId', header: t('concept_mapping.cs_detail_class'), accessor: (c) => c.conceptClassId, filter: 'select', size: 100, minSize: 50 },
+      { id: 'standardConcept', header: t('concept_mapping.col_std'), accessor: (c) => c.standardConcept ?? '', filter: 'select', size: 70, minSize: 50, center: true, cell: (c) => <StandardConceptBadge value={c.standardConcept} /> },
+    ]
+    // Only when opened from the mapping editor with a source concept selected:
+    // a trailing column to align that source onto one of these resolved concepts.
+    if (alignContext) {
+      cols.push({
+        id: '_align',
+        header: t('concept_mapping.align_action'),
+        accessor: () => '',
+        filter: 'none',
+        size: 110,
+        minSize: 90,
+        center: true,
+        cell: (c) => (
+          <AlignConceptButton
+            alreadyMapped={alignContext.isMapped(c.conceptId)}
+            onAlign={(predicate) => alignContext.onAlign(c, predicate)}
+          />
+        ),
+      })
+    }
+    return cols
+  }, [t, alignContext])
 
   const flagCell = (on: boolean) => on ? <Check size={13} className="mx-auto text-green-600" /> : null
   const expressionColumns = useMemo<ConceptColumn<ConceptSetItem>[]>(() => [
