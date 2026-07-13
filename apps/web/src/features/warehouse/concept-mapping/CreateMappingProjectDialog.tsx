@@ -1235,7 +1235,8 @@ export function CreateMappingProjectDialog({
                       <p className="text-sm font-medium truncate">{file.name}</p>
                       {parsedColumns.length > 0 && (
                         <p className="text-[10px] text-muted-foreground">
-                          {totalRows.toLocaleString()} {t('datasets.rows')} · {parsedColumns.length} {t('datasets.columns')}
+                          {totalRows > 0 && `${totalRows.toLocaleString()} ${t('datasets.rows')} · `}
+                          {parsedColumns.length} {t('datasets.columns')}
                         </p>
                       )}
                     </div>

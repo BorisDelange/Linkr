@@ -21,7 +21,7 @@ import {
   downloadFile,
   buildMappingProjectFolder,
 } from '@/lib/concept-mapping/export'
-import { downloadBlob, slugify } from '@/lib/entity-io'
+import { downloadBlob, slugify, attachEntityOrganization } from '@/lib/entity-io'
 import { localized } from '@/lib/localized'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
@@ -317,6 +317,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         dataSources,
         includeScores: withScores,
       })
+      await attachEntityOrganization(zip, 'project.json', project, getStorage())
       const blob = await zip.generateAsync({ type: 'blob' })
       downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
     } catch {
@@ -331,6 +332,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           includeScores: withScores,
           skipSourceConcepts: true,
         })
+        await attachEntityOrganization(zip, 'project.json', project, getStorage())
         const blob = await zip.generateAsync({ type: 'blob' })
         downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
 
