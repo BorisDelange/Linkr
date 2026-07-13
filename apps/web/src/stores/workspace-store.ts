@@ -5,7 +5,7 @@ import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { isShellHtml, toLocalized, setLocalized, localized } from '@/lib/localized'
 import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString } from '@/types'
-import { useAppStore, registerWorkspaceStore, stampAuthored } from './app-store'
+import { useAppStore, registerWorkspaceStore, stampAuthored, stampLineage } from './app-store'
 import { useOrganizationStore } from './organization-store'
 
 export interface WorkspaceItem {
@@ -114,6 +114,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
       organizationId,
       gitRemoteConfig,
       ...stampAuthored(),
+      ...stampLineage(),
       createdAt: now,
       updatedAt: now,
     }
