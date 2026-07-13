@@ -209,6 +209,35 @@ describe('parseProjectZip — dataset data sidecars', () => {
   })
 })
 
+// A project inherits its org from its workspace at export time (project.json has
+// no org fields, but organization.json rides alongside). Import must surface it
+// so doImport can upsert the org by UUID on the target instance.
+describe('parseProjectZip — organization bundle', () => {
+  const makeZip = async (withOrg: boolean) => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({ uid: 'p1', name: { en: 'P' } }))
+    if (withOrg) {
+      zip.file('organization.json', JSON.stringify({
+        id: 'org-7', name: { en: 'Acme', fr: 'Acme SA' }, type: 'hospital',
+        location: { en: 'Rennes', fr: 'Rennes' }, createdAt: '2020', updatedAt: '2021',
+      }))
+    }
+    return await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+  }
+
+  it('reads organization.json and preserves its multilingual fields', async () => {
+    const parsed = await parseProjectZip(await makeZip(true))
+    expect(parsed!.organization?.id).toBe('org-7')
+    expect(parsed!.organization?.name).toEqual({ en: 'Acme', fr: 'Acme SA' })
+    expect(parsed!.organization?.location).toEqual({ en: 'Rennes', fr: 'Rennes' })
+  })
+
+  it('leaves organization undefined when the ZIP has none', async () => {
+    const parsed = await parseProjectZip(await makeZip(false))
+    expect(parsed!.organization).toBeUndefined()
+  })
+})
+
 // A workspace's linked organization travels in organization.json (by UUID) so an
 // import can reconstitute it on an instance that has never seen that org. Both the
 // pointer (workspace.organizationId) and the full record must survive parsing.

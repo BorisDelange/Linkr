@@ -517,6 +517,12 @@ export async function buildProjectZip(
   }
   zip.file('.gitignore', gitignoreLines.join('\n') + '\n')
 
+  // --- organization.json (inherited from the parent workspace) ---
+  // The project has no org link of its own; it belongs to whatever org its
+  // workspace is attached to. workspaceId is stripped from project.json (instance
+  // field) but still present on the in-memory record, so we resolve it here.
+  await attachEntityOrganization(zip, project, storage)
+
   const blob = await zip.generateAsync({ type: 'blob' })
   return { blob, projectName: resolveProjectName(project) }
 }
@@ -527,6 +533,8 @@ export async function buildProjectZip(
 
 export interface ParsedProjectZip {
   project: Project
+  /** Organization inherited from the parent workspace, bundled by UUID for cross-instance upsert. */
+  organization?: Organization
   ideFiles: IdeFile[]
   pipelines: Pipeline[]
   cohorts: Cohort[]
@@ -766,6 +774,12 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   // Strip export-only fields
   const { appVersion: _av, ...projectMeta } = projectRaw as Project & { appVersion?: string }
 
+  // --- organization.json (optional; inherited from the parent workspace at export) ---
+  const orgFile = zipData.files['organization.json']
+  const organization = orgFile
+    ? (JSON.parse(await orgFile.async('string')) as Organization)
+    : undefined
+
   // Reconstruct readme (README.md = en, README.<lang>.md = other langs), todos, notes
   const readmeByLang: LocalizedString = {}
   for (const [path, file] of Object.entries(zipData.files)) {
@@ -783,10 +797,10 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
     projectMeta.notes = toLocalized(tasks.notes)
   }
 
-  if (hasNewLayout || !hasLegacyLayout) {
-    return parseNewLayout(zipData, projectMeta)
-  }
-  return parseLegacyLayout(zipData, projectMeta)
+  const parsed = (hasNewLayout || !hasLegacyLayout)
+    ? await parseNewLayout(zipData, projectMeta)
+    : await parseLegacyLayout(zipData, projectMeta)
+  return { ...parsed, organization }
 }
 
 async function readJsonFile<T>(zip: JSZip, path: string): Promise<T | null> {

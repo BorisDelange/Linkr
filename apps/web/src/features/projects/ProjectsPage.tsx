@@ -171,6 +171,15 @@ export function ProjectsPage() {
     const uid = duplicate ? crypto.randomUUID() : project.uid
     const storage = getStorage()
 
+    // Reconstitute the project's organization (inherited from its workspace at
+    // export) before creating the project. Upsert by UUID: created only when
+    // absent, so an org already on this instance (or shared by a sibling) is
+    // left untouched.
+    if (parsed.organization?.id) {
+      const existingOrg = await storage.organizations.getById(parsed.organization.id)
+      if (!existingOrg) await storage.organizations.create(parsed.organization)
+    }
+
     // Resolve to a workspace that exists on the target backend. In server mode the project
     // row carries a FK to workspaces; a workspaceId from the imported ZIP that doesn't exist
     // here fails the insert (500), and every sub-entity create then 404s ("Project not found").
