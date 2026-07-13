@@ -21,6 +21,7 @@ import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
+import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -46,6 +47,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
+  const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
   const isEdit = !!editingCatalog
   const { catalogs } = useCatalogStore()
@@ -57,11 +59,13 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       setEntityId(editingCatalog.entityId ?? '')
       setDescription(localized(editingCatalog.description, language))
       setDataSourceId(editingCatalog.dataSourceId)
+      setAuthoring({})
     } else {
       setName('')
       setEntityId('')
       setDescription('')
       setDataSourceId('')
+      setAuthoring({})
     }
   }, [editingCatalog, open])
 
@@ -73,6 +77,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         name: setLocalized(editingCatalog.name, language, name.trim()),
         description: setLocalized(editingCatalog.description, language, description.trim()),
         dataSourceId,
+        ...authoring,
       })
       onOpenChange(false)
     } else {
@@ -152,6 +157,20 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
               </SelectContent>
             </Select>
           </div>
+
+          {isEdit && editingCatalog && (
+            <div className="border-t pt-4">
+              <AuthoringFields
+                value={{
+                  createdById: 'createdById' in authoring ? authoring.createdById : editingCatalog.createdById,
+                  createdBy: authoring.createdBy ?? editingCatalog.createdBy,
+                  createdByDetails: authoring.createdByDetails ?? editingCatalog.createdByDetails,
+                  organization: authoring.organization ?? editingCatalog.organization,
+                }}
+                onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+              />
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

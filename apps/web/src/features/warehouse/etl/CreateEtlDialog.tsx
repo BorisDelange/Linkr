@@ -24,6 +24,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
+import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { localized, setLocalized } from '@/lib/localized'
 import type { EtlPipeline } from '@/types'
 
@@ -46,6 +47,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const [entityId, setEntityId] = useState('')
   const [sourceId, setSourceId] = useState('')
   const [targetId, setTargetId] = useState('')
+  const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
   const [saving, setSaving] = useState(false)
 
   const isEditing = !!editingPipeline
@@ -59,11 +61,13 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
       setEntityId(editingPipeline.entityId ?? '')
       setSourceId(editingPipeline.sourceDataSourceId)
       setTargetId(editingPipeline.targetDataSourceId ?? '')
+      setAuthoring({})
     } else if (open && !editingPipeline) {
       setName('')
       setEntityId('')
       setSourceId('')
       setTargetId('')
+      setAuthoring({})
     }
   }, [open, editingPipeline, language])
 
@@ -79,6 +83,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           name: setLocalized(editingPipeline.name, language, name.trim()),
           sourceDataSourceId: sourceId,
           targetDataSourceId: targetId || undefined,
+          ...authoring,
         })
         onOpenChange(false)
       } else {
@@ -176,6 +181,20 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
             </Select>
             <p className="text-xs text-muted-foreground">{t('etl.target_database_hint')}</p>
           </div>
+
+          {isEditing && editingPipeline && (
+            <div className="border-t pt-4">
+              <AuthoringFields
+                value={{
+                  createdById: 'createdById' in authoring ? authoring.createdById : editingPipeline.createdById,
+                  createdBy: authoring.createdBy ?? editingPipeline.createdBy,
+                  createdByDetails: authoring.createdByDetails ?? editingPipeline.createdByDetails,
+                  organization: authoring.organization ?? editingPipeline.organization,
+                }}
+                onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter>

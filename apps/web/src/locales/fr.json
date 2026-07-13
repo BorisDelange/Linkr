@@ -3788,5 +3788,12 @@
     "wasm": "WASM",
     "bashLimited": "Note : shell limité — utilisez les terminaux Python ou R pour exécuter du code",
     "noProjectContext": "Aucun contexte projet — ouvrez ce terminal depuis un projet pour accéder à son kernel serveur."
+  },
+  "authoring": {
+    "author": "Auteur",
+    "select_author": "Choisir un utilisateur",
+    "select_organization": "Choisir une organisation",
+    "lock_hint": "Conserver l'original — cliquer pour réattribuer",
+    "unlock_hint": "Réattribution — cliquer pour conserver l'original"
   }
 }

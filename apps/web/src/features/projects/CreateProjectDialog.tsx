@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { getStatusDotClass } from './ProjectSettingsPage'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
@@ -39,7 +40,7 @@ interface CreateProjectDialogProps {
 
 export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingProject }: CreateProjectDialogProps) {
   const { t } = useTranslation()
-  const { addProject, updateProject, updateProjectStatus, updateProjectBadges, _projectsRaw, language } = useAppStore()
+  const { addProject, updateProject, updateProjectStatus, updateProjectBadges, updateProjectAuthoring, _projectsRaw, language } = useAppStore()
   const isEditing = !!editingProject
   const [name, setName] = useState('')
   const [entityId, setEntityId] = useState('')
@@ -48,6 +49,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
+  const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
   // Reset form when dialog opens; seed from the edited project when present.
   useEffect(() => {
@@ -59,6 +61,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       setBadges(editingProject?.badges ?? [])
       setNewBadgeLabel('')
       setNewBadgeColor('blue')
+      setAuthoring({})
     }
   }, [open, editingProject, language])
 
@@ -100,6 +103,12 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       await updateProject(editingProject.uid, name.trim(), description.trim())
       updateProjectStatus(editingProject.uid, status)
       updateProjectBadges(editingProject.uid, badges)
+      // Authoring re-attribution isn't covered by the name/status/badges stores;
+      // this both persists it and refreshes the in-memory project so the widget
+      // updates without a page reload.
+      if (Object.keys(authoring).length > 0) {
+        await updateProjectAuthoring(editingProject.uid, authoring)
+      }
     } else {
       const uid = await addProject(name.trim(), description.trim(), workspaceId, entityId)
       if (status !== 'active') updateProjectStatus(uid, status)
@@ -205,6 +214,20 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 <p className="text-xs text-destructive">{t('project_settings.badge_label_exists')}</p>
               )}
             </div>
+
+            {isEditing && editingProject && (
+              <div className="border-t pt-4">
+                <AuthoringFields
+                  value={{
+                    createdById: 'createdById' in authoring ? authoring.createdById : editingProject.createdById,
+                    createdBy: authoring.createdBy ?? editingProject.createdBy,
+                    createdByDetails: authoring.createdByDetails ?? editingProject.createdByDetails,
+                    organization: authoring.organization ?? editingProject.organization,
+                  }}
+                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter className="mt-6">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

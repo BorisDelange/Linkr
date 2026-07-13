@@ -21,6 +21,7 @@ import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
+import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDqStore } from '@/stores/dq-store'
@@ -45,6 +46,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const [description, setDescription] = useState('')
   const [entityId, setEntityId] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
+  const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
   const isEdit = !!editingRuleSet
   const { dqRuleSets } = useDqStore()
@@ -56,11 +58,13 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
       setDescription(localized(editingRuleSet.description, language))
       setEntityId(editingRuleSet.entityId ?? '')
       setDataSourceId(editingRuleSet.dataSourceId)
+      setAuthoring({})
     } else {
       setName('')
       setDescription('')
       setEntityId('')
       setDataSourceId('')
+      setAuthoring({})
     }
   }, [editingRuleSet, open])
 
@@ -72,6 +76,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         name: setLocalized(editingRuleSet.name, language, name.trim()),
         description: setLocalized(editingRuleSet.description, language, description.trim()),
         dataSourceId,
+        ...authoring,
       })
       onOpenChange(false)
     } else {
@@ -147,6 +152,20 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               </SelectContent>
             </Select>
           </div>
+
+          {isEdit && editingRuleSet && (
+            <div className="border-t pt-4">
+              <AuthoringFields
+                value={{
+                  createdById: 'createdById' in authoring ? authoring.createdById : editingRuleSet.createdById,
+                  createdBy: authoring.createdBy ?? editingRuleSet.createdBy,
+                  createdByDetails: authoring.createdByDetails ?? editingRuleSet.createdByDetails,
+                  organization: authoring.organization ?? editingRuleSet.organization,
+                }}
+                onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+              />
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

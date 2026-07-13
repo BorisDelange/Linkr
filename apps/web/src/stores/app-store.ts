@@ -130,6 +130,8 @@ interface AppState {
   updateProjectStatus: (uid: string, status: ProjectStatus) => void
   updateProjectBadges: (uid: string, badges: ProjectBadge[]) => void
   updateProjectOrganization: (uid: string, org: OrganizationInfo | undefined) => void
+  /** Persist an author/organization provenance re-attribution and reflect it in memory. */
+  updateProjectAuthoring: (uid: string, patch: Partial<Pick<Project, 'createdById' | 'createdBy' | 'createdByDetails' | 'organization'>>) => Promise<void>
   updateProjectCatalogVisibility: (uid: string, visibility: CatalogVisibility) => void
   getWorkspaceProjects: (workspaceId: string) => ProjectItem[]
   deleteProject: (uid: string) => Promise<void>
@@ -427,6 +429,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }))
     getStorage().projects.update(uid, { organization })
+  },
+
+  updateProjectAuthoring: async (uid, patch) => {
+    set((s) => {
+      const newRaw = s._projectsRaw.map((p) => (p.uid === uid ? { ...p, ...patch } : p))
+      return { _projectsRaw: newRaw, projects: newRaw.map((p) => projectToItem(p, s.language)) }
+    })
+    await getStorage().projects.update(uid, patch)
   },
 
   updateProjectCatalogVisibility: (uid, catalogVisibility) => {

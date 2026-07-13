@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { EditableBadge } from '@/components/ui/editable-badge'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
+import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { RequiredMark } from '@/components/ui/required-mark'
 
 interface EditWorkspaceDialogProps {
@@ -36,6 +37,7 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
+  const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
   useEffect(() => {
     if (open && workspace) {
@@ -44,6 +46,7 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
       setBadges(workspace.badges ?? [])
       setNewBadgeLabel('')
       setNewBadgeColor('blue')
+      setAuthoring({})
     }
   }, [open, workspace, language])
 
@@ -76,17 +79,19 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
     await updateWorkspace(workspace.id, {
       name: setLocalized(workspace.name, language, name.trim()),
       description: setLocalized(workspace.description, language, description.trim()),
+      ...authoring,
     })
     await updateWorkspaceBadges(workspace.id, badges)
     onOpenChange(false)
   }
 
   const { canSaveNow, save } = useSaveForm({
-    current: { name, description, badges },
+    current: { name, description, badges, authoring },
     baseline: {
       name: localized(workspace?.name, language),
       description: localized(workspace?.description, language),
       badges: workspace?.badges ?? [],
+      authoring: {},
     },
     onSave: doSave,
     canSave: name.trim().length > 0,
@@ -163,6 +168,20 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
                 <p className="text-xs text-destructive">{t('project_settings.badge_label_exists')}</p>
               )}
             </div>
+
+            {workspace && (
+              <div className="border-t pt-4">
+                <AuthoringFields
+                  hideOrganization
+                  value={{
+                    createdById: 'createdById' in authoring ? authoring.createdById : workspace.createdById,
+                    createdBy: authoring.createdBy ?? workspace.createdBy,
+                    createdByDetails: authoring.createdByDetails ?? workspace.createdByDetails,
+                  }}
+                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter className="mt-6">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

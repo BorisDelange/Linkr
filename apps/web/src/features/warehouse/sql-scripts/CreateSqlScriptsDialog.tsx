@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -45,6 +46,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [defaultDbId, setDefaultDbId] = useState('')
+  const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
   const [saving, setSaving] = useState(false)
 
   const isEditing = !!editingCollection
@@ -57,11 +59,13 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
       setEntityId(editingCollection.entityId ?? '')
       setDescription(localized(editingCollection.description, language))
       setDefaultDbId(editingCollection.defaultDataSourceId ?? '')
+      setAuthoring({})
     } else if (open && !editingCollection) {
       setName('')
       setEntityId('')
       setDescription('')
       setDefaultDbId('')
+      setAuthoring({})
     }
   }, [open, editingCollection, language])
 
@@ -77,6 +81,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           name: setLocalized(editingCollection.name, language, name.trim()),
           description: setLocalized(editingCollection.description, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
+          ...authoring,
         })
         onOpenChange(false)
       } else {
@@ -191,6 +196,20 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
             </Select>
             <p className="text-xs text-muted-foreground">{t('sql_scripts.default_database_hint')}</p>
           </div>
+
+          {isEditing && editingCollection && (
+            <div className="border-t pt-4">
+              <AuthoringFields
+                value={{
+                  createdById: 'createdById' in authoring ? authoring.createdById : editingCollection.createdById,
+                  createdBy: authoring.createdBy ?? editingCollection.createdBy,
+                  createdByDetails: authoring.createdByDetails ?? editingCollection.createdByDetails,
+                  organization: authoring.organization ?? editingCollection.organization,
+                }}
+                onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter>
