@@ -67,11 +67,11 @@ async def _require_code_execution(
 
 
 # The "purpose" of an /execute call → the permission it needs.
-#   "render" → a built-in component's server-side aggregation (generated code, no
-#     user interpreter): a VIEW operation, so any project read access is enough.
 #   dashboards/datasets/patient-data → a code-backed widget/analysis (author R/Python
 #     code) → the owning resource's :execute (editor+ by default).
 #   ide → arbitrary code in the IDE → ide:execute.
+# "render" is NOT here: built-in component renders carry no free-form code and go
+# through POST /execute/render (server-owned program); it is refused on /execute.
 _PURPOSE_PERMISSION = {
     "ide": "ide:execute",
     "dashboards": "dashboards:execute",

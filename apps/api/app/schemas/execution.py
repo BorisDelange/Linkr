@@ -18,13 +18,13 @@ class ExecuteRequest(CamelModel):
     # When set, sql_query() in the code runs against this data source (its id).
     connection_id: str | None = None
     # Why the code runs → which permission it needs:
-    #   "render"       → built-in component aggregation (generated code) → project
-    #                    read (viewer can see it)
     #   "dashboards"   → code-backed dashboard widget → dashboards:execute (editor+)
     #   "datasets"     → code-backed dataset analysis → datasets:execute (editor+)
     #   "patient-data" → code-backed patient-data widget → patient-data:execute
     #   "ide"          → arbitrary code in the IDE → ide:execute
-    # Defaults to "ide" (strict).
+    # Defaults to "ide" (strict). NOTE: built-in component renders do NOT come here —
+    # they carry no free-form code and go through POST /execute/render (see
+    # RenderRequest). "render" is rejected on this endpoint.
     purpose: str = "ide"
 
 

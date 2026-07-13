@@ -18,10 +18,10 @@ export function executeOnServer(
     datasetFileId?: string
     connectionId?: string
     datasetFilters?: unknown[]
-    /** Which permission the run needs. 'render' = built-in component aggregation
-     *  (viewer-visible); 'dashboards'|'datasets'|'patient-data' = code-backed
-     *  widget/analysis (needs the resource :execute); 'ide' (default) = ide:execute. */
-    purpose?: 'ide' | 'render' | 'dashboards' | 'datasets' | 'patient-data'
+    /** Which permission the run needs. 'dashboards'|'datasets'|'patient-data' =
+     *  code-backed widget/analysis (needs the resource :execute); 'ide' (default) =
+     *  ide:execute. Built-in component renders use renderOnServer(), not this. */
+    purpose?: 'ide' | 'dashboards' | 'datasets' | 'patient-data'
   },
 ): Promise<RuntimeOutput> {
   // The backend resolves a disk-source dataset (datasetFileId = its path) only
