@@ -30,7 +30,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { AlertTriangle } from 'lucide-react'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { BadgeStrip } from '@/components/ui/badge-strip'
@@ -184,7 +183,6 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     scoresFile?: File
   }
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
-  const [newIdWarning, setNewIdWarning] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
 
   const doImport = useCallback(async (project: MappingProject, children: ImportChildren, duplicate: boolean, existingId?: string) => {
@@ -194,18 +192,15 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       await getStorage().conceptMappings.deleteByProject(existingId).catch(() => {})
       await getStorage().mappingProjects.delete(existingId).catch(() => {})
     }
-    // Reuse original UUID if available, generate new one if already taken globally
+    // The local id (PK) may need regenerating to avoid a global collision — that's
+    // an internal detail, not something to warn about. Cross-instance identity is
+    // carried by lineageId, handled below.
     let projectId: string
     if (existingId) {
       projectId = existingId
     } else {
       const globalExisting = await getStorage().mappingProjects.getById(project.id)
-      if (globalExisting) {
-        projectId = crypto.randomUUID()
-        if (!duplicate) setNewIdWarning(localized(project.name, language))
-      } else {
-        projectId = project.id
-      }
+      projectId = globalExisting ? crypto.randomUUID() : project.id
     }
     const entity: MappingProject = {
       ...project,
@@ -214,6 +209,14 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       conceptSetIds: project.conceptSetIds ?? [],
       updatedAt: now,
       ...(duplicate ? { name: setLocalized(project.name, language, `${localized(project.name, language)} (copy)`), createdAt: now } : {}),
+      // Lineage: overwrite keeps the existing element's identity; a duplicate is a
+      // fork (new lineageId + parent → source); a plain import is the same work,
+      // so keep the ZIP's lineageId (mint one only for a legacy export lacking it).
+      ...(existingId
+        ? {}
+        : duplicate
+          ? { lineageId: crypto.randomUUID(), parentLineageId: project.lineageId }
+          : { lineageId: project.lineageId ?? crypto.randomUUID() }),
     }
     // The project row is created first; the mappings + registry follow. Any
     // failure in those later steps must NOT skip the list refresh — the project
@@ -305,10 +308,13 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         }
       }
 
-      // Check for conflict by entityId or name within the current workspace
+      // A conflict is "the same work already in THIS workspace" — same lineageId
+      // (falling back to entityId for legacy exports). The same mapping project in
+      // another workspace is a legitimate independent copy, so we don't flag it.
       const wsProjects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
       const existing = wsProjects.find(p =>
-        (project.entityId && p.entityId === project.entityId) || localized(p.name, 'en') === localized(project.name, 'en')
+        (project.lineageId && p.lineageId === project.lineageId)
+        || (project.entityId && p.entityId === project.entityId)
       )
       if (existing) {
         setConflict({ name: localized(existing.name, language), existingId: existing.id, pending: project, children })
@@ -413,24 +419,6 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         onDuplicate={() => { if (conflict) doImport(conflict.pending, conflict.children, true); setConflict(null) }}
         onOverwrite={() => { if (conflict) doImport(conflict.pending, conflict.children, false, conflict.existingId); setConflict(null) }}
       />
-
-      {/* New ID warning */}
-      <AlertDialog open={!!newIdWarning} onOpenChange={(open) => { if (!open) setNewIdWarning(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle size={18} className="text-amber-500" />
-              {t('concept_mapping.import_new_id_title')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('concept_mapping.import_new_id_warning', { name: newIdWarning })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setNewIdWarning(null)}>OK</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <ListPageTemplate<MappingProject>
         canEdit={atLeast('editor')}
