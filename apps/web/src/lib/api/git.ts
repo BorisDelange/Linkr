@@ -224,6 +224,15 @@ export async function gitPullPreview(scope: GitScope, id: string, branch?: strin
   return apiRequest<GitPullPreview>(`${base(scope, id)}/pull-preview${qs}`)
 }
 
+/** Fetch the raw bytes of a heavy managed file (source CSV / scores parquet) at the
+ *  remote head — used when the pull takes the remote version of a whole-list family. */
+export async function gitPullFile(scope: GitScope, id: string, path: string, branch?: string): Promise<Uint8Array> {
+  const qs = `?path=${encodeURIComponent(path)}${branch ? `&branch=${encodeURIComponent(branch)}` : ''}`
+  const res = await apiFetch(`/api/v1${base(scope, id)}/pull-file${qs}`)
+  if (!res.ok) throw await gitError(res)
+  return new Uint8Array(await res.arrayBuffer())
+}
+
 /** Anchor an entity's sync state to a known remote commit (used right after a git
  *  import). Without this the entity has no base and "behind" can't be detected. */
 export async function gitSetSyncState(scope: GitScope, id: string, branch: string, syncedOid: string): Promise<void> {

@@ -421,6 +421,28 @@ async def test_pull_preview_returns_base_and_remote_content():
 
 
 @pytest.mark.asyncio
+async def test_pull_file_bytes_returns_remote_content():
+    """pull_file_bytes returns a managed file's bytes at the remote head — the raw
+    content the pull needs when taking the remote version of a whole-list family."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)
+        csv = "code,name\nA,alpha\nB,beta\n"
+        await g.commit_push(getter, "u", _zip({"source-concepts.csv": csv, "mappings.json": "[]"}), "main", "v1", remote, None)
+        # Advance so the working tree isn't already the head (forces a real checkout).
+        await g.commit_push(getter, "u", _zip({"source-concepts.csv": csv + "C,gamma\n", "mappings.json": "[]"}), "main", "v2", remote, None)
+
+        data = await g.pull_file_bytes(getter, "u", "main", "source-concepts.csv", remote)
+        assert data.decode("utf-8") == csv + "C,gamma\n"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 async def test_clone_to_zip_returns_head_oid():
     """clone_to_zip must return the cloned HEAD so the import can anchor the new
     entity's sync state to it (else 'behind' can never be detected for an imported

@@ -332,6 +332,29 @@ async def mapping_project_pull_preview(
     ))
 
 
+@router.get("/mapping-projects/{mapping_project_id}/pull-file")
+async def mapping_project_pull_file(
+    mapping_project_id: str,
+    path: str,
+    branch: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Stream the raw bytes of a managed file (source CSV, scores parquet) at the
+    remote head, LFS resolved — used when the pull's block choice is 'take remote'
+    for a whole-list family. Only the pull's managed heavy files are allowed."""
+    from fastapi.responses import Response
+
+    if path not in ("source-concepts.csv", "similarity-scores.parquet"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "path is not a pullable file")
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    data = await _guard(git_service.pull_file_bytes(
+        git_service.mapping_project_repo_getter, mp.id, _default_branch(mp, branch),
+        path, _remote_url(mp), git_secret.token_for(mp),
+    ))
+    return Response(content=data, media_type="application/octet-stream")
+
+
 @router.post("/mapping-projects/{mapping_project_id}/set-sync-state", status_code=status.HTTP_204_NO_CONTENT)
 async def mapping_project_set_sync_state(
     mapping_project_id: str,

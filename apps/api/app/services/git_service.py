@@ -494,6 +494,59 @@ async def sync_state(
         return await asyncio.to_thread(work)
 
 
+async def pull_file_bytes(
+    repo_getter,
+    uid: str,
+    branch: str,
+    path: str,
+    remote_url: str | None,
+    token: str | None = None,
+) -> bytes:
+    """Return the raw bytes of a managed file at the remote head, LFS resolved.
+
+    Used by the pull's whole-list families (source-concepts.csv, scores parquet)
+    where the block choice is "take the remote version": the client needs the
+    actual content to write into the DB, which the (stats-only) preview omits.
+    """
+
+    def work() -> bytes:
+        repo = repo_getter(uid)
+        _safe_join(repo, path)  # reject a traversing path before any git use
+        _ensure_repo(repo, remote_url)
+        if not remote_url:
+            raise GitError("mapping project is not linked to a git remote", "unknown")
+        has_remote = _sync_remote_branch(repo, branch, remote_url, token)
+        if not has_remote:
+            raise GitError("remote branch not found", "not_found")
+        remote_head = _run(repo, "rev-parse", "FETCH_HEAD", check=False).strip()
+        # Materialise the file from the fetched commit, then resolve LFS if it's a
+        # pointer (the fetch skipped smudge). We check out just this path.
+        _run(repo, "checkout", remote_head, "--", path, check=False)
+        target = _safe_join(repo, path)
+        if not target.is_file():
+            raise GitError(f"file not found at remote head: {path}", "not_found")
+        data = target.read_bytes()
+        if data[:40].startswith(b"version https://git-lfs") and _has_git_lfs():
+            # The pointer needs smudging. `lfs pull` fetches via the origin remote,
+            # which _ensure_repo set WITHOUT credentials — point it at the tokenized
+            # URL for the pull, then restore the clean URL (mirrors clone_to_zip).
+            ls_url = _with_credentials(remote_url, token)
+            _run(repo, "lfs", "install", "--local", check=False)
+            _run(repo, "remote", "set-url", "origin", ls_url, check=False)
+            try:
+                subprocess.run(
+                    ["git", "-C", str(repo), "lfs", "pull", "--include", path],
+                    capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env(),
+                )
+            finally:
+                _run(repo, "remote", "set-url", "origin", remote_url, check=False)
+            data = target.read_bytes()
+        return data
+
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
+
+
 # Files a mapping-project pull merges as JSON (small — full content is returned).
 _PULL_TEXT_FILES = ("mappings.json", "project.json")
 # Whole-list families: too big to ship for a 3-way, so we return stats only; the

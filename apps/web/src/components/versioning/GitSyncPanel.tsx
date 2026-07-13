@@ -252,11 +252,14 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           projectId={id}
           branch={branch}
           onClose={() => setPullOpen(false)}
-          onResolve={async (resolution) => {
-            // Sub-step 3 wires the DB write + anchor update here. For now, hand the
-            // plan back (logged) and close, so the resolution UI can be validated.
-            console.info('[pull] resolution (write not wired yet):', resolution)
+          onResolve={async (prepared, resolution) => {
+            const { applyMappingProjectPull } = await import('@/lib/concept-mapping/pull')
+            await applyMappingProjectPull(id, branch, prepared, resolution)
             setPullOpen(false)
+            // The DB changed and the anchor advanced → refresh both the change list
+            // and the banner so the panel reflects the post-pull state.
+            await refreshStatus(scope, id, branch)
+            if (syncStateSupported) await loadSyncState(scope, id, branch)
           }}
         />
       )}

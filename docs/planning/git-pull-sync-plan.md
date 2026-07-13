@@ -12,11 +12,13 @@
 > - **[FAIT]** Détection : table `git_sync_state`, bandeau behind/diverged, ancrage à
 >   l'import, sync-state serveur léger (sans ZIP). Commits `2503da91`, `5521e1bc`,
 >   `d9b08e43`.
-> - **[EN COURS]** Pull mapping project (§3), par sous-étapes :
+> - **[FAIT]** Pull mapping project (§3), par sous-étapes :
 >   - **[FAIT]** merger pur `concept-mapping/merge.ts` + tests ; endpoint `pull-preview`
 >     (BASE+REMOTE) + test backend.
->   - **[TODO]** UI de résolution `PullResolveDialog`.
->   - **[TODO]** écriture en base des choix + MAJ de l'ancre.
+>   - **[FAIT]** UI de résolution `PullResolveDialog` + orchestration `concept-mapping/pull.ts`.
+>   - **[FAIT]** écriture en base des choix (mappings, métadonnées, remplacement bloc
+>     source-concepts + scores via l'endpoint `pull-file`) + MAJ de l'ancre.
+> - **[À TESTER]** flux complet bout-en-bout (2 workspaces, pull/push).
 
 ---
 

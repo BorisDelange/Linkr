@@ -6,32 +6,17 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import { prepareMappingProjectPull } from '@/lib/concept-mapping/pull'
+import { prepareMappingProjectPull, type PullResolution, type PreparedPull } from '@/lib/concept-mapping/pull'
 import type { MappingProjectMerge, MappingChange } from '@/lib/concept-mapping/merge'
 import type { ConceptMapping } from '@/types'
-
-export interface PullResolution {
-  /** Clean remote changes (add/update/delete) the user kept, by mapping key. */
-  mappings: MappingChange[]
-  /** For each conflicted mapping key: 'remote' (take theirs) or 'local' (keep mine). */
-  mappingConflictChoices: Record<string, 'remote' | 'local'>
-  /** Clean metadata field updates to apply. */
-  metadataUpdates: { field: string; value: unknown }[]
-  /** For each conflicted metadata field: 'remote' or 'local'. */
-  metadataConflictChoices: Record<string, 'remote' | 'local'>
-  /** Whether to take the remote source-concepts list. */
-  takeRemoteSourceConcepts: boolean
-  /** Whether to take the remote similarity scores. */
-  takeRemoteScores: boolean
-}
 
 interface PullResolveDialogProps {
   projectId: string
   branch: string
   onClose: () => void
-  /** Called with the user's resolution when they confirm. (Sub-step 3 wires the
-   *  DB write; for now the dialog just hands back the plan and closes.) */
-  onResolve: (resolution: PullResolution) => void | Promise<void>
+  /** Called with the prepared pull + the user's resolution when they confirm.
+   *  The caller applies it (DB write + anchor) and refreshes the panel. */
+  onResolve: (prepared: PreparedPull, resolution: PullResolution) => void | Promise<void>
 }
 
 /** Short "source → target" label for a mapping, for the change list. */
@@ -50,7 +35,8 @@ function mappingLabel(m: ConceptMapping | null): string {
  */
 export function PullResolveDialog({ projectId, branch, onClose, onResolve }: PullResolveDialogProps) {
   const { t } = useTranslation()
-  const [merge, setMerge] = useState<MappingProjectMerge | null>(null)
+  const [prepared, setPrepared] = useState<PreparedPull | null>(null)
+  const merge: MappingProjectMerge | null = prepared?.merge ?? null
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
@@ -68,9 +54,10 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
     setLoading(true)
     setError(null)
     prepareMappingProjectPull(projectId, branch)
-      .then((m) => {
+      .then((p) => {
         if (cancelled) return
-        setMerge(m)
+        setPrepared(p)
+        const m = p.merge
         // Default: keep every clean change + take remote blocks; conflicts default
         // to "remote" (their pushed version) but the user can flip per item.
         setKeptClean(new Set(m.mappings.filter((c) => c.type !== 'conflict').map((c) => c.key)))
@@ -108,10 +95,10 @@ export function PullResolveDialog({ projectId, branch, onClose, onResolve }: Pul
   }
 
   const handleApply = async () => {
-    if (!merge || applying) return
+    if (!merge || !prepared || applying) return
     setApplying(true)
     try {
-      await onResolve({
+      await onResolve(prepared, {
         mappings: clean.filter((c) => keptClean.has(c.key)),
         mappingConflictChoices: mappingChoices,
         metadataUpdates: merge.metadata.cleanUpdates.filter((u) => keptMeta.has(u.field)),
