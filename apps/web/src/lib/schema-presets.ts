@@ -127,6 +127,7 @@ const omop54: SchemaMapping = {
       subcategoryColumn: 'concept_class_id',
       extraColumns: {
         standard_concept: 'standard_concept',
+        invalid_reason: 'invalid_reason',
       },
     },
   ],

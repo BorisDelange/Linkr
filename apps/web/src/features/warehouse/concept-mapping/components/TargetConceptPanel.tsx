@@ -66,6 +66,7 @@ import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
 import { ConceptDetailSheet, type ConceptInfoTarget } from './ConceptDetailSheet'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
+import { ValidityBadge } from '@/lib/concept-mapping/validity-badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -91,6 +92,7 @@ interface SearchResult {
   domain_id?: string
   concept_class_id?: string
   standard_concept?: string
+  invalid_reason?: string | null
 }
 
 /** Derive the resolved concept set URL from the source URL. */
@@ -1227,7 +1229,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   // ─── Search mode: TanStack DataTable ─────────────────────────────
 
-  const [searchColVisibility, setSearchColVisibility] = useState<VisibilityState>({ concept_id: false, concept_code: false })
+  const [searchColVisibility, setSearchColVisibility] = useState<VisibilityState>({ concept_id: false, concept_code: false, valid: false })
   const [searchColSizing, setSearchColSizing] = useState<Record<string, number>>({})
   const [searchSorting, setSearchSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   const [searchPage, setSearchPage] = useState(0)
@@ -1372,6 +1374,14 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         const sc = row.original.standard_concept
         return <StandardConceptBadge value={sc} />
       },
+      size: 40,
+      minSize: 30,
+    },
+    {
+      id: 'valid',
+      header: () => t('concept_mapping.col_valid'),
+      accessorFn: (row) => row.invalid_reason ?? '',
+      cell: ({ row }) => <ValidityBadge value={row.original.invalid_reason} />,
       size: 40,
       minSize: 30,
     },
@@ -1574,10 +1584,12 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
     const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
     const stdCol = dict.extraColumns?.standard_concept
+    const invalidCol = dict.extraColumns?.invalid_reason
     const extraCols = [
       domainCol ? `${domainCol} AS domain_id` : null,
       classCol ? `${classCol} AS concept_class_id` : null,
       stdCol ? `${stdCol} AS standard_concept` : null,
+      invalidCol ? `${invalidCol} AS invalid_reason` : null,
     ].filter(Boolean).join(', ')
     const sql = `SELECT ${idCol} AS concept_id, ${nameCol} AS concept_name, ${codeCol} AS concept_code, ${vocabCol} AS vocabulary_id${extraCols ? ', ' + extraCols : ''} FROM ${table} WHERE ${idCol} IN (${ids})`
 
@@ -1596,6 +1608,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           domain_id: info.domain_id != null ? String(info.domain_id) : undefined,
           concept_class_id: info.concept_class_id != null ? String(info.concept_class_id) : undefined,
           standard_concept: info.standard_concept != null ? String(info.standard_concept) : undefined,
+          invalid_reason: info.invalid_reason != null ? String(info.invalid_reason) : null,
         }
       }))
     }).catch(() => setEnrichedSuggestions(suggestions))

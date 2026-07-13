@@ -29,6 +29,7 @@ import {
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
+import { ValidityBadge } from '@/lib/concept-mapping/validity-badge'
 import { Badge } from '@/components/ui/badge'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import {
@@ -126,6 +127,7 @@ export const DEFAULT_SUGGESTIONS_VIEW: SuggestionsTableView = {
     concept_code: false,
     domain_id: false,
     concept_class_id: false,
+    valid: false,
     comment: false,
     concept_set: false,
   },
@@ -388,6 +390,16 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       // known standard flag; show nothing rather than a misleading "NS".
       cell: ({ row }) =>
         row.original.concept_name ? <StandardConceptBadge value={row.original.standard_concept} /> : null,
+      size: 40,
+      minSize: 30,
+      enableResizing: true,
+    },
+    {
+      id: 'valid',
+      header: () => t('concept_mapping.col_valid'),
+      accessorFn: (r) => r.invalid_reason ?? '',
+      cell: ({ row }) =>
+        row.original.concept_name ? <ValidityBadge value={row.original.invalid_reason} /> : null,
       size: 40,
       minSize: 30,
       enableResizing: true,

@@ -24,6 +24,8 @@ export interface SuggestionCandidate {
   domain_id?: string
   concept_class_id?: string
   standard_concept?: string
+  /** OMOP validity: NULL/undefined = valid, 'U' = upgraded, 'D' = deleted. */
+  invalid_reason?: string | null
   /** Per-method scores. The combined score is the weighted average. */
   scores: MethodScore[]
   /** Weighted average of all method scores. */

@@ -424,6 +424,7 @@ export function buildStandardConceptSearchQuery(
   const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
   const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
   const stdCol = dict.extraColumns?.standard_concept
+  const invalidCol = dict.extraColumns?.invalid_reason
 
   // Build shared filter conditions (vocabulary, domain, class, standard)
   const filterConds: string[] = []
@@ -444,7 +445,7 @@ export function buildStandardConceptSearchQuery(
   }
   const filterClause = filterConds.length > 0 ? ` AND ${filterConds.join(' AND ')}` : ''
 
-  const selectCols = `d.${idCol} AS concept_id, d.${nameCol} AS concept_name, d.${codeCol} AS concept_code, d.${vocabCol} AS vocabulary_id${domainCol ? `, d.${domainCol} AS domain_id` : ''}${classCol ? `, d.${classCol} AS concept_class_id` : ''}${stdCol ? `, d.${stdCol} AS standard_concept` : ''}`
+  const selectCols = `d.${idCol} AS concept_id, d.${nameCol} AS concept_name, d.${codeCol} AS concept_code, d.${vocabCol} AS vocabulary_id${domainCol ? `, d.${domainCol} AS domain_id` : ''}${classCol ? `, d.${classCol} AS concept_class_id` : ''}${stdCol ? `, d.${stdCol} AS standard_concept` : ''}${invalidCol ? `, d.${invalidCol} AS invalid_reason` : ''}`
 
   const term = searchTerm.trim()
 

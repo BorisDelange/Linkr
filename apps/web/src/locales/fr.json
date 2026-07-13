@@ -2993,6 +2993,7 @@
     "col_domain": "Domaine",
     "col_class": "Classe",
     "col_std": "Standard",
+    "col_valid": "Valide",
     "col_equivalence": "Équivalence",
     "col_comment": "Commentaire",
     "col_concept_set": "Concept Set",
