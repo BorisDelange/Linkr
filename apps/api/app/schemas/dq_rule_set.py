@@ -16,6 +16,7 @@ class DqRuleSetCreate(CamelModel):
     last_run_duration_ms: int | None = None
     last_score: float | None = None
     origin: str = "user"
+    created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
 
@@ -45,6 +46,7 @@ class DqRuleSetResponse(CamelModel):
     last_run_duration_ms: int | None = None
     last_score: float | None = None
     origin: str
+    created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
     created_at: datetime

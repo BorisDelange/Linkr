@@ -94,6 +94,25 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
         owner_id=owner.id,
         connection_secret=crypto.encrypt(secret) if secret else None,
     )
+    # Stamp creator provenance: the id is always the authenticated user; the
+    # display snapshot falls back to the current user when the payload (import)
+    # didn't carry one.
+    source.created_by_id = owner.id
+    if not payload.get("created_by"):
+        full = f"{owner.first_name or ''} {owner.last_name or ''}".strip()
+        source.created_by = full or owner.username
+    if not payload.get("created_by_details"):
+        source.created_by_details = {
+            k: v
+            for k, v in {
+                "firstName": owner.first_name,
+                "lastName": owner.last_name,
+                "affiliation": owner.affiliation,
+                "profession": owner.profession,
+                "orcid": owner.orcid,
+            }.items()
+            if v
+        }
     db.add(source)
     await db.commit()
     await db.refresh(source)

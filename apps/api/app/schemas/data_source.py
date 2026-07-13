@@ -17,7 +17,9 @@ class DataSourceCreate(CamelModel):
     error_message: str | None = None
     is_vocabulary_reference: bool = False
     origin: str = "user"
+    created_by_id: int | None = None
     created_by: str | None = None
+    created_by_details: dict | None = None
 
 
 class DataSourceUpdate(CamelModel):
@@ -46,7 +48,9 @@ class DataSourceResponse(CamelModel):
     error_message: str | None = None
     is_vocabulary_reference: bool
     origin: str
+    created_by_id: int | None = None
     created_by: str | None = None
+    created_by_details: dict | None = None
     created_at: datetime
     updated_at: datetime
 

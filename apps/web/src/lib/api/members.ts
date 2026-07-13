@@ -36,6 +36,8 @@ export interface MemberWrite {
 export interface DirectoryUser {
   id: number
   username: string
+  firstName?: string
+  lastName?: string
 }
 
 export const membersApi = {

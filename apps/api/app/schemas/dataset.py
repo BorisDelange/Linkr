@@ -15,6 +15,9 @@ class DatasetFileCreate(CamelModel):
     row_count: int | None = None
     parse_options: dict | None = None
     origin: str = "user"
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
 
 
 class DatasetFileUpdate(CamelModel):
@@ -36,6 +39,9 @@ class DatasetFileResponse(CamelModel):
     parse_options: dict | None = None
     raw_file_name: str | None = None
     origin: str
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -17,6 +17,7 @@ class EtlPipelineCreate(CamelModel):
     last_run_duration_ms: int | None = None
     git_remote_config: dict | None = None
     origin: str = "user"
+    created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
 
@@ -48,6 +49,7 @@ class EtlPipelineResponse(CamelModel):
     last_run_duration_ms: int | None = None
     git_remote_config: dict | None = None
     origin: str
+    created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
     created_at: datetime

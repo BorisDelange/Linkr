@@ -795,6 +795,7 @@ export function WorkspacesPage() {
                     </div>
                    </div>
                     <CardMetaFooter
+                      createdById={raw?.createdById}
                       createdBy={raw?.createdBy}
                       createdByDetails={raw?.createdByDetails}
                       createdAt={ws.createdAt}

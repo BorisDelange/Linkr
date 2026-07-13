@@ -10,6 +10,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useVisitStore } from '@/stores/visit-store'
+import { useUserDirectoryStore } from '@/stores/user-directory-store'
 import { seedDatabases } from '@/lib/seed-loader'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
@@ -109,7 +110,10 @@ export function App() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const loadVisits = useVisitStore((s) => s.loadVisits)
   const recordVisit = useVisitStore((s) => s.recordVisit)
+  const loadDirectory = useUserDirectoryStore((s) => s.loadDirectory)
   useEffect(() => { loadVisits() }, [loadVisits])
+  // Author names on cards resolve against this directory (id → current name).
+  useEffect(() => { loadDirectory() }, [loadDirectory])
   // Defer the record so the re-sorted "recent" list don't visibly reshuffle on the
   // page being left before the router navigates away — a short delay hides it.
   useEffect(() => {

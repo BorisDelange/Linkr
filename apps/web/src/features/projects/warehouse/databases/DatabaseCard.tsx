@@ -183,6 +183,7 @@ export const DatabaseCard = memo(function DatabaseCard({
         </div>
         <CardMetaFooter
           className="mt-auto"
+          createdById={source.createdById}
           createdBy={source.createdBy}
           createdByDetails={source.createdByDetails}
           createdAt={source.createdAt}

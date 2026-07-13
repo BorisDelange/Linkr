@@ -210,6 +210,7 @@ export function LabDashboardsPage() {
                     </div>
                    </div>
                     <CardMetaFooter
+                      createdById={dash.createdById}
                       createdBy={dash.createdBy}
                       createdByDetails={dash.createdByDetails}
                       createdAt={dash.createdAt}

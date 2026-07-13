@@ -575,5 +575,9 @@ useAppStore.subscribe((state) => {
  *  Usable outside React (e.g. inside store actions and Create dialogs). */
 export function stampAuthored(): Authored {
   const s = useAppStore.getState()
-  return { createdBy: s.getUserDisplayName(), createdByDetails: s.getAuthorDetails() }
+  return {
+    createdById: s.user?.id,
+    createdBy: s.getUserDisplayName(),
+    createdByDetails: s.getAuthorDetails(),
+  }
 }

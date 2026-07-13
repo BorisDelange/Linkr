@@ -21,7 +21,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdBy?: string; createdByDetails?: AuthorDetails }> {
+interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdById?: number; createdBy?: string; createdByDetails?: AuthorDetails }> {
   /** Page title i18n key */
   titleKey: string
   /** Page description i18n key */
@@ -91,7 +91,7 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
 // Component
 // ---------------------------------------------------------------------------
 
-export function ListPageTemplate<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdBy?: string; createdByDetails?: AuthorDetails }>({
+export function ListPageTemplate<T extends { id: string; name: LocalizedString | string; createdAt?: string; updatedAt?: string; createdById?: number; createdBy?: string; createdByDetails?: AuthorDetails }>({
   titleKey,
   descriptionKey,
   newButtonKey,
@@ -222,6 +222,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                   </div>
                   <CardMetaFooter
                     className="mt-auto"
+                    createdById={item.createdById}
                     createdBy={item.createdBy}
                     createdByDetails={item.createdByDetails}
                     createdAt={item.createdAt}

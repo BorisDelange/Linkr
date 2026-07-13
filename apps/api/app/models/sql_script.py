@@ -24,6 +24,9 @@ class SqlScriptCollection(Base, TimestampMixin):
     # Encrypted git access token (Fernet); kept out of git_remote_config so it's
     # never returned by the API. Mirrors DataSource.connection_secret.
     git_remote_secret: Mapped[str | None] = mapped_column(Text)
+    # Stable creator identity (name resolved live from the directory); created_by /
+    # created_by_details are the display snapshot kept for cross-instance imports.
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
 

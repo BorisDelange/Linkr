@@ -384,6 +384,7 @@ export function ProjectsPage() {
                     <BadgeStrip badges={badges} className="mt-1.5 h-5" />
                    </div>
                     <CardMetaFooter
+                      createdById={raw?.createdById}
                       createdBy={raw?.createdBy}
                       createdByDetails={raw?.createdByDetails}
                       createdAt={project.createdAt}

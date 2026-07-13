@@ -26,6 +26,9 @@ class Dashboard(Base, TimestampMixin):
     fit_to_height: Mapped[bool | None] = mapped_column(Boolean)
     grid_v: Mapped[int | None] = mapped_column(Integer)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
+    # Stable creator identity (name resolved live from the directory); created_by /
+    # created_by_details are the display snapshot kept for cross-instance imports.
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
 

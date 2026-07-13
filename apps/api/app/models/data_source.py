@@ -35,7 +35,12 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     )
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    # Creator provenance. created_by_id is the stable identity (name resolved live
+    # from the directory); created_by / created_by_details are the display snapshot
+    # kept for cross-instance imports where the id has no local meaning.
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(String(255))
+    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
 
 
 class DataSourceFile(Base, UUIDPKMixin, TimestampMixin):

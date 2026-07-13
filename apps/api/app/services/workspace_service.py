@@ -37,6 +37,25 @@ async def create(db: AsyncSession, data: WorkspaceCreate, owner: User) -> Worksp
     git_secret.apply_to_entity(workspace, payload)
     for key, value in payload.items():
         setattr(workspace, key, value)
+    # Stamp creator provenance: the id is always the authenticated user; the
+    # display snapshot falls back to the current user when the payload (import)
+    # didn't carry one.
+    workspace.created_by_id = owner.id
+    if not payload.get("created_by"):
+        full = f"{owner.first_name or ''} {owner.last_name or ''}".strip()
+        workspace.created_by = full or owner.username
+    if not payload.get("created_by_details"):
+        workspace.created_by_details = {
+            k: v
+            for k, v in {
+                "firstName": owner.first_name,
+                "lastName": owner.last_name,
+                "affiliation": owner.affiliation,
+                "profession": owner.profession,
+                "orcid": owner.orcid,
+            }.items()
+            if v
+        }
     db.add(workspace)
     await db.flush()  # assign id before adding the membership row
     db.add(

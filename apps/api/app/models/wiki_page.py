@@ -28,6 +28,8 @@ class WikiPage(Base, TimestampMixin):
     review_due_at: Mapped[str | None] = mapped_column(String(40))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     # Authored mixin fields (display-name string + structured identity), kept as
-    # plain data to round-trip the frontend type faithfully.
+    # plain data to round-trip the frontend type faithfully. created_by_id is the
+    # stable identity (name resolved live from the directory).
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)

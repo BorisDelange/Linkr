@@ -30,6 +30,9 @@ class DataCatalog(Base, TimestampMixin):
     last_compute_duration_ms: Mapped[int | None] = mapped_column(Integer)
     dcat_ap_metadata: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
+    # Stable creator identity (name resolved live from the directory); created_by /
+    # created_by_details are the display snapshot kept for cross-instance imports.
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)

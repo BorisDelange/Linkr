@@ -12,6 +12,9 @@ class WorkspaceCreate(CamelModel):
     readme: dict | str | None = None
     git_remote_config: dict | None = None
     origin: str = "user"
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
 
 
 class WorkspaceUpdate(CamelModel):
@@ -33,5 +36,8 @@ class WorkspaceResponse(CamelModel):
     git_remote_config: dict | None = None
     origin: str
     owner_id: int | None = None
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
     created_at: datetime
     updated_at: datetime

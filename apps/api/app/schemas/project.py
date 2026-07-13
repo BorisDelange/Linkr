@@ -22,6 +22,11 @@ class ProjectCreate(CamelModel):
     organization: dict | None = None
     catalog_visibility: str | None = None
     origin: str = "user"
+    # Preserved on import (round-trip); for fresh creates the server stamps the
+    # current user, so these are optional here.
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
 
 
 class ProjectUpdate(CamelModel):
@@ -61,5 +66,8 @@ class ProjectResponse(CamelModel):
     catalog_visibility: str | None = None
     origin: str
     owner_id: int | None = None
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
     created_at: datetime
     updated_at: datetime

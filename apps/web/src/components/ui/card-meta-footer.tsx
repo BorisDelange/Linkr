@@ -3,10 +3,13 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDate } from '@/lib/format-helpers'
 import { cn } from '@/lib/utils'
+import { useUserDirectoryStore } from '@/stores/user-directory-store'
 import type { AuthorDetails } from '@/types/author'
 
 interface CardMetaFooterProps {
-  /** Author id / email — fallback label when no details are available. */
+  /** Stable creator id — resolved to the *current* display name when known. */
+  createdById?: number
+  /** Display-name snapshot; fallback when the id can't be resolved. */
   createdBy?: string
   createdByDetails?: AuthorDetails
   createdAt?: string
@@ -47,9 +50,12 @@ function DateChip({ date, tooltip }: { date: string; tooltip: string }) {
  * which). Renders nothing when there's nothing to show. Sits below the card body
  * so every harmonized list widget reads the same.
  */
-export function CardMetaFooter({ createdBy, createdByDetails, createdAt, updatedAt, leading, className }: CardMetaFooterProps) {
+export function CardMetaFooter({ createdById, createdBy, createdByDetails, createdAt, updatedAt, leading, className }: CardMetaFooterProps) {
   const { t, i18n } = useTranslation()
-  const label = authorLabel(createdBy, createdByDetails)
+  // Prefer the live directory name (reflects profile renames); fall back to the
+  // snapshot taken at creation when the id can't be resolved (author gone / import).
+  const resolved = useUserDirectoryStore((s) => (createdById != null ? s.resolveName(createdById) : ''))
+  const label = resolved || authorLabel(createdBy, createdByDetails)
   const created = createdAt ? formatDate(createdAt, i18n.language) : ''
   const updated = updatedAt ? formatDate(updatedAt, i18n.language) : ''
   if (!label && !created && !updated && !leading) return null

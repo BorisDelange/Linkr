@@ -18,6 +18,7 @@ class DashboardCreate(CamelModel):
     fit_to_height: bool | None = None
     grid_v: int | None = None
     origin: str = "user"
+    created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
 
@@ -49,6 +50,7 @@ class DashboardResponse(CamelModel):
     fit_to_height: bool | None = None
     grid_v: int | None = None
     origin: str
+    created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
     created_at: datetime

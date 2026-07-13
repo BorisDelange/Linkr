@@ -42,10 +42,13 @@ class ProfileUpdate(CamelModel):
 
 
 class UserDirectoryEntry(CamelModel):
-    """Minimal user info for member pickers (no email/role/secrets)."""
+    """Minimal user info for member pickers + author-name resolution
+    (no email/role/secrets)."""
 
     id: int
     username: str
+    first_name: str | None = None
+    last_name: str | None = None
 
 
 class UserResponse(CamelModel):

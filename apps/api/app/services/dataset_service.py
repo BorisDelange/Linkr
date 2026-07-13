@@ -32,7 +32,27 @@ async def get(db: AsyncSession, file_id: str) -> DatasetFile | None:
 
 
 async def create(db: AsyncSession, data: DatasetFileCreate, owner: User) -> DatasetFile:
-    node = DatasetFile(**data.model_dump(exclude_none=True), owner_id=owner.id)
+    payload = data.model_dump(exclude_none=True)
+    node = DatasetFile(**payload, owner_id=owner.id)
+    # Stamp creator provenance: the id is always the authenticated user; the
+    # display snapshot falls back to the current user when the payload (import)
+    # didn't carry one.
+    node.created_by_id = owner.id
+    if not payload.get("created_by"):
+        full = f"{owner.first_name or ''} {owner.last_name or ''}".strip()
+        node.created_by = full or owner.username
+    if not payload.get("created_by_details"):
+        node.created_by_details = {
+            k: v
+            for k, v in {
+                "firstName": owner.first_name,
+                "lastName": owner.last_name,
+                "affiliation": owner.affiliation,
+                "profession": owner.profession,
+                "orcid": owner.orcid,
+            }.items()
+            if v
+        }
     db.add(node)
     await db.commit()
     await db.refresh(node)

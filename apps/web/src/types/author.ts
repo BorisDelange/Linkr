@@ -12,6 +12,11 @@ export interface AuthorDetails {
  *  name (kept for compatibility); `createdByDetails` holds the structured
  *  identity (affiliation, profession, ORCID). Both optional → back-compatible. */
 export interface Authored {
+  /** Stable id of the creating user. Preferred for display: the name is resolved
+   *  live from the user directory, so a profile rename shows everywhere. */
+  createdById?: number
+  /** Display-name snapshot at creation time. Fallback when the id can't be
+   *  resolved (author left, or cross-instance import). */
   createdBy?: string
   createdByDetails?: AuthorDetails
 }
