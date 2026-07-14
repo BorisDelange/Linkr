@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, Code, BarChart3, History, Database } from 'lucide-react'
+import { ArrowLeft, Code, BarChart3, Database } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
@@ -18,15 +18,13 @@ import { useDqStore } from '@/stores/dq-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { DqChecksTab } from './DqChecksTab'
 import { DqResultsView } from './DqResultsView'
-import { DqRunHistoryTab } from './DqRunHistoryTab'
 import type { DqReport } from '@/lib/duckdb/data-quality'
 
-type TabId = 'checks' | 'results' | 'history'
+type TabId = 'checks' | 'results'
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'checks', labelKey: 'data_quality.tab_checks', icon: Code },
   { id: 'results', labelKey: 'data_quality.tab_results', icon: BarChart3 },
-  { id: 'history', labelKey: 'data_quality.tab_history', icon: History },
 ]
 
 interface Props {
@@ -44,7 +42,6 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     loadRuleSetChecks,
     updateRuleSet,
     customChecks,
-    runHistory,
     addRunHistory,
   } = useDqStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -102,6 +99,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
       errors: report.summary.errors,
       notApplicable: report.summary.notApplicable,
       durationMs,
+      report,
     })
   }, [ruleSet, updateRuleSet, addRunHistory])
 
@@ -118,8 +116,6 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
       </div>
     )
   }
-
-  const ruleSetHistory = runHistory.filter((e) => e.ruleSetId === ruleSet.id)
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -163,24 +159,21 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
         </div>
       </div>
 
-      {/* Tab content. Checks + Results stay MOUNTED (hidden when inactive) so their
-          in-tab state — scan report, filters, selection, search — survives switching
-          tabs. History is light + read-only, so it's fine to mount on demand. */}
+      {/* Tab content. Both tabs stay MOUNTED (hidden when inactive) so their in-tab
+          state — scan report, filters, selection, search — survives switching tabs. */}
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className={cn('h-full', activeTab !== 'checks' && 'hidden')}>
           <DqChecksTab ruleSetId={ruleSet.id} dataSourceId={ruleSet.dataSourceId} />
         </div>
         <div className={cn('h-full', activeTab !== 'results' && 'hidden')}>
           <DqResultsView
+            ruleSetId={ruleSet.id}
             dataSourceId={ruleSet.dataSourceId}
             schemaMapping={activeSource?.schemaMapping}
             customChecks={customChecks}
             onScanComplete={handleScanComplete}
           />
         </div>
-        {activeTab === 'history' && (
-          <DqRunHistoryTab entries={ruleSetHistory} />
-        )}
       </div>
     </div>
   )

@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { ShieldCheck, Play, Loader2, PanelRight, BarChart3 } from 'lucide-react'
+import { ShieldCheck, Play, Loader2, PanelRight, BarChart3, History, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -20,9 +20,12 @@ import { cn } from '@/lib/utils'
 import { DqScoreBadge } from './DqScoreBadge'
 import { DqCheckDetailPanel } from './DqCheckDetailPanel'
 import { DqCategoryCharts } from './DqCategoryCharts'
+import { DqHistoryDialog } from './DqHistoryDialog'
 import { CATEGORY_COLORS, STATUS_CONFIG, SEVERITY_CONFIG } from './DqConstants'
 
 interface Props {
+  /** Rule set the history modal is scoped to. */
+  ruleSetId?: string
   dataSourceId: string
   schemaMapping?: SchemaMapping
   customChecks?: DqCustomCheck[]
@@ -37,7 +40,7 @@ interface Row {
   result: DqCheckResult
 }
 
-export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onScanComplete, onBeforeScan }: Props) {
+export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customChecks, onScanComplete, onBeforeScan }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
 
@@ -47,6 +50,10 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null)
   const [detailVisible, setDetailVisible] = useState(true)
   const [chartsVisible, setChartsVisible] = useState(true)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  // Set when the displayed report comes from a past run (not a fresh scan) —
+  // drives the "viewing a historical run" banner. Cleared on a new scan.
+  const [viewedRunAt, setViewedRunAt] = useState<string | null>(null)
   const cancelledRef = useRef(false)
 
   const handleRunScan = useCallback(async () => {
@@ -55,6 +62,7 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
     setLoading(true)
     setReport(null)
     setSelectedCheckId(null)
+    setViewedRunAt(null)
     setProgress({ done: 0, total: 0 })
 
     try {
@@ -81,6 +89,13 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
       setLoading(false)
     }
   }, [dataSourceId, schemaMapping, customChecks, loading, onBeforeScan, onScanComplete])
+
+  const handleRestore = useCallback((entry: { report?: DqReport; startedAt: string }) => {
+    if (!entry.report) return
+    setReport(entry.report)
+    setSelectedCheckId(null)
+    setViewedRunAt(entry.startedAt)
+  }, [])
 
   const rows = useMemo<Row[]>(() => {
     if (!report) return []
@@ -185,6 +200,18 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
             {loading ? t('data_quality.scanning') : t('data_quality.run_scan')}
           </Button>
 
+          {ruleSetId && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setHistoryOpen(true)}
+              className="h-6 gap-1 px-2 text-xs"
+            >
+              <History size={14} />
+              {t('data_quality.history_title')}
+            </Button>
+          )}
+
           {loading && progress.total > 0 && (
             <span className="text-xs text-muted-foreground">
               {t('data_quality.progress', { done: progress.done, total: progress.total })}
@@ -228,6 +255,23 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
             </Tooltip>
           </div>
         </div>
+
+        {/* Historical-run banner — shown when the table displays a past run. */}
+        {viewedRunAt && !loading && (
+          <div className="flex items-center gap-2 border-b bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            <History size={13} className="shrink-0" />
+            <span>{t('data_quality.viewing_historical_run', { date: new Date(viewedRunAt).toLocaleString() })}</span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="ml-auto h-5 w-5 text-amber-700 hover:text-amber-900 dark:text-amber-300"
+              onClick={() => { setReport(null); setViewedRunAt(null); setSelectedCheckId(null) }}
+              title={t('common.close')}
+            >
+              <X size={13} />
+            </Button>
+          </div>
+        )}
 
         {/* Category charts (collapsible) */}
         {report && !loading && chartsVisible && (
@@ -273,6 +317,15 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
           )}
         </div>
       </div>
+
+      {ruleSetId && (
+        <DqHistoryDialog
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          ruleSetId={ruleSetId}
+          onRestore={handleRestore}
+        />
+      )}
     </TooltipProvider>
   )
 }

@@ -772,6 +772,8 @@
     "no_history_description": "Lancez un scan depuis l'onglet Résultats pour voir l'historique ici.",
     "history_checks": "{{passed}}/{{total}} réussis",
     "history_duration": "{{duration}} s",
+    "history_view": "Voir",
+    "viewing_historical_run": "Analyse passée du {{date}}",
     "sql_dialog_title": "Requête SQL",
     "sql_copy": "Copier",
     "sql_copied": "Copié !",

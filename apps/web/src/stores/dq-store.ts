@@ -21,6 +21,10 @@ export interface DqRunHistoryEntry {
   errors: number
   notApplicable: number
   durationMs?: number
+  /** Full scan report, kept so a past run can be reopened in the results table.
+   *  In-memory only (the store isn't persisted) + capped at 50 runs, and results
+   *  hold only counts + SQL (no row data), so this stays light. */
+  report?: DqReport
 }
 
 // --- Store interface ---

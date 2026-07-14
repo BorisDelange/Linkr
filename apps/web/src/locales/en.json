@@ -772,6 +772,8 @@
     "no_history_description": "Run a scan from the Results tab to see history here.",
     "history_checks": "{{passed}}/{{total}} passed",
     "history_duration": "{{duration}}s",
+    "history_view": "View",
+    "viewing_historical_run": "Viewing a past run from {{date}}",
     "sql_dialog_title": "SQL Query",
     "sql_copy": "Copy",
     "sql_copied": "Copied!",
