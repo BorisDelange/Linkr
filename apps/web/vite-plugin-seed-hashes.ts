@@ -23,7 +23,7 @@ import { SEED_HASHES_SCHEMA_VERSION } from './src/lib/seed-schema-version'
 
 type SeedEntityKind =
   | 'database' | 'conceptMapping' | 'etlScript' | 'dataset' | 'dashboard'
-  | 'project' | 'mappingProject' | 'dqRuleSet' | 'catalog'
+  | 'project' | 'mappingProject' | 'dqRuleSet' | 'catalog' | 'etlPipeline'
 
 interface ManifestEntity {
   type: SeedEntityKind
@@ -66,6 +66,9 @@ export interface SeedEntityHashes {
   mappingProjects: Record<string, string>
   dqRuleSets: Record<string, string>
   catalogs: Record<string, string>
+  /** Optional so pre-existing baselines (persisted before ETL pipelines were a
+   *  first-class seed entity) still satisfy the type — they diff as "no etl". */
+  etlPipelines?: Record<string, string>
   /**
    * Human-readable names per entity, keyed like the hash maps above. Purely additive
    * and display-only — never compared — so old baselines (without it) still diff fine.
@@ -85,6 +88,7 @@ export interface SeedEntityNames {
   mappingProjects: Record<string, string>
   dqRuleSets: Record<string, string>
   catalogs: Record<string, string>
+  etlPipelines?: Record<string, string>
 }
 
 export interface SeedHashesManifest {
@@ -140,6 +144,7 @@ function emptyMaps(): SeedEntityNames {
   return {
     databases: {}, conceptMappings: {}, etlScripts: {}, datasets: {},
     dashboards: {}, projects: {}, mappingProjects: {}, dqRuleSets: {}, catalogs: {},
+    etlPipelines: {},
   }
 }
 
@@ -154,6 +159,7 @@ const KIND_TO_KEY: Record<SeedEntityKind, keyof SeedEntityNames> = {
   mappingProject: 'mappingProjects',
   dqRuleSet: 'dqRuleSets',
   catalog: 'catalogs',
+  etlPipeline: 'etlPipelines',
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +227,13 @@ function hashEntity(
       const name = nameFromFile(abs, (o) => o.name) ?? entity.id
       return { hash: sha256(readFileOrEmpty(abs)), name }
     }
+
+    case 'etlPipeline': {
+      const etlDir = join(wsDir, 'etl', entity.folder ?? entity.id)
+      const pipelineJson = readFileOrEmpty(join(etlDir, '_pipeline.json'))
+      const name = nameFromFile(join(etlDir, '_pipeline.json'), (o) => o.name) ?? (entity.folder ?? entity.id)
+      return { hash: sha256(pipelineJson), name }
+    }
   }
 }
 
@@ -251,6 +264,7 @@ function generateSeedHashes(publicDir: string): SeedHashesManifest | null {
       workspace: '',
       databases: {}, conceptMappings: {}, etlScripts: {}, datasets: {},
       dashboards: {}, projects: {}, mappingProjects: {}, dqRuleSets: {}, catalogs: {},
+      etlPipelines: {},
       names,
     }
 
@@ -266,7 +280,7 @@ function generateSeedHashes(publicDir: string): SeedHashesManifest | null {
       const hashed = hashEntity(publicDir, wsDir, entity)
       if (!hashed) continue
       ;(entityHashes[key] as Record<string, string>)[entity.id] = hashed.hash
-      names[key][entity.id] = hashed.name
+      ;(names[key] ??= {})[entity.id] = hashed.name
     }
 
     result.workspaces[folder] = entityHashes

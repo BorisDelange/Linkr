@@ -134,7 +134,7 @@ interface SeedDashboard {
 /** Entity types that appear as first-class manifest entities. */
 export type SeedEntityKind =
   | 'database' | 'conceptMapping' | 'etlScript' | 'dataset' | 'dashboard'
-  | 'project' | 'mappingProject' | 'dqRuleSet' | 'catalog'
+  | 'project' | 'mappingProject' | 'dqRuleSet' | 'catalog' | 'etlPipeline'
 
 /** Per-kind payload carried by a manifest entity (the config its loader needs). */
 interface SeedEntitySpecs {
@@ -151,6 +151,8 @@ interface SeedEntitySpecs {
   dqRuleSet: { path: string }
   /** Path (relative to the workspace folder) to the catalog JSON. */
   catalog: { path: string }
+  /** Folder name under `etl/` (pipeline row + optional script-file tree). */
+  etlPipeline: { folder: string }
 }
 
 /** One entity in a workspace manifest: a kind tag + its loader payload. */
@@ -504,7 +506,7 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
 }
 
 /** Phase-1 entity kinds, loaded by loadSeedWorkspace before databases/datasets/etc. */
-const STRUCTURAL_KINDS = new Set<SeedEntityKind>(['project', 'mappingProject', 'dqRuleSet', 'catalog'])
+const STRUCTURAL_KINDS = new Set<SeedEntityKind>(['project', 'mappingProject', 'dqRuleSet', 'catalog', 'etlPipeline'])
 
 /** Load one structural (phase-1) entity. Idempotent via a uniform `linkr-seed-<type>-<id>` flag. */
 async function loadStructuralEntity(
@@ -589,6 +591,23 @@ async function loadStructuralEntity(
       const cat = await fetchJson<DataCatalog>(`${base}/${entity.path}`)
       if (!cat) return
       await storage.dataCatalogs.create({ ...cat, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      break
+    }
+    case 'etlPipeline': {
+      const etlFolder = entity.folder
+      const pipeline = await fetchJson<EtlPipeline>(`${base}/etl/${etlFolder}/_pipeline.json`)
+      if (!pipeline) return
+      await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      // Optional script-file tree (the generated ETL scripts themselves are seeded
+      // in phase 2 via the etlScript entry; older exports may ship a _tree.json).
+      const treeMeta = await fetchJson<EtlFile[]>(`${base}/etl/${etlFolder}/_tree.json`) ?? []
+      for (const f of treeMeta) {
+        if (f.type === 'file') {
+          const content = await fetchText(`${base}/etl/${etlFolder}/${f.name}`)
+          if (content !== null) (f as EtlFile).content = content
+        }
+        await storage.etlFiles.create({ ...f, pipelineId: pipeline.id }).catch(() => {})
+      }
       break
     }
   }

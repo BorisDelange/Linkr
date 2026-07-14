@@ -26,6 +26,7 @@ export type SeedEntityType =
   | 'mappingProject'
   | 'dqRuleSet'
   | 'catalog'
+  | 'etlPipeline'
 
 export interface SeedChange {
   workspaceFolder: string
@@ -206,6 +207,7 @@ const ENTITY_KEYS: Array<{ key: keyof SeedEntityHashes; type: SeedEntityType }> 
   { key: 'mappingProjects', type: 'mappingProject' },
   { key: 'dqRuleSets', type: 'dqRuleSet' },
   { key: 'catalogs', type: 'catalog' },
+  { key: 'etlPipelines', type: 'etlPipeline' },
 ]
 
 /**

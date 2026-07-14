@@ -28,7 +28,7 @@ import {
  * SEED_KEY). Re-seeding any of these requires clearing that global flag.
  */
 const STRUCTURAL: Set<SeedEntityType> = new Set([
-  'workspace', 'project', 'mappingProject', 'dqRuleSet', 'catalog',
+  'workspace', 'project', 'mappingProject', 'dqRuleSet', 'catalog', 'etlPipeline',
 ])
 
 /** Delete one selected entity's rows (+ children) from IndexedDB and clear its guard flag. */
@@ -112,6 +112,12 @@ async function deleteEntity(change: SeedChange): Promise<void> {
       clearSeedFlag(`catalog-${entityId}`)
       break
     }
+    case 'etlPipeline': {
+      await storage.etlFiles.deleteByPipeline(entityId).catch(() => {})
+      await storage.etlPipelines.delete(entityId).catch(() => {})
+      clearSeedFlag(`etlPipeline-${entityId}`)
+      break
+    }
   }
 }
 
@@ -163,7 +169,8 @@ export async function removedDisposition(change: SeedChange): Promise<RemovedDis
     case 'dashboard': return disp(await storage.dashboards.getById(entityId))
     case 'mappingProject':
     case 'conceptMapping': return disp(await storage.mappingProjects.getById(entityId))
-    case 'etlScript': return disp(await storage.etlPipelines.getById(entityId))
+    case 'etlScript':
+    case 'etlPipeline': return disp(await storage.etlPipelines.getById(entityId))
     case 'dqRuleSet': return disp(await storage.dqRuleSets.getById(entityId))
     case 'catalog': return disp(await storage.dataCatalogs.getById(entityId))
   }

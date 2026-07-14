@@ -24,6 +24,11 @@
       "folder": "mimic-iv-to-omop"
     },
     {
+      "type": "etlPipeline",
+      "id": "00000000-0000-0000-0000-000000000007",
+      "folder": "mimic-iv-to-omop"
+    },
+    {
       "type": "dqRuleSet",
       "id": "mimic-iv-demo",
       "path": "data-quality/mimic-iv-demo.json"
