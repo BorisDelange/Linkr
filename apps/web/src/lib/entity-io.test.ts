@@ -499,7 +499,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   // Storage stub: every getter returns [] unless the section is seeded below.
   const makeStore = (seed: { catalogs?: DataCatalog[]; ruleSets?: DqRuleSet[]; checks?: DqCustomCheck[]; presets?: CustomSchemaPreset[] } = {}) => {
     const table = (methods: Record<string, unknown>) => new Proxy(methods, {
-      get: (t, prop) => (prop in t ? (t as Record<string, unknown>)[prop] : async () => []),
+      get: (t, prop) => (typeof prop === 'string' && prop in t ? (t as Record<string, unknown>)[prop] : async () => []),
     })
     return new Proxy({}, {
       get: (_t, prop) => {
@@ -584,7 +584,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   })
 
   it('applyClonedEntity restores each type from its own repo layout', async () => {
-    const calls: Record<string, unknown[]> = {}
+    const calls: Record<string, unknown[][]> = {}
     const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }
     const store = new Proxy({}, {
       get: (_t, prop) => {
