@@ -766,6 +766,8 @@
     "filter_builtin_only": "Intégrés uniquement",
     "history_title": "Historique des scans",
     "clear_history": "Effacer",
+    "clear_history_confirm_title": "Effacer l'historique des analyses ?",
+    "clear_history_confirm_body": "Cela supprime définitivement toutes les entrées d'historique d'analyse de cet ensemble de règles. Action irréversible.",
     "no_history": "Aucun scan effectué",
     "no_history_description": "Lancez un scan depuis l'onglet Résultats pour voir l'historique ici.",
     "history_checks": "{{passed}}/{{total}} réussis",

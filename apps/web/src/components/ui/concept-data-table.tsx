@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { cn } from '@/lib/utils'
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
@@ -96,6 +97,10 @@ interface ConceptDataTableProps<T> {
   rowKey: (row: T) => string | number
   /** Empty-state message. */
   emptyMessage?: string
+  /** Make rows clickable (e.g. to drive a detail panel). */
+  onRowClick?: (row: T) => void
+  /** Key of the currently selected row — highlighted when set. */
+  selectedRowKey?: string | number | null
 }
 
 /**
@@ -103,7 +108,7 @@ interface ConceptDataTableProps<T> {
  * (text / number / multi-select), column-visibility menu and a results count.
  * Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey }: ConceptDataTableProps<T>) {
   const { t } = useTranslation()
   const [sorting, setSorting] = useState<Sorting>(null)
   const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>({})
@@ -275,8 +280,17 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage 
                 </TableCell>
               </TableRow>
             ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={rowKey(row.original)}>
+              table.getRowModel().rows.map((row) => {
+                const key = rowKey(row.original)
+                return (
+                <TableRow
+                  key={key}
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  className={cn(
+                    onRowClick && 'cursor-pointer',
+                    selectedRowKey != null && key === selectedRowKey ? 'bg-accent' : onRowClick && 'hover:bg-accent/50',
+                  )}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
                       key={cell.id}
@@ -287,7 +301,8 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage 
                     </TableCell>
                   ))}
                 </TableRow>
-              ))
+                )
+              })
             )}
           </TableBody>
         </Table>

@@ -1,8 +1,19 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { History, CheckCircle2, XCircle, Loader2, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { useDqStore } from '@/stores/dq-store'
 import type { DqRunHistoryEntry } from '@/stores/dq-store'
@@ -20,6 +31,7 @@ const STATUS_STYLE: Record<DqRunHistoryEntry['status'], { icon: typeof CheckCirc
 export function DqRunHistoryTab({ entries }: Props) {
   const { t } = useTranslation()
   const clearRunHistory = useDqStore((s) => s.clearRunHistory)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   if (entries.length === 0) {
     return (
@@ -44,12 +56,30 @@ export function DqRunHistoryTab({ entries }: Props) {
           variant="ghost"
           size="sm"
           className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-destructive"
-          onClick={clearRunHistory}
+          onClick={() => setConfirmOpen(true)}
         >
           <Trash2 size={12} />
           {t('data_quality.clear_history')}
         </Button>
       </div>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('data_quality.clear_history_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('data_quality.clear_history_confirm_body')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => { clearRunHistory(); setConfirmOpen(false) }}
+            >
+              {t('data_quality.clear_history')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ScrollArea className="flex-1">
         <div className="mx-auto max-w-2xl space-y-2 p-4">

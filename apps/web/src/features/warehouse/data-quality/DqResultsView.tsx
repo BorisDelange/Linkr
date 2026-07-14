@@ -1,8 +1,8 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { ShieldCheck, Play, Loader2, PanelLeft, PanelRight, BarChart3 } from 'lucide-react'
+import { ShieldCheck, Play, Loader2, PanelRight, BarChart3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -11,16 +11,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { generateChecks, runAllChecks } from '@/lib/duckdb/data-quality'
 import type { DqCheck, DqCheckResult, DqReport } from '@/lib/duckdb/data-quality'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
+import { cn } from '@/lib/utils'
 import { DqScoreBadge } from './DqScoreBadge'
-import { DqFiltersPanel } from './DqFiltersPanel'
-import { DqResultsTable } from './DqResultsTable'
 import { DqCheckDetailPanel } from './DqCheckDetailPanel'
 import { DqCategoryCharts } from './DqCategoryCharts'
-import { defaultFilters, type DqFilters } from './DqConstants'
+import { CATEGORY_COLORS, STATUS_CONFIG, SEVERITY_CONFIG } from './DqConstants'
 
 interface Props {
   dataSourceId: string
@@ -32,6 +32,11 @@ interface Props {
   onBeforeScan?: () => Promise<void>
 }
 
+interface Row {
+  check: DqCheck
+  result: DqCheckResult
+}
+
 export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onScanComplete, onBeforeScan }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
@@ -40,8 +45,6 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
   const [loading, setLoading] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null)
-  const [filters, setFilters] = useState<DqFilters>(defaultFilters)
-  const [filtersVisible, setFiltersVisible] = useState(true)
   const [detailVisible, setDetailVisible] = useState(true)
   const [chartsVisible, setChartsVisible] = useState(true)
   const cancelledRef = useRef(false)
@@ -79,30 +82,91 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
     }
   }, [dataSourceId, schemaMapping, customChecks, loading, onBeforeScan, onScanComplete])
 
-  // Filter results
-  const filteredResults: { check: DqCheck; result: DqCheckResult }[] = []
-  if (report) {
+  const rows = useMemo<Row[]>(() => {
+    if (!report) return []
     const checkMap = new Map(report.checks.map((c) => [c.id, c]))
-    const searchLower = filters.searchText.toLowerCase()
+    const out: Row[] = []
     for (const r of report.results) {
       const check = checkMap.get(r.checkId)
-      if (!check) continue
-      if (!filters.statuses.has(r.status)) continue
-      if (
-        searchLower &&
-        !check.description.toLowerCase().includes(searchLower) &&
-        !check.name.toLowerCase().includes(searchLower) &&
-        !(check.tableName ?? '').toLowerCase().includes(searchLower)
-      ) continue
-      if (!filters.categories.has(check.category)) continue
-      if (filters.tables.size > 0 && (!check.tableName || !filters.tables.has(check.tableName))) continue
-      if (!filters.severities.has(check.severity)) continue
-      filteredResults.push({ check, result: r })
+      if (check) out.push({ check, result: r })
     }
-  }
+    return out
+  }, [report])
+
+  const columns = useMemo<ConceptColumn<Row>[]>(() => [
+    {
+      id: 'status',
+      header: t('data_quality.col_status'),
+      accessor: (r) => r.result.status,
+      filter: 'select',
+      size: 90, minSize: 60, center: true,
+      cell: (r) => {
+        const cfg = STATUS_CONFIG[r.result.status]
+        const Icon = cfg.icon
+        return (
+          <span className="inline-flex items-center gap-1">
+            <Icon size={13} className={cfg.color} />
+            <span className="text-[10px] text-muted-foreground">{t(cfg.label)}</span>
+          </span>
+        )
+      },
+    },
+    {
+      id: 'check',
+      header: t('data_quality.col_check'),
+      accessor: (r) => r.check.description,
+      filter: 'text',
+      size: 260, minSize: 120,
+      cell: (r) => <span className="font-medium">{r.check.description}</span>,
+    },
+    {
+      id: 'category',
+      header: t('data_quality.col_category'),
+      accessor: (r) => t(`data_quality.category_${r.check.category}`),
+      filter: 'select',
+      size: 130, minSize: 80,
+      cell: (r) => (
+        <span className={cn('inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', CATEGORY_COLORS[r.check.category])}>
+          {t(`data_quality.category_${r.check.category}`)}
+        </span>
+      ),
+    },
+    {
+      id: 'table',
+      header: t('data_quality.col_table'),
+      accessor: (r) => r.check.tableName ?? '',
+      filter: 'select',
+      size: 130, minSize: 70,
+      cell: (r) => <span className="font-mono text-muted-foreground">{r.check.tableName ?? '—'}</span>,
+    },
+    {
+      id: 'violated',
+      header: t('data_quality.col_violated'),
+      accessor: (r) => (r.result.status === 'not_applicable' ? -1 : r.result.pctViolated),
+      filter: 'none',
+      size: 90, minSize: 60, center: true,
+      cell: (r) => (
+        <span className="tabular-nums">
+          {r.result.status === 'not_applicable' ? '—' : `${r.result.pctViolated.toFixed(1)}%`}
+        </span>
+      ),
+    },
+    {
+      id: 'severity',
+      header: t('data_quality.col_severity'),
+      accessor: (r) => r.check.severity,
+      filter: 'select',
+      size: 90, minSize: 60, center: true,
+      cell: (r) => {
+        const cfg = SEVERITY_CONFIG[r.check.severity]
+        const Icon = cfg.icon
+        return <Icon size={14} className={cfg.color} />
+      },
+    },
+  ], [t])
 
   const selectedItem = selectedCheckId
-    ? filteredResults.find((f) => f.check.id === selectedCheckId) ?? null
+    ? rows.find((f) => f.check.id === selectedCheckId) ?? null
     : null
 
   return (
@@ -110,19 +174,6 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
       <div className="flex h-full flex-col">
         {/* Toolbar */}
         <div className="flex items-center gap-2 border-b px-3 py-1.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={filtersVisible ? 'secondary' : 'ghost'}
-                size="icon-xs"
-                onClick={() => setFiltersVisible(!filtersVisible)}
-              >
-                <PanelLeft size={14} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('data_quality.filters')}</TooltipContent>
-          </Tooltip>
-
           <Button
             size="sm"
             variant="default"
@@ -187,7 +238,11 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
 
         {/* Content */}
         <div className="min-h-0 flex-1">
-          {!report && !loading ? (
+          {!report && loading ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 size={20} className="animate-spin text-muted-foreground" />
+            </div>
+          ) : !report ? (
             <div className="flex h-full items-center justify-center">
               <div className="text-center">
                 <ShieldCheck size={32} className="mx-auto text-muted-foreground/50" />
@@ -197,23 +252,17 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
             </div>
           ) : (
             <Allotment proportionalLayout={false}>
-              <Allotment.Pane preferredSize={200} minSize={160} maxSize={280} visible={filtersVisible}>
-                <DqFiltersPanel
-                  filters={filters}
-                  onFiltersChange={setFilters}
-                  report={report}
-                />
-              </Allotment.Pane>
-
               <Allotment.Pane minSize={400}>
-                <DqResultsTable
-                  items={filteredResults}
-                  selectedId={selectedCheckId}
-                  onSelect={(id) => {
-                    setSelectedCheckId(id)
+                <ConceptDataTable
+                  data={rows}
+                  columns={columns}
+                  rowKey={(r) => r.check.id}
+                  emptyMessage={t('data_quality.no_results')}
+                  selectedRowKey={selectedCheckId}
+                  onRowClick={(r) => {
+                    setSelectedCheckId(r.check.id)
                     setDetailVisible(true)
                   }}
-                  loading={loading}
                 />
               </Allotment.Pane>
 

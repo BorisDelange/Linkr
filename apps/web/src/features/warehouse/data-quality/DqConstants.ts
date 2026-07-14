@@ -33,21 +33,3 @@ export const SEVERITY_CONFIG: Record<DqSeverity, { icon: typeof ShieldAlert; col
   warning: { icon: ShieldAlert, color: 'text-amber-600 dark:text-amber-400' },
   notice: { icon: Info, color: 'text-yellow-600 dark:text-yellow-400' },
 }
-
-export interface DqFilters {
-  searchText: string
-  statuses: Set<DqCheckStatus>
-  categories: Set<DqCategory>
-  tables: Set<string>
-  severities: Set<DqSeverity>
-}
-
-export function defaultFilters(): DqFilters {
-  return {
-    searchText: '',
-    statuses: new Set(['pass', 'fail', 'error'] as DqCheckStatus[]),
-    categories: new Set(CATEGORIES),
-    tables: new Set<string>(),
-    severities: new Set(SEVERITIES),
-  }
-}

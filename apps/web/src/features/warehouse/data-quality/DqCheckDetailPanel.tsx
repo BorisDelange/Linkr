@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { CodeEditor } from '@/components/editor/CodeEditor'
 import { CATEGORY_COLORS, STATUS_CONFIG } from './DqConstants'
 import type { DqCheck, DqCheckResult } from '@/lib/duckdb/data-quality'
 
@@ -120,7 +121,7 @@ export function DqCheckDetailPanel({ item }: Props) {
 
       {/* SQL Dialog */}
       <Dialog open={sqlDialogOpen} onOpenChange={setSqlDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {t('data_quality.sql_dialog_title')}
@@ -133,9 +134,9 @@ export function DqCheckDetailPanel({ item }: Props) {
               </Button>
             </DialogTitle>
           </DialogHeader>
-          <pre className="max-h-[60vh] overflow-auto rounded bg-muted p-4 font-mono text-xs leading-relaxed text-muted-foreground">
-            {result.sql.trim()}
-          </pre>
+          <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
+            <CodeEditor value={result.sql.trim()} language="sql" readOnly height="55vh" />
+          </div>
         </DialogContent>
       </Dialog>
     </div>
