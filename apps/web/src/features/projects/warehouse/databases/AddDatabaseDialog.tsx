@@ -409,6 +409,24 @@ export function AddDatabaseDialog({
 
   const canSubmit = isNameValid && isConnectionValid
 
+  // Cmd/Ctrl+S submits the dialog, matching the save shortcut used across the app.
+  // A ref holds the latest submit intent so the listener stays stable across renders.
+  const submitRef = useRef<() => void>(() => {})
+  submitRef.current = () => {
+    if (canSubmit && !uploading) void handleSubmit()
+  }
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        submitRef.current()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open])
+
   // Per-tab list of what's still missing — drives the red dot on each tab and
   // the tooltip on the disabled Create button.
   const generalMissing: string[] = []
