@@ -10,6 +10,9 @@ class SchemaPresetSave(CamelModel):
     workspace_id: str | None = None
     mapping: dict = {}
     git_remote_config: dict | None = None
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
 
 
 class SchemaPresetResponse(CamelModel):
@@ -17,5 +20,8 @@ class SchemaPresetResponse(CamelModel):
     workspace_id: str | None = None
     mapping: dict
     git_remote_config: dict | None = None
+    created_by_id: int | None = None
+    created_by: str | None = None
+    created_by_details: dict | None = None
     created_at: datetime
     updated_at: datetime

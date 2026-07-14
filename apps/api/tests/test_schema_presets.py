@@ -141,3 +141,27 @@ async def test_cannot_hijack_existing_preset_by_reparenting(client, db):
     r = await client.get(f"{API}/schema-presets", headers=admin)
     secret = next(p for p in r.json() if p["presetId"] == "secret")
     assert secret["mapping"] == {"tables": ["a"]} and secret["workspaceId"] == ws_a
+
+
+async def test_preset_persists_author_provenance(client):
+    """The creator snapshot (createdBy / createdByDetails) survives the round-trip
+    so the schema card can show the author in server mode too."""
+    headers = await _admin_headers(client)
+    r = await client.put(
+        f"{API}/schema-presets/authored",
+        headers=headers,
+        json={
+            "presetId": "authored",
+            "mapping": {"tables": []},
+            "createdBy": "Ada Lovelace",
+            "createdByDetails": {"fullName": "Ada Lovelace", "orcid": "0000-0002-1825-0097"},
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["createdBy"] == "Ada Lovelace"
+    assert r.json()["createdByDetails"]["orcid"] == "0000-0002-1825-0097"
+
+    # Persisted (visible on the list endpoint, not just echoed back).
+    r = await client.get(f"{API}/schema-presets", headers=headers)
+    authored = next(p for p in r.json() if p["presetId"] == "authored")
+    assert authored["createdBy"] == "Ada Lovelace"
