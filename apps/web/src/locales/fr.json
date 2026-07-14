@@ -768,6 +768,8 @@
     "clear_history": "Effacer",
     "clear_history_confirm_title": "Effacer l'historique des analyses ?",
     "clear_history_confirm_body": "Cela supprime définitivement toutes les entrées d'historique d'analyse de cet ensemble de règles. Action irréversible.",
+    "delete_run_confirm_title": "Supprimer cette analyse ?",
+    "delete_run_confirm_body": "Cela supprime définitivement cette analyse de l'historique. Action irréversible.",
     "no_history": "Aucun scan effectué",
     "no_history_description": "Lancez un scan depuis l'onglet Résultats pour voir l'historique ici.",
     "history_checks": "{{passed}}/{{total}} réussis",

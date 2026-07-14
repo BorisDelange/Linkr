@@ -2,30 +2,12 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
-import type { DqRuleSet, DqCustomCheck } from '@/types'
+import type { DqRuleSet, DqCustomCheck, DqRunHistoryEntry } from '@/types'
 import type { DqReport } from '@/lib/duckdb/data-quality'
 
-// --- Run history type (in-memory only) ---
-
-export interface DqRunHistoryEntry {
-  id: string
-  ruleSetId?: string
-  dataSourceId: string
-  startedAt: string
-  completedAt?: string
-  status: 'running' | 'success' | 'error'
-  score?: number
-  totalChecks: number
-  passed: number
-  failed: number
-  errors: number
-  notApplicable: number
-  durationMs?: number
-  /** Full scan report, kept so a past run can be reopened in the results table.
-   *  In-memory only (the store isn't persisted) + capped at 50 runs, and results
-   *  hold only counts + SQL (no row data), so this stays light. */
-  report?: DqReport
-}
+// Re-exported so existing imports (`from '@/stores/dq-store'`) keep working; the
+// canonical definition now lives in @/types alongside the other DQ entities.
+export type { DqRunHistoryEntry }
 
 // --- Store interface ---
 
@@ -69,11 +51,14 @@ interface DqState {
   finishScan: (report: DqReport) => void
   failScan: () => void
 
-  // Run history (in-memory, capped at 50)
+  // Run history (persisted per rule set; loaded on demand)
   runHistory: DqRunHistoryEntry[]
-  addRunHistory: (entry: DqRunHistoryEntry) => void
-  updateRunHistory: (id: string, changes: Partial<DqRunHistoryEntry>) => void
-  clearRunHistory: () => void
+  runHistoryRuleSetId: string | null
+  loadRunHistory: (ruleSetId: string) => Promise<void>
+  addRunHistory: (entry: DqRunHistoryEntry) => Promise<void>
+  updateRunHistory: (id: string, changes: Partial<DqRunHistoryEntry>) => Promise<void>
+  deleteRunHistory: (id: string) => Promise<void>
+  clearRunHistory: (ruleSetId: string) => Promise<void>
 }
 
 export const useDqStore = create<DqState>((set, get) => ({
@@ -247,22 +232,40 @@ export const useDqStore = create<DqState>((set, get) => ({
     set({ scanRunning: false })
   },
 
-  // --- Run history ---
+  // --- Run history (persisted per rule set) ---
   runHistory: [],
+  runHistoryRuleSetId: null,
 
-  addRunHistory: (entry) => {
-    set((s) => ({
-      runHistory: [entry, ...s.runHistory].slice(0, 50),
-    }))
+  loadRunHistory: async (ruleSetId) => {
+    const entries = await getStorage().dqRunHistory.getByRuleSet(ruleSetId)
+    // Newest first.
+    entries.sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+    set({ runHistory: entries, runHistoryRuleSetId: ruleSetId })
   },
 
-  updateRunHistory: (id, changes) => {
+  addRunHistory: async (entry) => {
+    await getStorage().dqRunHistory.create(entry)
+    set((s) => (
+      entry.ruleSetId === s.runHistoryRuleSetId
+        ? { runHistory: [entry, ...s.runHistory] }
+        : {}
+    ))
+  },
+
+  updateRunHistory: async (id, changes) => {
+    await getStorage().dqRunHistory.update(id, changes)
     set((s) => ({
       runHistory: s.runHistory.map((e) => (e.id === id ? { ...e, ...changes } : e)),
     }))
   },
 
-  clearRunHistory: () => {
-    set({ runHistory: [] })
+  deleteRunHistory: async (id) => {
+    await getStorage().dqRunHistory.delete(id)
+    set((s) => ({ runHistory: s.runHistory.filter((e) => e.id !== id) }))
+  },
+
+  clearRunHistory: async (ruleSetId) => {
+    await getStorage().dqRunHistory.deleteByRuleSet(ruleSetId)
+    set((s) => (ruleSetId === s.runHistoryRuleSetId ? { runHistory: [] } : {}))
   },
 }))

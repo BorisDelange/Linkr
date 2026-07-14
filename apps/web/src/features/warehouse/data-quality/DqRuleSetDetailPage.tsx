@@ -43,6 +43,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     updateRuleSet,
     customChecks,
     addRunHistory,
+    loadRunHistory,
   } = useDqStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
@@ -60,6 +61,10 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   useEffect(() => {
     if (fullRuleSetId) loadRuleSetChecks(fullRuleSetId)
   }, [fullRuleSetId, loadRuleSetChecks])
+
+  useEffect(() => {
+    if (fullRuleSetId) void loadRunHistory(fullRuleSetId)
+  }, [fullRuleSetId, loadRunHistory])
   const activeSource = dataSources.find((ds) => ds.id === ruleSet?.dataSourceId)
 
   const handleBack = useCallback(() => {

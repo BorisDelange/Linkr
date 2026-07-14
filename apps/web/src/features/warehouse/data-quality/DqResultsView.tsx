@@ -90,9 +90,9 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
     }
   }, [dataSourceId, schemaMapping, customChecks, loading, onBeforeScan, onScanComplete])
 
-  const handleRestore = useCallback((entry: { report?: DqReport; startedAt: string }) => {
+  const handleRestore = useCallback((entry: { report?: unknown; startedAt: string }) => {
     if (!entry.report) return
-    setReport(entry.report)
+    setReport(entry.report as DqReport)
     setSelectedCheckId(null)
     setViewedRunAt(entry.startedAt)
   }, [])

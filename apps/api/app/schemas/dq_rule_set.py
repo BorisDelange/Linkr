@@ -100,3 +100,52 @@ class DqCustomCheckResponse(CamelModel):
     order: int
     created_at: datetime
     updated_at: datetime
+
+
+class DqRunHistoryCreate(CamelModel):
+    id: str
+    rule_set_id: str | None = None
+    workspace_id: str | None = None
+    data_source_id: str
+    started_at: str
+    completed_at: str | None = None
+    status: str
+    score: float | None = None
+    total_checks: int = 0
+    passed: int = 0
+    failed: int = 0
+    errors: int = 0
+    not_applicable: int = 0
+    duration_ms: int | None = None
+    report: dict | None = None
+
+
+class DqRunHistoryUpdate(CamelModel):
+    completed_at: str | None = None
+    status: str | None = None
+    score: float | None = None
+    total_checks: int | None = None
+    passed: int | None = None
+    failed: int | None = None
+    errors: int | None = None
+    not_applicable: int | None = None
+    duration_ms: int | None = None
+    report: dict | None = None
+
+
+class DqRunHistoryResponse(CamelModel):
+    id: str
+    rule_set_id: str | None = None
+    workspace_id: str | None = None
+    data_source_id: str
+    started_at: str
+    completed_at: str | None = None
+    status: str
+    score: float | None = None
+    total_checks: int
+    passed: int
+    failed: int
+    errors: int
+    not_applicable: int
+    duration_ms: int | None = None
+    report: dict | None = None

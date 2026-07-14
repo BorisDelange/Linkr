@@ -10,7 +10,7 @@ from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMa
 from app.models.source_concept_id import SourceConceptIdEntry, SourceConceptIdRange
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
-from app.models.dq_rule_set import DqCustomCheck, DqRuleSet
+from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
 from app.models.etl_pipeline import EtlFile, EtlPipeline
 from app.models.execution_session import ExecutionSession
 from app.models.ide_connection import IdeConnection
@@ -55,6 +55,7 @@ __all__ = [
     "UserPlugin",
     "DqRuleSet",
     "DqCustomCheck",
+    "DqRunHistory",
     "EtlPipeline",
     "EtlFile",
     "ExecutionSession",

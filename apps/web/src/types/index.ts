@@ -880,6 +880,28 @@ export interface DqCustomCheck {
   updatedAt: string
 }
 
+/** One persisted data-quality scan run. `report` holds the full DqReport so a past
+ *  run can be reopened in the results table (light: counts + SQL, no row data). */
+export interface DqRunHistoryEntry {
+  id: string
+  ruleSetId?: string
+  workspaceId?: string
+  dataSourceId: string
+  startedAt: string
+  completedAt?: string
+  status: 'running' | 'success' | 'error'
+  score?: number
+  totalChecks: number
+  passed: number
+  failed: number
+  errors: number
+  notApplicable: number
+  durationMs?: number
+  /** Full scan report, kept to reopen a past run. `unknown`-typed here to avoid a
+   *  type cycle with the DuckDB layer; cast to DqReport at the use site. */
+  report?: unknown
+}
+
 // --- User Plugin Types ---
 
 export interface UserPlugin {

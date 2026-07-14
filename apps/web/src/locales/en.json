@@ -768,6 +768,8 @@
     "clear_history": "Clear",
     "clear_history_confirm_title": "Clear run history?",
     "clear_history_confirm_body": "This permanently removes all scan history entries for this rule set. This can't be undone.",
+    "delete_run_confirm_title": "Delete this run?",
+    "delete_run_confirm_body": "This permanently removes this scan run from the history. This can't be undone.",
     "no_history": "No runs yet",
     "no_history_description": "Run a scan from the Results tab to see history here.",
     "history_checks": "{{passed}}/{{total}} passed",

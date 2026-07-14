@@ -624,6 +624,25 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['rule_set_id'], ['dq_rule_sets.id'], name=op.f('fk_dq_custom_checks_rule_set_id'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_dq_custom_checks'))
     )
+    op.create_table('dq_run_history',
+    sa.Column('id', sa.String(length=36), nullable=False),
+    sa.Column('rule_set_id', sa.String(length=36), nullable=True),
+    sa.Column('workspace_id', sa.String(length=36), nullable=True),
+    sa.Column('data_source_id', sa.String(length=36), nullable=False),
+    sa.Column('started_at', sa.String(length=40), nullable=False),
+    sa.Column('completed_at', sa.String(length=40), nullable=True),
+    sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('score', sa.Float(), nullable=True),
+    sa.Column('total_checks', sa.Integer(), nullable=False),
+    sa.Column('passed', sa.Integer(), nullable=False),
+    sa.Column('failed', sa.Integer(), nullable=False),
+    sa.Column('errors', sa.Integer(), nullable=False),
+    sa.Column('not_applicable', sa.Integer(), nullable=False),
+    sa.Column('duration_ms', sa.Integer(), nullable=True),
+    sa.Column('report', sa.JSON(), nullable=True),
+    sa.ForeignKeyConstraint(['rule_set_id'], ['dq_rule_sets.id'], name=op.f('fk_dq_run_history_rule_set_id'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_dq_run_history'))
+    )
     op.create_table('etl_files',
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('pipeline_id', sa.String(length=36), nullable=False),
@@ -746,6 +765,7 @@ def downgrade() -> None:
     op.drop_table('pipelines')
     op.drop_table('ide_connections')
     op.drop_table('etl_files')
+    op.drop_table('dq_run_history')
     op.drop_table('dq_custom_checks')
     op.drop_table('dataset_files')
     op.drop_table('dataset_analyses')

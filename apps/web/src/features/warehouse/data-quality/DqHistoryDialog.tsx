@@ -42,7 +42,9 @@ export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Pr
   const { t } = useTranslation()
   const runHistory = useDqStore((s) => s.runHistory)
   const clearRunHistory = useDqStore((s) => s.clearRunHistory)
+  const deleteRunHistory = useDqStore((s) => s.deleteRunHistory)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
 
   const entries = runHistory.filter((e) => e.ruleSetId === ruleSetId)
 
@@ -108,6 +110,15 @@ export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Pr
                       <RotateCcw size={12} />
                       {t('data_quality.history_view')}
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                      title={t('common.delete')}
+                      onClick={() => setDeleteId(entry.id)}
+                    >
+                      <Trash2 size={12} />
+                    </Button>
                   </div>
                 )
               })}
@@ -125,9 +136,27 @@ export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Pr
               <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-destructive text-white hover:bg-destructive/90"
-                onClick={() => { clearRunHistory(); setConfirmOpen(false) }}
+                onClick={() => { void clearRunHistory(ruleSetId); setConfirmOpen(false) }}
               >
                 {t('data_quality.clear_history')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={deleteId !== null} onOpenChange={(o) => { if (!o) setDeleteId(null) }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('data_quality.delete_run_confirm_title')}</AlertDialogTitle>
+              <AlertDialogDescription>{t('data_quality.delete_run_confirm_body')}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-white hover:bg-destructive/90"
+                onClick={() => { if (deleteId) void deleteRunHistory(deleteId); setDeleteId(null) }}
+              >
+                {t('common.delete')}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

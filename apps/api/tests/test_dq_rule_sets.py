@@ -106,3 +106,37 @@ async def test_non_member_cannot_access(client, db):
     other = await _create_user(db, client, "bob")
     assert (await client.get(f"{API}/dq-rule-sets?workspaceId={ws}", headers=other)).status_code == 403
     assert (await client.delete(f"{API}/dq-rule-sets/{r['id']}", headers=other)).status_code == 403
+
+
+async def test_run_history_crud_and_report_roundtrip(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    rs = await _rule_set(client, headers, ws)
+
+    # Create a run with a full report (so a past run can be reopened).
+    report = {"computedAt": "2026-07-14T10:00:00Z", "checks": [{"id": "c1"}], "results": [{"checkId": "c1", "status": "pass"}], "summary": {"total": 1, "passed": 1}}
+    created = (await client.post(f"{API}/dq-run-history", headers=headers, json={
+        "id": "run-1", "ruleSetId": rs["id"], "dataSourceId": "src-1",
+        "startedAt": "2026-07-14T10:00:00Z", "status": "success", "score": 100,
+        "totalChecks": 1, "passed": 1, "failed": 0, "errors": 0, "notApplicable": 0,
+        "report": report,
+    })).json()
+    assert created["id"] == "run-1"
+
+    # Listed under the rule set, with the report preserved (reopen works after reload).
+    runs = (await client.get(f"{API}/dq-rule-sets/{rs['id']}/runs", headers=headers)).json()
+    assert len(runs) == 1
+    assert runs[0]["report"]["summary"]["passed"] == 1
+
+    # Delete a single run.
+    assert (await client.delete(f"{API}/dq-run-history/run-1", headers=headers)).status_code == 204
+    assert (await client.get(f"{API}/dq-rule-sets/{rs['id']}/runs", headers=headers)).json() == []
+
+    # Clear all runs for the rule set.
+    await client.post(f"{API}/dq-run-history", headers=headers, json={
+        "id": "run-2", "ruleSetId": rs["id"], "dataSourceId": "src-1",
+        "startedAt": "2026-07-14T11:00:00Z", "status": "success",
+        "totalChecks": 0, "passed": 0, "failed": 0, "errors": 0, "notApplicable": 0,
+    })
+    assert (await client.delete(f"{API}/dq-rule-sets/{rs['id']}/runs", headers=headers)).status_code == 204
+    assert (await client.get(f"{API}/dq-rule-sets/{rs['id']}/runs", headers=headers)).json() == []

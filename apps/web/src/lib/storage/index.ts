@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -299,6 +299,15 @@ export interface DqCustomCheckStorage {
   deleteByRuleSet(ruleSetId: string): Promise<void>
 }
 
+/** Storage interface for DQ scan-run history persistence. */
+export interface DqRunHistoryStorage {
+  getByRuleSet(ruleSetId: string): Promise<DqRunHistoryEntry[]>
+  create(entry: DqRunHistoryEntry): Promise<void>
+  update(id: string, changes: Partial<DqRunHistoryEntry>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByRuleSet(ruleSetId: string): Promise<void>
+}
+
 /** Storage interface for OHDSI concept set persistence. */
 export interface ConceptSetStorage {
   getAll(): Promise<ConceptSet[]>
@@ -459,6 +468,7 @@ export interface Storage {
   sqlScriptFiles: SqlScriptFileStorage
   dqRuleSets: DqRuleSetStorage
   dqCustomChecks: DqCustomCheckStorage
+  dqRunHistory: DqRunHistoryStorage
   conceptSets: ConceptSetStorage
   mappingProjects: MappingProjectStorage
   conceptMappings: ConceptMappingStorage

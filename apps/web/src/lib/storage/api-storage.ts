@@ -19,7 +19,7 @@ import { apiConceptMappingStorage, apiMappingProjectStorage, apiServiceMappingSt
 import { apiSourceConceptIdEntryStorage, apiSourceConceptIdRangeStorage } from '@/lib/api/source-concept-ids'
 import { apiDataCatalogStorage } from '@/lib/api/catalogs'
 import { apiDataSourceStorage, apiFileStorage } from '@/lib/api/data-sources'
-import { apiDqCustomCheckStorage, apiDqRuleSetStorage } from '@/lib/api/dq'
+import { apiDqCustomCheckStorage, apiDqRuleSetStorage, apiDqRunHistoryStorage } from '@/lib/api/dq'
 import { apiEtlFileStorage, apiEtlPipelineStorage } from '@/lib/api/etl'
 import { apiIdeFileStorage } from '@/lib/api/ide-files'
 import { apiOrganizationStorage } from '@/lib/api/organizations'
@@ -76,6 +76,7 @@ export function createAPIStorage(): Storage {
     wikiAttachments: apiWikiAttachmentStorage,
     dqRuleSets: apiDqRuleSetStorage,
     dqCustomChecks: apiDqCustomCheckStorage,
+    dqRunHistory: apiDqRunHistoryStorage,
     dataCatalogs: apiDataCatalogStorage,
     conceptSets: apiConceptSetStorage,
     sourceConceptIdRanges: apiSourceConceptIdRangeStorage,

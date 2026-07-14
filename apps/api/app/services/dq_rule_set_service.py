@@ -2,13 +2,15 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.dq_rule_set import DqCustomCheck, DqRuleSet
+from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
 from app.services import git_secret
 from app.schemas.dq_rule_set import (
     DqCustomCheckCreate,
     DqCustomCheckUpdate,
     DqRuleSetCreate,
     DqRuleSetUpdate,
+    DqRunHistoryCreate,
+    DqRunHistoryUpdate,
 )
 
 
@@ -98,5 +100,56 @@ async def delete_check(db: AsyncSession, check: DqCustomCheck) -> None:
 async def delete_checks_for_rule_set(db: AsyncSession, rule_set_id: str) -> None:
     await db.execute(
         sa_delete(DqCustomCheck).where(DqCustomCheck.rule_set_id == rule_set_id)
+    )
+    await db.commit()
+
+
+# --- Run history -----------------------------------------------------------
+
+async def list_runs(db: AsyncSession, rule_set_id: str) -> list[DqRunHistory]:
+    result = await db.execute(
+        select(DqRunHistory)
+        .where(DqRunHistory.rule_set_id == rule_set_id)
+        .order_by(DqRunHistory.started_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def get_run(db: AsyncSession, run_id: str) -> DqRunHistory | None:
+    return await db.get(DqRunHistory, run_id)
+
+
+async def create_run(db: AsyncSession, data: DqRunHistoryCreate) -> DqRunHistory:
+    payload = data.model_dump(exclude_none=True)
+    # Idempotent: the client may re-send the same run id (e.g. running → success).
+    run = await db.get(DqRunHistory, data.id)
+    if run is None:
+        run = DqRunHistory()
+    for key, value in payload.items():
+        setattr(run, key, value)
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    return run
+
+
+async def update_run(
+    db: AsyncSession, run: DqRunHistory, data: DqRunHistoryUpdate
+) -> DqRunHistory:
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(run, key, value)
+    await db.commit()
+    await db.refresh(run)
+    return run
+
+
+async def delete_run(db: AsyncSession, run: DqRunHistory) -> None:
+    await db.delete(run)
+    await db.commit()
+
+
+async def delete_runs_for_rule_set(db: AsyncSession, rule_set_id: str) -> None:
+    await db.execute(
+        sa_delete(DqRunHistory).where(DqRunHistory.rule_set_id == rule_set_id)
     )
     await db.commit()

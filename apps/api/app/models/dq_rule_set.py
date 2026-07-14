@@ -42,6 +42,31 @@ class DqRuleSet(Base, TimestampMixin):
     git_remote_secret: Mapped[str | None] = mapped_column(Text)
 
 
+class DqRunHistory(Base):
+    """One persisted data-quality scan run for a rule set. `report` holds the full
+    scan report (counts + SQL, no row data) so a past run can be reopened."""
+
+    __tablename__ = "dq_run_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    rule_set_id: Mapped[str | None] = mapped_column(
+        ForeignKey("dq_rule_sets.id", ondelete="CASCADE")
+    )
+    workspace_id: Mapped[str | None] = mapped_column(String(36))
+    data_source_id: Mapped[str] = mapped_column(String(36))
+    started_at: Mapped[str] = mapped_column(String(40))
+    completed_at: Mapped[str | None] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(20))
+    score: Mapped[float | None] = mapped_column(Float)
+    total_checks: Mapped[int] = mapped_column(Integer, default=0)
+    passed: Mapped[int] = mapped_column(Integer, default=0)
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+    errors: Mapped[int] = mapped_column(Integer, default=0)
+    not_applicable: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    report: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+
+
 class DqCustomCheck(Base, TimestampMixin):
     """A single SQL data-quality check within a rule set. Plain-string name/
     description (not localized); short inline SQL. Has createdAt + updatedAt."""
