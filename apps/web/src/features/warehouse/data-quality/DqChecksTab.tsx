@@ -12,10 +12,16 @@ import {
   ShieldCheck,
   Filter,
   Search,
+  Pencil,
+  Eye,
+  EyeOff,
+  ListChecks,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
@@ -36,6 +42,16 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
@@ -86,8 +102,16 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     updateCheckSql,
     isCheckDirty,
     saveCheck,
+    setChecksDisabled,
     _dirtyVersion,
   } = useDqStore()
+  const disabledCheckIds = useDqStore(
+    (s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.disabledCheckIds,
+  )
+  const isDisabled = useCallback(
+    (id: string) => !!disabledCheckIds?.includes(id),
+    [disabledCheckIds],
+  )
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const activeSource = dataSources.find((ds) => ds.id === dataSourceId)
@@ -101,6 +125,15 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   const [builtinLoading, setBuiltinLoading] = useState(false)
   // Local overrides for built-in check SQL (in-memory, not persisted)
   const [builtinSqlOverrides, setBuiltinSqlOverrides] = useState<Map<string, string>>(new Map())
+
+  // Sidebar edit mode: multi-select via checkboxes + bulk enable/disable/delete.
+  const [editMode, setEditMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Inline rename of a custom check name (IDE-style).
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  // Delete confirmation: a single custom check id, or 'bulk' for the selection.
+  const [deleteTarget, setDeleteTarget] = useState<string | 'bulk' | null>(null)
 
   // Force re-render when dirty state changes
   void _dirtyVersion
@@ -167,6 +200,71 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     setSidebarFilter((f) => f === 'builtin' ? 'all' : f)
   }, [ruleSetId, customChecks.length, createCustomCheck, selectCheck])
 
+  // --- Inline rename (custom checks only) ---
+  const startRename = useCallback((id: string, name: string) => {
+    setRenamingId(id)
+    setRenameValue(name)
+  }, [])
+
+  const commitRename = useCallback(() => {
+    if (!renamingId) return
+    const name = renameValue.trim()
+    if (name) void updateCustomCheck(renamingId, { name })
+    setRenamingId(null)
+  }, [renamingId, renameValue, updateCustomCheck])
+
+  // --- Enable/disable ---
+  const toggleDisabled = useCallback((id: string) => {
+    void setChecksDisabled(ruleSetId, [id], !isDisabled(id))
+  }, [ruleSetId, isDisabled, setChecksDisabled])
+
+  // --- Multi-select (edit mode) ---
+  const allVisibleIds = useMemo(
+    () => [...filteredCustomChecks.map((c) => c.id), ...filteredBuiltinChecks.map((c) => c.id)],
+    [filteredCustomChecks, filteredBuiltinChecks],
+  )
+  const allSelected = allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.has(id))
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => (prev.size === allVisibleIds.length ? new Set() : new Set(allVisibleIds)))
+  }, [allVisibleIds])
+
+  const exitEditMode = useCallback(() => {
+    setEditMode(false)
+    setSelectedIds(new Set())
+  }, [])
+
+  const handleBulkSetDisabled = useCallback((disabled: boolean) => {
+    if (selectedIds.size === 0) return
+    void setChecksDisabled(ruleSetId, [...selectedIds], disabled)
+  }, [selectedIds, ruleSetId, setChecksDisabled])
+
+  // Only custom checks can be deleted; built-in ones in the selection are ignored.
+  const selectedCustomIds = useMemo(
+    () => [...selectedIds].filter((id) => customChecks.some((c) => c.id === id)),
+    [selectedIds, customChecks],
+  )
+
+  const handleConfirmDelete = useCallback(async () => {
+    const ids = deleteTarget === 'bulk' ? selectedCustomIds : deleteTarget ? [deleteTarget] : []
+    for (const id of ids) await deleteCustomCheck(id)
+    setDeleteTarget(null)
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      ids.forEach((id) => next.delete(id))
+      return next
+    })
+  }, [deleteTarget, selectedCustomIds, deleteCustomCheck])
+
   const getEffectiveSql = useCallback((check: DqCheck): string => {
     return builtinSqlOverrides.get(check.id) ?? check.sql
   }, [builtinSqlOverrides])
@@ -226,6 +324,123 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   }, [selectedCustomCheck, selectedBuiltinCheck, updateCheckSql])
 
   const filterCount = filteredCustomChecks.length + filteredBuiltinChecks.length
+
+  // One sidebar row, shared by custom and built-in checks. `name` is truncated with
+  // an ellipsis and revealed in full via a tooltip, so the action cluster on the
+  // right stays pinned to the visible edge of the (resizable) sidebar.
+  const renderRow = (opts: {
+    id: string
+    category: DqCategory
+    name: string
+    isCustom: boolean
+    dirty: boolean
+  }) => {
+    const { id, category, name, isCustom, dirty } = opts
+    const disabled = isDisabled(id)
+    const renaming = renamingId === id
+    return (
+      <div
+        key={id}
+        className={cn(
+          'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors',
+          selectedCheckId === id && !editMode
+            ? 'bg-accent text-accent-foreground'
+            : 'text-foreground hover:bg-accent/50',
+          disabled && 'opacity-50',
+        )}
+      >
+        {editMode && (
+          <Checkbox
+            checked={selectedIds.has(id)}
+            onCheckedChange={() => toggleSelected(id)}
+            className="size-3.5 shrink-0"
+            aria-label={t('common.select')}
+          />
+        )}
+        <span className={cn(
+          'inline-block h-2 w-2 shrink-0 rounded-full',
+          CATEGORY_COLORS[category]?.split(' ')[0] ?? 'bg-gray-400',
+        )} />
+
+        {renaming ? (
+          <input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              if (e.key === 'Enter') commitRename()
+              else if (e.key === 'Escape') { e.preventDefault(); setRenamingId(null) }
+            }}
+            // No border/vertical padding: a ring keeps the input the same height as the
+            // static label so entering rename mode doesn't reflow the row or the list.
+            className="-mx-0.5 min-w-0 flex-1 rounded bg-background px-0.5 text-xs leading-[inherit] text-foreground outline-none ring-1 ring-primary"
+          />
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => (editMode ? toggleSelected(id) : selectCheck(id))}
+                className={cn('min-w-0 flex-1 truncate text-left', disabled && 'line-through')}
+              >
+                {name}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{name}</TooltipContent>
+          </Tooltip>
+        )}
+
+        {dirty && <span className="size-1.5 shrink-0 rounded-full bg-orange-500" title={t('data_quality.unsaved')} />}
+
+        {canWrite && !editMode && !renaming && (
+          <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+            {isCustom && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); startRename(id, name) }}
+                    className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Pencil size={11} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t('common.rename')}</TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleDisabled(id) }}
+                  className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  {disabled ? <EyeOff size={11} /> : <Eye size={11} />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{disabled ? t('data_quality.enable_check') : t('data_quality.disable_check')}</TooltipContent>
+            </Tooltip>
+            {isCustom && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(id) }}
+                    className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t('common.delete')}</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -310,11 +525,73 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                         </DropdownMenuCheckboxItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    {canWrite && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant={editMode ? 'secondary' : 'ghost'}
+                            size="icon-xs"
+                            onClick={() => (editMode ? exitEditMode() : setEditMode(true))}
+                          >
+                            <ListChecks size={13} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{editMode ? t('common.done') : t('data_quality.select_multiple')}</TooltipContent>
+                      </Tooltip>
+                    )}
                     <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={handleNewCheck}>
                       <Plus size={14} />
                     </Button>
                   </div>
                 </div>
+
+                {/* Bulk action bar (edit mode) */}
+                {editMode && (
+                  <div className="flex items-center gap-1 border-b bg-accent/30 px-2 py-1">
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={toggleSelectAll}
+                      className="size-3.5 shrink-0"
+                      aria-label={t('data_quality.select_all')}
+                    />
+                    <span className="mr-auto text-[10px] text-muted-foreground">
+                      {t('data_quality.n_selected', { count: selectedIds.size })}
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => handleBulkSetDisabled(false)}>
+                          <Eye size={12} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('data_quality.enable_check')}</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => handleBulkSetDisabled(true)}>
+                          <EyeOff size={12} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('data_quality.disable_check')}</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          disabled={selectedCustomIds.length === 0}
+                          onClick={() => setDeleteTarget('bulk')}
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 size={12} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('common.delete')}</TooltipContent>
+                    </Tooltip>
+                    <Button variant="ghost" size="icon-xs" onClick={exitEditMode}>
+                      <X size={12} />
+                    </Button>
+                  </div>
+                )}
 
                 {/* Search input */}
                 <div className="border-b px-2 py-1.5">
@@ -329,7 +606,10 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                   </div>
                 </div>
 
-                <ScrollArea className="min-h-0 flex-1 overflow-hidden">
+                {/* Radix wraps viewport children in a shrink-to-fit `display:table` div;
+                    force it to a full-width block so rows can't grow past the sidebar
+                    (and thus truncate + pin their action cluster to the visible edge). */}
+                <ScrollArea className="min-h-0 flex-1 overflow-hidden [&>[data-slot=scroll-area-viewport]>div]:!block">
                   <div className="space-y-0.5 p-1.5">
                     {filterCount === 0 ? (
                       <div className="py-8 text-center">
@@ -348,36 +628,13 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                                 {t('data_quality.source_custom')}
                               </div>
                             )}
-                            {filteredCustomChecks.map((check) => {
-                              const dirty = isCheckDirty(check.id)
-                              return (
-                                <button
-                                  key={check.id}
-                                  onClick={() => selectCheck(check.id)}
-                                  className={cn(
-                                    'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                                    selectedCheckId === check.id
-                                      ? 'bg-accent text-accent-foreground'
-                                      : 'text-foreground hover:bg-accent/50',
-                                  )}
-                                >
-                                  <span className={cn(
-                                    'inline-block h-2 w-2 shrink-0 rounded-full',
-                                    CATEGORY_COLORS[check.category].split(' ')[0],
-                                  )} />
-                                  <span className="min-w-0 flex-1 truncate">{check.name}</span>
-                                  {dirty && <span className="size-1.5 shrink-0 rounded-full bg-orange-500" />}
-                                  {canWrite && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); deleteCustomCheck(check.id) }}
-                                      className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                                    >
-                                      <Trash2 size={10} />
-                                    </button>
-                                  )}
-                                </button>
-                              )
-                            })}
+                            {filteredCustomChecks.map((check) => renderRow({
+                              id: check.id,
+                              category: check.category,
+                              name: check.name,
+                              isCustom: true,
+                              dirty: isCheckDirty(check.id),
+                            }))}
                           </>
                         )}
 
@@ -394,30 +651,13 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                                 <Loader2 size={14} className="animate-spin text-muted-foreground" />
                               </div>
                             ) : (
-                              filteredBuiltinChecks.map((check) => {
-                                const label = check.description || check.name
-                                return (
-                                  <button
-                                    key={check.id}
-                                    onClick={() => selectCheck(check.id)}
-                                    className={cn(
-                                      'group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                                      selectedCheckId === check.id
-                                        ? 'bg-accent text-accent-foreground'
-                                        : 'text-foreground hover:bg-accent/50',
-                                    )}
-                                  >
-                                    <span className={cn(
-                                      'inline-block h-2 w-2 shrink-0 rounded-full',
-                                      CATEGORY_COLORS[check.category]?.split(' ')[0] ?? 'bg-gray-400',
-                                    )} />
-                                    <span className="min-w-0 flex-1 truncate">{label}</span>
-                                    {builtinSqlOverrides.has(check.id) && (
-                                      <span className="size-1.5 shrink-0 rounded-full bg-orange-500" />
-                                    )}
-                                  </button>
-                                )
-                              })
+                              filteredBuiltinChecks.map((check) => renderRow({
+                                id: check.id,
+                                category: check.category,
+                                name: check.description || check.name,
+                                isCustom: false,
+                                dirty: builtinSqlOverrides.has(check.id),
+                              }))
                             )}
                           </>
                         )}
@@ -436,38 +676,39 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                   <div className="flex items-center gap-2 border-b px-3 py-1.5">
                     {selectedCustomCheck ? (
                       <>
-                        <Input
-                          value={selectedCustomCheck.name}
-                          onChange={(e) => updateCustomCheck(selectedCustomCheck.id, { name: e.target.value })}
-                          className="h-6 w-40 border-0 bg-transparent px-1 text-xs font-medium shadow-none"
-                        />
-                        <Select
-                          value={selectedCustomCheck.category}
-                          onValueChange={(v) => updateCustomCheck(selectedCustomCheck.id, { category: v as DqCategory })}
-                        >
-                          <SelectTrigger className="h-6 w-auto gap-1 border-0 bg-transparent px-1.5 text-[10px] shadow-none">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CATEGORIES.map((c) => (
-                              <SelectItem key={c} value={c}>{t(`data_quality.category_${c}`)}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={selectedCustomCheck.severity}
-                          onValueChange={(v) => updateCustomCheck(selectedCustomCheck.id, { severity: v as DqSeverity })}
-                        >
-                          <SelectTrigger className="h-6 w-auto gap-1 border-0 bg-transparent px-1.5 text-[10px] shadow-none">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {SEVERITIES.map((s) => (
-                              <SelectItem key={s} value={s}>{t(`data_quality.severity_${s}`)}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_category')}:</Label>
+                          <Select
+                            value={selectedCustomCheck.category}
+                            onValueChange={(v) => updateCustomCheck(selectedCustomCheck.id, { category: v as DqCategory })}
+                          >
+                            <SelectTrigger className="w-36 data-[size=xs]:h-6">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent position="popper" side="bottom">
+                              {CATEGORIES.map((c) => (
+                                <SelectItem key={c} value={c}>{t(`data_quality.category_${c}`)}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_severity')}:</Label>
+                          <Select
+                            value={selectedCustomCheck.severity}
+                            onValueChange={(v) => updateCustomCheck(selectedCustomCheck.id, { severity: v as DqSeverity })}
+                          >
+                            <SelectTrigger className="w-32 data-[size=xs]:h-6">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent position="popper" side="bottom">
+                              {SEVERITIES.map((s) => (
+                                <SelectItem key={s} value={s}>{t(`data_quality.severity_${s}`)}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-center gap-1.5">
                           <Label className="text-[10px] text-muted-foreground">{t('data_quality.custom_threshold')}:</Label>
                           <Input
                             type="number"
@@ -476,7 +717,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                             step={5}
                             value={selectedCustomCheck.threshold}
                             onChange={(e) => updateCustomCheck(selectedCustomCheck.id, { threshold: Number(e.target.value) })}
-                            className="h-6 w-14 border-0 bg-transparent px-1 text-[10px] shadow-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            className="h-6 w-16 text-[13px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           />
                         </div>
                       </>
@@ -539,6 +780,27 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
           </Allotment>
         </div>
       </div>
+
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('data_quality.delete_check_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget === 'bulk'
+                ? t('data_quality.delete_checks_confirm', { count: selectedCustomIds.length })
+                : t('data_quality.delete_check_confirm', {
+                    name: customChecks.find((c) => c.id === deleteTarget)?.name ?? '',
+                  })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive text-white hover:bg-destructive/90">
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </TooltipProvider>
   )
 }

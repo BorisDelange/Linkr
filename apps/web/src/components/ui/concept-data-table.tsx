@@ -82,6 +82,8 @@ export interface ConceptColumn<T> {
   /** Optional custom cell renderer (defaults to a truncated text of the accessor value). */
   cell?: (row: T) => ReactNode
   filter?: ConceptColumnFilter
+  /** For a 'select' filter: map a raw option value to a display label (e.g. translate/capitalize). */
+  selectOptionLabel?: (value: string) => string
   size?: number
   minSize?: number
   /** Hidden by default (still toggleable via the column menu). */
@@ -171,8 +173,11 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     const col = colById.get(columnId)
     if (!col || !col.filter || col.filter === 'none') return null
     if (col.filter === 'select') {
-      const opts = selectOptions[columnId] ?? []
-      if (opts.length < 2) return null
+      const rawOpts = selectOptions[columnId] ?? []
+      if (rawOpts.length < 2) return null
+      const opts = col.selectOptionLabel
+        ? rawOpts.map((v) => ({ value: v, label: col.selectOptionLabel!(v) }))
+        : rawOpts
       const current = filters[columnId]
       const value = current instanceof Set ? [...current] : []
       return (

@@ -20,6 +20,8 @@ interface DqState {
   createRuleSet: (ruleSet: DqRuleSet) => Promise<void>
   updateRuleSet: (id: string, changes: Partial<DqRuleSet>) => Promise<void>
   deleteRuleSet: (id: string) => Promise<void>
+  /** Enable/disable one or more checks (custom or built-in) for a rule set. */
+  setChecksDisabled: (ruleSetId: string, checkIds: string[], disabled: boolean) => Promise<void>
 
   // Custom check CRUD (scoped to active rule set)
   customChecks: DqCustomCheck[]
@@ -108,6 +110,17 @@ export const useDqStore = create<DqState>((set, get) => ({
       customChecks: s.activeRuleSetId === id ? [] : s.customChecks,
       activeRuleSetId: s.activeRuleSetId === id ? null : s.activeRuleSetId,
     }))
+  },
+
+  setChecksDisabled: async (ruleSetId, checkIds, disabled) => {
+    const rs = get().dqRuleSets.find((r) => r.id === ruleSetId)
+    if (!rs) return
+    const current = new Set(rs.disabledCheckIds ?? [])
+    for (const id of checkIds) {
+      if (disabled) current.add(id)
+      else current.delete(id)
+    }
+    await get().updateRuleSet(ruleSetId, { disabledCheckIds: [...current] })
   },
 
   // --- Custom check CRUD ---

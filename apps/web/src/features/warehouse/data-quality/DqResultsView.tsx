@@ -16,6 +16,7 @@ import { generateChecks, runAllChecks } from '@/lib/duckdb/data-quality'
 import type { DqCheck, DqCheckResult, DqReport } from '@/lib/duckdb/data-quality'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
+import { useDqStore } from '@/stores/dq-store'
 import { cn } from '@/lib/utils'
 import { DqScoreBadge } from './DqScoreBadge'
 import { DqCheckDetailPanel } from './DqCheckDetailPanel'
@@ -43,6 +44,9 @@ interface Row {
 export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customChecks, onScanComplete, onBeforeScan }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
+  const disabledCheckIds = useDqStore(
+    (s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.disabledCheckIds,
+  )
 
   const [report, setReport] = useState<DqReport | null>(null)
   const [loading, setLoading] = useState(false)
@@ -68,11 +72,14 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
     try {
       if (onBeforeScan) await onBeforeScan()
 
-      const checks = await generateChecks(
+      const generated = await generateChecks(
         dataSourceId,
         schemaMapping,
         customChecks && customChecks.length > 0 ? customChecks : undefined,
       )
+      // Disabled checks (custom or built-in) are excluded from the run and score.
+      const disabled = new Set(disabledCheckIds ?? [])
+      const checks = disabled.size > 0 ? generated.filter((c) => !disabled.has(c.id)) : generated
       setProgress({ done: 0, total: checks.length })
 
       const result = await runAllChecks(dataSourceId, checks, (done, total) => {
@@ -88,7 +95,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
     } finally {
       setLoading(false)
     }
-  }, [dataSourceId, schemaMapping, customChecks, loading, onBeforeScan, onScanComplete])
+  }, [dataSourceId, schemaMapping, customChecks, disabledCheckIds, loading, onBeforeScan, onScanComplete])
 
   const handleRestore = useCallback((entry: { report?: unknown; startedAt: string }) => {
     if (!entry.report) return
@@ -114,14 +121,15 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
       header: t('data_quality.col_status'),
       accessor: (r) => r.result.status,
       filter: 'select',
+      selectOptionLabel: (v) => t(`data_quality.status_${v}`),
       size: 90, minSize: 60, center: true,
       cell: (r) => {
         const cfg = STATUS_CONFIG[r.result.status]
         const Icon = cfg.icon
+        // Icon alone conveys the status; the translated label is kept as a title for a11y.
         return (
-          <span className="inline-flex items-center gap-1">
-            <Icon size={13} className={cfg.color} />
-            <span className="text-[10px] text-muted-foreground">{t(cfg.label)}</span>
+          <span className="inline-flex items-center justify-center" title={t(`data_quality.${cfg.label}`)}>
+            <Icon size={14} className={cfg.color} />
           </span>
         )
       },
@@ -171,6 +179,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
       header: t('data_quality.col_severity'),
       accessor: (r) => r.check.severity,
       filter: 'select',
+      selectOptionLabel: (v) => t(`data_quality.severity_${v}`),
       size: 90, minSize: 60, center: true,
       cell: (r) => {
         const cfg = SEVERITY_CONFIG[r.check.severity]

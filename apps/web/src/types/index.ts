@@ -860,6 +860,12 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
   /** Score 0-100, percentage of passing checks */
   lastScore?: number
   /**
+   * Ids of checks disabled for this rule set — custom check ids and built-in check
+   * ids (their deterministic `builtin_*`/`schema_*` ids). Disabled checks stay listed
+   * (greyed) but are excluded from the scan and the score.
+   */
+  disabledCheckIds?: string[]
+  /**
    * Git repository this rule set is linked to. When set, workspace export emits only a
    * metadata marker (`data-quality/<folder>/_ruleset.json`, holding `{ ruleSet, checks }`)
    * plus a git-links.json pointer; the full rule set lives in the linked repo
