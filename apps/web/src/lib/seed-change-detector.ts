@@ -98,8 +98,14 @@ export function mergeSeedHashesFor(
 
     const mapKey = keyForType.get(entityType)
     if (!mapKey) continue
-    const curMap = curWs[mapKey] as Record<string, string>
-    const mergedMap = mergedWs[mapKey] as Record<string, string>
+    const curMap = (curWs[mapKey] ?? {}) as Record<string, string>
+    // An older baseline may predate this entity-type key (e.g. etlPipelines added
+    // after the baseline was stored) — create the map before indexing into it.
+    let mergedMap = mergedWs[mapKey] as Record<string, string> | undefined
+    if (!mergedMap) {
+      mergedMap = {}
+      ;(mergedWs as unknown as Record<string, unknown>)[mapKey] = mergedMap
+    }
     if (entityId in curMap) {
       mergedMap[entityId] = curMap[entityId]
     } else {
@@ -139,7 +145,8 @@ export function dropFromSeedHashes(
     }
     const mapKey = keyForType.get(entityType)
     if (!mapKey) continue
-    delete (mergedWs[mapKey] as Record<string, string>)[entityId]
+    const mergedMap = mergedWs[mapKey] as Record<string, string> | undefined
+    if (mergedMap) delete mergedMap[entityId]
   }
 
   return merged

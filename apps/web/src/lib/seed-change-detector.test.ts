@@ -84,6 +84,26 @@ describe('mergeSeedHashesFor', () => {
     ])
     expect(merged.workspaces.ricdc.projects.neoclip).toBe('new1')
   })
+
+  // Regression: an older baseline predates a newer entity-type key (e.g. etlPipelines
+  // added after the baseline was stored). Indexing that missing map used to throw
+  // "can't access property <id>, undefined" when applying a re-seed of that type.
+  it('creates a missing entity-type map instead of throwing (stale baseline)', () => {
+    const staleStored = {
+      schemaVersion: 2,
+      workspaces: { ricdc: { workspace: 'w0', projects: { neoclip: 'old1' } } },
+    } as unknown as SeedHashesManifest
+    const currentWithEtl: SeedHashesManifest = {
+      schemaVersion: 2,
+      workspaces: { ricdc: { ...emptyEntity('w0'), etlPipelines: { 'etl-7': 'h7' } } as SeedEntityHashes },
+    }
+    const merged = mergeSeedHashesFor(staleStored, currentWithEtl, [
+      { workspaceFolder: 'ricdc', entityType: 'etlPipeline', entityId: 'etl-7' },
+    ])
+    expect(merged.workspaces.ricdc.etlPipelines?.['etl-7']).toBe('h7')
+    // Pre-existing keys on the stale baseline survive.
+    expect(merged.workspaces.ricdc.projects.neoclip).toBe('old1')
+  })
 })
 
 // dropFromSeedHashes removes entities from the baseline after they're deleted locally. Unlike
@@ -111,6 +131,17 @@ describe('dropFromSeedHashes', () => {
       { workspaceFolder: 'ricdc', entityType: 'project', entityId: 'neoclip' },
     ])
     expect(stored).toEqual(snapshot)
+  })
+
+  it('tolerates a stale baseline missing the entity-type map', () => {
+    const staleStored = {
+      schemaVersion: 2,
+      workspaces: { ricdc: { workspace: 'w0', projects: { neoclip: 'old1' } } },
+    } as unknown as SeedHashesManifest
+    const merged = dropFromSeedHashes(staleStored, [
+      { workspaceFolder: 'ricdc', entityType: 'etlPipeline', entityId: 'etl-7' },
+    ])
+    expect(merged.workspaces.ricdc.projects.neoclip).toBe('old1')
   })
 
   it('is a no-op for an unknown workspace', () => {
