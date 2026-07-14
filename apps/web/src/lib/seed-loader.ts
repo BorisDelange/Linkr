@@ -203,7 +203,14 @@ async function fetchText(path: string): Promise<string | null> {
   try {
     const res = await fetch(path)
     if (!res.ok) return null
-    return await res.text()
+    // On SPA hosting a missing path serves index.html (200); on an auth-gated
+    // portal (private GitLab Pages) it serves a login-redirect HTML page. Either
+    // would silently become a bogus source-concepts.csv → zero source concepts.
+    const contentType = res.headers.get('content-type') ?? ''
+    if (contentType.includes('text/html')) return null
+    const text = await res.text()
+    if (/^\s*<(?:!doctype|html|script|meta|a\b)/i.test(text)) return null
+    return text
   } catch {
     return null
   }
