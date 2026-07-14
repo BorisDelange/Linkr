@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { ServerCog } from 'lucide-react'
+import { Server } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface ServerModeNoticeProps {
@@ -22,20 +22,25 @@ interface ServerModeNoticeProps {
  */
 export function ServerModeNotice({ title, description, inline, className }: ServerModeNoticeProps) {
   const { t } = useTranslation()
+  // The default description is two sentences — render each on its own line. A
+  // caller-supplied description is shown as-is.
+  const body = description
+    ? <>{description}</>
+    : <>{t('common.requires_server_description_line1')}<br />{t('common.requires_server_description_line2')}</>
   const block = (
     <div className={cn(
       'flex max-w-md items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-800/70 dark:bg-amber-950/40',
       className,
     )}>
       <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50">
-        <ServerCog size={16} className="text-amber-600 dark:text-amber-400" />
+        <Server size={16} className="text-amber-600 dark:text-amber-400" />
       </div>
       <div className="space-y-1">
         <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
           {title ?? t('common.requires_server_title')}
         </p>
         <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-300/90">
-          {description ?? t('common.requires_server_description')}
+          {body}
         </p>
       </div>
     </div>

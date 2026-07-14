@@ -113,7 +113,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
   // tab is unavailable in client-only mode — show the notice instead of a connect
   // form that could only fail.
   if (!isServerMode()) {
-    return <ServerModeNotice />
+    return <ServerModeNotice inline className="mx-auto" />
   }
 
   if (linked) {

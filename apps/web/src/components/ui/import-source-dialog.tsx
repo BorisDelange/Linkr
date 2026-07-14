@@ -179,7 +179,7 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
           {/* Clone from Git — server-side only */}
           <TabsContent value="git" className="min-h-[230px] space-y-3 pt-3">
             {!serverMode ? (
-              <ServerModeNotice className="mx-auto mt-6" />
+              <ServerModeNotice inline className="mx-auto" />
             ) : (
               <>
                 <div className="space-y-2">

@@ -48,6 +48,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
+import { parseImportZip } from '@/lib/entity-io'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -1258,8 +1260,9 @@ export function SchemaPresetsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPresetName, setNewPresetName] = useState('')
   const [newPresetDescription, setNewPresetDescription] = useState('')
-  const importInputRef = useRef<HTMLInputElement>(null)
-  const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping } | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping; gitRemote?: ImportGitRemote } | null>(null)
 
   const loadCustomPresets = useCallback(() => loadPresets(wsUid), [loadPresets, wsUid])
 
@@ -1307,7 +1310,7 @@ export function SchemaPresetsPage() {
     await storeSave(buildSchemaPreset(presetId, mapping, existing, wsUid))
   }
 
-  const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean) => {
+  const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean, gitRemote?: ImportGitRemote) => {
     const presetId = duplicate ? `custom-${crypto.randomUUID().slice(0, 8)}` : mapping.presetId!
     // Legacy export ZIPs may carry a plain-string label; coerce so it stays bilingual.
     const label = typeof mapping.presetLabel === 'string' ? { en: mapping.presetLabel, fr: mapping.presetLabel } : mapping.presetLabel
@@ -1319,25 +1322,45 @@ export function SchemaPresetsPage() {
     if (!duplicate) {
       await storeDelete(mapping.presetId!).catch(() => {})
     }
-    await storeSave(buildSchemaPreset(presetId, importedMapping, undefined, wsUid))
+    const preset = buildSchemaPreset(presetId, importedMapping, undefined, wsUid)
+    // Imported from a git repo → pre-link the preset's Versioning to that repo.
+    if (gitRemote) preset.gitRemoteConfig = gitRemote
+    await storeSave(preset)
   }, [wsUid, language, storeDelete, storeSave])
 
-  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
+  // A schema-preset export ZIP carries the whole preset in preset.json; older
+  // exports were a bare mapping JSON. Accept both so any prior export still imports.
+  const extractMapping = (parsed: Record<string, unknown>): SchemaMapping | null => {
+    const presetFile = parsed['preset.json'] as { mapping?: SchemaMapping } | undefined
+    const mapping = (presetFile?.mapping ?? parsed['preset.json'] ?? Object.values(parsed)[0]) as SchemaMapping | undefined
+    return mapping?.presetId && mapping?.presetLabel ? mapping : null
+  }
+
+  const handleImportSource = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     try {
-      const text = await file.text()
-      const mapping = JSON.parse(text) as SchemaMapping
-      if (!mapping.presetId || !mapping.presetLabel) return
+      // A schema preset exports as a bare mapping .json (see useSchemaPresetActions)
+      // or, via git, as a ZIP with preset.json. Try the plain JSON first, then the
+      // ZIP layout — so both the file upload and a git clone work.
+      let mapping: SchemaMapping | null = null
+      try {
+        mapping = extractMapping({ 'preset.json': JSON.parse(await file.text()) })
+      } catch { /* not plain JSON — fall through to ZIP */ }
+      if (!mapping) mapping = extractMapping(await parseImportZip(file))
+      if (!mapping) {
+        setImportError(t('settings.schema_preset_import_invalid'))
+        return
+      }
       const existing = customPresets.find((p) => p.presetId === mapping.presetId)
       if (existing) {
-        setImportConflict({ name: localized(existing.mapping.presetLabel, language), mapping })
+        setImportConflict({ name: localized(existing.mapping.presetLabel, language), mapping, gitRemote })
       } else {
-        await doPresetImport(mapping, false)
+        await doPresetImport(mapping, false, gitRemote)
       }
-    } catch { /* invalid JSON */ }
-  }, [customPresets, language, doPresetImport])
+      setImportOpen(false)
+    } catch {
+      setImportError(t('settings.schema_preset_import_invalid'))
+    }
+  }, [customPresets, language, doPresetImport, t])
 
   const [createTemplate, setCreateTemplate] = useState<string>('blank')
   const [newPresetId, setNewPresetId] = useState('')
@@ -1427,18 +1450,11 @@ export function SchemaPresetsPage() {
                 size="sm"
                 className="gap-1 text-xs"
                 disabled={!canWrite}
-                onClick={() => importInputRef.current?.click()}
+                onClick={() => setImportOpen(true)}
               >
                 <Upload size={14} />
                 {t('common.import')}
               </Button>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept=".json"
-                className="hidden"
-                onChange={handleImportFile}
-              />
               <Button size="sm" disabled={!canWrite} onClick={openCreateDialog} className="gap-1 text-xs">
                 <Plus size={14} />
                 {t('schemas.new_schema')}
@@ -1592,13 +1608,33 @@ export function SchemaPresetsPage() {
             </DialogContent>
           </Dialog>
 
+          {/* Import source (ZIP or git) — same modal as the other list pages */}
+          <ImportSourceDialog
+            open={importOpen}
+            onOpenChange={(o) => { setImportOpen(o); if (!o) setImportError(null) }}
+            accept=".zip,.json"
+            onImport={handleImportSource}
+          />
+
+          <AlertDialog open={importError !== null} onOpenChange={(open) => { if (!open) setImportError(null) }}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t('common.import_error_title')}</AlertDialogTitle>
+                <AlertDialogDescription>{importError}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogAction onClick={() => setImportError(null)}>{t('common.ok')}</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
           {/* Import conflict */}
           <ImportConflictDialog
             open={!!importConflict}
             onOpenChange={(open) => { if (!open) setImportConflict(null) }}
             existingName={importConflict?.name ?? ''}
-            onDuplicate={() => { if (importConflict) doPresetImport(importConflict.mapping, true); setImportConflict(null) }}
-            onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false); setImportConflict(null) }}
+            onDuplicate={() => { if (importConflict) doPresetImport(importConflict.mapping, true, importConflict.gitRemote); setImportConflict(null) }}
+            onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false, importConflict.gitRemote); setImportConflict(null) }}
           />
         </div>
       </div>
