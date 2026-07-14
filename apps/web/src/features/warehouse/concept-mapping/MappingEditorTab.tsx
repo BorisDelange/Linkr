@@ -174,6 +174,11 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const countsCache = useRef<Map<number, { record_count: number; patient_count: number }>>(new Map())
   const countsCacheForDs = useRef<string | null>(null)
 
+  // Columns actually present in the file source_concepts table (from DESCRIBE), so the
+  // vocab re-scope pass never queries a missing column (e.g. subcategory) and triggers a
+  // DuckDB Binder Error. Populated by the initial file-source options load.
+  const fileSourceColsRef = useRef<Set<string>>(new Set())
+
   // --- FILE SOURCE: mount into DuckDB ---
   useEffect(() => {
     if (!isFileSource || !project.fileSourceData) return
@@ -206,6 +211,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
       try {
         const colRows = await queryDataSource(dsId, `DESCRIBE source_concepts`)
         availableCols = new Set(colRows.map((r: Record<string, unknown>) => String(r.column_name ?? '')))
+        fileSourceColsRef.current = availableCols
       } catch {
         return
       }
@@ -302,6 +308,8 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
         if (!fileSourceReady) return
         const dsId = fileSourceDataSourceId(project.id)
         for (const col of ['category', 'subcategory']) {
+          // Skip columns absent from source_concepts — querying one throws a DuckDB Binder Error.
+          if (!fileSourceColsRef.current.has(col)) continue
           try {
             const result = await queryDataSource(dsId, buildFileSourceFilterOptionsQuery(col, vocabScope))
             next[col] = result.map((r: Record<string, unknown>) => String(r.val ?? '')).filter(Boolean)
