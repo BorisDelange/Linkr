@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { CATEGORIES, SEVERITIES, STATUSES, SEVERITY_CONFIG, type DqFilters } from './DqConstants'
@@ -165,11 +166,10 @@ function FilterCheckbox({
 }) {
   return (
     <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-accent/50">
-      <input
-        type="checkbox"
+      <Checkbox
         checked={checked}
-        onChange={onChange}
-        className="h-3 w-3 rounded border-muted-foreground/30"
+        onCheckedChange={onChange}
+        className="size-3.5"
       />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge && badge !== '0' && (

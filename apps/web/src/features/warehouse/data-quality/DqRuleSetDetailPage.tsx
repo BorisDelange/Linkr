@@ -163,19 +163,21 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
         </div>
       </div>
 
-      {/* Tab content */}
+      {/* Tab content. Checks + Results stay MOUNTED (hidden when inactive) so their
+          in-tab state — scan report, filters, selection, search — survives switching
+          tabs. History is light + read-only, so it's fine to mount on demand. */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === 'checks' && (
+        <div className={cn('h-full', activeTab !== 'checks' && 'hidden')}>
           <DqChecksTab ruleSetId={ruleSet.id} dataSourceId={ruleSet.dataSourceId} />
-        )}
-        {activeTab === 'results' && (
+        </div>
+        <div className={cn('h-full', activeTab !== 'results' && 'hidden')}>
           <DqResultsView
             dataSourceId={ruleSet.dataSourceId}
             schemaMapping={activeSource?.schemaMapping}
             customChecks={customChecks}
             onScanComplete={handleScanComplete}
           />
-        )}
+        </div>
         {activeTab === 'history' && (
           <DqRunHistoryTab entries={ruleSetHistory} />
         )}
