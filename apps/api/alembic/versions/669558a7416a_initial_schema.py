@@ -364,8 +364,12 @@ def upgrade() -> None:
     sa.Column('mapping', sa.JSON(), nullable=False),
     sa.Column('git_remote_config', sa.JSON(), nullable=True),
     sa.Column('git_remote_secret', sa.Text(), nullable=True),
+    sa.Column('created_by_id', sa.Integer(), nullable=True),
+    sa.Column('created_by', sa.Text(), nullable=True),
+    sa.Column('created_by_details', sa.JSON(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['created_by_id'], ['users.id'], name=op.f('fk_schema_presets_created_by_id')),
     sa.ForeignKeyConstraint(['workspace_id'], ['workspaces.id'], name=op.f('fk_schema_presets_workspace_id'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('preset_id', name=op.f('pk_schema_presets'))
     )
