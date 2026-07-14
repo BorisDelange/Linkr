@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Info, Plus, Trash2, Users } from 'lucide-react'
+import { Plus, Trash2, Users } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
+import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { useAuthStore } from '@/stores/auth-store'
 import { useMyWorkspaceRole, useMyProjectRole } from '@/hooks/use-context-role'
 import {
@@ -154,16 +155,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
   }
 
   if (!isServerMode()) {
-    return (
-      <div className="mx-auto max-w-3xl pt-2">
-        <Card>
-          <CardContent className="flex items-start gap-2 p-4 text-xs text-muted-foreground">
-            <Info size={14} className="mt-0.5 shrink-0" />
-            <span>{t('members.requires_backend')}</span>
-          </CardContent>
-        </Card>
-      </div>
-    )
+    return <ServerModeNotice description={t('members.requires_backend')} />
   }
 
   return (

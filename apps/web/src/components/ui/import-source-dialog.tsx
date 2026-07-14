@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Upload, GitBranch, Loader2, FileArchive, ChevronRight, Copy, Check } from 'lucide-react'
+import { Upload, GitBranch, Loader2, FileArchive } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -13,9 +13,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
-import { getGitCorsProxy, setGitCorsProxy, cloneRepoToZip, cleanGitUrl } from '@/lib/git-clone'
+import { cleanGitUrl } from '@/lib/git-clone'
 import { gitCloneToZip } from '@/lib/api/git'
 import { isServerMode } from '@/lib/api-client'
+import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
 
 /** Git link captured during an import-from-git, so the caller can pre-configure
@@ -43,8 +44,10 @@ interface ImportSourceDialogProps {
 
 /**
  * Two-source import dialog: upload a ZIP, or clone a Git repository.
- * The git tab clones the repo in-browser (needs a CORS proxy) and hands the result
- * to `onImport` as a ZIP File, so it flows through the same import path as an upload.
+ * Git clone runs SERVER-SIDE only: the backend clones the repo and returns a ZIP,
+ * which flows through the same import path as an upload. In client-only (WASM)
+ * mode the git tab shows a "not available" notice — the in-browser CORS-proxy
+ * clone was dropped (too fragile for too little value).
  */
 export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImport }: ImportSourceDialogProps) {
   const { t } = useTranslation()
@@ -52,22 +55,13 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
   const [url, setUrl] = useState('')
   const [branch, setBranch] = useState('main')
   const [token, setToken] = useState('')
-  const [proxy, setProxy] = useState(() => getGitCorsProxy())
   const [cloning, setCloning] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)  // full raw error, shown via GitErrorInline's tooltip
-  const [showProxyHelp, setShowProxyHelp] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [dragActive, setDragActive] = useState(false)
 
-  // In server mode the backend clones the repo (no in-browser CORS proxy needed);
-  // the proxy UI + isomorphic-git path only apply to local/WASM mode.
+  // Git clone is server-side only.
   const serverMode = isServerMode()
-
-  const PROXY_CMD = 'npm run dev:proxy'
-  const copyCmd = async () => {
-    try { await navigator.clipboard.writeText(PROXY_CMD); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* ignore */ }
-  }
 
   const submitFile = async (file: File) => {
     // Keep the modal open with a blocking loader until the import (upload + parse
@@ -109,16 +103,9 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
       // Users often paste a repo web-page URL (…/-/tree/main?ref_type=heads); clean
       // it to the bare clone URL so both the clone and the stored link work.
       const cleanUrl = cleanGitUrl(url.trim())
-      let blob: Blob
-      let syncedOid: string | undefined
-      if (serverMode) {
-        const cloned = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined)
-        blob = cloned.blob
-        syncedOid = cloned.oid ?? undefined
-      } else {
-        const zip = await cloneRepoToZip({ url: cleanUrl, branch: branch.trim() || 'main', token: token || undefined })
-        blob = await zip.generateAsync({ type: 'blob' })
-      }
+      const cloned = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined)
+      const blob = cloned.blob
+      const syncedOid = cloned.oid ?? undefined
       const gitRemote = { url: cleanUrl, branch: branch.trim() || 'main', authToken: token || undefined, syncedOid }
       // Keep the modal open (with the loader) until the import actually finishes —
       // writing entities, scores and refreshing the list. Closing first unmounted
@@ -189,52 +176,35 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
             )}
           </TabsContent>
 
-          {/* Clone from Git */}
+          {/* Clone from Git — server-side only */}
           <TabsContent value="git" className="min-h-[230px] space-y-3 pt-3">
-            <div className="space-y-2">
-              <Label className="text-xs">{t('import_source.git_url')}</Label>
-              <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://gitlab.com/group/repo.git" className="h-9 text-sm" />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">{t('import_source.git_branch')}</Label>
-              <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" className="h-9 text-sm" />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">{t('import_source.git_token')}</Label>
-              <PasswordInput value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('import_source.git_token_ph')} className="h-9 text-sm" />
-            </div>
-            {serverMode ? (
-              <p className="text-[10px] text-muted-foreground leading-relaxed">{t('import_source.private_repo_hint')}</p>
+            {!serverMode ? (
+              <ServerModeNotice className="mx-auto mt-6" />
             ) : (
-              <div className="space-y-1.5">
-                <Label className="text-[11px] text-muted-foreground">{t('import_source.cors_proxy')}</Label>
-                <Input value={proxy} onChange={(e) => { setProxy(e.target.value); setGitCorsProxy(e.target.value) }} placeholder="https://cors.isomorphic-git.org" className="h-8 text-xs" />
-                <p className="text-[10px] text-muted-foreground leading-relaxed">{t('import_source.cors_hint')}</p>
-                <button type="button" onClick={() => setShowProxyHelp(v => !v)} className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
-                  <ChevronRight size={11} className={showProxyHelp ? 'rotate-90 transition-transform' : 'transition-transform'} />
-                  {t('import_source.run_local_proxy')}
-                </button>
-                {showProxyHelp && (
-                  <div className="space-y-1.5 rounded-md border border-border bg-muted/40 p-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <code className="truncate text-[10px]">{PROXY_CMD}</code>
-                      <Button size="icon-sm" variant="ghost" className="h-6 w-6 shrink-0" onClick={copyCmd}>
-                        {copied ? <Check size={12} className="text-primary" /> : <Copy size={12} />}
-                      </Button>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground leading-relaxed">{t('import_source.run_local_proxy_hint')}</p>
-                  </div>
-                )}
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label className="text-xs">{t('import_source.git_url')}</Label>
+                  <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://gitlab.com/group/repo.git" className="h-9 text-sm" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">{t('import_source.git_branch')}</Label>
+                  <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" className="h-9 text-sm" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs">{t('import_source.git_token')}</Label>
+                  <PasswordInput value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('import_source.git_token_ph')} className="h-9 text-sm" />
+                </div>
+                <p className="text-[10px] text-muted-foreground leading-relaxed">{t('import_source.private_repo_hint')}</p>
+                {error && <GitErrorInline detail={error} />}
+                <div className="flex items-center justify-end gap-2">
+                  {importing && <span className="text-xs text-muted-foreground">{t('import_source.importing')}</span>}
+                  <Button onClick={handleClone} disabled={!url.trim() || busy} className="gap-1.5">
+                    {busy ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
+                    {t('import_source.clone_import')}
+                  </Button>
+                </div>
+              </>
             )}
-            {error && <GitErrorInline detail={error} />}
-            <div className="flex items-center justify-end gap-2">
-              {importing && <span className="text-xs text-muted-foreground">{t('import_source.importing')}</span>}
-              <Button onClick={handleClone} disabled={!url.trim() || (!serverMode && !proxy.trim()) || busy} className="gap-1.5">
-                {busy ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
-                {t('import_source.clone_import')}
-              </Button>
-            </div>
           </TabsContent>
         </Tabs>
       </DialogContent>

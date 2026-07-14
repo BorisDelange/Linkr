@@ -7,6 +7,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
+import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { gitVerifyRemote } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
 import { toGitError } from '@/lib/git-error-message'
@@ -108,6 +109,13 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
     setHasToken(true)
   }
 
+  // All versioning (remote verify + push/pull sync) runs server-side, so the whole
+  // tab is unavailable in client-only mode — show the notice instead of a connect
+  // form that could only fail.
+  if (!isServerMode()) {
+    return <ServerModeNotice />
+  }
+
   if (linked) {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -161,12 +169,8 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
           </Button>
         </div>
 
-        {isServerMode() && syncScope && syncId ? (
+        {syncScope && syncId && (
           <GitSyncPanel scope={syncScope} id={syncId} defaultBranch={branch} />
-        ) : (
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            {t('versioning.remote_requires_backend')}
-          </p>
         )}
 
         {editingToken && (

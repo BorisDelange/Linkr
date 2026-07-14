@@ -2443,6 +2443,8 @@
     "sort_last_visit": "Dernière visite",
     "no_access_title": "Accès non disponible",
     "no_access_description": "Votre compte n'a pas les droits pour accéder à cette section.",
+    "requires_server_title": "Non disponible en mode client seul",
+    "requires_server_description": "Cette fonctionnalité nécessite le backend Python. Elle est disponible en exécutant Linkr en mode serveur.",
     "insufficient_permissions": "Vous n'avez pas les droits pour effectuer cette action.",
     "identifier_help": "Identifiant permanent et compatible avec les URL, utilisé comme nom de dossier dans les exports et Git. Ne peut pas être modifié après la création.",
     "execute_not_permitted": "L'affichage nécessite le droit d'exécution de code.",

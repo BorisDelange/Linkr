@@ -16,7 +16,6 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { isServerMode } from '@/lib/api-client'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -49,7 +48,7 @@ import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
-import { getGitCorsProxy, setGitCorsProxy, canCloneFromGit, cloneRepoToZip } from '@/lib/git-clone'
+import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { gitCloneToZip } from '@/lib/api/git'
 import { getStorage } from '@/lib/storage'
 import type { Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
@@ -139,7 +138,6 @@ export function WorkspacesPage() {
   const [importError, setImportError] = useState<string | null>(null)
   /** Git-linked entities found in the last import (metadata only — content stays in their repos). */
   const [gitLinkedSummary, setGitLinkedSummary] = useState<GitLinkedEntity[] | null>(null)
-  const [corsProxy, setCorsProxy] = useState(() => getGitCorsProxy())
   const [cloneToken, setCloneToken] = useState('')
   const [cloneState, setCloneState] = useState<Record<string, 'pending' | 'done' | 'error'>>({})
 
@@ -147,16 +145,11 @@ export function WorkspacesPage() {
     const key = `${e.type}-${e.id}`
     setCloneState(s => ({ ...s, [key]: 'pending' }))
     try {
-      let zip
-      if (isServerMode()) {
-        // The backend clones (no CORS proxy); load its ZIP bytes into JSZip so
-        // applyClonedEntity reads it the same way as the in-browser clone.
-        const JSZip = (await import('jszip')).default
-        const cloned = await gitCloneToZip(e.url, e.branch, cloneToken || undefined)
-        zip = await JSZip.loadAsync(cloned.blob)
-      } else {
-        zip = await cloneRepoToZip({ url: e.url, branch: e.branch, token: cloneToken || undefined })
-      }
+      // Server-side clone only: the backend clones the repo; load its ZIP bytes
+      // into JSZip so applyClonedEntity reads it as before.
+      const JSZip = (await import('jszip')).default
+      const cloned = await gitCloneToZip(e.url, e.branch, cloneToken || undefined)
+      const zip = await JSZip.loadAsync(cloned.blob)
       const ok = await applyClonedEntity(zip, e.type, e.id, getStorage())
       setCloneState(s => ({ ...s, [key]: ok ? 'done' : 'error' }))
     } catch {
@@ -984,31 +977,25 @@ export function WorkspacesPage() {
               {t('workspaces.import_git_linked_body', { count: gitLinkedSummary?.length ?? 0 })}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {/* Clone the linked entities. Server mode clones via the backend (token
-              only, for private repos); local mode needs a CORS proxy. */}
-          <div className="space-y-2 rounded-md border border-border p-3">
-            {!isServerMode() && (
-              <>
-                <Label className="text-[11px] text-muted-foreground">{t('workspaces.import_git_cors_proxy')}</Label>
-                <Input
-                  value={corsProxy}
-                  onChange={(e) => { setCorsProxy(e.target.value); setGitCorsProxy(e.target.value) }}
-                  placeholder="https://cors.isomorphic-git.org"
-                  className="h-8 text-xs"
-                />
-              </>
-            )}
-            <Input
-              type="password"
-              value={cloneToken}
-              onChange={(e) => setCloneToken(e.target.value)}
-              placeholder={t('workspaces.import_git_token_optional')}
-              className="h-8 text-xs"
-            />
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              {t(isServerMode() ? 'workspaces.import_git_server_hint' : 'workspaces.import_git_cors_hint')}
-            </p>
-          </div>
+          {/* Clone the linked entities — server-side only. In client-only mode we
+              still list the linked entities below, but cloning their content needs
+              the backend (the in-browser CORS-proxy clone was dropped). */}
+          {isServerMode() ? (
+            <div className="space-y-2 rounded-md border border-border p-3">
+              <Input
+                type="password"
+                value={cloneToken}
+                onChange={(e) => setCloneToken(e.target.value)}
+                placeholder={t('workspaces.import_git_token_optional')}
+                className="h-8 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                {t('workspaces.import_git_server_hint')}
+              </p>
+            </div>
+          ) : (
+            <ServerModeNotice inline />
+          )}
 
           <div className="max-h-48 overflow-auto rounded-md border border-border">
             {(gitLinkedSummary ?? []).map((e) => {
@@ -1020,7 +1007,7 @@ export function WorkspacesPage() {
                     <div className="truncate font-medium">{e.name}</div>
                     <div className="truncate text-[10px] text-muted-foreground">{e.url}</div>
                   </div>
-                  {(canCloneFromGit() || isServerMode()) && (
+                  {isServerMode() && (
                     <Button
                       size="sm" variant="outline"
                       className="h-7 shrink-0 gap-1 text-[11px]"
