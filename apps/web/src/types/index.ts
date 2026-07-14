@@ -859,6 +859,12 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
   lastRunDurationMs?: number
   /** Score 0-100, percentage of passing checks */
   lastScore?: number
+  /**
+   * Git repository this rule set is linked to. When set, workspace export emits only a
+   * metadata marker (`data-quality/<folder>/_ruleset.json`, holding `{ ruleSet, checks }`)
+   * plus a git-links.json pointer; the full rule set lives in the linked repo
+   * (`rule-set.json` + `checks.json`) and is restored on clone.
+   */
   gitRemoteConfig?: GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
   organization?: OrganizationInfo

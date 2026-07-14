@@ -231,7 +231,11 @@ export interface CustomSchemaPreset extends Authored {
   presetId: string
   workspaceId?: string
   mapping: SchemaMapping
-  /** Git repository this preset is linked to. When set, workspace export emits metadata + this pointer only. */
+  /**
+   * Git repository this preset is linked to. When set, workspace export emits only a
+   * metadata marker (`schemas/<folder>/_schema.json`) plus a git-links.json pointer;
+   * the full preset lives in the linked repo (`preset.json`) and is restored on clone.
+   */
   gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string

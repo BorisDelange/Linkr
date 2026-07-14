@@ -1122,7 +1122,7 @@ export interface BuildWorkspaceZipOptions {
 
 /** A single git-linked entity recorded in the workspace's git-links.json manifest. */
 export interface GitLinkEntry {
-  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline'
+  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset'
   /** Stable entity id (project.uid or entity id). */
   id: string
   /** Folder name used inside the workspace zip (projectId / entityId / slug). */
@@ -1444,6 +1444,38 @@ export async function applyClonedEntity(
     return applied
   }
 
+  // data-catalog / dq-rule-set / schema-preset repos hold the entity's full
+  // metadata (and, for DQ, its checks) at the repo root. The record was created
+  // at import from the workspace marker; the clone re-applies the repo's content.
+  if (type === 'data-catalog') {
+    const catalog = await readJson<DataCatalog>('catalog.json')
+    if (!catalog) return false
+    const { id: _id, workspaceId: _ws, ...changes } = dropForeignAuthorId(catalog) as DataCatalog
+    await storage.dataCatalogs.update(targetId, changes).catch(() => {})
+    return true
+  }
+
+  if (type === 'dq-rule-set') {
+    const ruleSet = await readJson<DqRuleSet>('rule-set.json')
+    if (!ruleSet) return false
+    const { id: _id, workspaceId: _ws, ...changes } = dropForeignAuthorId(ruleSet) as DqRuleSet
+    await storage.dqRuleSets.update(targetId, changes).catch(() => {})
+    const checks = (await readJson<DqCustomCheck[]>('checks.json')) ?? []
+    await storage.dqCustomChecks.deleteByRuleSet(targetId).catch(() => {})
+    for (const c of checks) {
+      const { ruleSetId: _rs, ...rest } = c
+      await storage.dqCustomChecks.create({ ...rest, ruleSetId: targetId } as DqCustomCheck).catch(() => {})
+    }
+    return true
+  }
+
+  if (type === 'schema-preset') {
+    const preset = await readJson<CustomSchemaPreset>('preset.json')
+    if (!preset) return false
+    await storage.schemaPresets.save(dropForeignAuthorId({ ...preset, presetId: targetId }) as CustomSchemaPreset).catch(() => {})
+    return true
+  }
+
   // project: parse the cloned repo as a project ZIP and write its sub-entities under targetId.
   const blob = await zip.generateAsync({ type: 'blob' })
   const parsed = await parseProjectZip(new File([blob], 'clone.zip'))
@@ -1637,6 +1669,15 @@ export async function buildWorkspaceZip(
     const schemas = await storage.schemaPresets.getByWorkspace(workspaceId)
     for (const sp of schemas) {
       if (excluded[sp.presetId]) continue
+      const git = resolveGitRemote(sp)
+      if (git) {
+        // Metadata + git pointer only: the preset lives in schemas/<folder>/_schema.json
+        // and the portal build points the manifest at that marker.
+        const folder = slugify(sp.presetId)
+        zip.file(`schemas/${folder}/_schema.json`, json(sp))
+        gitLinks.push({ type: 'schema-preset', id: sp.presetId, folder, url: git.url, branch: git.branch })
+        continue
+      }
       zip.file(`schemas/${slugify(sp.presetId)}.json`, json(sp))
     }
   }
@@ -1710,6 +1751,15 @@ export async function buildWorkspaceZip(
     for (const rs of dqRuleSets) {
       if (excluded[rs.id]) continue
       const checks = await storage.dqCustomChecks.getByRuleSet(rs.id)
+      const git = resolveGitRemote(rs)
+      if (git) {
+        // Metadata + git pointer only: the { ruleSet, checks } bundle lives in
+        // data-quality/<folder>/_ruleset.json (same shape as the flat form).
+        const folder = eid(rs)
+        zip.file(`data-quality/${folder}/_ruleset.json`, json({ ruleSet: rs, checks }))
+        gitLinks.push({ type: 'dq-rule-set', id: rs.id, folder, url: git.url, branch: git.branch })
+        continue
+      }
       zip.file(`data-quality/${eid(rs)}.json`, json({ ruleSet: rs, checks }))
     }
   }
@@ -1756,6 +1806,15 @@ export async function buildWorkspaceZip(
     const catalogs = await storage.dataCatalogs.getByWorkspace(workspaceId)
     for (const cat of catalogs) {
       if (excluded[cat.id]) continue
+      const git = resolveGitRemote(cat)
+      if (git) {
+        // Metadata + git pointer only: the DataCatalog lives in catalogs/<folder>/_catalog.json
+        // and the portal build points the manifest at that marker.
+        const folder = eid(cat)
+        zip.file(`catalogs/${folder}/_catalog.json`, json(cat))
+        gitLinks.push({ type: 'data-catalog', id: cat.id, folder, url: git.url, branch: git.branch })
+        continue
+      }
       zip.file(`catalogs/${eid(cat)}.json`, json(cat))
     }
 
@@ -1830,7 +1889,7 @@ export interface ParsedWorkspaceZip {
 
 /** A git-linked entity discovered in a parsed workspace ZIP (metadata only — content lives in its repo). */
 export interface GitLinkedEntity {
-  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline'
+  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset'
   /** Stable id (project.uid or entity id) of the created record, for a later clone. */
   id: string
   name: string
@@ -1854,6 +1913,9 @@ export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedE
   for (const { collection } of parsed.sqlCollections) push('sql-collection', collection.id, localized(collection.name, 'en'), resolveGitRemote(collection) ?? undefined)
   for (const { pipeline } of parsed.etlPipelines) push('etl-pipeline', pipeline.id, localized(pipeline.name, 'en'), resolveGitRemote(pipeline) ?? undefined)
   for (const { project } of parsed.mappingProjects) push('mapping-project', project.id, localized(project.name, 'en'), resolveGitRemote(project) ?? undefined)
+  for (const cat of parsed.catalogs) push('data-catalog', cat.id, localized(cat.name, 'en'), resolveGitRemote(cat) ?? undefined)
+  for (const { ruleSet } of parsed.dqRuleSets) push('dq-rule-set', ruleSet.id, localized(ruleSet.name, 'en'), resolveGitRemote(ruleSet) ?? undefined)
+  for (const sp of parsed.schemas) push('schema-preset', sp.presetId, localized(sp.mapping?.presetLabel, 'en') || sp.presetId, resolveGitRemote(sp) ?? undefined)
   return out
 }
 

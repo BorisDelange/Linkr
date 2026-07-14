@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, collectGitLinkedEntities, applyClonedEntity } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
-import type { DatasetFile } from '@/types'
+import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset } from '@/types'
 import type { Storage } from '@/lib/storage'
 
 const serverMode = vi.hoisted(() => ({ value: false }))
@@ -461,5 +461,167 @@ describe('importProjectContent — server-mode datasets', () => {
 
     expect(importDatasetOnServer).not.toHaveBeenCalled()
     expect(datasetFileCreate).toHaveBeenCalledOnce()
+  })
+})
+
+// Three "git-linkable" entity types — data-catalog, dq-rule-set, schema-preset —
+// export as a metadata marker + a git-links.json pointer when linked, keep the flat
+// form when unlinked, and reconstitute full content from their own cloned repo.
+// A layout drift here silently breaks the linkr-portal build (it points its manifest
+// at these markers) and any git-linked re-import.
+describe('git-linkable catalog / dq-rule-set / schema-preset — export layout + collect + clone', () => {
+  const GIT = { url: 'https://gitlab.com/g/r.git', branch: 'main' }
+
+  const CATALOG = (over: Partial<DataCatalog> = {}): DataCatalog => ({
+    id: 'cat-1', workspaceId: 'w1', entityId: 'my-catalog',
+    name: { en: 'My Catalog' }, description: {}, status: 'ready',
+    createdAt: '2020', updatedAt: '2021', ...over,
+  } as unknown as DataCatalog)
+
+  const RULESET = (over: Partial<DqRuleSet> = {}): DqRuleSet => ({
+    id: 'rs-1', workspaceId: 'w1', entityId: 'my-ruleset',
+    name: { en: 'My Rules' }, description: {}, dataSourceId: 'ds-1', status: 'idle',
+    createdAt: '2020', updatedAt: '2021', ...over,
+  } as unknown as DqRuleSet)
+
+  const CHECK = (over: Partial<DqCustomCheck> = {}): DqCustomCheck => ({
+    id: 'chk-1', ruleSetId: 'rs-1', name: 'not null', description: '',
+    category: 'completeness', severity: 'error', threshold: 100, sql: 'SELECT 1',
+    ...over,
+  } as unknown as DqCustomCheck)
+
+  const PRESET = (over: Partial<CustomSchemaPreset> = {}): CustomSchemaPreset => ({
+    presetId: 'my-preset', workspaceId: 'w1',
+    mapping: { presetId: 'my-preset', presetLabel: { en: 'My Preset' } },
+    createdAt: '2020', updatedAt: '2021', ...over,
+  } as unknown as CustomSchemaPreset)
+
+  // Storage stub: every getter returns [] unless the section is seeded below.
+  const makeStore = (seed: { catalogs?: DataCatalog[]; ruleSets?: DqRuleSet[]; checks?: DqCustomCheck[]; presets?: CustomSchemaPreset[] } = {}) => {
+    const table = (methods: Record<string, unknown>) => new Proxy(methods, {
+      get: (t, prop) => (prop in t ? (t as Record<string, unknown>)[prop] : async () => []),
+    })
+    return new Proxy({}, {
+      get: (_t, prop) => {
+        switch (prop) {
+          case 'workspaces': return table({ getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {} }) })
+          case 'organizations': return table({ getById: async () => undefined })
+          case 'dataCatalogs': return table({ getByWorkspace: async () => seed.catalogs ?? [] })
+          case 'dqRuleSets': return table({ getByWorkspace: async () => seed.ruleSets ?? [] })
+          case 'dqCustomChecks': return table({ getByRuleSet: async () => seed.checks ?? [] })
+          case 'schemaPresets': return table({ getByWorkspace: async () => seed.presets ?? [] })
+          default: return table({})
+        }
+      },
+    }) as unknown as Storage
+  }
+
+  const ONLY = { schemas: true, dataQuality: true, catalogs: true } as unknown as NonNullable<Parameters<typeof buildWorkspaceZip>[2]>['sections']
+
+  const exportZip = async (seed: Parameters<typeof makeStore>[0]) => {
+    const built = await buildWorkspaceZip('w1', makeStore(seed), { sections: ONLY })
+    return JSZip.loadAsync(await built!.blob.arrayBuffer())
+  }
+  const readGitLinks = async (zip: JSZip) =>
+    JSON.parse(await zip.files['git-links.json'].async('string')) as { links: { type: string; id: string; folder: string; url: string; branch: string }[] }
+
+  it('writes a folder marker + git-links entry for a linked data-catalog', async () => {
+    const zip = await exportZip({ catalogs: [CATALOG({ gitRemoteConfig: GIT })] })
+    const marker = zip.files['catalogs/my-catalog/_catalog.json']
+    expect(marker).toBeDefined()
+    expect(JSON.parse(await marker.async('string')).id).toBe('cat-1')
+    // No flat form when linked.
+    expect(zip.files['catalogs/my-catalog.json']).toBeUndefined()
+    const { links } = await readGitLinks(zip)
+    expect(links).toContainEqual({ type: 'data-catalog', id: 'cat-1', folder: 'my-catalog', url: GIT.url, branch: 'main' })
+  })
+
+  it('writes a folder marker holding { ruleSet, checks } + git-links entry for a linked dq-rule-set', async () => {
+    const zip = await exportZip({ ruleSets: [RULESET({ gitRemoteConfig: GIT })], checks: [CHECK()] })
+    const marker = zip.files['data-quality/my-ruleset/_ruleset.json']
+    expect(marker).toBeDefined()
+    const bundle = JSON.parse(await marker.async('string'))
+    expect(bundle.ruleSet.id).toBe('rs-1')
+    expect(bundle.checks).toHaveLength(1)
+    expect(zip.files['data-quality/my-ruleset.json']).toBeUndefined()
+    const { links } = await readGitLinks(zip)
+    expect(links).toContainEqual({ type: 'dq-rule-set', id: 'rs-1', folder: 'my-ruleset', url: GIT.url, branch: 'main' })
+  })
+
+  it('writes a folder marker + git-links entry for a linked schema-preset', async () => {
+    const zip = await exportZip({ presets: [PRESET({ gitRemoteConfig: GIT })] })
+    const marker = zip.files['schemas/my-preset/_schema.json']
+    expect(marker).toBeDefined()
+    expect(JSON.parse(await marker.async('string')).presetId).toBe('my-preset')
+    expect(zip.files['schemas/my-preset.json']).toBeUndefined()
+    const { links } = await readGitLinks(zip)
+    expect(links).toContainEqual({ type: 'schema-preset', id: 'my-preset', folder: 'my-preset', url: GIT.url, branch: 'main' })
+  })
+
+  it('keeps the flat form (no marker, no git-links) when the entity is NOT linked', async () => {
+    const zip = await exportZip({
+      catalogs: [CATALOG()], ruleSets: [RULESET()], checks: [CHECK()], presets: [PRESET()],
+    })
+    expect(zip.files['catalogs/my-catalog.json']).toBeDefined()
+    expect(zip.files['catalogs/my-catalog/_catalog.json']).toBeUndefined()
+    expect(zip.files['data-quality/my-ruleset.json']).toBeDefined()
+    expect(zip.files['schemas/my-preset.json']).toBeDefined()
+    expect(zip.files['git-links.json']).toBeUndefined()
+  })
+
+  it('parseWorkspaceZip + collectGitLinkedEntities discover the 3 linked entities from their markers', async () => {
+    const zip = await exportZip({
+      catalogs: [CATALOG({ gitRemoteConfig: GIT })],
+      ruleSets: [RULESET({ gitRemoteConfig: GIT })], checks: [CHECK()],
+      presets: [PRESET({ gitRemoteConfig: GIT })],
+    })
+    // JSZip.loadAsync reads an ArrayBuffer fine in jsdom; a wrapped File does not.
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = await parseWorkspaceZip(file)
+    const linked = collectGitLinkedEntities(parsed!)
+    expect(linked.map(l => l.type).sort()).toEqual(['data-catalog', 'dq-rule-set', 'schema-preset'])
+    expect(linked.find(l => l.type === 'data-catalog')).toMatchObject({ id: 'cat-1', url: GIT.url, branch: 'main' })
+  })
+
+  it('applyClonedEntity restores each type from its own repo layout', async () => {
+    const calls: Record<string, unknown[]> = {}
+    const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }
+    const store = new Proxy({}, {
+      get: (_t, prop) => {
+        switch (prop) {
+          case 'dataCatalogs': return { update: rec('catalog.update') }
+          case 'dqRuleSets': return { update: rec('rs.update') }
+          case 'dqCustomChecks': return { deleteByRuleSet: rec('chk.delete'), create: rec('chk.create') }
+          case 'schemaPresets': return { save: rec('preset.save') }
+          default: return new Proxy({}, { get: () => async () => {} })
+        }
+      },
+    }) as unknown as Storage
+
+    const catZip = new JSZip(); catZip.file('catalog.json', JSON.stringify(CATALOG({ id: 'ignored' })))
+    expect(await applyClonedEntity(catZip, 'data-catalog', 'cat-target', store)).toBe(true)
+    // targetId wins; the repo's own id is stripped from the applied changes.
+    expect(calls['catalog.update']![0][0]).toBe('cat-target')
+    expect((calls['catalog.update']![0][1] as { id?: string }).id).toBeUndefined()
+
+    const rsZip = new JSZip()
+    rsZip.file('rule-set.json', JSON.stringify(RULESET({ id: 'ignored' })))
+    rsZip.file('checks.json', JSON.stringify([CHECK({ ruleSetId: 'ignored' })]))
+    expect(await applyClonedEntity(rsZip, 'dq-rule-set', 'rs-target', store)).toBe(true)
+    expect(calls['rs.update']![0][0]).toBe('rs-target')
+    expect(calls['chk.delete']![0][0]).toBe('rs-target')
+    // Checks are recreated under the target rule set, not the repo's stale FK.
+    expect((calls['chk.create']![0][0] as { ruleSetId: string }).ruleSetId).toBe('rs-target')
+
+    const spZip = new JSZip(); spZip.file('preset.json', JSON.stringify(PRESET()))
+    expect(await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)).toBe(true)
+    expect((calls['preset.save']![0][0] as { presetId: string }).presetId).toBe('preset-target')
+  })
+
+  it('applyClonedEntity returns false when the cloned repo lacks the expected marker', async () => {
+    const store = new Proxy({}, { get: () => new Proxy({}, { get: () => async () => {} }) }) as unknown as Storage
+    expect(await applyClonedEntity(new JSZip(), 'data-catalog', 'x', store)).toBe(false)
+    expect(await applyClonedEntity(new JSZip(), 'dq-rule-set', 'x', store)).toBe(false)
+    expect(await applyClonedEntity(new JSZip(), 'schema-preset', 'x', store)).toBe(false)
   })
 })

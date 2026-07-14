@@ -157,6 +157,11 @@ export interface DataCatalog extends Seedable, Authored, Lineaged {
   lastComputeDurationMs?: number
   /** Health-DCAT-AP metadata stored as a JSON-LD object. */
   dcatApMetadata?: Record<string, unknown>
+  /**
+   * Git repository this catalog is linked to. When set, workspace export emits only a
+   * metadata marker (`catalogs/<folder>/_catalog.json`) plus a git-links.json pointer;
+   * the full catalog lives in the linked repo (`catalog.json`) and is restored on clone.
+   */
   gitRemoteConfig?: GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
   organization?: OrganizationInfo
