@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { stampAuthored } from '@/stores/app-store'
 import type { CustomSchemaPreset, GitRemoteConfig, SchemaMapping } from '@/types'
 
 interface SchemaPresetState {
@@ -71,6 +72,10 @@ export function buildSchemaPreset(
   workspaceId: string | undefined,
 ): CustomSchemaPreset {
   const now = new Date().toISOString()
+  // Stamp the creator on first save; keep the original author on update.
+  const authored = existing
+    ? { createdById: existing.createdById, createdBy: existing.createdBy, createdByDetails: existing.createdByDetails }
+    : stampAuthored()
   return {
     presetId,
     mapping: { ...mapping, presetId },
@@ -78,5 +83,6 @@ export function buildSchemaPreset(
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     workspaceId: workspaceId ?? existing?.workspaceId,
+    ...authored,
   }
 }

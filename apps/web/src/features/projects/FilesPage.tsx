@@ -376,6 +376,19 @@ export function FilesPage() {
     }
   }, [selectedFileId, editorModeFileIds, editorVisible])
 
+  // Switching TO a real code file (e.g. creating a script while a dataset viewer
+  // is showing) should bring the editor to the front and hide the dataset output —
+  // otherwise the new script stays hidden behind the still-visible table. Fires
+  // only on an actual selection change, so the eye toggle can still hide the editor.
+  const lastCodeFileRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedNode || selectedNode.type !== 'file' || isVirtualFile) return
+    if (selectedFileId === lastCodeFileRef.current) return
+    lastCodeFileRef.current = selectedFileId ?? null
+    setEditorVisible(true)
+    setOutputVisible(false)
+  }, [selectedFileId, selectedNode, isVirtualFile, setOutputVisible])
+
   // When no file is selected: auto-select first open file, or hide editor if only output tabs remain
   useEffect(() => {
     if (selectedNode) return

@@ -72,6 +72,7 @@ import type {
   EventTable,
   CustomSchemaPreset,
 } from '@/types/schema-mapping'
+import type { AuthorDetails } from '@/types/author'
 import type * as Monaco from 'monaco-editor'
 
 // ---------------------------------------------------------------------------
@@ -893,12 +894,18 @@ function SchemaCard({
   mapping,
   createdAt,
   updatedAt,
+  createdBy,
+  createdByDetails,
+  createdById,
   onNavigate,
   actionsMenu,
 }: {
   mapping: SchemaMapping
   createdAt?: string
   updatedAt?: string
+  createdBy?: string
+  createdByDetails?: AuthorDetails
+  createdById?: number
   onNavigate: () => void
   actionsMenu: React.ReactNode
 }) {
@@ -948,7 +955,7 @@ function SchemaCard({
             {actionsMenu}
           </div>
         </div>
-        <CardMetaFooter className="mt-auto" createdAt={createdAt} updatedAt={updatedAt} />
+        <CardMetaFooter className="mt-auto" createdAt={createdAt} updatedAt={updatedAt} createdBy={createdBy} createdByDetails={createdByDetails} createdById={createdById} />
       </div>
     </Card>
   )
@@ -1336,7 +1343,7 @@ export function SchemaPresetsPage() {
   const [newPresetId, setNewPresetId] = useState('')
 
   const openCreateDialog = () => {
-    setNewPresetName(t('settings.schema_preset_new_name'))
+    setNewPresetName('')
     setNewPresetDescription('')
     setNewPresetId('')
     setCreateTemplate('blank')
@@ -1473,6 +1480,9 @@ export function SchemaPresetsPage() {
                   mapping={mapping}
                   createdAt={preset.createdAt}
                   updatedAt={preset.updatedAt}
+                  createdBy={preset.createdBy}
+                  createdByDetails={preset.createdByDetails}
+                  createdById={preset.createdById}
                   onNavigate={() => navigateToSchema(id)}
                   actionsMenu={
                     <EntityActionsMenu
