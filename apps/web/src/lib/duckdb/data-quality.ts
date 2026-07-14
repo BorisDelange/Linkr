@@ -84,9 +84,14 @@ interface ColumnInfo {
 
 async function discoverColumns(dataSourceId: string, tableName: string): Promise<ColumnInfo[]> {
   const schema = schemaName(dataSourceId)
+  // Match discoverTables: a source may be schema-based (`<schema>`) or ATTACHed as
+  // a single file (`<schema>.main`). Match both so column discovery is stable
+  // regardless of how/when the source was mounted.
   const rows = await queryDataSource(
     dataSourceId,
-    `SELECT column_name, data_type, ordinal_position FROM information_schema.columns WHERE table_schema = '${schema}' AND table_name = '${tableName}' ORDER BY ordinal_position`,
+    `SELECT column_name, data_type, ordinal_position FROM information_schema.columns
+     WHERE (table_schema = '${schema}' OR (table_catalog = '${schema}' AND table_schema = 'main'))
+     AND table_name = '${tableName}' ORDER BY ordinal_position`,
   )
   return rows.map((r) => ({
     tableName,

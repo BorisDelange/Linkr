@@ -46,6 +46,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     loadRunHistory,
   } = useDqStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [activeTab, setActiveTab] = useState<TabId>('checks')
@@ -177,6 +178,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
             schemaMapping={activeSource?.schemaMapping}
             customChecks={customChecks}
             onScanComplete={handleScanComplete}
+            onBeforeScan={() => ensureMounted(ruleSet.dataSourceId)}
           />
         </div>
       </div>

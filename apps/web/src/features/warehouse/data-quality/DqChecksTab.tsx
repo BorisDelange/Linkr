@@ -89,6 +89,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     _dirtyVersion,
   } = useDqStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const activeSource = dataSources.find((ds) => ds.id === dataSourceId)
 
   const [sidebarVisible, setSidebarVisible] = useState(true)
@@ -110,6 +111,9 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     const loadBuiltin = async () => {
       setBuiltinLoading(true)
       try {
+        // The source may have been unmounted since it was seeded — remount before
+        // discovering tables/columns, or generateChecks sees an empty database.
+        await ensureMounted(dataSourceId)
         const checks = await generateChecks(dataSourceId, activeSource?.schemaMapping)
         if (!cancelled) {
           setBuiltinChecks(checks)
@@ -123,7 +127,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     }
     loadBuiltin()
     return () => { cancelled = true }
-  }, [dataSourceId, activeSource?.schemaMapping])
+  }, [dataSourceId, activeSource?.schemaMapping, ensureMounted])
 
   // Selected item: could be a custom check or a built-in check
   const selectedCustomCheck = customChecks.find((c) => c.id === selectedCheckId)

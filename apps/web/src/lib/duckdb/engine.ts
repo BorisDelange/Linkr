@@ -336,8 +336,15 @@ export async function discoverTables(dataSourceId: string): Promise<string[]> {
   const schema = schemaName(dataSourceId)
 
   try {
+    // A source can be either schema-based (tables under a schema named `<schema>`)
+    // OR ATTACHed as a single file (tables under `<schema>.main`). The `attached`
+    // flag can flip mid-session (queryDataSource's fallback promotes a source to
+    // attached), which is why a second scan saw zero tables while the first saw
+    // them. Match BOTH layouts so discovery is stable regardless of the flag.
     const result = await conn.query(
-      `SELECT table_name FROM information_schema.tables WHERE table_schema = '${schema}' ORDER BY table_name`,
+      `SELECT DISTINCT table_name FROM information_schema.tables
+       WHERE table_schema = '${schema}' OR (table_catalog = '${schema}' AND table_schema = 'main')
+       ORDER BY table_name`,
     )
     return result.toArray().map((row: Record<string, unknown>) => String(row.table_name))
   } finally {
