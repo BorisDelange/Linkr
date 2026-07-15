@@ -45,10 +45,13 @@ Spec shape (see SKILL.md + references/ for the full reference):
     {
       "name": "ICU Activity",
       "tabs": [
-        {
-          "name": "Demographics",
-          "widgets": [ ... ]         # see WIDGET section below
-        }
+        # A tab is a LEAF (holds widgets) OR a CONTAINER (nests sub-tabs).
+        # Tabs nest ONE level only; a container holds no widgets of its own.
+        {"name": "Demographics", "widgets": [ ... ]},          # leaf
+        {"name": "Outcomes", "tabs": [                          # container
+          {"name": "Mortality", "widgets": [ ... ]},           #   sub-tab (leaf)
+          {"name": "Length of stay", "widgets": [ ... ]}       #   sub-tab (leaf)
+        ]}
       ]
     }
   ]
@@ -397,6 +400,44 @@ def build_filters(dash, datasets_by_slug):
     return filters
 
 
+def build_tab_widgets(tab, tab_id, datasets_by_slug):
+    """Lay out one (leaf) tab's widgets, returning DashboardWidget[]. Each tab
+    gets its own left-to-right cursor on the 48-column grid."""
+    widgets = []
+    cursor = {"x": 0, "y": 0, "row_y": 0}
+    for w in tab.get("widgets", []):
+        ds = datasets_by_slug.get(w["dataset"]) if w.get("dataset") else None
+        kind = w.get("kind", "kpi")
+        if kind == "kpi":
+            default_w, default_h = 12, 8
+            source = build_kpi_source(w, ds)
+        elif kind == "plot":
+            default_w, default_h = 24, 16
+            source = build_plot_source(w, ds)
+        elif kind == "plugin":
+            default_w, default_h = PLUGIN_DEFAULT_SIZE.get(w["pluginId"], (24, 16))
+            source = build_plugin_source(w, ds)
+        elif kind == "inline":
+            default_w, default_h = 24, 16
+            source = {"type": "inline", "language": w.get("language", "python"),
+                      "code": w["code"], "config": w.get("config", {})}
+        elif kind == "raw":
+            default_w, default_h = 24, 16
+            source = w["source"]
+        else:
+            raise SystemExit(f"Unknown widget kind: {kind}")
+        wl = layout_next(cursor, w.get("w", default_w), w.get("h", default_h))
+        widgets.append({
+            "id": str(uuid.uuid4()),
+            "tabId": tab_id,
+            "name": w.get("name", ""),
+            "datasetFileId": ds["file"]["id"] if ds else None,
+            "layout": wl,
+            "source": source,
+        })
+    return widgets
+
+
 def build_dashboard(dash, datasets_by_slug):
     dash_id = str(uuid.uuid4())
     dashboard = {
@@ -411,45 +452,47 @@ def build_dashboard(dash, datasets_by_slug):
     }
     tabs = []
     widgets = []
+    # A tab is either a LEAF ({name, widgets}) or a CONTAINER ({name, tabs:[leaf,…]}).
+    # A container emits itself (parentTabId null, no widgets) plus each sub-tab
+    # (parentTabId = container id, own displayOrder). Nesting is ONE level only.
     for order, tab in enumerate(dash["tabs"]):
         tab_id = str(uuid.uuid4())
-        tabs.append({
-            "id": tab_id,
-            "dashboardId": dash_id,
-            "name": tab["name"],
-            "displayOrder": order,
-        })
-        cursor = {"x": 0, "y": 0, "row_y": 0}
-        for w in tab.get("widgets", []):
-            ds = datasets_by_slug.get(w["dataset"]) if w.get("dataset") else None
-            kind = w.get("kind", "kpi")
-            if kind == "kpi":
-                default_w, default_h = 12, 8
-                source = build_kpi_source(w, ds)
-            elif kind == "plot":
-                default_w, default_h = 24, 16
-                source = build_plot_source(w, ds)
-            elif kind == "plugin":
-                default_w, default_h = PLUGIN_DEFAULT_SIZE.get(w["pluginId"], (24, 16))
-                source = build_plugin_source(w, ds)
-            elif kind == "inline":
-                default_w, default_h = 24, 16
-                source = {"type": "inline", "language": w.get("language", "python"),
-                          "code": w["code"], "config": w.get("config", {})}
-            elif kind == "raw":
-                default_w, default_h = 24, 16
-                source = w["source"]
-            else:
-                raise SystemExit(f"Unknown widget kind: {kind}")
-            wl = layout_next(cursor, w.get("w", default_w), w.get("h", default_h))
-            widgets.append({
-                "id": str(uuid.uuid4()),
-                "tabId": tab_id,
-                "name": w.get("name", ""),
-                "datasetFileId": ds["file"]["id"] if ds else None,
-                "layout": wl,
-                "source": source,
+        sub_tabs = tab.get("tabs")
+        if sub_tabs is not None:
+            if tab.get("widgets"):
+                raise SystemExit(
+                    f"Container tab '{tab.get('name')}' has both 'tabs' and 'widgets'; "
+                    "a container holds no widgets of its own — put them in the sub-tabs.")
+            tabs.append({
+                "id": tab_id,
+                "dashboardId": dash_id,
+                "name": tab["name"],
+                "displayOrder": order,
+                "parentTabId": None,
             })
+            for sub_order, sub_tab in enumerate(sub_tabs):
+                if sub_tab.get("tabs") is not None:
+                    raise SystemExit(
+                        f"Sub-tab '{sub_tab.get('name')}' inside '{tab.get('name')}' has "
+                        "its own 'tabs'; dashboard tabs nest ONE level only.")
+                sub_tab_id = str(uuid.uuid4())
+                tabs.append({
+                    "id": sub_tab_id,
+                    "dashboardId": dash_id,
+                    "name": sub_tab["name"],
+                    "displayOrder": sub_order,
+                    "parentTabId": tab_id,
+                })
+                widgets.extend(build_tab_widgets(sub_tab, sub_tab_id, datasets_by_slug))
+        else:
+            tabs.append({
+                "id": tab_id,
+                "dashboardId": dash_id,
+                "name": tab["name"],
+                "displayOrder": order,
+                "parentTabId": None,
+            })
+            widgets.extend(build_tab_widgets(tab, tab_id, datasets_by_slug))
     return {"dashboard": dashboard, "tabs": tabs, "widgets": widgets}
 
 

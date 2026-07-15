@@ -23,6 +23,35 @@ and columns by **header name** — the script remaps names → `col-N`.
 ]
 ```
 
+## Sub-tabs (one level of nesting)
+
+A tab is either a **leaf** (holds widgets directly) or a **container** (nests
+sub-tabs). Nesting is **ONE level only** — a sub-tab may not itself contain
+`tabs` (the script raises an error). A container holds **no widgets of its own**;
+its widgets live in the sub-tabs. To nest, just put a `"tabs"` array inside a tab
+instead of `"widgets"` — the wiring (`parentTabId` on each sub-tab, per-parent
+`displayOrder`) is automatic.
+
+```json
+"tabs": [
+  {
+    "name": "Demographics",
+    "widgets": [ /* leaf tab — widgets directly */ ]
+  },
+  {
+    "name": "Outcomes",
+    "tabs": [
+      {"name": "Mortality",      "widgets": [ /* sub-tab widgets */ ]},
+      {"name": "Length of stay", "widgets": [ /* sub-tab widgets */ ]}
+    ]
+  }
+]
+```
+
+Emitted `DashboardTab`s carry `parentTabId`: `null` for root tabs (leaf or
+container), and the container's id for each sub-tab. Widgets always reference
+their own (sub-)tab via `tabId`; layout is per-(sub-)tab on the 48-column grid.
+
 ## Built-in widget inventory
 
 A Lab dashboard widget is one of two `source.type`s: **`plugin`** (a registered
