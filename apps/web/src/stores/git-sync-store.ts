@@ -79,6 +79,13 @@ async function buildZipUncached(
 // toggleLfs invalidate by changing the key, and reset() clears it.
 let _zipCache: { key: string; blob: Blob } | null = null
 
+// Per-file diff cache, keyed by `${branch}|${path}`. Lives at module level (not in
+// the diff dialog) so closing and reopening the dialog on the SAME entity reuses the
+// already-computed diffs instead of rebuilding the export + refetching each file.
+// Invalidated exactly when the export can change (invalidateZip / refreshStatus) and
+// cleared on entity switch (reset), so a stale diff is never shown after an edit.
+let _diffCache: Map<string, GitDiff | null> = new Map()
+
 function _zipKey(scope: GitScope, id: string, includeData: boolean, lfsOverrides?: Map<string, boolean>): string {
   const ov = lfsOverrides ? [...lfsOverrides.entries()].sort().map(([k, v]) => `${k}=${v}`).join(',') : ''
   return `${scope}|${id}|${includeData}|${ov}`
@@ -233,11 +240,17 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   },
 
   getDiff: async (scope, id, path, branch) => {
+    // Reuse an already-computed diff for this file (survives dialog close/reopen on
+    // the same entity; invalidated on edit/refresh/entity-switch — see _diffCache).
+    const cacheKey = `${branch ?? ''}|${path}`
+    if (_diffCache.has(cacheKey)) return _diffCache.get(cacheKey) ?? null
     try {
       // Same .gitattributes as the status/commit build, so the diff of a big file
       // matches its chosen LFS state (pointer vs blob) rather than the default rule.
       const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
-      return await gitDiff(scope, id, zip, path, branch)
+      const diff = await gitDiff(scope, id, zip, path, branch)
+      _diffCache.set(cacheKey, diff)
+      return diff
     } catch (err) {
       set({ error: toGitError(err) })
       return null
@@ -301,11 +314,13 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
 
   invalidateZip: () => {
     _zipCache = null
+    _diffCache = new Map() // diffs derive from the export ZIP → drop them together
   },
 
   reset: () => {
     statusGen++ // invalidate any in-flight refresh from the closing panel
     _zipCache = null // drop the cached export ZIP so the next entity rebuilds fresh
+    _diffCache = new Map() // and the per-file diffs computed against it
     set({ status: null, branches: null, syncState: null, selected: new Set(), includeData: false, lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false, statusKey: null })
   },
 }))

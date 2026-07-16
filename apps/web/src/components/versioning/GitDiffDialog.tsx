@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DiffEditor, type BeforeMount } from '@monaco-editor/react'
 import { Allotment } from 'allotment'
@@ -39,22 +39,14 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
   const [path, setPath] = useState(initialPath)
   const [diff, setDiff] = useState<GitDiff | null>(null)
   const [loading, setLoading] = useState(false)
-  // Cache diffs already fetched this session so switching back to a file is
-  // instant (no rebuild/refetch). Keyed by path; scoped to this dialog instance.
-  const cache = useRef<Map<string, GitDiff | null>>(new Map())
 
   useEffect(() => {
     let cancelled = false
-    const cached = cache.current.get(path)
-    if (cached !== undefined) {
-      setDiff(cached)
-      setLoading(false)
-      return
-    }
+    // getDiff caches per file in the store (survives closing/reopening this dialog on
+    // the same entity), so switching back to a file it already showed resolves instantly.
     setLoading(true)
     setDiff(null)
     void getDiff(scope, id, path, branch).then((d) => {
-      cache.current.set(path, d)
       if (!cancelled) {
         setDiff(d)
         setLoading(false)
