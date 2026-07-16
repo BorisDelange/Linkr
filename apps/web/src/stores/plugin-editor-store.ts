@@ -13,6 +13,7 @@ import { buildPlugin, isBuiltinPluginId } from '@/lib/plugins/default-plugins'
 import { computePluginContentHash } from '@/lib/plugin-hash'
 import { useWorkspaceStore } from './workspace-store'
 import { useOrganizationStore } from './organization-store'
+import { stampAuthored } from './app-store'
 
 /** Plugins are always workspace-scoped. Callers guard the UI so this only throws
  * as a backstop (e.g. a create attempted with no workspace open). */
@@ -40,6 +41,12 @@ export interface PluginListItem {
   entityId?: string
   /** Git remote for export/versioning (from the UserPlugin record). */
   gitRemoteConfig?: import('@/types').GitRemoteConfig
+  createdById?: number
+  createdBy?: string
+  createdByDetails?: import('@/types/author').AuthorDetails
+  /** Frozen origin-org snapshot from an imported plugin (own org wins over the
+   *  workspace's when present, matching other entities). */
+  organization?: import('@/types').OrganizationInfo
   createdAt?: string
   updatedAt?: string
 }
@@ -198,7 +205,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         const manifestId = manifest.id ?? up.id
         const isSystemPlugin = SYSTEM_PLUGIN_IDS.has(manifestId)
         const isBuiltIn = isBuiltinPluginId(manifestId)
-        list.push({ id: up.id, manifestId, manifest, isBuiltIn, isSystemPlugin, readOnly: isBuiltIn || isSystemPlugin, entityId: up.entityId, gitRemoteConfig: up.gitRemoteConfig, createdAt: up.createdAt, updatedAt: up.updatedAt })
+        list.push({ id: up.id, manifestId, manifest, isBuiltIn, isSystemPlugin, readOnly: isBuiltIn || isSystemPlugin, entityId: up.entityId, gitRemoteConfig: up.gitRemoteConfig, createdById: up.createdById, createdBy: up.createdBy, createdByDetails: up.createdByDetails, organization: up.organization, createdAt: up.createdAt, updatedAt: up.updatedAt })
       } catch { /* skip invalid */ }
     }
     set({ pluginList: list, pluginListWorkspaceId: wsId ?? null })
@@ -290,7 +297,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     }
     const now = new Date().toISOString()
     const wsId = requireActiveWorkspace()
-    const userPlugin: UserPlugin = { id, entityId: entityId || undefined, files, createdAt: now, updatedAt: now, workspaceId: wsId }
+    const userPlugin: UserPlugin = { id, entityId: entityId || undefined, files, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     // Register in runtime
@@ -337,7 +344,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     }
     const now = new Date().toISOString()
     const wsId = requireActiveWorkspace()
-    await getStorage().userPlugins.create({ id, entityId: entityId || undefined, files, createdAt: now, updatedAt: now, workspaceId: wsId })
+    await getStorage().userPlugins.create({ id, entityId: entityId || undefined, files, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId })
     const plugin = buildPlugin(manifest, { python: scaffoldTemplate })
     plugin.workspaceId = wsId
     registerPlugin(plugin)
@@ -431,7 +438,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     // Row id must be unique per workspace (global PK); the manifest id lives in
     // entityId + the plugin.json. Same rule as seedBuiltinPluginsForWorkspace.
     const rowId = crypto.randomUUID()
-    const userPlugin: UserPlugin = { id: rowId, entityId: pluginId, files, createdAt: now, updatedAt: now, workspaceId: wsId }
+    const userPlugin: UserPlugin = { id: rowId, entityId: pluginId, files, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     registerPlugin(plugin)
@@ -473,7 +480,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
 
     const now = new Date().toISOString()
     const wsId = requireActiveWorkspace()
-    const newPlugin: UserPlugin = { id: newId, files: sourceFiles, createdAt: now, updatedAt: now, workspaceId: wsId }
+    const newPlugin: UserPlugin = { id: newId, files: sourceFiles, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId }
     await storage.userPlugins.create(newPlugin)
 
     // Register
@@ -554,7 +561,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     if (isBuiltIn) {
       // First save of a built-in plugin: create as user plugin
       const wsId = requireActiveWorkspace()
-      await storage.userPlugins.create({ id: editingPluginId, files: { ...files }, createdAt: now, updatedAt: now, workspaceId: wsId })
+      await storage.userPlugins.create({ id: editingPluginId, files: { ...files }, ...stampAuthored(), createdAt: now, updatedAt: now, workspaceId: wsId })
       set({ isBuiltIn: false })
     } else {
       await storage.userPlugins.update(editingPluginId, {

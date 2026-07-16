@@ -20,6 +20,7 @@ import type {
   GitRemoteConfig,
   LocalizedString, TodoItem,
   Organization, OrganizationInfo,
+  AuthorDetails,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -1370,7 +1371,15 @@ export async function buildUserPluginFolder(
   prefix: string,
   plugin: UserPlugin,
 ): Promise<void> {
-  zip.file(`${prefix}_plugin.json`, json({ id: plugin.id, entityId: plugin.entityId }))
+  // Author provenance rides along like every other entity: createdBy + full
+  // createdByDetails travel, createdById does not (a local id is meaningless
+  // cross-instance — see stripInstanceFields / INSTANCE_FIELDS for projects).
+  zip.file(`${prefix}_plugin.json`, json({
+    id: plugin.id,
+    entityId: plugin.entityId,
+    createdBy: plugin.createdBy,
+    createdByDetails: plugin.createdByDetails,
+  }))
   for (const [filename, content] of Object.entries(plugin.files)) {
     zip.file(`${prefix}${filename}`, content)
   }
@@ -1385,6 +1394,9 @@ export async function buildUserPluginZip(
   if (!plugin) return null
   const zip = new JSZip()
   await buildUserPluginFolder(zip, '', plugin)
+  // Inline the origin organization (full snapshot) so a single-plugin ZIP is
+  // self-sufficient, matching single-project export.
+  await attachEntityOrganization(zip, '_plugin.json', plugin, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: plugin.entityId || plugin.id }
 }
@@ -1845,7 +1857,7 @@ export async function buildWorkspaceZip(
       .filter(p => !builtinIds.has(pluginManifestId(p) ?? p.id))
     for (const plugin of plugins) {
       const folder = plugin.entityId || slugify(plugin.id)
-      zip.file(`plugins/${folder}/_plugin.json`, json({ id: plugin.id, entityId: plugin.entityId, workspaceId: plugin.workspaceId, createdAt: plugin.createdAt, updatedAt: plugin.updatedAt }))
+      zip.file(`plugins/${folder}/_plugin.json`, json({ id: plugin.id, entityId: plugin.entityId, workspaceId: plugin.workspaceId, createdBy: plugin.createdBy, createdByDetails: plugin.createdByDetails, createdAt: plugin.createdAt, updatedAt: plugin.updatedAt }))
       for (const [filename, content] of Object.entries(plugin.files)) {
         zip.file(`plugins/${folder}/${filename}`, content)
       }
@@ -2173,7 +2185,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
   for (const folder of pluginFolders) {
     const prefix = `plugins/${folder}/`
-    const pluginMeta = await readJsonFile<{ id: string; workspaceId?: string; createdAt: string; updatedAt: string }>(zipData, `${prefix}_plugin.json`)
+    const pluginMeta = await readJsonFile<{ id: string; entityId?: string; workspaceId?: string; createdBy?: string; createdByDetails?: AuthorDetails; createdAt: string; updatedAt: string }>(zipData, `${prefix}_plugin.json`)
     if (!pluginMeta) continue
     const files: Record<string, string> = {}
     for (const [path, entry] of Object.entries(zipData.files)) {

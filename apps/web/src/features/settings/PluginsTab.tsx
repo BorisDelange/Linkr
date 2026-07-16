@@ -32,6 +32,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { stampAuthored } from '@/stores/app-store'
+import type { AuthorDetails, OrganizationInfo } from '@/types'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -65,6 +67,8 @@ function LanguageBadge({ language }: { language: string }) {
 interface PluginCardProps {
   plugin: PluginListItem
   lang: 'en' | 'fr'
+  /** Org the plugin inherits from its workspace, resolved live for the hover. */
+  organizationId?: string
   onOpen: (id: string) => void
   onEdit: (id: string) => void
   onDuplicate: (id: string) => void
@@ -73,7 +77,7 @@ interface PluginCardProps {
   t: (key: string) => string
 }
 
-function PluginCard({ plugin, lang, onOpen, onEdit, onDuplicate, onDelete, onVersioning, t }: PluginCardProps) {
+function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate, onDelete, onVersioning, t }: PluginCardProps) {
   const Icon = getPluginIcon(plugin.manifest.icon)
   const readOnly = plugin.readOnly
   const iconProps = getPluginIconColorProps(plugin.manifest.iconColor)
@@ -159,7 +163,15 @@ function PluginCard({ plugin, lang, onOpen, onEdit, onDuplicate, onDelete, onVer
             v{plugin.manifest.version ?? '1.0.0'}
           </span>
         </div>
-        <CardMetaFooter createdAt={plugin.createdAt} updatedAt={plugin.updatedAt} />
+        <CardMetaFooter
+          createdById={plugin.createdById}
+          createdBy={plugin.createdBy}
+          createdByDetails={plugin.createdByDetails}
+          organizationId={organizationId}
+          organization={plugin.organization}
+          createdAt={plugin.createdAt}
+          updatedAt={plugin.updatedAt}
+        />
       </div>
     </Card>
   )
@@ -185,6 +197,11 @@ export function PluginsTab() {
 
   // Plugins are workspace-scoped: creating one needs an open workspace.
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  // Plugins inherit their org from the workspace (no org field of their own),
+  // resolved live so the author-hover shows it like every other entity card.
+  const workspaceOrgId = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === s.activeWorkspaceId)?.organizationId,
+  )
   const canWrite = useMyWorkspaceRole().can('plugins:write')
   const pluginActions = usePluginActions()
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -298,6 +315,13 @@ export function PluginsTab() {
   // manifest id within the current workspace.
   const doPluginImport = useCallback(async (files: Record<string, string>, manifestId: string, duplicate: boolean) => {
     const updatedFiles = { ...files }
+    // `_plugin.json` is the export metadata pointer (author/org provenance), not a
+    // plugin source file — pull it out and keep it from being stored as content.
+    let meta: { createdBy?: string; createdByDetails?: AuthorDetails; organization?: OrganizationInfo } = {}
+    if (updatedFiles['_plugin.json']) {
+      try { meta = JSON.parse(updatedFiles['_plugin.json']) } catch { /* ignore */ }
+      delete updatedFiles['_plugin.json']
+    }
     let effectiveManifestId = manifestId
     if (duplicate) {
       try {
@@ -313,11 +337,19 @@ export function PluginsTab() {
       const existing = pluginList.find((p) => p.manifestId === manifestId)
       if (existing) await getStorage().userPlugins.delete(existing.id).catch(() => {})
     }
+    // Preserve the original author/org snapshot when the ZIP carries one (matches
+    // project import); fall back to stamping the importing user for a bare-manifest
+    // ZIP with no provenance. createdById is never imported (local id).
+    const authored = meta.createdBy || meta.createdByDetails
+      ? { createdBy: meta.createdBy, createdByDetails: meta.createdByDetails }
+      : stampAuthored()
     const nowIso = new Date().toISOString()
     await getStorage().userPlugins.create({
       id: crypto.randomUUID(),
       entityId: effectiveManifestId,
       files: updatedFiles,
+      ...authored,
+      ...(meta.organization ? { organization: meta.organization } : {}),
       createdAt: nowIso,
       updatedAt: nowIso,
       workspaceId: activeWorkspaceId ?? undefined,
@@ -367,6 +399,7 @@ export function PluginsTab() {
             key={plugin.id}
             plugin={plugin}
             lang={lang}
+            organizationId={workspaceOrgId}
             onOpen={openPlugin}
             onEdit={setEditTargetId}
             onDuplicate={duplicatePlugin}

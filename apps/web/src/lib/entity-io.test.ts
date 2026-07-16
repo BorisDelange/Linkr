@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, collectGitLinkedEntities, applyClonedEntity } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, collectGitLinkedEntities, applyClonedEntity } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset } from '@/types'
 import type { Storage } from '@/lib/storage'
@@ -364,6 +364,43 @@ describe('attachEntityOrganization — inlines inherited org into entity meta', 
     await attachEntityOrganization(zip, 'project.json', { workspaceId: 'w1', organization: snapshot }, store)
     const meta = JSON.parse(await zip.files['project.json'].async('string'))
     expect(meta.organization).toEqual(snapshot)
+  })
+})
+
+describe('buildUserPluginZip — author + org provenance', () => {
+  const makeStore = (plugin: unknown, workspace: unknown, org: unknown) => ({
+    userPlugins: { getById: async (id: string) => ((plugin as { id?: string })?.id === id ? plugin : undefined) },
+    workspaces: { getById: async (id: string) => ((workspace as { id?: string })?.id === id ? workspace : undefined) },
+    organizations: { getById: async (id: string) => ((org as { id?: string })?.id === id ? org : undefined) },
+  }) as unknown as Storage
+
+  const readMeta = async (blob: Blob) => {
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer())
+    return JSON.parse(await zip.files['_plugin.json'].async('string'))
+  }
+
+  it('writes createdBy + full createdByDetails but never the local createdById', async () => {
+    const plugin = {
+      id: 'p1', entityId: 'my-plugin', workspaceId: 'w1',
+      files: { 'plugin.json': '{"id":"my-plugin"}', 'analysis.py.template': 'print(1)' },
+      createdById: 42, createdBy: 'Ada Lovelace',
+      createdByDetails: { firstName: 'Ada', lastName: 'Lovelace', affiliation: 'Analytical Engine', profession: 'Mathematician', orcid: '0000-0001-2345-6789' },
+      createdAt: 't', updatedAt: 't',
+    }
+    const result = await buildUserPluginZip('p1', makeStore(plugin, { id: 'w1' }, undefined))
+    const meta = await readMeta(result!.blob)
+    expect(meta.createdBy).toBe('Ada Lovelace')
+    expect(meta.createdByDetails.affiliation).toBe('Analytical Engine')
+    expect(meta.createdByDetails.orcid).toBe('0000-0001-2345-6789')
+    expect(meta.createdById).toBeUndefined()
+  })
+
+  it('inlines the full origin organization resolved from the parent workspace', async () => {
+    const plugin = { id: 'p1', entityId: 'my-plugin', workspaceId: 'w1', files: { 'plugin.json': '{}' }, createdAt: 't', updatedAt: 't' }
+    const org = { id: 'org-9', name: { en: 'Acme', fr: 'Acme SA' }, type: 'company', country: { en: 'France' }, referenceId: 'ROR-123' }
+    const result = await buildUserPluginZip('p1', makeStore(plugin, { id: 'w1', organizationId: 'org-9' }, org))
+    const meta = await readMeta(result!.blob)
+    expect(meta.organization).toEqual(org)
   })
 })
 

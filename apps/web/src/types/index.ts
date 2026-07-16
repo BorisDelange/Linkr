@@ -920,12 +920,16 @@ export interface DqRunHistoryEntry {
 
 // --- User Plugin Types ---
 
-export interface UserPlugin {
+export interface UserPlugin extends Authored {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
   workspaceId?: string
   files: Record<string, string>
+  /** Frozen provenance snapshot of the origin organization, carried across
+   *  export/import (same pattern as a project's `organization`). Inherited from
+   *  the parent workspace at export time when absent. */
+  organization?: OrganizationInfo
   /** Git remote for exporting/versioning the plugin (same pattern as other entities). */
   gitRemoteConfig?: GitRemoteConfig
   createdAt: string
