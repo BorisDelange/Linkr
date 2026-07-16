@@ -10,7 +10,7 @@
  * changed") we classify each unit without asking the user, and only surface a
  * conflict when BOTH sides changed the same unit differently. This mirrors
  * `git merge`, but on business objects (mappings, metadata fields) rather than
- * text lines — see docs/planning/git-pull-sync-plan.md §3.
+ * text lines — see docs/planning/git-sync-plan.md §3.
  *
  * Mappings are keyed by source+target (NOT by id — the id is regenerated on
  * import so it isn't stable across instances; see §3.1.1). Source concepts and

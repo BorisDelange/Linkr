@@ -409,3 +409,58 @@ Esquisse par scope (à valider, non figé) :
 
 Aucun de ces scopes n'est engagé : chacun fera l'objet de sa propre étude (logique + UI)
 avant implémentation.
+
+## 9 — Export « propre » : stripping des champs d'instance/volatils (À ÉTENDRE)
+
+Problème : un export qui sérialise l'objet DB verbatim embarque des champs **d'instance**
+(UUID locaux réattribués à l'import) et **volatils** (timestamps qui changent à chaque
+édition). Résultat : des diffs bruités et des commits inutiles — le fichier apparaît
+« modifié » alors que le contenu métier n'a pas bougé, ou un ré-import ailleurs réécrit
+des UUID qui ne veulent rien dire hors de l'instance d'origine.
+
+Règle : **l'export versionné ne doit contenir que du contenu portable.** On strippe à
+l'export tout ce qui est (a) régénéré/réattribué à l'import, ou (b) purement horodatage
+d'instance. Critère de décision, champ par champ : *« ce champ est-il reconstruit à
+l'import, ou n'a-t-il de sens que dans cette instance ? »* → si oui, stripper.
+
+### [FAIT] Mapping projects
+
+- **`mappings.json`** : strip `id`, `projectId`, `createdAt`, `updatedAt` ; tri stable par
+  `(sourceConceptCode, sourceConceptId)`. `mappedOn`/`reviewedOn` **gardés** (provenance
+  métier). Cohérent avec `merge.ts` `COMPARED_FIELDS` qui ignore déjà ces champs, donc le
+  strip ne peut pas masquer un vrai changement. Commentaires/reviews imbriqués **gardés**
+  (leur contenu, ids inclus, est comparé par le merge → les stripper fabriquerait des
+  conflits fantômes).
+- **`project.json`** : strip `vocabularyDataSourceId` (UUID data-source local) ; `dataSourceId`
+  remis à `''` (requis par le type). Runtime tolérant (`.find(...)` → `undefined`).
+- **`source-concept-ids/entries.json`** : format compact 4 colonnes (drop `createdAt`) + tri
+  `(badgeLabel, vocabularyId, conceptCode)`. `ranges.json` : forme portable (drop
+  `workspaceId` + timestamps, gardé `nextId`/`rangeStart`/`rangeEnd`/`totalConcepts`), tri
+  par `badgeLabel`. Import régénère `workspaceId`/`createdAt`/`updatedAt`.
+- **`similarity-scores.parquet`** : jamais versionné (re-dérivable), gitignoré ; LFS rendu
+  opt-in (plus d'auto par taille/extension).
+
+Voir `stripInstanceFields` + `INSTANCE_FIELDS` (`entity-io.ts`) et les helpers d'export
+dans `concept-mapping/export.ts` / `source-concept-ids-io.ts`.
+
+### [À FAIRE] projects, workspaces, autres scopes
+
+Passer chaque scope versionnable au même crible. `stripInstanceFields` couvre déjà les
+champs génériques d'entité (`ownerId`, `createdAt`, `updatedAt`, `workspaceId`,
+`gitRemoteConfig`, `organization`…), mais **chaque scope a ses propres champs d'instance
+spécifiques** (comme `dataSourceId`/`vocabularyDataSourceId` l'étaient pour le mapping
+project) et ses propres fichiers à trier. À examiner :
+
+- **projects** : dashboards (ids de widgets/onglets ?), datasets (ids de data source,
+  timestamps), scripts IDE, badges. Le plus riche — probablement plusieurs fichiers à
+  normaliser + trier.
+- **workspaces** : agrégat ; hérite du stripping de chaque entité, mais vérifier les
+  fichiers propres au workspace (registres, ranges déjà traités).
+- **sql-collections / etl-pipelines / dq-rule-sets / schema-presets / user-plugins /
+  data-catalogs** : vérifier ids locaux, timestamps, et l'ordre de sérialisation des
+  collections (trier par une clé stable pour éviter le bruit de réordonnancement DB).
+
+Méthode : pour chaque scope, ouvrir un export réel, repérer les champs qui bougent entre
+deux exports sans changement métier (ids, timestamps) + l'ordre non déterministe, puis
+stripper/trier à l'export **et** régénérer/tolérer à l'import (comme pour les ranges).
+Ajouter/mettre à jour le test d'export du scope dans le même changement.
