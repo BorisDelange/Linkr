@@ -57,7 +57,7 @@ async def create_plugin(
     db: AsyncSession = Depends(get_db),
 ):
     await _check_access(db, body.workspace_id, user, "plugins:write")
-    return await user_plugin_service.create(db, body)
+    return await user_plugin_service.create(db, body, user)
 
 
 @router.get("/{plugin_id}", response_model=UserPluginResponse)

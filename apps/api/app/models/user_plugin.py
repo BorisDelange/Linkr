@@ -22,3 +22,11 @@ class UserPlugin(Base, TimestampMixin):
     # Encrypted git access token (Fernet); kept out of git_remote_config so it's
     # never returned by the API. Mirrors DataSource.connection_secret.
     git_remote_secret: Mapped[str | None] = mapped_column(Text)
+    # Frozen origin-organization snapshot, carried across export/import.
+    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Creator provenance (see Project): created_by_id is the stable local identity;
+    # created_by / created_by_details are the display snapshot for cross-instance
+    # imports where the id has no local meaning.
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)

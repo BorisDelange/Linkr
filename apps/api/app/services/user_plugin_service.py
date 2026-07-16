@@ -1,9 +1,10 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.user import User
 from app.models.user_plugin import UserPlugin
 from app.schemas.user_plugin import UserPluginCreate, UserPluginUpdate
-from app.services import git_secret
+from app.services import author_provenance, git_secret
 
 
 async def list_all(db: AsyncSession) -> list[UserPlugin]:
@@ -22,12 +23,16 @@ async def get(db: AsyncSession, plugin_id: str) -> UserPlugin | None:
     return await db.get(UserPlugin, plugin_id)
 
 
-async def create(db: AsyncSession, data: UserPluginCreate) -> UserPlugin:
+async def create(db: AsyncSession, data: UserPluginCreate, owner: User) -> UserPlugin:
     payload = data.model_dump(exclude_none=True)
+    # A foreign instance's created_by_id is meaningless here — never persist it;
+    # stamp_creator derives the right local id (ORCID/email match, or NULL).
+    payload.pop("created_by_id", None)
     plugin = UserPlugin()
     git_secret.apply_to_entity(plugin, payload)
     for key, value in payload.items():
         setattr(plugin, key, value)
+    await author_provenance.stamp_creator(db, plugin, payload, owner)
     db.add(plugin)
     await db.commit()
     await db.refresh(plugin)
