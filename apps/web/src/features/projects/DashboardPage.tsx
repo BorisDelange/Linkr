@@ -268,13 +268,23 @@ export function DashboardPage() {
       {/* Main content + filter sidebar */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <ScrollArea className="flex-1 min-h-0 min-w-0">
-          {/* Every visited leaf tab's grid stays mounted (only the active one is shown; the rest
-              are CSS-hidden). Crucially this renders regardless of the active tab: switching to a
-              container tab or an empty leaf must NOT unmount the kept-alive grids, or their widgets
-              (e.g. KPI plugins) would recompute on return. React keys by tab id so each grid keeps
-              its own subtree across switches — the persistence lives at the dashboard level. */}
+          {/* Every visited leaf tab's grid stays mounted. This renders regardless of the active
+              tab: switching to a container tab or an empty leaf must NOT unmount the kept-alive
+              grids, or their widgets (e.g. KPI plugins) would recompute on return. React keys by
+              tab id so each grid keeps its subtree across switches — persistence lives at the
+              dashboard level.
+
+              Inactive tabs are parked off-screen with `invisible` (NOT `display:none`): a hidden
+              grid keeps its laid-out box and full width, so a chart's ResizeObserver (Recharts
+              ResponsiveContainer) never sees a 0-width → real-width transition and doesn't redraw
+              its whole SVG when the tab is shown again — that redraw was the visible lag when
+              switching between plot-builder widgets. */}
           {mountedTabs.map((tab) => (
-            <div key={tab.id} className={tab.id === currentTabId ? 'contents' : 'hidden'}>
+            <div
+              key={tab.id}
+              className={tab.id === currentTabId ? 'contents' : 'invisible absolute top-0 left-0 w-full'}
+              aria-hidden={tab.id !== currentTabId}
+            >
               <WidgetGrid
                 widgets={widgets.filter((w) => w.tabId === tab.id)}
                 editMode={editMode}
