@@ -83,10 +83,9 @@ def resolve_cache(
 
 
 def _parse(raw: Path, rel: str, parse_options: dict | None):
-    # stamp keeps column ids stable per (path); reuse the path hash as the stamp
-    # base so re-parsing the same file yields the same column ids.
-    stamp = int(_key(rel), 16) % 1_000_000_000
-    return dataset_parser.parse_blob(raw, Path(rel).name, parse_options, stamp)
+    # Column ids are now deterministic from the column name (col_<slug>), so
+    # re-parsing the same file yields the same ids without a per-path stamp.
+    return dataset_parser.parse_blob(raw, Path(rel).name, parse_options)
 
 
 def _read_meta(p: Path) -> dict | None:

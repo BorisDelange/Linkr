@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
+import { uniqueColumnId } from '@/lib/column-id'
 import { isServerMode } from '@/lib/api-client'
 import { duplicateDataset, reimportDataset } from '@/lib/api/datasets'
 import { stampAuthored } from '@/stores/app-store'
@@ -628,7 +629,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     const file = get().files.find((f) => f.id === fileId)
     if (!file || file.type !== 'file') return
     const columns = file.columns ?? []
-    const id = `col-${Date.now()}`
+    // Deterministic id from the name, unique against the file's existing column ids.
+    const id = uniqueColumnId(name, new Set(columns.map((c) => c.id)))
     const newColumn: DatasetColumn = { id, name, type, order: columns.length }
     const updatedColumns = [...columns, newColumn]
     const rows = _loadedData.get(fileId) ?? []

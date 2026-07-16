@@ -44,23 +44,24 @@ def _write(tmp_path, name, text) -> Path:
 
 def test_parse_csv_columns_rows_keyed_by_id(tmp_path):
     p = _write(tmp_path, "d.csv", "patient,value,flag\nA,3.5,yes\nB,7,no\n")
-    columns, rows, count = parse_blob(p, "d.csv", {"hasHeader": True}, stamp=999)
+    columns, rows, count = parse_blob(p, "d.csv", {"hasHeader": True})
 
     assert [c["name"] for c in columns] == ["patient", "value", "flag"]
-    assert [c["id"] for c in columns] == ["col-999-0", "col-999-1", "col-999-2"]
+    # ids are deterministic name-slugs (col_<slug>), identical to the client util
+    assert [c["id"] for c in columns] == ["col_patient", "col_value", "col_flag"]
     assert [c["type"] for c in columns] == ["string", "number", "boolean"]
     assert count == 2
     # rows are keyed by columnId, values coerced by inferred type
-    assert rows[0] == {"col-999-0": "A", "col-999-1": 3.5, "col-999-2": True}
-    assert rows[1] == {"col-999-0": "B", "col-999-1": 7, "col-999-2": False}
+    assert rows[0] == {"col_patient": "A", "col_value": 3.5, "col_flag": True}
+    assert rows[1] == {"col_patient": "B", "col_value": 7, "col_flag": False}
 
 
 def test_parse_csv_custom_delimiter(tmp_path):
     p = _write(tmp_path, "d.csv", "a;b\n1;2\n3;4\n")
-    columns, rows, count = parse_blob(p, "d.csv", {"delimiter": ";"}, stamp=1)
+    columns, rows, count = parse_blob(p, "d.csv", {"delimiter": ";"})
     assert [c["name"] for c in columns] == ["a", "b"]
     assert count == 2
-    assert rows[0]["col-1-0"] == 1
+    assert rows[0]["col_a"] == 1
 
 
 def test_csv_renamed_as_xlsx_gives_clear_error(tmp_path):
@@ -70,10 +71,10 @@ def test_csv_renamed_as_xlsx_gives_clear_error(tmp_path):
 
     p = _write(tmp_path, "fake.xlsx", "a,b\n1,2\n")
     with pytest.raises(ValueError, match="not a valid Excel"):
-        parse_blob(p, "fake.xlsx", {}, 1)
+        parse_blob(p, "fake.xlsx", {})
 
 
 def test_parse_empty_cell_is_none(tmp_path):
     p = _write(tmp_path, "d.csv", "a,b\nx,\n")
-    columns, rows, _ = parse_blob(p, "d.csv", {}, stamp=1)
-    assert rows[0]["col-1-1"] is None
+    columns, rows, _ = parse_blob(p, "d.csv", {})
+    assert rows[0]["col_b"] is None

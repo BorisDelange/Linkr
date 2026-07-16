@@ -1,5 +1,4 @@
 import asyncio
-import time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,10 +128,9 @@ class DatasetParseError(Exception):
 async def import_file(
     db: AsyncSession, req: DatasetImportRequest, owner: User
 ) -> DatasetFile:
-    stamp = int(time.time() * 1000)
     try:
         columns, rows, row_count = parse_blob(
-            blob_store.path_for(req.sha), req.file_name, req.parse_options, stamp
+            blob_store.path_for(req.sha), req.file_name, req.parse_options
         )
     except Exception as e:  # noqa: BLE001 — normalize parser/DuckDB errors
         raise DatasetParseError(str(e)) from e
@@ -161,13 +159,11 @@ async def reimport_file(
 ) -> DatasetFile:
     if not node.raw_sha:
         raise ValueError("no raw file to re-parse")
-    stamp = int(time.time() * 1000)
     try:
         columns, rows, row_count = parse_blob(
             blob_store.path_for(node.raw_sha),
             node.raw_file_name or "data.csv",
             parse_options,
-            stamp,
         )
     except Exception as e:  # noqa: BLE001
         raise DatasetParseError(str(e)) from e

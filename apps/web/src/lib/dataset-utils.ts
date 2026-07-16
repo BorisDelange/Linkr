@@ -1,4 +1,5 @@
 import type { DatasetColumn } from '@/types'
+import { buildColumnIds } from './column-id'
 
 /**
  * Regex matching ISO date (YYYY-MM-DD) and datetime (YYYY-MM-DDTHH:MM:SS) formats,
@@ -84,8 +85,9 @@ export function buildColumns(
   headers: string[],
   rows: Record<string, unknown>[],
 ): DatasetColumn[] {
+  const ids = buildColumnIds(headers)
   return headers.map((name, idx) => ({
-    id: `col-${Date.now()}-${idx}`,
+    id: ids[idx],
     name,
     type: inferColumnType(rows.map((r) => r[name])),
     order: idx,

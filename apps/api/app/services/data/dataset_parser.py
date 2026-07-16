@@ -3,8 +3,9 @@
 Runs on the backend (server mode) as the counterpart to the frontend's
 papaparse/xlsx import. To stay in parity with the client:
 
-- Columns get client-style ids ``col-<stamp>-<idx>`` and a type from our port of
-  ``inferColumnType`` (type_inference.py).
+- Columns get deterministic name-derived ids ``col_<slug>`` (column_id.py, the twin
+  of the frontend util) and a type from our port of ``inferColumnType``
+  (type_inference.py). Same name → same id on client and server.
 - Rows are keyed by **columnId** (not header name), matching what dashboards and
   analyses read via getFileRows.
 - Cell values are coerced by inferred type to mirror papaparse ``dynamicTyping``:
@@ -20,6 +21,7 @@ from typing import Any
 
 import duckdb
 
+from app.services.data.column_id import build_column_ids
 from app.services.data.file_reader import build_read_expr
 from app.services.data.type_inference import infer_column_type, parse_boolean
 
@@ -48,10 +50,10 @@ def _coerce(value: Any, col_type: str) -> Any:
     return s
 
 
-def parse_blob(path: Path, file_name: str, parse_options: dict | None, stamp: int):
+def parse_blob(path: Path, file_name: str, parse_options: dict | None):
     """Return (columns, rows, row_count).
 
-    columns: [{"id","name","type","order"}]  (id = col-<stamp>-<idx>)
+    columns: [{"id","name","type","order"}]  (id = col_<slug>, derived from name)
     rows:    list of {columnId: value}
     """
     opts = parse_options or {}
@@ -69,9 +71,10 @@ def parse_blob(path: Path, file_name: str, parse_options: dict | None, stamp: in
         for i in range(len(headers)):
             by_col_raw[i].append(row[i] if i < len(row) else None)
 
+    ids = build_column_ids(headers)
     columns = [
         {
-            "id": f"col-{stamp}-{idx}",
+            "id": ids[idx],
             "name": name,
             "type": infer_column_type(by_col_raw[idx]),
             "order": idx,
