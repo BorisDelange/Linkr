@@ -3023,6 +3023,8 @@
     "col_domain": "Domaine",
     "col_class": "Classe",
     "col_std": "Standard",
+    "std_standard": "Standard",
+    "std_classification": "Classification",
     "col_valid": "Valide",
     "col_equivalence": "Équivalence",
     "col_comment": "Commentaire",

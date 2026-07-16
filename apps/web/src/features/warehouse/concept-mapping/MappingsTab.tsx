@@ -130,8 +130,10 @@ interface MappingColumnFilters {
   targetConceptId?: string
   targetVocabularyId?: string[]
   targetDomainId?: string[]
+  targetConceptClassId?: string[]
+  targetStandardConcept?: string[]
   equivalence?: string[]
-  mappedBy?: string
+  mappedBy?: string[]
 }
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
@@ -1095,7 +1097,10 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       sourceCategoryId: unique((m) => m.sourceCategoryId),
       targetVocabularyId: unique((m) => m.targetVocabularyId),
       targetDomainId: unique((m) => m.targetDomainId),
+      targetConceptClassId: unique((m) => m.targetConceptClassId),
+      targetStandardConcept: unique((m) => m.targetStandardConcept),
       equivalence: unique((m) => m.equivalence),
+      mappedBy: unique((m) => m.mappedBy),
     }
   }, [projectMappings])
 
@@ -1167,8 +1172,10 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     if (f.targetConceptId && !String(m.targetConceptId).includes(f.targetConceptId)) return false
     if (f.targetVocabularyId?.length && !f.targetVocabularyId.includes(m.targetVocabularyId)) return false
     if (f.targetDomainId?.length && !f.targetDomainId.includes(m.targetDomainId ?? '')) return false
+    if (f.targetConceptClassId?.length && !f.targetConceptClassId.includes(m.targetConceptClassId ?? '')) return false
+    if (f.targetStandardConcept?.length && !f.targetStandardConcept.includes(m.targetStandardConcept ?? '')) return false
     if (f.equivalence?.length && !f.equivalence.includes(m.equivalence)) return false
-    if (f.mappedBy && !(m.mappedBy ?? '').toLowerCase().includes(f.mappedBy.toLowerCase())) return false
+    if (f.mappedBy?.length && !f.mappedBy.includes(m.mappedBy ?? '')) return false
     // Pre-computed derived view (eff status, vote counts, my review) — O(1) lookup.
     const d = rowDerived.get(m.id)
     // "My review" filter (under the Review column)
@@ -1326,9 +1333,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     if (columnId === 'targetConceptId') {
       return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={colFilters.targetConceptId ?? ''} onChange={(e) => updateFilter('targetConceptId', e.target.value || null)} />
     }
-    if (columnId === 'mappedBy') {
-      return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.mappedBy ?? ''} onChange={(e) => updateFilter('mappedBy', e.target.value || null)} />
-    }
     // Dropdowns (multi-select)
     if (columnId === 'sourceVocabularyId' && filterOptions.sourceVocabularyId.length > 0) {
       return <MultiSelectFilter value={colFilters.sourceVocabularyId ?? []} options={filterOptions.sourceVocabularyId} placeholder="Vocab" onChange={(v) => updateMultiFilter('sourceVocabularyId', v)} />
@@ -1341,6 +1345,19 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     }
     if (columnId === 'targetDomainId' && filterOptions.targetDomainId.length > 0) {
       return <MultiSelectFilter value={colFilters.targetDomainId ?? []} options={filterOptions.targetDomainId} placeholder="Domain" onChange={(v) => updateMultiFilter('targetDomainId', v)} />
+    }
+    if (columnId === 'targetConceptClassId' && filterOptions.targetConceptClassId.length > 0) {
+      return <MultiSelectFilter value={colFilters.targetConceptClassId ?? []} options={filterOptions.targetConceptClassId} placeholder="Class" onChange={(v) => updateMultiFilter('targetConceptClassId', v)} />
+    }
+    if (columnId === 'targetStandardConcept' && filterOptions.targetStandardConcept.length > 0) {
+      const stdOptions = filterOptions.targetStandardConcept.map((s) => ({
+        value: s,
+        label: s === 'S' ? t('concept_mapping.std_standard') : s === 'C' ? t('concept_mapping.std_classification') : s,
+      }))
+      return <MultiSelectFilter value={colFilters.targetStandardConcept ?? []} options={stdOptions} placeholder="Std" onChange={(v) => updateMultiFilter('targetStandardConcept', v)} />
+    }
+    if (columnId === 'mappedBy' && filterOptions.mappedBy.length > 0) {
+      return <MultiSelectFilter value={colFilters.mappedBy ?? []} options={filterOptions.mappedBy} placeholder="..." onChange={(v) => updateMultiFilter('mappedBy', v)} />
     }
     if (columnId === 'equivalence' && filterOptions.equivalence.length > 0) {
       const equivOptions = filterOptions.equivalence.map((e) => ({ value: e, label: EQUIV_BADGE[e]?.label ?? e }))
