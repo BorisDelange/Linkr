@@ -1,4 +1,5 @@
 import type { Dashboard, DashboardWidget, FilterValue } from '@/types'
+import { localized } from '@/lib/localized'
 import { FILTER_NONE } from './DashboardDataProvider'
 
 /** Resolve which filters apply to a given widget, keyed by column ID. `widgetParentTabId` is the
@@ -57,13 +58,15 @@ export interface FilterChip { column: string; values: string[] }
 export function buildFilterLabelMap(
   dashboard: Dashboard,
   columnNameToId: Map<string, string>,
+  language: string,
 ): Map<string, string> {
   const m = new Map<string, string>()
   for (const filter of dashboard.filterConfig) {
-    if (!filter.label) continue
-    m.set(filter.columnId, filter.label)
+    const label = localized(filter.label, language)
+    if (!label) continue
+    m.set(filter.columnId, label)
     const targetId = columnNameToId.get(filter.columnName)
-    if (targetId) m.set(targetId, filter.label)
+    if (targetId) m.set(targetId, label)
   }
   return m
 }
@@ -117,6 +120,7 @@ export function buildTabFilterChips(
   widgets: DashboardWidget[],
   activeFilters: Record<string, FilterValue>,
   files: { id: string; columns?: { id: string; name: string }[] }[],
+  language: string,
 ): FilterChip[] {
   const byColumn = new Map<string, FilterChip>()
   for (const widget of widgets) {
@@ -126,7 +130,7 @@ export function buildTabFilterChips(
     const columnNameToId = new Map(columns.map((c) => [c.name, c.id]))
     const filters = resolveWidgetFilters(widget, dashboard, activeFilters, columnNameToId, null)
     if (!filters) continue
-    const labelMap = buildFilterLabelMap(dashboard, columnNameToId)
+    const labelMap = buildFilterLabelMap(dashboard, columnNameToId, language)
     for (const chip of buildFilterChips(filters, columns, labelMap)) {
       if (!byColumn.has(chip.column)) byColumn.set(chip.column, chip)
     }

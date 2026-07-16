@@ -52,6 +52,7 @@ function useWidgetFilters(
   parentTabId: string | null | undefined,
 ) {
   const { files } = useDatasetStore()
+  const language = useAppStore((s) => s.language)
   const datasetFile = files.find((f) => f.id === widget.datasetFileId)
   const columnNameToId = useMemo(
     () => new Map((datasetFile?.columns ?? []).map((c) => [c.name, c.id])),
@@ -62,8 +63,8 @@ function useWidgetFilters(
     [widget, dashboard, activeFilters, columnNameToId, parentTabId]
   )
   const filterChips = useMemo(
-    () => (filters ? buildFilterChips(filters, datasetFile?.columns ?? [], buildFilterLabelMap(dashboard, columnNameToId)) : []),
-    [filters, datasetFile?.columns, dashboard, columnNameToId]
+    () => (filters ? buildFilterChips(filters, datasetFile?.columns ?? [], buildFilterLabelMap(dashboard, columnNameToId, language)) : []),
+    [filters, datasetFile?.columns, dashboard, columnNameToId, language]
   )
   return { filters, filterChips }
 }

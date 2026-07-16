@@ -414,9 +414,9 @@ export interface DashboardFilter {
   datasetFileId: string
   columnId: string
   columnName: string
-  /** Optional display name shown instead of the column name (in the sidebar, badges, tooltips).
-   *  Empty/absent falls back to `columnName`. */
-  label?: string
+  /** Optional multilingual display name shown instead of the column name (sidebar, badges,
+   *  tooltips). Empty/absent falls back to `columnName`. Legacy data may hold a plain string. */
+  label?: LocalizedString | string
   type: 'categorical' | 'numeric' | 'date'
   inputType: 'checkbox' | 'multi-select' | 'single-select' | 'range' | 'double-range'
   /** @deprecated Cross-dataset matching is now automatic, governed by `scope`. Retained for stored data. */

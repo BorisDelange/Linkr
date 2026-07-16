@@ -27,7 +27,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardTab, DashboardWidget, DatePreset, DatePresetUnit, FilterValue } from '@/types'
-import { localized } from '@/lib/localized'
+import { localized, setLocalized } from '@/lib/localized'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
@@ -48,7 +48,8 @@ interface DashboardFilterSidebarProps {
 
 
 export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onClose }: DashboardFilterSidebarProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language = i18n.language as 'en' | 'fr'
   const { activeFilters, setFilter, clearFilter, clearAllFilters, updateDashboard } = useDashboardStore()
   const { files: datasetFiles } = useDatasetStore()
 
@@ -189,9 +190,14 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
   const handleLabelChange = (filterId: string, label: string) => {
     const trimmed = label.trim()
     updateDashboard(dashboard.id, {
-      filterConfig: dashboard.filterConfig.map((f) =>
-        f.id === filterId ? { ...f, label: trimmed || undefined } : f
-      ),
+      filterConfig: dashboard.filterConfig.map((f) => {
+        if (f.id !== filterId) return f
+        // Edit only the active language, merged into the {en,fr} object (same convention as
+        // tab/widget names). Drop the label entirely once no language holds a value.
+        const next = setLocalized(f.label, language, trimmed)
+        const hasAny = Object.values(next).some((v) => v.trim().length > 0)
+        return { ...f, label: hasAny ? next : undefined }
+      }),
     })
   }
 
@@ -313,7 +319,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                       className="flex h-full flex-1 items-center gap-1.5 min-w-0 text-left"
                     >
                       <ChevronRight size={13} className={cn('shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')} />
-                      <span className="text-xs font-medium truncate">{fc.label || fc.columnName}</span>
+                      <span className="text-xs font-medium truncate">{localized(fc.label, language) || fc.columnName}</span>
                     </button>
                     {!editMode && <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />}
                     {editMode && (
@@ -332,11 +338,13 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                             {dsFile?.name ?? '?'}
                           </Badge>
 
-                          {/* Optional display label — shown instead of the column name everywhere. */}
+                          {/* Optional display label — shown instead of the column name everywhere.
+                              Multilingual: only the active UI language is edited here. */}
                           <div className="space-y-1">
                             <Label className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_label', 'Label')}</Label>
                             <Input
-                              defaultValue={fc.label ?? ''}
+                              key={`${fc.id}-${language}`}
+                              defaultValue={localized(fc.label, language)}
                               placeholder={fc.columnName}
                               onBlur={(e) => handleLabelChange(fc.id, e.target.value)}
                               onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
