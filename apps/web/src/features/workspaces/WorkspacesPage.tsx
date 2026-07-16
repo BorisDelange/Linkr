@@ -552,7 +552,7 @@ export function WorkspacesPage() {
       for (const range of parsed.sourceConceptIdRanges) {
         const badgeLabel = duplicate ? `${range.badgeLabel} (copy)` : range.badgeLabel
         await storage.sourceConceptIdRanges.save({
-          ...range, workspaceId: targetWsId, badgeLabel, updatedAt: now,
+          ...range, workspaceId: targetWsId, badgeLabel, createdAt: range.createdAt ?? now, updatedAt: now,
         })
       }
       if (parsed.sourceConceptIdEntries.length > 0) {

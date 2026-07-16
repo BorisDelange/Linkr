@@ -721,7 +721,7 @@ async function loadWorkspaceInternals(
   // --- source-concept-ids/ (cross-project ID assignment registry) ---
   const idRanges = await fetchJson<SourceConceptIdRange[]>(`${base}/source-concept-ids/ranges.json`) ?? []
   for (const range of idRanges) {
-    await storage.sourceConceptIdRanges.save({ ...range, workspaceId: wsId, updatedAt: now }).catch(() => {})
+    await storage.sourceConceptIdRanges.save({ ...range, workspaceId: wsId, createdAt: range.createdAt ?? now, updatedAt: now }).catch(() => {})
   }
   const rawIdEntries = await fetchJson<CompactSourceConceptIdEntries | SourceConceptIdEntry[]>(`${base}/source-concept-ids/entries.json`)
   const idEntries = rawIdEntries ? parseSourceConceptIdEntries(rawIdEntries, wsId) : []

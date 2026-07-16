@@ -19,42 +19,63 @@ import type { Storage } from '@/lib/storage'
 import type { MappingProject, SourceConceptIdEntry, SourceConceptIdRange } from '@/types'
 import { localized } from '@/lib/localized'
 
-/** Compact JSON format for source-concept-id entries (smaller than one object per entry). */
+/**
+ * Compact JSON format for source-concept-id entries (smaller than one object per
+ * entry). `createdAt` is intentionally NOT serialized: it is per-entry instance
+ * bookkeeping (a fresh timestamp at assignment), regenerated on import — versioning
+ * it would add 177k timestamps of churn to a 20 MB file. Reads still accept an
+ * older 5-column form that carried it. Rows are sorted by (badgeLabel, vocabularyId,
+ * conceptCode) so DB iteration order never shows up as a spurious diff.
+ */
 export interface CompactSourceConceptIdEntries {
-  /** Column order: [badgeLabel, vocabularyId, conceptCode, sourceConceptId, createdAt] */
-  columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId', 'createdAt']
-  entries: [string, string, string, number, string][]
+  /** Column order: [badgeLabel, vocabularyId, conceptCode, sourceConceptId] */
+  columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId']
+  entries: [string, string, string, number][]
 }
 
-/** Serialize SourceConceptIdEntry[] to compact format for export. */
+/** Serialize SourceConceptIdEntry[] to compact format for export (sorted, no timestamp). */
 export function toCompactEntries(entries: SourceConceptIdEntry[]): CompactSourceConceptIdEntries {
-  return {
-    columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId', 'createdAt'],
-    entries: entries.map(e => [e.badgeLabel, e.vocabularyId, e.conceptCode, e.sourceConceptId, e.createdAt]),
-  }
+  const rows: [string, string, string, number][] = entries.map(
+    e => [e.badgeLabel, e.vocabularyId, e.conceptCode, e.sourceConceptId],
+  )
+  rows.sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]))
+  return { columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId'], entries: rows }
 }
 
-/** Deserialize compact or legacy entries.json into SourceConceptIdEntry[]. */
+/** Deserialize compact (4- or legacy 5-column) or legacy object-array entries.json. */
 export function parseSourceConceptIdEntries(
   raw: CompactSourceConceptIdEntries | SourceConceptIdEntry[],
   workspaceId: string,
 ): SourceConceptIdEntry[] {
   // Legacy format: array of full objects
-  if (Array.isArray(raw)) return raw
+  if (Array.isArray(raw)) return raw.map(e => ({ ...e, workspaceId, id: `${workspaceId}__${e.badgeLabel}__${e.vocabularyId}__${e.conceptCode}` }))
 
-  // Compact format: { columns, entries }
-  return raw.entries.map(([badgeLabel, vocabularyId, conceptCode, sourceConceptId, createdAt]) => ({
+  // Compact format: { columns, entries } — 5th column (createdAt) tolerated but ignored.
+  const now = new Date().toISOString()
+  return raw.entries.map(([badgeLabel, vocabularyId, conceptCode, sourceConceptId]) => ({
     id: `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`,
     workspaceId,
     badgeLabel,
     vocabularyId,
     conceptCode,
     sourceConceptId,
-    createdAt,
+    createdAt: now,
   }))
 }
 
 const json = (data: unknown) => JSON.stringify(data, null, 2)
+
+/** Portable subset of a range for versioning: the allocation (start/end/nextId +
+ *  totalConcepts) and its badge key. `workspaceId` is dropped (re-set to the target
+ *  workspace on import) and the timestamps are dropped (instance bookkeeping,
+ *  regenerated on import) so ranges.json tracks the allocation, not the instance. */
+type PortableRange = Pick<SourceConceptIdRange, 'badgeLabel' | 'rangeStart' | 'rangeEnd' | 'nextId' | 'totalConcepts'>
+
+export function toPortableRanges(ranges: SourceConceptIdRange[]): PortableRange[] {
+  return ranges
+    .map(({ badgeLabel, rangeStart, rangeEnd, nextId, totalConcepts }) => ({ badgeLabel, rangeStart, rangeEnd, nextId, totalConcepts }))
+    .sort((a, b) => a.badgeLabel.localeCompare(b.badgeLabel))
+}
 
 /**
  * Write the project's assigned source-concept-ids into a `source-concept-ids/`
@@ -86,7 +107,7 @@ export async function buildProjectSourceConceptIds(
   }
   if (ranges.length === 0 && entries.length === 0) return
 
-  if (ranges.length > 0) zip.file(`${prefix}source-concept-ids/ranges.json`, json(ranges))
+  if (ranges.length > 0) zip.file(`${prefix}source-concept-ids/ranges.json`, json(toPortableRanges(ranges)))
   if (entries.length > 0) {
     zip.file(`${prefix}source-concept-ids/entries.json`, json(toCompactEntries(entries)))
   }
@@ -108,9 +129,17 @@ export async function importProjectSourceConceptIds(
   const entriesFile = zip.file(`${prefix}source-concept-ids/entries.json`)
 
   if (rangesFile) {
-    const raw = JSON.parse(await rangesFile.async('string')) as SourceConceptIdRange[]
+    // New exports carry the portable subset (no workspaceId/timestamps); older ones
+    // the full object. Re-target workspaceId and (re)generate timestamps if absent.
+    const raw = JSON.parse(await rangesFile.async('string')) as (PortableRange & Partial<SourceConceptIdRange>)[]
+    const now = new Date().toISOString()
     for (const r of raw) {
-      await storage.sourceConceptIdRanges.save({ ...r, workspaceId })
+      await storage.sourceConceptIdRanges.save({
+        ...r,
+        workspaceId,
+        createdAt: r.createdAt ?? now,
+        updatedAt: r.updatedAt ?? now,
+      })
     }
   }
   if (entriesFile) {

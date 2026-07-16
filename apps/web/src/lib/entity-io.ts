@@ -66,6 +66,7 @@ import type { CompactSourceConceptIdEntries } from '@/lib/concept-mapping/source
 export type { CompactSourceConceptIdEntries }
 import {
   toCompactEntries,
+  toPortableRanges,
   parseSourceConceptIdEntries,
 } from '@/lib/concept-mapping/source-concept-ids-io'
 export { parseSourceConceptIdEntries }
@@ -1801,7 +1802,7 @@ export async function buildWorkspaceZip(
     // --- source-concept-ids/ (ranges + compact entries for cross-project ID assignment) ---
     const idRanges = await storage.sourceConceptIdRanges.getByWorkspace(workspaceId)
     if (idRanges.length > 0) {
-      zip.file('source-concept-ids/ranges.json', json(idRanges))
+      zip.file('source-concept-ids/ranges.json', json(toPortableRanges(idRanges)))
       const idEntries = await storage.sourceConceptIdEntries.getByWorkspace(workspaceId)
       if (idEntries.length > 0) {
         zip.file('source-concept-ids/entries.json', json(toCompactEntries(idEntries)))
