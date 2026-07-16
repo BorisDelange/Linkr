@@ -117,6 +117,50 @@ export class ApiError extends Error {
   }
 }
 
+/** Human-readable rendering of an error, split so the UI can show a short
+ *  summary up-front and keep the (often huge) raw payload behind a toggle.
+ *  When `summaryKey` is set the caller translates it with `summaryCount`;
+ *  otherwise `summary` holds a ready-to-display (server-supplied) string. */
+export interface FormattedError {
+  summary?: string
+  /** i18n key for a count-based summary (e.g. validation errors). */
+  summaryKey?: string
+  /** Interpolation count for `summaryKey`. */
+  summaryCount?: number
+  /** Full technical detail (raw body / stack), or null when there's nothing extra. */
+  detail: string | null
+}
+
+/**
+ * Turn an arbitrary thrown value into a short summary + collapsible detail.
+ * FastAPI validation errors arrive as `{"detail":[{loc,msg,...}, …]}` — a raw
+ * JSON blob that is unreadable in a dialog. We collapse it to a "N field(s)
+ * rejected" i18n summary plus a per-field breakdown; anything else falls back
+ * to its (server-supplied or raw) message.
+ */
+export function formatApiError(err: unknown): FormattedError {
+  const raw = err instanceof Error ? err.message : String(err)
+  try {
+    const body = JSON.parse(raw)
+    const detail = body?.detail
+    if (Array.isArray(detail) && detail.length > 0 && detail[0]?.loc) {
+      const lines = detail.map((d: { loc?: unknown[]; msg?: string }) => {
+        const field = Array.isArray(d.loc) ? d.loc.filter((p) => p !== 'body').join('.') : ''
+        return field ? `${field}: ${d.msg ?? ''}` : (d.msg ?? '')
+      })
+      return {
+        summaryKey: 'common.import_error_fields_rejected',
+        summaryCount: detail.length,
+        detail: lines.join('\n'),
+      }
+    }
+    if (typeof detail === 'string') return { summary: detail, detail: null }
+  } catch {
+    // not JSON — fall through to the raw message
+  }
+  return { summary: raw, detail: null }
+}
+
 /**
  * Typed JSON request helper for API entity storage adapters.
  * Prefixes /api/v1, adds auth + refresh via apiFetch, throws ApiError on failure.

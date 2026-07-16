@@ -13,7 +13,7 @@ import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { isServerMode } from '@/lib/api-client'
+import { isServerMode, formatApiError, type FormattedError } from '@/lib/api-client'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -37,6 +37,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { EditWorkspaceDialog } from './EditWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -135,7 +136,7 @@ export function WorkspacesPage() {
 
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
+  const [importError, setImportError] = useState<FormattedError | null>(null)
   /** Git-linked entities found in the last import (metadata only — content stays in their repos). */
   const [gitLinkedSummary, setGitLinkedSummary] = useState<GitLinkedEntity[] | null>(null)
   const [cloneToken, setCloneToken] = useState('')
@@ -652,11 +653,11 @@ export function WorkspacesPage() {
       const linked = collectGitLinkedEntities(parsed)
       if (linked.length > 0) setGitLinkedSummary(linked)
     } catch (err) {
-      setImportError(t('workspaces.import_error', { error: err instanceof Error ? err.message : String(err) }))
+      setImportError(formatApiError(err))
     } finally {
       setImportProgress(null)
     }
-  }, [doImport, t])
+  }, [doImport])
 
   const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -670,7 +671,7 @@ export function WorkspacesPage() {
       const parsed = await parseWorkspaceZip(file)
       if (!parsed) {
         setImportProgress(null)
-        setImportError(t('workspaces.import_invalid_zip'))
+        setImportError({ summary: t('workspaces.import_invalid_zip'), detail: null })
         return
       }
 
@@ -685,7 +686,7 @@ export function WorkspacesPage() {
       }
     } catch (err) {
       setImportProgress(null)
-      setImportError(t('workspaces.import_error', { error: err instanceof Error ? err.message : String(err) }))
+      setImportError(formatApiError(err))
     }
   }, [runImport, t])
 
@@ -951,19 +952,7 @@ export function WorkspacesPage() {
       </Dialog>
 
       {/* Import error dialog */}
-      <AlertDialog open={importError !== null} onOpenChange={(open) => { if (!open) setImportError(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('common.import_error_title')}</AlertDialogTitle>
-            <AlertDialogDescription>{importError}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setImportError(null)}>
-              {t('common.ok')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ImportErrorDialog error={importError} onClose={() => setImportError(null)} />
 
       {/* Git-linked entities summary after import (metadata only — content lives in their repos) */}
       <AlertDialog open={gitLinkedSummary !== null} onOpenChange={(open) => { if (!open) setGitLinkedSummary(null) }}>

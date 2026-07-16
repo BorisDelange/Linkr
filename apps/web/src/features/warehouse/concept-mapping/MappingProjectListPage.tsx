@@ -21,15 +21,8 @@ import { getStorage } from '@/lib/storage'
 import { parseImportZip, readBinaryFromImportZip } from '@/lib/entity-io'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
+import { formatApiError, type FormattedError } from '@/lib/api-client'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { BadgeStrip } from '@/components/ui/badge-strip'
@@ -183,7 +176,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     scoresFile?: File
   }
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
+  const [importError, setImportError] = useState<FormattedError | null>(null)
 
   const doImport = useCallback(async (project: MappingProject, children: ImportChildren, duplicate: boolean, existingId?: string) => {
     const now = new Date().toISOString()
@@ -295,7 +288,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       const parsed = await parseImportZip(file)
       const project = parsed['project.json'] as MappingProject | undefined
       if (!project?.id) {
-        setImportError(t('concept_mapping.import_invalid_zip'))
+        setImportError({ summary: t('concept_mapping.import_invalid_zip'), detail: null })
         return
       }
       // Imported from a git repo → pre-link the Versioning page to that repo (with
@@ -339,7 +332,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         await doImport(project, children, false)
       }
     } catch (err) {
-      setImportError(t('concept_mapping.import_error', { error: err instanceof Error ? err.message : String(err) }))
+      setImportError(formatApiError(err))
     }
   }, [activeWorkspaceId, t, doImport]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -535,19 +528,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       />
 
       {/* Import error dialog */}
-      <AlertDialog open={importError !== null} onOpenChange={(open) => { if (!open) setImportError(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('common.import_error_title')}</AlertDialogTitle>
-            <AlertDialogDescription>{importError}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setImportError(null)}>
-              {t('common.ok')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ImportErrorDialog error={importError} onClose={() => setImportError(null)} />
     </>
   )
 }

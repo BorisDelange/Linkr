@@ -42,6 +42,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
+import { formatApiError, type FormattedError } from '@/lib/api-client'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { CreateProjectDialog } from './CreateProjectDialog'
@@ -72,7 +74,7 @@ export function ProjectsPage() {
 
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip; gitRemote?: ImportGitRemote } | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
+  const [importError, setImportError] = useState<FormattedError | null>(null)
 
   useEffect(() => {
     if (searchParams.get('create') === 'true') {
@@ -266,7 +268,7 @@ export function ProjectsPage() {
     try {
       const parsed = await parseProjectZip(file)
       if (!parsed) {
-        setImportError(t('projects.import_invalid_zip'))
+        setImportError({ summary: t('projects.import_invalid_zip'), detail: null })
         return
       }
 
@@ -287,7 +289,7 @@ export function ProjectsPage() {
         await doImport(parsed, false, gitRemote)
       }
     } catch (err) {
-      setImportError(t('projects.import_error', { error: err instanceof Error ? err.message : String(err) }))
+      setImportError(formatApiError(err))
     }
   }, [doImport, t, wsUid, activeWorkspaceId])
 
@@ -494,19 +496,7 @@ export function ProjectsPage() {
       </AlertDialog>
 
       {/* Import error dialog */}
-      <AlertDialog open={importError !== null} onOpenChange={(open) => { if (!open) setImportError(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('common.import_error_title')}</AlertDialogTitle>
-            <AlertDialogDescription>{importError}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setImportError(null)}>
-              {t('common.ok')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ImportErrorDialog error={importError} onClose={() => setImportError(null)} />
     </div>
   )
 }
