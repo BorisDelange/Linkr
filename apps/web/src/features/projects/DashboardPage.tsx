@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -138,6 +138,27 @@ export function DashboardPage() {
     const tabIds = new Set(dashboardTabs.map((t) => t.id))
     return tabIds.has(w.tabId)
   })
+
+  // Widgets grouped by tab id, recomputed only when `widgets` actually changes. Each tab's slice
+  // keeps a STABLE reference across tab switches, so a memoized WidgetGrid whose props are otherwise
+  // unchanged bails out of re-rendering — switching tabs then costs one class flip, not a full
+  // reconcile of every kept-alive grid's charts (the ~1s freeze on tab click).
+  const widgetsByTab = useMemo(() => {
+    const m = new Map<string, typeof widgets>()
+    for (const w of widgets) {
+      const list = m.get(w.tabId)
+      if (list) list.push(w)
+      else m.set(w.tabId, [w])
+    }
+    return m
+  }, [widgets])
+  const emptyWidgets = useMemo<typeof widgets>(() => [], [])
+
+  // Stable so it doesn't defeat WidgetGrid's memoization on every DashboardPage render.
+  const handleRequestExport = useCallback((widgetId: string) => {
+    setExportPreselectId(widgetId)
+    setExportOpen(true)
+  }, [])
 
   // Count widgets (across every tab) whose plugin changed since they were created/edited.
   const staleWidgetCount = useMemo(
@@ -286,12 +307,12 @@ export function DashboardPage() {
               aria-hidden={tab.id !== currentTabId}
             >
               <WidgetGrid
-                widgets={widgets.filter((w) => w.tabId === tab.id)}
+                widgets={widgetsByTab.get(tab.id) ?? emptyWidgets}
                 editMode={editMode}
                 hideTitleBars={dashboard.showWidgetTitles === false}
                 dashboard={dashboard}
                 projectUid={projectUid}
-                onRequestExport={(widgetId) => { setExportPreselectId(widgetId); setExportOpen(true) }}
+                onRequestExport={handleRequestExport}
               />
             </div>
           ))}

@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
+import { useMemo, useCallback, useRef, useEffect, useState, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GridLayout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
@@ -198,10 +198,22 @@ function WidgetCell({
   )
 }
 
-export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projectUid, onRequestExport }: WidgetGridProps) {
+function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUid, onRequestExport }: WidgetGridProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
-  const { updateWidgetLayout, removeWidget, updateWidget, acceptPluginVersion, activeFilters, tabs, moveWidget, duplicateWidget, fitDashboardToHeight } = useDashboardStore()
+  // Subscribe NARROWLY: only the reactive state this grid actually depends on (filters + tabs).
+  // A bare useDashboardStore() would subscribe to the whole store, so every action — including
+  // setActiveTab — would re-render every kept-alive grid on each tab switch (the ~1s freeze).
+  // Actions are stable references, so selecting them individually never triggers a re-render.
+  const activeFilters = useDashboardStore((s) => s.activeFilters)
+  const tabs = useDashboardStore((s) => s.tabs)
+  const updateWidgetLayout = useDashboardStore((s) => s.updateWidgetLayout)
+  const removeWidget = useDashboardStore((s) => s.removeWidget)
+  const updateWidget = useDashboardStore((s) => s.updateWidget)
+  const acceptPluginVersion = useDashboardStore((s) => s.acceptPluginVersion)
+  const moveWidget = useDashboardStore((s) => s.moveWidget)
+  const duplicateWidget = useDashboardStore((s) => s.duplicateWidget)
+  const fitDashboardToHeight = useDashboardStore((s) => s.fitDashboardToHeight)
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
   const [availableHeight, setAvailableHeight] = useState(0)
@@ -494,3 +506,8 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     </div>
   )
 }
+
+/** Memoized so switching tabs (which changes only the dashboard store's activeTabId) doesn't
+ *  re-render every kept-alive grid. Relies on stable props from DashboardPage (a per-tab widget
+ *  slice + a useCallback'd onRequestExport) and the narrow store subscription above. */
+export const WidgetGrid = memo(WidgetGridImpl)
