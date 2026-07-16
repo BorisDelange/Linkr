@@ -402,14 +402,16 @@ describe('importProjectContent — server-mode datasets', () => {
   const makeStore = () => {
     const widgetCreate = vi.fn(async (_w: { datasetFileId?: string; source?: unknown }) => {})
     const datasetFileCreate = vi.fn(async (_f: unknown) => {})
+    const dashboardCreate = vi.fn(async (_d: unknown) => {})
     const store = new Proxy({}, {
       get: (_t, prop) => {
         if (prop === 'dashboardWidgets') return { create: widgetCreate }
         if (prop === 'datasetFiles') return { create: datasetFileCreate }
+        if (prop === 'dashboards') return { create: dashboardCreate }
         return new Proxy({}, { get: () => async () => {} })
       },
     }) as unknown as Storage
-    return { store, widgetCreate, datasetFileCreate }
+    return { store, widgetCreate, datasetFileCreate, dashboardCreate }
   }
 
   beforeEach(() => {
@@ -449,6 +451,38 @@ describe('importProjectContent — server-mode datasets', () => {
     // Plugin column ids (scalar + array) are remapped to the server's ids so the widget
     // still resolves its columns instead of showing an empty selection.
     expect(createdWidget.source?.config).toEqual({ column: 'srv-0', groupColumn: 'srv-1', popupColumns: ['srv-0', 'srv-1'] })
+  })
+
+  it('remaps a dashboard filter columnId to the server column id (by name)', async () => {
+    serverMode.value = true
+    importDatasetOnServer.mockResolvedValue({
+      id: 'table.csv',
+      columns: [{ id: 'srv-0', name: 'age' }, { id: 'srv-1', name: 'sex' }],
+    })
+
+    const parsed = emptyParsed({
+      datasetFiles: [{
+        id: 'zip-uuid', name: 'table.csv', type: 'file', parentId: null,
+        columns: [{ id: 'zip-0', name: 'age', type: 'number', order: 0 }, { id: 'zip-1', name: 'sex', type: 'string', order: 1 }],
+      } as unknown as DatasetFile],
+      datasetRawFiles: [{ datasetFileId: 'zip-uuid', blob: new Blob(['age,sex\n1,M']), fileName: 'table.csv' }],
+      dashboards: [{
+        id: 'd1', projectUid: 'p1', name: { en: 'D' }, gridV: 2,
+        filterConfig: [
+          { id: 'f1', datasetFileId: 'zip-uuid', columnId: 'zip-1', columnName: 'sex', type: 'categorical', inputType: 'multi-select' },
+        ],
+      } as unknown as ParsedProjectZip['dashboards'][number]],
+    })
+
+    const { store, dashboardCreate } = makeStore()
+    await importProjectContent(parsed, 'p1', store)
+
+    const createdDash = dashboardCreate.mock.calls[0]?.[0] as { filterConfig?: { datasetFileId?: string; columnId?: string }[] }
+    const f = createdDash.filterConfig?.[0]
+    // The filter now points at the server's path + freshly-parsed column id, so it can resolve
+    // its values instead of querying a column id the server no longer knows.
+    expect(f?.datasetFileId).toBe('table.csv')
+    expect(f?.columnId).toBe('srv-1')
   })
 
   it('front-only mode creates the dataset file via storage (no server upload)', async () => {

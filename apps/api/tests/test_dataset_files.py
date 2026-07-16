@@ -65,6 +65,27 @@ async def test_column_stats_over_cache(client, seed_roles):
     assert st["min"] == 10 and st["max"] == 30 and st["mean"] == 20
 
 
+async def test_column_distinct_over_cache(client, seed_roles):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "wards.csv").write_text("ward\nICU\nER\nICU\nWard\n")
+    files = (await client.get(f"{API}/dataset-files", headers=h, params={"projectUid": uid})).json()
+    col_id = files[0]["columns"][0]["id"]
+    r = await client.get(
+        f"{API}/dataset-files/columns/{col_id}/distinct",
+        headers=h, params={"projectUid": uid, "path": "wards.csv"},
+    )
+    body = r.json()
+    assert body["values"] == ["ER", "ICU", "Ward"]
+    assert body["truncated"] is False
+    # Search narrows (case-insensitive): "%er%" matches only "ER".
+    r2 = await client.get(
+        f"{API}/dataset-files/columns/{col_id}/distinct",
+        headers=h, params={"projectUid": uid, "path": "wards.csv", "search": "er"},
+    )
+    assert r2.json()["values"] == ["ER"]
+
+
 async def test_delete_purges_cache(client, seed_roles):
     h = await _admin_headers(client)
     uid = await _project(client, h)

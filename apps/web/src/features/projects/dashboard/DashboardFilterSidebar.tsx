@@ -30,6 +30,8 @@ import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardTab, Da
 import { localized } from '@/lib/localized'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { isServerMode } from '@/lib/api-client'
+import { fetchColumnDistinct, fetchColumnStats } from '@/lib/api/datasets'
 import { presetLabel } from './date-presets'
 import { FILTER_NONE } from './DashboardDataProvider'
 
@@ -48,7 +50,7 @@ interface DashboardFilterSidebarProps {
 export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onClose }: DashboardFilterSidebarProps) {
   const { t } = useTranslation()
   const { activeFilters, setFilter, clearFilter, clearAllFilters, updateDashboard } = useDashboardStore()
-  const { files: datasetFiles, getFileRows } = useDatasetStore()
+  const { files: datasetFiles } = useDatasetStore()
 
   // Resizable sidebar width (drag the left edge). Default a bit wider so date From/To fields aren't clipped.
   const [width, setWidth] = useState(340)
@@ -288,7 +290,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
 
             {dashboard.filterConfig.map((fc) => {
               const dsFile = datasetFiles.find((f) => f.id === fc.datasetFileId)
-              const rows = getFileRows(fc.datasetFileId)
               const inputTypeOptions = getInputTypeOptions(fc.type)
               // Filters are collapsed by default to save space; the `expanded` set flips that.
               const toggled = expanded.has(fc.id)
@@ -381,9 +382,8 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
 
                       {/* Filter control — hidden in edit mode (no live preview while configuring) */}
                       {!editMode && (
-                        <FilterControl
+                        <FilterControlWithData
                           fc={fc}
-                          rows={rows}
                           value={activeFilters[fc.id]}
                           onChange={(v) => handleFilterChange(fc.id, v)}
                         />
@@ -523,6 +523,85 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
 }
 
 // --- Filter control dispatcher ---
+
+/** Row data feeding a filter control's option/range derivation.
+ *
+ *  Front-only mode: the real dataset rows (subscribed to `_dirtyVersion` so we
+ *  re-render once an async load populates them). Server mode: rows are never
+ *  shipped to the browser, so we fetch just what the control needs from the
+ *  backend and synthesize a minimal `rows` shape keyed by the column id —
+ *  distinct values for categorical inputs, or a [{min},{max}] pair for numeric
+ *  ranges — so the existing controls work unchanged. */
+function useFilterControlRows(fc: DashboardFilter): Record<string, unknown>[] {
+  const { getFileRows, loadFileData, _dirtyVersion } = useDatasetStore()
+  const datasetFiles = useDatasetStore((s) => s.files)
+  const [serverRows, setServerRows] = useState<Record<string, unknown>[]>([])
+  const server = isServerMode()
+  const isNumericRange = fc.inputType === 'range' && fc.type !== 'date'
+
+  // The stored columnId can be stale (e.g. a filter imported before its columnId was remapped
+  // to the re-parsed server ids), so resolve the CURRENT column id from the dataset by name —
+  // the same by-name matching the runtime filter application uses. Falls back to the stored id.
+  const fetchColId = useMemo(() => {
+    const cols = datasetFiles.find((f) => f.id === fc.datasetFileId)?.columns ?? []
+    return cols.find((c) => c.name === fc.columnName)?.id ?? fc.columnId
+  }, [datasetFiles, fc.datasetFileId, fc.columnName, fc.columnId])
+
+  // Front-only: nothing else loads the filter's dataset rows into the browser cache
+  // (the widget provider only loads the widget's own dataset), so trigger it here.
+  useEffect(() => {
+    if (!server) void loadFileData(fc.datasetFileId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server, fc.datasetFileId])
+
+  useEffect(() => {
+    if (!server) return
+    let cancelled = false
+    // Key synthesized rows by the control's stored columnId (what it reads via row[columnId]),
+    // but fetch using the resolved current id.
+    const key = fc.columnId
+    if (isNumericRange) {
+      fetchColumnStats(fc.datasetFileId, fetchColId)
+        .then((s) => {
+          if (cancelled) return
+          const min = s.min as number | undefined
+          const max = s.max as number | undefined
+          setServerRows(
+            min == null || max == null ? [] : [{ [key]: min }, { [key]: max }],
+          )
+        })
+        .catch(() => { if (!cancelled) setServerRows([]) })
+    } else {
+      fetchColumnDistinct(fc.datasetFileId, fetchColId)
+        .then((r) => { if (!cancelled) setServerRows(r.values.map((v) => ({ [key]: v }))) })
+        .catch(() => { if (!cancelled) setServerRows([]) })
+    }
+    return () => { cancelled = true }
+  }, [server, isNumericRange, fc.datasetFileId, fc.columnId, fetchColId])
+
+  // Front-only: read the loaded rows; _dirtyVersion in deps forces a re-read when
+  // an async load finally populates the module-level cache.
+  return useMemo(
+    () => (server ? serverRows : getFileRows(fc.datasetFileId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [server, serverRows, fc.datasetFileId, _dirtyVersion],
+  )
+}
+
+/** Filter control that sources its own row data (front-only rows or server-fetched
+ *  values). Separate component so the data hook runs per control (not in a .map). */
+function FilterControlWithData({
+  fc,
+  value,
+  onChange,
+}: {
+  fc: DashboardFilter
+  value?: FilterValue
+  onChange: (value: FilterValue) => void
+}) {
+  const rows = useFilterControlRows(fc)
+  return <FilterControl fc={fc} rows={rows} value={value} onChange={onChange} />
+}
 
 function FilterControl({
   fc,

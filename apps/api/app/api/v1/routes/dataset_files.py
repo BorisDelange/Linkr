@@ -115,6 +115,25 @@ async def column_stats(
     return dataset_rows.column_stats(res["parquet"], col_id, col["type"])
 
 
+@router.get("/columns/{col_id}/distinct")
+async def column_distinct(
+    col_id: str,
+    project_uid: str = Query(alias="projectUid"),
+    path: str = Query(),
+    limit: int = Query(1000, ge=1, le=1000),
+    search: str | None = Query(None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Distinct values of a column, for a filter dropdown. Unlike /stats (top-20
+    by frequency), lists values alphabetically up to `limit` with optional search."""
+    res = await _resolve_file(db, project_uid, path, user, "datasets:read")
+    col = next((c for c in res["columns"] if c["id"] == col_id), None)
+    if col is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
+    return dataset_rows.distinct_values(res["parquet"], col_id, limit=limit, search=search)
+
+
 @router.get("/raw")
 async def get_raw(
     project_uid: str = Query(alias="projectUid"),

@@ -706,6 +706,11 @@ export async function importProjectContent(
       ...f,
       id: mapId(f.id),
       datasetFileId: resolveDatasetId(f.datasetFileId),
+      // In server mode the CSV is re-parsed on import and columns get fresh ids, so the
+      // filter's stored columnId must be remapped like widgets' config colIds — otherwise
+      // it points at a column the server no longer knows and the filter can't resolve its
+      // values (front-only: colIdMap is empty, so this is a no-op).
+      columnId: colIdMap.get(f.columnId) ?? f.columnId,
       ...(f.scope?.type === 'tabs' ? { scope: { ...f.scope, tabIds: f.scope.tabIds.map(mapId) } } : {}),
       ...(f.scope?.type === 'widgets' ? { scope: { ...f.scope, widgetIds: f.scope.widgetIds.map(mapId) } } : {}),
     }))

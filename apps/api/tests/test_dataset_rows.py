@@ -1,6 +1,6 @@
 """Round-trip + paging parity for the Parquet row store (dataset_rows)."""
 
-from app.services.data.dataset_rows import read_parquet, write_parquet
+from app.services.data.dataset_rows import distinct_values, read_parquet, write_parquet
 
 
 def _roundtrip(rows, columns, **kw):
@@ -58,3 +58,45 @@ def test_paging_with_limit_offset():
     rows = [{"c0": v} for v in ["a", "b", "c", "d"]]
     assert _roundtrip(rows, cols, offset=1, limit=2) == [{"c0": "b"}, {"c0": "c"}]
     assert _roundtrip(rows, cols, offset=0, limit=10) == rows
+
+
+def _parquet(rows, columns):
+    return write_parquet(rows, columns)
+
+
+def test_distinct_values_sorted_unique_no_nulls():
+    cols = [{"id": "c0", "type": "string"}]
+    rows = [{"c0": v} for v in ["B", "A", "B", None, "C", "A"]]
+    out = distinct_values(_parquet(rows, cols), "c0")
+    assert out == {"values": ["A", "B", "C"], "truncated": False}
+
+
+def test_distinct_values_search_is_case_insensitive():
+    cols = [{"id": "c0", "type": "string"}]
+    rows = [{"c0": v} for v in ["Alpha", "beta", "Gamma", "alto"]]
+    out = distinct_values(_parquet(rows, cols), "c0", search="al")
+    # ILIKE %al% matches "Alpha" and "alto" regardless of case.
+    assert out["values"] == ["Alpha", "alto"]
+    assert out["truncated"] is False
+
+
+def test_distinct_values_truncates_at_limit():
+    cols = [{"id": "c0", "type": "string"}]
+    rows = [{"c0": f"v{i:03d}"} for i in range(10)]
+    out = distinct_values(_parquet(rows, cols), "c0", limit=3)
+    assert out["values"] == ["v000", "v001", "v002"]
+    assert out["truncated"] is True
+
+
+def test_distinct_values_numeric_column_cast_to_string():
+    cols = [{"id": "c0", "type": "number"}]
+    rows = [{"c0": 2}, {"c0": 1}, {"c0": 2}]
+    out = distinct_values(_parquet(rows, cols), "c0")
+    # Values come back as strings (dropdown labels); numeric order via VARCHAR sort.
+    assert out["values"] == ["1.0", "2.0"]
+
+
+def test_distinct_values_empty_col_id():
+    cols = [{"id": "c0", "type": "string"}]
+    out = distinct_values(_parquet([{"c0": "a"}], cols), "")
+    assert out == {"values": [], "truncated": False}

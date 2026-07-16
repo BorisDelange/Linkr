@@ -157,6 +157,22 @@ export function fetchColumnStats(
   )
 }
 
+/** Distinct values of a column (alphabetical, up to `limit`, optional case-insensitive
+ *  search) for a filter dropdown — server-side SELECT DISTINCT, no raw rows shipped. */
+export function fetchColumnDistinct(
+  datasetFileId: string,
+  colId: string,
+  opts?: { limit?: number; search?: string },
+): Promise<{ values: string[]; truncated: boolean }> {
+  const projectUid = _dsProject.get(datasetFileId) ?? ''
+  let qs = `projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(datasetFileId)}`
+  if (opts?.limit) qs += `&limit=${opts.limit}`
+  if (opts?.search) qs += `&search=${encodeURIComponent(opts.search)}`
+  return apiRequest<{ values: string[]; truncated: boolean }>(
+    `/dataset-files/columns/${encodeURIComponent(colId)}/distinct?${qs}`,
+  )
+}
+
 /**
  * Server-mode dataset storage. Metadata (DatasetFile, DatasetAnalysis) is CRUD
  * against the API; heavy content (rows, raw file) is blob-backed on the server.

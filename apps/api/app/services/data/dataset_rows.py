@@ -298,6 +298,45 @@ def _category_stats(con: duckdb.DuckDBPyConnection, src: str, ident: str) -> dic
     }
 
 
+_DISTINCT_LIMIT = 1000
+
+
+def distinct_values(
+    path: Path, col_id: str, limit: int = _DISTINCT_LIMIT, search: str | None = None
+) -> dict:
+    """Distinct non-null values of one column, sorted, for a filter dropdown.
+
+    Runs ``SELECT DISTINCT`` in DuckDB against the Parquet so the browser never
+    pulls the raw dataset (server counterpart to the sidebar's client-side value
+    scan). Unlike ``column_stats`` (top-20 by frequency), this lists values
+    alphabetically up to ``limit`` and supports a case-insensitive ``search`` to
+    power the multi-select's search box. ``truncated`` signals more remain."""
+    if not col_id:
+        return {"values": [], "truncated": False}
+    limit = max(1, min(int(limit), _DISTINCT_LIMIT))
+    ident = _quote_ident(col_id)
+    src = f"read_parquet('{path.as_posix()}')"
+    v = f"CAST({ident} AS VARCHAR)"
+    con = duckdb.connect()
+    try:
+        where = f"WHERE {ident} IS NOT NULL"
+        params: list[Any] = []
+        if search:
+            where += f" AND {v} ILIKE ?"
+            params.append(f"%{search}%")
+        # Fetch limit+1 to detect truncation without a separate count query.
+        rows = con.execute(
+            f"SELECT DISTINCT {v} AS val FROM {src} {where} "
+            f"ORDER BY val LIMIT {limit + 1}",
+            params,
+        ).fetchall()
+        values = [r[0] for r in rows]
+        truncated = len(values) > limit
+        return {"values": values[:limit], "truncated": truncated}
+    finally:
+        con.close()
+
+
 def column_stats(path: Path, col_id: str, col_type: str) -> dict:
     """Aggregate stats for one column (server counterpart to ColumnStatsPanel).
 
