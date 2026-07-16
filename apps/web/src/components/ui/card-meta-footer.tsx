@@ -1,21 +1,28 @@
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDate } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
-import { useUserDirectoryStore } from '@/stores/user-directory-store'
+import { useUserDirectoryStore, toDetails } from '@/stores/user-directory-store'
 import { useAppStore } from '@/stores/app-store'
+import { useOrganizationStore } from '@/stores/organization-store'
 import type { AuthorDetails } from '@/types/author'
 import type { OrganizationInfo } from '@/types'
 
 interface CardMetaFooterProps {
-  /** Stable creator id — resolved to the *current* display name when known. */
+  /** Stable creator id — resolved to the *current* display name AND details
+   *  (affiliation / profession / ORCID) when known. */
   createdById?: number
   /** Display-name snapshot; fallback when the id can't be resolved. */
   createdBy?: string
+  /** Frozen author-identity snapshot; fallback when the id can't be resolved. */
   createdByDetails?: AuthorDetails
-  /** Frozen provenance snapshot of the origin organization (shown in the author hover). */
+  /** Stable origin-organization id — resolved live from the org store when known. */
+  organizationId?: string
+  /** Frozen provenance snapshot of the origin organization; fallback when the id
+   *  can't be resolved (author gone / cross-instance import). */
   organization?: OrganizationInfo
   createdAt?: string
   updatedAt?: string
@@ -138,16 +145,28 @@ function DateChip({ date, tooltip }: { date: string; tooltip: string }) {
  * which). Renders nothing when there's nothing to show. Sits below the card body
  * so every harmonized list widget reads the same.
  */
-export function CardMetaFooter({ createdById, createdBy, createdByDetails, organization, createdAt, updatedAt, leading, className }: CardMetaFooterProps) {
+export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, leading, className }: CardMetaFooterProps) {
   const { t, i18n } = useTranslation()
-  // Prefer the live directory name (reflects profile renames); fall back to the
-  // snapshot taken at creation when the id can't be resolved (author gone / import).
-  // Also subscribe to the current user so the author's OWN cards re-render right
-  // after they rename their profile (resolveName reads the live app-store value
-  // for id === me.id, which isn't a directory-store change on its own).
-  useAppStore((s) => (createdById != null && s.user?.id === createdById ? s.user : null))
+  // Prefer the live directory name + details (reflects profile edits); fall back to
+  // the snapshot taken at creation when the id can't be resolved (author gone /
+  // import). Select only STABLE store references here (the raw directory row and the
+  // current user) — deriving AuthorDetails inside the selector would return a fresh
+  // object each render and loop the render (Maximum update depth). Derive below with
+  // useMemo instead. Subscribing to `me` also re-renders the author's OWN cards after
+  // they edit their profile (a change the directory store wouldn't reflect).
+  const me = useAppStore((s) => (createdById != null && s.user?.id === createdById ? s.user : null))
+  const dirUser = useUserDirectoryStore((s) => (createdById != null ? s.byId[createdById] : undefined))
   const resolved = useUserDirectoryStore((s) => (createdById != null ? s.resolveName(createdById) : ''))
-  const label = resolved || authorLabel(createdBy, createdByDetails)
+  const resolvedDetails = useMemo(() => {
+    const src = me ?? dirUser
+    return src ? toDetails(src) : undefined
+  }, [me, dirUser])
+  const details = resolvedDetails ?? createdByDetails
+  // Same asymmetry-killer for the origin org: resolve it live by id (reflects org
+  // edits), fall back to the frozen snapshot for cross-instance imports.
+  const liveOrg = useOrganizationStore((s) => (organizationId ? s.getOrganization(organizationId) : undefined))
+  const org = liveOrg ?? organization
+  const label = resolved || authorLabel(createdBy, details)
   const created = createdAt ? formatDate(createdAt, i18n.language) : ''
   const updated = updatedAt ? formatDate(updatedAt, i18n.language) : ''
   if (!label && !created && !updated && !leading) return null
@@ -164,8 +183,8 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
         {label && (
           <AuthorChip
             label={label}
-            details={createdByDetails}
-            organization={organization}
+            details={details}
+            organization={org}
             lang={i18n.language}
             t={t}
           />

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { stampAuthored } from '@/stores/app-store'
 import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
 import * as engine from '@/lib/duckdb/engine'
 import type {
@@ -237,6 +238,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       level: source.level,
       criteriaTree: source.criteriaTree ?? makeEmptyTree(),
       schemaVersion: CURRENT_SCHEMA_VERSION,
+      ...stampAuthored(),
       createdAt: now,
       updatedAt: now,
     }

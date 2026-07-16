@@ -1,5 +1,7 @@
 // --- Cohort Builder Types ---
 
+import type { Authored } from '@/types/author'
+
 /** Extraction level for the cohort */
 export type CohortLevel = 'patient' | 'visit' | 'visit_detail' | 'event'
 
@@ -136,7 +138,7 @@ export type CriteriaTreeNode = CriterionNode | CriteriaGroupNode
 
 // --- Cohort ---
 
-export interface Cohort {
+export interface Cohort extends Authored {
   id: string
   projectUid: string
   name: string

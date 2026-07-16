@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { isServerMode } from '@/lib/api-client'
 import { membersApi, type DirectoryUser } from '@/lib/api/members'
 import { useAppStore } from '@/stores/app-store'
+import type { AuthorDetails } from '@/types/author'
 
 interface UserDirectoryState {
   byId: Record<number, DirectoryUser>
@@ -9,6 +10,22 @@ interface UserDirectoryState {
   loadDirectory: () => Promise<void>
   /** Resolve a user id to a current display name, or '' if unknown. */
   resolveName: (id: number) => string
+}
+
+/** Build an AuthorDetails from any user-like record, dropping empty fields.
+ *  Exported so components can derive details from a raw store record inside a
+ *  useMemo — calling this straight from a zustand selector returns a fresh object
+ *  each render and loops the render (Maximum update depth). */
+export function toDetails(u: {
+  firstName?: string; lastName?: string; affiliation?: string; profession?: string; orcid?: string
+}): AuthorDetails {
+  const d: AuthorDetails = {}
+  if (u.firstName?.trim()) d.firstName = u.firstName.trim()
+  if (u.lastName?.trim()) d.lastName = u.lastName.trim()
+  if (u.affiliation?.trim()) d.affiliation = u.affiliation.trim()
+  if (u.profession?.trim()) d.profession = u.profession.trim()
+  if (u.orcid?.trim()) d.orcid = u.orcid.trim()
+  return d
 }
 
 function displayName(u: { firstName?: string; lastName?: string; username: string }): string {

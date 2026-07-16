@@ -116,7 +116,13 @@ export function CohortCard({
           )}
         </div>
        </div>
-        <CardMetaFooter createdAt={cohort.createdAt} updatedAt={cohort.updatedAt} />
+        <CardMetaFooter
+          createdById={cohort.createdById}
+          createdBy={cohort.createdBy}
+          createdByDetails={cohort.createdByDetails}
+          createdAt={cohort.createdAt}
+          updatedAt={cohort.updatedAt}
+        />
       </div>
     </Card>
   )
