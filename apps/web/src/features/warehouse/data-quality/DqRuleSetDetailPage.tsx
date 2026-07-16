@@ -84,15 +84,15 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     const score = applicable > 0 ? Math.round((report.summary.passed / applicable) * 100) : 100
     const durationMs = report.results.reduce((sum, r) => sum + r.executionTimeMs, 0)
 
-    updateRuleSet(ruleSet.id, {
+    void updateRuleSet(ruleSet.id, {
       status: report.summary.failed > 0 ? 'error' : 'success',
       lastRunAt: report.computedAt,
       lastRunDurationMs: durationMs,
       lastScore: score,
-    })
+    }).catch((e) => console.warn('[dq] rule-set persist:', e))
 
-    addRunHistory({
-      id: `run_${Date.now()}`,
+    void addRunHistory({
+      id: crypto.randomUUID(),
       ruleSetId: ruleSet.id,
       dataSourceId: ruleSet.dataSourceId,
       startedAt: report.computedAt,
@@ -106,7 +106,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
       notApplicable: report.summary.notApplicable,
       durationMs,
       report,
-    })
+    }).catch((e) => console.warn('[dq] run-history persist:', e))
   }, [ruleSet, updateRuleSet, addRunHistory])
 
   if (!dqRuleSetsLoaded) return null

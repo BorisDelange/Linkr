@@ -326,11 +326,11 @@ export function CreateMappingProjectDialog({
     buffer: Uint8Array, vocabCol: string | undefined, codeCol: string | undefined,
   ): Promise<number> => {
     if (!codeCol) return 0
+    const { getDuckDB } = await import('@/lib/duckdb/engine')
+    const db = await getDuckDB()
+    const tmpName = `__dup_${crypto.randomUUID()}.csv`
     try {
-      const { getDuckDB } = await import('@/lib/duckdb/engine')
-      const db = await getDuckDB()
       const conn = await db.connect()
-      const tmpName = `__dup_${crypto.randomUUID()}.csv`
       await db.registerFileBuffer(tmpName, buffer)
       const esc = (s: string) => s.replace(/"/g, '""')
       const keyCols = vocabCol ? `"${esc(vocabCol)}", "${esc(codeCol)}"` : `"${esc(codeCol)}"`
@@ -342,6 +342,11 @@ export function CreateMappingProjectDialog({
       return removed
     } catch {
       return 0
+    } finally {
+      // Each call registers a full CSV copy under a unique name; drop it or the
+      // buffers accumulate for the DB lifetime (the effect below re-runs on every
+      // mapping edit). Mirrors scores-engine's dropFile-in-finally.
+      try { await db.dropFile(tmpName) } catch { /* not registered / already dropped */ }
     }
   }, [])
 

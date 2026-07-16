@@ -161,7 +161,6 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   // without making them deps (we don't want every vote to retrigger the query).
   // All keyed by (vocabulary_id, concept_code) via `vocab\0code`.
   const mappingStatusFilterRef = useRef<MappingStatusFilter>('all')
-  const mappingStatusMapRef = useRef<Map<number, 'mapped'>>(new Map())
   const otherProjectsMappedKeysRef = useRef<Set<string> | null>(null)
   const projectMappedKeysRef = useRef<Set<string>>(new Set())
   const projectIgnoredKeysRef = useRef<Set<string>>(new Set())
@@ -515,7 +514,6 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     }
     return map
   }, [rows, projectMappedKeys])
-  mappingStatusMapRef.current = mappingStatusMap
 
   const ignoredConceptIds = useMemo(() => {
     const set = new Set<number>()

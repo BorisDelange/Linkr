@@ -97,7 +97,7 @@ export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Pr
                         {entry.durationMs != null && (
                           <span>{t('data_quality.history_duration', { duration: (entry.durationMs / 1000).toFixed(1) })}</span>
                         )}
-                        {entry.failed > 0 && <span className="text-red-600 dark:text-red-400">{entry.failed} failed</span>}
+                        {entry.failed > 0 && <span className="text-red-600 dark:text-red-400">{t('data_quality.history_failed', { count: entry.failed })}</span>}
                       </div>
                     </div>
                     <Button

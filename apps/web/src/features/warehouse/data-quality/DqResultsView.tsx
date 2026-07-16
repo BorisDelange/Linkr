@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { ShieldCheck, Play, Loader2, PanelRight, BarChart3, History, X } from 'lucide-react'
+import { ShieldCheck, Play, Loader2, PanelRight, BarChart3, History, X, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -58,6 +58,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
   // Set when the displayed report comes from a past run (not a fresh scan) —
   // drives the "viewing a historical run" banner. Cleared on a new scan.
   const [viewedRunAt, setViewedRunAt] = useState<string | null>(null)
+  const [scanError, setScanError] = useState<string | null>(null)
   const cancelledRef = useRef(false)
 
   const handleRunScan = useCallback(async () => {
@@ -67,6 +68,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
     setReport(null)
     setSelectedCheckId(null)
     setViewedRunAt(null)
+    setScanError(null)
     setProgress({ done: 0, total: 0 })
 
     try {
@@ -91,7 +93,9 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
         onScanComplete?.(result)
       }
     } catch (err) {
-      console.error('[DQ] Scan failed:', err)
+      if (!cancelledRef.current) {
+        setScanError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       setLoading(false)
     }
@@ -275,6 +279,23 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
               size="icon-xs"
               className="ml-auto h-5 w-5 text-amber-700 hover:text-amber-900 dark:text-amber-300"
               onClick={() => { setReport(null); setViewedRunAt(null); setSelectedCheckId(null) }}
+              title={t('common.close')}
+            >
+              <X size={13} />
+            </Button>
+          </div>
+        )}
+
+        {/* Scan-failure banner — surfaces an error that would otherwise be silent. */}
+        {scanError && !loading && (
+          <div className="flex items-center gap-2 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+            <AlertTriangle size={13} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate" title={scanError}>{t('data_quality.scan_failed', { message: scanError })}</span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="ml-auto h-5 w-5 text-destructive"
+              onClick={() => setScanError(null)}
               title={t('common.close')}
             >
               <X size={13} />

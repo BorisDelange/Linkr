@@ -200,8 +200,9 @@ async def create_run(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if body.rule_set_id:
-        await _load_rule_set(db, body.rule_set_id, user, "data-quality:write")
+    rule_set = await _load_rule_set(db, body.rule_set_id, user, "data-quality:write")
+    # Trust the rule set's workspace, not the client-supplied one.
+    body.workspace_id = rule_set.workspace_id
     return await dq_rule_set_service.create_run(db, body)
 
 

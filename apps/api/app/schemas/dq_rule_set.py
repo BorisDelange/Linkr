@@ -104,7 +104,10 @@ class DqCustomCheckResponse(CamelModel):
 
 class DqRunHistoryCreate(CamelModel):
     id: str
-    rule_set_id: str | None = None
+    # Required (like DqCustomCheckCreate.rule_set_id): the route authorizes the
+    # write via this rule set's workspace, so a null value must not slip past the
+    # `if body.rule_set_id` guard and let any authed user write an orphan run.
+    rule_set_id: str
     workspace_id: str | None = None
     data_source_id: str
     started_at: str

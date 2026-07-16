@@ -140,3 +140,30 @@ async def test_run_history_crud_and_report_roundtrip(client):
     })
     assert (await client.delete(f"{API}/dq-rule-sets/{rs['id']}/runs", headers=headers)).status_code == 204
     assert (await client.get(f"{API}/dq-rule-sets/{rs['id']}/runs", headers=headers)).json() == []
+
+
+async def test_create_run_requires_rule_set_and_membership(client, db):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    rs = await _rule_set(client, headers, ws)
+
+    # A run without a ruleSetId is rejected at validation (no orphan-write path).
+    assert (await client.post(f"{API}/dq-run-history", headers=headers, json={
+        "id": "orphan", "dataSourceId": "src-1", "startedAt": "2026-07-14T10:00:00Z",
+        "status": "success",
+    })).status_code == 422
+
+    # A non-member cannot write a run against someone else's rule set.
+    other = await _create_user(db, client, "bob")
+    resp = await client.post(f"{API}/dq-run-history", headers=other, json={
+        "id": "run-x", "ruleSetId": rs["id"], "dataSourceId": "src-1",
+        "startedAt": "2026-07-14T10:00:00Z", "status": "success",
+    })
+    assert resp.status_code == 403
+
+    # The server stamps workspaceId from the rule set, ignoring a spoofed client value.
+    created = (await client.post(f"{API}/dq-run-history", headers=headers, json={
+        "id": "run-ws", "ruleSetId": rs["id"], "workspaceId": "spoofed",
+        "dataSourceId": "src-1", "startedAt": "2026-07-14T10:00:00Z", "status": "success",
+    })).json()
+    assert created["workspaceId"] == ws

@@ -109,31 +109,3 @@ export function buildFilterChips(
   }
   return chips
 }
-
-/** Filter chips that apply to a whole tab: the union of the chips of every widget on that tab,
- *  deduplicated by column name. Used for the tab's filter indicator. The widget's dataset columns
- *  resolve column IDs back to names, so a chip is only emitted when a filter genuinely reaches one
- *  of the tab's widgets (not merely because the dashboard defines it). */
-export function buildTabFilterChips(
-  tabId: string,
-  dashboard: Dashboard,
-  widgets: DashboardWidget[],
-  activeFilters: Record<string, FilterValue>,
-  files: { id: string; columns?: { id: string; name: string }[] }[],
-  language: string,
-): FilterChip[] {
-  const byColumn = new Map<string, FilterChip>()
-  for (const widget of widgets) {
-    if (widget.tabId !== tabId) continue
-    const datasetFile = files.find((f) => f.id === widget.datasetFileId)
-    const columns = datasetFile?.columns ?? []
-    const columnNameToId = new Map(columns.map((c) => [c.name, c.id]))
-    const filters = resolveWidgetFilters(widget, dashboard, activeFilters, columnNameToId, null)
-    if (!filters) continue
-    const labelMap = buildFilterLabelMap(dashboard, columnNameToId, language)
-    for (const chip of buildFilterChips(filters, columns, labelMap)) {
-      if (!byColumn.has(chip.column)) byColumn.set(chip.column, chip)
-    }
-  }
-  return Array.from(byColumn.values())
-}

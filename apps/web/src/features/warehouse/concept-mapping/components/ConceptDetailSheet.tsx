@@ -562,16 +562,6 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, target?.concept_id])
 
-  // Relations/synonyms are lazy (loaded on tab click), so when the concept changes
-  // while one of those tabs stays active, refetch for the new concept — otherwise
-  // the tab would show the just-cleared (empty) data. Mirrors the hierarchy effect.
-  useEffect(() => {
-    if (!target) return
-    if (activeTab === 'relations' && relations.length === 0 && !relationsUnavailable && !loadingRelations) loadRelations()
-    if (activeTab === 'synonyms' && synonyms.length === 0 && !synonymsUnavailable && !loadingSynonyms) loadSynonyms()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, target?.concept_id])
-
   const loadRelations = useCallback(async () => {
     if (!dataSourceId || !target) return
     setLoadingRelations(true)
@@ -601,6 +591,24 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
       setLoadingSynonyms(false)
     }
   }, [dataSourceId, target])
+
+  // Relations/synonyms are lazy (loaded on tab click), so when the concept changes
+  // while one of those tabs stays active, refetch for the new concept — otherwise
+  // the tab would show the just-cleared (empty) data. Mirrors the hierarchy effect.
+  // Go through refs and refetch unconditionally: the reset effect above has already
+  // cleared the previous concept's rows, but that state clear isn't visible in this
+  // effect's closure on the same commit, so a `relations.length === 0` guard would
+  // read the STALE (previous, non-empty) array and wrongly skip the reload.
+  const loadRelationsRef = useRef(loadRelations)
+  const loadSynonymsRef = useRef(loadSynonyms)
+  useEffect(() => { loadRelationsRef.current = loadRelations }, [loadRelations])
+  useEffect(() => { loadSynonymsRef.current = loadSynonyms }, [loadSynonyms])
+  useEffect(() => {
+    if (!target) return
+    if (activeTab === 'relations') loadRelationsRef.current()
+    if (activeTab === 'synonyms') loadSynonymsRef.current()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, target?.concept_id])
 
   const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab)

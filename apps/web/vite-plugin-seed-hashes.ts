@@ -229,6 +229,9 @@ function hashEntity(
     }
 
     case 'etlPipeline': {
+      // Only _pipeline.json is hashed here: the tree + scripts are seeded and
+      // change-detected separately via the per-script `etlScript` entries, so their
+      // content is intentionally out of scope for this pipeline-level hash.
       const etlDir = join(wsDir, 'etl', entity.folder ?? entity.id)
       const pipelineJson = readFileOrEmpty(join(etlDir, '_pipeline.json'))
       const name = nameFromFile(join(etlDir, '_pipeline.json'), (o) => o.name) ?? (entity.folder ?? entity.id)

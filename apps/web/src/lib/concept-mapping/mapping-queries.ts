@@ -249,18 +249,27 @@ function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
 
 /** Build WHERE clause from filters. */
 /** Build a `(vocabulary_id, concept_code) IN ((...),(...))` predicate from
- *  `vocab\0code` keys. DuckDB supports tuple IN. Returns null when empty. */
+ *  `vocab\0code` keys. DuckDB supports tuple IN. Returns null when empty.
+ *
+ *  A file source mapped WITHOUT a terminology column has no `vocabulary_id`
+ *  column in its `source_concepts` view (see mountFileSourceIntoDuckDB), and all
+ *  keys carry an empty vocab (`\0code`). In that case key on `concept_code` alone
+ *  — mirroring source_concepts_dedup_partition's fallback — so the predicate
+ *  doesn't reference a column that doesn't exist (DuckDB Binder Error). */
 function tupleInClause(keys: string[]): string | null {
   if (keys.length === 0) return null
-  const tuples: string[] = []
+  const parsed: { vocab: string; code: string }[] = []
   for (const k of keys) {
     const sep = k.indexOf('\0')
     if (sep < 0) continue
-    const vocab = esc(k.slice(0, sep))
-    const code = esc(k.slice(sep + 1))
-    tuples.push(`('${vocab}','${code}')`)
+    parsed.push({ vocab: k.slice(0, sep), code: k.slice(sep + 1) })
   }
-  if (tuples.length === 0) return null
+  if (parsed.length === 0) return null
+  if (parsed.every((p) => p.vocab === '')) {
+    const codes = parsed.map((p) => `'${esc(p.code)}'`)
+    return `concept_code IN (${codes.join(',')})`
+  }
+  const tuples = parsed.map((p) => `('${esc(p.vocab)}','${esc(p.code)}')`)
   return `(vocabulary_id, concept_code) IN (${tuples.join(',')})`
 }
 

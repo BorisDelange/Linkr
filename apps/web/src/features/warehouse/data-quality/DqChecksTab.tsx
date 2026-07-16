@@ -278,7 +278,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     try {
       const rows = await queryDataSource(dataSourceId, sql)
       if (!rows.length) {
-        setTestResult({ success: false, message: 'Query returned no rows' })
+        setTestResult({ success: false, message: t('data_quality.test_result_no_rows') })
         return
       }
       const violated = Number(rows[0].violated_rows ?? 0)
@@ -287,7 +287,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
       const pct = total > 0 ? ((violated / total) * 100).toFixed(1) : '0'
       const passed = threshold === 0 ? violated === 0 : Number(pct) <= threshold
 
-      const stats = `${violated} / ${total} violated rows (${pct}%) · threshold: ${threshold}%`
+      const stats = t('data_quality.test_result_stats', { violated, total, pct, threshold })
       if (passed) {
         setTestResult({ success: true, message: `${t('data_quality.test_result_pass')}\n${stats}` })
       } else {

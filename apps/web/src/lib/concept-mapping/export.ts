@@ -17,15 +17,16 @@ export function csvEscape(value: string | number | undefined | null): string {
 
 /**
  * Restore `fileSourceData` on a MappingProject from a raw CSV string.
- * Parses the CSV header, sets `rawFileBuffer`, `columns`, `totalRowCount`,
- * and rebuilds `columnMapping` (handles both normalized and original column names).
+ * Parses the CSV header, stores the CSV verbatim in `rawFileBuffer`, and sets
+ * `columns`, `totalRowCount`, and rebuilds `columnMapping` (handles both
+ * normalized and original column names).
  *
- * A source concept's identity is `(vocabulary_id, concept_code)`. Rows that
- * repeat that pair are duplicates: they'd produce colliding row-position ids and
- * an ambiguous "mapped" state. We drop them here — keeping the first occurrence —
- * and rewrite `rawFileBuffer` with the cleaned CSV so the stored, displayed, and
- * re-exported data all agree. Returns how many rows were removed (0 if none), so
- * the import flow can tell the user.
+ * The CSV is kept as-is here — deduplication of source concepts that repeat a
+ * `(vocabulary_id, concept_code)` pair is NOT done at import; it happens
+ * downstream when the file is mounted into DuckDB (the `source_concepts` view's
+ * QUALIFY row_number() dedup, identically on client — engine.ts — and server —
+ * db_connect.query_file_source), and the dropped-row count is computed from the
+ * raw-vs-deduped view sizes there.
  */
 export function restoreFileSourceDataFromCsv(project: MappingProject, csvText: string): void {
   if (!project.fileSourceData || project.sourceType !== 'file') return

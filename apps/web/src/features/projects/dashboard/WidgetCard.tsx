@@ -121,34 +121,42 @@ export function WidgetCard({ title, description, onRemove, onEdit, onRename, onC
     </>
   )
 
+  // Outside edit mode the menu only has Export and/or accept-plugin-version.
+  // If neither is available, don't render an empty menu button.
+  const hasViewActions = Boolean(onExport) || Boolean(stale && onAcceptPluginVersion)
+
+  // The menu is one unified block, but structural/destructive actions
+  // (rename/edit/configure/duplicate/move/delete) are edit-mode only — they must
+  // not be offered to a viewer (who can't even enter edit mode). Only Export and
+  // accept-plugin-version stay available outside edit mode.
   const menuItems = (
     <>
       {acceptItem}
-      {onRename && (
+      {editMode && onRename && (
         <DropdownMenuItem onClick={() => { renamePendingRef.current = true; setRenaming(true) }}>
           <Type size={14} />
           {t('common.rename')}
         </DropdownMenuItem>
       )}
-      {onEdit && (
+      {editMode && onEdit && (
         <DropdownMenuItem onClick={onEdit}>
           <Pencil size={14} />
           {t('common.edit')}
         </DropdownMenuItem>
       )}
-      {onConfigure && (
+      {editMode && onConfigure && (
         <DropdownMenuItem onClick={onConfigure}>
           <Settings2 size={14} />
           {t('dashboard.configure_widget')}
         </DropdownMenuItem>
       )}
-      {onDuplicate && (
+      {editMode && onDuplicate && (
         <DropdownMenuItem onClick={onDuplicate}>
           <Copy size={14} />
           {t('dashboard.duplicate_widget')}
         </DropdownMenuItem>
       )}
-      {onMove && (
+      {editMode && onMove && (
         <DropdownMenuItem onClick={onMove}>
           <FolderInput size={14} />
           {t('dashboard.move_widget')}
@@ -160,11 +168,15 @@ export function WidgetCard({ title, description, onRemove, onEdit, onRename, onC
           {t('dashboard.export_widget')}
         </DropdownMenuItem>
       )}
-      {(onRename || onEdit || onConfigure || onExport || onDuplicate || onMove) && <DropdownMenuSeparator />}
-      <DropdownMenuItem variant="destructive" onClick={onRemove}>
-        <Trash2 size={14} />
-        {t('common.delete')}
-      </DropdownMenuItem>
+      {editMode && (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onClick={onRemove}>
+            <Trash2 size={14} />
+            {t('common.delete')}
+          </DropdownMenuItem>
+        </>
+      )}
     </>
   )
 
@@ -201,29 +213,31 @@ export function WidgetCard({ title, description, onRemove, onEdit, onRename, onC
               </h3>
             </div>
           )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className={`shrink-0 ${editMode ? '' : 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100'}`}
+          {(editMode || hasViewActions) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className={`shrink-0 ${editMode ? '' : 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100'}`}
+                >
+                  <MoreHorizontal size={12} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onCloseAutoFocus={(e) => {
+                  // When rename was just triggered, keep focus on the rename input instead of the trigger.
+                  if (renamePendingRef.current) {
+                    e.preventDefault()
+                    renamePendingRef.current = false
+                  }
+                }}
               >
-                <MoreHorizontal size={12} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              onCloseAutoFocus={(e) => {
-                // When rename was just triggered, keep focus on the rename input instead of the trigger.
-                if (renamePendingRef.current) {
-                  e.preventDefault()
-                  renamePendingRef.current = false
-                }
-              }}
-            >
-              {menuItems}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {menuItems}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       )}
       {/* Floating top-left rail when the title bar is hidden — surfaced regardless of edit mode.
@@ -248,9 +262,10 @@ export function WidgetCard({ title, description, onRemove, onEdit, onRename, onC
           {topLeftBadges}
         </div>
       )}
-      {/* Floating menu button when title bar is hidden — same full menu in and out of edit mode
-          (hover-revealed when not editing). z-30 keeps it above a widget's own sticky table header. */}
-      {!showTitleBar && (
+      {/* Floating menu button when title bar is hidden — structural actions in edit
+          mode, Export/accept-plugin otherwise (hover-revealed when not editing).
+          z-30 keeps it above a widget's own sticky table header. */}
+      {!showTitleBar && (editMode || hasViewActions) && (
         <div className="absolute top-0.5 right-0.5 z-30">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

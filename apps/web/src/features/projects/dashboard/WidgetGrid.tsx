@@ -232,9 +232,10 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
     const el = containerRef.current
     if (!el) return
     const measure = () => {
-      // Ignore a 0 width: it means the grid is in a display:none tab (kept mounted for
-      // keep-alive). Keeping the last good width avoids a 0-column relayout that would
-      // flash when the tab is shown again — the ResizeObserver re-measures on reveal.
+      // Ignore a 0 width: it means the grid is off-layout (e.g. a parked keep-alive
+      // tab, or before first paint). Keeping the last good width avoids a 0-column
+      // relayout that would flash when the tab is shown again — the ResizeObserver
+      // re-measures on reveal.
       if (el.clientWidth > 0) setContainerWidth(el.clientWidth)
       const viewport = el.closest('[data-slot="scroll-area-viewport"]') ?? el.parentElement
       if (viewport && viewport.clientHeight > 0) setAvailableHeight(viewport.clientHeight)

@@ -209,7 +209,11 @@ async function fetchText(path: string): Promise<string | null> {
     const contentType = res.headers.get('content-type') ?? ''
     if (contentType.includes('text/html')) return null
     const text = await res.text()
-    if (/^\s*<(?:!doctype|html|script|meta|a\b)/i.test(text)) return null
+    // Extra guard for servers that mislabel the fallback shell (content-type check
+    // above handles the honest case). Match only the app-shell openers, each on a
+    // word boundary — don't drop legit content (CSV/markdown/code) that happens to
+    // begin with e.g. an HTML anchor. Kept in sync with fetchMarkdown's guard.
+    if (/^\s*<(?:!doctype|html|script|meta)\b/i.test(text)) return null
     return text
   } catch {
     return null

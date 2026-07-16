@@ -927,11 +927,11 @@ async function doMountFileSource(
         selectCols.push(`CAST("${esc(columnMapping.infoJsonColumn)}" AS VARCHAR) AS info_json`)
       }
 
-      // Safety net: drop duplicate source concepts (same vocabulary_id +
-      // concept_code), keeping the first row. Imported CSVs are already cleaned
-      // in restoreFileSourceDataFromCsv, but a CSV mounted by another path (or
-      // predating that cleanup) could still carry duplicates, which would give
-      // colliding row-position concept_ids and an ambiguous "mapped" state.
+      // Drop duplicate source concepts (same vocabulary_id + concept_code),
+      // keeping the first row. This is the single dedup point for file sources
+      // (the stored CSV is kept verbatim — see restoreFileSourceDataFromCsv);
+      // duplicates would otherwise give colliding row-position concept_ids and an
+      // ambiguous "mapped" state. Mirrors the server (db_connect.query_file_source).
       const dedupCols = columnMapping.terminologyColumn
         ? 'vocabulary_id, concept_code'
         : 'concept_code'

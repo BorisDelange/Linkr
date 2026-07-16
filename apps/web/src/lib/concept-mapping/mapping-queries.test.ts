@@ -135,6 +135,17 @@ describe('mapping-status filter — keyed by (vocabulary_id, concept_code)', () 
     expect(sql).toContain("(vocabulary_id, concept_code) IN (('labo','C'))")
     expect(sql).toContain("NOT (vocabulary_id, concept_code) IN (('labo','A'))")
   })
+
+  it('keys on concept_code alone when no terminology column is mapped (empty vocab)', () => {
+    // A file source without a terminologyColumn has no vocabulary_id column in its
+    // source_concepts view; referencing it would be a DuckDB Binder Error.
+    const sql = buildFileSourceConceptsCountQuery({
+      mappingStatus: 'mapped',
+      mappedKeys: [`${SEP}CA125`, `${SEP}A1c`],
+    })
+    expect(sql).toContain("concept_code IN ('CA125','A1c')")
+    expect(sql).not.toContain('vocabulary_id')
+  })
 })
 
 describe('buildFileSourceDuplicateCountQuery', () => {

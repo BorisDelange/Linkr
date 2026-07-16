@@ -17,7 +17,7 @@
 function slugBody(name: string): string {
   const base = name
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // strip accents
+    .replace(/\p{Mn}/gu, '') // strip all combining marks (Unicode category Mn) — matches Python's unicodedata category check
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_') // punctuation/space runs → single _
     .replace(/^_+|_+$/g, '') // trim leading/trailing _
