@@ -485,6 +485,40 @@ describe('importProjectContent — server-mode datasets', () => {
     expect(f?.columnId).toBe('srv-1')
   })
 
+  it('deterministic-id export round-trips with no remap (bridge is identity)', async () => {
+    serverMode.value = true
+    // A fresh export carries deterministic ids; the server re-parse yields the SAME ids
+    // (same names → same slugs), so the by-name bridge is identity.
+    importDatasetOnServer.mockResolvedValue({
+      id: 'table.csv',
+      columns: [{ id: 'col_age', name: 'age' }, { id: 'col_sex', name: 'sex' }],
+    })
+
+    const parsed = emptyParsed({
+      datasetFiles: [{
+        id: 'table.csv', name: 'table.csv', type: 'file', parentId: null,
+        columns: [{ id: 'col_age', name: 'age', type: 'number', order: 0 }, { id: 'col_sex', name: 'sex', type: 'string', order: 1 }],
+      } as unknown as DatasetFile],
+      datasetRawFiles: [{ datasetFileId: 'table.csv', blob: new Blob(['age,sex\n1,M']), fileName: 'table.csv' }],
+      dashboards: [{
+        id: 'd1', projectUid: 'p1', name: { en: 'D' }, gridV: 2,
+        filterConfig: [{ id: 'f1', datasetFileId: 'table.csv', columnId: 'col_sex', columnName: 'sex', type: 'categorical', inputType: 'multi-select' }],
+      } as unknown as ParsedProjectZip['dashboards'][number]],
+      dashboardWidgets: [{
+        id: 'w1', tabId: 't1', datasetFileId: 'table.csv',
+        source: { type: 'plugin', config: { column: 'col_sex' } },
+      } as unknown as ParsedProjectZip['dashboardWidgets'][number]],
+    })
+
+    const { store, dashboardCreate, widgetCreate } = makeStore()
+    await importProjectContent(parsed, 'p1', store)
+
+    const f = (dashboardCreate.mock.calls[0]?.[0] as { filterConfig?: { columnId?: string }[] }).filterConfig?.[0]
+    const w = widgetCreate.mock.calls[0]?.[0] as { source?: { config?: Record<string, unknown> } }
+    expect(f?.columnId).toBe('col_sex')
+    expect(w.source?.config).toEqual({ column: 'col_sex' })
+  })
+
   it('front-only mode creates the dataset file via storage (no server upload)', async () => {
     serverMode.value = false
     const parsed = emptyParsed({

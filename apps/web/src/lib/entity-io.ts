@@ -574,9 +574,13 @@ async function importDatasets(
   mapId: (oldId: string) => string,
 ): Promise<{ datasetIdMap: Map<string, string>; colIdMap: Map<string, string> }> {
   const datasetIdMap = new Map<string, string>()
-  // ZIP column id → final column id. Only populated in server mode, where re-parsing the
-  // raw file regenerates column ids: widgets/analyses that store col ids in their config
-  // (plugin xColumn/yColumn/column/uniquePer/…) must be relinked to survive the import.
+  // ZIP column id → final column id, matched BY NAME. Column ids are now deterministic
+  // slugs of the name, so for a fresh export this map is identity (harmless). It stays as a
+  // bridge for ANY id-shape difference between the ZIP and the freshly-parsed dataset —
+  // chiefly a legacy export whose ids were the old `col-<timestamp>-<idx>`: without it,
+  // widgets/analyses that store col ids in their config would point at columns the reparse
+  // renamed. Only populated in server mode (front-only stores the ZIP's columns verbatim,
+  // no reparse, so ids don't change there).
   const colIdMap = new Map<string, string>()
   const byId = new Map(parsed.datasetFiles.map(f => [f.id, f]))
 
@@ -628,8 +632,9 @@ async function importDatasets(
     const node = await importDatasetOnServer({ projectUid, name: df.name, parentId: parentPath, file: blob, fileName })
     datasetIdMap.set(df.id, node.id)
 
-    // Map the ZIP's column ids to the server's freshly-parsed ones. Names and order are
-    // preserved by the parser, so match by index, falling back to name.
+    // Bridge the ZIP's column ids to the server's freshly-parsed ones, matched by name
+    // (identity for a deterministic-id export; the real work is for legacy col-<ts> ids).
+    // Names and order are preserved by the parser, so match by index, falling back to name.
     const zipCols = df.columns ?? []
     const srvCols = node.columns ?? []
     const srvByName = new Map(srvCols.map(c => [c.name, c.id]))
@@ -706,10 +711,8 @@ export async function importProjectContent(
       ...f,
       id: mapId(f.id),
       datasetFileId: resolveDatasetId(f.datasetFileId),
-      // In server mode the CSV is re-parsed on import and columns get fresh ids, so the
-      // filter's stored columnId must be remapped like widgets' config colIds — otherwise
-      // it points at a column the server no longer knows and the filter can't resolve its
-      // values (front-only: colIdMap is empty, so this is a no-op).
+      // Bridge the filter's columnId by name like widgets' config colIds — identity for a
+      // deterministic-id export, the rescue path for a legacy col-<ts> export.
       columnId: colIdMap.get(f.columnId) ?? f.columnId,
       ...(f.scope?.type === 'tabs' ? { scope: { ...f.scope, tabIds: f.scope.tabIds.map(mapId) } } : {}),
       ...(f.scope?.type === 'widgets' ? { scope: { ...f.scope, widgetIds: f.scope.widgetIds.map(mapId) } } : {}),

@@ -3,11 +3,11 @@ import { getPlugin } from '@/lib/plugins/registry'
 
 /**
  * When a widget is reassigned to a different dataset, its config still references
- * the OLD dataset's column IDs. Column IDs are minted per-import (`col-<ts>-<idx>`),
- * so they never match across datasets even when column names are identical. Without
- * remapping, every column-select field silently resolves to nothing and the widget
- * looks unconfigured. We bridge old → new by matching on column NAME, which is the
- * only stable identifier a user reasons about.
+ * the OLD dataset's column ids. Even though column ids are now deterministic slugs of
+ * the name (so two datasets sharing a column name share its id), the two datasets
+ * generally have DIFFERENT column names, so the old ids don't exist in the new dataset
+ * and every column-select field would silently resolve to nothing. We bridge old → new
+ * by matching on column NAME, the identifier a user reasons about.
  *
  * Returns a new source with column-select values remapped, or the original source
  * unchanged when there is nothing to remap (no plugin schema, no overlap, etc.).
