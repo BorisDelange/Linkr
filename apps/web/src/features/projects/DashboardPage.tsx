@@ -268,6 +268,24 @@ export function DashboardPage() {
       {/* Main content + filter sidebar */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <ScrollArea className="flex-1 min-h-0 min-w-0">
+          {/* Every visited leaf tab's grid stays mounted (only the active one is shown; the rest
+              are CSS-hidden). Crucially this renders regardless of the active tab: switching to a
+              container tab or an empty leaf must NOT unmount the kept-alive grids, or their widgets
+              (e.g. KPI plugins) would recompute on return. React keys by tab id so each grid keeps
+              its own subtree across switches — the persistence lives at the dashboard level. */}
+          {mountedTabs.map((tab) => (
+            <div key={tab.id} className={tab.id === currentTabId ? 'contents' : 'hidden'}>
+              <WidgetGrid
+                widgets={widgets.filter((w) => w.tabId === tab.id)}
+                editMode={editMode}
+                hideTitleBars={dashboard.showWidgetTitles === false}
+                dashboard={dashboard}
+                projectUid={projectUid}
+                onRequestExport={(widgetId) => { setExportPreselectId(widgetId); setExportOpen(true) }}
+              />
+            </div>
+          ))}
+
           {activeTabIsContainer ? (
             <div className="flex h-full min-h-[400px] items-center justify-center p-8">
               <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">
@@ -287,23 +305,7 @@ export function DashboardPage() {
                 </Button>
               </div>
             </div>
-          ) : tabWidgets.length > 0 ? (
-            // Render every visited tab's grid, showing only the active one. Kept mounted so
-            // switching back doesn't remount (no figure flash). React keys by tab id so each
-            // grid keeps its own widget subtree across switches.
-            mountedTabs.map((tab) => (
-              <div key={tab.id} className={tab.id === currentTabId ? 'contents' : 'hidden'}>
-                <WidgetGrid
-                  widgets={widgets.filter((w) => w.tabId === tab.id)}
-                  editMode={editMode}
-                  hideTitleBars={dashboard.showWidgetTitles === false}
-                  dashboard={dashboard}
-                  projectUid={projectUid}
-                  onRequestExport={(widgetId) => { setExportPreselectId(widgetId); setExportOpen(true) }}
-                />
-              </div>
-            ))
-          ) : (
+          ) : tabWidgets.length === 0 ? (
             <div className="flex h-full min-h-[400px] items-center justify-center p-8">
               <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
@@ -329,7 +331,7 @@ export function DashboardPage() {
                 </Button>
               </div>
             </div>
-          )}
+          ) : null}
         </ScrollArea>
 
         {filterOpen && (
