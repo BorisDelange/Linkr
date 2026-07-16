@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, useTransition } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -60,8 +60,9 @@ import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-q
 import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable, DEFAULT_SUGGESTIONS_VIEW, type SuggestionsTableView } from './SuggestionsTable'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { Skeleton } from '@/components/ui/skeleton'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
-import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
+import { EQUIV_BADGE, normalizeEquivalence } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
 import { ConceptDetailSheet, type ConceptInfoTarget } from './ConceptDetailSheet'
@@ -104,6 +105,17 @@ function getResolvedUrl(sourceUrl?: string): string | null {
 
 const CS_PAGE_SIZE = 50
 const RESOLVED_PAGE_SIZE = 50
+
+/** Placeholder shown while a tab switch's heavy table mounts in a transition. */
+function TabSkeleton() {
+  return (
+    <div className="flex h-full flex-col gap-1.5 p-3">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <Skeleton key={i} className="h-6 w-full" />
+      ))}
+    </div>
+  )
+}
 
 /** Small dropdown for categorical column filters with search. */
 function ColumnFilterSelect({
@@ -236,7 +248,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // "Map with comment" dialog
   const [commentDialogOpen, setCommentDialogOpen] = useState(false)
   const [commentEquivalence, setCommentEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
+  // `selectedEquivalence` is what the add button uses right now; `manualEquivalence` is
+  // the user's sticky preference set via the dropdown. Clicking a suggestion overrides
+  // `selectedEquivalence` with the suggestion's value for that target only; selecting a
+  // non-suggestion target (Search / Concept sets) restores the manual preference.
   const [selectedEquivalence, setSelectedEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
+  const [manualEquivalence, setManualEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
+  const pickManualEquivalence = useCallback((pred: MappingEquivalence) => {
+    setManualEquivalence(pred)
+    setSelectedEquivalence(pred)
+  }, [])
   const equivButtonGroupRef = useRef<HTMLDivElement>(null)
   const [equivDropdownWidth, setEquivDropdownWidth] = useState<number | undefined>(undefined)
   const [commentText, setCommentText] = useState('')
@@ -270,8 +291,18 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   }>({})
   const [resolvedColVisibility, setResolvedColVisibility] = useState({ vocab: true, id: false, name: true, code: false, domain: false, class: false, std: true })
 
-  // Browse mode toggle
+  // Browse mode toggle. `browseMode` is the urgent value driving the tab highlight
+  // and action bar (painted instantly on click); `deferredBrowseMode` decides which
+  // (potentially heavy) table actually mounts and is updated inside a transition, so
+  // the click paints before the table mount blocks the main thread.
   const [browseMode, setBrowseMode] = useState<'concept_sets' | 'search' | 'suggestions'>('search')
+  const [deferredBrowseMode, setDeferredBrowseMode] = useState<'concept_sets' | 'search' | 'suggestions'>('search')
+  const [tabPending, startTabTransition] = useTransition()
+  const switchBrowseMode = useCallback((mode: 'concept_sets' | 'search' | 'suggestions') => {
+    setBrowseMode(mode)
+    setSelectedTarget(null)
+    startTabTransition(() => setDeferredBrowseMode(mode))
+  }, [])
 
   // Persisted suggestions-table view (column visibility / sort / sizing). Held here,
   // not inside SuggestionsTable, so it survives that table unmounting while the
@@ -293,9 +324,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // Selected target concept (for resolved concepts or search results)
   const [selectedTarget, setSelectedTarget] = useState<{ conceptId: number; conceptName: string; vocabularyId: string; domainId: string; conceptCode: string; conceptClassId?: string; standardConcept?: string } | null>(null)
 
-  // Clear selected target when source concept changes
+  // Clear selected target when source concept changes, and reset the add-button
+  // equivalence to the sticky manual preference — otherwise a value carried over from
+  // a previously clicked suggestion (e.g. "Close") would stick on the next concept.
+  // Read the manual preference via a ref so changing it from the dropdown doesn't
+  // re-run this effect (which would clear the current selection).
+  const manualEquivalenceRef = useRef(manualEquivalence)
+  manualEquivalenceRef.current = manualEquivalence
   useEffect(() => {
     setSelectedTarget(null)
+    setSelectedEquivalence(manualEquivalenceRef.current)
   }, [sourceConcept?.concept_id])
 
   // Active vocabulary data source + concept table name (shared for detail sheet)
@@ -558,7 +596,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     if (alreadyMapped) return
     if (!requireIdentity()) return
     const now = new Date().toISOString()
-    await createMapping({
+    // createMapping updates state optimistically and persists in the background;
+    // clearing the selection immediately keeps the interaction instant. On persistence
+    // failure the store rolls back the optimistic insert, so we only log here.
+    setSelectedTarget(null)
+    createMapping({
       id: crypto.randomUUID(),
       projectId: project.id,
       sourceConceptId: sourceConcept.concept_id,
@@ -592,8 +634,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       mappedOn: now,
       createdAt: now,
       updatedAt: now,
-    })
-    setSelectedTarget(null)
+    }).catch((err) => console.error('Failed to persist mapping', err))
   }
 
   /** Align the current source concept onto a resolved concept-set concept (from
@@ -603,7 +644,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     if (existingMappings.some((m) => m.targetConceptId === target.conceptId)) return
     if (!requireIdentity()) return
     const now = new Date().toISOString()
-    await createMapping({
+    createMapping({
       id: crypto.randomUUID(),
       projectId: project.id,
       sourceConceptId: sourceConcept.concept_id,
@@ -629,7 +670,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       mappedOn: now,
       createdAt: now,
       updatedAt: now,
-    })
+    }).catch((err) => console.error('Failed to persist mapping', err))
   }, [sourceConcept, existingMappings, requireIdentity, createMapping, project.id, getUserDisplayName, getAuthorDetails])
 
   /** Submit from the "Map with comment" dialog. */
@@ -654,7 +695,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       if (!requireIdentity()) return
       // Create an ignored mapping (targetConceptId=0)
       const now = new Date().toISOString()
-      await createMapping({
+      createMapping({
         id: crypto.randomUUID(),
         projectId: project.id,
         sourceConceptId: sourceConcept.concept_id,
@@ -684,7 +725,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         mappedOn: now,
         createdAt: now,
         updatedAt: now,
-      })
+      }).catch((err) => console.error('Failed to persist ignored mapping', err))
     }
   }
 
@@ -1184,6 +1225,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                             conceptClassId: rc.conceptClassId,
                             standardConcept: rc.standardConcept ?? undefined,
                           })
+                          // Non-suggestion target: fall back to the manual preference.
+                          if (!isSelected) setSelectedEquivalence(manualEquivalence)
                         }
                       }}
                     >
@@ -1736,6 +1779,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             conceptClassId: s.concept_class_id,
             standardConcept: s.standard_concept,
           })
+          // Preload the add button with the equivalence the suggestion proposes; a
+          // subsequent manual pick via the dropdown overrides it until the next select.
+          setSelectedEquivalence(normalizeEquivalence(s.equivalence))
         }}
         onInfo={(s) => {
           setConceptDetailTarget({
@@ -1982,6 +2028,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                           conceptClassId: row.original.concept_class_id,
                           standardConcept: row.original.standard_concept,
                         })
+                        // Non-suggestion target: fall back to the manual preference.
+                        if (!isSelected) setSelectedEquivalence(manualEquivalence)
                       }
                     }}
                   >
@@ -2196,7 +2244,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
-            onClick={() => { setBrowseMode('search'); setSelectedTarget(null) }}
+            onClick={() => switchBrowseMode('search')}
           >
             {t('concept_mapping.mode_search')}
           </button>
@@ -2206,7 +2254,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
-            onClick={() => { setBrowseMode('concept_sets'); setSelectedTarget(null) }}
+            onClick={() => switchBrowseMode('concept_sets')}
           >
             {t('concept_mapping.mode_concept_sets')}
           </button>
@@ -2216,7 +2264,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
-            onClick={() => { setBrowseMode('suggestions'); setSelectedTarget(null) }}
+            onClick={() => switchBrowseMode('suggestions')}
           >
             <Sparkles size={9} />
             {t('concept_mapping.mode_suggestions')}
@@ -2278,7 +2326,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" style={{ width: equivDropdownWidth }} className="min-w-0">
                         {(['skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch'] as const).map((pred) => (
-                          <DropdownMenuItem key={pred} onClick={() => setSelectedEquivalence(pred)}>
+                          <DropdownMenuItem key={pred} onClick={() => pickManualEquivalence(pred)}>
                             <span className={`inline-flex w-full items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium ${EQUIV_BADGE[pred].className}`}>
                               {EQUIV_BADGE[pred].label}
                             </span>
@@ -2328,11 +2376,15 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         </div>
       )}
 
-      {/* Mode content */}
+      {/* Mode content. Rendered off `deferredBrowseMode` so a tab click paints the
+          highlight/action bar first; while the transition mounts the (possibly heavy)
+          table, show a light skeleton instead of blocking on the mount. */}
       <div className="flex-1 overflow-hidden">
-        {browseMode === 'concept_sets' ? (
+        {tabPending ? (
+          <TabSkeleton />
+        ) : deferredBrowseMode === 'concept_sets' ? (
           selectedCs ? renderResolvedConcepts() : renderConceptSetsBrowse()
-        ) : browseMode === 'suggestions' ? (
+        ) : deferredBrowseMode === 'suggestions' ? (
           renderSuggestionsPanel()
         ) : (
           renderSearchMode()

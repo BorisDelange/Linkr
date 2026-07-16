@@ -268,12 +268,11 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   },
 
   createMapping: async (mapping) => {
-    await getStorage().conceptMappings.create(mapping)
+    // Optimistic: reflect the new mapping in state first so the UI paints instantly,
+    // then persist in the background. Rebuild the array (reference change is desired —
+    // set membership changed); mutate the id index in place so consumers subscribed to
+    // `mappingsById` keep their reference while the new entry is visible via Map.get().
     set((s) => {
-      // Rebuild the array (reference change is desired — set membership changed).
-      // Mutate the id index in place: the Map's identity stays stable and consumers
-      // that subscribed to `mappingsById` keep their reference, but the new entry is
-      // visible via Map.get().
       s.mappingsById.set(mapping.id, mapping)
       return {
         mappings: [...s.mappings, mapping],
@@ -283,6 +282,22 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
         _otherDetailsLoadedFor: null,
       }
     })
+    try {
+      await getStorage().conceptMappings.create(mapping)
+    } catch (err) {
+      // Persistence failed — roll back the optimistic insert so state matches storage.
+      set((s) => {
+        s.mappingsById.delete(mapping.id)
+        return {
+          mappings: s.mappings.filter((m) => m.id !== mapping.id),
+          mappingsVersion: s.mappingsVersion + 1,
+          mappingsStructureVersion: s.mappingsStructureVersion + 1,
+          _otherKeysLoadedFor: null,
+          _otherDetailsLoadedFor: null,
+        }
+      })
+      throw err
+    }
     scheduleStatsRecompute(mapping.projectId, get().recomputeProjectStats)
   },
 
