@@ -31,7 +31,10 @@ from app.services import source_concept_id_service as sci_svc
 from app.services.data import db_connect, file_reader
 from app.services.data import global_table_service
 from app.services.data import scores_service
-from app.services.data.file_source import build_source_concepts_select
+from app.services.data.file_source import (
+    build_source_concepts_select,
+    source_concepts_dedup_partition,
+)
 
 router = APIRouter(tags=["mapping-projects"])
 
@@ -284,11 +287,13 @@ async def query_file_source(
     column_mapping = fsd.get("columnMapping", {})
     parse_options = fsd.get("parseOptions", {})
     select_sql = build_source_concepts_select(column_mapping)
+    dedup_partition = source_concepts_dedup_partition(column_mapping)
     path = str(blob_store.path_for(project.raw_file_sha))
     try:
         rows = await asyncio.to_thread(
             db_connect.query_file_source,
-            path, project.raw_file_name, parse_options, select_sql, body.sql,
+            path, project.raw_file_name, parse_options, select_sql,
+            dedup_partition, body.sql,
         )
     except file_reader.ExcelSupportUnavailable:
         raise HTTPException(

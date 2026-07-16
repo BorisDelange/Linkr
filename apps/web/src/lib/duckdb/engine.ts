@@ -867,6 +867,7 @@ async function doMountFileSource(
   try {
     // Always clean up any leftover schema (may exist from a previous mount in the same session).
     try { await conn.query(`DROP VIEW IF EXISTS "${schema}"."source_concepts"`) } catch { /* ignore */ }
+    try { await conn.query(`DROP VIEW IF EXISTS "${schema}"."source_concepts_raw"`) } catch { /* ignore */ }
     try { await conn.query(`DROP TABLE IF EXISTS "${schema}"."source_concepts"`) } catch { /* ignore */ }
     try { await conn.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`) } catch { /* ignore */ }
 
@@ -926,8 +927,24 @@ async function doMountFileSource(
         selectCols.push(`CAST("${esc(columnMapping.infoJsonColumn)}" AS VARCHAR) AS info_json`)
       }
 
+      // Safety net: drop duplicate source concepts (same vocabulary_id +
+      // concept_code), keeping the first row. Imported CSVs are already cleaned
+      // in restoreFileSourceDataFromCsv, but a CSV mounted by another path (or
+      // predating that cleanup) could still carry duplicates, which would give
+      // colliding row-position concept_ids and an ambiguous "mapped" state.
+      const dedupCols = columnMapping.terminologyColumn
+        ? 'vocabulary_id, concept_code'
+        : 'concept_code'
+      // Raw (pre-dedup) view, then the deduped view queried by the app. Duplicate
+      // source concepts (same vocabulary_id + concept_code) are dropped, keeping
+      // the first row. The raw view lets the UI count how many were dropped.
       await conn.query(
-        `CREATE VIEW "${schema}"."source_concepts" AS SELECT ${selectCols.join(', ')} FROM read_csv_auto('${fileName}', nullstr='NA')`,
+        `CREATE VIEW "${schema}"."source_concepts_raw" AS SELECT ${selectCols.join(', ')} FROM read_csv_auto('${fileName}', nullstr='NA')`,
+      )
+      await conn.query(
+        `CREATE VIEW "${schema}"."source_concepts" AS ` +
+        `SELECT * FROM "${schema}"."source_concepts_raw" ` +
+        `QUALIFY row_number() OVER (PARTITION BY ${dedupCols} ORDER BY concept_id) = 1`,
       )
     } else {
       // --- Legacy fallback: insert parsed rows ---

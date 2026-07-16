@@ -157,18 +157,14 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const requestIdRef = useRef(0)
   const savedScrollTop = useRef(0)
 
-  // Ignored source concepts: derived from mappings with status='ignored'
-  const ignoredConceptIds = useMemo(
-    () => new Set(mappings.filter((m) => m.status === 'ignored').map((m) => m.sourceConceptId)),
-    [mappings],
-  )
   // Refs for the SQL-side mapping-status filter — read inside loadConcepts
   // without making them deps (we don't want every vote to retrigger the query).
+  // All keyed by (vocabulary_id, concept_code) via `vocab\0code`.
   const mappingStatusFilterRef = useRef<MappingStatusFilter>('all')
   const mappingStatusMapRef = useRef<Map<number, 'mapped'>>(new Map())
   const otherProjectsMappedKeysRef = useRef<Set<string> | null>(null)
-  const ignoredConceptIdsRef = useRef<Set<number>>(new Set())
-  ignoredConceptIdsRef.current = ignoredConceptIds
+  const projectMappedKeysRef = useRef<Set<string>>(new Set())
+  const projectIgnoredKeysRef = useRef<Set<string>>(new Set())
 
   // Cached concept counts: computed once per data source, never recomputed on page/filter change
   const countsCache = useRef<Map<number, { record_count: number; patient_count: number }>>(new Map())
@@ -377,28 +373,24 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
 
       if (!isFileSource) await ensureMounted(dataSource!.id)
 
-      // Inject mapping-status SQL filter: pass the per-status id sets so the
-      // active filter applies across the full paginated dataset (not just the
-      // loaded pages). Read via refs so changes to the underlying mappings
-      // don't retrigger loadConcepts on every vote.
-      // For "mapped_elsewhere" we send (vocab, code) keys — the local concept_id
-      // version of the set is paginated (computed only over loaded rows) and
-      // would under-filter, so we use the canonical cross-project keyset
-      // instead, which lives in the store and covers the full project. The
+      // Inject mapping-status SQL filter: pass the per-status (vocab, code) key
+      // sets so the active filter applies across the full paginated dataset (not
+      // just the loaded pages). Read via refs so changes to the underlying
+      // mappings don't retrigger loadConcepts on every vote. The cross-project
       // store keys use `vocab:code`; convert to `vocab\0code` for the SQL builder.
       const filtersWithStatus: SourceConceptFilters = mappingStatusFilterRef.current === 'all'
         ? { ...filters }
         : {
             ...filters,
             mappingStatus: mappingStatusFilterRef.current,
-            mappedConceptIds: Array.from(mappingStatusMapRef.current.keys()),
+            mappedKeys: Array.from(projectMappedKeysRef.current),
             mappedElsewhereKeys: Array.from(otherProjectsMappedKeysRef.current ?? [])
               .map((k) => {
                 const sep = k.indexOf(':')
                 return sep < 0 ? '' : `${k.slice(0, sep)}\0${k.slice(sep + 1)}`
               })
               .filter((k) => k !== ''),
-            ignoredConceptIds: Array.from(ignoredConceptIdsRef.current),
+            ignoredKeys: Array.from(projectIgnoredKeysRef.current),
           }
 
       // Suggestion-category filter (source side): a non-null key set means at least
@@ -489,20 +481,51 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     setPage((p) => p + 1)
   }, [loading, hasMore])
 
-  // Compute mapping status for each source concept (simplified: mapped or not).
-  // Filter to the current project so foreign mappings (loaded for cross-project
-  // detection) don't contaminate the local "mapped" set.
+  // Mapping status is keyed by (vocabulary_id, concept_code) — a source concept's
+  // stable identity — not by the row-position concept_id (which shifts if the
+  // source CSV is reordered). Build the local mapped/ignored key sets here; the
+  // SQL filter (loadConcepts) consumes them via `vocab\0code` keys, and the green
+  // dot resolves them against loaded rows below.
   // NOTE: these hooks must stay above the early returns below — calling a hook
   // after a conditional return breaks the Rules of Hooks.
-  const mappingStatusMap = useMemo(() => {
-    const map = new Map<number, 'mapped'>()
+  const conceptKey = (vocab: unknown, code: unknown) => `${vocab ?? ''}\0${code ?? ''}`
+  const { projectMappedKeys, projectIgnoredKeys } = useMemo(() => {
+    const mapped = new Set<string>()
+    const ignored = new Set<string>()
     for (const m of mappings) {
       if (m.projectId !== project.id) continue
-      if (m.status !== 'ignored') map.set(m.sourceConceptId, 'mapped')
+      const key = conceptKey(m.sourceVocabularyId, m.sourceConceptCode)
+      if (m.status === 'ignored') ignored.add(key)
+      else mapped.add(key)
+    }
+    return { projectMappedKeys: mapped, projectIgnoredKeys: ignored }
+  }, [mappings, project.id])
+  projectMappedKeysRef.current = projectMappedKeys
+  projectIgnoredKeysRef.current = projectIgnoredKeys
+
+  // Resolve the local mapped/ignored keys to concept_ids of currently-loaded rows
+  // so the child table can flag the green "mapped" / muted "ignored" dot (child
+  // works in concept_id space).
+  const mappingStatusMap = useMemo(() => {
+    const map = new Map<number, 'mapped'>()
+    for (const row of rows) {
+      if (projectMappedKeys.has(conceptKey(row.vocabulary_id, row.concept_code))) {
+        map.set(row.concept_id, 'mapped')
+      }
     }
     return map
-  }, [mappings, project.id])
+  }, [rows, projectMappedKeys])
   mappingStatusMapRef.current = mappingStatusMap
+
+  const ignoredConceptIds = useMemo(() => {
+    const set = new Set<number>()
+    for (const row of rows) {
+      if (projectIgnoredKeys.has(conceptKey(row.vocabulary_id, row.concept_code))) {
+        set.add(row.concept_id)
+      }
+    }
+    return set
+  }, [rows, projectIgnoredKeys])
 
   // Build "mapped elsewhere" set: concepts mapped in other projects with same vocab+code
   const otherProjectMappings = useConceptMappingStore((s) => s.otherProjectsMappedKeys)

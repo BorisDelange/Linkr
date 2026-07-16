@@ -310,7 +310,9 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         scoresFile,
       }
 
-      // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based project)
+      // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based
+      // project). The file is kept verbatim; duplicate source concepts are dropped
+      // (and counted) later, in the DuckDB source_concepts view.
       if (project.sourceType === 'file' && project.fileSourceData) {
         const sourceCsv = parsed['source-concepts.csv']
         if (typeof sourceCsv === 'string' && sourceCsv.length > 0) {

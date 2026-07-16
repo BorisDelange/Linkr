@@ -12,6 +12,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -107,6 +116,13 @@ export function CreateMappingProjectDialog({
   const [parsedRows, setParsedRows] = useState<Record<string, unknown>[]>([])
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([])
   const [totalRows, setTotalRows] = useState(0)
+  // Duplicate source concepts (same vocab+code) in a freshly-picked CSV (WASM) —
+  // drives the inline file-summary note.
+  const [duplicatesRemoved, setDuplicatesRemoved] = useState(0)
+  // After create/import: how many duplicates the source view will drop. When > 0
+  // we show a one-time modal and defer closing the dialog until it's dismissed.
+  const [importDuplicates, setImportDuplicates] = useState<number | null>(null)
+  const pendingCloseRef = useRef<(() => void) | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
@@ -302,6 +318,68 @@ export function CreateMappingProjectDialog({
       return 0
     }
   }, [])
+
+  // WASM-mode: count duplicate source concepts (same vocabulary_id + concept_code)
+  // in a CSV, so the file summary can note them. Best-effort — server mode / Excel
+  // fall back to 0 here; the editor's universal check still reports duplicates.
+  const countDuplicatesWasm = useCallback(async (
+    buffer: Uint8Array, vocabCol: string | undefined, codeCol: string | undefined,
+  ): Promise<number> => {
+    if (!codeCol) return 0
+    try {
+      const { getDuckDB } = await import('@/lib/duckdb/engine')
+      const db = await getDuckDB()
+      const conn = await db.connect()
+      const tmpName = `__dup_${crypto.randomUUID()}.csv`
+      await db.registerFileBuffer(tmpName, buffer)
+      const esc = (s: string) => s.replace(/"/g, '""')
+      const keyCols = vocabCol ? `"${esc(vocabCol)}", "${esc(codeCol)}"` : `"${esc(codeCol)}"`
+      const res = await conn.query(
+        `SELECT COUNT(*) - COUNT(DISTINCT (${keyCols})) AS removed FROM read_csv_auto('${tmpName}', nullstr='NA')`,
+      )
+      const removed = Number(res.toArray()[0]?.removed ?? 0)
+      await conn.close()
+      return removed
+    } catch {
+      return 0
+    }
+  }, [])
+
+  // Count duplicates for a persisted project. Server mode queries the source view
+  // via the mapping-projects endpoint (raw minus deduped); WASM uses the CSV
+  // buffer directly. Best-effort — returns 0 on any error.
+  const countDuplicatesForProject = useCallback(async (
+    projectId: string, buffer: Uint8Array | undefined, mapping: FileColumnMapping,
+  ): Promise<number> => {
+    if (isServerMode()) {
+      try {
+        const { queryFileSourceOnServer } = await import('@/lib/api/mapping-projects')
+        const { buildFileSourceDuplicateCountQuery } = await import('@/lib/concept-mapping/mapping-queries')
+        const rows = await queryFileSourceOnServer(projectId, buildFileSourceDuplicateCountQuery())
+        return Number(rows[0]?.removed ?? 0)
+      } catch {
+        return 0
+      }
+    }
+    if (!buffer) return 0
+    return countDuplicatesWasm(new Uint8Array(buffer), mapping.terminologyColumn, mapping.conceptCodeColumn)
+  }, [countDuplicatesWasm])
+
+  // Recompute the duplicate count whenever the buffer or the (vocab, code) mapping
+  // changes — so it tracks manual mapping edits in import-settings too, and covers
+  // editing an existing project (uses its stored buffer). WASM only; server mode /
+  // Excel fall back to 0 here (the editor's universal check still reports them).
+  useEffect(() => {
+    const buffer = rawFileBuffer ?? editingProject?.fileSourceData?.rawFileBuffer
+    if (isServerMode() || !buffer || !columnMapping.conceptCodeColumn) {
+      setDuplicatesRemoved(0)
+      return
+    }
+    let cancelled = false
+    countDuplicatesWasm(new Uint8Array(buffer), columnMapping.terminologyColumn, columnMapping.conceptCodeColumn)
+      .then((n) => { if (!cancelled) setDuplicatesRemoved(n) })
+    return () => { cancelled = true }
+  }, [rawFileBuffer, editingProject, columnMapping.terminologyColumn, columnMapping.conceptCodeColumn, countDuplicatesWasm])
 
   const parseCSV = useCallback((f: File) => {
     // Parse only a preview (first rows) for column detection and auto-mapping.
@@ -591,7 +669,12 @@ export function CreateMappingProjectDialog({
         }
       }
       await updateMappingProject(editingProject.id, changes)
-      onOpenChange(false)
+      await finishWithDuplicateCheck(
+        editingProject.id,
+        sourceType === 'file' ? (changes.fileSourceData?.rawFileBuffer) : undefined,
+        sourceType === 'file' ? columnMapping : undefined,
+        () => onOpenChange(false),
+      )
     } else {
       const id = crypto.randomUUID()
       const now = new Date().toISOString()
@@ -624,8 +707,30 @@ export function CreateMappingProjectDialog({
         }
       }
       await createMappingProject(project)
-      onOpenChange(false)
-      onCreated?.(id)
+      await finishWithDuplicateCheck(
+        id,
+        sourceType === 'file' ? (project.fileSourceData?.rawFileBuffer) : undefined,
+        sourceType === 'file' ? columnMapping : undefined,
+        () => { onOpenChange(false); onCreated?.(id) },
+      )
+    }
+  }
+
+  // Persisted the project — now count duplicate source concepts once. If any were
+  // dropped, show a one-time modal and defer `close` until the user dismisses it;
+  // otherwise close straight away.
+  const finishWithDuplicateCheck = async (
+    projectId: string,
+    buffer: Uint8Array | undefined,
+    mapping: FileColumnMapping | undefined,
+    close: () => void,
+  ) => {
+    const removed = mapping ? await countDuplicatesForProject(projectId, buffer, mapping) : 0
+    if (removed > 0) {
+      pendingCloseRef.current = close
+      setImportDuplicates(removed)
+    } else {
+      close()
     }
   }
 
@@ -656,6 +761,7 @@ export function CreateMappingProjectDialog({
     && !!columnMapping.conceptCodeColumn && !!columnMapping.terminologyColumn
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={isImportSettingsPage ? 'sm:max-w-4xl max-h-[85vh] flex flex-col' : 'sm:max-w-lg'}>
         <DialogHeader>
@@ -1175,6 +1281,7 @@ export function CreateMappingProjectDialog({
                       <p className="text-sm font-medium truncate">{editingProject!.fileSourceData!.fileName}</p>
                       <p className="text-[10px] text-muted-foreground">
                         {(editingProject!.fileSourceData!.totalRowCount ?? editingProject!.fileSourceData!.rows.length).toLocaleString()} {t('datasets.rows')} · {editingProject!.fileSourceData!.columns.length} {t('datasets.columns')}
+                        {duplicatesRemoved > 0 && ` · ${t('concept_mapping.duplicates_removed_summary', { count: duplicatesRemoved })}`}
                       </p>
                     </div>
                     <Button
@@ -1238,6 +1345,7 @@ export function CreateMappingProjectDialog({
                         <p className="text-[10px] text-muted-foreground">
                           {totalRows > 0 && `${totalRows.toLocaleString()} ${t('datasets.rows')} · `}
                           {parsedColumns.length} {t('datasets.columns')}
+                          {duplicatesRemoved > 0 && ` · ${t('concept_mapping.duplicates_removed_summary', { count: duplicatesRemoved })}`}
                         </p>
                       )}
                     </div>
@@ -1303,5 +1411,35 @@ export function CreateMappingProjectDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* One-time notice: duplicate source concepts the source view will drop.
+        Shown after create/import; dismissing it runs the deferred close. */}
+    <AlertDialog
+      open={importDuplicates !== null}
+      onOpenChange={(o) => {
+        if (!o) {
+          setImportDuplicates(null)
+          pendingCloseRef.current?.()
+          pendingCloseRef.current = null
+        }
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('concept_mapping.duplicates_removed_title')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('concept_mapping.duplicates_removed_desc', { count: importDuplicates ?? 0 })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogAction onClick={() => {
+            setImportDuplicates(null)
+            pendingCloseRef.current?.()
+            pendingCloseRef.current = null
+          }}>{t('common.ok')}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

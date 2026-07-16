@@ -28,12 +28,13 @@ export interface SourceConceptFilters {
    *  ("unmapped" / "mapped" / "mapped_elsewhere") at the SQL level so it remains
    *  correct across the full paginated dataset, not just the loaded pages. */
   mappingStatus?: 'unmapped' | 'mapped' | 'mapped_elsewhere'
-  mappedConceptIds?: number[]
-  /** "Mapped elsewhere" can't always be expressed as a concept_id list because
-   *  external mappings are keyed by (vocabulary, code) — the local concept_id
-   *  may not yet be loaded. Pass a list of `vocab\0code` keys instead. */
+  /** Source concepts are identified by (vocabulary_id, concept_code), not by the
+   *  row-position concept_id (which shifts if the source CSV is reordered). All
+   *  three status sets are therefore passed as `vocab\0code` key lists so the
+   *  filter stays correct across the full paginated dataset. */
+  mappedKeys?: string[]
   mappedElsewhereKeys?: string[]
-  ignoredConceptIds?: number[]
+  ignoredKeys?: string[]
   /** When true, keep only source concepts that have a suggestion in one of the
    *  selected categories. The union of matching (vocabulary, code) keys is passed
    *  as `suggestionCategoryKeys` (`vocab\0code`), computed from the scores index. */
@@ -292,28 +293,28 @@ function buildWhereClause(filters: SourceConceptFilters): string {
   // Mapping-status filter: emit a SQL predicate built from the id/key sets
   // passed by the caller. Only applied when a non-default status is selected.
   if (filters.mappingStatus && filters.mappingStatus !== ('all' as string)) {
-    const mapped = filters.mappedConceptIds ?? []
+    const mappedKeys = filters.mappedKeys ?? []
     const elsewhereKeys = filters.mappedElsewhereKeys ?? []
-    const ignored = filters.ignoredConceptIds ?? []
-    const idList = (ids: number[]) => ids.length > 0 ? ids.map((n) => Number.isFinite(n) ? n : 0).join(',') : 'NULL'
+    const ignoredKeys = filters.ignoredKeys ?? []
+    const mappedClause = tupleInClause(mappedKeys)
     if (filters.mappingStatus === 'mapped') {
-      conditions.push(`concept_id IN (${idList(mapped)})`)
+      conditions.push(mappedClause ?? '1=0')
     } else if (filters.mappingStatus === 'mapped_elsewhere') {
       // Mapped-elsewhere: rows whose (vocabulary, code) is in the cross-project
-      // key set, AND whose concept_id is not in the local mapped set (so we
-      // don't leak rows that have already been imported locally).
+      // key set, AND not in the local mapped set (so we don't leak rows that
+      // have already been imported locally).
       const tupleClause = tupleInClause(elsewhereKeys)
       if (tupleClause) {
         conditions.push(tupleClause)
-        if (mapped.length > 0) conditions.push(`concept_id NOT IN (${idList(mapped)})`)
+        if (mappedClause) conditions.push(`NOT ${mappedClause}`)
       } else {
         // No external keys at all → no rows match this filter.
         conditions.push('1=0')
       }
     } else if (filters.mappingStatus === 'unmapped') {
       // Unmapped: not in (mapped or ignored) and not in the elsewhere keyset.
-      const all = [...mapped, ...ignored]
-      if (all.length > 0) conditions.push(`concept_id NOT IN (${idList(all)})`)
+      const localClause = tupleInClause([...mappedKeys, ...ignoredKeys])
+      if (localClause) conditions.push(`NOT ${localClause}`)
       const tupleClause = tupleInClause(elsewhereKeys)
       if (tupleClause) conditions.push(`NOT ${tupleClause}`)
     }
@@ -370,6 +371,13 @@ export function buildFileSourceConceptsCountQuery(
   let sql = 'SELECT COUNT(*) AS total FROM source_concepts'
   sql += buildWhereClause(filters)
   return sql
+}
+
+/** How many duplicate source concepts (same vocabulary_id + concept_code) the
+ *  deduped `source_concepts` view dropped vs the raw projection. Runs identically
+ *  in DuckDB-WASM and server mode (both mounts expose `source_concepts_raw`). */
+export function buildFileSourceDuplicateCountQuery(): string {
+  return 'SELECT (SELECT COUNT(*) FROM source_concepts_raw) - (SELECT COUNT(*) FROM source_concepts) AS removed'
 }
 
 /** Distinct values for a column in the file source table (for filter dropdowns). */

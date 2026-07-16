@@ -573,11 +573,13 @@ def load_file_source_concepts(project: dict) -> list[dict]:
     column_mapping = fsd.get("columnMapping", {})
     parse_options = fsd.get("parseOptions", {})
     select_sql = _source_concepts_select(column_mapping)
+    dedup_partition = _source_concepts_dedup_partition(column_mapping)
     path = str(blob_store.path_for(sha))
     try:
         rows = db_connect.query_file_source(
             path, project.get("raw_file_name"), parse_options, select_sql,
-            _SOURCE_CONCEPTS_SQL, max_rows=None,  # full read: this feeds the cache
+            dedup_partition, _SOURCE_CONCEPTS_SQL,
+            max_rows=None,  # full read: this feeds the cache
         )
     except Exception:
         return []
@@ -599,6 +601,11 @@ def load_file_source_concepts(project: dict) -> list[dict]:
 def _source_concepts_select(column_mapping: dict) -> str:
     from app.services.data.file_source import build_source_concepts_select
     return build_source_concepts_select(column_mapping)
+
+
+def _source_concepts_dedup_partition(column_mapping: dict) -> str:
+    from app.services.data.file_source import source_concepts_dedup_partition
+    return source_concepts_dedup_partition(column_mapping)
 
 
 # --- Cache orchestration -----------------------------------------------------

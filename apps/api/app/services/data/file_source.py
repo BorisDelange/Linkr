@@ -59,3 +59,14 @@ def build_source_concepts_select(column_mapping: dict) -> str:
             cols.append(template.format(c=_q(col)))
 
     return ", ".join(cols)
+
+
+def source_concepts_dedup_partition(column_mapping: dict) -> str:
+    """PARTITION BY clause (over the view's normalized output columns) that keys
+    a source concept by ``(vocabulary_id, concept_code)`` — falling back to
+    concept_code alone when no terminology column is mapped. Used to drop
+    duplicate source concepts, mirroring the frontend DuckDB-WASM mount."""
+    m = column_mapping or {}
+    if m.get("terminologyColumn"):
+        return "vocabulary_id, concept_code"
+    return "concept_code"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery } from './mapping-queries'
+import { buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery } from './mapping-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 const mapping: SchemaMapping = {
@@ -99,5 +99,49 @@ describe('buildWhereClause — suggestion-category filter', () => {
     const sql = buildFileSourceConceptsCountQuery({})
     expect(sql).not.toContain('vocabulary_id, concept_code')
     expect(sql).not.toContain('1=0')
+  })
+})
+
+describe('mapping-status filter — keyed by (vocabulary_id, concept_code)', () => {
+  const SEP = '\0'
+  it('"mapped" matches rows whose (vocab, code) is in the mapped key set', () => {
+    const sql = buildFileSourceConceptsCountQuery({
+      mappingStatus: 'mapped',
+      mappedKeys: [`labo${SEP}CA125`],
+    })
+    expect(sql).toContain("(vocabulary_id, concept_code) IN (('labo','CA125'))")
+  })
+
+  it('"mapped" with no keys matches nothing (1=0)', () => {
+    const sql = buildFileSourceConceptsCountQuery({ mappingStatus: 'mapped', mappedKeys: [] })
+    expect(sql).toContain('1=0')
+  })
+
+  it('"unmapped" excludes both mapped and ignored keys', () => {
+    const sql = buildFileSourceConceptsCountQuery({
+      mappingStatus: 'unmapped',
+      mappedKeys: [`labo${SEP}A`],
+      ignoredKeys: [`labo${SEP}B`],
+    })
+    expect(sql).toContain("NOT (vocabulary_id, concept_code) IN (('labo','A'),('labo','B'))")
+  })
+
+  it('"mapped_elsewhere" requires an external key and excludes local mapped', () => {
+    const sql = buildFileSourceConceptsCountQuery({
+      mappingStatus: 'mapped_elsewhere',
+      mappedKeys: [`labo${SEP}A`],
+      mappedElsewhereKeys: [`labo${SEP}C`],
+    })
+    expect(sql).toContain("(vocabulary_id, concept_code) IN (('labo','C'))")
+    expect(sql).toContain("NOT (vocabulary_id, concept_code) IN (('labo','A'))")
+  })
+})
+
+describe('buildFileSourceDuplicateCountQuery', () => {
+  it('counts raw rows minus deduped rows', () => {
+    const sql = buildFileSourceDuplicateCountQuery()
+    expect(sql).toContain('FROM source_concepts_raw')
+    expect(sql).toContain('FROM source_concepts')
+    expect(sql).toContain('AS removed')
   })
 })

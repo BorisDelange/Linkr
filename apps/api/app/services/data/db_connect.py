@@ -297,6 +297,7 @@ def query_file_source(
     file_name: str | None,
     parse_options: dict | None,
     select_sql: str,
+    dedup_partition: str,
     sql: str,
     max_rows: int | None = MAX_QUERY_ROWS,
 ) -> list[dict]:
@@ -314,8 +315,21 @@ def query_file_source(
         reader = file_reader.build_read_expr(
             con, path, file_name, parse_options or {}, nullstr="NA"
         )
+        # Raw (pre-dedup) projection, then the deduped view the frontend queries.
+        # Keeping the raw one lets the editor count dropped duplicates via
+        # `COUNT(*) FROM source_concepts_raw - COUNT(*) FROM source_concepts`,
+        # mirroring the browser mount.
         con.execute(
-            f"CREATE VIEW source_concepts AS SELECT {select_sql} FROM {reader}"
+            f"CREATE VIEW source_concepts_raw AS SELECT {select_sql} FROM {reader}"
+        )
+        # Drop duplicate source concepts (same vocabulary_id + concept_code),
+        # keeping the first row — mirrors the frontend mount so a CSV with
+        # duplicates yields the same rows and ids on both sides.
+        con.execute(
+            f"CREATE VIEW source_concepts AS "
+            f"SELECT * FROM source_concepts_raw "
+            f"QUALIFY row_number() OVER "
+            f"(PARTITION BY {dedup_partition} ORDER BY concept_id) = 1"
         )
         # The `sql` here is arbitrary client SQL (editor-authored, mirroring the
         # in-browser DuckDB-WASM path). Harden the connection before running it:

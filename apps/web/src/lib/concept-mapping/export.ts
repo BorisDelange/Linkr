@@ -19,6 +19,13 @@ export function csvEscape(value: string | number | undefined | null): string {
  * Restore `fileSourceData` on a MappingProject from a raw CSV string.
  * Parses the CSV header, sets `rawFileBuffer`, `columns`, `totalRowCount`,
  * and rebuilds `columnMapping` (handles both normalized and original column names).
+ *
+ * A source concept's identity is `(vocabulary_id, concept_code)`. Rows that
+ * repeat that pair are duplicates: they'd produce colliding row-position ids and
+ * an ambiguous "mapped" state. We drop them here — keeping the first occurrence —
+ * and rewrite `rawFileBuffer` with the cleaned CSV so the stored, displayed, and
+ * re-exported data all agree. Returns how many rows were removed (0 if none), so
+ * the import flow can tell the user.
  */
 export function restoreFileSourceDataFromCsv(project: MappingProject, csvText: string): void {
   if (!project.fileSourceData || project.sourceType !== 'file') return
