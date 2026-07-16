@@ -1,0 +1,29 @@
+{
+  "_comment": "Shared name→id parity fixture. Consumed by both apps/web column-id.test.ts and apps/api tests/test_column_id.py so the TS and Python twins can't drift. Each case: input names[] → expected ids[].",
+  "cases": [
+    {
+      "names": ["patient_id", "visit_id", "hospit_unit"],
+      "ids": ["col_patient_id", "col_visit_id", "col_hospit_unit"]
+    },
+    {
+      "names": ["Âge", "Séjour", "Naissance (g)"],
+      "ids": ["col_age", "col_sejour", "col_naissance_g"]
+    },
+    {
+      "names": ["hospit unit", "hospit_unit"],
+      "ids": ["col_hospit_unit", "col_hospit_unit_2"]
+    },
+    {
+      "names": ["sex", "sex", "sex"],
+      "ids": ["col_sex", "col_sex_2", "col_sex_3"]
+    },
+    {
+      "names": ["2024_admissions", "  ", "", "!!!"],
+      "ids": ["col_2024_admissions", "col_col", "col_col_2", "col_col_3"]
+    },
+    {
+      "names": ["mean SpO2 (%)", "PEEP cmH2O"],
+      "ids": ["col_mean_spo2", "col_peep_cmh2o"]
+    }
+  ]
+}
