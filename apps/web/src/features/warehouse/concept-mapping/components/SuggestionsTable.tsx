@@ -368,7 +368,8 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       id: 'domain_id',
       header: () => t('concept_mapping.col_domain'),
       accessorFn: (r) => r.domain_id,
-      cell: ({ row }) => <span className="text-xs">{row.original.domain_id ?? ''}</span>,
+      cell: ({ row }) =>
+        row.original.domain_id ? <TruncatedText className="text-xs">{row.original.domain_id}</TruncatedText> : null,
       size: 80,
       minSize: 50,
       enableResizing: true,
@@ -377,7 +378,8 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       id: 'concept_class_id',
       header: () => t('concept_mapping.col_concept_class'),
       accessorFn: (r) => r.concept_class_id,
-      cell: ({ row }) => <span className="text-xs">{row.original.concept_class_id ?? ''}</span>,
+      cell: ({ row }) =>
+        row.original.concept_class_id ? <TruncatedText className="text-xs">{row.original.concept_class_id}</TruncatedText> : null,
       size: 90,
       minSize: 50,
       enableResizing: true,
