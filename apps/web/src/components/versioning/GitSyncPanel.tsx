@@ -36,7 +36,7 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, syncState, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs, invalidateZip } =
+  const { status, branches, syncState, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs } =
     useGitSyncStore()
   // Behind/diverged detection is only wired for mapping projects in v1.
   const syncStateSupported = scope === 'mapping-projects'
@@ -129,17 +129,22 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         </div>
       )}
 
-      <label htmlFor="git-include-data" className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-        <Checkbox
-          id="git-include-data"
-          checked={includeData}
-          onCheckedChange={(v) => setIncludeData(scope, id, !!v, branch)}
-          // Not disabled during loading: toggling supersedes the in-flight
-          // compute (statusGen) and recomputes immediately — no waiting.
-          disabled={committing}
-        />
-        {t('versioning.sync_include_data')}
-      </label>
+      {/* Mapping projects have no optional data files to version: source-concepts
+          is always tracked and the re-derivable scores parquet is always gitignored,
+          so the toggle would be a no-op there. */}
+      {scope !== 'mapping-projects' && (
+        <label htmlFor="git-include-data" className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+          <Checkbox
+            id="git-include-data"
+            checked={includeData}
+            onCheckedChange={(v) => setIncludeData(scope, id, !!v, branch)}
+            // Not disabled during loading: toggling supersedes the in-flight
+            // compute (statusGen) and recomputes immediately — no waiting.
+            disabled={committing}
+          />
+          {t('versioning.sync_include_data')}
+        </label>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
@@ -273,11 +278,8 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
             await cm.loadProjectMappings(id, { force: true })
             await cm.loadMappingProjects()
             // The DB changed and the anchor advanced → recompute the versioning view
-            // against the fresh state. The export ZIP is cached by scope|id|includeData
-            // (unchanged by a pull), so drop it first or refreshStatus would rebuild
-            // status from the pre-pull export and still show the pulled rows as local
-            // changes to push.
-            invalidateZip()
+            // against the fresh state (refreshStatus drops the cached export ZIP so
+            // the pulled rows aren't re-shown as local changes to push).
             await refreshStatus(scope, id, branch)
             if (syncStateSupported) await loadSyncState(scope, id, branch)
           }}

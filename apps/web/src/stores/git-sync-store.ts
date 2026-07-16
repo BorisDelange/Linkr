@@ -66,7 +66,7 @@ async function buildZipUncached(
     result = await buildUserPluginZip(id, storage, { lfsOverrides })
   } else {
     const { buildMappingProjectZip } = await import('@/lib/concept-mapping/export')
-    result = await buildMappingProjectZip(id, storage, { includeData, lfsOverrides })
+    result = await buildMappingProjectZip(id, storage, { lfsOverrides })
   }
   if (!result) throw new Error('export-failed')
   return result.blob
@@ -166,10 +166,6 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     const prevKey = get().statusKey
     const sameEntity = prevKey?.startsWith(`${scope}|${id}|`)
     if (prevKey && !sameEntity) get().reset()
-    // Mapping projects version their source concepts + scores, so data files are
-    // part of the tracked content → default the "include data" toggle on. Only on
-    // a fresh entry (no status yet), so it never overrides a user's manual choice.
-    if (scope === 'mapping-projects' && get().statusKey === null) set({ includeData: true })
     const key = `${scope}|${id}|${branch ?? ''}|${get().includeData}`
     // Already computed (or computing) for this exact entity+branch → keep it,
     // so switching tabs and coming back doesn't recompute from scratch.
@@ -183,6 +179,12 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     const key = `${scope}|${id}|${branch ?? ''}|${includeData}`
     set({ loadingStatus: true, error: null, statusKey: key })
     try {
+      // A refresh means "the state may have changed, rebuild": the ZIP cache key
+      // (scope|id|includeData|overrides) can't see DB edits, so a mapping added
+      // since the last build would otherwise be exported from the stale cached ZIP
+      // and show no diff. Drop the cache first so the export reflects current DB
+      // content; getDiff/commitPush then reuse the blob this refresh just built.
+      get().invalidateZip()
       // Include the LFS overrides so the status reflects the .gitattributes the
       // user actually chose — otherwise unchecking LFS for a big file has no effect
       // until commit, and it keeps showing as changed (its blob vs an LFS pointer).

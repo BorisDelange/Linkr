@@ -45,4 +45,14 @@ describe('defaultSelectedPaths', () => {
     const files = [f('project.json'), f('review/app.js', 'deleted'), f('state.json', 'deleted')]
     expect(defaultSelectedPaths(files)).toEqual(['project.json'])
   })
+
+  it('leaves a MODIFIED .gitignore/.gitattributes unchecked (would clobber a hand-enriched remote copy)', () => {
+    const files = [f('project.json'), f('.gitignore', 'modified'), f('.gitattributes', 'modified')]
+    expect(defaultSelectedPaths(files)).toEqual(['project.json'])
+  })
+
+  it('selects an ADDED .gitignore (Linkr\'s copy is the only one)', () => {
+    const files = [f('.gitignore', 'added'), f('.gitattributes', 'added')]
+    expect(defaultSelectedPaths(files)).toEqual(['.gitignore', '.gitattributes'])
+  })
 })
