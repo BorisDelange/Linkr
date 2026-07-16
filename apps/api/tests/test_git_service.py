@@ -313,6 +313,46 @@ async def test_status_commit_diff_cycle():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+@pytest.mark.asyncio
+async def test_commit_push_selecting_only_a_deletion_removes_it_from_head():
+    """Ticking ONLY a deleted file (a path present in HEAD but absent from the new
+    export) must stage and commit that deletion, so it disappears from the pushed
+    tree. Regression guard: the deletion is selected on its own, with every other
+    change left unchecked."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    def head_tree(remote: str) -> set[str]:
+        out = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "main"],
+            cwd=remote, capture_output=True, text=True, check=True, env=g._git_env(),
+        )
+        return set(out.stdout.split())
+
+    try:
+        remote = _bare_remote(tmp)
+        z1 = _zip({"project.json": '{"a":1}', "datasets/foo/_data.json": '{"rows":[]}'})
+        await g.commit_push(getter, "u", z1, "main", "init", remote, None)
+        assert "datasets/foo/_data.json" in head_tree(remote)
+
+        # New export drops the data file (e.g. a re-export with includeData off) AND
+        # modifies project.json. The user ticks ONLY the deletion.
+        z2 = _zip({"project.json": '{"a":2}'})
+        r = await g.commit_push(
+            getter, "u", z2, "main", "drop data", remote, None,
+            paths=["datasets/foo/_data.json"],
+        )
+        assert r["committed"] and r["pushed"]
+
+        tree = head_tree(remote)
+        assert "datasets/foo/_data.json" not in tree  # the deletion landed
+        assert tree == {"project.json"}  # unticked modification stayed at its old content
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_diff_content_flags_eol_only_vs_no_content_change():
     """The empty-diff wording depends on WHY git flags a file modified: identical
     bytes → no_content_change (a storage-mode switch, e.g. text→LFS); identical only
