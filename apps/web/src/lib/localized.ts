@@ -11,7 +11,10 @@ export function localized(
 ): string {
   if (value == null) return ''
   if (typeof value === 'string') return value
-  return value[lang] ?? value['en'] ?? Object.values(value)[0] ?? ''
+  // `||` (not `??`) so a defined-but-empty language ({ en: 'x', fr: '' }) falls
+  // through to English rather than reading blank — old data stored an explicit
+  // empty string for the untouched language.
+  return value[lang] || value['en'] || Object.values(value).find(Boolean) || ''
 }
 
 /**

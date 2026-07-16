@@ -16,6 +16,10 @@ describe('localized', () => {
     expect(localized({ de: 'Hallo' }, 'fr')).toBe('Hallo')
   })
 
+  it('treats a defined-but-empty language as absent (falls back to English)', () => {
+    expect(localized({ en: 'Hello', fr: '' }, 'fr')).toBe('Hello')
+  })
+
   it('accepts a legacy plain string', () => {
     expect(localized('Legacy', 'fr')).toBe('Legacy')
   })

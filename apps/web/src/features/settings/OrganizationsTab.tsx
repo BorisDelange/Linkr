@@ -45,12 +45,17 @@ import type { OrganizationInfo } from '@/types'
 
 const ORG_TYPES = ['hospital', 'university', 'research_institute', 'company', 'consortium', 'other'] as const
 
+// Localized fields start as {} (not ''): setLocalized('') would seed every language
+// with an empty string ({ en: v, fr: '' }), and a defined-but-empty `fr` then
+// defeats the en-fallback in localized() — the French view reads blank. Starting
+// from {}, setLocalized yields { en: v } and the fallback works, matching how every
+// other create dialog behaves.
 const emptyOrg: OrganizationInfo = {
-  name: '',
+  name: {},
   type: '',
-  customType: '',
-  location: '',
-  country: '',
+  customType: {},
+  location: {},
+  country: {},
   website: '',
   email: '',
   referenceId: '',
@@ -84,9 +89,11 @@ export function OrganizationsTab() {
     const values: OrganizationInfo = {
       name: org.name,
       type: org.type ?? '',
-      customType: org.customType ?? '',
-      location: org.location ?? '',
-      country: org.country ?? '',
+      // Localized fields keep their stored shape (or {}); coercing a missing one to
+      // '' would make the next setLocalized seed an empty `fr` — see emptyOrg.
+      customType: org.customType ?? {},
+      location: org.location ?? {},
+      country: org.country ?? {},
       website: org.website ?? '',
       email: org.email ?? '',
       referenceId: org.referenceId ?? '',
