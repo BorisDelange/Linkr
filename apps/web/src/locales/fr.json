@@ -3516,7 +3516,19 @@
     "suggestions_default_filename": "similarity-scores.parquet",
     "suggestions_import_file": "Importer un fichier…",
     "suggestions_delete_all_btn": "Tout supprimer",
-    "suggestions_section_import": "Importer"
+    "suggestions_section_import": "Importer",
+    "prog_breakdown": "Répartition",
+    "prog_tab_vocabulary": "Terminologie",
+    "prog_tab_category": "Catégorie",
+    "prog_sort_total": "Concepts au total",
+    "prog_sort_mapped": "Mappés",
+    "prog_sort_approved": "Validés",
+    "prog_search_placeholder": "Rechercher…",
+    "prog_col_total": "Total",
+    "prog_col_mapped": "Mappés",
+    "prog_col_approved": "Validés",
+    "prog_show_all": "Tout afficher",
+    "prog_no_match": "Aucun groupe correspondant"
   },
   "data_catalog": {
     "title": "Catalogue de données",

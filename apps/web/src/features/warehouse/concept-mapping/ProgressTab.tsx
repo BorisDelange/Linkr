@@ -1,15 +1,24 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback, useTransition } from 'react'
 import { useTranslation } from 'react-i18next'
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { Maximize2 } from 'lucide-react'
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { Maximize2, ArrowUp, ArrowDown, Search } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource, isFileSourceMounted, fileSourceDataSourceId, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
-import { buildSourceConceptsCountQuery, buildFileSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
+import {
+  buildSourceConceptsCountQuery,
+  buildFileSourceConceptsCountQuery,
+  buildSourceConceptsGroupCountQuery,
+  buildFileSourceConceptsGroupCountQuery,
+  type BreakdownDimension,
+} from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
+import { STATUS_COLORS } from '@/lib/concept-mapping/status-colors'
+import { StatusBar, type StatusSegment } from './components/StatusBar'
 import type { MappingProject, MappingStatus, EffectiveMappingStatus, DataSource } from '@/types'
 
 interface ProgressTabProps {
@@ -17,15 +26,17 @@ interface ProgressTabProps {
   dataSource?: DataSource
 }
 
-const STATUS_COLORS: Record<EffectiveMappingStatus, string> = {
-  unchecked: '#94a3b8',
-  suggested: '#60a5fa',
-  approved: '#34d399',
-  rejected: '#ef4444',
-  flagged: '#fb923c',
-  invalid: '#f87171',
-  ignored: '#a78bfa',
-  disputed: '#f59e0b',
+/** Order in which status segments stack inside a breakdown bar (best → worst → untouched). */
+const STATUS_SEGMENT_ORDER: (EffectiveMappingStatus | 'unmapped')[] = [
+  'approved', 'flagged', 'disputed', 'rejected', 'invalid', 'unchecked', 'ignored', 'unmapped',
+]
+
+type BreakdownRow = {
+  key: string
+  total: number
+  mapped: number
+  approved: number
+  byStatus: Record<string, number>
 }
 
 export function ProgressTab({ project, dataSource }: ProgressTabProps) {
@@ -34,41 +45,87 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const isFileSource = project.sourceType === 'file'
-  const [categoryModalOpen, setCategoryModalOpen] = useState(false)
+
+  // Breakdown card state. `breakdownDim` is the urgent value (tab highlight, painted
+  // instantly); `deferredDim` drives the potentially heavy row recompute/render and is
+  // updated inside a transition so the tab click responds immediately.
+  const [breakdownDim, setBreakdownDim] = useState<BreakdownDimension>('vocabulary_id')
+  const [deferredDim, setDeferredDim] = useState<BreakdownDimension>('vocabulary_id')
+  const [, startDimTransition] = useTransition()
+  const switchDim = useCallback((dim: BreakdownDimension) => {
+    setBreakdownDim(dim)
+    startDimTransition(() => setDeferredDim(dim))
+  }, [])
+  const [breakdownModalOpen, setBreakdownModalOpen] = useState(false)
+  const [sortBy, setSortBy] = useState<'total' | 'mapped' | 'approved'>('total')
+  const [sortDesc, setSortDesc] = useState(true)
+  const [breakdownSearch, setBreakdownSearch] = useState('')
+  // Debounced copy driving the filter — keeps typing fluid instead of re-filtering
+  // the whole list on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(breakdownSearch), 200)
+    return () => clearTimeout(id)
+  }, [breakdownSearch])
 
   // Total source concept count from the database or file
   const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
+  // Per-group source-concept totals (full source, mapped + unmapped), keyed by group name.
+  const [groupTotals, setGroupTotals] = useState<Record<BreakdownDimension, Map<string, number> | null>>({
+    vocabulary_id: null,
+    category: null,
+  })
 
-  useEffect(() => {
-    let cancelled = false
-
-    const load = async () => {
-      try {
-        if (isFileSource) {
-          // File source: count via DuckDB
-          if (!project.fileSourceData) return
-          if (!isFileSourceMounted(project.id)) {
-            await mountFileSourceIntoDuckDB(project.id, project.fileSourceData.rows, project.fileSourceData.columnMapping, project.fileSourceData.rawFileBuffer)
-          }
-          const dsId = fileSourceDataSourceId(project.id)
-          const sql = buildFileSourceConceptsCountQuery({})
-          const [row] = await queryDataSource(dsId, sql)
-          if (!cancelled) setTotalSourceConcepts(Number(row?.total ?? 0))
-        } else {
-          if (!dataSource?.id || !dataSource.schemaMapping) return
-          await ensureMounted(dataSource.id)
-          const sql = buildSourceConceptsCountQuery(dataSource.schemaMapping!, {})
-          if (!sql) return
-          const [row] = await queryDataSource(dataSource.id, sql)
-          if (!cancelled) setTotalSourceConcepts(Number(row?.total ?? 0))
-        }
-      } catch {
-        // silently fail
+  const loadStats = useCallback(async () => {
+    const toGroupMap = (rows: Record<string, unknown>[]): Map<string, number> => {
+      const m = new Map<string, number>()
+      for (const r of rows) {
+        const key = r.group_key == null || r.group_key === '' ? t('concept_mapping.prog_domain_unknown') : String(r.group_key)
+        m.set(key, (m.get(key) ?? 0) + Number(r.total ?? 0))
       }
+      return m
     }
-    load()
-    return () => { cancelled = true }
-  }, [isFileSource, project.id, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
+    try {
+      if (isFileSource) {
+        if (!project.fileSourceData) return
+        if (!isFileSourceMounted(project.id)) {
+          await mountFileSourceIntoDuckDB(project.id, project.fileSourceData.rows, project.fileSourceData.columnMapping, project.fileSourceData.rawFileBuffer)
+        }
+        const dsId = fileSourceDataSourceId(project.id)
+        const [row] = await queryDataSource(dsId, buildFileSourceConceptsCountQuery({}))
+        setTotalSourceConcepts(Number(row?.total ?? 0))
+
+        const cm = project.fileSourceData.columnMapping
+        const present = { vocabulary: !!cm.terminologyColumn, category: !!cm.categoryColumn }
+        const next: Record<BreakdownDimension, Map<string, number>> = { vocabulary_id: new Map(), category: new Map() }
+        for (const dim of ['vocabulary_id', 'category'] as BreakdownDimension[]) {
+          const sql = buildFileSourceConceptsGroupCountQuery(dim, present)
+          next[dim] = sql ? toGroupMap(await queryDataSource(dsId, sql)) : new Map()
+        }
+        setGroupTotals(next)
+      } else {
+        if (!dataSource?.id || !dataSource.schemaMapping) return
+        await ensureMounted(dataSource.id)
+        const totalSql = buildSourceConceptsCountQuery(dataSource.schemaMapping, {})
+        if (!totalSql) return
+        const [row] = await queryDataSource(dataSource.id, totalSql)
+        setTotalSourceConcepts(Number(row?.total ?? 0))
+
+        const next: Record<BreakdownDimension, Map<string, number>> = { vocabulary_id: new Map(), category: new Map() }
+        for (const dim of ['vocabulary_id', 'category'] as BreakdownDimension[]) {
+          const sql = buildSourceConceptsGroupCountQuery(dataSource.schemaMapping, dim)
+          next[dim] = sql ? toGroupMap(await queryDataSource(dataSource.id, sql)) : new Map()
+        }
+        setGroupTotals(next)
+      }
+    } catch {
+      // silently fail
+    }
+  }, [isFileSource, project.id, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted, t])
+
+  useEffect(() => { void loadStats() }, [loadStats])
+  // Refresh on modal open so totals reflect any mappings changed since last load.
+  useEffect(() => { if (breakdownModalOpen) void loadStats() }, [breakdownModalOpen, loadStats])
 
   const stats = useMemo(() => {
     // Dedup by (vocabularyId, conceptCode) — same key as Mapping Editor / Export.
@@ -96,12 +153,34 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       sourceStatusCounts[status] = (sourceStatusCounts[status] ?? 0) + 1
     }
 
-    // Category breakdown (deduped by source key)
-    const domainMapped = new Map<string, Set<string>>()
+    // Per-group status distribution (deduped by source key). We resolve one best
+    // status per source concept (including ignored) and attribute it to the group
+    // (vocabulary or category) that concept belongs to. The vocabulary/category name
+    // is taken from the mapping's source fields — same key space as the group totals
+    // loaded from the source table.
+    const unknown = t('concept_mapping.prog_domain_unknown')
+    const bestPerKey = new Map<string, { status: EffectiveMappingStatus; vocab: string; category: string }>()
+    const priorityWithIgnored: EffectiveMappingStatus[] = ['approved', 'disputed', 'flagged', 'rejected', 'unchecked', 'invalid', 'ignored']
     for (const m of mappings) {
-      const domain = m.sourceCategoryId || t('concept_mapping.prog_domain_unknown')
-      if (!domainMapped.has(domain)) domainMapped.set(domain, new Set())
-      domainMapped.get(domain)!.add(sourceKey(m))
+      const eff = effectiveMappingStatus(m)
+      const k = sourceKey(m)
+      const cur = bestPerKey.get(k)
+      const vocab = m.sourceVocabularyId || unknown
+      const category = m.sourceCategoryId || unknown
+      if (!cur || priorityWithIgnored.indexOf(eff) < priorityWithIgnored.indexOf(cur.status)) {
+        bestPerKey.set(k, { status: eff, vocab, category })
+      }
+    }
+
+    const groupStatus = (dim: 'vocab' | 'category') => {
+      const byGroup = new Map<string, Record<string, number>>()
+      for (const { status, vocab, category } of bestPerKey.values()) {
+        const g = dim === 'vocab' ? vocab : category
+        const rec = byGroup.get(g) ?? {}
+        rec[status] = (rec[status] ?? 0) + 1
+        byGroup.set(g, rec)
+      }
+      return byGroup
     }
 
     // Recent activity (last 10)
@@ -116,10 +195,8 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       flaggedCount: sourceStatusCounts.flagged ?? 0,
       ignoredCount: ignoredSourceKeys.size,
       sourceStatusCounts,
-      domainData: Array.from(domainMapped.entries()).map(([domain, keys]) => ({
-        domain,
-        count: keys.size,
-      })).sort((a, b) => b.count - a.count),
+      statusByVocab: groupStatus('vocab'),
+      statusByCategory: groupStatus('category'),
       recent,
     }
   }, [mappings, t])
@@ -150,6 +227,110 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       })
     }
   }
+
+  // Combine per-group status distribution (from the store) with per-group source
+  // totals (from the source table) into the breakdown rows. `total` covers mapped
+  // AND unmapped concepts; the unmapped segment is the remainder.
+  const breakdownRows = useMemo<BreakdownRow[]>(() => {
+    const statusMap = deferredDim === 'vocabulary_id' ? stats.statusByVocab : stats.statusByCategory
+    const totals = groupTotals[deferredDim]
+    // Union of group names seen in either the totals or the mappings.
+    const names = new Set<string>([...(totals?.keys() ?? []), ...statusMap.keys()])
+    const rows: BreakdownRow[] = []
+    for (const name of names) {
+      const byStatus = statusMap.get(name) ?? {}
+      const mappedNonIgnored = Object.entries(byStatus)
+        .filter(([s]) => s !== 'ignored')
+        .reduce((sum, [, c]) => sum + c, 0)
+      const ignored = byStatus.ignored ?? 0
+      // Fall back to the mapped+ignored count when the source total is unknown
+      // (e.g. a source column that can't be aggregated).
+      const total = totals?.get(name) ?? mappedNonIgnored + ignored
+      rows.push({
+        key: name,
+        total,
+        mapped: mappedNonIgnored,
+        approved: byStatus.approved ?? 0,
+        byStatus,
+      })
+    }
+    return rows
+  }, [deferredDim, groupTotals, stats.statusByVocab, stats.statusByCategory])
+
+  const sortedFilteredRows = useMemo<BreakdownRow[]>(() => {
+    const q = debouncedSearch.trim().toLowerCase()
+    const filtered = q ? breakdownRows.filter((r) => r.key.toLowerCase().includes(q)) : breakdownRows
+    const dir = sortDesc ? -1 : 1
+    return [...filtered].sort((a, b) => {
+      const av = a[sortBy], bv = b[sortBy]
+      if (av !== bv) return (av - bv) * dir
+      return a.key.localeCompare(b.key)
+    })
+  }, [breakdownRows, debouncedSearch, sortBy, sortDesc])
+
+  const toggleSort = (col: 'total' | 'mapped' | 'approved') => {
+    if (sortBy === col) setSortDesc((d) => !d)
+    else { setSortBy(col); setSortDesc(true) }
+  }
+
+  const buildSegments = (row: BreakdownRow): StatusSegment[] => {
+    const mappedTotal = Object.values(row.byStatus).reduce((s, c) => s + c, 0)
+    const unmapped = Math.max(0, row.total - mappedTotal)
+    const withUnmapped: Record<string, number> = { ...row.byStatus, unmapped }
+    return STATUS_SEGMENT_ORDER
+      .map((status) => ({
+        status,
+        count: withUnmapped[status] ?? 0,
+        label: status === 'unmapped' ? t('concept_mapping.filter_unmapped') : t(`concept_mapping.status_${status}`),
+      }))
+      .filter((s) => s.count > 0)
+  }
+
+  const renderBreakdownRows = (rows: BreakdownRow[]) => (
+    <div className="space-y-2">
+      {rows.map((row) => (
+        <div key={row.key} className="space-y-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="min-w-0 truncate text-xs font-medium" title={row.key}>{row.key}</span>
+            <span className="flex shrink-0 items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
+              <span title={t('concept_mapping.prog_col_mapped')}>{row.mapped.toLocaleString()}</span>
+              <span className="text-emerald-600" title={t('concept_mapping.prog_col_approved')}>{row.approved.toLocaleString()}</span>
+              <span className="text-foreground" title={t('concept_mapping.prog_col_total')}>/ {row.total.toLocaleString()}</span>
+            </span>
+          </div>
+          <StatusBar segments={buildSegments(row)} total={row.total} />
+        </div>
+      ))}
+      {rows.length === 0 && (
+        <p className="py-6 text-center text-xs text-muted-foreground">{t('concept_mapping.prog_no_match')}</p>
+      )}
+    </div>
+  )
+
+  const renderSortHeader = (col: 'total' | 'mapped' | 'approved', label: string) => (
+    <button
+      key={col}
+      className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors hover:bg-accent ${sortBy === col ? 'font-medium text-foreground' : 'text-muted-foreground'}`}
+      onClick={() => toggleSort(col)}
+    >
+      {label}
+      {sortBy === col && (sortDesc ? <ArrowDown size={11} /> : <ArrowUp size={11} />)}
+    </button>
+  )
+
+  const dimTabs = (
+    <div className="flex rounded-md bg-muted p-0.5">
+      {(['vocabulary_id', 'category'] as BreakdownDimension[]).map((dim) => (
+        <button
+          key={dim}
+          className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${breakdownDim === dim ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          onClick={() => switchDim(dim)}
+        >
+          {dim === 'vocabulary_id' ? t('concept_mapping.prog_tab_vocabulary') : t('concept_mapping.prog_tab_category')}
+        </button>
+      ))}
+    </div>
+  )
 
   return (
     <div className="h-full overflow-auto p-4">
@@ -243,51 +424,21 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
             )}
           </Card>
 
-          {/* Category breakdown bar chart */}
+          {/* Breakdown by vocabulary / category */}
           <Card className="p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-medium">{t('concept_mapping.prog_domain_breakdown')}</p>
-              {stats.domainData.length > 10 && (
-                <Button variant="ghost" size="icon" className="h-6 w-6" title={t('concept_mapping.prog_category_show_all')} onClick={() => setCategoryModalOpen(true)}>
-                  <Maximize2 size={13} />
-                </Button>
-              )}
+            <div className="mb-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <p className="text-sm font-medium">{t('concept_mapping.prog_breakdown')}</p>
+              <div className="flex justify-center">{dimTabs}</div>
+              <div className="flex justify-end">
+                {breakdownRows.length > 0 && (
+                  <Button variant="ghost" size="icon" className="h-6 w-6" title={t('concept_mapping.prog_show_all')} onClick={() => setBreakdownModalOpen(true)}>
+                    <Maximize2 size={13} />
+                  </Button>
+                )}
+              </div>
             </div>
-            {stats.domainData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={Math.max(180, stats.domainData.slice(0, 10).length * 26 + 20)}>
-                <BarChart data={stats.domainData.slice(0, 10)} layout="vertical" margin={{ left: 90 }}>
-                  <XAxis type="number" tick={{ fontSize: 10 }} />
-                  <YAxis
-                    type="category"
-                    dataKey="domain"
-                    width={90}
-                    interval={0}
-                    tick={(props: Record<string, unknown>) => {
-                      const x = Number(props.x), y = Number(props.y), value = String((props.payload as { value: string }).value)
-                      const label = value.length > 14 ? value.slice(0, 13) + '…' : value
-                      return (
-                        <g transform={`translate(${x},${y})`}>
-                          <title>{value}</title>
-                          <text x={-4} y={0} dy={4} textAnchor="end" fontSize={10} fill="currentColor">{label}</text>
-                        </g>
-                      )
-                    }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--color-popover)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 6,
-                      fontSize: 12,
-                      color: 'var(--color-popover-foreground)',
-                    }}
-                    itemStyle={{ color: 'var(--color-popover-foreground)' }}
-                    labelStyle={{ color: 'var(--color-popover-foreground)' }}
-                    cursor={{ fill: 'var(--color-accent)' }}
-                  />
-                  <Bar dataKey="count" fill="#60a5fa" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+            {breakdownRows.length > 0 ? (
+              renderBreakdownRows(sortedFilteredRows.slice(0, 10))
             ) : (
               <div className="flex h-[180px] items-center justify-center">
                 <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_no_data')}</p>
@@ -336,49 +487,31 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
         )}
       </div>
 
-      {/* Category breakdown full modal */}
-      <Dialog open={categoryModalOpen} onOpenChange={setCategoryModalOpen}>
-        <DialogContent className="sm:max-w-[90vw] max-h-[85vh] flex flex-col">
+      {/* Breakdown full modal — sortable + searchable */}
+      <Dialog open={breakdownModalOpen} onOpenChange={setBreakdownModalOpen}>
+        <DialogContent className="sm:max-w-[720px] h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle className="text-sm font-medium">{t('concept_mapping.prog_domain_breakdown')}</DialogTitle>
+            <DialogTitle className="text-sm font-medium">{t('concept_mapping.prog_breakdown')}</DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto min-h-0">
-            <div style={{ height: Math.max(400, stats.domainData.length * 28 + 40) }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats.domainData} layout="vertical" margin={{ left: 160 }}>
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis
-                    type="category"
-                    dataKey="domain"
-                    width={160}
-                    interval={0}
-                    tick={(props: Record<string, unknown>) => {
-                      const x = Number(props.x), y = Number(props.y), value = String((props.payload as { value: string }).value)
-                      const label = value.length > 24 ? value.slice(0, 23) + '…' : value
-                      return (
-                        <g transform={`translate(${x},${y})`}>
-                          <title>{value}</title>
-                          <text x={-4} y={0} dy={4} textAnchor="end" fontSize={11} fill="currentColor">{label}</text>
-                        </g>
-                      )
-                    }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--color-popover)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 6,
-                      fontSize: 12,
-                      color: 'var(--color-popover-foreground)',
-                    }}
-                    itemStyle={{ color: 'var(--color-popover-foreground)' }}
-                    labelStyle={{ color: 'var(--color-popover-foreground)' }}
-                    cursor={{ fill: 'var(--color-accent)' }}
-                  />
-                  <Bar dataKey="count" fill="#60a5fa" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+          <div className="flex justify-center">{dimTabs}</div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="relative">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={breakdownSearch}
+                onChange={(e) => setBreakdownSearch(e.target.value)}
+                placeholder={t('concept_mapping.prog_search_placeholder')}
+                className="h-7 w-48 pl-7 text-xs"
+              />
             </div>
+            <div className="flex items-center gap-0.5">
+              {renderSortHeader('total', t('concept_mapping.prog_sort_total'))}
+              {renderSortHeader('mapped', t('concept_mapping.prog_sort_mapped'))}
+              {renderSortHeader('approved', t('concept_mapping.prog_sort_approved'))}
+            </div>
+          </div>
+          <div className="mt-2 flex-1 overflow-y-auto min-h-0 pr-1">
+            {renderBreakdownRows(sortedFilteredRows)}
           </div>
         </DialogContent>
       </Dialog>

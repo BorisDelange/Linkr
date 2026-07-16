@@ -202,6 +202,39 @@ export function buildSourceConceptsCountQuery(
   return sql
 }
 
+/** Breakdown dimension for the progress-tab per-group totals. */
+export type BreakdownDimension = 'vocabulary_id' | 'category'
+
+/** Total source-concept count per group (vocabulary or category), covering the
+ *  full source table (mapped AND unmapped concepts). Returns `''` when the source
+ *  has no column backing the requested dimension (e.g. no category column). */
+export function buildSourceConceptsGroupCountQuery(
+  mapping: SchemaMapping,
+  dimension: BreakdownDimension,
+): string {
+  const dicts = mapping.conceptTables ?? []
+  if (dicts.length === 0) return ''
+  // vocabulary_id is always projected (falls back to the table name); category is
+  // only present when at least one dictionary maps a category column.
+  if (dimension === 'category' && !dicts.some((d) => d.categoryColumn)) return ''
+  const unionParts = buildConceptUnionParts(dicts)
+  const inner = unionParts.length === 1 ? unionParts[0] : unionParts.join(' UNION ALL ')
+  return `SELECT ${dimension} AS group_key, COUNT(*) AS total FROM (${inner}) AS src GROUP BY ${dimension}`
+}
+
+/** File-source variant of buildSourceConceptsGroupCountQuery. The flat
+ *  `source_concepts` view only projects `vocabulary_id` / `category` columns when
+ *  the import mapped the corresponding source column, so the caller must tell us
+ *  which are present to avoid a Binder Error on a missing column. */
+export function buildFileSourceConceptsGroupCountQuery(
+  dimension: BreakdownDimension,
+  present: { vocabulary: boolean; category: boolean },
+): string {
+  if (dimension === 'vocabulary_id' && !present.vocabulary) return ''
+  if (dimension === 'category' && !present.category) return ''
+  return `SELECT ${dimension} AS group_key, COUNT(*) AS total FROM source_concepts GROUP BY ${dimension}`
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

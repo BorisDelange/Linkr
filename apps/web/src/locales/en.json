@@ -3516,7 +3516,19 @@
     "suggestions_default_filename": "similarity-scores.parquet",
     "suggestions_import_file": "Import a file…",
     "suggestions_delete_all_btn": "Delete all",
-    "suggestions_section_import": "Import"
+    "suggestions_section_import": "Import",
+    "prog_breakdown": "Breakdown",
+    "prog_tab_vocabulary": "Vocabulary",
+    "prog_tab_category": "Category",
+    "prog_sort_total": "Total concepts",
+    "prog_sort_mapped": "Mapped",
+    "prog_sort_approved": "Approved",
+    "prog_search_placeholder": "Search…",
+    "prog_col_total": "Total",
+    "prog_col_mapped": "Mapped",
+    "prog_col_approved": "Approved",
+    "prog_show_all": "Show all",
+    "prog_no_match": "No matching group"
   },
   "data_catalog": {
     "title": "Data Catalog",

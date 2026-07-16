@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery } from './mapping-queries'
+import { buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery } from './mapping-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 const mapping: SchemaMapping = {
@@ -154,5 +154,51 @@ describe('buildFileSourceDuplicateCountQuery', () => {
     expect(sql).toContain('FROM source_concepts_raw')
     expect(sql).toContain('FROM source_concepts')
     expect(sql).toContain('AS removed')
+  })
+})
+
+describe('buildSourceConceptsGroupCountQuery — per-group totals over the DB source', () => {
+  it('groups totals by vocabulary_id', () => {
+    const sql = buildSourceConceptsGroupCountQuery(mapping, 'vocabulary_id')
+    expect(sql).toContain('vocabulary_id AS group_key')
+    expect(sql).toContain('COUNT(*) AS total')
+    expect(sql).toContain('GROUP BY vocabulary_id')
+  })
+
+  it('groups totals by category when a category column is mapped', () => {
+    const sql = buildSourceConceptsGroupCountQuery(mapping, 'category')
+    expect(sql).toContain('category AS group_key')
+    expect(sql).toContain('GROUP BY category')
+  })
+
+  it('returns empty string for category when no dictionary maps a category column', () => {
+    const noCategory: SchemaMapping = {
+      eventTables: [],
+      conceptTables: [
+        { key: 'd', table: 'd', nameColumn: 'label', terminologyIdColumn: 'vocabulary_id' },
+      ],
+    } as unknown as SchemaMapping
+    expect(buildSourceConceptsGroupCountQuery(noCategory, 'category')).toBe('')
+    // vocabulary_id is always projected, so it still produces a query.
+    expect(buildSourceConceptsGroupCountQuery(noCategory, 'vocabulary_id')).not.toBe('')
+  })
+
+  it('returns empty string when there are no concept tables', () => {
+    const empty = { eventTables: [], conceptTables: [] } as unknown as SchemaMapping
+    expect(buildSourceConceptsGroupCountQuery(empty, 'vocabulary_id')).toBe('')
+  })
+})
+
+describe('buildFileSourceConceptsGroupCountQuery — per-group totals over the file source', () => {
+  it('groups by vocabulary_id when the column is present', () => {
+    const sql = buildFileSourceConceptsGroupCountQuery('vocabulary_id', { vocabulary: true, category: true })
+    expect(sql).toContain('vocabulary_id AS group_key')
+    expect(sql).toContain('FROM source_concepts')
+    expect(sql).toContain('GROUP BY vocabulary_id')
+  })
+
+  it('returns empty string when the requested column is absent (avoids a Binder Error)', () => {
+    expect(buildFileSourceConceptsGroupCountQuery('vocabulary_id', { vocabulary: false, category: true })).toBe('')
+    expect(buildFileSourceConceptsGroupCountQuery('category', { vocabulary: true, category: false })).toBe('')
   })
 })
