@@ -401,18 +401,30 @@ _STATUS_CODE = {"M": "modified", "A": "added", "D": "deleted", "R": "renamed", "
 
 
 def _porcelain_status(repo: Path) -> list[dict]:
-    """Parse `git status --porcelain` into [{path, changeType, size}] against
+    """Parse `git status --porcelain -z` into [{path, changeType, size}] against
     HEAD+worktree. `size` is the working-tree byte size (0 for deletions), used
-    by the UI to decide LFS tracking."""
-    out = _run(repo, "status", "--porcelain")
+    by the UI to decide LFS tracking.
+
+    The `-z` (NUL-delimited) format is mandatory here: plain `--porcelain` wraps
+    paths containing spaces/UTF-8 in double quotes with C-style escapes (e.g.
+    `"datasets/table agregee vf/_data.json"`), and those quotes would leak into
+    the path we hand back to the client and later to `git rm`, so a deletion of a
+    spaced path could never be staged. `-z` emits raw, unquoted bytes and uses a
+    trailing NUL field for the rename/copy source, which we consume and drop."""
+    out = _run(repo, "status", "--porcelain", "-z")
+    records = out.split("\0")
     files: list[dict] = []
-    for line in out.splitlines():
-        if not line.strip():
+    i = 0
+    while i < len(records):
+        entry = records[i]
+        i += 1
+        if not entry:
             continue
-        code = line[:2].strip() or line[:2]
-        path = line[3:].strip()
-        if " -> " in path:  # rename: report the new path
-            path = path.split(" -> ", 1)[1]
+        code = entry[:2].strip() or entry[:2]
+        path = entry[3:]
+        # A rename/copy carries its source path in the FOLLOWING NUL field; skip it.
+        if code and code[0] in ("R", "C"):
+            i += 1
         fp = repo / path
         size = fp.stat().st_size if fp.is_file() else 0
         files.append({"path": path, "changeType": _STATUS_CODE.get(code, "modified"), "size": size})

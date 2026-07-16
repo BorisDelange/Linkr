@@ -353,6 +353,45 @@ async def test_commit_push_selecting_only_a_deletion_removes_it_from_head():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+@pytest.mark.asyncio
+async def test_deletion_of_path_with_spaces_is_reported_unquoted_and_removable():
+    """A tracked path containing spaces (`datasets/table agregee vf/_data.json`)
+    must be reported by status WITHOUT git's double-quote wrapping, so the exact
+    string round-trips back through commit_push and the deletion actually stages.
+    Regression: plain `--porcelain` quotes such paths, and the quotes leaked into
+    `git rm`, which then silently no-op'd (the file was never removed)."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    def head_tree(remote: str) -> set[str]:
+        out = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "main"],
+            cwd=remote, capture_output=True, text=True, check=True, env=g._git_env(),
+        )
+        return set(out.stdout.splitlines())  # names may contain spaces → split on lines
+
+    spaced = "datasets/table agregee vf/_data.json"
+    try:
+        remote = _bare_remote(tmp)
+        await g.commit_push(getter, "u", _zip({"project.json": "{}", spaced: "x"}), "main", "init", remote, None)
+        assert spaced in head_tree(remote)
+
+        # Re-export drops the spaced dataset folder. Status must surface the exact
+        # unquoted path, which the client sends back as the selected deletion.
+        z2 = _zip({"project.json": "{}"})
+        st = await g.status(getter, "u", z2, "main", None)
+        deleted = [f["path"] for f in st["files"] if f["changeType"] == "deleted"]
+        assert deleted == [spaced]  # unquoted, byte-exact
+
+        r = await g.commit_push(getter, "u", z2, "main", "drop spaced", remote, None, paths=deleted)
+        assert r["committed"] and r["pushed"]
+        assert spaced not in head_tree(remote)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_diff_content_flags_eol_only_vs_no_content_change():
     """The empty-diff wording depends on WHY git flags a file modified: identical
     bytes → no_content_change (a storage-mode switch, e.g. text→LFS); identical only
