@@ -86,6 +86,8 @@ describe('buildMappingProjectFolder — portable project.json', () => {
       gitRemoteConfig: { url: 'https://gitlab.com/x/y', branch: 'main' },
       ownerId: 'user-42',
       workspaceId: 'ws-1',
+      dataSourceId: 'ds-local-uuid',
+      vocabularyDataSourceId: 'vocab-local-uuid',
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-02T00:00:00Z',
     } as unknown as MappingProject
@@ -102,8 +104,38 @@ describe('buildMappingProjectFolder — portable project.json', () => {
     expect(parsed.ownerId).toBeUndefined()
     expect(parsed.workspaceId).toBeUndefined()
     expect(parsed.createdAt).toBeUndefined()
+    // Local data-source UUIDs are not portable: vocabulary id dropped, source id blanked.
+    expect(parsed.vocabularyDataSourceId).toBeUndefined()
+    expect(parsed.dataSourceId).toBe('')
     // Genuine content survives.
     expect(parsed.id).toBe('proj1')
+  })
+
+  it('strips volatile fields from mappings.json and sorts by a stable key', async () => {
+    const m2 = { ...makeMapping(), sourceConceptId: 2, sourceConceptCode: 'AA', id: 'm2' }
+    const m1 = makeMapping() // sourceConceptCode 'VC'
+    const storage = {
+      conceptMappings: { getByProject: async () => [m1, m2] },
+    } as unknown as Storage
+
+    const zip = new JSZip()
+    await buildMappingProjectFolder(zip, '', project, storage)
+    const parsed = JSON.parse(await zip.file('mappings.json')!.async('string')) as Record<string, unknown>[]
+
+    // Sorted by sourceConceptCode → 'AA' before 'VC'.
+    expect(parsed.map((m) => m.sourceConceptCode)).toEqual(['AA', 'VC'])
+    // Instance bookkeeping is gone…
+    for (const m of parsed) {
+      expect(m.id).toBeUndefined()
+      expect(m.projectId).toBeUndefined()
+      expect(m.createdAt).toBeUndefined()
+      expect(m.updatedAt).toBeUndefined()
+    }
+    // …but content + human provenance + nested comment/review ids survive.
+    expect(parsed[1].targetConceptCode).toBe('20112-9')
+    expect(parsed[1].mappedBy).toBe('Boris Delange')
+    expect((parsed[1].comments as Record<string, unknown>[])[0].id).toBe('c1')
+    expect((parsed[1].reviews as Record<string, unknown>[])[0].createdAt).toBe('2026-01-02T00:00:00Z')
   })
 })
 

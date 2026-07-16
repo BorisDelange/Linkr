@@ -556,6 +556,31 @@ interface BuildMappingProjectFolderOptions {
 }
 
 /**
+ * Serialize the project's mappings for `mappings.json`. Instance-local, volatile
+ * fields are dropped so the committed file tracks mapping *content*, not the DB's
+ * bookkeeping: `id`/`projectId` are per-instance uuids (regenerated on pull/import
+ * — see pull.ts), and `createdAt`/`updatedAt` are instance timestamps that churn on
+ * every edit (or wholesale on reimport). These are exactly the fields the 3-way
+ * merge already ignores (merge.ts COMPARED_FIELDS), so removing them can't hide a
+ * real change. `mappedOn`/`reviewedOn` are kept — human-meaningful provenance.
+ * Nested comments/reviews are left intact (their content, incl. their own ids, IS
+ * compared by the merge, so stripping them there would fabricate conflicts). Rows
+ * are sorted by a stable key so DB ordering never shows up as a spurious diff.
+ */
+function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
+  const cleaned = mappings.map((m) => {
+    const { id: _id, projectId: _p, createdAt: _c, updatedAt: _u, ...rest } = m
+    return rest
+  })
+  cleaned.sort((a, b) => {
+    const byCode = a.sourceConceptCode.localeCompare(b.sourceConceptCode)
+    if (byCode !== 0) return byCode
+    return a.sourceConceptId - b.sourceConceptId
+  })
+  return JSON.stringify(cleaned, null, 2)
+}
+
+/**
  * Add all mapping project files to a JSZip folder.
  * Reused by both individual project export and workspace export.
  * Files: project.json, mappings.json, SSSOM, STCM, Usagi, source-concepts.
@@ -574,10 +599,16 @@ export async function buildMappingProjectFolder(
   // Instance-specific fields (gitRemoteConfig, ownerId, timestamps, …) stripped so the
   // exported project.json is portable — matches buildProjectZip. In a workspace export a
   // git-linked entity's pointer is re-added by the caller (see entity-io.ts).
-  const { conceptSetIds: _, importBatches: _ib, fileSourceData, ...projectRest } = project
+  // dataSourceId / vocabularyDataSourceId are local data-source UUIDs: they point at
+  // a DB in THIS instance and mean nothing after re-import elsewhere (all runtime
+  // reads are defensive .find(...) → undefined, same as today when the source DB is
+  // absent). Dropped so they don't churn the diff or masquerade as portable content;
+  // dataSourceId is required by the type, so reset to '' rather than removed.
+  const { conceptSetIds: _, importBatches: _ib, fileSourceData, vocabularyDataSourceId: _vds, ...projectRest } = project
   const projectClean = stripInstanceFields(projectRest)
   const projectJson = {
     ...projectClean,
+    dataSourceId: '',
     ...(fileSourceData ? {
       fileSourceData: {
         ...fileSourceData,
@@ -587,7 +618,7 @@ export async function buildMappingProjectFolder(
     } : {}),
   }
   zip.file(`${prefix}project.json`, JSON.stringify(projectJson, null, 2))
-  zip.file(`${prefix}mappings.json`, JSON.stringify(mappings, null, 2))
+  zip.file(`${prefix}mappings.json`, serializeMappingsForVersioning(mappings))
 
   // SSSOM / Usagi / source-to-concept-map are derivable from mappings.json — they
   // were dropped from the project ZIP to keep it lean. Use the dedicated buttons in
@@ -688,25 +719,28 @@ export async function buildMappingProjectFolder(
  * (queryDataSource/ensureMounted) is intentionally omitted — versioning tracks
  * the mapping definition, not a re-derivable DB dump.
  *
- * When `includeData` is set, the (potentially ~100 MB) scores parquet is added,
- * and a `.gitattributes` is generated so heavy/large files are tracked via Git
- * LFS instead of committed as normal blobs.
+ * The precomputed similarity-scores.parquet is never versioned (it can be
+ * ~100 MB and is fully re-derivable — its latest version lives in the app's
+ * OPFS/IDB / server blob store, not in git); a `.gitignore` excludes it so it
+ * can never be added by accident. LFS is never applied automatically — a file
+ * is tracked via LFS only through the user's per-file toggle (lfsOverrides).
  */
 export async function buildMappingProjectZip(
   projectId: string,
   storage: Storage,
-  options: { includeData?: boolean; lfsOverrides?: Map<string, boolean> } = {},
+  options: { lfsOverrides?: Map<string, boolean> } = {},
 ): Promise<{ blob: Blob; projectName: string } | null> {
   const project = await storage.mappingProjects.getById(projectId)
   if (!project) return null
   const JSZip = (await import('jszip')).default
   const zip = new JSZip()
-  await buildMappingProjectFolder(zip, '', project, storage, { includeScores: !!options.includeData })
+  await buildMappingProjectFolder(zip, '', project, storage, { includeScores: false })
   await attachEntityOrganization(zip, 'project.json', project, storage)
 
-  // Track heavy/large files via LFS (see git-lfs.ts): the automatic size/
-  // extension rule, adjusted by the user's per-file overrides. Computed from the
-  // actual ZIP entry sizes, then written back into the tree before committing.
+  zip.file('.gitignore', 'similarity-scores.parquet\n')
+
+  // LFS is opt-in only (see git-lfs.ts) — nothing is tracked automatically, so
+  // .gitattributes exists only when the user forced a file into LFS by hand.
   const { resolveLfsPaths, buildGitAttributes } = await import('@/lib/git-lfs')
   const entries = await Promise.all(
     Object.values(zip.files)
