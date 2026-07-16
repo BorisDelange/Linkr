@@ -37,13 +37,17 @@ function authorInitials(label: string): string {
 
 const Sep = () => <span aria-hidden className="text-muted-foreground/50">·</span>
 
-/** One label/value line inside the author hover card. */
+/**
+ * One label/value line inside the author hover card. Rendered as two grid cells
+ * (label + value) so that a parent `grid grid-cols-[auto_1fr]` aligns every
+ * label column to the same width, datatable-style.
+ */
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex gap-2">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
+    <>
+      <span className="text-muted-foreground">{label}</span>
       <span className="min-w-0 break-words font-medium">{value}</span>
-    </div>
+    </>
   )
 }
 
@@ -102,12 +106,15 @@ function AuthorChip({
       <TooltipTrigger asChild>
         <span className="min-w-0 cursor-default">{name}</span>
       </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-xs space-y-2 text-xs">
-        <div className="space-y-1">
-          <div className="font-semibold">{label}</div>
+      <TooltipContent side="top" className="max-w-xs text-xs">
+        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          <div className="col-span-2 font-semibold">{label}</div>
           {authorRows}
+          {orgRows.length > 0 && (
+            <div className="col-span-2 mt-1 border-t border-border/50 pt-1.5" />
+          )}
+          {orgRows}
         </div>
-        {orgRows.length > 0 && <div className="space-y-1 border-t border-border/50 pt-1.5">{orgRows}</div>}
       </TooltipContent>
     </Tooltip>
   )
