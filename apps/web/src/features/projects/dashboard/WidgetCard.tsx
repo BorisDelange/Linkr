@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MoreHorizontal, Pencil, Trash2, Type, Download, AlertTriangle, RefreshCw, Copy, FolderInput } from 'lucide-react'
+import { MoreHorizontal, Pencil, Trash2, Type, Settings2, Download, AlertTriangle, RefreshCw, Copy, FolderInput, Info } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,16 +14,22 @@ import { Input } from '@/components/ui/input'
 
 interface WidgetCardProps {
   title: string
+  /** Widget description (resolved to the active language). Shown as an info bubble in the top-left rail. */
+  description?: string
   onRemove: () => void
+  /** Open the widget's Edit dialog (name + description). Dashboards use this. */
   onEdit?: () => void
+  /** Inline-rename the widget's title in place. Patient charts use this (no description model). */
   onRename?: (name: string) => void
+  /** Open the widget configuration panel (data / plugin config). */
+  onConfigure?: () => void
   /** Opens the dashboard Export dialog preselected to this widget. */
   onExport?: () => void
   /** Duplicate this widget into its current tab. */
   onDuplicate?: () => void
   /** Open the "move to tab" dialog for this widget. */
   onMove?: () => void
-  /** Existing widget names in the same tab (for uniqueness validation) */
+  /** Existing sibling names (lowercased) for the inline-rename uniqueness check. */
   siblingNames?: Set<string>
   editMode: boolean
   hideTitleBar?: boolean
@@ -32,20 +38,19 @@ interface WidgetCardProps {
   /** Realign the widget with the plugin's current version (accept the change). */
   onAcceptPluginVersion?: () => void
   /** Extra badges (e.g. an active-filters indicator) shown in the floating top-left rail,
-   *  to the right of the plugin-drift warning, when the title bar is hidden. */
+   *  to the right of the plugin-drift warning and info bubble, when the title bar is hidden. */
   topLeftBadges?: React.ReactNode
   children: React.ReactNode
 }
 
-export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDuplicate, onMove, siblingNames, editMode, hideTitleBar, stale, onAcceptPluginVersion, topLeftBadges, children }: WidgetCardProps) {
+export function WidgetCard({ title, description, onRemove, onEdit, onRename, onConfigure, onExport, onDuplicate, onMove, siblingNames, editMode, hideTitleBar, stale, onAcceptPluginVersion, topLeftBadges, children }: WidgetCardProps) {
   const { t } = useTranslation()
   const showTitleBar = !hideTitleBar
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(title)
   const [renameError, setRenameError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  // When true, the dropdown close should NOT restore focus to its trigger
-  // (because we want focus to go to the rename input instead).
+  // When true, the dropdown close should NOT restore focus to its trigger (focus goes to the rename input).
   const renamePendingRef = useRef(false)
 
   useEffect(() => {
@@ -77,6 +82,21 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
     }
     setRenaming(false)
   }
+
+  const infoBadge = description ? (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="flex size-5 items-center justify-center rounded bg-muted/80 text-muted-foreground backdrop-blur-sm">
+            <Info size={11} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-64 whitespace-pre-wrap bg-foreground text-background">
+          {description}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  ) : null
 
   const staleIcon = (
     <TooltipProvider delayDuration={300}>
@@ -121,13 +141,19 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
       {onRename && (
         <DropdownMenuItem onClick={() => { renamePendingRef.current = true; setRenaming(true) }}>
           <Type size={14} />
-          {t('dashboard.rename_widget')}
+          {t('common.rename')}
         </DropdownMenuItem>
       )}
       {onEdit && (
         <DropdownMenuItem onClick={onEdit}>
           <Pencil size={14} />
-          {t('dashboard.edit_widget')}
+          {t('common.edit')}
+        </DropdownMenuItem>
+      )}
+      {onConfigure && (
+        <DropdownMenuItem onClick={onConfigure}>
+          <Settings2 size={14} />
+          {t('dashboard.configure_widget')}
         </DropdownMenuItem>
       )}
       {onDuplicate && (
@@ -148,7 +174,7 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
           {t('dashboard.export_widget')}
         </DropdownMenuItem>
       )}
-      {(onRename || onEdit || onExport || onDuplicate || onMove) && <DropdownMenuSeparator />}
+      {(onRename || onEdit || onConfigure || onExport || onDuplicate || onMove) && <DropdownMenuSeparator />}
       <DropdownMenuItem variant="destructive" onClick={onRemove}>
         <Trash2 size={14} />
         {t('common.delete')}
@@ -183,6 +209,7 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
           ) : (
             <div className="flex min-w-0 items-center gap-1.5">
               {stale && staleIcon}
+              {infoBadge}
               <h3 className="text-xs font-semibold text-card-foreground truncate">
                 {title}
               </h3>
@@ -202,9 +229,7 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
               <DropdownMenuContent
                 align="end"
                 onCloseAutoFocus={(e) => {
-                  // When rename was just triggered, prevent Radix from moving
-                  // focus back to the trigger button — that would steal focus
-                  // from the rename input and cause an immediate blur.
+                  // When rename was just triggered, keep focus on the rename input instead of the trigger.
                   if (renamePendingRef.current) {
                     e.preventDefault()
                     renamePendingRef.current = false
@@ -218,11 +243,11 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
         </div>
       )}
       {/* Floating top-left rail when the title bar is hidden — surfaced regardless of edit mode.
-          One row, left-to-right priority: plugin-drift warning first, then any extra badges
-          (e.g. the active-filters indicator). z-30 to stay above a widget's own sticky table
-          header (see the menu button below). */}
-      {!showTitleBar && (stale || topLeftBadges) && (
-        <div className="absolute top-1 left-1 z-30 flex items-center gap-1">
+          One row, left-to-right priority: plugin-drift warning, then the description info bubble,
+          then any extra badges (e.g. the active-filters indicator). z-30 to stay above a widget's
+          own sticky table header (see the menu button below). */}
+      {!showTitleBar && (stale || infoBadge || topLeftBadges) && (
+        <div className="absolute top-0.5 left-0.5 z-30 flex items-center gap-1">
           {stale && (
             <TooltipProvider delayDuration={300}>
               <Tooltip>
@@ -235,13 +260,14 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
               </Tooltip>
             </TooltipProvider>
           )}
+          {infoBadge}
           {topLeftBadges}
         </div>
       )}
       {/* Floating menu button when title bar is hidden — full menu in edit mode, view actions on hover otherwise.
           z-30 keeps it above a widget's own sticky table header (thead is z-10, sticky cells z-20). */}
       {!showTitleBar && (editMode || hasViewActions) && (
-        <div className="absolute top-1 right-1 z-30">
+        <div className="absolute top-0.5 right-0.5 z-30">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

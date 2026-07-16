@@ -5,7 +5,7 @@ import { buildDashboardTree } from './dashboard-tree'
 const tab = (id: string, parentTabId: string | null, displayOrder: number): DashboardTab => ({
   id,
   dashboardId: 'd1',
-  name: id,
+  name: { en: id, fr: id },
   displayOrder,
   parentTabId,
 })
@@ -13,7 +13,7 @@ const tab = (id: string, parentTabId: string | null, displayOrder: number): Dash
 const widget = (id: string, tabId: string): DashboardWidget => ({
   id,
   tabId,
-  name: id,
+  name: { en: id, fr: id },
   datasetFileId: null,
   layout: { x: 0, y: 0, w: 4, h: 4 },
   source: { type: 'inline', language: 'r', code: '', config: {} },
@@ -29,7 +29,7 @@ describe('buildDashboardTree', () => {
     ]
     const widgets = [widget('w1', 'child1'), widget('w2', 'root2')]
 
-    const rows = buildDashboardTree(tabs, widgets, 'd1', true)
+    const rows = buildDashboardTree(tabs, widgets, 'd1', 'en', true)
 
     expect(rows.map((r) => [r.kind, r.id, r.depth])).toEqual([
       ['tab', 'root1', 0],
@@ -46,7 +46,7 @@ describe('buildDashboardTree', () => {
     // A widget wrongly attached to the container must not surface as the container's child.
     const widgets = [widget('orphan', 'root'), widget('ok', 'child')]
 
-    const rows = buildDashboardTree(tabs, widgets, 'd1', true)
+    const rows = buildDashboardTree(tabs, widgets, 'd1', 'en', true)
 
     const root = rows.find((r) => r.id === 'root')
     expect(root?.isContainer).toBe(true)
@@ -56,19 +56,19 @@ describe('buildDashboardTree', () => {
 
   it('excludes widgets when includeWidgets is false', () => {
     const tabs = [tab('root', null, 0)]
-    const rows = buildDashboardTree(tabs, [widget('w', 'root')], 'd1', false)
+    const rows = buildDashboardTree(tabs, [widget('w', 'root')], 'd1', 'en', false)
     expect(rows.every((r) => r.kind === 'tab')).toBe(true)
   })
 
   it('only includes the given dashboard', () => {
     const tabs = [tab('a', null, 0), { ...tab('b', null, 0), dashboardId: 'other' }]
-    const rows = buildDashboardTree(tabs, [], 'd1', true)
+    const rows = buildDashboardTree(tabs, [], 'd1', 'en', true)
     expect(rows.map((r) => r.id)).toEqual(['a'])
   })
 
   it('does not infinite-loop on a corrupted parent cycle', () => {
     // a→b→a cycle: should terminate (guarded) rather than overflow the stack.
     const tabs = [tab('a', 'b', 0), tab('b', 'a', 0)]
-    expect(() => buildDashboardTree(tabs, [], 'd1', true)).not.toThrow()
+    expect(() => buildDashboardTree(tabs, [], 'd1', 'en', true)).not.toThrow()
   })
 })

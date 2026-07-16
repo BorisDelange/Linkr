@@ -12,7 +12,7 @@
     {
       "id": "dtab-activity-1",
       "dashboardId": "dashboard-activity-1",
-      "name": "D\u00e9mographie",
+      "name": { "en": "Demographics", "fr": "D\u00e9mographie" },
       "displayOrder": 0
     }
   ],
@@ -20,7 +20,7 @@
     {
       "id": "dw-activity-1",
       "tabId": "dtab-activity-1",
-      "name": "Unique patients",
+      "name": { "en": "Unique patients", "fr": "Patients uniques" },
       "datasetFileId": "demo-activity-dataset-1",
       "layout": { "x": 0, "y": 0, "w": 6, "h": 5 },
       "source": {
@@ -46,7 +46,7 @@
     {
       "id": "dw-activity-2",
       "tabId": "dtab-activity-1",
-      "name": "ICU stays",
+      "name": { "en": "ICU stays", "fr": "Séjours en réanimation" },
       "datasetFileId": "demo-activity-dataset-1",
       "layout": { "x": 6, "y": 0, "w": 6, "h": 5 },
       "source": {
@@ -72,7 +72,7 @@
     {
       "id": "dw-activity-3",
       "tabId": "dtab-activity-1",
-      "name": "Mean age",
+      "name": { "en": "Mean age", "fr": "Âge moyen" },
       "datasetFileId": "demo-activity-dataset-1",
       "layout": { "x": 12, "y": 0, "w": 6, "h": 5 },
       "source": {
@@ -98,7 +98,7 @@
     {
       "id": "dw-activity-4",
       "tabId": "dtab-activity-1",
-      "name": "ICU mortality",
+      "name": { "en": "ICU mortality", "fr": "Mortalité en réanimation" },
       "datasetFileId": "demo-activity-dataset-1",
       "layout": { "x": 18, "y": 0, "w": 6, "h": 5 },
       "source": {
@@ -125,7 +125,7 @@
     {
       "id": "dw-activity-5",
       "tabId": "dtab-activity-1",
-      "name": "Age distribution",
+      "name": { "en": "Age distribution", "fr": "Distribution de l'âge" },
       "datasetFileId": "demo-activity-dataset-1",
       "layout": { "x": 0, "y": 5, "w": 12, "h": 8 },
       "source": {
@@ -157,7 +157,7 @@
     {
       "id": "dw-activity-6",
       "tabId": "dtab-activity-1",
-      "name": "Stays per unit",
+      "name": { "en": "Stays per unit", "fr": "Séjours par unité" },
       "datasetFileId": "demo-activity-dataset-1",
       "layout": { "x": 12, "y": 5, "w": 12, "h": 8 },
       "source": {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Dashboard, DashboardWidget } from '@/types'
+import { localized } from '@/lib/localized'
 import { DashboardDataProvider } from './DashboardDataProvider'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
@@ -66,7 +67,7 @@ export function OffscreenWidgetCapture({
         <div
           key={widget.id}
           data-widget-id={widget.id}
-          data-widget-name={widget.name}
+          data-widget-name={localized(widget.name, 'en')}
           style={{ width: cellWidth, height: cellHeight }}
         >
           {/* Mirrors WidgetCard's content wrapper so findWidgetNode resolves the same node. */}

@@ -452,7 +452,9 @@ export interface Dashboard extends Seedable, Authored {
 export interface DashboardTab {
   id: string
   dashboardId: string
-  name: string
+  name: LocalizedString
+  /** Optional multilingual description, shown as a hover tooltip on the tab. */
+  description?: LocalizedString
   displayOrder: number
   /** When set, this tab is a sub-tab of the referenced root tab (one level of nesting only).
    *  A root tab with children acts as a pure container: its widgets live in the sub-tabs. */
@@ -475,7 +477,9 @@ export type DashboardWidgetSource =
 export interface DashboardWidget {
   id: string
   tabId: string
-  name: string
+  name: LocalizedString
+  /** Optional multilingual description, shown via an info bubble on the widget. */
+  description?: LocalizedString
   datasetFileId?: string | null
   layout: { x: number; y: number; w: number; h: number }
   source: DashboardWidgetSource

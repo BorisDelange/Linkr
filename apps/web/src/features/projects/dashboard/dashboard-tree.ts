@@ -1,4 +1,5 @@
 import type { DashboardTab, DashboardWidget } from '@/types'
+import { localized } from '@/lib/localized'
 
 export interface DashboardTreeRow {
   kind: 'tab' | 'widget'
@@ -27,6 +28,7 @@ export function buildDashboardTree(
   tabs: DashboardTab[],
   widgets: DashboardWidget[],
   dashboardId: string,
+  lang: string,
   includeWidgets = true,
 ): DashboardTreeRow[] {
   const dashTabs = tabs.filter((t) => t.dashboardId === dashboardId)
@@ -55,12 +57,12 @@ export function buildDashboardTree(
     seen.add(tab.id)
     const kids = childrenByParent.get(tab.id) ?? []
     const isContainer = kids.length > 0
-    rows.push({ kind: 'tab', id: tab.id, name: tab.name, depth, isContainer })
+    rows.push({ kind: 'tab', id: tab.id, name: localized(tab.name, lang), depth, isContainer })
     if (isContainer) {
       for (const k of kids) walk(k, depth + 1)
     } else if (includeWidgets) {
       for (const w of widgetsByTab.get(tab.id) ?? []) {
-        rows.push({ kind: 'widget', id: w.id, name: w.name, depth: depth + 1, tabId: tab.id })
+        rows.push({ kind: 'widget', id: w.id, name: localized(w.name, lang), depth: depth + 1, tabId: tab.id })
       }
     }
   }

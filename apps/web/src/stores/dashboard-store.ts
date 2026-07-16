@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Dashboard, DashboardTab, DashboardWidget, DashboardWidgetSource, FilterValue, LocalizedString } from '@/types'
 import { getStorage } from '@/lib/storage'
-import { toLocalized } from '@/lib/localized'
+import { localized, toLocalized } from '@/lib/localized'
 import { stampAuthored } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { remapWidgetColumns } from '@/features/projects/dashboard/remap-widget-columns'
@@ -40,7 +40,8 @@ interface DashboardState {
    *  moveWidgets=true migrates them into the new sub-tab, false deletes them. */
   addSubTab: (parentTabId: string, moveWidgets?: boolean) => void
   removeTab: (tabId: string) => void
-  renameTab: (tabId: string, name: string) => void
+  /** Update a tab's editable metadata (name and/or description). Localized fields. */
+  updateTab: (tabId: string, changes: { name?: LocalizedString; description?: LocalizedString }) => void
   reorderTabs: (dashboardId: string, orderedIds: string[]) => void
   /** Select a tab as-is. A container has no widgets of its own, so the page shows a
    *  "pick a sub-tab" hint instead — use enterTab to step into its children. */
@@ -50,7 +51,7 @@ interface DashboardState {
   enterTab: (dashboardId: string, tabId: string) => void
 
   // Widget CRUD
-  addWidget: (tabId: string, source: DashboardWidgetSource, name: string, datasetFileId?: string | null) => void
+  addWidget: (tabId: string, source: DashboardWidgetSource, name: LocalizedString, datasetFileId?: string | null) => void
   removeWidget: (widgetId: string) => void
   /** Move a widget to another tab, dropping it at the bottom of the target tab. */
   moveWidget: (widgetId: string, newTabId: string) => void
@@ -62,7 +63,8 @@ interface DashboardState {
    *  "fit to height" so existing layouts fit the visible area without scrolling. */
   fitDashboardToHeight: (dashboardId: string, maxRows: number, mode?: 'fill' | 'shrink-only') => void
   updateWidgetSource: (widgetId: string, source: DashboardWidgetSource) => void
-  updateWidgetName: (widgetId: string, name: string) => void
+  /** Update a widget's editable metadata (name and/or description). Localized fields. */
+  updateWidget: (widgetId: string, changes: { name?: LocalizedString; description?: LocalizedString }) => void
   updateWidgetDataset: (widgetId: string, datasetFileId: string | null) => void
   /** Realign a single widget's stamped plugin version with the live plugin (user accepts the change). */
   acceptPluginVersion: (widgetId: string) => void
@@ -153,6 +155,21 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         }
       }
 
+      // Backfill legacy plain-string tab/widget names into LocalizedString and persist once.
+      // Covers existing IDB data, imported ZIPs, and seed that still carry a bare string name.
+      for (const tab of allTabs) {
+        if (typeof tab.name === 'string') {
+          tab.name = toLocalized(tab.name)
+          storage.dashboardTabs.update(tab.id, { name: tab.name }).catch((e) => console.warn('[dashboard-store] tab name backfill:', e))
+        }
+      }
+      for (const w of allWidgets) {
+        if (typeof w.name === 'string') {
+          w.name = toLocalized(w.name)
+          storage.dashboardWidgets.update(w.id, { name: w.name }).catch((e) => console.warn('[dashboard-store] widget name backfill:', e))
+        }
+      }
+
       // Grid migration 1→2 (24→48 cols, row height halved): double each widget's position and
       // size once so legacy dashboards keep their visual layout. Stamp gridV=2 FIRST and await it,
       // so a crash mid-migration can't re-run (and re-double) the layouts on the next load. The
@@ -218,7 +235,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     const tab: DashboardTab = {
       id: tabId,
       dashboardId: id,
-      name: 'Tab 1',
+      name: toLocalized('Tab 1'),
       displayOrder: 0,
       parentTabId: null,
     }
@@ -283,7 +300,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       return {
         id,
         dashboardId,
-        name: `Tab ${roots.length + 1}`,
+        name: toLocalized(`Tab ${roots.length + 1}`),
         displayOrder: roots.length,
         parentTabId: null,
       }
@@ -304,7 +321,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     const child: DashboardTab = {
       id,
       dashboardId: parent.dashboardId,
-      name: `Sub-tab ${existingChildren.length + 1}`,
+      name: toLocalized(`Sub-tab ${existingChildren.length + 1}`),
       displayOrder: existingChildren.length,
       parentTabId,
     }
@@ -392,11 +409,11 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       }
     }),
 
-  renameTab: (tabId, name) => {
+  updateTab: (tabId, changes) => {
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, name } : t)),
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, ...changes } : t)),
     }))
-    getStorage().dashboardTabs.update(tabId, { name }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    getStorage().dashboardTabs.update(tabId, changes).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   reorderTabs: (dashboardId, orderedIds) => {
@@ -468,12 +485,16 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     const siblings = get().widgets.filter((w) => w.tabId === tabId)
     const bottom = siblings.reduce((max, w) => Math.max(max, w.layout.y + w.layout.h), 0)
 
-    // Generate a unique "(copy)" name among the target tab's widgets.
-    const taken = new Set(siblings.map((w) => w.name.toLowerCase()))
-    const base = `${widget.name} (copy)`
-    let name = base
-    let n = 2
-    while (taken.has(name.toLowerCase())) name = `${base} ${n++}`
+    // Generate a unique "(copy)" name among the target tab's widgets. Names are localized:
+    // append "(copy)" to every language, and dedup on the English resolution (any language
+    // collides in practice since both are suffixed together).
+    const taken = new Set(siblings.map((w) => localized(w.name, 'en').toLowerCase()))
+    const suffix = (n: number) => (n > 1 ? ` (copy) ${n}` : ' (copy)')
+    let n = 1
+    while (taken.has((localized(widget.name, 'en') + suffix(n)).toLowerCase())) n++
+    const name: LocalizedString = Object.fromEntries(
+      Object.entries(toLocalized(widget.name)).map(([lang, val]) => [lang, `${val}${suffix(n)}`]),
+    )
 
     const clone: DashboardWidget = {
       ...widget,
@@ -562,11 +583,11 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }
   },
 
-  updateWidgetName: (widgetId, name) => {
+  updateWidget: (widgetId, changes) => {
     set((s) => ({
-      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, name } : w)),
+      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, ...changes } : w)),
     }))
-    getStorage().dashboardWidgets.update(widgetId, { name }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    getStorage().dashboardWidgets.update(widgetId, changes).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   updateWidgetDataset: (widgetId, datasetFileId) => {

@@ -26,7 +26,8 @@ import {
 } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardWidget, DatePreset, DatePresetUnit, FilterValue } from '@/types'
+import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardTab, DashboardWidget, DatePreset, DatePresetUnit, FilterValue } from '@/types'
+import { localized } from '@/lib/localized'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { presetLabel } from './date-presets'
@@ -38,7 +39,7 @@ const DEFAULT_FILTER_OPEN = false
 interface DashboardFilterSidebarProps {
   dashboard: Dashboard
   widgets: DashboardWidget[]
-  tabs: { id: string; name: string; parentTabId?: string | null }[]
+  tabs: DashboardTab[]
   editMode: boolean
   onClose: () => void
 }
@@ -1180,10 +1181,11 @@ function FilterScopeSelector({
 }: {
   scope: DashboardFilterScope
   onChange: (scope: DashboardFilterScope) => void
-  tabs: { id: string; name: string; parentTabId?: string | null }[]
+  tabs: DashboardTab[]
   widgets: DashboardWidget[]
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const [popoverOpen, setPopoverOpen] = useState(false)
   const [search, setSearch] = useState('')
 
@@ -1198,18 +1200,18 @@ function FilterScopeSelector({
     for (const tab of tabs) {
       const tabWidgets = widgets.filter(w => w.tabId === tab.id)
       for (const w of tabWidgets) {
-        result.push({ tabName: tab.name, widgetId: w.id, widgetName: w.name })
+        result.push({ tabName: localized(tab.name, lang), widgetId: w.id, widgetName: localized(w.name, lang) })
       }
     }
     return result
-  }, [tabs, widgets])
+  }, [tabs, widgets, lang])
 
   const scopeType = scope.type
 
   const q = search.trim().toLowerCase()
   const filteredTabs = useMemo(
-    () => (q ? tabs.filter(tab => tab.name.toLowerCase().includes(q)) : tabs),
-    [tabs, q],
+    () => (q ? tabs.filter(tab => localized(tab.name, lang).toLowerCase().includes(q)) : tabs),
+    [tabs, q, lang],
   )
   const filteredWidgetOptions = useMemo(
     () => (q ? widgetOptions.filter(o => o.widgetName.toLowerCase().includes(q) || o.tabName.toLowerCase().includes(q)) : widgetOptions),
@@ -1297,10 +1299,10 @@ function FilterScopeSelector({
                             }}
                             className="size-3.5 shrink-0 [&_svg]:size-3"
                           />
-                          <span className="truncate">{tab.name}</span>
+                          <span className="truncate">{localized(tab.name, lang)}</span>
                         </label>
                       </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-64">{tab.name}</TooltipContent>
+                      <TooltipContent side="right" className="max-w-64">{localized(tab.name, lang)}</TooltipContent>
                     </Tooltip>
                   )
                 })}
@@ -1395,23 +1397,24 @@ function FilterScopeBadge({
   widgets,
 }: {
   scope: DashboardFilterScope
-  tabs: { id: string; name: string; parentTabId?: string | null }[]
+  tabs: DashboardTab[]
   widgets: DashboardWidget[]
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const isAll = scope.type === 'all'
 
   const targetNames = useMemo(() => {
     if (scope.type === 'tabs') {
       const ids = new Set(scope.tabIds)
-      return tabs.filter(tb => ids.has(tb.id)).map(tb => tb.name)
+      return tabs.filter(tb => ids.has(tb.id)).map(tb => localized(tb.name, lang))
     }
     if (scope.type === 'widgets') {
       const ids = new Set(scope.widgetIds)
-      return widgets.filter(w => ids.has(w.id)).map(w => w.name)
+      return widgets.filter(w => ids.has(w.id)).map(w => localized(w.name, lang))
     }
     return []
-  }, [scope, tabs, widgets])
+  }, [scope, tabs, widgets, lang])
 
   const label = scope.type === 'all'
     ? t('dashboard.filter_scope_all')

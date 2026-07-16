@@ -1,4 +1,7 @@
 import { create } from 'zustand'
+import type { LocalizedString } from '@/types'
+import { toLocalized, setLocalized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -7,7 +10,7 @@ import { create } from 'zustand'
 export interface PatientChartTab {
   id: string
   projectUid: string
-  name: string
+  name: LocalizedString
   displayOrder: number
 }
 
@@ -54,7 +57,7 @@ export interface PatientChartWidget {
   id: string
   tabId: string
   type: PatientWidgetType
-  name: string
+  name: LocalizedString
   layout: { x: number; y: number; w: number; h: number }
   config: PatientWidgetConfig
 }
@@ -149,7 +152,20 @@ function loadPersistedState(): Partial<PersistedState> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return {}
-    return JSON.parse(raw) as PersistedState
+    const state = JSON.parse(raw) as PersistedState
+    // Backfill legacy plain-string tab/widget names into LocalizedString.
+    // Covers localStorage data written before the name field was localized.
+    if (Array.isArray(state.tabs)) {
+      for (const tab of state.tabs) {
+        if (typeof tab.name === 'string') tab.name = toLocalized(tab.name)
+      }
+    }
+    if (Array.isArray(state.widgets)) {
+      for (const w of state.widgets) {
+        if (typeof w.name === 'string') w.name = toLocalized(w.name)
+      }
+    }
+    return state
   } catch {
     return {}
   }
@@ -211,7 +227,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
       const newTab: PatientChartTab = {
         id,
         projectUid,
-        name: `Tab ${existing.length + 1}`,
+        name: toLocalized(`Tab ${existing.length + 1}`),
         displayOrder: existing.length,
       }
       return {
@@ -241,9 +257,14 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
     }),
 
   renameTab: (tabId, name) =>
-    set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, name } : t)),
-    })),
+    set((s) => {
+      const lang = useAppStore.getState().language
+      return {
+        tabs: s.tabs.map((t) =>
+          t.id === tabId ? { ...t, name: setLocalized(t.name, lang, name) } : t,
+        ),
+      }
+    }),
 
   reorderTabs: (projectUid, orderedIds) =>
     set((s) => ({
@@ -280,7 +301,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
           id,
           tabId,
           type,
-          name,
+          name: toLocalized(name),
           layout: { x: 0, y: Infinity, ...defaultLayout },
           config: initialConfig ?? defaultConfigForType(type),
         },
@@ -294,11 +315,14 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
     })),
 
   renameWidget: (widgetId, name) =>
-    set((s) => ({
-      widgets: s.widgets.map((w) =>
-        w.id === widgetId ? { ...w, name } : w,
-      ),
-    })),
+    set((s) => {
+      const lang = useAppStore.getState().language
+      return {
+        widgets: s.widgets.map((w) =>
+          w.id === widgetId ? { ...w, name: setLocalized(w.name, lang, name) } : w,
+        ),
+      }
+    }),
 
   updateWidgetLayout: (widgetId, layout) =>
     set((s) => ({
@@ -322,8 +346,8 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
       const haemoTabId = uid()
 
       const newTabs: PatientChartTab[] = [
-        { id: summaryTabId, projectUid, name: 'Summary', displayOrder: 0 },
-        { id: haemoTabId, projectUid, name: 'Haemodynamics', displayOrder: 1 },
+        { id: summaryTabId, projectUid, name: toLocalized('Summary'), displayOrder: 0 },
+        { id: haemoTabId, projectUid, name: toLocalized('Haemodynamics'), displayOrder: 1 },
       ]
 
       const newWidgets: PatientChartWidget[] = [
@@ -331,7 +355,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
           id: uid(),
           tabId: summaryTabId,
           type: 'patient_summary',
-          name: 'Patient Summary',
+          name: toLocalized('Patient Summary'),
           layout: { x: 0, y: 0, w: 48, h: 24 },
           config: {},
         },
@@ -339,7 +363,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
           id: uid(),
           tabId: haemoTabId,
           type: 'timeline',
-          name: 'Timeline',
+          name: toLocalized('Timeline'),
           layout: { x: 0, y: 0, w: 48, h: 14 },
           config: { conceptIds: [3027018] } as TimelineConfig,
         },

@@ -16,6 +16,7 @@ import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { WarehousePluginEditorSheet } from './WarehousePluginEditorSheet'
 import { getPlugin } from '@/lib/plugins/registry'
+import { localized } from '@/lib/localized'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   AlertDialog,
@@ -77,7 +78,8 @@ export function PatientChartGrid({
   editMode,
   hideTitleBars,
 }: PatientChartGridProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const { updateWidgetLayout, removeWidget, renameWidget, updateWidgetConfig } =
     usePatientChartStore()
   // Outer ref: always overflow-hidden, used to measure available space.
@@ -211,7 +213,7 @@ export function PatientChartGrid({
           className={widget.type === 'timeline' ? 'patient-timeline-item' : undefined}
         >
           <WidgetCard
-            title={widget.name}
+            title={localized(widget.name, lang)}
             onRemove={() => setConfirmDeleteWidgetId(widget.id)}
             onRename={(name) => renameWidget(widget.id, name)}
             onEdit={
@@ -268,7 +270,7 @@ export function PatientChartGrid({
           <AlertDialogHeader>
             <AlertDialogTitle>{t('dashboard.delete_widget_title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('dashboard.delete_widget_description', { name: confirmDeleteWidget?.name ?? '' })}
+              {t('dashboard.delete_widget_description', { name: confirmDeleteWidget ? localized(confirmDeleteWidget.name, lang) : '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

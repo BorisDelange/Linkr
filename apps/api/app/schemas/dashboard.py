@@ -57,16 +57,20 @@ class DashboardResponse(CamelModel):
     updated_at: datetime
 
 
+# Tab/widget name is a LocalizedString dict ({"en": ...}); legacy rows and old export
+# ZIPs may carry a bare string — accept both so imports don't 422.
 class DashboardTabCreate(CamelModel):
     id: str
     dashboard_id: str
-    name: str = ""
+    name: dict | str = {}
+    description: dict | str | None = None
     display_order: int = 0
     parent_tab_id: str | None = None
 
 
 class DashboardTabUpdate(CamelModel):
-    name: str | None = None
+    name: dict | str | None = None
+    description: dict | str | None = None
     display_order: int | None = None
     parent_tab_id: str | None = None
 
@@ -74,7 +78,8 @@ class DashboardTabUpdate(CamelModel):
 class DashboardTabResponse(CamelModel):
     id: str
     dashboard_id: str
-    name: str
+    name: dict | str
+    description: dict | str | None = None
     display_order: int
     parent_tab_id: str | None = None
 
@@ -82,14 +87,16 @@ class DashboardTabResponse(CamelModel):
 class DashboardWidgetCreate(CamelModel):
     id: str
     tab_id: str
-    name: str = ""
+    name: dict | str = {}
+    description: dict | str | None = None
     dataset_file_id: str | None = None
     layout: dict = {}
     source: dict = {}
 
 
 class DashboardWidgetUpdate(CamelModel):
-    name: str | None = None
+    name: dict | str | None = None
+    description: dict | str | None = None
     dataset_file_id: str | None = None
     layout: dict | None = None
     source: dict | None = None
@@ -98,7 +105,8 @@ class DashboardWidgetUpdate(CamelModel):
 class DashboardWidgetResponse(CamelModel):
     id: str
     tab_id: str
-    name: str
+    name: dict | str
+    description: dict | str | None = None
     dataset_file_id: str | None = None
     layout: dict
     source: dict

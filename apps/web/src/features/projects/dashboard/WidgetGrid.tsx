@@ -6,6 +6,8 @@ import 'react-resizable/css/styles.css'
 import type { Dashboard, DashboardWidget, FilterValue } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized } from '@/lib/localized'
 import { WidgetCard } from './WidgetCard'
 import { MoveWidgetDialog } from './MoveWidgetDialog'
 import { buildDashboardTree } from './dashboard-tree'
@@ -17,6 +19,7 @@ import { resolveWidgetFilters, buildFilterChips, buildFilterLabelMap } from './d
 import { Filter } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
+import { DashboardItemEditDialog } from './DashboardItemEditDialog'
 import { DASHBOARD_GRID, computeFitRows, colWidthFor, FIT_ROWS } from './dashboard-grid'
 import {
   AlertDialog,
@@ -144,13 +147,13 @@ function WidgetCell({
   dashboard,
   activeFilters,
   parentTabId,
-  siblingNames,
+  language,
   editMode,
   hideTitleBar,
   canMove,
   onRemove,
-  onRename,
   onEdit,
+  onConfigure,
   onExport,
   onDuplicate,
   onMove,
@@ -160,13 +163,13 @@ function WidgetCell({
   dashboard: Dashboard
   activeFilters: Record<string, FilterValue>
   parentTabId: string | null | undefined
-  siblingNames: Set<string>
+  language: string
   editMode: boolean
   hideTitleBar?: boolean
   canMove: boolean
   onRemove: () => void
-  onRename: (name: string) => void
   onEdit: () => void
+  onConfigure: () => void
   onExport?: () => void
   onDuplicate: () => void
   onMove: () => void
@@ -175,11 +178,11 @@ function WidgetCell({
   const { filters, filterChips } = useWidgetFilters(widget, dashboard, activeFilters, parentTabId)
   return (
     <WidgetCard
-      title={widget.name}
+      title={localized(widget.name, language)}
+      description={localized(widget.description, language)}
       onRemove={onRemove}
-      onRename={onRename}
-      siblingNames={siblingNames}
       onEdit={onEdit}
+      onConfigure={onConfigure}
       onExport={onExport}
       onDuplicate={onDuplicate}
       onMove={canMove ? onMove : undefined}
@@ -196,17 +199,21 @@ function WidgetCell({
 
 export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projectUid, onRequestExport }: WidgetGridProps) {
   const { t } = useTranslation()
-  const { updateWidgetLayout, removeWidget, updateWidgetName, acceptPluginVersion, activeFilters, tabs, moveWidget, duplicateWidget, fitDashboardToHeight } = useDashboardStore()
+  const language = useAppStore((s) => s.language)
+  const { updateWidgetLayout, removeWidget, updateWidget, acceptPluginVersion, activeFilters, tabs, moveWidget, duplicateWidget, fitDashboardToHeight } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
   const [availableHeight, setAvailableHeight] = useState(0)
+  // Two distinct widget editors: the config panel (data/plugin) and the metadata dialog (name + description).
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
+  const [editingMetaWidgetId, setEditingMetaWidgetId] = useState<string | null>(null)
   const [confirmDeleteWidgetId, setConfirmDeleteWidgetId] = useState<string | null>(null)
   const [movingWidgetId, setMovingWidgetId] = useState<string | null>(null)
   const confirmDeleteWidget = confirmDeleteWidgetId ? widgets.find(w => w.id === confirmDeleteWidgetId) ?? null : null
   const movingWidget = movingWidgetId ? widgets.find(w => w.id === movingWidgetId) ?? null : null
 
   const editingWidget = editingWidgetId ? widgets.find(w => w.id === editingWidgetId) ?? null : null
+  const editingMetaWidget = editingMetaWidgetId ? widgets.find(w => w.id === editingMetaWidgetId) ?? null : null
 
   useEffect(() => {
     const el = containerRef.current
@@ -321,8 +328,8 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
 
   // Hierarchical tab/widget rows for the Move-to-tab dialog (widgets shown for context).
   const moveTree = useMemo(
-    () => buildDashboardTree(tabs, widgets, dashboard.id, true),
-    [tabs, widgets, dashboard.id],
+    () => buildDashboardTree(tabs, widgets, dashboard.id, language, true),
+    [tabs, widgets, dashboard.id, language],
   )
   // Leaf tabs are the valid move destinations.
   const moveTargetIds = useMemo(
@@ -383,10 +390,6 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
         autoSize
       >
         {widgets.map((widget) => {
-          // Sibling names for uniqueness check (exclude current widget)
-          const siblingNames = new Set(
-            widgets.filter(w => w.id !== widget.id).map(w => w.name.toLowerCase())
-          )
           const canMove = [...moveTargetIds].some((id) => id !== widget.tabId)
           return (
           // Inset the card inside its jointive grid cell so two adjacent cards show a `gap`-wide
@@ -398,20 +401,20 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
             className="box-border h-full"
             style={{ paddingTop: halfGap + 1, paddingLeft: halfGap + 1, paddingBottom: halfGap, paddingRight: halfGap }}
             data-widget-id={widget.id}
-            data-widget-name={widget.name}
+            data-widget-name={localized(widget.name, 'en')}
           >
             <WidgetCell
               widget={widget}
               dashboard={dashboard}
               activeFilters={activeFilters}
               parentTabId={tabParentById.get(widget.tabId)}
-              siblingNames={siblingNames}
+              language={language}
               editMode={editMode}
               hideTitleBar={hideTitleBars}
               canMove={canMove}
               onRemove={() => setConfirmDeleteWidgetId(widget.id)}
-              onRename={(name) => updateWidgetName(widget.id, name)}
-              onEdit={() => setEditingWidgetId(widget.id)}
+              onEdit={() => setEditingMetaWidgetId(widget.id)}
+              onConfigure={() => setEditingWidgetId(widget.id)}
               onExport={onRequestExport ? () => onRequestExport(widget.id) : undefined}
               onDuplicate={() => duplicateWidget(widget.id)}
               onMove={() => setMovingWidgetId(widget.id)}
@@ -431,12 +434,27 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
         widgetSpacing={dashboard.widgetSpacing}
       />
 
+      {editingMetaWidget && (
+        <DashboardItemEditDialog
+          title={t('dashboard.edit_widget_title')}
+          name={editingMetaWidget.name}
+          description={editingMetaWidget.description}
+          siblingNames={new Set(
+            widgets
+              .filter((w) => w.id !== editingMetaWidget.id && w.tabId === editingMetaWidget.tabId)
+              .map((w) => localized(w.name, language).toLowerCase()),
+          )}
+          onSave={(changes) => updateWidget(editingMetaWidget.id, changes)}
+          onOpenChange={(open) => { if (!open) setEditingMetaWidgetId(null) }}
+        />
+      )}
+
       <AlertDialog open={confirmDeleteWidgetId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteWidgetId(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('dashboard.delete_widget_title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('dashboard.delete_widget_description', { name: confirmDeleteWidget?.name ?? '' })}
+              {t('dashboard.delete_widget_description', { name: confirmDeleteWidget ? localized(confirmDeleteWidget.name, language) : '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -458,7 +476,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
         <MoveWidgetDialog
           open={movingWidgetId !== null}
           onOpenChange={(o) => { if (!o) setMovingWidgetId(null) }}
-          widgetName={movingWidget.name}
+          widgetName={localized(movingWidget.name, language)}
           currentTabId={movingWidget.tabId}
           rows={moveTree}
           onMove={(tabId) => {

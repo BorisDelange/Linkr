@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Database, Info } from 'lucide-react'
 import { useSaveForm } from '@/hooks/use-save-form'
+import { localized } from '@/lib/localized'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -52,7 +53,7 @@ export function DashboardSettingsDialog({
   projectUid,
   currentTabId,
 }: DashboardSettingsDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { updateDashboard, widgets, tabs, updateWidgetDataset, fitDashboardToHeight } = useDashboardStore()
   const { files: datasetFiles } = useDatasetStore()
 
@@ -125,7 +126,8 @@ export function DashboardSettingsDialog({
   }
 
   const bulkCount = bulkAssignScope === 'all' ? allDashboardWidgets.length : currentTabWidgets.length
-  const currentTabName = currentTabId ? dashboardTabs.find(tab => tab.id === currentTabId)?.name ?? '' : ''
+  const currentTab = currentTabId ? dashboardTabs.find(tab => tab.id === currentTabId) : undefined
+  const currentTabName = currentTab ? localized(currentTab.name, i18n.language) : ''
 
   const settings = useSaveForm({
     current: { showWidgetTitles, defaultDatasetFileId, widgetSpacing, reloadWidgetsOnTabSwitch, fitToHeight },

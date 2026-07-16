@@ -18,6 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { localized } from '@/lib/localized'
 import {
   usePatientChartStore,
   type PatientChartTab,
@@ -62,7 +63,7 @@ function SortableTab({
   onClose: () => void
   onStartRename: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   const {
     attributes,
@@ -98,7 +99,7 @@ function SortableTab({
             isDragging && 'cursor-grabbing'
           )}
         >
-          <span>{tab.name}</span>
+          <span>{localized(tab.name, i18n.language)}</span>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -133,8 +134,9 @@ function TabRenameInput({
   siblingNames: Set<string>
   onFinish: (newName: string | null) => void
 }) {
-  const { t } = useTranslation()
-  const [value, setValue] = useState(tab.name)
+  const { t, i18n } = useTranslation()
+  const currentName = localized(tab.name, i18n.language)
+  const [value, setValue] = useState(currentName)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -152,12 +154,12 @@ function TabRenameInput({
 
   const commit = useCallback(() => {
     const next = value.trim()
-    if (!next || next === tab.name || siblingNames.has(next.toLowerCase())) {
+    if (!next || next === currentName || siblingNames.has(next.toLowerCase())) {
       onFinish(null)
     } else {
       onFinish(next)
     }
-  }, [value, tab.name, siblingNames, onFinish])
+  }, [value, currentName, siblingNames, onFinish])
 
   return (
     <div
@@ -186,7 +188,8 @@ function TabRenameInput({
 }
 
 export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const {
     tabs: allTabs,
     activeTabId,
@@ -233,12 +236,12 @@ export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarP
   const handleRenameFinish = useCallback((tabId: string, newName: string | null) => {
     if (newName) {
       const exists = allTabs.some(
-        (t) => t.projectUid === projectUid && t.id !== tabId && t.name.toLowerCase() === newName.toLowerCase(),
+        (t) => t.projectUid === projectUid && t.id !== tabId && localized(t.name, lang).toLowerCase() === newName.toLowerCase(),
       )
       if (!exists) renameTab(tabId, newName)
     }
     setRenamingTabId(null)
-  }, [renameTab, allTabs, projectUid])
+  }, [renameTab, allTabs, projectUid, lang])
 
   return (
     <>
@@ -260,7 +263,7 @@ export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarP
                     tab={tab}
                     isActive={tab.id === currentActiveId}
                     siblingNames={new Set(
-                      tabs.filter((tt) => tt.id !== tab.id).map((tt) => tt.name.toLowerCase()),
+                      tabs.filter((tt) => tt.id !== tab.id).map((tt) => localized(tt.name, lang).toLowerCase()),
                     )}
                     onFinish={(name) => handleRenameFinish(tab.id, name)}
                   />
@@ -296,7 +299,7 @@ export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarP
           <AlertDialogHeader>
             <AlertDialogTitle>{t('dashboard.delete_tab_title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('dashboard.delete_tab_description', { name: confirmDeleteTab?.name ?? '' })}
+              {t('dashboard.delete_tab_description', { name: confirmDeleteTab ? localized(confirmDeleteTab.name, lang) : '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

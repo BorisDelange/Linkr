@@ -43,7 +43,8 @@ class DashboardTab(Base):
     dashboard_id: Mapped[str] = mapped_column(
         ForeignKey("dashboards.id", ondelete="CASCADE")
     )
-    name: Mapped[str] = mapped_column(String(255), default="")
+    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
     display_order: Mapped[int] = mapped_column(Integer, default=0)
     parent_tab_id: Mapped[str | None] = mapped_column(String(36))
 
@@ -59,7 +60,8 @@ class DashboardWidget(Base):
     tab_id: Mapped[str] = mapped_column(
         ForeignKey("dashboard_tabs.id", ondelete="CASCADE")
     )
-    name: Mapped[str] = mapped_column(String(255), default="")
+    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
     dataset_file_id: Mapped[str | None] = mapped_column(String(36))
     layout: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     source: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)

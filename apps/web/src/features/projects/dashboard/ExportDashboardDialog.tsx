@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import type { Dashboard, DashboardTab, DashboardWidget } from '@/types'
 import {
   type ExportFormat,
@@ -49,6 +50,7 @@ interface ExportDashboardDialogProps {
 
 export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, allWidgets, currentTabId, preselectWidgetId }: ExportDashboardDialogProps) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const [format, setFormat] = useState<ExportFormat>('png')
   const [scope, setScope] = useState<Scope>('all')
   const [dpi, setDpi] = useState(384)
@@ -59,15 +61,17 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
   const [capturing, setCapturing] = useState(false)
   const [captureReady, setCaptureReady] = useState(false)
 
-  const dashboardName = localized(dashboard.name, 'en')
-  const currentTabName = tabs.find(tb => tb.id === currentTabId)?.name ?? dashboardName
+  // Filenames follow the active UI language (matching what the user sees on screen).
+  const dashboardName = localized(dashboard.name, language)
+  const currentTab = tabs.find(tb => tb.id === currentTabId)
+  const currentTabName = currentTab ? localized(currentTab.name, language) : dashboardName
 
   // Hierarchical rows (tabs → sub-tabs → widgets) for the picker. In "current tab" scope we keep
   // only the active tab's widgets; tab/sub-tab header rows with no widgets in scope are dropped.
   const treeRows = useMemo(() => {
     if (!tabs.length) return []
     const dashboardId = tabs[0].dashboardId
-    const full = buildDashboardTree(tabs, allWidgets, dashboardId, true)
+    const full = buildDashboardTree(tabs, allWidgets, dashboardId, language, true)
     if (scope === 'current') {
       return full.filter(r => r.kind === 'widget' && r.tabId === currentTabId)
     }
@@ -78,7 +82,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
       if (r.kind === 'widget') { keep.add(r.id); for (let j = i - 1; j >= 0; j--) { if (full[j].kind === 'tab' && full[j].depth < r.depth) { keep.add(full[j].id); if (full[j].depth === 0) break } } }
     }
     return full.filter(r => r.kind === 'widget' || keep.has(r.id))
-  }, [scope, tabs, currentTabId, allWidgets])
+  }, [scope, tabs, currentTabId, allWidgets, language])
 
   const scopedWidgets = useMemo(
     () => treeRows.filter(r => r.kind === 'widget').map(r => allWidgets.find(w => w.id === r.id)!).filter(Boolean),
@@ -118,7 +122,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
   const collectAndExport = useCallback(async () => {
     try {
       const targets: ExportTarget[] = chosen
-        .map(w => ({ id: w.id, name: w.name, node: findWidgetNode(w.id) }))
+        .map(w => ({ id: w.id, name: localized(w.name, language), node: findWidgetNode(w.id) }))
         .filter((x): x is ExportTarget => x.node != null)
 
       if (targets.length === 0) {
@@ -148,7 +152,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
       setCapturing(false)
       setCaptureReady(false)
     }
-  }, [chosen, format, dpi, scope, dashboardName, currentTabName, onOpenChange, t])
+  }, [chosen, format, dpi, scope, dashboardName, currentTabName, language, onOpenChange, t])
 
   // Once off-screen widgets report ready, run the actual capture.
   useEffect(() => {

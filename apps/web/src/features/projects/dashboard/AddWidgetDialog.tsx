@@ -6,6 +6,7 @@ import { ArrowLeft, Database, TriangleAlert } from 'lucide-react'
 import { PythonLogo, RLogo } from '@/components/ui/language-icon'
 import { cn } from '@/lib/utils'
 import type { DashboardWidgetSource } from '@/types'
+import { localized, toLocalized } from '@/lib/localized'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { measureFitRows } from './dashboard-grid'
@@ -75,13 +76,13 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
   }
   const { files: datasetFiles, getFileRows } = useDatasetStore()
 
-  // Existing widget names in this tab (for uniqueness check)
+  const lang = i18n.language as 'en' | 'fr'
+  // Existing widget names in this tab (active language, for uniqueness check)
   const tabWidgetNames = useMemo(
-    () => new Set(widgets.filter(w => w.tabId === tabId).map(w => w.name.toLowerCase())),
-    [widgets, tabId]
+    () => new Set(widgets.filter(w => w.tabId === tabId).map(w => localized(w.name, lang).toLowerCase())),
+    [widgets, tabId, lang]
   )
   const [activeTab, setActiveTab] = useState('plugin')
-  const lang = i18n.language as 'en' | 'fr'
 
   // Restore last-used dataset for this project
   const [datasetFileId, setDatasetFileId] = useState<string | null>(null)
@@ -188,7 +189,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
         language: defaultLang,
         config: {},
       }
-      addWidgetFitting(tabId, source, defaultName, datasetFileId)
+      addWidgetFitting(tabId, source, toLocalized(defaultName), datasetFileId)
       resetAndClose()
     }
   }
@@ -210,7 +211,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
       language: pluginLanguage,
       config: { ...pluginConfig },
     }
-    addWidgetFitting(tabId, source, widgetName.trim() || fallbackName, datasetFileId)
+    addWidgetFitting(tabId, source, toLocalized(widgetName.trim() || fallbackName), datasetFileId)
     resetAndClose()
   }
 
@@ -222,7 +223,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
       config: {},
     }
     const name = widgetName.trim() || makeUniqueName(`Custom ${language}`)
-    addWidgetFitting(tabId, source, name, datasetFileId)
+    addWidgetFitting(tabId, source, toLocalized(name), datasetFileId)
     resetAndClose()
   }
 

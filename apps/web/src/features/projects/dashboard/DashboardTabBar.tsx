@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   DndContext,
@@ -16,13 +16,14 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus, Pencil, Trash2, Layers, FolderPlus, ChevronRight, Home, Filter } from 'lucide-react'
+import { Plus, Pencil, Trash2, Layers, FolderPlus, ChevronRight, Home } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DashboardTab } from '@/types'
 import { useDashboardStore, getChildTabs, getTabPath } from '@/stores/dashboard-store'
-import { useDatasetStore } from '@/stores/dataset-store'
-import { buildTabFilterChips, type FilterChip } from './dashboard-filters'
+import { useAppStore } from '@/stores/app-store'
+import { localized } from '@/lib/localized'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { DashboardItemEditDialog } from './DashboardItemEditDialog'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -52,10 +53,11 @@ function SortableTab({
   canClose,
   editMode,
   hasChildren,
-  filterChips,
+  label,
+  description,
   onActivate,
   onClose,
-  onStartRename,
+  onEdit,
   onAddSubTab,
 }: {
   tab: DashboardTab
@@ -64,12 +66,13 @@ function SortableTab({
   editMode: boolean
   /** Tab that contains sub-tabs — shows a container indicator and drills in on click. */
   hasChildren?: boolean
-  /** Active filters reaching this tab's widgets — drives the filter indicator + hover tooltip.
-   *  Empty for container tabs (their own widgets live in sub-tabs). */
-  filterChips: FilterChip[]
+  /** Tab name resolved in the active language. */
+  label: string
+  /** Tab description resolved in the active language (empty when none) — shown as a hover tooltip. */
+  description: string
   onActivate: () => void
   onClose: () => void
-  onStartRename: () => void
+  onEdit: () => void
   onAddSubTab: () => void
 }) {
   const { t } = useTranslation()
@@ -90,180 +93,92 @@ function SortableTab({
     opacity: isDragging ? 0.5 : 1,
   }
 
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div
-          ref={setNodeRef}
-          style={style}
-          {...attributes}
-          {...(editMode ? listeners : {})}
-          onClick={onActivate}
-          onDoubleClick={onStartRename}
-          className={cn(
-            'group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap select-none',
-            isActive
-              ? 'border-primary text-foreground'
-              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
-            isDragging && 'cursor-grabbing'
-          )}
-        >
-          <span>{tab.name}</span>
-          {hasChildren && (
-            <Layers size={11} className="text-muted-foreground/70 shrink-0" />
-          )}
-          {filterChips.length > 0 && (
-            // Tooltip only on the filter icon (not the whole tab title) — lists the active
-            // filters reaching this tab's widgets, same UI as the per-widget indicator.
-            <TooltipProvider delayDuration={150}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="flex shrink-0 items-center text-muted-foreground/70 hover:text-foreground">
-                    <Filter size={11} />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-h-72 max-w-64 overflow-y-auto bg-foreground text-background">
-                  <p className="mb-1 text-[11px] font-semibold">{t('dashboard.active_filters', { count: filterChips.length })}</p>
-                  <div className="space-y-2">
-                    {filterChips.map((chip, i) => (
-                      <div key={i} className="text-[11px]">
-                        <div>
-                          <span className="text-background/70">{t('dashboard.filter_column')} : </span>
-                          <span className="font-medium">{chip.column}</span>
-                        </div>
-                        <div className="text-background/70">{t('dashboard.filter_values')} :</div>
-                        <ul className="ml-1 list-inside list-disc">
-                          {chip.values.slice(0, 12).map((val, j) => (
-                            <li key={j} className="font-medium">{val}</li>
-                          ))}
-                          {chip.values.length > 12 && (
-                            <li className="list-none text-background/70">
-                              {t('dashboard.filter_values_more', { count: chip.values.length - 12 })}
-                            </li>
-                          )}
-                        </ul>
-                      </div>
-                    ))}
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onClick={onStartRename}>
-          <Pencil size={14} />
-          {t('common.rename')}
-        </ContextMenuItem>
-        <ContextMenuItem onClick={onAddSubTab}>
-          <FolderPlus size={14} />
-          {t('dashboard.add_sub_tab')}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        {canClose ? (
-          <ContextMenuItem variant="destructive" onClick={onClose}>
-            <Trash2 size={14} />
-            {t('common.delete')}
-          </ContextMenuItem>
-        ) : (
-          // Last root tab: a dashboard always keeps at least one tab, so the delete stays
-          // visible but disabled with an explanation instead of silently vanishing.
-          <ContextMenuItem disabled>
-            <Trash2 size={14} />
-            {t('dashboard.delete_tab_last')}
-          </ContextMenuItem>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
-  )
-}
-
-/** Inline rename input — rendered instead of SortableTab when editing. */
-function TabRenameInput({
-  tab,
-  isActive,
-  siblingNames,
-  onFinish,
-}: {
-  tab: DashboardTab
-  isActive: boolean
-  /** Names of the other tabs at this level (lowercased) — for dup detection. */
-  siblingNames: Set<string>
-  onFinish: (newName: string | null) => void
-}) {
-  const { t } = useTranslation()
-  const [value, setValue] = useState(tab.name)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      const el = inputRef.current
-      if (el) {
-        el.focus()
-        el.select()
-      }
-    })
-  }, [])
-
-  const trimmed = value.trim()
-  const isDuplicate = trimmed.length > 0 && siblingNames.has(trimmed.toLowerCase())
-
-  const commit = useCallback(() => {
-    const next = value.trim()
-    if (!next || next === tab.name || siblingNames.has(next.toLowerCase())) {
-      onFinish(null)
-    } else {
-      onFinish(next)
-    }
-  }, [value, tab.name, siblingNames, onFinish])
-
-  return (
+  const tabInner = (
     <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...(editMode ? listeners : {})}
+      onClick={onActivate}
+      onDoubleClick={onEdit}
       className={cn(
-        'flex items-center border-b-2 px-3 py-1.5',
-        isActive ? 'border-primary' : 'border-transparent',
+        'group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap select-none',
+        isActive
+          ? 'border-primary text-foreground'
+          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
+        isDragging && 'cursor-grabbing'
       )}
     >
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commit()
-          if (e.key === 'Escape') onFinish(null)
-        }}
-        className={cn(
-          'h-auto w-24 bg-transparent px-0 py-0 text-xs font-medium outline-none',
-          isDuplicate && 'text-destructive',
-        )}
-        title={isDuplicate ? t('dashboard.tab_name_exists') : undefined}
-      />
+      <span>{label}</span>
+      {hasChildren && (
+        <Layers size={11} className="text-muted-foreground/70 shrink-0" />
+      )}
     </div>
+  )
+
+  return (
+    // Tooltip (hover description) wraps the context menu; both triggers use asChild and compose
+    // their refs/handlers onto the single `tabInner` div. Keeping this structure always mounted
+    // (only the TooltipContent is conditional) means adding a description at runtime doesn't remount
+    // the node — which previously broke the just-edited tooltip. The 1s open delay (and "instant for
+    // the next tab") comes from the single TooltipProvider wrapping the whole row.
+    <Tooltip>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <TooltipTrigger asChild>{tabInner}</TooltipTrigger>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={onEdit}>
+            <Pencil size={14} />
+            {t('common.edit')}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onAddSubTab}>
+            <FolderPlus size={14} />
+            {t('dashboard.add_sub_tab')}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {canClose ? (
+            <ContextMenuItem variant="destructive" onClick={onClose}>
+              <Trash2 size={14} />
+              {t('common.delete')}
+            </ContextMenuItem>
+          ) : (
+            // Last root tab: a dashboard always keeps at least one tab, so the delete stays
+            // visible but disabled with an explanation instead of silently vanishing.
+            <ContextMenuItem disabled>
+              <Trash2 size={14} />
+              {t('dashboard.delete_tab_last')}
+            </ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+      {description && (
+        <TooltipContent side="bottom" className="max-w-64 whitespace-pre-wrap bg-foreground text-background">
+          {description}
+        </TooltipContent>
+      )}
+    </Tooltip>
   )
 }
 
 export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const {
     tabs: allTabs,
     widgets,
     activeTabId,
-    dashboards,
-    activeFilters,
     addTab,
     addSubTab,
     removeTab,
-    renameTab,
+    updateTab,
     reorderTabs,
     setActiveTab,
     enterTab,
   } = useDashboardStore()
-  const { files } = useDatasetStore()
-  const dashboard = dashboards.find((d) => d.id === dashboardId)
 
-  const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
+  const [editingTabId, setEditingTabId] = useState<string | null>(null)
+  const editingTab = editingTabId ? allTabs.find((t) => t.id === editingTabId) ?? null : null
   const [confirmDeleteTabId, setConfirmDeleteTabId] = useState<string | null>(null)
   const confirmDeleteTab = confirmDeleteTabId ? allTabs.find(t => t.id === confirmDeleteTabId) : null
   // When sub-tabbing a tab that already holds widgets, ask what to do with them first.
@@ -312,17 +227,6 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
     dashboardTabs.filter((t) => t.parentTabId).map((t) => t.parentTabId as string),
   )
 
-  // Filter chips per tab on this level. Container tabs are skipped: filters surface on the
-  // sub-tabs that actually hold the widgets, not on the container.
-  const tabFilterChips = new Map<string, FilterChip[]>()
-  if (dashboard) {
-    for (const tab of tabs) {
-      if (containerIds.has(tab.id)) continue
-      const chips = buildTabFilterChips(tab.id, dashboard, widgets, activeFilters, files)
-      if (chips.length > 0) tabFilterChips.set(tab.id, chips)
-    }
-  }
-
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor)
@@ -345,15 +249,14 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
     }
   }
 
-  const handleRenameFinish = useCallback((tabId: string, newName: string | null) => {
-    if (newName) {
-      const exists = tabs.some(
-        (t) => t.id !== tabId && t.name.toLowerCase() === newName.toLowerCase(),
+  // Sibling names (active language, lowercased) for the edit dialog's uniqueness check.
+  const editingSiblingNames = editingTab
+    ? new Set(
+        tabs
+          .filter((tt) => tt.id !== editingTab.id)
+          .map((tt) => localized(tt.name, language).toLowerCase()),
       )
-      if (!exists) renameTab(tabId, newName)
-    }
-    setRenamingTabId(null)
-  }, [renameTab, tabs])
+    : new Set<string>()
 
   return (
     <>
@@ -377,17 +280,17 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
                 <button
                   onClick={() => enterTab(dashboardId, anc.id)}
                   className="max-w-32 truncate rounded px-1 py-0.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-                  title={anc.name}
+                  title={localized(anc.name, language)}
                 >
-                  {anc.name}
+                  {localized(anc.name, language)}
                 </button>
               </span>
             ))}
             {immediateParent && (
               <span className="flex items-center gap-0.5">
                 <ChevronRight size={12} className="shrink-0 text-muted-foreground/50" />
-                <span className="max-w-32 truncate px-1 py-0.5 text-xs font-medium text-foreground" title={immediateParent.name}>
-                  {immediateParent.name}
+                <span className="max-w-32 truncate px-1 py-0.5 text-xs font-medium text-foreground" title={localized(immediateParent.name, language)}>
+                  {localized(immediateParent.name, language)}
                 </span>
               </span>
             )}
@@ -399,27 +302,19 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
             the scrollbar sits below the labels and the tabs stay vertically aligned with the
             breadcrumb instead of being pushed up. */}
         <div className="flex min-w-0 flex-1 items-center overflow-x-auto py-1 [scrollbar-width:thin]">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={tabs.map((t) => t.id)}
-              strategy={horizontalListSortingStrategy}
+          {/* One TooltipProvider around the whole row: the first tab's description tooltip waits 1s,
+              then hovering the other tabs shows theirs immediately; leaving the row resets the delay. */}
+          <TooltipProvider delayDuration={1000}>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
             >
-              {tabs.map((tab) =>
-                renamingTabId === tab.id ? (
-                  <TabRenameInput
-                    key={tab.id}
-                    tab={tab}
-                    isActive={tab.id === activeId}
-                    siblingNames={new Set(
-                      tabs.filter((tt) => tt.id !== tab.id).map((tt) => tt.name.toLowerCase()),
-                    )}
-                    onFinish={(name) => handleRenameFinish(tab.id, name)}
-                  />
-                ) : (
+              <SortableContext
+                items={tabs.map((t) => t.id)}
+                strategy={horizontalListSortingStrategy}
+              >
+                {tabs.map((tab) => (
                   <SortableTab
                     key={tab.id}
                     tab={tab}
@@ -427,20 +322,21 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
                     canClose={parentOfLevel ? true : tabs.length > 1}
                     editMode={editMode}
                     hasChildren={containerIds.has(tab.id)}
-                    filterChips={tabFilterChips.get(tab.id) ?? []}
+                    label={localized(tab.name, language)}
+                    description={localized(tab.description, language)}
                     onActivate={() =>
                       containerIds.has(tab.id)
                         ? enterTab(dashboardId, tab.id)
                         : setActiveTab(dashboardId, tab.id)
                     }
                     onClose={() => setConfirmDeleteTabId(tab.id)}
-                    onStartRename={() => setRenamingTabId(tab.id)}
+                    onEdit={() => setEditingTabId(tab.id)}
                     onAddSubTab={() => requestAddSubTab(tab.id)}
                   />
-                )
-              )}
-            </SortableContext>
-          </DndContext>
+                ))}
+              </SortableContext>
+            </DndContext>
+          </TooltipProvider>
           {editMode && (
             <button
               onClick={() => parentOfLevel ? addSubTab(parentOfLevel) : addTab(dashboardId)}
@@ -458,7 +354,7 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
           <AlertDialogHeader>
             <AlertDialogTitle>{t('dashboard.delete_tab_title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('dashboard.delete_tab_description', { name: confirmDeleteTab?.name ?? '' })}
+              {t('dashboard.delete_tab_description', { name: confirmDeleteTab ? localized(confirmDeleteTab.name, language) : '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -502,6 +398,17 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {editingTab && (
+        <DashboardItemEditDialog
+          title={t('dashboard.edit_tab_title')}
+          name={editingTab.name}
+          description={editingTab.description}
+          siblingNames={editingSiblingNames}
+          onSave={(changes) => updateTab(editingTab.id, changes)}
+          onOpenChange={(open) => { if (!open) setEditingTabId(null) }}
+        />
+      )}
     </>
   )
 }
