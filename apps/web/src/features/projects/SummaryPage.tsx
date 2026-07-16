@@ -70,7 +70,7 @@ export function SummaryPage() {
           <div className="flex items-center gap-1">
             <Calendar size={11} />
             <span>
-              {t('summary.created_at')}: {project.createdAt.split('T')[0]}
+              {t('summary.created_at')}: {project.createdAt?.split('T')[0] ?? '—'}
             </span>
           </div>
           <div className="flex items-center gap-1">

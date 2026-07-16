@@ -257,6 +257,24 @@ describe('parseProjectZip — organization bundle', () => {
   })
 })
 
+// Export strips instance fields (createdAt/updatedAt) from project.json, so a
+// real ZIP arrives WITHOUT them. Parsing must tolerate that — doImport re-stamps
+// the dates. Regression: an unguarded project.createdAt.split('T') in projectToItem
+// crashed the whole import ("can't access property split, createdAt is undefined").
+describe('parseProjectZip — project.json without timestamps', () => {
+  it('parses a stripped project.json (no createdAt/updatedAt) without throwing', async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({
+      uid: 'p1', name: { en: 'NeoCLIP' }, description: {}, projectId: 'neoclip',
+      lineageId: 'lin-1',
+    }))
+    const parsed = await parseProjectZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.project.createdAt).toBeUndefined()
+    expect(parsed!.project.updatedAt).toBeUndefined()
+  })
+})
+
 // A workspace's linked organization travels in organization.json (by UUID) so an
 // import can reconstitute it on an instance that has never seen that org. Both the
 // pointer (workspace.organizationId) and the full record must survive parsing.

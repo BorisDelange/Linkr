@@ -32,7 +32,7 @@ function workspaceToItem(ws: Workspace, lang: string): WorkspaceItem {
     name: ws.name[lang] ?? ws.name['en'] ?? Object.values(ws.name)[0] ?? '',
     description: ws.description[lang] ?? ws.description['en'] ?? Object.values(ws.description)[0] ?? '',
     organizationName: resolveOrgName(ws, lang),
-    createdAt: ws.createdAt.split('T')[0],
+    createdAt: ws.createdAt?.split('T')[0] ?? '',
     updatedAt: ws.updatedAt,
   }
 }

@@ -221,7 +221,9 @@ export function ProjectsPage() {
           : Object.fromEntries(Object.entries(project.name ?? {}).map(([k, v]) => [k, `${v} (copy)`])) as Project['name'])
         : project.name,
       updatedAt: now,
-      ...(duplicate ? { createdAt: now } : {}),
+      // Export strips instance fields (createdAt/updatedAt); re-stamp on import so
+      // consumers that split() createdAt don't crash. A duplicate always gets a fresh date.
+      createdAt: duplicate ? now : (project.createdAt ?? now),
       // Lineage: a duplicate is a fork — mint a fresh lineageId and record the
       // source in parentLineageId. A plain import is the *same work*, so keep the
       // ZIP's lineageId verbatim (mint one only if a legacy export lacked it).

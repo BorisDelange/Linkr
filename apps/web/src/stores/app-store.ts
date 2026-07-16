@@ -95,7 +95,7 @@ function projectToItem(project: Project, lang: string): ProjectItem {
     uid: project.uid,
     name: project.name[lang] ?? project.name['en'] ?? Object.values(project.name)[0] ?? '',
     description: project.description[lang] ?? project.description['en'] ?? Object.values(project.description)[0] ?? '',
-    createdAt: project.createdAt.split('T')[0],
+    createdAt: project.createdAt?.split('T')[0] ?? '',
     updatedAt: project.updatedAt,
   }
 }

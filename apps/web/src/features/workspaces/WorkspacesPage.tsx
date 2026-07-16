@@ -234,7 +234,9 @@ export function WorkspacesPage() {
             : Object.fromEntries(Object.entries(wsMeta.name ?? {}).map(([k, v]) => [k, `${v} (copy)`])) as typeof wsMeta.name)
           : wsMeta.name,
         updatedAt: now,
-        ...(duplicate ? { createdAt: now } : {}),
+        // Export strips instance fields (createdAt/updatedAt); re-stamp on import
+        // so consumers that split() createdAt don't crash. Duplicate = fresh date.
+        createdAt: duplicate ? now : (wsMeta.createdAt ?? now),
         // Fork on duplicate (new lineage + parent), keep lineage on plain import.
         ...(duplicate
           ? { lineageId: crypto.randomUUID(), parentLineageId: wsMeta.lineageId }
@@ -265,7 +267,9 @@ export function WorkspacesPage() {
             : Object.fromEntries(Object.entries(project.name ?? {}).map(([k, v]) => [k, `${v} (copy)`])) as Project['name'])
           : project.name,
         updatedAt: now,
-        ...(duplicate ? { createdAt: now } : {}),
+        // Export strips instance fields (createdAt/updatedAt); re-stamp on import
+        // so consumers that split() createdAt don't crash. Duplicate = fresh date.
+        createdAt: duplicate ? now : (project.createdAt ?? now),
         // Fork on duplicate (new lineage + parent), keep lineage on plain import.
         ...(duplicate
           ? { lineageId: crypto.randomUUID(), parentLineageId: project.lineageId }
