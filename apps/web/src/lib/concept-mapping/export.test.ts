@@ -137,6 +137,29 @@ describe('buildMappingProjectFolder — portable project.json', () => {
     expect((parsed[1].comments as Record<string, unknown>[])[0].id).toBe('c1')
     expect((parsed[1].reviews as Record<string, unknown>[])[0].createdAt).toBe('2026-01-02T00:00:00Z')
   })
+
+  it('sorts many-to-many rows deterministically by full merge identity (source+target)', async () => {
+    // One source concept mapped to two targets — the pair shares sourceConceptCode
+    // AND sourceConceptId, so a source-only sort would leave them tied and their
+    // order would follow DB iteration. Feeding both input orders must yield the
+    // same on-disk order (no spurious git diff across instances/reindex).
+    const base = makeMapping()
+    const targetA = { ...base, id: 'a', targetConceptId: 1000, targetConceptCode: 'AAA' }
+    const targetB = { ...base, id: 'b', targetConceptId: 2000, targetConceptCode: 'BBB' }
+
+    const serialize = async (order: ConceptMapping[]) => {
+      const storage = { conceptMappings: { getByProject: async () => order } } as unknown as Storage
+      const zip = new JSZip()
+      await buildMappingProjectFolder(zip, '', project, storage)
+      const parsed = JSON.parse(await zip.file('mappings.json')!.async('string')) as Record<string, unknown>[]
+      return parsed.map((m) => m.targetConceptCode)
+    }
+
+    const forward = await serialize([targetA, targetB])
+    const reversed = await serialize([targetB, targetA])
+    expect(forward).toEqual(['AAA', 'BBB'])
+    expect(reversed).toEqual(forward)
+  })
 })
 
 describe('restoreFileSourceDataFromCsv — LFS pointer guard', () => {

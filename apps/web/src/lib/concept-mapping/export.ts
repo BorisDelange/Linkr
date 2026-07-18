@@ -1,6 +1,7 @@
 import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 import { localized } from '@/lib/localized'
 import { stripInstanceFields, attachEntityOrganization } from '@/lib/entity-io'
+import { mappingKey } from '@/lib/concept-mapping/merge'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -572,10 +573,15 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
     const { id: _id, projectId: _p, createdAt: _c, updatedAt: _u, ...rest } = m
     return rest
   })
+  // Sort by sourceConceptCode first (readable diffs), then break EVERY tie down to
+  // the full merge identity: a source concept can map to several targets, so
+  // sourceCode+sourceId alone leaves those rows tied → their order would follow DB
+  // iteration and drift across instances, producing spurious diffs. mappingKey is
+  // the merge's own row identity, so this is a total order.
   cleaned.sort((a, b) => {
     const byCode = a.sourceConceptCode.localeCompare(b.sourceConceptCode)
     if (byCode !== 0) return byCode
-    return a.sourceConceptId - b.sourceConceptId
+    return mappingKey(a as ConceptMapping).localeCompare(mappingKey(b as ConceptMapping))
   })
   return JSON.stringify(cleaned, null, 2)
 }

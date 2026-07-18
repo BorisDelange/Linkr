@@ -26,7 +26,7 @@ export function isDataFile(path: string): boolean {
  * to push Linkr's version. When absent remotely (changeType 'added') Linkr's copy
  * is the only one, so it's checked like any new file.
  */
-function isUnownedConfigModification(f: { path: string; changeType: string }): boolean {
+export function isUnownedConfigModification(f: { path: string; changeType: string }): boolean {
   const name = f.path.split('/').pop() ?? f.path
   return (name === '.gitignore' || name === '.gitattributes') && f.changeType === 'modified'
 }

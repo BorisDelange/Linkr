@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback, useTransition } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef, useTransition } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { Maximize2, ArrowUp, ArrowDown, Search } from 'lucide-react'
@@ -17,7 +17,7 @@ import {
   type BreakdownDimension,
 } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
-import { STATUS_COLORS } from '@/lib/concept-mapping/status-colors'
+import { STATUS_COLORS, UNMAPPED_COLOR, STATUS_FALLBACK_COLOR } from '@/lib/concept-mapping/status-colors'
 import { StatusBar, type StatusSegment } from './components/StatusBar'
 import type { MappingProject, MappingStatus, EffectiveMappingStatus, DataSource } from '@/types'
 
@@ -26,7 +26,11 @@ interface ProgressTabProps {
   dataSource?: DataSource
 }
 
-/** Order in which status segments stack inside a breakdown bar (best → worst → untouched). */
+/**
+ * Order in which status segments stack inside a breakdown bar (best → worst → untouched).
+ * 'suggested' is intentionally absent: it's not a mapped state (see stats), so those
+ * concepts fall into the 'unmapped' remainder rather than getting their own slice.
+ */
 const STATUS_SEGMENT_ORDER: (EffectiveMappingStatus | 'unmapped')[] = [
   'approved', 'flagged', 'disputed', 'rejected', 'invalid', 'unchecked', 'ignored', 'unmapped',
 ]
@@ -76,7 +80,12 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
     category: null,
   })
 
+  // Each load bumps this; a load only commits its results if it's still the latest,
+  // so a slow query resolving after the source/project changed can't overwrite fresh
+  // stats (out-of-order response guard, also drops setState-after-unmount writes).
+  const loadGen = useRef(0)
   const loadStats = useCallback(async () => {
+    const gen = ++loadGen.current
     const toGroupMap = (rows: Record<string, unknown>[]): Map<string, number> => {
       const m = new Map<string, number>()
       for (const r of rows) {
@@ -93,7 +102,6 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
         }
         const dsId = fileSourceDataSourceId(project.id)
         const [row] = await queryDataSource(dsId, buildFileSourceConceptsCountQuery({}))
-        setTotalSourceConcepts(Number(row?.total ?? 0))
 
         const cm = project.fileSourceData.columnMapping
         const present = { vocabulary: !!cm.terminologyColumn, category: !!cm.categoryColumn }
@@ -102,6 +110,8 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
           const sql = buildFileSourceConceptsGroupCountQuery(dim, present)
           next[dim] = sql ? toGroupMap(await queryDataSource(dsId, sql)) : new Map()
         }
+        if (gen !== loadGen.current) return
+        setTotalSourceConcepts(Number(row?.total ?? 0))
         setGroupTotals(next)
       } else {
         if (!dataSource?.id || !dataSource.schemaMapping) return
@@ -109,13 +119,14 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
         const totalSql = buildSourceConceptsCountQuery(dataSource.schemaMapping, {})
         if (!totalSql) return
         const [row] = await queryDataSource(dataSource.id, totalSql)
-        setTotalSourceConcepts(Number(row?.total ?? 0))
 
         const next: Record<BreakdownDimension, Map<string, number>> = { vocabulary_id: new Map(), category: new Map() }
         for (const dim of ['vocabulary_id', 'category'] as BreakdownDimension[]) {
           const sql = buildSourceConceptsGroupCountQuery(dataSource.schemaMapping, dim)
           next[dim] = sql ? toGroupMap(await queryDataSource(dataSource.id, sql)) : new Map()
         }
+        if (gen !== loadGen.current) return
+        setTotalSourceConcepts(Number(row?.total ?? 0))
         setGroupTotals(next)
       }
     } catch {
@@ -132,7 +143,14 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
     const ignoredSourceKeys = new Set(
       mappings.filter((m) => effectiveMappingStatus(m) === 'ignored').map(sourceKey),
     )
-    const nonIgnoredMappings = mappings.filter((m) => effectiveMappingStatus(m) !== 'ignored')
+    // A 'suggested' mapping is not a confirmed mapping — a concept whose only
+    // mapping is suggested counts as unmapped, everywhere on this tab (pie,
+    // 'mapped' column, breakdown bar). So it's excluded from the "mapped" set
+    // just like 'ignored'; a concept that also has a decided mapping still counts.
+    const nonIgnoredMappings = mappings.filter((m) => {
+      const eff = effectiveMappingStatus(m)
+      return eff !== 'ignored' && eff !== 'suggested'
+    })
     const allSourceKeys = new Set(nonIgnoredMappings.map(sourceKey))
 
     // Best status per source concept
@@ -163,6 +181,10 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
     const priorityWithIgnored: EffectiveMappingStatus[] = ['approved', 'disputed', 'flagged', 'rejected', 'unchecked', 'invalid', 'ignored']
     for (const m of mappings) {
       const eff = effectiveMappingStatus(m)
+      // 'suggested' is not a mapped state (see nonIgnoredMappings above) — it must
+      // not seed a group's status distribution, or the breakdown bar would count
+      // it as mapped and leave the pie/bar disagreeing.
+      if (eff === 'suggested') continue
       const k = sourceKey(m)
       const cur = bestPerKey.get(k)
       const vocab = m.sourceVocabularyId || unknown
@@ -204,7 +226,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   const pieData = Object.entries(stats.sourceStatusCounts).map(([status, count]) => ({
     name: t(`concept_mapping.status_${status}`),
     value: count,
-    color: STATUS_COLORS[status as MappingStatus] ?? '#9ca3af',
+    color: STATUS_COLORS[status as MappingStatus] ?? STATUS_FALLBACK_COLOR,
   }))
 
   // Add "ignored" slice
@@ -223,7 +245,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       pieData.push({
         name: t('concept_mapping.filter_unmapped'),
         value: unmappedCount,
-        color: '#e2e8f0',
+        color: UNMAPPED_COLOR,
       })
     }
   }

@@ -207,6 +207,10 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       id: projectId,
       workspaceId: activeWorkspaceId ?? project.workspaceId,
       conceptSetIds: project.conceptSetIds ?? [],
+      // Export strips createdAt (an instance field), so a plain import of a stripped
+      // ZIP has none — re-stamp it (server mode NOT-NULL rejects undefined; client
+      // mode would persist a record the type says can't exist).
+      createdAt: project.createdAt ?? now,
       updatedAt: now,
       ...(duplicate ? { name: setLocalized(project.name, language, `${localized(project.name, language)} (copy)`), createdAt: now } : {}),
       // Lineage: overwrite keeps the existing element's identity; a duplicate is a
@@ -250,8 +254,10 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         try {
           const { parseSourceConceptIdEntries } = await import('@/lib/concept-mapping/source-concept-ids-io')
           const ws = entity.workspaceId
-          const ranges = (children.sourceIdRanges as import('@/types').SourceConceptIdRange[] | undefined) ?? []
-          for (const r of ranges) await getStorage().sourceConceptIdRanges.save({ ...r, workspaceId: ws })
+          const ranges = (children.sourceIdRanges as Array<Partial<import('@/types').SourceConceptIdRange>> | undefined) ?? []
+          // Portable ranges drop timestamps (instance bookkeeping) — re-stamp them,
+          // same as importProjectSourceConceptIds, so the persisted row is valid.
+          for (const r of ranges) await getStorage().sourceConceptIdRanges.save({ ...r, workspaceId: ws, createdAt: r.createdAt ?? now, updatedAt: now } as import('@/types').SourceConceptIdRange)
           if (children.sourceIdEntries) {
             const entries = parseSourceConceptIdEntries(
               children.sourceIdEntries as Parameters<typeof parseSourceConceptIdEntries>[0], ws,

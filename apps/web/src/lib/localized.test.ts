@@ -20,6 +20,15 @@ describe('localized', () => {
     expect(localized({ en: 'Hello', fr: '' }, 'fr')).toBe('Hello')
   })
 
+  it('falls back past an empty English to the first non-empty language', () => {
+    // The branch that actually needs find(Boolean): requested lang absent AND en empty.
+    expect(localized({ en: '', de: 'Hallo' }, 'fr')).toBe('Hallo')
+  })
+
+  it('returns empty string when every language is empty', () => {
+    expect(localized({ en: '', fr: '' }, 'fr')).toBe('')
+  })
+
   it('accepts a legacy plain string', () => {
     expect(localized('Legacy', 'fr')).toBe('Legacy')
   })

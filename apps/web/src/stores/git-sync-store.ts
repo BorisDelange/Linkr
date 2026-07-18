@@ -9,7 +9,7 @@
 import { create } from 'zustand'
 import { buildProjectZip, buildWorkspaceZip } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
-import { defaultSelectedPaths } from '@/lib/git-file-classify'
+import { defaultSelectedPaths, isUnownedConfigModification } from '@/lib/git-file-classify'
 import { resolveLfsPaths } from '@/lib/git-lfs'
 import { toGitError } from '@/lib/git-error-message'
 import {
@@ -32,8 +32,8 @@ export interface GitSyncError {
   raw: string
 }
 
-// lfsOverrides: forced per-file LFS decisions applied when generating the export's
-// .gitattributes (undefined → use the automatic size/extension rule).
+// lfsOverrides: opt-in per-file LFS decisions applied when generating the export's
+// .gitattributes (absent/false → normal blob; LFS is opt-in only).
 async function buildZipUncached(
   scope: GitScope,
   id: string,
@@ -122,8 +122,8 @@ interface GitSyncState {
   /** Include dataset data files (CSV/parquet/…) in the export — mirrors the export
    *  tab's toggle. Off by default; off adds .gitignore rules that exclude them. */
   includeData: boolean
-  /** Per-file forced LFS decisions (true = force LFS, false = force normal blob);
-   *  absent → the automatic size/extension rule applies. */
+  /** Per-file opt-in LFS decisions (true = track via LFS, false/absent = normal
+   *  blob). LFS is opt-in only — there's no automatic size/extension rule. */
   lfsOverrides: Map<string, boolean>
   loadingStatus: boolean
   committing: boolean
@@ -143,7 +143,7 @@ interface GitSyncState {
   togglePath: (path: string) => void
   setAllSelected: (checked: boolean) => void
   setIncludeData: (scope: GitScope, id: string, value: boolean, branch?: string) => Promise<void>
-  /** Set of paths that will be tracked via LFS (auto rule + overrides). */
+  /** Set of paths that will be tracked via LFS (opt-in overrides only). */
   lfsPaths: () => Set<string>
   /** Force a file's LFS state on/off (used by the badge + context menu). */
   toggleLfs: (path: string) => void
@@ -205,7 +205,11 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       const hadStatus = get().status !== null
       const changed = status.files.map((f) => f.path)
       const defaultList = includeData
-        ? status.files.filter((f) => f.changeType !== 'deleted').map((f) => f.path)
+        // includeData adds data files back in, but must still leave hand-enriched
+        // repo config (.gitignore/.gitattributes) unchecked — same as the default.
+        ? status.files
+            .filter((f) => f.changeType !== 'deleted' && !isUnownedConfigModification(f))
+            .map((f) => f.path)
         : defaultSelectedPaths(status.files)
       const defaults = new Set(defaultList)
       const selected = new Set(
@@ -302,15 +306,20 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     return new Set(resolveLfsPaths(files, get().lfsOverrides))
   },
 
-  toggleLfs: (path) =>
+  toggleLfs: (path) => {
     set((s) => {
       const file = s.status?.files.find((f) => f.path === path)
-      // Current effective state (auto rule unless already overridden), then flip it.
+      // Current effective state (opt-in override, else normal blob), then flip it.
       const current = new Set(resolveLfsPaths(file ? [file] : [], s.lfsOverrides)).has(path)
       const next = new Map(s.lfsOverrides)
       next.set(path, !current)
       return { lfsOverrides: next }
-    }),
+    })
+    // Toggling LFS changes the export .gitattributes → the file's diff (pointer vs
+    // blob) and the .gitattributes diff both go stale. Drop the cached ZIP + diffs
+    // so the next getDiff rebuilds against the new storage mode.
+    get().invalidateZip()
+  },
 
   invalidateZip: () => {
     _zipCache = null

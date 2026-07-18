@@ -322,6 +322,9 @@ export function PluginsTab() {
       try { meta = JSON.parse(updatedFiles['_plugin.json']) } catch { /* ignore */ }
       delete updatedFiles['_plugin.json']
     }
+    // finalizeEntityZip writes `.gitattributes` when a plugin bundles an LFS-tracked
+    // file — export metadata, not plugin source, so keep it out of the file map.
+    delete updatedFiles['.gitattributes']
     let effectiveManifestId = manifestId
     if (duplicate) {
       try {
@@ -399,7 +402,12 @@ export function PluginsTab() {
             key={plugin.id}
             plugin={plugin}
             lang={lang}
-            organizationId={workspaceOrgId}
+            // The plugin's own org (an imported plugin's frozen origin org) wins over
+            // the workspace's — matching every other entity and the export precedence
+            // (attachEntityOrganization). Only fall back to the workspace org when the
+            // plugin carries none; passing the workspace id here would let liveOrg
+            // shadow the imported org in CardMetaFooter (liveOrg ?? organization).
+            organizationId={plugin.organization ? undefined : workspaceOrgId}
             onOpen={openPlugin}
             onEdit={setEditTargetId}
             onDuplicate={duplicatePlugin}
