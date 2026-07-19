@@ -1,4 +1,5 @@
 import type { GitScope } from '@/lib/api/git'
+import { gitFileMeta } from '@/lib/git-file-meta'
 
 /**
  * A one-click commit+push preset for the versioning panel: a curated subset of
@@ -24,12 +25,16 @@ interface QuickActionDef {
   /** When present, only paths matching one of these are included; when absent,
    *  ALL changed paths are included ("sync everything that changed"). */
   patterns?: RegExp[]
+  /** Drop paths whose git-file category is "other" (unrecognised files). Used by
+   *  "Sync all" so a stray/unknown file isn't swept into a one-click commit —
+   *  the user handles those deliberately from the Details tab. */
+  excludeOther?: boolean
 }
 
 // Per-scope presets, in display order (first is the primary/"all" action).
 const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
   'mapping-projects': [
-    { labelKey: 'versioning.quick_sync_all', messageKey: 'versioning.quick_msg_all' },
+    { labelKey: 'versioning.quick_sync_all', messageKey: 'versioning.quick_msg_all', excludeOther: true },
     {
       labelKey: 'versioning.quick_sync_mappings',
       messageKey: 'versioning.quick_msg_mappings',
@@ -47,11 +52,13 @@ export function buildQuickActions(
 ): QuickAction[] {
   const defs = DEFS[scope]
   if (!defs) return []
-  return defs.map((def) => ({
-    labelKey: def.labelKey,
-    messageKey: def.messageKey,
-    paths: def.patterns
+  return defs.map((def) => {
+    let paths = def.patterns
       ? changedPaths.filter((p) => def.patterns!.some((re) => re.test(p)))
-      : [...changedPaths],
-  }))
+      : [...changedPaths]
+    if (def.excludeOther) {
+      paths = paths.filter((p) => gitFileMeta(scope, p).category !== 'other')
+    }
+    return { labelKey: def.labelKey, messageKey: def.messageKey, paths }
+  })
 }

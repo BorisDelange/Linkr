@@ -55,6 +55,15 @@ const ATTRS_RULE: Rule = {
   descriptionKey: 'versioning.file_desc_gitattributes',
 }
 
+// The .gitignore is part of every exported tree (it excludes the re-derivable
+// scores parquet), so it's a recognised, versioned file — not an "other" stray.
+const GITIGNORE_RULE: Rule = {
+  test: /^\.gitignore$/,
+  category: 'config',
+  order: CAT.config,
+  descriptionKey: 'versioning.file_desc_gitignore',
+}
+
 const README_RULE: Rule = {
   test: /^README(\.[a-z]{2})?\.md$/i,
   category: 'readme',
@@ -85,6 +94,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     { test: /source-concepts\.csv$/, category: 'concepts', order: CAT.concepts, descriptionKey: 'versioning.file_desc_source_concepts' },
     { test: /^source-concept-ids\//, category: 'concepts', order: CAT.concepts, descriptionKey: 'versioning.file_desc_source_concept_ids' },
     { test: /similarity-scores\.parquet$/, category: 'scores', order: CAT.scores, descriptionKey: 'versioning.file_desc_similarity_scores' },
+    GITIGNORE_RULE,
     ATTRS_RULE,
   ],
   'sql-script-collections': [

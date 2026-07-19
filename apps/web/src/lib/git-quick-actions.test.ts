@@ -31,4 +31,12 @@ describe('buildQuickActions', () => {
     const [, mappings] = buildQuickActions('mapping-projects', ['mappings.csv'])
     expect(mappings.paths).toEqual(['mappings.csv'])
   })
+
+  it('Sync all drops "other" (unrecognised) files but keeps .gitignore', () => {
+    // review/*, state.json, a custom CSV aren't in the taxonomy → "other" (dropped).
+    // .gitignore IS part of the exported tree → recognised, kept.
+    const changed = ['project.json', 'mappings.json', 'review/app.js', 'state.json', 'hosp_units_cleaned.csv', '.gitignore', 'source-concepts.csv']
+    const [all] = buildQuickActions('mapping-projects', changed)
+    expect(all.paths).toEqual(['project.json', 'mappings.json', '.gitignore', 'source-concepts.csv'])
+  })
 })

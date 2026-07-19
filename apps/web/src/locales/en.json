@@ -1650,7 +1650,8 @@
     "file_desc_plugin_meta": "The plugin's identity within this instance.",
     "file_desc_plugin_manifest": "The plugin manifest: its name, version and declared parameters.",
     "file_desc_plugin_source": "A source file of the plugin (its code).",
-    "file_desc_gitattributes": "Git configuration listing the large files tracked via Git LFS."
+    "file_desc_gitattributes": "Git configuration listing the large files tracked via Git LFS.",
+    "file_desc_gitignore": "Git configuration listing files that are not versioned (e.g. re-derivable data)."
   },
   "summary": {
     "tab_overview": "Overview",
