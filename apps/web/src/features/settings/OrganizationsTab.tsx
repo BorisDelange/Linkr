@@ -4,6 +4,7 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
+import { LangHint } from '@/components/ui/lang-hint'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { Plus, Pencil, Trash2, Building2, MapPin, Globe, Mail, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -168,7 +169,11 @@ export function OrganizationsTab() {
           {_organizationsRaw.map((org) => {
             const linkedCount = getLinkedWorkspaceCount(org.id)
             return (
-              <Card key={org.id}>
+              <Card
+                key={org.id}
+                className="cursor-pointer transition-colors hover:bg-accent/50"
+                onClick={() => handleOpenEdit(org.id)}
+              >
                 <CardContent className="flex items-start gap-4 p-4">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                     <Building2 size={18} className="text-primary" />
@@ -206,7 +211,7 @@ export function OrganizationsTab() {
                       </p>
                     )}
                   </div>
-                  <div className="flex shrink-0">
+                  <div className="flex shrink-0" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
@@ -254,7 +259,10 @@ export function OrganizationsTab() {
             }}
           >
             <div className="space-y-2">
-              <Label>{t('workspaces.field_org_name')}</Label>
+              <div className="flex items-center gap-2">
+                <Label>{t('workspaces.field_org_name')}</Label>
+                <LangHint lang={language} />
+              </div>
               <Input
                 value={localized(form.name, language)}
                 onChange={(e) => setForm({ ...form, name: setLocalized(form.name, language, e.target.value) })}
@@ -279,7 +287,10 @@ export function OrganizationsTab() {
             </div>
             {form.type === 'other' && (
               <div className="space-y-2 sm:col-span-2">
-                <Label>{t('workspaces.field_org_custom_type')}</Label>
+                <div className="flex items-center gap-2">
+                  <Label>{t('workspaces.field_org_custom_type')}</Label>
+                  <LangHint lang={language} />
+                </div>
                 <Input
                   value={localized(form.customType, language)}
                   onChange={(e) => setForm({ ...form, customType: setLocalized(form.customType, language, e.target.value) })}
@@ -288,7 +299,10 @@ export function OrganizationsTab() {
               </div>
             )}
             <div className="space-y-2">
-              <Label>{t('workspaces.field_org_location')}</Label>
+              <div className="flex items-center gap-2">
+                <Label>{t('workspaces.field_org_location')}</Label>
+                <LangHint lang={language} />
+              </div>
               <Input
                 value={localized(form.location, language)}
                 onChange={(e) => setForm({ ...form, location: setLocalized(form.location, language, e.target.value) })}
@@ -296,7 +310,10 @@ export function OrganizationsTab() {
               />
             </div>
             <div className="space-y-2">
-              <Label>{t('workspaces.field_org_country')}</Label>
+              <div className="flex items-center gap-2">
+                <Label>{t('workspaces.field_org_country')}</Label>
+                <LangHint lang={language} />
+              </div>
               <Input
                 value={localized(form.country, language)}
                 onChange={(e) => setForm({ ...form, country: setLocalized(form.country, language, e.target.value) })}

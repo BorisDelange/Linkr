@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
+import { LangHint } from '@/components/ui/lang-hint'
 import type { LocalizedString } from '@/types'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { Button } from '@/components/ui/button'
@@ -41,16 +42,6 @@ function accountDraftFrom(user: { firstName?: string; lastName?: string; email?:
     profession: user?.profession ?? '',
     orcid: user?.orcid ?? '',
   }
-}
-
-/** A small badge showing which language a multilingual field is currently
- *  editing — switching the app language edits the matching translation. */
-function LangHint({ lang }: { lang: string }) {
-  return (
-    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
-      {lang}
-    </span>
-  )
 }
 
 export function ProfilePage() {
