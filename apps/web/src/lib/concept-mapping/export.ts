@@ -588,6 +588,34 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
 }
 
 /**
+ * The portable project.json content for a mapping project, identical across the
+ * standalone export and the workspace export's mapping-projects/ subfolders.
+ *
+ * Instance-specific fields (ownerId, timestamps, gitRemoteConfig, …) are stripped
+ * so the file is portable and doesn't churn the git diff; conceptSetIds /
+ * importBatches are re-derivable and dropped; rawFileBuffer/rows aren't
+ * JSON-serialized (the source lives in source-concepts.csv). dataSourceId and
+ * vocabularyDataSourceId are local data-source UUIDs meaningless elsewhere, so
+ * dataSourceId is reset to '' (required by the type) and vocabularyDataSourceId
+ * removed. A git-linked workspace entity re-adds its gitRemoteConfig pointer on
+ * top of this (the one field the caller keeps).
+ */
+export function cleanMappingProjectMeta(project: MappingProject): Record<string, unknown> {
+  const { conceptSetIds: _, importBatches: _ib, fileSourceData, vocabularyDataSourceId: _vds, ...projectRest } = project
+  return {
+    ...stripInstanceFields(projectRest),
+    dataSourceId: '',
+    ...(fileSourceData ? {
+      fileSourceData: {
+        ...fileSourceData,
+        rawFileBuffer: undefined,
+        rows: [],
+      },
+    } : {}),
+  }
+}
+
+/**
  * Add all mapping project files to a JSZip folder.
  * Reused by both individual project export and workspace export.
  * Files: project.json, mappings.json, SSSOM, STCM, Usagi, source-concepts.
@@ -601,29 +629,7 @@ export async function buildMappingProjectFolder(
 ): Promise<void> {
   const mappings = await storage.conceptMappings.getByProject(project.id)
 
-  // Core data files (concept sets and import history excluded — reimportable from ATHENA)
-  // rawFileBuffer excluded — binary data, not JSON-serializable, exported separately as source-concepts.csv
-  // Instance-specific fields (gitRemoteConfig, ownerId, timestamps, …) stripped so the
-  // exported project.json is portable — matches buildProjectZip. In a workspace export a
-  // git-linked entity's pointer is re-added by the caller (see entity-io.ts).
-  // dataSourceId / vocabularyDataSourceId are local data-source UUIDs: they point at
-  // a DB in THIS instance and mean nothing after re-import elsewhere (all runtime
-  // reads are defensive .find(...) → undefined, same as today when the source DB is
-  // absent). Dropped so they don't churn the diff or masquerade as portable content;
-  // dataSourceId is required by the type, so reset to '' rather than removed.
-  const { conceptSetIds: _, importBatches: _ib, fileSourceData, vocabularyDataSourceId: _vds, ...projectRest } = project
-  const projectClean = stripInstanceFields(projectRest)
-  const projectJson = {
-    ...projectClean,
-    dataSourceId: '',
-    ...(fileSourceData ? {
-      fileSourceData: {
-        ...fileSourceData,
-        rawFileBuffer: undefined,
-        rows: [],  // Don't serialize rows either (legacy)
-      },
-    } : {}),
-  }
+  const projectJson = cleanMappingProjectMeta(project)
   zip.file(`${prefix}project.json`, JSON.stringify(projectJson, null, 2))
   zip.file(`${prefix}mappings.json`, serializeMappingsForVersioning(mappings))
 

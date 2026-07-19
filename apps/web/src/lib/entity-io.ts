@@ -23,7 +23,7 @@ import type {
   AuthorDetails,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
-import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
+import { buildMappingProjectFolder, cleanMappingProjectMeta, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { isServerMode } from '@/lib/api-client'
 import { importDatasetOnServer } from '@/lib/api/datasets'
 
@@ -1794,17 +1794,18 @@ export async function buildWorkspaceZip(
       const git = resolveGitRemote(mp)
 
       if (git) {
-        // Metadata + git pointer only — mappings.json / source-concepts.csv live in the linked repo.
-        const { conceptSetIds: _cs, importBatches: _ib, fileSourceData: _fsd, ...mpMeta } = mp
-        zip.file(`mapping-projects/${folder}/project.json`, json({ ...mpMeta, gitRemoteConfig: git }))
+        // Metadata + git pointer only — mappings.json / source-concepts.csv live in the
+        // linked repo. Same portable project.json as the standalone export (instance
+        // fields stripped, no diff churn), with the git pointer re-added on top.
+        zip.file(`mapping-projects/${folder}/project.json`, json({ ...cleanMappingProjectMeta(mp), gitRemoteConfig: git }))
         gitLinks.push({ type: 'mapping-project', id: mp.id, folder, url: git.url, branch: git.branch })
         continue
       }
 
       if (!includeData[mp.id]) {
         // Unlinked, data not requested: metadata only (skip mappings + source concepts).
-        const { conceptSetIds: _cs, importBatches: _ib, fileSourceData: _fsd, ...mpMeta } = mp
-        zip.file(`mapping-projects/${folder}/project.json`, json(mpMeta))
+        // Same clean, portable project.json as the full export.
+        zip.file(`mapping-projects/${folder}/project.json`, json(cleanMappingProjectMeta(mp)))
         continue
       }
 
