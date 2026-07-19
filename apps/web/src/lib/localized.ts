@@ -18,6 +18,22 @@ export function localized(
 }
 
 /**
+ * The raw text stored for exactly `lang`, with NO fallback to another language.
+ * For edit inputs: `localized()` falls back to English when the active language
+ * is blank, which makes an emptied field snap back to the English value so it
+ * can never be cleared. Editing must show (and let you clear) only `lang`'s own
+ * value. A legacy plain string is that value for every language.
+ */
+export function localizedRaw(
+  value: LocalizedString | string | null | undefined,
+  lang: string,
+): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  return value[lang] ?? ''
+}
+
+/**
  * Coerce a possibly-legacy value into a LocalizedString. A plain string is
  * copied into every provided language so it shows up regardless of the active
  * language (backfill on read). Already-localized objects pass through.

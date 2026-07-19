@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { localized, toLocalized, setLocalized } from './localized'
+import { localized, localizedRaw, toLocalized, setLocalized } from './localized'
 
 // localized() is the single read path for every multilingual name/description/
 // readme in the app. A wrong fallback shows an empty or wrong-language label.
@@ -37,6 +37,26 @@ describe('localized', () => {
     expect(localized(null, 'en')).toBe('')
     expect(localized(undefined, 'en')).toBe('')
     expect(localized({}, 'en')).toBe('')
+  })
+})
+
+// localizedRaw() is the edit-input read path: NO cross-language fallback, so an
+// emptied field can actually be cleared instead of snapping back to English.
+describe('localizedRaw', () => {
+  it('returns the active language value', () => {
+    expect(localizedRaw({ en: 'Hello', fr: 'Bonjour' }, 'fr')).toBe('Bonjour')
+  })
+
+  it('returns empty (NOT the English fallback) when the active language is blank', () => {
+    // The bug: localized() would return 'Hello' here, making the FR field un-clearable.
+    expect(localizedRaw({ en: 'Hello', fr: '' }, 'fr')).toBe('')
+    expect(localizedRaw({ en: 'Hello' }, 'fr')).toBe('')
+  })
+
+  it('accepts a legacy plain string and nullish', () => {
+    expect(localizedRaw('Legacy', 'fr')).toBe('Legacy')
+    expect(localizedRaw(null, 'fr')).toBe('')
+    expect(localizedRaw(undefined, 'fr')).toBe('')
   })
 })
 

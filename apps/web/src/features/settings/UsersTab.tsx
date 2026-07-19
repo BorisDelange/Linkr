@@ -4,7 +4,7 @@ import { Info, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { isValidOrcid, normalizeOrcid } from '@/lib/user-identity'
-import { localized, setLocalized, hasLocalizedContent } from '@/lib/localized'
+import { localized, localizedRaw, setLocalized, hasLocalizedContent } from '@/lib/localized'
 import type { Role, User, UserCreateInput, LocalizedString } from '@/types'
 import { Button } from '@/components/ui/button'
 import {
@@ -353,7 +353,7 @@ export function UsersTab() {
                 <Label htmlFor="user-affiliation">{t('profile.affiliation')}</Label>
                 <Input
                   id="user-affiliation"
-                  value={localized(draft.affiliation, i18n.language)}
+                  value={localizedRaw(draft.affiliation, i18n.language)}
                   placeholder={t('profile.affiliation_placeholder')}
                   onChange={(e) => setLocalizedField('affiliation', e.target.value)}
                 />
@@ -363,7 +363,7 @@ export function UsersTab() {
                   <Label htmlFor="user-profession">{t('profile.profession')}</Label>
                   <Input
                     id="user-profession"
-                    value={localized(draft.profession, i18n.language)}
+                    value={localizedRaw(draft.profession, i18n.language)}
                     placeholder={t('profile.profession_placeholder')}
                     onChange={(e) => setLocalizedField('profession', e.target.value)}
                   />

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
-import { localized, setLocalized } from '@/lib/localized'
+import { localizedRaw, setLocalized } from '@/lib/localized'
 import { LangHint } from '@/components/ui/lang-hint'
 import type { LocalizedString } from '@/types'
 import { useSaveForm } from '@/hooks/use-save-form'
@@ -163,7 +163,7 @@ export function ProfilePage() {
                     <LangHint lang={language} />
                   </div>
                   <Input
-                    value={localized(draft.affiliation, language)}
+                    value={localizedRaw(draft.affiliation, language)}
                     placeholder={t('profile.affiliation_placeholder')}
                     onChange={(e) => setLocalizedField('affiliation', e.target.value)}
                   />
@@ -175,7 +175,7 @@ export function ProfilePage() {
                       <LangHint lang={language} />
                     </div>
                     <Input
-                      value={localized(draft.profession, language)}
+                      value={localizedRaw(draft.profession, language)}
                       placeholder={t('profile.profession_placeholder')}
                       onChange={(e) => setLocalizedField('profession', e.target.value)}
                     />

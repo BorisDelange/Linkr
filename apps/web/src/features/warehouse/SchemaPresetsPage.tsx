@@ -55,7 +55,7 @@ import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
-import { localized, setLocalized } from '@/lib/localized'
+import { localized, localizedRaw, setLocalized } from '@/lib/localized'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -789,7 +789,7 @@ function PresetEditor({
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">{t('schemas.field_name')}<RequiredMark /></Label>
           <Input
-            value={localized(mapping.presetLabel, language)}
+            value={localizedRaw(mapping.presetLabel, language)}
             onChange={(e) => onChange({ ...mapping, presetLabel: setLocalized(mapping.presetLabel, language, e.target.value) })}
             className="h-8 text-sm"
           />
@@ -797,7 +797,7 @@ function PresetEditor({
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">{t('schemas.field_description')}</Label>
           <Input
-            value={mapping.description ? localized(mapping.description, language) : ''}
+            value={localizedRaw(mapping.description, language)}
             onChange={(e) => onChange({ ...mapping, description: setLocalized(mapping.description ?? {}, language, e.target.value) })}
             className="h-8 text-sm"
             placeholder={t('schemas.field_description_placeholder')}

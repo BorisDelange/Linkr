@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
-import { localized, setLocalized } from '@/lib/localized'
+import { localized, localizedRaw, setLocalized } from '@/lib/localized'
 import { LangHint } from '@/components/ui/lang-hint'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { Plus, Pencil, Trash2, Building2, MapPin, Globe, Mail, MoreHorizontal } from 'lucide-react'
@@ -264,7 +264,7 @@ export function OrganizationsTab() {
                 <LangHint lang={language} />
               </div>
               <Input
-                value={localized(form.name, language)}
+                value={localizedRaw(form.name, language)}
                 onChange={(e) => setForm({ ...form, name: setLocalized(form.name, language, e.target.value) })}
                 placeholder={t('workspaces.field_org_name_placeholder')}
                 autoFocus
@@ -292,7 +292,7 @@ export function OrganizationsTab() {
                   <LangHint lang={language} />
                 </div>
                 <Input
-                  value={localized(form.customType, language)}
+                  value={localizedRaw(form.customType, language)}
                   onChange={(e) => setForm({ ...form, customType: setLocalized(form.customType, language, e.target.value) })}
                   placeholder={t('workspaces.field_org_custom_type_placeholder')}
                 />
@@ -304,7 +304,7 @@ export function OrganizationsTab() {
                 <LangHint lang={language} />
               </div>
               <Input
-                value={localized(form.location, language)}
+                value={localizedRaw(form.location, language)}
                 onChange={(e) => setForm({ ...form, location: setLocalized(form.location, language, e.target.value) })}
                 placeholder={t('workspaces.field_org_location_placeholder')}
               />
@@ -315,7 +315,7 @@ export function OrganizationsTab() {
                 <LangHint lang={language} />
               </div>
               <Input
-                value={localized(form.country, language)}
+                value={localizedRaw(form.country, language)}
                 onChange={(e) => setForm({ ...form, country: setLocalized(form.country, language, e.target.value) })}
                 placeholder={t('workspaces.field_org_country_placeholder')}
               />
