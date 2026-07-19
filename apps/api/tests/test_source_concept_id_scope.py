@@ -124,6 +124,84 @@ async def test_entries_scoped_to_project_pairs(client, db):
     assert ("SNOMED", "999") not in kept
 
 
+async def test_large_dictionary_not_truncated(client, db):
+    """Regression: the dictionary scope must read the WHOLE source file, not the
+    default MAX_QUERY_ROWS (10k) preview cap. A truncated, non-deterministic
+    subset made the exported entries.json differ on every run — it never showed
+    as clean after a push. Here a >10k-row dictionary must keep all its ids."""
+    from app.services.data import db_connect
+
+    n = db_connect.MAX_QUERY_ROWS + 500  # comfortably over the preview cap
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+
+    (
+        await client.post(
+            f"{API}/mapping-projects",
+            headers=headers,
+            json={
+                "id": "mpl",
+                "workspaceId": ws,
+                "name": {"en": "Big dict"},
+                "description": {},
+                "sourceType": "file",
+                "conceptSetIds": [],
+                "badges": [{"id": "b1", "label": {"en": "Rennes"}}],
+                "fileSourceData": {
+                    "fileName": "src.csv",
+                    "columns": ["code", "vocab"],
+                    "rows": [],
+                    "columnMapping": {
+                        "conceptCodeColumn": "code",
+                        "terminologyColumn": "vocab",
+                    },
+                },
+            },
+        )
+    ).json()
+    lines = "\n".join(f"C{i},LOINC" for i in range(n))
+    csv = f"code,vocab\n{lines}\n".encode()
+    sha, _ = await blob_store.store_bytes(csv)
+    await client.post(
+        f"{API}/mapping-projects/mpl/raw-file",
+        headers=headers,
+        json={"sha": sha, "fileName": "src.csv"},
+    )
+    await client.put(
+        f"{API}/source-concept-id-ranges",
+        headers=headers,
+        json={
+            "workspaceId": ws,
+            "badgeLabel": "Rennes",
+            "rangeStart": 2000000000,
+            "rangeEnd": 2099999999,
+            "nextId": 2000000000 + n,
+        },
+    )
+    await client.put(
+        f"{API}/source-concept-id-entries/batch",
+        headers=headers,
+        json={
+            "entries": [
+                {
+                    "id": f"{ws}__Rennes__LOINC__C{i}",
+                    "workspaceId": ws,
+                    "badgeLabel": "Rennes",
+                    "vocabularyId": "LOINC",
+                    "conceptCode": f"C{i}",
+                    "sourceConceptId": 2000000000 + i,
+                }
+                for i in range(n)
+            ]
+        },
+    )
+
+    project = await db.get(MappingProject, "mpl")
+    _, entries = await scoped_source_concept_ids(db, project)
+    # Every dictionary concept is in scope — none dropped by the row cap.
+    assert len(entries) == n
+
+
 async def test_no_badges_yields_nothing(client, db):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)

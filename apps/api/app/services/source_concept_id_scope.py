@@ -78,6 +78,12 @@ def _dictionary_pairs(project: MappingProject) -> set[tuple[str, str]]:
             select_sql,
             dedup_partition,
             "SELECT vocabulary_id, concept_code FROM source_concepts",
+            # The scope must cover the WHOLE dictionary — this is the project's
+            # (vocab, code) universe, not a preview. The default MAX_QUERY_ROWS
+            # cap would truncate a large dictionary to a non-deterministic 10k-row
+            # subset, so the exported entries.json would differ on every run and
+            # never show as clean. Two narrow columns, so the payload is bounded.
+            max_rows=None,
         )
     except file_reader.ExcelSupportUnavailable:
         return set()
@@ -91,6 +97,7 @@ def _dictionary_pairs(project: MappingProject) -> set[tuple[str, str]]:
             select_sql,
             dedup_partition,
             "SELECT concept_code FROM source_concepts",
+            max_rows=None,
         )
         name = _localized(project.name, "en")
         return {(name, str(r["concept_code"])) for r in rows if r.get("concept_code")}
