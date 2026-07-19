@@ -44,6 +44,10 @@ build/
 *.arrow
 *.feather
 
+# Golden test fixtures are versioned content, not data — the export format
+# contract needs its expected files (incl. .csv) tracked (see server-export-plan).
+!apps/web/src/lib/**/__fixtures__/**
+
 # Exception: bundled demo dataset (tracked via Git LFS)
 !apps/web/public/data/**/*.parquet
 
