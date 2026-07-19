@@ -11,8 +11,10 @@ import { gitFileMeta } from '@/lib/git-file-meta'
  * exact paths in a tooltip and disable the action when nothing relevant changed.
  */
 export interface QuickAction {
-  /** i18n key for the button label (e.g. versioning.quick_sync_all). */
+  /** i18n key for the action title (e.g. versioning.quick_sync_all). */
   labelKey: string
+  /** i18n key for the short description shown on the action card. */
+  descriptionKey: string
   /** i18n key for the commit message, interpolated with { author }. */
   messageKey: string
   /** The changed paths this action will commit + push, in list order. */
@@ -21,6 +23,7 @@ export interface QuickAction {
 
 interface QuickActionDef {
   labelKey: string
+  descriptionKey: string
   messageKey: string
   /** When present, only paths matching one of these are included; when absent,
    *  ALL changed paths are included ("sync everything that changed"). */
@@ -34,9 +37,15 @@ interface QuickActionDef {
 // Per-scope presets, in display order (first is the primary/"all" action).
 const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
   'mapping-projects': [
-    { labelKey: 'versioning.quick_sync_all', messageKey: 'versioning.quick_msg_all', excludeOther: true },
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all',
+      messageKey: 'versioning.quick_msg_all',
+      excludeOther: true,
+    },
     {
       labelKey: 'versioning.quick_sync_mappings',
+      descriptionKey: 'versioning.quick_desc_mappings',
       messageKey: 'versioning.quick_msg_mappings',
       patterns: [/^project\.json$/, /^mappings\.(json|csv)$/],
     },
@@ -59,6 +68,6 @@ export function buildQuickActions(
     if (def.excludeOther) {
       paths = paths.filter((p) => gitFileMeta(scope, p).category !== 'other')
     }
-    return { labelKey: def.labelKey, messageKey: def.messageKey, paths }
+    return { labelKey: def.labelKey, descriptionKey: def.descriptionKey, messageKey: def.messageKey, paths }
   })
 }

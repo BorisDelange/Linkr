@@ -10,6 +10,7 @@ describe('buildQuickActions', () => {
     const changed = ['project.json', 'mappings.json', 'source-concepts.csv', 'source-concept-ids/ranges.json']
     const [all] = buildQuickActions('mapping-projects', changed)
     expect(all.labelKey).toBe('versioning.quick_sync_all')
+    expect(all.descriptionKey).toBe('versioning.quick_desc_all')
     expect(all.paths).toEqual(changed)
   })
 

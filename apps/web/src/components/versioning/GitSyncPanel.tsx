@@ -165,36 +165,19 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           ) : nothingToCommit ? (
             <p className="py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
           ) : (
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-2">
-                <TooltipProvider delayDuration={200}>
-                  {quickActions.map((qa, i) => (
-                    <Tooltip key={qa.messageKey}>
-                      <TooltipTrigger asChild>
-                        <span>
-                          <Button
-                            size="sm"
-                            variant={i === 0 ? 'default' : 'outline'}
-                            className="h-9 gap-1.5 text-xs"
-                            onClick={() => runQuickAction(qa)}
-                            disabled={committing || mustPullFirst || qa.paths.length === 0}
-                          >
-                            {committing ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
-                            {t(qa.labelKey)}
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="max-w-xs text-xs">
-                        <p className="mb-1.5">{t('versioning.quick_will_push')}</p>
-                        <ul className="list-disc space-y-0.5 pl-4">
-                          {qa.paths.map((p) => (
-                            <li key={p} className="font-mono text-[11px]">{p}</li>
-                          ))}
-                        </ul>
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
-                </TooltipProvider>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {quickActions.map((qa, i) => (
+                  <QuickActionCard
+                    key={qa.messageKey}
+                    action={qa}
+                    primary={i === 0}
+                    committing={committing}
+                    disabled={mustPullFirst}
+                    onRun={() => runQuickAction(qa)}
+                    t={t}
+                  />
+                ))}
               </div>
               {mustPullFirst && (
                 <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
@@ -408,6 +391,57 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           }}
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * A half-width "widget" for one quick action: title + short description, the exact
+ * files it will commit + push (or a note when none of its files changed), and a
+ * commit+push button. The button is disabled when the action has nothing to push
+ * or a pull is required.
+ */
+function QuickActionCard({
+  action, primary, committing, disabled, onRun, t,
+}: {
+  action: QuickAction
+  primary: boolean
+  committing: boolean
+  disabled: boolean
+  onRun: () => void
+  t: (k: string) => string
+}) {
+  const nothing = action.paths.length === 0
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border bg-card p-3 shadow-sm">
+      <div>
+        <p className="text-xs font-semibold text-card-foreground">{t(action.labelKey)}</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{t(action.descriptionKey)}</p>
+      </div>
+      <div className="min-h-0 flex-1">
+        {nothing ? (
+          <p className="text-[11px] italic text-muted-foreground/70">{t('versioning.quick_nothing')}</p>
+        ) : (
+          <>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">{t('versioning.quick_will_push')}</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+              {action.paths.map((p) => (
+                <li key={p} className="truncate font-mono text-[11px] text-muted-foreground">{p}</li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+      <Button
+        size="sm"
+        variant={primary ? 'default' : 'outline'}
+        className="mt-1 h-8 w-full gap-1.5 text-xs"
+        onClick={onRun}
+        disabled={committing || disabled || nothing}
+      >
+        {committing ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
+        {t(action.labelKey)}
+      </Button>
     </div>
   )
 }
