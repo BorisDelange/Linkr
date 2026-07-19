@@ -2548,7 +2548,7 @@
     "reference_id": "Identifiant de référence"
   },
   "user_menu": {
-    "profile": "Paramètres",
+    "profile": "Paramètres utilisateur",
     "reset_data": "Réinitialiser les données",
     "sign_out": "Se déconnecter"
   },
