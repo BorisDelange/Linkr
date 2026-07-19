@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   ContextMenu,
@@ -49,6 +50,9 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const [diffPath, setDiffPath] = useState<string | null>(null)
   const [pushed, setPushed] = useState(false)
   const [pullOpen, setPullOpen] = useState(false)
+  // Quick actions (simple, one-click) is the default; Details is the full
+  // branch/file/message UI for advanced users.
+  const [mode, setMode] = useState<'quick' | 'details'>('quick')
 
   // ensureStatus recomputes only when the entity/branch/includeData changed since
   // the last status (see the store), so switching tabs and returning to the same
@@ -92,16 +96,130 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const quickActions = buildQuickActions(scope, files.map((f) => f.path))
   const runQuickAction = async (qa: QuickAction) => {
     if (committing || mustPullFirst || qa.paths.length === 0) return
+    // Recompute status against the freshest state before pushing, so a change
+    // made since the panel was opened (or a remote advance) is reflected — the
+    // Quick actions user never hits "Refresh" manually.
+    await refreshStatus(scope, id, branch)
+    if (syncStateSupported) await loadSyncState(scope, id, branch)
+    // refreshStatus updated the store; re-read the pull gate + the still-present
+    // paths from the latest status before committing.
+    const st = useGitSyncStore.getState()
+    if (st.syncState && (st.syncState.behind || st.syncState.diverged)) return
+    const fresh = buildQuickActions(scope, (st.status?.files ?? []).map((f) => f.path))
+      .find((a) => a.messageKey === qa.messageKey)
+    const paths = fresh?.paths ?? []
+    if (paths.length === 0) return
     const message = t(qa.messageKey, { author: authorName || t('versioning.quick_unknown_author') })
-    const result = await commitPushPaths(scope, id, qa.paths, message, branch)
+    const result = await commitPushPaths(scope, id, paths, message, branch)
     if (result?.pushed) {
       setPushed(true)
       setTimeout(() => setPushed(false), 2000)
     }
   }
 
+  const pullBanner = syncState && (syncState.behind || syncState.diverged) ? (
+    <div
+      className={
+        syncState.diverged
+          ? 'flex shrink-0 items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400'
+          : 'flex shrink-0 items-center gap-2 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-400'
+      }
+    >
+      <ArrowDownToLine size={14} className="shrink-0" />
+      <span className="flex-1">{t(syncState.diverged ? 'versioning.sync_diverged' : 'versioning.sync_behind')}</span>
+      <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-xs" onClick={() => setPullOpen(true)}>
+        <ArrowDownToLine size={12} />
+        {t('versioning.pull_action')}
+      </Button>
+    </div>
+  ) : null
+
+  // Quick mode only exists for scopes that define quick actions (mapping
+  // projects today). Elsewhere the panel is the Details UI alone, no tab bar.
+  const hasQuickMode = quickActions.length > 0
+  const effectiveMode = hasQuickMode ? mode : 'details'
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <Tabs value={effectiveMode} onValueChange={(v) => setMode(v as 'quick' | 'details')} className="flex min-h-0 flex-1 flex-col gap-3">
+        {hasQuickMode && (
+          <TabsList className="w-full">
+            <TabsTrigger value="quick" className="flex-1 text-xs">{t('versioning.quick_tab')}</TabsTrigger>
+            <TabsTrigger value="details" className="flex-1 text-xs">{t('versioning.details_tab')}</TabsTrigger>
+          </TabsList>
+        )}
+
+        {/* Quick actions: one-click commit+push for a non-Git user. Read-only
+            branch, no file list or message. Refreshes before pushing. */}
+        <TabsContent value="quick" className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{t('versioning.sync_branch')}:</span>
+            <span className="font-mono font-medium text-foreground">{branch}</span>
+          </div>
+
+          {loadingStatus ? (
+            <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+              <Loader2 size={14} className="animate-spin" />
+              {t('versioning.sync_computing')}
+            </div>
+          ) : nothingToCommit ? (
+            <p className="py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <TooltipProvider delayDuration={200}>
+                  {quickActions.map((qa, i) => (
+                    <Tooltip key={qa.messageKey}>
+                      <TooltipTrigger asChild>
+                        <span>
+                          <Button
+                            size="sm"
+                            variant={i === 0 ? 'default' : 'outline'}
+                            className="h-9 gap-1.5 text-xs"
+                            onClick={() => runQuickAction(qa)}
+                            disabled={committing || mustPullFirst || qa.paths.length === 0}
+                          >
+                            {committing ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
+                            {t(qa.labelKey)}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="max-w-xs text-xs">
+                        <p className="mb-1.5">{t('versioning.quick_will_push')}</p>
+                        <ul className="list-disc space-y-0.5 pl-4">
+                          {qa.paths.map((p) => (
+                            <li key={p} className="font-mono text-[11px]">{p}</li>
+                          ))}
+                        </ul>
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </TooltipProvider>
+              </div>
+              {mustPullFirst && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  <Info size={14} className="mt-0.5 shrink-0" />
+                  <span>{t('versioning.quick_pull_required')}</span>
+                </div>
+              )}
+              {pushed && (
+                <span className="flex items-center gap-1 text-xs text-primary">
+                  <GitCommitVertical size={13} />
+                  {t('versioning.sync_pushed')}
+                </span>
+              )}
+              {error && (
+                <GitErrorInline detail={error.code === 'pull_required' ? t('versioning.sync_push_blocked') : error.raw} />
+              )}
+            </div>
+          )}
+
+          {pullBanner}
+        </TabsContent>
+
+        {/* Details: the full expert UI (branch select, refresh, file selection,
+            per-file diff, custom commit message). */}
+        <TabsContent value="details" className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Label className="text-xs">{t('versioning.sync_branch')}</Label>
@@ -130,60 +248,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         </Button>
       </div>
 
-      {!loadingStatus && !nothingToCommit && quickActions.some((qa) => qa.paths.length > 0) && (
-        <div className="shrink-0 space-y-1.5 rounded-lg border bg-muted/30 p-2.5">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {t('versioning.quick_actions')}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <TooltipProvider delayDuration={200}>
-              {quickActions.map((qa, i) => (
-                <Tooltip key={qa.messageKey}>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        size="sm"
-                        variant={i === 0 ? 'default' : 'outline'}
-                        className="h-8 gap-1.5 text-xs"
-                        onClick={() => runQuickAction(qa)}
-                        disabled={committing || mustPullFirst || qa.paths.length === 0}
-                      >
-                        {committing ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
-                        {t(qa.labelKey)}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs text-xs">
-                    <p className="mb-1">{t('versioning.quick_will_push')}</p>
-                    <ul className="space-y-0.5">
-                      {qa.paths.map((p) => (
-                        <li key={p} className="font-mono text-[11px]">{p}</li>
-                      ))}
-                    </ul>
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-            </TooltipProvider>
-          </div>
-        </div>
-      )}
-
-      {syncState && (syncState.behind || syncState.diverged) && (
-        <div
-          className={
-            syncState.diverged
-              ? 'flex shrink-0 items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400'
-              : 'flex shrink-0 items-center gap-2 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-400'
-          }
-        >
-          <ArrowDownToLine size={14} className="shrink-0" />
-          <span className="flex-1">{t(syncState.diverged ? 'versioning.sync_diverged' : 'versioning.sync_behind')}</span>
-          <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-xs" onClick={() => setPullOpen(true)}>
-            <ArrowDownToLine size={12} />
-            {t('versioning.pull_action')}
-          </Button>
-        </div>
-      )}
+      {pullBanner}
 
       {/* Mapping projects have no optional data files to version: source-concepts
           is always tracked and the re-derivable scores parquet is always gitignored,
@@ -301,6 +366,8 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           {t('versioning.sync_commit_push')}
         </Button>
       </div>
+        </TabsContent>
+      </Tabs>
 
       {diffPath && (
         <GitDiffDialog
