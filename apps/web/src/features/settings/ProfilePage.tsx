@@ -124,8 +124,8 @@ export function ProfilePage() {
 
           {/* Account tab */}
           <TabsContent value="profile" className="mt-6 space-y-6">
-            <Card>
-              <CardHeader className="pb-2">
+            <Card className="gap-2">
+              <CardHeader>
                 <CardTitle className="text-sm">
                   {t('profile.account')}
                 </CardTitle>

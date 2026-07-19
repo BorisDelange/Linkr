@@ -15,7 +15,9 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { useGitSyncStore } from '@/stores/git-sync-store'
+import { useAppStore } from '@/stores/app-store'
 import { gitFileMeta, groupGitFiles } from '@/lib/git-file-meta'
+import { buildQuickActions, type QuickAction } from '@/lib/git-quick-actions'
 import type { GitFileChange, GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
 import { PullResolveDialog } from './PullResolveDialog'
@@ -36,8 +38,9 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, syncState, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs } =
+  const { status, branches, syncState, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs } =
     useGitSyncStore()
+  const authorName = useAppStore((s) => s.getUserDisplayName())
   // Behind/diverged detection is only wired for mapping projects in v1.
   const syncStateSupported = scope === 'mapping-projects'
   const lfsSet = lfsPaths()
@@ -82,6 +85,21 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   // too (pull_required); this just disables the button up front.
   const mustPullFirst = !!syncState && (syncState.behind || syncState.diverged)
 
+  // Quick actions commit + push a curated subset of the CHANGED files in one
+  // click, with an auto-generated message — so a non-developer needn't tick
+  // files and write a commit message for the common cases. Each action lists
+  // the exact paths it will push (from the current changes) in a hover tooltip.
+  const quickActions = buildQuickActions(scope, files.map((f) => f.path))
+  const runQuickAction = async (qa: QuickAction) => {
+    if (committing || mustPullFirst || qa.paths.length === 0) return
+    const message = t(qa.messageKey, { author: authorName || t('versioning.quick_unknown_author') })
+    const result = await commitPushPaths(scope, id, qa.paths, message, branch)
+    if (result?.pushed) {
+      setPushed(true)
+      setTimeout(() => setPushed(false), 2000)
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
@@ -111,6 +129,44 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           {t('versioning.sync_refresh')}
         </Button>
       </div>
+
+      {!loadingStatus && !nothingToCommit && quickActions.some((qa) => qa.paths.length > 0) && (
+        <div className="shrink-0 space-y-1.5 rounded-lg border bg-muted/30 p-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('versioning.quick_actions')}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <TooltipProvider delayDuration={200}>
+              {quickActions.map((qa, i) => (
+                <Tooltip key={qa.messageKey}>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        size="sm"
+                        variant={i === 0 ? 'default' : 'outline'}
+                        className="h-8 gap-1.5 text-xs"
+                        onClick={() => runQuickAction(qa)}
+                        disabled={committing || mustPullFirst || qa.paths.length === 0}
+                      >
+                        {committing ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
+                        {t(qa.labelKey)}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs text-xs">
+                    <p className="mb-1">{t('versioning.quick_will_push')}</p>
+                    <ul className="space-y-0.5">
+                      {qa.paths.map((p) => (
+                        <li key={p} className="font-mono text-[11px]">{p}</li>
+                      ))}
+                    </ul>
+                  </TooltipContent>
+                </Tooltip>
+              ))}
+            </TooltipProvider>
+          </div>
+        </div>
+      )}
 
       {syncState && (syncState.behind || syncState.diverged) && (
         <div

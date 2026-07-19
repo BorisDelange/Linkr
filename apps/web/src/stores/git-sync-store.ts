@@ -152,6 +152,11 @@ interface GitSyncState {
   loadSyncState: (scope: GitScope, id: string, branch?: string) => Promise<void>
   getDiff: (scope: GitScope, id: string, path: string, branch?: string) => Promise<GitDiff | null>
   commitPush: (scope: GitScope, id: string, message: string, branch?: string) => Promise<GitCommitResult | null>
+  /** Commit + push an EXPLICIT path list (Quick actions), independent of the
+   *  checkbox selection. Same flow as commitPush otherwise. */
+  commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch?: string) => Promise<GitCommitResult | null>
+  /** Shared commit+push implementation behind commitPush / commitPushPaths. */
+  _commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch?: string) => Promise<GitCommitResult | null>
   togglePath: (path: string) => void
   setAllSelected: (checked: boolean) => void
   setIncludeData: (scope: GitScope, id: string, value: boolean, branch?: string) => Promise<void>
@@ -273,10 +278,15 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     }
   },
 
-  commitPush: async (scope, id, message, branch) => {
+  commitPush: async (scope, id, message, branch) =>
+    get()._commitPushPaths(scope, id, [...get().selected], message, branch),
+
+  commitPushPaths: async (scope, id, paths, message, branch) =>
+    get()._commitPushPaths(scope, id, paths, message, branch),
+
+  _commitPushPaths: async (scope, id, paths, message, branch) => {
     set({ committing: true, error: null })
     try {
-      const paths = [...get().selected]
       const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
       const result = await gitCommitPush(scope, id, zip, message, branch, paths)
       // After a commit the pushed files are clean; refresh so the UI updates. The
