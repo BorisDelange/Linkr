@@ -181,4 +181,34 @@ describe('restoreFileSourceDataFromCsv — LFS pointer guard', () => {
     expect(p.fileSourceData!.rawFileBuffer?.byteLength).toBeGreaterThan(0)
     expect(p.fileSourceData!.columns).toEqual(['terminology_code', 'concept_code'])
   })
+
+  it('keeps an existing valid columnMapping verbatim (no key-order churn on re-import)', () => {
+    // Re-importing the same project (git clone) must not reorder the mapping keys,
+    // which would produce a no-op-but-noisy git diff on the next export.
+    const p = {
+      sourceType: 'file',
+      fileSourceData: {
+        fileName: 'source-concepts.csv', columns: [], rows: [],
+        // Author's original order (patientCount before recordCount, category mid).
+        columnMapping: {
+          terminologyColumn: 'terminology_code',
+          conceptCodeColumn: 'concept_code',
+          conceptNameColumn: 'concept_label',
+          categoryColumn: 'category',
+          patientCountColumn: 'patients_count',
+          recordCountColumn: 'rows_count',
+          infoJsonColumn: 'metadata_json',
+        },
+      },
+    } as unknown as MappingProject
+    const csv = 'terminology_code,concept_code,concept_label,category,patients_count,rows_count,metadata_json\nA,B,C,D,1,2,{}'
+    restoreFileSourceDataFromCsv(p, csv)
+    // Key order preserved exactly — not rewritten to the code's canonical order.
+    expect(Object.keys(p.fileSourceData!.columnMapping!)).toEqual([
+      'terminologyColumn', 'conceptCodeColumn', 'conceptNameColumn',
+      'categoryColumn', 'patientCountColumn', 'recordCountColumn', 'infoJsonColumn',
+    ])
+    // Columns + row count still refreshed from the CSV.
+    expect(p.fileSourceData!.columns).toHaveLength(7)
+  })
 })

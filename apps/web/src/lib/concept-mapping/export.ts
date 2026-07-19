@@ -47,6 +47,17 @@ export function restoreFileSourceDataFromCsv(project: MappingProject, csvText: s
   // Rebuild columnMapping: try normalized names first, fall back to project's existing mapping
   const colSet = new Set(csvColumns)
   const existing = project.fileSourceData.columnMapping ?? {} as FileColumnMapping
+
+  // Re-importing the SAME project (e.g. cloning a git-linked one) already carries a
+  // valid mapping — every mapped column still present in the CSV. Reassigning it
+  // below would re-emit the keys in the code's canonical order, producing a
+  // no-op-but-noisy git diff on the next export. Keep the existing mapping verbatim.
+  const existingTargets = Object.entries(existing)
+    .filter(([k, v]) => k !== 'extraColumns' && typeof v === 'string' && v)
+    .map(([, v]) => v as string)
+  if (existingTargets.length > 0 && existingTargets.every(c => colSet.has(c))) {
+    return
+  }
   const pick = (normalized: string, existingVal?: string) =>
     colSet.has(normalized) ? normalized : (existingVal && colSet.has(existingVal) ? existingVal : undefined)
   const mapping: Record<string, string | undefined> = {

@@ -143,21 +143,48 @@ export function WorkspacesPage() {
   const [cloneToken, setCloneToken] = useState('')
   const [cloneState, setCloneState] = useState<Record<string, 'pending' | 'done' | 'error'>>({})
 
-  const handleCloneEntity = useCallback(async (e: GitLinkedEntity) => {
+  /** Clone a git-linked entity server-side and load its full content under its
+   *  imported record. `token`/`workspaceId` override the component state so the
+   *  auto-clone loop (which runs before React commits the token input) can pass
+   *  them explicitly. */
+  const cloneEntityContent = useCallback(async (
+    e: GitLinkedEntity,
+    opts: { token?: string; workspaceId?: string } = {},
+  ): Promise<boolean> => {
     const key = `${e.type}-${e.id}`
     setCloneState(s => ({ ...s, [key]: 'pending' }))
     try {
       // Server-side clone only: the backend clones the repo; load its ZIP bytes
       // into JSZip so applyClonedEntity reads it as before.
       const JSZip = (await import('jszip')).default
-      const cloned = await gitCloneToZip(e.url, e.branch, cloneToken || undefined)
+      const cloned = await gitCloneToZip(e.url, e.branch, opts.token ?? cloneToken ?? undefined)
       const zip = await JSZip.loadAsync(cloned.blob)
-      const ok = await applyClonedEntity(zip, e.type, e.id, getStorage())
+      // Keep the git link on the restored entity (the repo's project.json strips it).
+      // Only url+branch are stored — the token is persisted separately, encrypted.
+      const gitRemote = { url: e.url, branch: e.branch }
+      const ok = await applyClonedEntity(zip, e.type, e.id, getStorage(), opts.workspaceId, gitRemote)
+      // Anchor sync state to the cloned commit (mapping projects, server mode) so
+      // a later remote push is detected as "behind" — mirrors the standalone import.
+      if (ok && e.type === 'mapping-project' && cloned.oid && isServerMode()) {
+        try {
+          const { gitSetSyncState } = await import('@/lib/api/git')
+          await gitSetSyncState('mapping-projects', e.id, e.branch, cloned.oid)
+        } catch { /* leave unanchored */ }
+      }
       setCloneState(s => ({ ...s, [key]: ok ? 'done' : 'error' }))
+      return ok
     } catch {
       setCloneState(s => ({ ...s, [key]: 'error' }))
+      return false
     }
   }, [cloneToken])
+
+  const handleCloneEntity = useCallback((e: GitLinkedEntity) => cloneEntityContent(e), [cloneEntityContent])
+
+  /** Progress line while auto-cloning git-linked entities after a workspace import. */
+  const reportCloneProgress = useCallback((done: number, total: number, name: string) => {
+    setImportProgress({ phaseKey: 'workspaces.import_phase_clone_linked', done, total, name })
+  }, [])
 
   // Import progress state — modal shown while doImport is running.
   // `phaseKey` is an i18n key under workspaces.import_phase_*.
@@ -166,6 +193,8 @@ export function WorkspacesPage() {
     phaseKey: string
     done?: number
     total?: number
+    /** Name of the item currently being processed (e.g. the git-linked entity being cloned). */
+    name?: string
   }
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
 
@@ -662,15 +691,36 @@ export function WorkspacesPage() {
     setImportProgress({ phaseKey: 'workspaces.import_phase_workspace' })
     try {
       await doImport(parsed, duplicate)
-      // Surface git-linked entities: they import as metadata only, content stays in their repos.
+      // Git-linked entities carry only metadata in the workspace ZIP — their full
+      // content lives in their repos. Auto-clone each and load it now (server mode),
+      // so the entity arrives complete instead of empty. Best-effort per item; a
+      // repo that needs a token (or fails) drops to the summary dialog for a manual
+      // retry. Skipped for duplicates (their ids are re-minted → can't retarget).
       const linked = collectGitLinkedEntities(parsed)
-      if (linked.length > 0) setGitLinkedSummary(linked)
+      if (linked.length > 0) {
+        const targetWsId = parsed.workspace.id
+        const token = parsed.workspace.gitRemoteConfig?.authToken
+        let anyFailed = false
+        if (isServerMode() && !duplicate) {
+          for (let i = 0; i < linked.length; i++) {
+            reportCloneProgress(i, linked.length, linked[i].name)
+            const ok = await cloneEntityContent(linked[i], { token, workspaceId: targetWsId })
+            if (!ok) anyFailed = true
+          }
+        } else {
+          anyFailed = true
+        }
+        setImportProgress(null)
+        // Show the dialog only when something still needs the user (a failed/pending
+        // auto-clone, or client-only / duplicate where auto-clone can't run).
+        if (anyFailed) setGitLinkedSummary(linked)
+      }
     } catch (err) {
       setImportError(formatApiError(err))
     } finally {
       setImportProgress(null)
     }
-  }, [doImport])
+  }, [doImport, cloneEntityContent]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Import a workspace from an uploaded ZIP or a git clone (via ImportSourceDialog).
    *  `gitRemote` is set when cloned from git → pre-link the workspace's Versioning
@@ -922,6 +972,9 @@ export function WorkspacesPage() {
           {importProgress && (
             <div className="space-y-3 pt-2">
               <p className="text-xs text-muted-foreground">{t(importProgress.phaseKey)}</p>
+              {importProgress.name && (
+                <p className="truncate text-[11px] font-medium text-foreground">{importProgress.name}</p>
+              )}
               {typeof importProgress.total === 'number' && importProgress.total > 0 && (
                 <>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">

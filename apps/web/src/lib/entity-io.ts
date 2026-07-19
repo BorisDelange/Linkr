@@ -1432,6 +1432,8 @@ export async function applyClonedEntity(
   type: GitLinkedEntity['type'],
   targetId: string,
   storage: Storage,
+  workspaceId?: string,
+  gitRemoteConfig?: GitRemoteConfig,
 ): Promise<boolean> {
   const readJson = async <T>(name: string): Promise<T | null> => {
     const entry = zip.files[name]
@@ -1457,13 +1459,24 @@ export async function applyClonedEntity(
   }
 
   if (type === 'mapping-project') {
-    const mappings = (await readJson<ConceptMapping[]>('mappings.json')) ?? []
-    let applied = false
-    for (const m of mappings) {
-      await storage.conceptMappings.create({ ...m, projectId: targetId }).catch(() => {})
-      applied = true
+    // Full restore — same content the standalone git/ZIP import applies:
+    // project.json (→ fileSourceData/source concepts), mappings.json,
+    // source-concept-ids/, similarity-scores.parquet. Restoring only mappings
+    // left the source-concept table empty ("imported but no concepts").
+    const files: Record<string, unknown> = {}
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (entry.dir || path === 'similarity-scores.parquet') continue
+      const text = await entry.async('string')
+      try { files[path] = JSON.parse(text) } catch { files[path] = text }
     }
-    return applied
+    const scoresEntry = zip.files['similarity-scores.parquet']
+    const scoresBytes = scoresEntry && !scoresEntry.dir ? await scoresEntry.async('uint8array') : null
+    const { importMappingProjectContent } = await import('@/lib/concept-mapping/import')
+    return importMappingProjectContent(
+      { files, scoresBytes },
+      { targetId, workspaceId: workspaceId ?? '', replaceExisting: true, gitRemoteConfig },
+      storage,
+    )
   }
 
   // data-catalog / dq-rule-set / schema-preset repos hold the entity's full

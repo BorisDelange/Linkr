@@ -772,6 +772,42 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect((calls['preset.save']![0][0] as { presetId: string }).presetId).toBe('preset-target')
   })
 
+  it('applyClonedEntity restores a mapping project with source concepts + mappings (not metadata only)', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }
+    const store = new Proxy({}, {
+      get: (_t, prop) => {
+        switch (prop) {
+          case 'mappingProjects': return { create: rec('mp.create'), delete: rec('mp.delete') }
+          case 'conceptMappings': return { createBatch: rec('cm.createBatch'), deleteByProject: rec('cm.deleteByProject') }
+          default: return new Proxy({}, { get: () => async () => {} })
+        }
+      },
+    }) as unknown as Storage
+
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({
+      id: 'repo-id', name: { en: 'Adult ICU' }, sourceType: 'file',
+      fileSourceData: { fileName: 'source-concepts.csv', rows: [], columns: [], columnMapping: {} },
+    }))
+    zip.file('source-concepts.csv', 'concept_name,concept_code\nHeart rate,HR')
+    zip.file('mappings.json', JSON.stringify([{ id: 'm1', sourceConceptCode: 'HR', targetConceptId: 42, comments: [] }]))
+
+    const ok = await applyClonedEntity(zip, 'mapping-project', 'mp-target', store, 'ws-9', { url: 'https://example/adult', branch: 'main' })
+    expect(ok).toBe(true)
+    // Project written under the target id + workspace, with source concepts from the CSV.
+    const created = calls['mp.create']![0][0] as { id: string; workspaceId: string; gitRemoteConfig?: { url: string }; fileSourceData: { columns: string[] } }
+    expect(created.id).toBe('mp-target')
+    expect(created.workspaceId).toBe('ws-9')
+    // Git link kept so the entity stays git-linked on re-export.
+    expect(created.gitRemoteConfig).toEqual({ url: 'https://example/adult', branch: 'main' })
+    expect(created.fileSourceData.columns).toEqual(['concept_name', 'concept_code'])
+    // Mappings recreated under the target (the "no concepts" bug was these being dropped).
+    const batch = calls['cm.createBatch']![0][0] as Array<{ projectId: string }>
+    expect(batch).toHaveLength(1)
+    expect(batch[0].projectId).toBe('mp-target')
+  })
+
   it('applyClonedEntity returns false when the cloned repo lacks the expected marker', async () => {
     const store = new Proxy({}, { get: () => new Proxy({}, { get: () => async () => {} }) }) as unknown as Storage
     expect(await applyClonedEntity(new JSZip(), 'data-catalog', 'x', store)).toBe(false)
