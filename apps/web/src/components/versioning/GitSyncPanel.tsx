@@ -419,9 +419,13 @@ function QuickActionCard({
         ) : (
           <>
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">{t('versioning.quick_will_push')}</p>
-            <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 marker:text-muted-foreground/50">
+              {/* truncate lives on the inner span, not the <li>: overflow:hidden on
+                  a list-item would clip the disc marker itself. */}
               {action.paths.map((p) => (
-                <li key={p} className="truncate font-mono text-[11px] text-muted-foreground">{p}</li>
+                <li key={p} className="font-mono text-[11px] text-muted-foreground">
+                  <span className="block truncate" title={p}>{p}</span>
+                </li>
               ))}
             </ul>
           </>
