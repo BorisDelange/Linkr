@@ -86,8 +86,11 @@ function AuthorChip({
   )
 
   const authorRows: React.ReactNode[] = []
-  if (details?.affiliation) authorRows.push(<DetailRow key="aff" label={t('common.affiliation')} value={details.affiliation} />)
-  if (details?.profession) authorRows.push(<DetailRow key="prof" label={t('common.profession')} value={details.profession} />)
+  const affiliation = localized(details?.affiliation, lang)
+  const profession = localized(details?.profession, lang)
+  if (affiliation) authorRows.push(<DetailRow key="aff" label={t('common.affiliation')} value={affiliation} />)
+  if (profession) authorRows.push(<DetailRow key="prof" label={t('common.profession')} value={profession} />)
+  if (details?.email) authorRows.push(<DetailRow key="email" label={t('common.email')} value={details.email} />)
   if (details?.orcid) authorRows.push(<DetailRow key="orcid" label="ORCID" value={details.orcid} />)
 
   const orgRows: React.ReactNode[] = []

@@ -75,6 +75,7 @@ export function AuthGate({ children }: AuthGateProps) {
         firstName: user.first_name ?? '',
         lastName: user.last_name ?? '',
         role: user.role,
+        email: user.email ?? '',
         affiliation: user.affiliation ?? '',
         profession: user.profession ?? '',
         orcid: user.orcid ?? '',

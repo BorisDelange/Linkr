@@ -14,8 +14,10 @@ export interface User {
   role: string
   firstName?: string
   lastName?: string
-  affiliation?: string
-  profession?: string
+  /** Multilingual (an institution/role has an official name per language);
+   *  legacy plain strings are read transparently via localized(). */
+  affiliation?: LocalizedString | string
+  profession?: LocalizedString | string
   orcid?: string
   isActive?: boolean
   authProvider?: string
@@ -33,8 +35,8 @@ export interface UserCreateInput {
   email?: string
   firstName?: string
   lastName?: string
-  affiliation?: string
-  profession?: string
+  affiliation?: LocalizedString | string
+  profession?: LocalizedString | string
   orcid?: string
   isActive?: boolean
 }

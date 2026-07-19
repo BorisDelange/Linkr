@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
+import type { LocalizedString } from '@/types'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,24 +19,38 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EditorSettingsForm } from './EditorSettingsForm'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
-import { Lock } from 'lucide-react'
+import { Info, Lock } from 'lucide-react'
 
 interface AccountDraft {
   firstName: string
   lastName: string
-  affiliation: string
-  profession: string
+  email: string
+  /** Multilingual: kept as a LocalizedString so switching the app language edits
+   *  the matching language without clobbering the other. */
+  affiliation: LocalizedString | string
+  profession: LocalizedString | string
   orcid: string
 }
 
-function accountDraftFrom(user: { firstName?: string; lastName?: string; affiliation?: string; profession?: string; orcid?: string } | null): AccountDraft {
+function accountDraftFrom(user: { firstName?: string; lastName?: string; email?: string; affiliation?: LocalizedString | string; profession?: LocalizedString | string; orcid?: string } | null): AccountDraft {
   return {
     firstName: user?.firstName ?? '',
     lastName: user?.lastName ?? '',
+    email: user?.email ?? '',
     affiliation: user?.affiliation ?? '',
     profession: user?.profession ?? '',
     orcid: user?.orcid ?? '',
   }
+}
+
+/** A small badge showing which language a multilingual field is currently
+ *  editing — switching the app language edits the matching translation. */
+function LangHint({ lang }: { lang: string }) {
+  return (
+    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+      {lang}
+    </span>
+  )
 }
 
 export function ProfilePage() {
@@ -52,9 +68,13 @@ export function ProfilePage() {
   const [draft, setDraft] = useState<AccountDraft>(() => accountDraftFrom(user))
   const [passwordOpen, setPasswordOpen] = useState(false)
   // Re-sync the draft if the stored user changes from elsewhere.
-  useEffect(() => { setDraft(accountDraftFrom(user)) }, [user?.firstName, user?.lastName, user?.affiliation, user?.profession, user?.orcid])
+  useEffect(() => { setDraft(accountDraftFrom(user)) }, [user?.firstName, user?.lastName, user?.email, user?.affiliation, user?.profession, user?.orcid])
 
-  const setField = (key: keyof AccountDraft, value: string) => setDraft((d) => ({ ...d, [key]: value }))
+  const setField = (key: 'firstName' | 'lastName' | 'email' | 'orcid', value: string) => setDraft((d) => ({ ...d, [key]: value }))
+  // affiliation/profession are multilingual: edit only the active app language,
+  // preserving the other language's stored value (same pattern as entity forms).
+  const setLocalizedField = (key: 'affiliation' | 'profession', value: string) =>
+    setDraft((d) => ({ ...d, [key]: setLocalized(d[key], language, value) }))
   const saveAccount = () => updateUser({ ...draft })
 
   const account = useSaveForm({
@@ -105,15 +125,16 @@ export function ProfilePage() {
           {/* Account tab */}
           <TabsContent value="profile" className="mt-6 space-y-6">
             <Card>
-              <CardHeader>
+              <CardHeader className="pb-2">
                 <CardTitle className="text-sm">
                   {t('profile.account')}
                 </CardTitle>
-                <CardDescription>
-                  {t('profile.account_description')}
-                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950">
+                  <Info size={14} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
+                  <p className="text-xs text-blue-700 dark:text-blue-300">{t('profile.account_provenance_info')}</p>
+                </div>
                 <div className="space-y-2">
                   <Label>{t('profile.username')}</Label>
                   <Input value={user?.username ?? ''} disabled />
@@ -137,20 +158,35 @@ export function ProfilePage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>{t('profile.affiliation')}</Label>
+                  <Label>{t('profile.email')}</Label>
                   <Input
-                    value={draft.affiliation}
+                    type="email"
+                    value={draft.email}
+                    placeholder={t('profile.email_placeholder')}
+                    onChange={(e) => setField('email', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Label>{t('profile.affiliation')}</Label>
+                    <LangHint lang={language} />
+                  </div>
+                  <Input
+                    value={localized(draft.affiliation, language)}
                     placeholder={t('profile.affiliation_placeholder')}
-                    onChange={(e) => setField('affiliation', e.target.value)}
+                    onChange={(e) => setLocalizedField('affiliation', e.target.value)}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>{t('profile.profession')}</Label>
+                    <div className="flex items-center gap-2">
+                      <Label>{t('profile.profession')}</Label>
+                      <LangHint lang={language} />
+                    </div>
                     <Input
-                      value={draft.profession}
+                      value={localized(draft.profession, language)}
                       placeholder={t('profile.profession_placeholder')}
-                      onChange={(e) => setField('profession', e.target.value)}
+                      onChange={(e) => setLocalizedField('profession', e.target.value)}
                     />
                   </div>
                   <div className="space-y-2">

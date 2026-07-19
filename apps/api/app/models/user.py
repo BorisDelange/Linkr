@@ -4,7 +4,7 @@ from sqlalchemy import JSON, DateTime, String, func
 from sqlalchemy.sql import expression
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base
+from app.models.base import Base, LocalizedText
 
 
 class User(Base):
@@ -15,8 +15,9 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(255))
     first_name: Mapped[str | None] = mapped_column(String(255))
     last_name: Mapped[str | None] = mapped_column(String(255))
-    affiliation: Mapped[str | None] = mapped_column(String(255))
-    profession: Mapped[str | None] = mapped_column(String(255))
+    # Multilingual (LocalizedString dict), tolerant of legacy plain strings.
+    affiliation: Mapped[dict | str | None] = mapped_column(LocalizedText)
+    profession: Mapped[dict | str | None] = mapped_column(LocalizedText)
     orcid: Mapped[str | None] = mapped_column(String(255))
     # Nullable: LDAP/SSO users authenticate against an external directory.
     password_hash: Mapped[str | None] = mapped_column(String(255))

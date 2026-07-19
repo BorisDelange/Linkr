@@ -65,6 +65,8 @@ async def _seed(db) -> MappingProject:
         raw_file_sha=sha,
         raw_file_name=fsd["fileName"],
         organization=data["organization"],
+        created_by=p["createdBy"],
+        created_by_details=p["createdByDetails"],
     )
     db.add(project)
     await db.commit()
@@ -85,6 +87,7 @@ async def _seed(db) -> MappingProject:
                     "equivalence": m["equivalence"],
                     "status": m["status"],
                     "mapped_by": m["mappedBy"],
+                    "mapped_by_details": m["mappedByDetails"],
                 }
             )
         )

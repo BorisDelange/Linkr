@@ -36,10 +36,11 @@ class MeResponse(BaseModel):
     is_active: bool
     permissions: list[str]
     # Profile fields, so the client can populate /profile without a second call.
+    # affiliation/profession are multilingual (LocalizedString) or a legacy string.
     first_name: str | None = None
     last_name: str | None = None
-    affiliation: str | None = None
-    profession: str | None = None
+    affiliation: dict[str, str] | str | None = None
+    profession: dict[str, str] | str | None = None
     orcid: str | None = None
 
     model_config = {"from_attributes": True}

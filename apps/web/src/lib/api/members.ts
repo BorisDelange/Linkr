@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api-client'
+import type { LocalizedString } from '@/types'
 
 export type MemberRole = 'viewer' | 'editor' | 'owner'
 // Project overrides can also hide a project from a workspace member.
@@ -38,8 +39,8 @@ export interface DirectoryUser {
   username: string
   firstName?: string
   lastName?: string
-  affiliation?: string
-  profession?: string
+  affiliation?: LocalizedString | string
+  profession?: LocalizedString | string
   orcid?: string
 }
 

@@ -19,11 +19,14 @@ from app.models.user import User
 
 
 def _owner_details(owner: User) -> dict:
+    # affiliation/profession may be a LocalizedString dict or a legacy string;
+    # both are kept verbatim (the `if v` drop also skips an empty {} / "").
     return {
         k: v
         for k, v in {
             "firstName": owner.first_name,
             "lastName": owner.last_name,
+            "email": owner.email,
             "affiliation": owner.affiliation,
             "profession": owner.profession,
             "orcid": owner.orcid,

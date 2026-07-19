@@ -5,6 +5,7 @@ import { deleteProjectData } from '@/lib/entity-io'
 import { slugifyId } from '@/lib/slugify-id'
 import { setLocalized, toLocalized, isShellHtml } from '@/lib/localized'
 import { seedWorkspaces, isSeeded } from '@/lib/seed-loader'
+import { userToAuthorDetails } from '@/lib/user-identity'
 import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, AuthorDetails, Authored, Lineaged } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
@@ -26,8 +27,9 @@ interface AuthUser {
   firstName: string
   lastName: string
   role: string
-  affiliation?: string
-  profession?: string
+  email?: string
+  affiliation?: LocalizedString | string
+  profession?: LocalizedString | string
   orcid?: string
 }
 
@@ -70,8 +72,9 @@ interface Preferences {
   dismissSeedUpdateNotifications: boolean
   userFirstName?: string
   userLastName?: string
-  userAffiliation?: string
-  userProfession?: string
+  userEmail?: string
+  userAffiliation?: LocalizedString | string
+  userProfession?: LocalizedString | string
   userOrcid?: string
 }
 
@@ -109,7 +112,7 @@ interface AppState {
   user: AuthUser | null
   login: (user: AuthUser) => void
   logout: () => void
-  updateUser: (changes: Partial<Pick<AuthUser, 'firstName' | 'lastName' | 'affiliation' | 'profession' | 'orcid'>>) => void
+  updateUser: (changes: Partial<Pick<AuthUser, 'firstName' | 'lastName' | 'email' | 'affiliation' | 'profession' | 'orcid'>>) => void
   /** Get display name: "First Last", or username if no name set. */
   getUserDisplayName: () => string
   /** Structured author identity snapshot for stamping onto created entities. */
@@ -193,7 +196,7 @@ const prefs = loadPreferences()
 let nextUserId = 2
 
 export const useAppStore = create<AppState>((set, get) => ({
-  user: { id: 1, username: 'admin', firstName: prefs.userFirstName ?? '', lastName: prefs.userLastName ?? '', role: 'admin', affiliation: prefs.userAffiliation ?? '', profession: prefs.userProfession ?? '', orcid: prefs.userOrcid ?? '' },
+  user: { id: 1, username: 'admin', firstName: prefs.userFirstName ?? '', lastName: prefs.userLastName ?? '', role: 'admin', email: prefs.userEmail ?? '', affiliation: prefs.userAffiliation ?? '', profession: prefs.userProfession ?? '', orcid: prefs.userOrcid ?? '' },
   login: (user) => set({ user }),
   logout: () => set({ user: null }),
   updateUser: (changes) => {
@@ -215,13 +218,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   getAuthorDetails: () => {
     const u = get().user
     if (!u) return {}
-    const details: AuthorDetails = {}
-    if (u.firstName?.trim()) details.firstName = u.firstName.trim()
-    if (u.lastName?.trim()) details.lastName = u.lastName.trim()
-    if (u.affiliation?.trim()) details.affiliation = u.affiliation.trim()
-    if (u.profession?.trim()) details.profession = u.profession.trim()
-    if (u.orcid?.trim()) details.orcid = u.orcid.trim()
-    return details
+    return userToAuthorDetails(u)
   },
 
   // Projects
@@ -576,6 +573,7 @@ useAppStore.subscribe((state) => {
     dismissSeedUpdateNotifications: state.dismissSeedUpdateNotifications,
     userFirstName: state.user?.firstName,
     userLastName: state.user?.lastName,
+    userEmail: state.user?.email,
     userAffiliation: state.user?.affiliation,
     userProfession: state.user?.profession,
     userOrcid: state.user?.orcid,

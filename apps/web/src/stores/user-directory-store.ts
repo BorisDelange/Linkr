@@ -2,7 +2,9 @@ import { create } from 'zustand'
 import { isServerMode } from '@/lib/api-client'
 import { membersApi, type DirectoryUser } from '@/lib/api/members'
 import { useAppStore } from '@/stores/app-store'
+import { hasLocalizedContent } from '@/lib/localized'
 import type { AuthorDetails } from '@/types/author'
+import type { LocalizedString } from '@/types'
 
 interface UserDirectoryState {
   byId: Record<number, DirectoryUser>
@@ -17,13 +19,15 @@ interface UserDirectoryState {
  *  useMemo — calling this straight from a zustand selector returns a fresh object
  *  each render and loops the render (Maximum update depth). */
 export function toDetails(u: {
-  firstName?: string; lastName?: string; affiliation?: string; profession?: string; orcid?: string
+  firstName?: string; lastName?: string; email?: string
+  affiliation?: LocalizedString | string; profession?: LocalizedString | string; orcid?: string
 }): AuthorDetails {
   const d: AuthorDetails = {}
   if (u.firstName?.trim()) d.firstName = u.firstName.trim()
   if (u.lastName?.trim()) d.lastName = u.lastName.trim()
-  if (u.affiliation?.trim()) d.affiliation = u.affiliation.trim()
-  if (u.profession?.trim()) d.profession = u.profession.trim()
+  if (u.email?.trim()) d.email = u.email.trim()
+  if (hasLocalizedContent(u.affiliation)) d.affiliation = u.affiliation
+  if (hasLocalizedContent(u.profession)) d.profession = u.profession
   if (u.orcid?.trim()) d.orcid = u.orcid.trim()
   return d
 }

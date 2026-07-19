@@ -47,6 +47,28 @@ describe('userToAuthorDetails', () => {
   it('trims surrounding whitespace', () => {
     expect(userToAuthorDetails({ firstName: '  Alice  ' })).toEqual({ firstName: 'Alice' })
   })
+
+  it('carries email and keeps multilingual affiliation/profession verbatim', () => {
+    expect(
+      userToAuthorDetails({
+        firstName: 'Alice',
+        email: 'alice@chu-rennes.fr',
+        affiliation: { en: 'Rennes University Hospital', fr: 'CHU de Rennes' },
+        profession: { en: 'Intensivist', fr: 'Réanimateur' },
+      }),
+    ).toEqual({
+      firstName: 'Alice',
+      email: 'alice@chu-rennes.fr',
+      affiliation: { en: 'Rennes University Hospital', fr: 'CHU de Rennes' },
+      profession: { en: 'Intensivist', fr: 'Réanimateur' },
+    })
+  })
+
+  it('drops an empty multilingual value (all languages blank)', () => {
+    expect(
+      userToAuthorDetails({ firstName: 'Alice', affiliation: { en: '', fr: '' } }),
+    ).toEqual({ firstName: 'Alice' })
+  })
 })
 
 describe('isValidOrcid', () => {

@@ -32,8 +32,8 @@
     "gitRemoteConfig": null,
     "origin": "user",
     "createdById": null,
-    "createdBy": null,
-    "createdByDetails": null,
+    "createdBy": "Boris Delange",
+    "createdByDetails": { "firstName": "Boris", "lastName": "Delange", "email": "boris@chu-rennes.fr", "affiliation": { "en": "Rennes University Hospital", "fr": "CHU de Rennes" }, "profession": { "en": "Intensivist", "fr": "Réanimateur" }, "orcid": "0000-0002-1825-0097" },
     "organization": null,
     "lineageId": null,
     "parentLineageId": null,
@@ -43,7 +43,7 @@
   "sourceCsvBase64": "dGVybWlub2xvZ3ksY29uY2VwdF9jb2RlLGNvbmNlcHRfbmFtZQpMT0lOQywyMDExMi05LFRpZGFsIHZvbHVtZQpMT0lOQywiYSxiIixDb21tYSBuYW1lCg==",
   "mappings": [
     { "sourceConceptId": 1, "sourceConceptName": "last", "sourceVocabularyId": "LOINC", "sourceDomainId": null, "sourceConceptCode": "ZZ", "sourceFrequency": null, "sourceCategoryId": null, "sourceSubcategoryId": null, "sourceConceptClassId": null, "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetDomainId": null, "targetConceptCode": "20112-9", "targetConceptClassId": null, "targetStandardConcept": null, "conceptSetId": null, "mappingType": null, "equivalence": "skos:exactMatch", "status": "unchecked", "matchScore": null, "comments": null, "reviews": null, "mappedBy": "Boris", "mappedByDetails": null, "mappedOn": null, "assignedReviewer": null, "reviewedBy": null, "reviewedByDetails": null, "reviewedOn": null, "reviewComment": null, "id": "m2", "projectId": "proj1", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
-    { "sourceConceptId": 1, "sourceConceptName": "first", "sourceVocabularyId": "LOINC", "sourceDomainId": null, "sourceConceptCode": "AA", "sourceFrequency": null, "sourceCategoryId": null, "sourceSubcategoryId": null, "sourceConceptClassId": null, "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetDomainId": null, "targetConceptCode": "20112-9", "targetConceptClassId": null, "targetStandardConcept": null, "conceptSetId": null, "mappingType": null, "equivalence": "skos:exactMatch", "status": "unchecked", "matchScore": null, "comments": null, "reviews": null, "mappedBy": "Boris", "mappedByDetails": null, "mappedOn": null, "assignedReviewer": null, "reviewedBy": null, "reviewedByDetails": null, "reviewedOn": null, "reviewComment": null, "id": "m1", "projectId": "proj1", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" }
+    { "sourceConceptId": 1, "sourceConceptName": "first", "sourceVocabularyId": "LOINC", "sourceDomainId": null, "sourceConceptCode": "AA", "sourceFrequency": null, "sourceCategoryId": null, "sourceSubcategoryId": null, "sourceConceptClassId": null, "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetDomainId": null, "targetConceptCode": "20112-9", "targetConceptClassId": null, "targetStandardConcept": null, "conceptSetId": null, "mappingType": null, "equivalence": "skos:exactMatch", "status": "unchecked", "matchScore": null, "comments": null, "reviews": null, "mappedBy": "Boris", "mappedByDetails": { "firstName": "Boris", "lastName": "Delange", "email": "boris@chu-rennes.fr", "affiliation": { "en": "Rennes University Hospital", "fr": "CHU de Rennes" }, "profession": { "en": "Intensivist", "fr": "Réanimateur" }, "orcid": "0000-0002-1825-0097" }, "mappedOn": null, "assignedReviewer": null, "reviewedBy": null, "reviewedByDetails": null, "reviewedOn": null, "reviewComment": null, "id": "m1", "projectId": "proj1", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" }
   ],
   "ranges": [
     { "id": "ws1__Rennes", "workspaceId": "ws1", "badgeLabel": "Rennes", "rangeStart": 2000000001, "rangeEnd": 2001000000, "nextId": 2000000003, "totalConcepts": 2, "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" }

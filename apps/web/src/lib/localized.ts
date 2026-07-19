@@ -46,6 +46,17 @@ export function setLocalized(
 }
 
 /**
+ * Does a possibly-multilingual value carry any non-empty text? A plain string
+ * must be non-blank; a LocalizedString must have at least one non-blank language.
+ * Used to drop empty affiliation/profession from an author snapshot.
+ */
+export function hasLocalizedContent(value: LocalizedString | string | null | undefined): boolean {
+  if (value == null) return false
+  if (typeof value === 'string') return value.trim() !== ''
+  return Object.values(value).some((v) => typeof v === 'string' && v.trim() !== '')
+}
+
+/**
  * True when a string is (the start of) the SPA index.html shell. An earlier
  * seed-loader bug fetched a missing README.<lang>.md and got index.html back;
  * this detects that pollution so it can be scrubbed from stored readmes.

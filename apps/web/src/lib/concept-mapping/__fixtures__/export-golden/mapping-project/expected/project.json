@@ -25,8 +25,21 @@
   "scoresFileSha": null,
   "scoresFileName": null,
   "stats": null,
-  "createdBy": null,
-  "createdByDetails": null,
+  "createdBy": "Boris Delange",
+  "createdByDetails": {
+    "firstName": "Boris",
+    "lastName": "Delange",
+    "email": "boris@chu-rennes.fr",
+    "affiliation": {
+      "en": "Rennes University Hospital",
+      "fr": "CHU de Rennes"
+    },
+    "profession": {
+      "en": "Intensivist",
+      "fr": "Réanimateur"
+    },
+    "orcid": "0000-0002-1825-0097"
+  },
   "lineageId": null,
   "parentLineageId": null,
   "fileSourceData": {

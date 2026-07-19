@@ -13,7 +13,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
-import { useUserDirectoryStore } from '@/stores/user-directory-store'
+import { useUserDirectoryStore, toDetails } from '@/stores/user-directory-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
 import type { AuthorDetails } from '@/types/author'
@@ -122,12 +122,7 @@ export function AuthoringFields({ value, onChange, hideOrganization }: Authoring
     const id = Number(idStr)
     const u = directory[id]
     if (!u) return
-    const details: AuthorDetails = {}
-    if (u.firstName?.trim()) details.firstName = u.firstName.trim()
-    if (u.lastName?.trim()) details.lastName = u.lastName.trim()
-    if (u.affiliation?.trim()) details.affiliation = u.affiliation.trim()
-    if (u.profession?.trim()) details.profession = u.profession.trim()
-    if (u.orcid?.trim()) details.orcid = u.orcid.trim()
+    const details = toDetails(u)
     const full = [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
     onChange({ createdById: id, createdBy: full || u.username, createdByDetails: details })
   }

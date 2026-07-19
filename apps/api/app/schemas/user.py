@@ -2,6 +2,10 @@ from datetime import datetime
 
 from app.schemas.base import CamelModel
 
+# affiliation/profession are multilingual: a LocalizedString ({"en": ...}) or a
+# legacy plain string. name/email/orcid stay single-value facts.
+LocalizedOrStr = dict[str, str] | str
+
 
 class UserCreate(CamelModel):
     username: str
@@ -10,8 +14,8 @@ class UserCreate(CamelModel):
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
-    affiliation: str | None = None
-    profession: str | None = None
+    affiliation: LocalizedOrStr | None = None
+    profession: LocalizedOrStr | None = None
     orcid: str | None = None
     is_active: bool = True
 
@@ -22,8 +26,8 @@ class UserUpdate(CamelModel):
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
-    affiliation: str | None = None
-    profession: str | None = None
+    affiliation: LocalizedOrStr | None = None
+    profession: LocalizedOrStr | None = None
     orcid: str | None = None
     is_active: bool | None = None
     password: str | None = None  # optional reset
@@ -36,8 +40,8 @@ class ProfileUpdate(CamelModel):
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
-    affiliation: str | None = None
-    profession: str | None = None
+    affiliation: LocalizedOrStr | None = None
+    profession: LocalizedOrStr | None = None
     orcid: str | None = None
 
 
@@ -51,8 +55,8 @@ class UserDirectoryEntry(CamelModel):
     username: str
     first_name: str | None = None
     last_name: str | None = None
-    affiliation: str | None = None
-    profession: str | None = None
+    affiliation: LocalizedOrStr | None = None
+    profession: LocalizedOrStr | None = None
     orcid: str | None = None
 
 
@@ -63,8 +67,8 @@ class UserResponse(CamelModel):
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
-    affiliation: str | None = None
-    profession: str | None = None
+    affiliation: LocalizedOrStr | None = None
+    profession: LocalizedOrStr | None = None
     orcid: str | None = None
     is_active: bool
     auth_provider: str

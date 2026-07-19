@@ -1,10 +1,16 @@
+import type { LocalizedString } from './index'
+
 /** Structured author identity captured alongside the plain display-name string.
- *  All fields optional so old data (name-only) and old exports stay valid. */
+ *  All fields optional so old data (name-only) and old exports stay valid.
+ *  `affiliation` and `profession` are multilingual (an institution/role often
+ *  has an official name per language); name/email/orcid are single-value facts.
+ *  Legacy plain strings are read transparently via `localized()`. */
 export interface AuthorDetails {
   firstName?: string
   lastName?: string
-  affiliation?: string
-  profession?: string
+  email?: string
+  affiliation?: LocalizedString | string
+  profession?: LocalizedString | string
   orcid?: string
 }
 

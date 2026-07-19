@@ -1,4 +1,5 @@
 import type { AuthorDetails, User } from '@/types'
+import { hasLocalizedContent } from '@/lib/localized'
 
 /**
  * User identity helpers shared by the profile page and the admin user form.
@@ -13,13 +14,16 @@ export function userDisplayName(u: Pick<User, 'firstName' | 'lastName' | 'userna
 }
 
 /** Project the identity fields of a User into the structured AuthorDetails
- *  used for provenance (wiki authorship, etc.), dropping empty values. */
+ *  used for provenance (wiki authorship, etc.), dropping empty values.
+ *  affiliation/profession are multilingual: kept verbatim (LocalizedString or
+ *  legacy string) when they carry any content. */
 export function userToAuthorDetails(u: Partial<User>): AuthorDetails {
   const details: AuthorDetails = {}
   if (u.firstName?.trim()) details.firstName = u.firstName.trim()
   if (u.lastName?.trim()) details.lastName = u.lastName.trim()
-  if (u.affiliation?.trim()) details.affiliation = u.affiliation.trim()
-  if (u.profession?.trim()) details.profession = u.profession.trim()
+  if (u.email?.trim()) details.email = u.email.trim()
+  if (hasLocalizedContent(u.affiliation)) details.affiliation = u.affiliation
+  if (hasLocalizedContent(u.profession)) details.profession = u.profession
   if (u.orcid?.trim()) details.orcid = u.orcid.trim()
   return details
 }
