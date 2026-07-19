@@ -34,6 +34,15 @@ export async function fetchRawFileFromServer(projectId: string): Promise<Uint8Ar
   return new Uint8Array(await res.arrayBuffer())
 }
 
+/** Fetch the server-built export ZIP for a mapping project (git variant tree).
+ * In server mode the browser triggers + downloads instead of assembling the ZIP
+ * from data it would otherwise have to pull down. */
+export async function fetchExportZipFromServer(projectId: string): Promise<Blob | null> {
+  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/export-zip`)
+  if (!res.ok) return null
+  return await res.blob()
+}
+
 export interface GlobalTablePage {
   rows: Record<string, unknown>[]
   total: number

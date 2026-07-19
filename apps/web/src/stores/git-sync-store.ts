@@ -1,14 +1,17 @@
 /**
  * Git sync (push-only) for the Versioning "Git repository" tab, server mode only.
  *
- * The backend versions the export tree, so each op builds the entity's export ZIP
- * locally (reusing buildProjectZip / buildWorkspaceZip) and uploads it. This store
- * holds the transient UI state (pending files, branches, busy flags); the persisted
- * remote link still lives on the entity via the existing versioning stores.
+ * The backend versions the export tree. For mapping projects the SERVER now builds
+ * the export ZIP (buildZip returns null → the API omits the file part); for the
+ * other scopes the client still builds it locally (buildProjectZip /
+ * buildWorkspaceZip / …) and uploads it. This store holds the transient UI state
+ * (pending files, branches, busy flags); the persisted remote link still lives on
+ * the entity via the existing versioning stores.
  */
 import { create } from 'zustand'
 import { buildProjectZip, buildWorkspaceZip } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import { defaultSelectedPaths, isUnownedConfigModification } from '@/lib/git-file-classify'
 import { resolveLfsPaths } from '@/lib/git-lfs'
 import { toGitError } from '@/lib/git-error-message'
@@ -30,6 +33,13 @@ import {
 export interface GitSyncError {
   code: GitErrorCode
   raw: string
+}
+
+// In server mode the backend assembles the mapping-project export ZIP itself
+// (offloading the browser), so the client sends no file — see server-export-plan
+// §5. Other scopes are still client-built; front-only always builds client-side.
+function serverBuildsZip(scope: GitScope): boolean {
+  return isServerMode() && scope === 'mapping-projects'
 }
 
 // lfsOverrides: opt-in per-file LFS decisions applied when generating the export's
@@ -96,7 +106,9 @@ async function buildZip(
   id: string,
   includeData: boolean,
   lfsOverrides?: Map<string, boolean>,
-): Promise<Blob> {
+): Promise<Blob | null> {
+  // null → the server builds the ZIP; the client uploads nothing.
+  if (serverBuildsZip(scope)) return null
   const key = _zipKey(scope, id, includeData, lfsOverrides)
   if (_zipCache && _zipCache.key === key) return _zipCache.blob
   const blob = await buildZipUncached(scope, id, includeData, lfsOverrides)

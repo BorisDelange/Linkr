@@ -91,25 +91,27 @@ async function postForm<T>(path: string, form: FormData): Promise<T> {
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
 }
 
-function zipForm(zip: Blob, extra: Record<string, string> = {}): FormData {
+// `zip` is null when the server builds the export itself (mapping projects in
+// server mode): omit the file part so the backend assembles the ZIP.
+function zipForm(zip: Blob | null, extra: Record<string, string> = {}): FormData {
   const form = new FormData()
-  form.append('file', zip, 'export.zip')
+  if (zip) form.append('file', zip, 'export.zip')
   for (const [k, v] of Object.entries(extra)) form.append(k, v)
   return form
 }
 
-export async function gitStatus(scope: GitScope, id: string, zip: Blob, branch?: string): Promise<GitStatus> {
+export async function gitStatus(scope: GitScope, id: string, zip: Blob | null, branch?: string): Promise<GitStatus> {
   return postForm<GitStatus>(`${base(scope, id)}/status`, zipForm(zip, branch ? { branch } : {}))
 }
 
-export async function gitDiff(scope: GitScope, id: string, zip: Blob, path: string, branch?: string): Promise<GitDiff> {
+export async function gitDiff(scope: GitScope, id: string, zip: Blob | null, path: string, branch?: string): Promise<GitDiff> {
   return postForm<GitDiff>(`${base(scope, id)}/diff`, zipForm(zip, { path, ...(branch ? { branch } : {}) }))
 }
 
 export async function gitCommitPush(
   scope: GitScope,
   id: string,
-  zip: Blob,
+  zip: Blob | null,
   message: string,
   branch?: string,
   paths?: string[],

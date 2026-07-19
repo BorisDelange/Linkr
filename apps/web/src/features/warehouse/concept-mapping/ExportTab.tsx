@@ -310,6 +310,18 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     setZipExporting(true)
     setSourceCsvTooLarge(false)
     try {
+      // Server mode without scores: let the backend assemble the git-variant ZIP
+      // (offloads the browser — no data pulled down just to re-zip). Scores aren't
+      // versioned, so a with-scores export still uses the client path below.
+      if (isServerMode() && !withScores) {
+        const { fetchExportZipFromServer } = await import('@/lib/api/mapping-projects')
+        const blob = await fetchExportZipFromServer(project.id)
+        if (blob) {
+          downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
+          return
+        }
+        // Fall through to the client build if the server couldn't produce it.
+      }
       const zip = new JSZip()
       await buildMappingProjectFolder(zip, '', project, getStorage(), {
         queryDataSource: queryDataSourceAll,
