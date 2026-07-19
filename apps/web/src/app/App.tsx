@@ -170,6 +170,9 @@ export function App() {
             <Route path="/workspaces/:wsUid/warehouse/schemas/:schemaId" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><Navigate to="../schemas" replace /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
+            {/* Literal view segments before the parameterized :mappingProjectId route so they win the match. */}
+            <Route path="/workspaces/:wsUid/warehouse/concept-mapping/projects" element={<WorkspaceGuard><ConceptMappingPage view="projects" /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/concept-mapping/overview" element={<WorkspaceGuard><ConceptMappingPage view="global" /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping/:mappingProjectId" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/data-quality" element={<WorkspaceGuard><DqPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/data-quality/:ruleSetId" element={<WorkspaceGuard><DqPage /></WorkspaceGuard>} />

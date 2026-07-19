@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useNavigate, useParams } from 'react-router'
 import {
   ArrowLeft,
   ArrowRightLeft,
@@ -82,6 +82,11 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
+  // Absolute concept-mapping base: the list renders at BOTH /concept-mapping (home)
+  // and /concept-mapping/projects, so a relative navigate(id) would land at the
+  // wrong depth. Build the project path from the base explicitly.
+  const { wsUid } = useParams()
+  const cmBase = `/workspaces/${wsUid}/warehouse/concept-mapping`
   const { activeWorkspaceId } = useWorkspaceStore()
   const { atLeast } = useMyWorkspaceRole()
   const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects } = useConceptMappingStore()
@@ -448,7 +453,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         emptyDescriptionKey="concept_mapping.no_projects_description"
         emptyIcon={ArrowRightLeft}
         items={filteredProjects}
-        onNavigate={(id) => navigate(id)}
+        onNavigate={(id) => navigate(`${cmBase}/${id}`)}
         onDelete={mappingActions.onDelete}
         onExportOverride={mappingActions.onExportOverride}
         onVersioningOverride={mappingActions.onVersioningOverride}

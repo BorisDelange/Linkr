@@ -150,7 +150,9 @@ export function Header() {
   const etlId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/etl\/([^/]+)$/)?.[1]
   const sqlId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/sql-scripts\/([^/]+)$/)?.[1]
   const catalogId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/catalog\/([^/]+)$/)?.[1]
-  const cmId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/concept-mapping\/([^/]+)$/)?.[1]
+  // Exclude the literal view segments (/projects, /overview) — they're list-level
+  // views, not a specific mapping project, so they must not resolve to a project name.
+  const cmId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/concept-mapping\/(?!projects$|overview$)([^/]+)$/)?.[1]
   const dqId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/data-quality\/([^/]+)$/)?.[1]
   const schemaId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/schemas\/([^/]+)$/)?.[1]
 
