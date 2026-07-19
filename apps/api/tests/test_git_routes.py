@@ -12,8 +12,12 @@ API = "/api/v1"
 
 
 async def _bootstrap_admin(client) -> dict:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+    )
+    r = await client.post(
+        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+    )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
@@ -33,7 +37,11 @@ async def test_git_token_encrypted_and_never_returned(client, db):
         json={
             "uid": "p-git-1",
             "name": {"en": "P"},
-            "gitRemoteConfig": {"url": "https://x/y.git", "branch": "main", "authToken": "ghp_secret"},
+            "gitRemoteConfig": {
+                "url": "https://x/y.git",
+                "branch": "main",
+                "authToken": "ghp_secret",
+            },
         },
     )
     assert r.status_code == 201
@@ -43,7 +51,9 @@ async def test_git_token_encrypted_and_never_returned(client, db):
     assert body["gitRemoteConfig"] == {"url": "https://x/y.git", "branch": "main"}
 
     # It is stored encrypted (not plaintext) in a dedicated column.
-    project = (await db.execute(select(Project).where(Project.uid == "p-git-1"))).scalar_one()
+    project = (
+        await db.execute(select(Project).where(Project.uid == "p-git-1"))
+    ).scalar_one()
     assert project.git_remote_secret and project.git_remote_secret != "ghp_secret"
 
 
@@ -55,8 +65,15 @@ async def test_git_status_endpoint_reports_added_files(client):
         headers=headers,
         json={"uid": "p-git-2", "name": {"en": "P2"}},
     )
-    files = {"file": ("export.zip", _zip({"project.json": '{"a":1}'}), "application/zip")}
-    r = await client.post(f"{API}/git/projects/p-git-2/status", headers=headers, files=files, data={"branch": "main"})
+    files = {
+        "file": ("export.zip", _zip({"project.json": '{"a":1}'}), "application/zip")
+    }
+    r = await client.post(
+        f"{API}/git/projects/p-git-2/status",
+        headers=headers,
+        files=files,
+        data={"branch": "main"},
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["added"] == 1
@@ -79,21 +96,81 @@ async def test_git_mapping_project_scope(client, db):
     from app.models.mapping_project import MappingProject
 
     headers = await _bootstrap_admin(client)
-    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    ws = (
+        await client.post(
+            f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}}
+        )
+    ).json()["id"]
     await client.post(
         f"{API}/mapping-projects",
         headers=headers,
         json={
-            "id": "mp-git-1", "workspaceId": ws, "name": {"en": "M"}, "description": {},
-            "sourceType": "database", "dataSourceId": "src-1", "conceptSetIds": [],
-            "gitRemoteConfig": {"url": "https://x/y.git", "branch": "main", "authToken": "glpat-secret"},
+            "id": "mp-git-1",
+            "workspaceId": ws,
+            "name": {"en": "M"},
+            "description": {},
+            "sourceType": "database",
+            "dataSourceId": "src-1",
+            "conceptSetIds": [],
+            "gitRemoteConfig": {
+                "url": "https://x/y.git",
+                "branch": "main",
+                "authToken": "glpat-secret",
+            },
         },
     )
     # Token encrypted, never returned in the config.
-    mp = (await db.execute(select(MappingProject).where(MappingProject.id == "mp-git-1"))).scalar_one()
+    mp = (
+        await db.execute(select(MappingProject).where(MappingProject.id == "mp-git-1"))
+    ).scalar_one()
     assert mp.git_remote_secret and mp.git_remote_secret != "glpat-secret"
 
-    files = {"file": ("export.zip", _zip({"mapping-project.json": "{}"}), "application/zip")}
-    r = await client.post(f"{API}/git/mapping-projects/mp-git-1/status", headers=headers, files=files, data={"branch": "main"})
+    files = {
+        "file": ("export.zip", _zip({"mapping-project.json": "{}"}), "application/zip")
+    }
+    r = await client.post(
+        f"{API}/git/mapping-projects/mp-git-1/status",
+        headers=headers,
+        files=files,
+        data={"branch": "main"},
+    )
     assert r.status_code == 200
     assert r.json()["added"] == 1
+
+
+async def test_git_mapping_project_status_builds_zip_server_side(client):
+    """No uploaded file → the server assembles the export ZIP itself (fullstack
+    path that offloads the browser). status reports the server-built tree."""
+    headers = await _bootstrap_admin(client)
+    ws = (
+        await client.post(
+            f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}}
+        )
+    ).json()["id"]
+    await client.post(
+        f"{API}/mapping-projects",
+        headers=headers,
+        json={
+            "id": "mp-git-srv",
+            "workspaceId": ws,
+            "name": {"en": "M"},
+            "description": {},
+            "sourceType": "database",
+            "dataSourceId": "src-1",
+            "conceptSetIds": [],
+            "gitRemoteConfig": {
+                "url": "https://x/y.git",
+                "branch": "main",
+                "authToken": "glpat-secret",
+            },
+        },
+    )
+    # No `files` — the server builds project.json + mappings.json + .gitignore.
+    r = await client.post(
+        f"{API}/git/mapping-projects/mp-git-srv/status",
+        headers=headers,
+        data={"branch": "main"},
+    )
+    assert r.status_code == 200
+    # A fresh repo sees the server-built tree as added files (at least the 3 core ones).
+    assert r.json()["added"] >= 3

@@ -1,9 +1,12 @@
 """Server-side git versioning endpoints (push-only) for projects & workspaces.
 
-The frontend owns the DB→files export logic, so it uploads the export ZIP; this
-router unpacks it into the entity's git working tree and runs the requested git
-operation (status / diff / commit+push / branch list). Clone is used by the
-import flow to pull a remote in server mode (no in-browser CORS proxy needed).
+Each op needs the entity's export ZIP. For mapping projects the server now BUILDS
+it (assemble_mapping_project_zip) when the client sends no file — the fullstack
+path that offloads the browser; an uploaded file is still accepted (front-only /
+transition). Other scopes still receive the client-built ZIP. The router unpacks
+the ZIP into the entity's git working tree and runs the requested git operation
+(status / diff / commit+push / branch list). Clone is used by the import flow to
+pull a remote in server mode (no in-browser CORS proxy needed).
 
 Read ops (status/diff/branches) require viewer; write ops (commit/push) require
 editor. Access tokens are decrypted server-side from the entity's
@@ -30,9 +33,24 @@ from app.schemas.git import (
     GitVerifyRequest,
     GitVerifyResponse,
 )
-from app.services import git_secret, git_service, git_sync_state_service, workspace_service
+from app.services import (
+    git_secret,
+    git_service,
+    git_sync_state_service,
+    workspace_service,
+)
+from app.services.mapping_project_export_assemble import assemble_mapping_project_zip
 
 router = APIRouter(prefix="/git", tags=["git"])
+
+
+async def _mapping_project_zip_bytes(db, mp, file: UploadFile | None) -> bytes:
+    """The mapping project's export ZIP: server-built when the client sends no
+    file (the fullstack path that offloads the browser), else the uploaded bytes
+    (front-only / transition). Both feed the same git flow."""
+    if file is not None:
+        return await file.read()
+    return await assemble_mapping_project_zip(db, mp)
 
 
 def _git_http_error(exc: git_service.GitError) -> HTTPException:
@@ -57,14 +75,23 @@ def _remote_url(entity) -> str | None:
     return cfg.get("url") or None
 
 
-async def _sync_state(db, scope, repo_getter, entity_id, branch, remote_url, token) -> dict:
+async def _sync_state(
+    db, scope, repo_getter, entity_id, branch, remote_url, token
+) -> dict:
     """Run the git sync-state check (behind/diverged) reading the DB anchor. No ZIP:
     the check only compares oids on the remote, so the client needn't rebuild the
     export just to learn it's out of date."""
     row = await git_sync_state_service.get(db, scope, entity_id, branch)
-    result = await _guard(git_service.sync_state(
-        repo_getter, entity_id, branch, remote_url, row.synced_oid if row else None, token,
-    ))
+    result = await _guard(
+        git_service.sync_state(
+            repo_getter,
+            entity_id,
+            branch,
+            remote_url,
+            row.synced_oid if row else None,
+            token,
+        )
+    )
     return {"linked": remote_url is not None, "branch": branch, **result}
 
 
@@ -84,14 +111,16 @@ async def project_status(
     branch: str | None = Form(None),
     project=Depends(require_project_permission("project-settings:read")),
 ):
-    result = await _guard(git_service.status(
-        git_service.project_repo_getter,
-        project.uid,
-        await file.read(),
-        _default_branch(project, branch),
-        _remote_url(project),
-        git_secret.token_for(project),
-    ))
+    result = await _guard(
+        git_service.status(
+            git_service.project_repo_getter,
+            project.uid,
+            await file.read(),
+            _default_branch(project, branch),
+            _remote_url(project),
+            git_secret.token_for(project),
+        )
+    )
     return {"linked": _remote_url(project) is not None, **result}
 
 
@@ -102,19 +131,23 @@ async def project_diff(
     branch: str | None = Form(None),
     project=Depends(require_project_permission("project-settings:read")),
 ):
-    return await _guard(git_service.diff(
-        git_service.project_repo_getter,
-        project.uid,
-        await file.read(),
-        _default_branch(project, branch),
-        path,
-        _remote_url(project),
-        git_secret.token_for(project),
-    ))
+    return await _guard(
+        git_service.diff(
+            git_service.project_repo_getter,
+            project.uid,
+            await file.read(),
+            _default_branch(project, branch),
+            path,
+            _remote_url(project),
+            git_secret.token_for(project),
+        )
+    )
 
 
 @router.get("/projects/{project_uid}/branches", response_model=GitBranchesResponse)
-async def project_branches(project=Depends(require_project_permission("project-settings:read"))):
+async def project_branches(
+    project=Depends(require_project_permission("project-settings:read")),
+):
     return await git_service.branches(
         git_service.project_repo_getter,
         project.uid,
@@ -132,17 +165,21 @@ async def project_commit_push(
     project=Depends(require_project_permission("project-settings:write")),
 ):
     if _remote_url(project) is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Project is not linked to a git remote")
-    return await _guard(git_service.commit_push(
-        git_service.project_repo_getter,
-        project.uid,
-        await file.read(),
-        _default_branch(project, branch),
-        message,
-        _remote_url(project),
-        git_secret.token_for(project),
-        paths,
-    ))
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Project is not linked to a git remote"
+        )
+    return await _guard(
+        git_service.commit_push(
+            git_service.project_repo_getter,
+            project.uid,
+            await file.read(),
+            _default_branch(project, branch),
+            message,
+            _remote_url(project),
+            git_secret.token_for(project),
+            paths,
+        )
+    )
 
 
 # --- Workspace scope ------------------------------------------------------
@@ -164,14 +201,16 @@ async def workspace_status(
     _member=Depends(require_permission("workspace-settings:read")),
 ):
     ws = await _load_workspace(workspace_id, db, _member)
-    result = await _guard(git_service.status(
-        git_service.workspace_repo_getter,
-        ws.id,
-        await file.read(),
-        _default_branch(ws, branch),
-        _remote_url(ws),
-        git_secret.token_for(ws),
-    ))
+    result = await _guard(
+        git_service.status(
+            git_service.workspace_repo_getter,
+            ws.id,
+            await file.read(),
+            _default_branch(ws, branch),
+            _remote_url(ws),
+            git_secret.token_for(ws),
+        )
+    )
     return {"linked": _remote_url(ws) is not None, **result}
 
 
@@ -185,15 +224,17 @@ async def workspace_diff(
     _member=Depends(require_permission("workspace-settings:read")),
 ):
     ws = await _load_workspace(workspace_id, db, _member)
-    return await _guard(git_service.diff(
-        git_service.workspace_repo_getter,
-        ws.id,
-        await file.read(),
-        _default_branch(ws, branch),
-        path,
-        _remote_url(ws),
-        git_secret.token_for(ws),
-    ))
+    return await _guard(
+        git_service.diff(
+            git_service.workspace_repo_getter,
+            ws.id,
+            await file.read(),
+            _default_branch(ws, branch),
+            path,
+            _remote_url(ws),
+            git_secret.token_for(ws),
+        )
+    )
 
 
 @router.get("/workspaces/{workspace_id}/branches", response_model=GitBranchesResponse)
@@ -204,7 +245,10 @@ async def workspace_branches(
 ):
     ws = await _load_workspace(workspace_id, db, _member)
     return await git_service.branches(
-        git_service.workspace_repo_getter, ws.id, _remote_url(ws), git_secret.token_for(ws)
+        git_service.workspace_repo_getter,
+        ws.id,
+        _remote_url(ws),
+        git_secret.token_for(ws),
     )
 
 
@@ -220,23 +264,29 @@ async def workspace_commit_push(
 ):
     ws = await _load_workspace(workspace_id, db, _member)
     if _remote_url(ws) is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Workspace is not linked to a git remote")
-    return await _guard(git_service.commit_push(
-        git_service.workspace_repo_getter,
-        ws.id,
-        await file.read(),
-        _default_branch(ws, branch),
-        message,
-        _remote_url(ws),
-        git_secret.token_for(ws),
-        paths,
-    ))
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Workspace is not linked to a git remote"
+        )
+    return await _guard(
+        git_service.commit_push(
+            git_service.workspace_repo_getter,
+            ws.id,
+            await file.read(),
+            _default_branch(ws, branch),
+            message,
+            _remote_url(ws),
+            git_secret.token_for(ws),
+            paths,
+        )
+    )
 
 
 # --- Mapping project scope ------------------------------------------------
 
 
-async def _load_mapping_project(mapping_project_id: str, db: AsyncSession, user: User, permission: str):
+async def _load_mapping_project(
+    mapping_project_id: str, db: AsyncSession, user: User, permission: str
+):
     from app.core.permissions import check_workspace_permission
     from app.services import mapping_project_service
 
@@ -247,74 +297,107 @@ async def _load_mapping_project(mapping_project_id: str, db: AsyncSession, user:
     return mp
 
 
-@router.post("/mapping-projects/{mapping_project_id}/status", response_model=GitStatusResponse)
+@router.post(
+    "/mapping-projects/{mapping_project_id}/status", response_model=GitStatusResponse
+)
 async def mapping_project_status(
     mapping_project_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     branch: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
-    result = await _guard(git_service.status(
-        git_service.mapping_project_repo_getter,
-        mp.id,
-        await file.read(),
-        _default_branch(mp, branch),
-        _remote_url(mp),
-        git_secret.token_for(mp),
-    ))
+    mp = await _load_mapping_project(
+        mapping_project_id, db, user, "concept-mapping:read"
+    )
+    result = await _guard(
+        git_service.status(
+            git_service.mapping_project_repo_getter,
+            mp.id,
+            await _mapping_project_zip_bytes(db, mp, file),
+            _default_branch(mp, branch),
+            _remote_url(mp),
+            git_secret.token_for(mp),
+        )
+    )
     return {"linked": _remote_url(mp) is not None, **result}
 
 
-@router.post("/mapping-projects/{mapping_project_id}/diff", response_model=GitDiffResponse)
+@router.post(
+    "/mapping-projects/{mapping_project_id}/diff", response_model=GitDiffResponse
+)
 async def mapping_project_diff(
     mapping_project_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
-    return await _guard(git_service.diff(
-        git_service.mapping_project_repo_getter,
-        mp.id,
-        await file.read(),
-        _default_branch(mp, branch),
-        path,
-        _remote_url(mp),
-        git_secret.token_for(mp),
-    ))
+    mp = await _load_mapping_project(
+        mapping_project_id, db, user, "concept-mapping:read"
+    )
+    return await _guard(
+        git_service.diff(
+            git_service.mapping_project_repo_getter,
+            mp.id,
+            await _mapping_project_zip_bytes(db, mp, file),
+            _default_branch(mp, branch),
+            path,
+            _remote_url(mp),
+            git_secret.token_for(mp),
+        )
+    )
 
 
-@router.get("/mapping-projects/{mapping_project_id}/branches", response_model=GitBranchesResponse)
+@router.get(
+    "/mapping-projects/{mapping_project_id}/branches",
+    response_model=GitBranchesResponse,
+)
 async def mapping_project_branches(
     mapping_project_id: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    mp = await _load_mapping_project(
+        mapping_project_id, db, user, "concept-mapping:read"
+    )
     return await git_service.branches(
-        git_service.mapping_project_repo_getter, mp.id, _remote_url(mp), git_secret.token_for(mp)
+        git_service.mapping_project_repo_getter,
+        mp.id,
+        _remote_url(mp),
+        git_secret.token_for(mp),
     )
 
 
-@router.get("/mapping-projects/{mapping_project_id}/sync-state", response_model=GitSyncStateResponse)
+@router.get(
+    "/mapping-projects/{mapping_project_id}/sync-state",
+    response_model=GitSyncStateResponse,
+)
 async def mapping_project_sync_state(
     mapping_project_id: str,
     branch: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    mp = await _load_mapping_project(
+        mapping_project_id, db, user, "concept-mapping:read"
+    )
     return await _sync_state(
-        db, "mapping-projects", git_service.mapping_project_repo_getter, mp.id,
-        _default_branch(mp, branch), _remote_url(mp), git_secret.token_for(mp),
+        db,
+        "mapping-projects",
+        git_service.mapping_project_repo_getter,
+        mp.id,
+        _default_branch(mp, branch),
+        _remote_url(mp),
+        git_secret.token_for(mp),
     )
 
 
-@router.get("/mapping-projects/{mapping_project_id}/pull-preview", response_model=GitPullPreviewResponse)
+@router.get(
+    "/mapping-projects/{mapping_project_id}/pull-preview",
+    response_model=GitPullPreviewResponse,
+)
 async def mapping_project_pull_preview(
     mapping_project_id: str,
     branch: str | None = None,
@@ -324,12 +407,22 @@ async def mapping_project_pull_preview(
     """Fetch BASE + REMOTE managed-file content so the client can 3-way merge them
     against its DB (LOCAL) and present a resolution UI. Read access is enough — the
     pull only writes the DB once the user resolves (via the entity's own APIs)."""
-    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
-    row = await git_sync_state_service.get(db, "mapping-projects", mp.id, _default_branch(mp, branch))
-    return await _guard(git_service.pull_preview(
-        git_service.mapping_project_repo_getter, mp.id, _default_branch(mp, branch),
-        _remote_url(mp), row.synced_oid if row else None, git_secret.token_for(mp),
-    ))
+    mp = await _load_mapping_project(
+        mapping_project_id, db, user, "concept-mapping:read"
+    )
+    row = await git_sync_state_service.get(
+        db, "mapping-projects", mp.id, _default_branch(mp, branch)
+    )
+    return await _guard(
+        git_service.pull_preview(
+            git_service.mapping_project_repo_getter,
+            mp.id,
+            _default_branch(mp, branch),
+            _remote_url(mp),
+            row.synced_oid if row else None,
+            git_secret.token_for(mp),
+        )
+    )
 
 
 @router.get("/mapping-projects/{mapping_project_id}/pull-file")
@@ -347,15 +440,26 @@ async def mapping_project_pull_file(
 
     if path not in ("source-concepts.csv", "similarity-scores.parquet"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "path is not a pullable file")
-    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
-    data = await _guard(git_service.pull_file_bytes(
-        git_service.mapping_project_repo_getter, mp.id, _default_branch(mp, branch),
-        path, _remote_url(mp), git_secret.token_for(mp),
-    ))
+    mp = await _load_mapping_project(
+        mapping_project_id, db, user, "concept-mapping:read"
+    )
+    data = await _guard(
+        git_service.pull_file_bytes(
+            git_service.mapping_project_repo_getter,
+            mp.id,
+            _default_branch(mp, branch),
+            path,
+            _remote_url(mp),
+            git_secret.token_for(mp),
+        )
+    )
     return Response(content=data, media_type="application/octet-stream")
 
 
-@router.post("/mapping-projects/{mapping_project_id}/set-sync-state", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/mapping-projects/{mapping_project_id}/set-sync-state",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def mapping_project_set_sync_state(
     mapping_project_id: str,
     body: GitSetSyncStateRequest,
@@ -365,40 +469,59 @@ async def mapping_project_set_sync_state(
     """Anchor the entity's sync state to a known remote commit — called right after
     a git import so the freshly-created project has a base to compare against (a
     later push elsewhere is then detected as 'behind'). Write access required."""
-    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:write")
-    await git_sync_state_service.set_oid(db, "mapping-projects", mp.id, body.branch, body.synced_oid)
+    mp = await _load_mapping_project(
+        mapping_project_id, db, user, "concept-mapping:write"
+    )
+    await git_sync_state_service.set_oid(
+        db, "mapping-projects", mp.id, body.branch, body.synced_oid
+    )
 
 
-@router.post("/mapping-projects/{mapping_project_id}/commit-push", response_model=GitCommitResponse)
+@router.post(
+    "/mapping-projects/{mapping_project_id}/commit-push",
+    response_model=GitCommitResponse,
+)
 async def mapping_project_commit_push(
     mapping_project_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     message: str = Form(...),
     branch: str | None = Form(None),
     paths: list[str] | None = Form(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:write")
+    mp = await _load_mapping_project(
+        mapping_project_id, db, user, "concept-mapping:write"
+    )
     if _remote_url(mp) is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Mapping project is not linked to a git remote")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Mapping project is not linked to a git remote"
+        )
     resolved_branch = _default_branch(mp, branch)
-    row = await git_sync_state_service.get(db, "mapping-projects", mp.id, resolved_branch)
-    result = await _guard(git_service.commit_push(
-        git_service.mapping_project_repo_getter,
-        mp.id,
-        await file.read(),
-        resolved_branch,
-        message,
-        _remote_url(mp),
-        git_secret.token_for(mp),
-        paths,
-        row.synced_oid if row else None,
-    ))
+    row = await git_sync_state_service.get(
+        db, "mapping-projects", mp.id, resolved_branch
+    )
+    result = await _guard(
+        git_service.commit_push(
+            git_service.mapping_project_repo_getter,
+            mp.id,
+            await _mapping_project_zip_bytes(db, mp, file),
+            resolved_branch,
+            message,
+            _remote_url(mp),
+            git_secret.token_for(mp),
+            paths,
+            row.synced_oid if row else None,
+        )
+    )
     # A successful push means the pushed commit is now the synced point → move the anchor.
     if result.get("pushed") and result.get("commit"):
         await git_sync_state_service.set_oid(
-            db, "mapping-projects", mp.id, resolved_branch, result["commit"]["oid"],
+            db,
+            "mapping-projects",
+            mp.id,
+            resolved_branch,
+            result["commit"]["oid"],
         )
     return result
 
@@ -406,18 +529,24 @@ async def mapping_project_commit_push(
 # --- SQL script collection scope ------------------------------------------
 
 
-async def _load_sql_collection(collection_id: str, db: AsyncSession, user: User, permission: str):
+async def _load_sql_collection(
+    collection_id: str, db: AsyncSession, user: User, permission: str
+):
     from app.core.permissions import check_workspace_permission
     from app.services import sql_script_service
 
     collection = await sql_script_service.get(db, collection_id)
     if collection is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "SQL script collection not found")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "SQL script collection not found"
+        )
     await check_workspace_permission(db, collection.workspace_id, user, permission)
     return collection
 
 
-@router.post("/sql-script-collections/{collection_id}/status", response_model=GitStatusResponse)
+@router.post(
+    "/sql-script-collections/{collection_id}/status", response_model=GitStatusResponse
+)
 async def sql_collection_status(
     collection_id: str,
     file: UploadFile = File(...),
@@ -426,18 +555,22 @@ async def sql_collection_status(
     user: User = Depends(get_current_user),
 ):
     c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
-    result = await _guard(git_service.status(
-        git_service.sql_collection_repo_getter,
-        c.id,
-        await file.read(),
-        _default_branch(c, branch),
-        _remote_url(c),
-        git_secret.token_for(c),
-    ))
+    result = await _guard(
+        git_service.status(
+            git_service.sql_collection_repo_getter,
+            c.id,
+            await file.read(),
+            _default_branch(c, branch),
+            _remote_url(c),
+            git_secret.token_for(c),
+        )
+    )
     return {"linked": _remote_url(c) is not None, **result}
 
 
-@router.post("/sql-script-collections/{collection_id}/diff", response_model=GitDiffResponse)
+@router.post(
+    "/sql-script-collections/{collection_id}/diff", response_model=GitDiffResponse
+)
 async def sql_collection_diff(
     collection_id: str,
     file: UploadFile = File(...),
@@ -447,18 +580,23 @@ async def sql_collection_diff(
     user: User = Depends(get_current_user),
 ):
     c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
-    return await _guard(git_service.diff(
-        git_service.sql_collection_repo_getter,
-        c.id,
-        await file.read(),
-        _default_branch(c, branch),
-        path,
-        _remote_url(c),
-        git_secret.token_for(c),
-    ))
+    return await _guard(
+        git_service.diff(
+            git_service.sql_collection_repo_getter,
+            c.id,
+            await file.read(),
+            _default_branch(c, branch),
+            path,
+            _remote_url(c),
+            git_secret.token_for(c),
+        )
+    )
 
 
-@router.get("/sql-script-collections/{collection_id}/branches", response_model=GitBranchesResponse)
+@router.get(
+    "/sql-script-collections/{collection_id}/branches",
+    response_model=GitBranchesResponse,
+)
 async def sql_collection_branches(
     collection_id: str,
     db: AsyncSession = Depends(get_db),
@@ -466,11 +604,17 @@ async def sql_collection_branches(
 ):
     c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
     return await git_service.branches(
-        git_service.sql_collection_repo_getter, c.id, _remote_url(c), git_secret.token_for(c)
+        git_service.sql_collection_repo_getter,
+        c.id,
+        _remote_url(c),
+        git_secret.token_for(c),
     )
 
 
-@router.post("/sql-script-collections/{collection_id}/commit-push", response_model=GitCommitResponse)
+@router.post(
+    "/sql-script-collections/{collection_id}/commit-push",
+    response_model=GitCommitResponse,
+)
 async def sql_collection_commit_push(
     collection_id: str,
     file: UploadFile = File(...),
@@ -482,17 +626,22 @@ async def sql_collection_commit_push(
 ):
     c = await _load_sql_collection(collection_id, db, user, "sql-scripts:write")
     if _remote_url(c) is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "SQL script collection is not linked to a git remote")
-    return await _guard(git_service.commit_push(
-        git_service.sql_collection_repo_getter,
-        c.id,
-        await file.read(),
-        _default_branch(c, branch),
-        message,
-        _remote_url(c),
-        git_secret.token_for(c),
-        paths,
-    ))
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "SQL script collection is not linked to a git remote",
+        )
+    return await _guard(
+        git_service.commit_push(
+            git_service.sql_collection_repo_getter,
+            c.id,
+            await file.read(),
+            _default_branch(c, branch),
+            message,
+            _remote_url(c),
+            git_secret.token_for(c),
+            paths,
+        )
+    )
 
 
 # --- Workspace-scoped entities (ETL / catalog / DQ / plugins / schema presets) ---
@@ -510,15 +659,23 @@ async def _load_workspace_entity(get_fn, entity_id, db, user, permission, not_fo
     if entity is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, not_found)
     if entity.workspace_id is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{not_found} has no workspace")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"{not_found} has no workspace"
+        )
     await check_workspace_permission(db, entity.workspace_id, user, permission)
     return entity
 
 
-def _register_entity_git_routes(*, prefix, get_fn, repo_getter, read_perm, write_perm, not_found):
+def _register_entity_git_routes(
+    *, prefix, get_fn, repo_getter, read_perm, write_perm, not_found
+):
     """Add status/diff/branches/commit-push for a workspace-scoped entity."""
 
-    @router.post(f"/{prefix}/{{entity_id}}/status", response_model=GitStatusResponse, name=f"{prefix}_status")
+    @router.post(
+        f"/{prefix}/{{entity_id}}/status",
+        response_model=GitStatusResponse,
+        name=f"{prefix}_status",
+    )
     async def _status(
         entity_id: str,
         file: UploadFile = File(...),
@@ -526,14 +683,26 @@ def _register_entity_git_routes(*, prefix, get_fn, repo_getter, read_perm, write
         db: AsyncSession = Depends(get_db),
         user: User = Depends(get_current_user),
     ):
-        e = await _load_workspace_entity(get_fn, entity_id, db, user, read_perm, not_found)
-        result = await _guard(git_service.status(
-            repo_getter, _entity_id(e), await file.read(),
-            _default_branch(e, branch), _remote_url(e), git_secret.token_for(e),
-        ))
+        e = await _load_workspace_entity(
+            get_fn, entity_id, db, user, read_perm, not_found
+        )
+        result = await _guard(
+            git_service.status(
+                repo_getter,
+                _entity_id(e),
+                await file.read(),
+                _default_branch(e, branch),
+                _remote_url(e),
+                git_secret.token_for(e),
+            )
+        )
         return {"linked": _remote_url(e) is not None, **result}
 
-    @router.post(f"/{prefix}/{{entity_id}}/diff", response_model=GitDiffResponse, name=f"{prefix}_diff")
+    @router.post(
+        f"/{prefix}/{{entity_id}}/diff",
+        response_model=GitDiffResponse,
+        name=f"{prefix}_diff",
+    )
     async def _diff(
         entity_id: str,
         file: UploadFile = File(...),
@@ -542,22 +711,43 @@ def _register_entity_git_routes(*, prefix, get_fn, repo_getter, read_perm, write
         db: AsyncSession = Depends(get_db),
         user: User = Depends(get_current_user),
     ):
-        e = await _load_workspace_entity(get_fn, entity_id, db, user, read_perm, not_found)
-        return await _guard(git_service.diff(
-            repo_getter, _entity_id(e), await file.read(),
-            _default_branch(e, branch), path, _remote_url(e), git_secret.token_for(e),
-        ))
+        e = await _load_workspace_entity(
+            get_fn, entity_id, db, user, read_perm, not_found
+        )
+        return await _guard(
+            git_service.diff(
+                repo_getter,
+                _entity_id(e),
+                await file.read(),
+                _default_branch(e, branch),
+                path,
+                _remote_url(e),
+                git_secret.token_for(e),
+            )
+        )
 
-    @router.get(f"/{prefix}/{{entity_id}}/branches", response_model=GitBranchesResponse, name=f"{prefix}_branches")
+    @router.get(
+        f"/{prefix}/{{entity_id}}/branches",
+        response_model=GitBranchesResponse,
+        name=f"{prefix}_branches",
+    )
     async def _branches(
         entity_id: str,
         db: AsyncSession = Depends(get_db),
         user: User = Depends(get_current_user),
     ):
-        e = await _load_workspace_entity(get_fn, entity_id, db, user, read_perm, not_found)
-        return await git_service.branches(repo_getter, _entity_id(e), _remote_url(e), git_secret.token_for(e))
+        e = await _load_workspace_entity(
+            get_fn, entity_id, db, user, read_perm, not_found
+        )
+        return await git_service.branches(
+            repo_getter, _entity_id(e), _remote_url(e), git_secret.token_for(e)
+        )
 
-    @router.post(f"/{prefix}/{{entity_id}}/commit-push", response_model=GitCommitResponse, name=f"{prefix}_commit_push")
+    @router.post(
+        f"/{prefix}/{{entity_id}}/commit-push",
+        response_model=GitCommitResponse,
+        name=f"{prefix}_commit_push",
+    )
     async def _commit_push(
         entity_id: str,
         file: UploadFile = File(...),
@@ -567,13 +757,26 @@ def _register_entity_git_routes(*, prefix, get_fn, repo_getter, read_perm, write
         db: AsyncSession = Depends(get_db),
         user: User = Depends(get_current_user),
     ):
-        e = await _load_workspace_entity(get_fn, entity_id, db, user, write_perm, not_found)
+        e = await _load_workspace_entity(
+            get_fn, entity_id, db, user, write_perm, not_found
+        )
         if _remote_url(e) is None:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{not_found} is not linked to a git remote")
-        return await _guard(git_service.commit_push(
-            repo_getter, _entity_id(e), await file.read(),
-            _default_branch(e, branch), message, _remote_url(e), git_secret.token_for(e), paths,
-        ))
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{not_found} is not linked to a git remote",
+            )
+        return await _guard(
+            git_service.commit_push(
+                repo_getter,
+                _entity_id(e),
+                await file.read(),
+                _default_branch(e, branch),
+                message,
+                _remote_url(e),
+                git_secret.token_for(e),
+                paths,
+            )
+        )
 
 
 def _entity_id(entity):
@@ -591,29 +794,44 @@ def _register_all_entity_git_routes() -> None:
     )
 
     _register_entity_git_routes(
-        prefix="etl-pipelines", get_fn=etl_pipeline_service.get,
+        prefix="etl-pipelines",
+        get_fn=etl_pipeline_service.get,
         repo_getter=git_service.etl_pipeline_repo_getter,
-        read_perm="etl:read", write_perm="etl:write", not_found="ETL pipeline not found",
+        read_perm="etl:read",
+        write_perm="etl:write",
+        not_found="ETL pipeline not found",
     )
     _register_entity_git_routes(
-        prefix="data-catalogs", get_fn=data_catalog_service.get,
+        prefix="data-catalogs",
+        get_fn=data_catalog_service.get,
         repo_getter=git_service.data_catalog_repo_getter,
-        read_perm="catalog:read", write_perm="catalog:write", not_found="Data catalog not found",
+        read_perm="catalog:read",
+        write_perm="catalog:write",
+        not_found="Data catalog not found",
     )
     _register_entity_git_routes(
-        prefix="dq-rule-sets", get_fn=dq_rule_set_service.get,
+        prefix="dq-rule-sets",
+        get_fn=dq_rule_set_service.get,
         repo_getter=git_service.dq_rule_set_repo_getter,
-        read_perm="data-quality:read", write_perm="data-quality:write", not_found="DQ rule set not found",
+        read_perm="data-quality:read",
+        write_perm="data-quality:write",
+        not_found="DQ rule set not found",
     )
     _register_entity_git_routes(
-        prefix="user-plugins", get_fn=user_plugin_service.get,
+        prefix="user-plugins",
+        get_fn=user_plugin_service.get,
         repo_getter=git_service.user_plugin_repo_getter,
-        read_perm="plugins:read", write_perm="plugins:write", not_found="Plugin not found",
+        read_perm="plugins:read",
+        write_perm="plugins:write",
+        not_found="Plugin not found",
     )
     _register_entity_git_routes(
-        prefix="schema-presets", get_fn=schema_preset_service.get,
+        prefix="schema-presets",
+        get_fn=schema_preset_service.get,
         repo_getter=git_service.schema_preset_repo_getter,
-        read_perm="schemas:read", write_perm="schemas:write", not_found="Schema preset not found",
+        read_perm="schemas:read",
+        write_perm="schemas:write",
+        not_found="Schema preset not found",
     )
 
 
@@ -624,7 +842,9 @@ _register_all_entity_git_routes()
 
 
 @router.post("/verify-remote", response_model=GitVerifyResponse)
-async def verify_remote(body: GitVerifyRequest, _user: User = Depends(get_current_user)):
+async def verify_remote(
+    body: GitVerifyRequest, _user: User = Depends(get_current_user)
+):
     """Check a remote is reachable with the given credentials before the caller
     persists the link — so an unreachable/unauthorized URL is rejected up front
     instead of silently saved and only failing later in the sync panel."""
@@ -641,7 +861,9 @@ async def clone(body: GitCloneRequest, _user: User = Depends(get_current_user)):
     from fastapi.responses import Response
 
     try:
-        data, cloned_oid = await git_service.clone_to_zip(body.url, body.branch or "main", body.token)
+        data, cloned_oid = await git_service.clone_to_zip(
+            body.url, body.branch or "main", body.token
+        )
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
     headers = {"Content-Disposition": 'attachment; filename="repo.zip"'}
