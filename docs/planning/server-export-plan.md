@@ -26,10 +26,15 @@
 
 ## Status
 
-- **[IN PROGRESS]** pilot scope: **mapping project**.
-- **Unblocked meanwhile**: the per-project `entries.json` scoping (the original "point 2") is
-  **deferred here** — no point coding it in TS if export moves server-side; it becomes a plain
-  `SELECT` (see §6).
+- **[DONE]** pilot scope **mapping project** (steps 1–7): golden contract (TS + Python parity),
+  pure Python builder, DB-backed assembler, server build+commit/push (optional-file endpoints),
+  server export-zip download endpoint, project-scoped `entries.json` (the original "point 2"),
+  client switch (server builds the ZIP in server mode), pull left as-is (§9bis — no rebuild to
+  offload). Front-only unchanged throughout.
+- **[TODO]** step 8: extend to the other 8 scopes (projects, workspaces, sql/etl/catalogs/dq/
+  presets/plugins), each following the same golden → builder → assembler → endpoints → switch
+  pattern.
+- **[LATER]** step 9: server-side import (separate document).
 
 ---
 
@@ -243,8 +248,8 @@ stable.
    ([git-sync-store.ts:37](../../apps/web/src/stores/git-sync-store.ts)) and the Export button
    call the server instead of the TS builders. Front-only: unchanged.
 6. **Scoped entries.json** (§6) integrated into the server mapping-project builder.
-7. **Pull variant (b)** (§9bis): the pull-preview endpoint also exposes a server-built LOCAL; the
-   front stops rebuilding LOCAL.
+7. **Pull** (§9bis): left as-is — the pull reads LOCAL as DB objects, not an export rebuild, so
+   there is nothing heavy to offload.
 8. **Extend** to the other 8 scopes (projects, workspaces reuse the mapping folder; then
    sql/etl/catalogs/dq/presets/plugins).
 9. (Later) **Server-side import** (§7), separate document.
@@ -275,11 +280,17 @@ line diff:
 - **LOCAL** = projection of the current state (today the **front** export).
 - **REMOTE** / **BASE** = bytes the server provides (`git show`).
 
-**Decision: variant (b).** The server, now building the export, also produces **LOCAL** (besides
-REMOTE/BASE); the front stops rebuilding LOCAL. The front keeps what is **intrinsic and shared
-with front-only**: the **3-way merge** (`merge.ts`) and the **resolution UI**
-(`PullResolveDialog`/`PullMappingsTable`). We **never** port `merge.ts` to Python (complex logic +
-inherently-front UI → duplication to avoid).
+**Decision: variant (b) — but no code needed.** On implementing step 5 we found the pull does
+**not** rebuild an export ZIP for LOCAL: `prepareMappingProjectPull`
+([pull.ts:55-61](../../apps/web/src/lib/concept-mapping/pull.ts)) reads LOCAL as parsed objects
+straight from `storage.conceptMappings.getByProject` + `storage.mappingProjects.getById` — which in
+server mode already go through the API adapter (DB reads), not a local export build. So the
+"offload the heavy rebuild" win of variant (b) **does not apply to the pull** — there is no rebuild
+to move. LOCAL is already effectively server-sourced. **Left as-is** (validated): adding a
+bundled-LOCAL pull-preview would only save a couple of round-trips while duplicating the LOCAL
+projection server-side — not worth it. The front keeps the **3-way merge** (`merge.ts`) and the
+**resolution UI** (`PullResolveDialog`/`PullMappingsTable`), shared with front-only; `merge.ts` is
+**never** ported to Python.
 
 **What the pull already does NOT do (and we must not regress):**
 - **Large blocks** (`source-concepts.csv`, `entries.json`, `scores.parquet`) are **never diffed by
