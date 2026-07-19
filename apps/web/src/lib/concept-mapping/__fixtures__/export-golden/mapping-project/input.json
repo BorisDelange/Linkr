@@ -1,0 +1,42 @@
+{
+  "_comment": "Frozen shared input for the mapping-project export golden test. Read by BOTH the TS test (export-golden.test.ts) and the future Python builder test, so they exercise the same case. sourceCsvBase64 is the raw source-concepts.csv bytes (the git variant writes them verbatim). Deterministic: no timestamps/uuids reach the export path.",
+  "project": {
+    "id": "proj1",
+    "entityId": "adult-icu",
+    "workspaceId": "ws1",
+    "name": { "en": "Adult ICU", "fr": "Réanimation adulte" },
+    "description": { "en": "ICU mapping" },
+    "status": "in_progress",
+    "sourceType": "file",
+    "dataSourceId": "ds-local-uuid",
+    "badges": [{ "id": "b1", "label": { "en": "Rennes" }, "color": "blue" }],
+    "fileSourceData": {
+      "fileName": "source-concepts.csv",
+      "columns": ["terminology", "concept_code", "concept_name"],
+      "columnMapping": {
+        "terminologyColumn": "terminology",
+        "conceptCodeColumn": "concept_code",
+        "conceptNameColumn": "concept_name"
+      },
+      "rows": [],
+      "totalRowCount": 2
+    }
+  },
+  "sourceCsvBase64": "dGVybWlub2xvZ3ksY29uY2VwdF9jb2RlLGNvbmNlcHRfbmFtZQpMT0lOQywyMDExMi05LFRpZGFsIHZvbHVtZQpMT0lOQywiYSxiIixDb21tYSBuYW1lCg==",
+  "mappings": [
+    { "id": "m2", "projectId": "proj1", "sourceConceptId": 1, "sourceConceptName": "last", "sourceVocabularyId": "LOINC", "sourceConceptCode": "ZZ", "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetConceptCode": "20112-9", "equivalence": "skos:exactMatch", "status": "unchecked", "mappedBy": "Boris", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+    { "id": "m1", "projectId": "proj1", "sourceConceptId": 1, "sourceConceptName": "first", "sourceVocabularyId": "LOINC", "sourceConceptCode": "AA", "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetConceptCode": "20112-9", "equivalence": "skos:exactMatch", "status": "unchecked", "mappedBy": "Boris", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" }
+  ],
+  "ranges": [
+    { "id": "ws1__Rennes", "workspaceId": "ws1", "badgeLabel": "Rennes", "rangeStart": 2000000001, "rangeEnd": 2001000000, "nextId": 2000000003, "totalConcepts": 2, "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" }
+  ],
+  "entries": [
+    { "id": "ws1__Rennes__LOINC__20112-9", "workspaceId": "ws1", "badgeLabel": "Rennes", "vocabularyId": "LOINC", "conceptCode": "20112-9", "sourceConceptId": 2000000001, "createdAt": "2026-01-01T00:00:00Z" },
+    { "id": "ws1__Rennes__LOINC__a,b", "workspaceId": "ws1", "badgeLabel": "Rennes", "vocabularyId": "LOINC", "conceptCode": "a,b", "sourceConceptId": 2000000002, "createdAt": "2026-01-01T00:00:00Z" }
+  ],
+  "workspace": { "id": "ws1", "organizationId": "org1" },
+  "organization": {
+    "id": "org1", "name": { "en": "CHU Rennes" }, "type": "hospital",
+    "location": { "en": "Rennes" }, "country": { "en": "France" }, "website": "https://chu-rennes.fr"
+  }
+}

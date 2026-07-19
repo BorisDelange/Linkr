@@ -26,61 +26,32 @@ const EXPECTED_DIR = join(GOLDEN_DIR, 'expected')
 const UPDATE = process.env.GOLDEN_UPDATE === '1'
 
 // --- Frozen input -----------------------------------------------------------
-// Deterministic: no timestamps/uuids reach the export path, so the same input
-// always yields the same bytes. Values are chosen to exercise ordering (badges,
-// many-to-many mappings, entries across vocabularies).
+// Loaded from input.json so the TS test and the future Python builder test
+// exercise the SAME case. Deterministic: no timestamps/uuids reach the export
+// path, so the same input always yields the same bytes.
 
-const CSV = 'terminology,concept_code,concept_name\nLOINC,20112-9,Tidal volume\nLOINC,"a,b",Comma name\n'
-
-const project = {
-  id: 'proj1',
-  entityId: 'adult-icu',
-  workspaceId: 'ws1',
-  name: { en: 'Adult ICU', fr: 'Réanimation adulte' },
-  description: { en: 'ICU mapping' },
-  status: 'in_progress',
-  sourceType: 'file',
-  dataSourceId: 'ds-local-uuid',
-  badges: [{ id: 'b1', label: { en: 'Rennes' }, color: 'blue' }],
-  fileSourceData: {
-    fileName: 'source-concepts.csv',
-    columns: ['terminology', 'concept_code', 'concept_name'],
-    columnMapping: { terminologyColumn: 'terminology', conceptCodeColumn: 'concept_code', conceptNameColumn: 'concept_name' },
-    rawFileBuffer: new TextEncoder().encode(CSV),
-    rows: [],
-    totalRowCount: 2,
-  },
-} as unknown as MappingProject
-
-function mapping(over: Partial<ConceptMapping>): ConceptMapping {
-  return {
-    id: 'm', projectId: 'proj1',
-    sourceConceptId: 1, sourceConceptName: 'x', sourceVocabularyId: 'LOINC', sourceConceptCode: '20112-9',
-    targetConceptId: 3000905, targetConceptName: 'Tidal volume', targetVocabularyId: 'LOINC', targetConceptCode: '20112-9',
-    equivalence: 'skos:exactMatch', status: 'unchecked', mappedBy: 'Boris',
-    createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
-    ...over,
-  } as ConceptMapping
+interface GoldenInput {
+  project: MappingProject
+  sourceCsvBase64: string
+  mappings: ConceptMapping[]
+  ranges: SourceConceptIdRange[]
+  entries: SourceConceptIdEntry[]
+  workspace: Workspace
+  organization: Organization
 }
 
-const mappings: ConceptMapping[] = [
-  mapping({ id: 'm2', sourceConceptCode: 'ZZ', sourceConceptName: 'last' }),
-  mapping({ id: 'm1', sourceConceptCode: 'AA', sourceConceptName: 'first' }),
-]
+const input = JSON.parse(readFileSync(join(GOLDEN_DIR, 'input.json'), 'utf8')) as GoldenInput
 
-const ranges: SourceConceptIdRange[] = [
-  { id: 'ws1__Rennes', workspaceId: 'ws1', badgeLabel: 'Rennes', rangeStart: 2000000001, rangeEnd: 2001000000, nextId: 2000000003, totalConcepts: 2, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
-]
-const entries: SourceConceptIdEntry[] = [
-  { id: 'ws1__Rennes__LOINC__20112-9', workspaceId: 'ws1', badgeLabel: 'Rennes', vocabularyId: 'LOINC', conceptCode: '20112-9', sourceConceptId: 2000000001, createdAt: '2026-01-01T00:00:00Z' },
-  { id: 'ws1__Rennes__LOINC__a,b', workspaceId: 'ws1', badgeLabel: 'Rennes', vocabularyId: 'LOINC', conceptCode: 'a,b', sourceConceptId: 2000000002, createdAt: '2026-01-01T00:00:00Z' },
-]
-
-const workspace = { id: 'ws1', organizationId: 'org1' } as unknown as Workspace
-const organization = {
-  id: 'org1', name: { en: 'CHU Rennes' }, type: 'hospital',
-  location: { en: 'Rennes' }, country: { en: 'France' }, website: 'https://chu-rennes.fr',
-} as unknown as Organization
+// Reattach the raw source bytes (JSON can't hold a Uint8Array) — the git variant
+// writes source-concepts.csv from rawFileBuffer verbatim.
+const project = {
+  ...input.project,
+  fileSourceData: {
+    ...input.project.fileSourceData!,
+    rawFileBuffer: Uint8Array.from(atob(input.sourceCsvBase64), (c) => c.charCodeAt(0)),
+  },
+} as MappingProject
+const { mappings, ranges, entries, workspace, organization } = input
 
 const storage = {
   conceptMappings: { getByProject: async () => mappings },
