@@ -82,10 +82,15 @@ async def update(
 
 
 async def delete(db: AsyncSession, project: MappingProject) -> None:
+    from app.services import git_service
+
+    project_id = project.id
     sha = project.raw_file_sha
     await db.delete(project)  # cascades to concept_mappings via FK
     await db.commit()
     await _forget_blob(db, sha)
+    # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
+    git_service.remove_repo("mapping-projects", project_id)
 
 
 # --- Concept mappings (per-project) ----------------------------------------

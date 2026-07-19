@@ -64,11 +64,21 @@ async def update(
 
 
 async def delete(db: AsyncSession, workspace: Workspace) -> None:
+    from app.models.mapping_project import MappingProject
+    from app.services import git_service
+
     workspace_id = workspace.id
     result = await db.execute(
         select(Project.uid).where(Project.workspace_id == workspace_id)
     )
     project_uids = [uid for (uid,) in result.all()]
+    # Mapping projects have their own on-disk versioning working tree
+    # (mapping-projects/<id>/versioning); collect their ids before the cascade
+    # delete so we can remove those dirs too.
+    mp_result = await db.execute(
+        select(MappingProject.id).where(MappingProject.workspace_id == workspace_id)
+    )
+    mapping_project_ids = [mp_id for (mp_id,) in mp_result.all()]
 
     shas: set[str] = set()
     for project_uid in project_uids:
@@ -82,4 +92,9 @@ async def delete(db: AsyncSession, workspace: Workspace) -> None:
     # same reasoning (per-project dirs are never shared; blobs may be).
     for project_uid in project_uids:
         shutil.rmtree(project_fs.project_dir(project_uid), ignore_errors=True)
+    # Remove the versioning working trees that would otherwise be orphaned: the
+    # workspace's own, and each of its mapping projects'.
+    git_service.remove_repo("workspaces", workspace_id)
+    for mp_id in mapping_project_ids:
+        git_service.remove_repo("mapping-projects", mp_id)
     await blob_cleanup.deref_blobs(db, shas)

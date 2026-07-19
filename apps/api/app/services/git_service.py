@@ -144,6 +144,15 @@ def _entity_repo(kind: str, entity_id: str) -> Path:
     return d
 
 
+def remove_repo(kind: str, entity_id: str) -> None:
+    """Delete an entity's on-disk versioning working tree (the whole
+    data_path/<kind>/<id>/ dir, git repo included). Called when the entity is
+    deleted so its versioning folder doesn't linger as an orphan. `kind` is the
+    same folder segment the *_repo helpers use ("workspaces", "mapping-projects",
+    "sql-collections", …). No-op if the dir is absent (never versioned)."""
+    shutil.rmtree(settings.data_path / kind / entity_id, ignore_errors=True)
+
+
 _GH_NAV_SEGMENTS = ("tree", "blob", "commit", "commits", "pull", "pulls", "releases", "tags", "branches", "find", "raw")
 
 
