@@ -44,6 +44,17 @@ const CAT = {
   scores: 10,
   checks: 11,
   config: 12,
+  // Workspace-level entity groups (one box per entity kind in the workspace's
+  // Details list — see the 'workspaces' rules below).
+  projects: 20,
+  mapping_projects: 21,
+  wiki: 22,
+  sql: 23,
+  etl: 24,
+  data_quality: 25,
+  catalogs: 26,
+  plugins: 27,
+  concept_ids: 28,
   attrs: 90,
   other: 99,
 } as const
@@ -126,6 +137,29 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     { test: /^plugin\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_plugin_manifest' },
     README_RULE,
     { test: /\.(js|ts|jsx|tsx|py|r|css)$/i, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_plugin_source' },
+    ATTRS_RULE,
+  ],
+  // Workspace export: one box per top-level entity kind (matched most-specific
+  // first). The workspace root holds a few general files; everything else lives
+  // under a folder prefix. source-concept-ids/ (badge allocation) is its own box.
+  workspaces: [
+    { test: /^workspace\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_workspace_json' },
+    README_RULE,
+    { test: /^source-concept-ids\//, category: 'concept_ids', order: CAT.concept_ids, descriptionKey: 'versioning.file_desc_source_concept_ids' },
+    { test: /^projects\//, category: 'projects', order: CAT.projects, descriptionKey: 'versioning.file_desc_ws_project' },
+    { test: /^mapping-projects\//, category: 'mapping_projects', order: CAT.mapping_projects, descriptionKey: 'versioning.file_desc_ws_mapping_project' },
+    { test: /^databases\//, category: 'databases', order: CAT.databases, descriptionKey: 'versioning.file_desc_db_connection' },
+    { test: /^wiki\//, category: 'wiki', order: CAT.wiki, descriptionKey: 'versioning.file_desc_ws_wiki' },
+    { test: /^sql-scripts\//, category: 'sql', order: CAT.sql, descriptionKey: 'versioning.file_desc_ws_sql' },
+    { test: /^etl\//, category: 'etl', order: CAT.etl, descriptionKey: 'versioning.file_desc_ws_etl' },
+    { test: /^data-quality\//, category: 'data_quality', order: CAT.data_quality, descriptionKey: 'versioning.file_desc_ws_dq' },
+    { test: /^(catalogs|service-mappings)\//, category: 'catalogs', order: CAT.catalogs, descriptionKey: 'versioning.file_desc_ws_catalog' },
+    { test: /^concept-sets\//, category: 'mappings', order: CAT.mappings, descriptionKey: 'versioning.file_desc_ws_concept_set' },
+    { test: /^schemas\//, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_ws_schema' },
+    { test: /^plugins\//, category: 'plugins', order: CAT.plugins, descriptionKey: 'versioning.file_desc_ws_plugin' },
+    { test: /^git-links\.json$/, category: 'config', order: CAT.config, descriptionKey: 'versioning.file_desc_git_links' },
+    { test: /^organization\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_ws_organization' },
+    GITIGNORE_RULE,
     ATTRS_RULE,
   ],
 }

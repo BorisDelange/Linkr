@@ -55,6 +55,37 @@ describe('gitFileMeta', () => {
     expect(gitFileMeta('user-plugins', 'main.py').category).toBe('scripts')
     expect(gitFileMeta('user-plugins', 'plugin.json').category).toBe('general')
   })
+
+  it('groups a workspace export by top-level entity kind', () => {
+    const cat = (p: string) => gitFileMeta('workspaces', p).category
+    expect(cat('workspace.json')).toBe('general')
+    expect(cat('README.md')).toBe('readme')
+    expect(cat('projects/neoclip/project.json')).toBe('projects')
+    expect(cat('mapping-projects/adult-icu/project.json')).toBe('mapping_projects')
+    expect(cat('databases/my-pg.json')).toBe('databases')
+    expect(cat('wiki/intro--1.md')).toBe('wiki')
+    expect(cat('sql-scripts/coll/query.sql')).toBe('sql')
+    expect(cat('etl/pipe/_pipeline.json')).toBe('etl')
+    expect(cat('data-quality/rs.json')).toBe('data_quality')
+    expect(cat('catalogs/cat.json')).toBe('catalogs')
+    expect(cat('service-mappings/sm.json')).toBe('catalogs')
+    expect(cat('plugins/p/_plugin.json')).toBe('plugins')
+    expect(cat('source-concept-ids/ranges.json')).toBe('concept_ids')
+    expect(cat('git-links.json')).toBe('config')
+    // Strays still fall through to "other".
+    expect(cat('state.json')).toBe('other')
+  })
+
+  it('every workspace category carries an i18n description (no contentless rows)', () => {
+    for (const p of [
+      'workspace.json', 'projects/x/project.json', 'mapping-projects/x/project.json',
+      'databases/x.json', 'wiki/x.md', 'sql-scripts/x/x.sql', 'etl/x/_pipeline.json',
+      'data-quality/x.json', 'catalogs/x.json', 'plugins/x/_plugin.json',
+      'source-concept-ids/ranges.json', 'git-links.json',
+    ]) {
+      expect(gitFileMeta('workspaces', p).descriptionKey).toBeTruthy()
+    }
+  })
 })
 
 describe('groupGitFiles', () => {

@@ -50,6 +50,14 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       patterns: [/^project\.json$/, /^mappings\.(json|csv)$/],
     },
   ],
+  workspaces: [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_workspace',
+      messageKey: 'versioning.quick_msg_all_workspace',
+      excludeOther: true,
+    },
+  ],
 }
 
 /** Resolve the scope's quick actions against the current changed paths. Each
