@@ -620,7 +620,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   } as unknown as CustomSchemaPreset)
 
   // Storage stub: every getter returns [] unless the section is seeded below.
-  const makeStore = (seed: { catalogs?: DataCatalog[]; ruleSets?: DqRuleSet[]; checks?: DqCustomCheck[]; presets?: CustomSchemaPreset[]; dataSources?: unknown[] } = {}) => {
+  const makeStore = (seed: { catalogs?: DataCatalog[]; ruleSets?: DqRuleSet[]; checks?: DqCustomCheck[]; presets?: CustomSchemaPreset[]; dataSources?: unknown[]; idRanges?: unknown[]; idEntries?: unknown[] } = {}) => {
     const table = (methods: Record<string, unknown>) => new Proxy(methods, {
       get: (t, prop) => (typeof prop === 'string' && prop in t ? (t as Record<string, unknown>)[prop] : async () => []),
     })
@@ -634,6 +634,8 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
           case 'dqCustomChecks': return table({ getByRuleSet: async () => seed.checks ?? [] })
           case 'schemaPresets': return table({ getByWorkspace: async () => seed.presets ?? [] })
           case 'dataSources': return table({ getByWorkspace: async () => seed.dataSources ?? [] })
+          case 'sourceConceptIdRanges': return table({ getByWorkspace: async () => seed.idRanges ?? [] })
+          case 'sourceConceptIdEntries': return table({ getByWorkspace: async () => seed.idEntries ?? [] })
           default: return table({})
         }
       },
@@ -648,6 +650,20 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   }
   const readGitLinks = async (zip: JSZip) =>
     JSON.parse(await zip.files['git-links.json'].async('string')) as { links: { type: string; id: string; folder: string; url: string; branch: string }[] }
+
+  it('writes root source-concept-ids/ranges.json but NOT root entries.json', async () => {
+    // Ownership model: the workspace root holds only the badge RANGES; ENTRIES
+    // belong to each mapping project's subfolder. Even with entries in the
+    // registry, the root entries.json must not be written.
+    const CM_ONLY = { conceptMapping: true } as unknown as NonNullable<Parameters<typeof buildWorkspaceZip>[2]>['sections']
+    const built = await buildWorkspaceZip('w1', makeStore({
+      idRanges: [{ workspaceId: 'w1', badgeLabel: 'Rennes', rangeStart: 2000000001, rangeEnd: 2001000000, nextId: 2000000042, totalConcepts: 41, createdAt: '2020', updatedAt: '2021' }],
+      idEntries: [{ id: 'w1__Rennes__LOINC__1234-5', workspaceId: 'w1', badgeLabel: 'Rennes', vocabularyId: 'LOINC', conceptCode: '1234-5', sourceConceptId: 2000000001, createdAt: '2020' }],
+    }), { sections: CM_ONLY })
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    expect(zip.files['source-concept-ids/ranges.json']).toBeDefined()
+    expect(zip.files['source-concept-ids/entries.json']).toBeUndefined()
+  })
 
   it('exports a real database but skips an ATHENA vocabulary reference', async () => {
     const zip = await exportZip({

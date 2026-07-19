@@ -553,7 +553,9 @@ export function WorkspacesPage() {
     }
 
     // --- Import source concept ID registry (ranges + entries) ---
-    if (parsed.sourceConceptIdRanges.length > 0) {
+    // Fire when EITHER is present: entries now come from per-project subfolders,
+    // so a workspace can carry entries even if the root ranges.json is absent.
+    if (parsed.sourceConceptIdRanges.length > 0 || parsed.sourceConceptIdEntries.length > 0) {
       reportPhase('workspaces.import_phase_source_id_registry', 0, parsed.sourceConceptIdEntries.length)
       await yieldToBrowser()
       if (!duplicate) {

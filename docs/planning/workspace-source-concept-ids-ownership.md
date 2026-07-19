@@ -151,10 +151,18 @@ truncation: where we drop/So skip, we keep the behaviour observable.
 
 ## Decisions (validated)
 
-1. **Fix the client per-project entry scoping now** (item 2). Align
-   `buildProjectSourceConceptIds` to the server's `scoped_source_concept_ids`:
-   a project's entries = its own (vocab, code) universe (mappings ∪ dictionary),
-   not the whole badge. So a project never carries a sibling project's entries.
+1. **Defer the exact client per-project entry scoping.** Aligning the client
+   `buildProjectSourceConceptIds` to the server's project-scoping would require a
+   heavy per-project dictionary read (mount + query the 177k-row DuckDB
+   `source_concepts` view) *during export* — and the workspace export always runs
+   client-side, even in fullstack mode (`serverBuildsZip` is true only for
+   `mapping-projects`). That browser cost is exactly what we're avoiding. So keep
+   the current **whole-badge** client scoping for now (correct, just slightly
+   wide: a project may carry sibling-project entries sharing its badge). The exact
+   scope becomes free once the workspace export moves server-side (a later
+   chantier), where `scoped_source_concept_ids` already does it. The ownership
+   model below does NOT depend on perfect scoping — it delivers the real win
+   (no root-entries duplication, monotone nextId anti-regression) regardless.
 2. **Prefer per-project entries on import.** A project that ships its own
    `entries.json` owns its entries; the root `entries.json` is only a fallback
    for projects (badges) that have no per-project entries in the ZIP — e.g. a

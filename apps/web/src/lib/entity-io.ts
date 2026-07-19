@@ -66,9 +66,10 @@ function normalizeImportedTodos(todos: unknown): TodoItem[] {
 import type { CompactSourceConceptIdEntries } from '@/lib/concept-mapping/source-concept-ids-io'
 export type { CompactSourceConceptIdEntries }
 import {
-  toCompactEntries,
   toPortableRanges,
   parseSourceConceptIdEntries,
+  mergeSourceConceptIdRegistry,
+  type SourceConceptIdGroup,
 } from '@/lib/concept-mapping/source-concept-ids-io'
 export { parseSourceConceptIdEntries }
 
@@ -1817,14 +1818,18 @@ export async function buildWorkspaceZip(
       await buildMappingProjectFolder(zip, `mapping-projects/${folder}/`, mp, storage)
     }
 
-    // --- source-concept-ids/ (ranges + compact entries for cross-project ID assignment) ---
+    // --- source-concept-ids/ranges.json (whole-workspace badge allocation) ---
+    // Ownership model (docs/planning/workspace-source-concept-ids-ownership.md):
+    // the RANGES (per-badge allocation window + nextId, shared across projects on
+    // a badge) live at the workspace root — a single source of truth. The ENTRIES
+    // are NOT written here anymore: they belong to each project and travel in
+    // mapping-projects/{slug}/source-concept-ids/entries.json (written by
+    // buildMappingProjectFolder above, or carried by a git-linked project's own
+    // repo). Import/seed reconstruct the registry from the per-project entries +
+    // a monotone merge of these ranges, so a stale root never regresses nextId.
     const idRanges = await storage.sourceConceptIdRanges.getByWorkspace(workspaceId)
     if (idRanges.length > 0) {
       zip.file('source-concept-ids/ranges.json', json(toPortableRanges(idRanges)))
-      const idEntries = await storage.sourceConceptIdEntries.getByWorkspace(workspaceId)
-      if (idEntries.length > 0) {
-        zip.file('source-concept-ids/entries.json', json(toCompactEntries(idEntries)))
-      }
     }
   }
 
@@ -2128,6 +2133,10 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
   // --- mapping-projects/ ---
   const mappingProjects: ParsedWorkspaceZip['mappingProjects'] = []
+  // Each project's source-concept-ids/ subfolder is a registry group; the
+  // ownership model puts the ENTRIES here (the root holds only ranges). Collected
+  // and merged with the root below.
+  const projectGroups: SourceConceptIdGroup[] = []
   const mpFolders = new Set<string>()
   for (const path of Object.keys(zipData.files)) {
     if (!path.startsWith('mapping-projects/')) continue
@@ -2159,13 +2168,28 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
       if (buf.byteLength > 0) scoresFile = new File([buf as BlobPart], `${project.id}.parquet`, { type: 'application/octet-stream' })
     }
 
+    // Per-project source-concept-ids (entries owned here; ranges act as a nextId floor).
+    const pRanges = (await readJsonFile<SourceConceptIdRange[]>(zipData, `${prefix}source-concept-ids/ranges.json`)) ?? []
+    const pRawEntries = await readJsonFile<CompactSourceConceptIdEntries | SourceConceptIdEntry[]>(zipData, `${prefix}source-concept-ids/entries.json`)
+    const pEntries = pRawEntries ? parseSourceConceptIdEntries(pRawEntries, workspace.id) : []
+    if (pRanges.length > 0 || pEntries.length > 0) projectGroups.push({ ranges: pRanges, entries: pEntries })
+
     mappingProjects.push({ project, mappings, scoresFile })
   }
 
-  // --- source-concept-ids/ (cross-project ID assignment registry) ---
-  const sourceConceptIdRanges = (await readJsonFile<SourceConceptIdRange[]>(zipData, 'source-concept-ids/ranges.json')) ?? []
-  const rawEntries = await readJsonFile<CompactSourceConceptIdEntries | SourceConceptIdEntry[]>(zipData, 'source-concept-ids/entries.json')
-  const sourceConceptIdEntries = rawEntries ? parseSourceConceptIdEntries(rawEntries, workspace.id) : []
+  // --- source-concept-ids/ registry: root ranges + per-project entries, merged.
+  // Root holds the whole-workspace ranges; each project subfolder owns its entries
+  // (see the ownership plan). A legacy root entries.json is still read as a
+  // fallback for keys no project group provided. mergeSourceConceptIdRegistry does
+  // the monotone range merge + project-owned entry union.
+  const rootRanges = (await readJsonFile<SourceConceptIdRange[]>(zipData, 'source-concept-ids/ranges.json')) ?? []
+  const rootRawEntries = await readJsonFile<CompactSourceConceptIdEntries | SourceConceptIdEntry[]>(zipData, 'source-concept-ids/entries.json')
+  const rootEntries = rootRawEntries ? parseSourceConceptIdEntries(rootRawEntries, workspace.id) : []
+  const merged = mergeSourceConceptIdRegistry(projectGroups, { ranges: rootRanges, entries: rootEntries })
+  // Re-hydrate into full SourceConceptIdRange/Entry shape the importer expects
+  // (workspaceId/id are re-stamped by the caller; timestamps default there too).
+  const sourceConceptIdRanges = merged.ranges.map((r) => ({ ...r, workspaceId: workspace.id } as SourceConceptIdRange))
+  const sourceConceptIdEntries = merged.entries
 
   // --- catalogs/ ---
   const catalogs: DataCatalog[] = []

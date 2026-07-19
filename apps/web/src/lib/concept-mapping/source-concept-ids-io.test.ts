@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints, resolveImportedRange } from './source-concept-ids-io'
+import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints, resolveImportedRange, mergeSourceConceptIdRegistry } from './source-concept-ids-io'
 import type { SourceConceptIdEntry, SourceConceptIdRange } from '@/types'
 
 function range(over: Partial<SourceConceptIdRange> = {}): SourceConceptIdRange {
@@ -186,5 +186,48 @@ describe('source-concept-ids-io — reconcileImportedEntries (local id preservat
   it('is a no-op passthrough when the workspace has no existing entries', () => {
     const imported = [entry({ sourceConceptId: 2000042 })]
     expect(reconcileImportedEntries(imported, [])[0].sourceConceptId).toBe(2000042)
+  })
+})
+
+describe('mergeSourceConceptIdRegistry — workspace reconstruction (entries owned by projects, ranges at root)', () => {
+  const pr = (over: Partial<{ badgeLabel: string; rangeStart: number; rangeEnd: number; nextId: number; totalConcepts: number }> = {}) =>
+    ({ badgeLabel: 'Rennes', rangeStart: 2000000001, rangeEnd: 2001000000, nextId: 2000010000, totalConcepts: 100, ...over })
+
+  it('ranges: takes the MAX nextId across root + project groups (monotone, order-independent)', () => {
+    // Root is stale (nextId behind); a project group is ahead. The project must win.
+    const root = { ranges: [pr({ nextId: 2000010000 })], entries: [] }
+    const projA = { ranges: [pr({ nextId: 2000050000 })], entries: [] }
+    const projB = { ranges: [pr({ nextId: 2000030000 })], entries: [] }
+    const { ranges } = mergeSourceConceptIdRegistry([projA, projB], root)
+    expect(ranges).toHaveLength(1)
+    expect(ranges[0].nextId).toBe(2000050000)
+  })
+
+  it('ranges: keeps one merged range per badge', () => {
+    const root = { ranges: [pr({ badgeLabel: 'Rennes' }), pr({ badgeLabel: 'Paris', rangeStart: 2010000000, rangeEnd: 2011000000, nextId: 2010000005 })], entries: [] }
+    const { ranges } = mergeSourceConceptIdRegistry([], root)
+    expect(ranges.map(r => r.badgeLabel).sort()).toEqual(['Paris', 'Rennes'])
+  })
+
+  it('entries: union of per-project entries, keyed by (badge, vocab, code)', () => {
+    const p1 = { ranges: [], entries: [entry({ conceptCode: 'A', sourceConceptId: 1 })] }
+    const p2 = { ranges: [], entries: [entry({ conceptCode: 'B', sourceConceptId: 2 })] }
+    const { entries } = mergeSourceConceptIdRegistry([p1, p2], { ranges: [], entries: [] })
+    expect(entries.map(e => e.conceptCode).sort()).toEqual(['A', 'B'])
+  })
+
+  it('entries: a project entry WINS over a stale root entry on the same key (first-writer, projects first)', () => {
+    const proj = { ranges: [], entries: [entry({ conceptCode: 'A', sourceConceptId: 999 })] }
+    const root = { ranges: [], entries: [entry({ conceptCode: 'A', sourceConceptId: 111 })] }
+    const { entries } = mergeSourceConceptIdRegistry([proj], root)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].sourceConceptId).toBe(999)
+  })
+
+  it('entries: a key only in the root (legacy fallback) still survives', () => {
+    const proj = { ranges: [], entries: [entry({ conceptCode: 'A', sourceConceptId: 1 })] }
+    const root = { ranges: [], entries: [entry({ conceptCode: 'legacy-only', sourceConceptId: 5 })] }
+    const { entries } = mergeSourceConceptIdRegistry([proj], root)
+    expect(entries.map(e => e.conceptCode).sort()).toEqual(['A', 'legacy-only'])
   })
 })

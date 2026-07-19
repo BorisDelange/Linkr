@@ -164,6 +164,59 @@ export function toPortableRanges(ranges: SourceConceptIdRange[]): PortableRange[
     .sort((a, b) => compareCodePoints(a.badgeLabel, b.badgeLabel))
 }
 
+/** One source of registry data read from a ZIP/seed: a set of ranges and entries,
+ *  either the workspace root or a single mapping-project subfolder. */
+export interface SourceConceptIdGroup {
+  ranges: PortableRange[]
+  entries: SourceConceptIdEntry[]
+}
+
+/**
+ * Reconstruct the workspace registry from the workspace root group + each mapping
+ * project's group (see docs/planning/workspace-source-concept-ids-ownership.md).
+ *
+ * RANGES: merged per badge with a monotone `nextId` (max across all groups) and
+ * the widest window — via resolveImportedRange, so a stale root can never drag
+ * nextId backwards once a project's group carries a fresher value.
+ *
+ * ENTRIES: per-project entries OWN their keys; the root is only a fallback. Groups
+ * are applied in order (projectGroups first, root last) and a later group NEVER
+ * overwrites an already-seen (badge, vocab, code) — so a stale root entry can't
+ * shadow a project's fresher one, and a key only in the root still survives.
+ *
+ * Pure — unit-testable. Returns the ranges + entries to persist (workspaceId is
+ * stamped by the caller).
+ */
+export function mergeSourceConceptIdRegistry(
+  projectGroups: SourceConceptIdGroup[],
+  rootGroup: SourceConceptIdGroup,
+): { ranges: PortableRange[]; entries: SourceConceptIdEntry[] } {
+  // --- ranges: monotone merge per badge ---
+  const rangeByBadge = new Map<string, PortableRange>()
+  const allRangeSources = [...projectGroups.flatMap((g) => g.ranges), ...rootGroup.ranges]
+  for (const r of allRangeSources) {
+    const seen = rangeByBadge.get(r.badgeLabel)
+    // resolveImportedRange treats `local` as authoritative for the window and
+    // takes max(nextId); feeding the accumulator as `local` makes the fold
+    // order-independent for nextId (max is commutative).
+    const merged = resolveImportedRange(seen as SourceConceptIdRange | undefined, r)
+    rangeByBadge.set(r.badgeLabel, merged.range)
+  }
+
+  // --- entries: project-owned, root as fallback, first-writer-wins ---
+  const entryByKey = new Map<string, SourceConceptIdEntry>()
+  const key = (e: Pick<SourceConceptIdEntry, 'badgeLabel' | 'vocabularyId' | 'conceptCode'>) =>
+    `${e.badgeLabel}__${e.vocabularyId}__${e.conceptCode}`
+  for (const g of [...projectGroups, rootGroup]) {
+    for (const e of g.entries) {
+      const k = key(e)
+      if (!entryByKey.has(k)) entryByKey.set(k, e)
+    }
+  }
+
+  return { ranges: [...rangeByBadge.values()], entries: [...entryByKey.values()] }
+}
+
 /**
  * Write the project's assigned source-concept-ids into a `source-concept-ids/`
  * folder under `prefix` (ranges.json + entries.json, compact). Scoped to the

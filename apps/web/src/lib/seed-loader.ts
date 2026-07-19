@@ -18,6 +18,7 @@ import { getAllPlugins } from '@/lib/plugins/registry'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { parseSourceConceptIdEntries, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
+import { mergeSourceConceptIdRegistry, type SourceConceptIdGroup } from '@/lib/concept-mapping/source-concept-ids-io'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
 import type {
   Workspace, Organization, Project, CustomSchemaPreset, UserPlugin,
@@ -501,7 +502,13 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   // The manifest's `internals` mirrors the old `_index.json` minus the first-class entity
   // types, which now live in `manifest.entities`. The `default` seed omits it entirely.
   const internals = manifest.internals ?? {}
-  await loadWorkspaceInternals(base, wsId, now, internals)
+  // Mapping-project folders, so the registry step can read each project's
+  // source-concept-ids/ subfolder (entries now live there, not at the root).
+  const mpFolders = manifest.entities
+    .filter((e): e is SeedManifestEntity & { type: 'mappingProject' } => e.type === 'mappingProject')
+    .map((e) => (e as { folder?: string }).folder)
+    .filter((f): f is string => !!f)
+  await loadWorkspaceInternals(base, wsId, now, internals, mpFolders)
 
   // --- Structural first-class entities (phase 1: projects, mapping projects, dq, catalogs) ---
   for (const entity of manifest.entities) {
@@ -628,7 +635,7 @@ async function loadStructuralEntity(
 
 /** Load the non-re-seedable bootstrap content of a workspace (wiki, sql, etl pipelines, …). */
 async function loadWorkspaceInternals(
-  base: string, wsId: string, now: string, index: WorkspaceInternals,
+  base: string, wsId: string, now: string, index: WorkspaceInternals, mpFolders: string[] = [],
 ): Promise<void> {
   const storage = getStorage()
 
@@ -718,16 +725,28 @@ async function loadWorkspaceInternals(
     await storage.conceptSets.create({ ...cs, workspaceId: wsId, updatedAt: now }).catch(() => {})
   }
 
-  // --- source-concept-ids/ (cross-project ID assignment registry) ---
-  const idRanges = await fetchJson<SourceConceptIdRange[]>(`${base}/source-concept-ids/ranges.json`) ?? []
-  for (const range of idRanges) {
-    await storage.sourceConceptIdRanges.save({ ...range, workspaceId: wsId, createdAt: range.createdAt ?? now, updatedAt: now }).catch(() => {})
+  // --- source-concept-ids/ registry: root ranges + per-project entries, merged.
+  // Ownership model (docs/planning/workspace-source-concept-ids-ownership.md): the
+  // root holds the whole-workspace RANGES; each mapping project's subfolder owns
+  // its ENTRIES. A legacy root entries.json is still read as a fallback. The merge
+  // keeps nextId monotone and lets a project's fresher range win over a stale root.
+  const projectGroups: SourceConceptIdGroup[] = []
+  for (const mpFolder of mpFolders) {
+    const pRanges = await fetchJson<SourceConceptIdRange[]>(`${base}/mapping-projects/${mpFolder}/source-concept-ids/ranges.json`) ?? []
+    const pRaw = await fetchJson<CompactSourceConceptIdEntries | SourceConceptIdEntry[]>(`${base}/mapping-projects/${mpFolder}/source-concept-ids/entries.json`)
+    const pEntries = pRaw ? parseSourceConceptIdEntries(pRaw, wsId) : []
+    if (pRanges.length > 0 || pEntries.length > 0) projectGroups.push({ ranges: pRanges, entries: pEntries })
   }
-  const rawIdEntries = await fetchJson<CompactSourceConceptIdEntries | SourceConceptIdEntry[]>(`${base}/source-concept-ids/entries.json`)
-  const idEntries = rawIdEntries ? parseSourceConceptIdEntries(rawIdEntries, wsId) : []
-  if (idEntries.length > 0) {
+  const rootRanges = await fetchJson<SourceConceptIdRange[]>(`${base}/source-concept-ids/ranges.json`) ?? []
+  const rootRaw = await fetchJson<CompactSourceConceptIdEntries | SourceConceptIdEntry[]>(`${base}/source-concept-ids/entries.json`)
+  const rootEntries = rootRaw ? parseSourceConceptIdEntries(rootRaw, wsId) : []
+  const merged = mergeSourceConceptIdRegistry(projectGroups, { ranges: rootRanges, entries: rootEntries })
+  for (const range of merged.ranges) {
+    await storage.sourceConceptIdRanges.save({ ...range, workspaceId: wsId, createdAt: now, updatedAt: now }).catch(() => {})
+  }
+  if (merged.entries.length > 0) {
     await storage.sourceConceptIdEntries.saveBatch(
-      idEntries.map(e => ({ ...e, workspaceId: wsId }))
+      merged.entries.map(e => ({ ...e, workspaceId: wsId }))
     ).catch(() => {})
   }
 
