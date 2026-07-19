@@ -6,6 +6,7 @@ import 'allotment/dist/style.css'
 import { FileWarning, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 import { useGitSyncStore } from '@/stores/git-sync-store'
@@ -73,47 +74,57 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
 
         <div className="min-h-0 flex-1">
           <Allotment>
-            {/* Resizable file sidebar — scrolls both ways so long paths read in full. */}
+            {/* Resizable file sidebar — long paths truncate with … (full path on
+                hover) so the pane never scrolls horizontally. */}
             <Allotment.Pane preferredSize={288} minSize={160} maxSize={560}>
-              <div className="h-full overflow-auto border-r">
+              <div className="h-full overflow-y-auto overflow-x-hidden border-r">
                 {/* Grouped + ordered by category, mirroring the sync panel's list. */}
-                {groupGitFiles(scope, files, (f) => f.path).map((group) => (
-                  <div key={group.category}>
-                    <div className="sticky top-0 z-10 bg-muted/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
-                      {t(`versioning.file_cat_${group.category}`)}
-                    </div>
-                    <ul className="w-max min-w-full p-1">
-                      {group.files.map((f) => {
-                        const active = f.path === path
-                        return (
-                          <li key={f.path}>
-                            <div
-                              className={cn(
-                                'flex items-center gap-2 rounded-md px-2 py-1.5',
-                                active ? 'bg-muted' : 'hover:bg-muted/50',
-                              )}
-                            >
-                              <Checkbox
-                                checked={selected.has(f.path)}
-                                onCheckedChange={() => onToggle(f.path)}
-                                onClick={(e) => e.stopPropagation()}
-                                className="shrink-0"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setPath(f.path)}
-                                className="flex flex-1 items-center gap-2 text-left"
+                <TooltipProvider delayDuration={300}>
+                  {groupGitFiles(scope, files, (f) => f.path).map((group) => (
+                    <div key={group.category}>
+                      <div className="sticky top-0 z-10 bg-muted/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                        {t(`versioning.file_cat_${group.category}`)}
+                      </div>
+                      <ul className="p-1">
+                        {group.files.map((f) => {
+                          const active = f.path === path
+                          return (
+                            <li key={f.path}>
+                              <div
+                                className={cn(
+                                  'flex items-center gap-2 rounded-md px-2 py-1.5',
+                                  active ? 'bg-muted' : 'hover:bg-muted/50',
+                                )}
                               >
-                                <ChangeBadge changeType={f.changeType} />
-                                <span className="whitespace-nowrap font-mono text-xs">{f.path}</span>
-                              </button>
-                            </div>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </div>
-                ))}
+                                <Checkbox
+                                  checked={selected.has(f.path)}
+                                  onCheckedChange={() => onToggle(f.path)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="shrink-0"
+                                />
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={() => setPath(f.path)}
+                                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                                    >
+                                      <ChangeBadge changeType={f.changeType} />
+                                      <span className="truncate font-mono text-xs">{f.path}</span>
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-md font-mono">
+                                    {f.path}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  ))}
+                </TooltipProvider>
               </div>
             </Allotment.Pane>
 
