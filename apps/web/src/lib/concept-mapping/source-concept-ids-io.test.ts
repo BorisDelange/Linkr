@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints } from './source-concept-ids-io'
-import type { SourceConceptIdEntry } from '@/types'
+import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints, resolveImportedRange } from './source-concept-ids-io'
+import type { SourceConceptIdEntry, SourceConceptIdRange } from '@/types'
+
+function range(over: Partial<SourceConceptIdRange> = {}): SourceConceptIdRange {
+  return {
+    workspaceId: 'ws1', badgeLabel: 'Rennes',
+    rangeStart: 2000000001, rangeEnd: 2001000000, nextId: 2000050000, totalConcepts: 50000,
+    createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    ...over,
+  } as SourceConceptIdRange
+}
 
 function entry(over: Partial<SourceConceptIdEntry> = {}): SourceConceptIdEntry {
   return {
@@ -70,6 +79,62 @@ describe('source-concept-ids-io — compact round-trip', () => {
     expect(restored[0].workspaceId).toBe('ws1')
     expect(restored[0].id).toBe('ws1__ICU__LOINC__1234-5')
     expect(restored[0].sourceConceptId).toBe(2000001)
+  })
+})
+
+describe('resolveImportedRange — safe range merge on import', () => {
+  const imported = { badgeLabel: 'Rennes', rangeStart: 2000000001, rangeEnd: 2001000000, nextId: 2000030000, totalConcepts: 30000 }
+
+  it('takes the imported range when there is no local one', () => {
+    const { range: r, windowDiverged } = resolveImportedRange(undefined, imported)
+    expect(r.nextId).toBe(2000030000)
+    expect(windowDiverged).toBe(false)
+  })
+
+  it('same window: advances nextId to max, never backwards', () => {
+    // Local is AHEAD of the imported ZIP (500k assigned locally). nextId must not
+    // regress to the ZIP's 30k, or a later assign re-hands-out ids 30k..500k.
+    const local = range({ nextId: 2000500000 })
+    const { range: r, windowDiverged } = resolveImportedRange(local, imported)
+    expect(r.nextId).toBe(2000500000)
+    expect(windowDiverged).toBe(false)
+  })
+
+  it('same window, imported ahead: advances local to the imported nextId', () => {
+    const local = range({ nextId: 2000010000 })
+    const { range: r } = resolveImportedRange(local, { ...imported, nextId: 2000040000 })
+    expect(r.nextId).toBe(2000040000)
+  })
+
+  it('diverged window (moved): local wins, flags divergence', () => {
+    const local = range({ rangeStart: 2010000000, rangeEnd: 2011000000, nextId: 2010005000 })
+    const { range: r, windowDiverged } = resolveImportedRange(local, imported)
+    expect(r.rangeStart).toBe(2010000000)
+    expect(r.nextId).toBe(2010005000)
+    expect(windowDiverged).toBe(true)
+  })
+})
+
+describe('reconcileImportedEntries — diverged-window entry handling', () => {
+  it('drops a NEW concept on a diverged badge (its id is out of the local window)', () => {
+    const imported = [entry({ badgeLabel: 'Rennes', conceptCode: 'new', sourceConceptId: 2020000000 })]
+    const out = reconcileImportedEntries(imported, [], new Set(['Rennes']))
+    expect(out).toHaveLength(0)
+  })
+
+  it('keeps a KNOWN concept on a diverged badge, re-pointed at the local id', () => {
+    const imported = [entry({ badgeLabel: 'Rennes', conceptCode: 'known', sourceConceptId: 2020000000 })]
+    const existing = [entry({ conceptCode: 'known', sourceConceptId: 2010000042 })]
+    const out = reconcileImportedEntries(imported, existing, new Set(['Rennes']))
+    expect(out).toHaveLength(1)
+    expect(out[0].sourceConceptId).toBe(2010000042)
+  })
+
+  it('keeps a NEW concept when its badge is NOT diverged', () => {
+    const imported = [entry({ badgeLabel: 'Rennes', conceptCode: 'new', sourceConceptId: 2000030000 })]
+    const out = reconcileImportedEntries(imported, [], new Set())
+    expect(out).toHaveLength(1)
+    expect(out[0].sourceConceptId).toBe(2000030000)
   })
 })
 

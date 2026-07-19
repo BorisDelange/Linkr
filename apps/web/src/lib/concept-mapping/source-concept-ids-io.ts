@@ -83,22 +83,37 @@ const json = (data: unknown) => JSON.stringify(data, null, 2)
  * workspace. A source_concept_id is GLOBAL per (vocab, code) in a workspace, so if
  * a concept the ZIP carries already has a LOCALLY-assigned id (from any badge, i.e.
  * another project), we keep the local id — importing the ZIP's id would change it
- * under every local project that already references it. Concepts the workspace has
- * never seen keep the ZIP's id. Pure, so it's unit-testable on its own.
+ * under every local project that already references it.
+ *
+ * `divergedBadges` lists badges whose LOCAL allocation window differs from the
+ * imported one (see resolveImportedRange). For those, a NEW concept (no local id)
+ * carries an imported id that falls OUTSIDE the local window — importing it would
+ * create an out-of-window id. So we DROP it: it stays unassigned and gets a
+ * local-window id at the next assign. Concepts the workspace has already seen keep
+ * their local id; new concepts on compatible/absent windows keep the ZIP's id.
+ * Pure, so it's unit-testable on its own.
  */
 export function reconcileImportedEntries(
   imported: SourceConceptIdEntry[],
   existing: Pick<SourceConceptIdEntry, 'vocabularyId' | 'conceptCode' | 'sourceConceptId'>[],
+  divergedBadges: ReadonlySet<string> = new Set(),
 ): SourceConceptIdEntry[] {
   const localIdByPair = new Map<string, number>()
   for (const e of existing) {
     const pair = `${e.vocabularyId}__${e.conceptCode}`
     if (!localIdByPair.has(pair)) localIdByPair.set(pair, e.sourceConceptId)
   }
-  return imported.map((e) => {
+  const out: SourceConceptIdEntry[] = []
+  for (const e of imported) {
     const localId = localIdByPair.get(`${e.vocabularyId}__${e.conceptCode}`)
-    return localId != null ? { ...e, sourceConceptId: localId } : e
-  })
+    if (localId != null) {
+      out.push({ ...e, sourceConceptId: localId })
+    } else if (!divergedBadges.has(e.badgeLabel)) {
+      out.push(e)
+    }
+    // else: new concept on a diverged badge → drop (out-of-window id).
+  }
+  return out
 }
 
 /** Portable subset of a range for versioning: the allocation (start/end/nextId +
@@ -106,6 +121,42 @@ export function reconcileImportedEntries(
  *  workspace on import) and the timestamps are dropped (instance bookkeeping,
  *  regenerated on import) so ranges.json tracks the allocation, not the instance. */
 type PortableRange = Pick<SourceConceptIdRange, 'badgeLabel' | 'rangeStart' | 'rangeEnd' | 'nextId' | 'totalConcepts'>
+
+/** Do two ranges describe the SAME allocation window (same start/end)? A badge is
+ *  meant to have one window per workspace; if two instances moved it differently,
+ *  they diverged and their assigned ids are incompatible. */
+function sameWindow(a: { rangeStart: number; rangeEnd: number }, b: { rangeStart: number; rangeEnd: number }): boolean {
+  return a.rangeStart === b.rangeStart && a.rangeEnd === b.rangeEnd
+}
+
+/**
+ * Decide the range to persist on import, given the local range (if any) and the
+ * imported one. Rules (see docs/planning/server-export-plan.md §6):
+ *  - no local range → take the imported one.
+ *  - same window → keep the local window but advance nextId to max(local, imported)
+ *    (MONOTONE: the allocation counter must never go backwards, or a later assign
+ *    would re-hand-out ids already consumed elsewhere).
+ *  - different window (moved) → the LOCAL window is authoritative; ignore the import.
+ * Returns { range, windowDiverged } — the caller uses windowDiverged to skip
+ * out-of-window imported entries for new concepts.
+ */
+export function resolveImportedRange(
+  local: SourceConceptIdRange | undefined,
+  imported: PortableRange,
+): { range: PortableRange; windowDiverged: boolean } {
+  if (!local) return { range: imported, windowDiverged: false }
+  if (sameWindow(local, imported)) {
+    return {
+      range: { ...local, nextId: Math.max(local.nextId, imported.nextId) },
+      windowDiverged: false,
+    }
+  }
+  // Diverged window: local wins entirely.
+  return {
+    range: { badgeLabel: local.badgeLabel, rangeStart: local.rangeStart, rangeEnd: local.rangeEnd, nextId: local.nextId, totalConcepts: local.totalConcepts },
+    windowDiverged: true,
+  }
+}
 
 export function toPortableRanges(ranges: SourceConceptIdRange[]): PortableRange[] {
   return ranges
@@ -164,17 +215,26 @@ export async function importProjectSourceConceptIds(
   const rangesFile = zip.file(`${prefix}source-concept-ids/ranges.json`)
   const entriesFile = zip.file(`${prefix}source-concept-ids/entries.json`)
 
+  // Badges whose local allocation window diverges from the imported one — imported
+  // NEW-concept entries on these must be dropped (their ids are out of the local
+  // window). Filled while merging ranges, consumed when reconciling entries.
+  const divergedBadges = new Set<string>()
+
   if (rangesFile) {
     // New exports carry the portable subset (no workspaceId/timestamps); older ones
-    // the full object. Re-target workspaceId and (re)generate timestamps if absent.
+    // the full object. Merge against the local range (monotone nextId, local window
+    // authority) rather than blindly overwriting — see resolveImportedRange.
     const raw = JSON.parse(await rangesFile.async('string')) as (PortableRange & Partial<SourceConceptIdRange>)[]
     const now = new Date().toISOString()
     for (const r of raw) {
+      const local = await storage.sourceConceptIdRanges.get(workspaceId, r.badgeLabel)
+      const { range, windowDiverged } = resolveImportedRange(local, r)
+      if (windowDiverged) divergedBadges.add(r.badgeLabel)
       await storage.sourceConceptIdRanges.save({
-        ...r,
+        ...range,
         workspaceId,
-        createdAt: r.createdAt ?? now,
-        updatedAt: r.updatedAt ?? now,
+        createdAt: local?.createdAt ?? r.createdAt ?? now,
+        updatedAt: now,
       })
     }
   }
@@ -184,6 +244,6 @@ export async function importProjectSourceConceptIds(
     const entries = parseSourceConceptIdEntries(raw, workspaceId)
     if (entries.length === 0) return
     const existing = await storage.sourceConceptIdEntries.getByWorkspace(workspaceId)
-    await storage.sourceConceptIdEntries.saveBatch(reconcileImportedEntries(entries, existing))
+    await storage.sourceConceptIdEntries.saveBatch(reconcileImportedEntries(entries, existing, divergedBadges))
   }
 }
