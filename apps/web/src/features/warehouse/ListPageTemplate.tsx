@@ -4,6 +4,7 @@ import { Plus, Upload, type LucideIcon } from 'lucide-react'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { shortenIdAmong } from '@/lib/short-id'
 import type { GitScope } from '@/lib/api/git'
 import type { GitRemoteConfig, LocalizedString, OrganizationInfo } from '@/types'
@@ -125,6 +126,14 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
 }: ListPageTemplateProps<T>) {
   const { t } = useTranslation()
 
+  // These warehouse entities inherit their org from the workspace (no org field of
+  // their own): a locally-created item has no frozen `organization` snapshot, so the
+  // footer resolves the workspace's org live by id — mirroring plugins. An imported
+  // item keeps its own `organization` snapshot, which takes precedence over this.
+  const workspaceOrgId = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === s.activeWorkspaceId)?.organizationId,
+  )
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
 
@@ -227,6 +236,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     createdById={item.createdById}
                     createdBy={item.createdBy}
                     createdByDetails={item.createdByDetails}
+                    organizationId={item.organization ? undefined : workspaceOrgId}
                     organization={item.organization}
                     createdAt={item.createdAt}
                     updatedAt={item.updatedAt}

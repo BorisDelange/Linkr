@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toCompactEntries, parseSourceConceptIdEntries } from './source-concept-ids-io'
+import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries } from './source-concept-ids-io'
 import type { SourceConceptIdEntry } from '@/types'
 
 function entry(over: Partial<SourceConceptIdEntry> = {}): SourceConceptIdEntry {
@@ -70,5 +70,35 @@ describe('source-concept-ids-io — compact round-trip', () => {
     expect(restored[0].workspaceId).toBe('ws1')
     expect(restored[0].id).toBe('ws1__ICU__LOINC__1234-5')
     expect(restored[0].sourceConceptId).toBe(2000001)
+  })
+})
+
+describe('source-concept-ids-io — reconcileImportedEntries (local id preservation)', () => {
+  it('keeps the local id when the (vocab, code) already exists locally', () => {
+    const imported = [entry({ sourceConceptId: 2000042 })]
+    const existing = [entry({ sourceConceptId: 2000099 })]
+    const out = reconcileImportedEntries(imported, existing)
+    // Local id wins: other local projects referencing 2000099 must not be broken.
+    expect(out[0].sourceConceptId).toBe(2000099)
+  })
+
+  it('matches across badges — the id is global per (vocab, code), not per badge', () => {
+    const imported = [entry({ badgeLabel: 'Rennes', sourceConceptId: 2000042 })]
+    const existing = [entry({ badgeLabel: 'ICU', sourceConceptId: 2000099 })]
+    const out = reconcileImportedEntries(imported, existing)
+    expect(out[0].sourceConceptId).toBe(2000099)
+    // The imported entry keeps its own badge — only the id is re-pointed.
+    expect(out[0].badgeLabel).toBe('Rennes')
+  })
+
+  it("introduces the ZIP's id for concepts the workspace has never seen", () => {
+    const imported = [entry({ conceptCode: 'new-1', sourceConceptId: 2000042 })]
+    const out = reconcileImportedEntries(imported, [entry({ sourceConceptId: 2000099 })])
+    expect(out[0].sourceConceptId).toBe(2000042)
+  })
+
+  it('is a no-op passthrough when the workspace has no existing entries', () => {
+    const imported = [entry({ sourceConceptId: 2000042 })]
+    expect(reconcileImportedEntries(imported, [])[0].sourceConceptId).toBe(2000042)
   })
 })

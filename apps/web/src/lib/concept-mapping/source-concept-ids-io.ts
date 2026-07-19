@@ -65,6 +65,29 @@ export function parseSourceConceptIdEntries(
 
 const json = (data: unknown) => JSON.stringify(data, null, 2)
 
+/**
+ * Reconcile imported entries against the ids already assigned in the target
+ * workspace. A source_concept_id is GLOBAL per (vocab, code) in a workspace, so if
+ * a concept the ZIP carries already has a LOCALLY-assigned id (from any badge, i.e.
+ * another project), we keep the local id — importing the ZIP's id would change it
+ * under every local project that already references it. Concepts the workspace has
+ * never seen keep the ZIP's id. Pure, so it's unit-testable on its own.
+ */
+export function reconcileImportedEntries(
+  imported: SourceConceptIdEntry[],
+  existing: Pick<SourceConceptIdEntry, 'vocabularyId' | 'conceptCode' | 'sourceConceptId'>[],
+): SourceConceptIdEntry[] {
+  const localIdByPair = new Map<string, number>()
+  for (const e of existing) {
+    const pair = `${e.vocabularyId}__${e.conceptCode}`
+    if (!localIdByPair.has(pair)) localIdByPair.set(pair, e.sourceConceptId)
+  }
+  return imported.map((e) => {
+    const localId = localIdByPair.get(`${e.vocabularyId}__${e.conceptCode}`)
+    return localId != null ? { ...e, sourceConceptId: localId } : e
+  })
+}
+
 /** Portable subset of a range for versioning: the allocation (start/end/nextId +
  *  totalConcepts) and its badge key. `workspaceId` is dropped (re-set to the target
  *  workspace on import) and the timestamps are dropped (instance bookkeeping,
@@ -146,6 +169,8 @@ export async function importProjectSourceConceptIds(
     const raw = JSON.parse(await entriesFile.async('string')) as
       CompactSourceConceptIdEntries | SourceConceptIdEntry[]
     const entries = parseSourceConceptIdEntries(raw, workspaceId)
-    if (entries.length > 0) await storage.sourceConceptIdEntries.saveBatch(entries)
+    if (entries.length === 0) return
+    const existing = await storage.sourceConceptIdEntries.getByWorkspace(workspaceId)
+    await storage.sourceConceptIdEntries.saveBatch(reconcileImportedEntries(entries, existing))
   }
 }

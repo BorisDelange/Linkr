@@ -406,9 +406,6 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                 const capacity = range.rangeEnd - range.rangeStart + 1
                 const used = range.nextId - range.rangeStart
                 const rangePct = Math.round((used / capacity) * 100)
-                const coveragePct = range.totalConcepts && range.totalConcepts > 0
-                  ? Math.round((range.assignedCount / range.totalConcepts) * 100)
-                  : null
                 return (
                   <Card key={range.badgeLabel} className="p-4">
                     <div className="flex items-start gap-3">
@@ -418,11 +415,6 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                           <Badge variant="secondary" className="text-[10px]">
                             {range.ownCount.toLocaleString()} {t('concept_mapping.source_id_assigned')}
                           </Badge>
-                          {coveragePct !== null && (
-                            <span className="text-[10px] text-muted-foreground">
-                              {range.assignedCount.toLocaleString()} / {range.totalConcepts!.toLocaleString()} ({coveragePct}%)
-                            </span>
-                          )}
                           {used > 0 && rangePct > 0 && (
                             <span className="text-[10px] text-muted-foreground">{rangePct}% {t('concept_mapping.source_id_used')}</span>
                           )}
