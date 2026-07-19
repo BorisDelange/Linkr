@@ -28,6 +28,8 @@ import asyncio
 from app.services import blob_store
 from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
+from app.services.data.global_table_service import _localized
+from app.services.mapping_project_export_assemble import assemble_mapping_project_zip
 from app.services.data import db_connect, file_reader
 from app.services.data import global_table_service
 from app.services.data import scores_service
@@ -75,6 +77,7 @@ async def _load_service_mapping(
 
 # --- Mapping projects ------------------------------------------------------
 
+
 @router.get(_PROJ, response_model=list[MappingProjectResponse])
 async def list_projects(
     workspace_id: str | None = Query(default=None, alias="workspaceId"),
@@ -88,20 +91,26 @@ async def list_projects(
     visible: list[MappingProject] = []
     for p in projects:
         try:
-            await check_workspace_permission(db, p.workspace_id, user, "concept-mapping:read")
+            await check_workspace_permission(
+                db, p.workspace_id, user, "concept-mapping:read"
+            )
             visible.append(p)
         except HTTPException:
             continue
     return visible
 
 
-@router.post(_PROJ, response_model=MappingProjectResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    _PROJ, response_model=MappingProjectResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_project(
     body: MappingProjectCreate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
+    await check_workspace_permission(
+        db, body.workspace_id, user, "concept-mapping:write"
+    )
     return await svc.create(db, body, user)
 
 
@@ -139,6 +148,7 @@ async def delete_project(
 # Declared before the /{project_id}/... routes so `/global-table/query` isn't
 # captured by `/{project_id}/query` (Starlette matches in registration order).
 
+
 def _normalize_mode(mode: str) -> str:
     return mode if mode in ("flat", "dedup") else "flat"
 
@@ -154,7 +164,9 @@ async def _load_global_table_inputs(db: AsyncSession, workspace_id: str):
         for p in projects
     }
     entries = await sci_svc.list_entries(db, workspace_id)
-    registry = {f"{e.vocabulary_id}__{e.concept_code}": e.source_concept_id for e in entries}
+    registry = {
+        f"{e.vocabulary_id}__{e.concept_code}": e.source_concept_id for e in entries
+    }
     return project_dicts, mappings_by_project, registry
 
 
@@ -174,7 +186,9 @@ async def global_table_build(
     vocabulary). Call this once when the Table opens or after a data change; then
     hit `/global-table/query` with the returned signature for each page/filter —
     that path reads the Parquet directly and never touches the app DB."""
-    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:read")
+    await check_workspace_permission(
+        db, body.workspace_id, user, "concept-mapping:read"
+    )
     mode = _normalize_mode(body.mode)
     project_dicts, mappings_by_project, registry = await _load_global_table_inputs(
         db, body.workspace_id
@@ -185,7 +199,11 @@ async def global_table_build(
             project_dicts, mappings_by_project, registry
         )
         path = global_table_service.get_or_build_cache(
-            body.workspace_id, mode, project_dicts, mappings_by_project, registry,
+            body.workspace_id,
+            mode,
+            project_dicts,
+            mappings_by_project,
+            registry,
         )
         total = global_table_service.query_page(path, mode, {}, None, 0, 0)[1]
         filter_values = global_table_service.distinct_filter_values(path, mode)
@@ -194,9 +212,13 @@ async def global_table_build(
     try:
         signature, total, filter_values = await asyncio.to_thread(_run)
     except file_reader.ExcelSupportUnavailable:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable")
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable"
+        )
     except Exception as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Global table build failed: {e}")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Global table build failed: {e}"
+        )
     return {"signature": signature, "total": total, "filterValues": filter_values}
 
 
@@ -220,7 +242,9 @@ async def global_table_query(
     Parquet identified by `signature` — no app-DB reload, no rebuild. If the cache
     for this signature is gone (inputs changed since the last build), return 409
     so the client re-runs `/global-table/build`."""
-    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:read")
+    await check_workspace_permission(
+        db, body.workspace_id, user, "concept-mapping:read"
+    )
     mode = _normalize_mode(body.mode)
 
     def _run():
@@ -228,7 +252,12 @@ async def global_table_query(
             body.workspace_id, mode, body.signature
         )
         return global_table_service.query_page(
-            path, mode, body.filters, body.sort, body.limit, body.offset,
+            path,
+            mode,
+            body.filters,
+            body.sort,
+            body.limit,
+            body.offset,
         )
 
     try:
@@ -236,11 +265,14 @@ async def global_table_query(
     except global_table_service.CacheMissing:
         raise HTTPException(status.HTTP_409_CONFLICT, "cache_stale")
     except Exception as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Global table query failed: {e}")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Global table query failed: {e}"
+        )
     return {"rows": rows, "total": total}
 
 
 # --- Source-CSV blob (uploaded separately via /uploads, referenced by sha) --
+
 
 class RawFileRef(CamelModel):
     sha: str
@@ -258,7 +290,8 @@ async def set_raw_file(
     if not blob_store.exists(body.sha):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
     return await svc.update(
-        db, project,
+        db,
+        project,
         MappingProjectUpdate(raw_file_sha=body.sha, raw_file_name=body.file_name),
     )
 
@@ -292,8 +325,12 @@ async def query_file_source(
     try:
         rows = await asyncio.to_thread(
             db_connect.query_file_source,
-            path, project.raw_file_name, parse_options, select_sql,
-            dedup_partition, body.sql,
+            path,
+            project.raw_file_name,
+            parse_options,
+            select_sql,
+            dedup_partition,
+            body.sql,
         )
     except file_reader.ExcelSupportUnavailable:
         raise HTTPException(
@@ -305,6 +342,7 @@ async def query_file_source(
 
 
 # --- Suggestion-scores blob (precomputed match scores parquet) -------------
+
 
 class ScoresFileRef(CamelModel):
     sha: str
@@ -329,7 +367,8 @@ async def set_scores_file(
     if not ok:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, error or "Invalid scores file")
     await svc.update(
-        db, project,
+        db,
+        project,
         MappingProjectUpdate(scores_file_sha=body.sha, scores_file_name=body.file_name),
     )
     return await asyncio.to_thread(scores_service.build_index, project_id, path)
@@ -392,11 +431,15 @@ async def get_scores_file(
     return Response(
         content=data,
         media_type="application/octet-stream",
-        headers={"x-file-name": project.scores_file_name or "similarity-scores.parquet"},
+        headers={
+            "x-file-name": project.scores_file_name or "similarity-scores.parquet"
+        },
     )
 
 
-@router.delete(_PROJ + "/{project_id}/scores-file", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    _PROJ + "/{project_id}/scores-file", status_code=status.HTTP_204_NO_CONTENT
+)
 async def delete_scores_file(
     project_id: str,
     user: User = Depends(get_current_user),
@@ -404,7 +447,8 @@ async def delete_scores_file(
 ):
     project = await _load_project(db, project_id, user, "concept-mapping:delete")
     await svc.update(
-        db, project,
+        db,
+        project,
         MappingProjectUpdate(scores_file_sha=None, scores_file_name=None),
     )
 
@@ -429,16 +473,23 @@ async def preview_file_columns(
     Blobs are globally content-addressed, so gate on editor rights in the target
     workspace: without it any authenticated user could read the schema/row count
     of any workspace's upload by guessing/knowing its sha."""
-    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
+    await check_workspace_permission(
+        db, body.workspace_id, user, "concept-mapping:write"
+    )
     if not blob_store.exists(body.sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Uploaded file not found")
     path = str(blob_store.path_for(body.sha))
     try:
         cols, total = await asyncio.to_thread(
-            db_connect.file_source_columns, path, body.file_name, body.parse_options,
+            db_connect.file_source_columns,
+            path,
+            body.file_name,
+            body.parse_options,
         )
     except file_reader.ExcelSupportUnavailable:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable")
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable"
+        )
     except Exception as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Preview failed: {e}")
     return {"columns": cols, "rowCount": total}
@@ -446,25 +497,34 @@ async def preview_file_columns(
 
 def _project_to_dict(p: MappingProject) -> dict:
     return {
-        "id": p.id, "name": p.name, "source_type": p.source_type,
-        "updated_at": p.updated_at, "badges": p.badges,
-        "raw_file_sha": p.raw_file_sha, "raw_file_name": p.raw_file_name,
-        "file_source_data": p.file_source_data, "data_source_id": p.data_source_id,
+        "id": p.id,
+        "name": p.name,
+        "source_type": p.source_type,
+        "updated_at": p.updated_at,
+        "badges": p.badges,
+        "raw_file_sha": p.raw_file_sha,
+        "raw_file_name": p.raw_file_name,
+        "file_source_data": p.file_source_data,
+        "data_source_id": p.data_source_id,
     }
 
 
 def _mapping_to_dict(m: ConceptMapping) -> dict:
     return {
-        "id": m.id, "source_vocabulary_id": m.source_vocabulary_id,
+        "id": m.id,
+        "source_vocabulary_id": m.source_vocabulary_id,
         "source_concept_code": m.source_concept_code,
         "source_concept_name": m.source_concept_name,
         "source_concept_id": m.source_concept_id,
         "target_vocabulary_id": m.target_vocabulary_id,
         "target_concept_id": m.target_concept_id,
         "target_concept_name": m.target_concept_name,
-        "equivalence": m.equivalence, "status": m.status,
-        "mapped_by": m.mapped_by, "reviews": m.reviews,
-        "created_at": m.created_at, "updated_at": m.updated_at,
+        "equivalence": m.equivalence,
+        "status": m.status,
+        "mapped_by": m.mapped_by,
+        "reviews": m.reviews,
+        "created_at": m.created_at,
+        "updated_at": m.updated_at,
     }
 
 
@@ -485,9 +545,32 @@ async def get_raw_file(
     )
 
 
+@router.get(_PROJ + "/{project_id}/export-zip")
+async def export_zip(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Build the project's export ZIP server-side and return it for download —
+    the git variant tree (project.json, mappings.json, source-concepts.csv,
+    source-concept-ids/, .gitignore). Offloads the browser: no data comes down
+    just to be re-zipped. See docs/planning/server-export-plan.md §8 step 4."""
+    project = await _load_project(db, project_id, user, "concept-mapping:read")
+    zip_bytes = await assemble_mapping_project_zip(db, project)
+    slug = _localized(project.name, "en") or project.id
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"content-disposition": f'attachment; filename="{slug}.zip"'},
+    )
+
+
 # --- Concept mappings (per-project) ----------------------------------------
 
-@router.get(_PROJ + "/{project_id}/mappings", response_model=list[ConceptMappingResponse])
+
+@router.get(
+    _PROJ + "/{project_id}/mappings", response_model=list[ConceptMappingResponse]
+)
 async def list_mappings(
     project_id: str,
     user: User = Depends(get_current_user),
@@ -535,7 +618,9 @@ async def delete_mappings_for_project(
     await svc.delete_mappings_for_project(db, project_id)
 
 
-@router.post(_MAP, response_model=ConceptMappingResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    _MAP, response_model=ConceptMappingResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_mapping(
     body: ConceptMappingCreate,
     user: User = Depends(get_current_user),
@@ -603,6 +688,7 @@ async def delete_mapping(
 
 # --- Service mappings ------------------------------------------------------
 
+
 @router.get(_SVC, response_model=list[ServiceMappingResponse])
 async def list_service_mappings(
     workspace_id: str | None = Query(default=None, alias="workspaceId"),
@@ -616,20 +702,26 @@ async def list_service_mappings(
     visible: list[ServiceMapping] = []
     for m in mappings:
         try:
-            await check_workspace_permission(db, m.workspace_id, user, "concept-mapping:read")
+            await check_workspace_permission(
+                db, m.workspace_id, user, "concept-mapping:read"
+            )
             visible.append(m)
         except HTTPException:
             continue
     return visible
 
 
-@router.post(_SVC, response_model=ServiceMappingResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    _SVC, response_model=ServiceMappingResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_service_mapping(
     body: ServiceMappingCreate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
+    await check_workspace_permission(
+        db, body.workspace_id, user, "concept-mapping:write"
+    )
     return await svc.create_service_mapping(db, body)
 
 
@@ -659,5 +751,7 @@ async def delete_service_mapping(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    mapping = await _load_service_mapping(db, mapping_id, user, "concept-mapping:delete")
+    mapping = await _load_service_mapping(
+        db, mapping_id, user, "concept-mapping:delete"
+    )
     await svc.delete_service_mapping(db, mapping)
