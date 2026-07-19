@@ -22,6 +22,7 @@ import { clearAllData } from '@/lib/version-check'
 import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { useMappingProjectActions } from '@/features/warehouse/concept-mapping/use-mapping-project-actions'
 import { useDashboardActions } from '@/features/projects/lab/use-dashboard-actions'
@@ -136,6 +137,7 @@ export function Header() {
   const [editProjectOpen, setEditProjectOpen] = useState(false)
   const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false)
   const [deleteProjectOpen, setDeleteProjectOpen] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState('')
 
   // --- Entity name resolution (only read the store that matches the current route) ---
   const pathname = location.pathname
@@ -698,16 +700,34 @@ export function Header() {
       />
 
       {/* Delete workspace confirmation */}
-      <AlertDialog open={deleteWorkspaceOpen} onOpenChange={setDeleteWorkspaceOpen}>
+      <AlertDialog
+        open={deleteWorkspaceOpen}
+        onOpenChange={(open) => { setDeleteWorkspaceOpen(open); if (!open) setDeleteConfirm('') }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('workspaces.delete_workspace')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('workspaces.delete_workspace_description')}</AlertDialogDescription>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>{t('workspaces.delete_workspace_description')}</p>
+                <p className="text-sm">
+                  {t('workspaces.delete_workspace_confirm')}{' '}
+                  <span className="font-semibold text-foreground">{activeWorkspaceName}</span>
+                </p>
+                <Input
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder={activeWorkspaceName}
+                  className="mt-2"
+                />
+              </div>
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              className="!bg-destructive !text-white hover:!bg-destructive/90"
+              disabled={deleteConfirm !== activeWorkspaceName}
+              className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
               onClick={async () => {
                 const wsId = useWorkspaceStore.getState().activeWorkspaceId
                 setDeleteWorkspaceOpen(false)
@@ -722,16 +742,34 @@ export function Header() {
       </AlertDialog>
 
       {/* Delete project confirmation */}
-      <AlertDialog open={deleteProjectOpen} onOpenChange={setDeleteProjectOpen}>
+      <AlertDialog
+        open={deleteProjectOpen}
+        onOpenChange={(open) => { setDeleteProjectOpen(open); if (!open) setDeleteConfirm('') }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('project_settings.delete_confirm_title')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('project_settings.delete_confirm_description')}</AlertDialogDescription>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>{t('project_settings.delete_confirm_description')}</p>
+                <p className="text-sm">
+                  {t('project_settings.delete_confirm_type')}{' '}
+                  <span className="font-semibold text-foreground">{activeProjectName}</span>
+                </p>
+                <Input
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder={activeProjectName}
+                  className="mt-2"
+                />
+              </div>
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              className="!bg-destructive !text-white hover:!bg-destructive/90"
+              disabled={deleteConfirm !== activeProjectName}
+              className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
               onClick={async () => {
                 const wsId = useWorkspaceStore.getState().activeWorkspaceId
                 const uid = activeProjectUid
