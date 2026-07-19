@@ -155,10 +155,8 @@ interface GitSyncState {
   /** Commit + push an EXPLICIT path list (Quick actions), independent of the
    *  checkbox selection. Same flow as commitPush otherwise. */
   commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch?: string) => Promise<GitCommitResult | null>
-  /** Shared commit+push implementation behind commitPush / commitPushPaths.
-   *  `refreshAfter` recomputes the status once the push lands (Details); quick
-   *  actions pass false to avoid the buttons flashing clickable with stale paths. */
-  _commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch: string | undefined, refreshAfter: boolean) => Promise<GitCommitResult | null>
+  /** Shared commit+push implementation behind commitPush / commitPushPaths. */
+  _commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch?: string) => Promise<GitCommitResult | null>
   togglePath: (path: string) => void
   setAllSelected: (checked: boolean) => void
   setIncludeData: (scope: GitScope, id: string, value: boolean, branch?: string) => Promise<void>
@@ -281,26 +279,23 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   },
 
   commitPush: async (scope, id, message, branch) =>
-    get()._commitPushPaths(scope, id, [...get().selected], message, branch, true),
+    get()._commitPushPaths(scope, id, [...get().selected], message, branch),
 
-  // Quick actions don't auto-refresh: recomputing the status right after the push
-  // briefly repopulates the buttons with stale (pre-push) paths before the fresh
-  // status lands, so they flash clickable. The user refreshes manually instead.
   commitPushPaths: async (scope, id, paths, message, branch) =>
-    get()._commitPushPaths(scope, id, paths, message, branch, false),
+    get()._commitPushPaths(scope, id, paths, message, branch),
 
-  _commitPushPaths: async (scope, id, paths, message, branch, refreshAfter) => {
+  _commitPushPaths: async (scope, id, paths, message, branch) => {
     set({ committing: true, error: null })
     try {
       const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
       const result = await gitCommitPush(scope, id, zip, message, branch, paths)
-      if (refreshAfter) {
-        // After a commit the pushed files are clean; refresh so the UI updates. The
-        // push advanced the anchor server-side, so re-load the sync state too (clears
-        // any "behind" banner once we're level with the remote again).
-        await get().refreshStatus(scope, id, branch)
-        if (get().syncState) await get().loadSyncState(scope, id, branch)
-      }
+      // After a commit the pushed files are clean; refresh so the UI updates and
+      // the local anchor is level with the remote again (otherwise the pushed
+      // files keep showing as "to commit"). refreshStatus flips loadingStatus, so
+      // the Quick-actions cards show the spinner during the recompute rather than
+      // flashing clickable — committing also stays true until the finally below.
+      await get().refreshStatus(scope, id, branch)
+      if (get().syncState) await get().loadSyncState(scope, id, branch)
       return result
     } catch (err) {
       set({ error: toGitError(err) })

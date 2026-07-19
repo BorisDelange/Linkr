@@ -96,9 +96,10 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const quickActions = buildQuickActions(scope, files.map((f) => f.path))
   const runQuickAction = async (qa: QuickAction) => {
     if (committing || mustPullFirst || qa.paths.length === 0) return
-    // No refresh here (neither before nor after): commitPushPaths deliberately
-    // skips the post-push recompute so the buttons don't flash clickable with
-    // stale paths. The user refreshes with the button above once the push lands.
+    // commitPushPaths refreshes the status once the push lands, so the cards
+    // reflect the new remote state (the pushed files drop off) without a manual
+    // refresh — during that recompute the tab shows the computing spinner, not
+    // stale clickable buttons.
     const message = t(qa.messageKey, { author: authorName || t('versioning.quick_unknown_author') })
     const result = await commitPushPaths(scope, id, qa.paths, message, branch)
     if (result?.pushed) {
