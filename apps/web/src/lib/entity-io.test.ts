@@ -620,7 +620,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   } as unknown as CustomSchemaPreset)
 
   // Storage stub: every getter returns [] unless the section is seeded below.
-  const makeStore = (seed: { catalogs?: DataCatalog[]; ruleSets?: DqRuleSet[]; checks?: DqCustomCheck[]; presets?: CustomSchemaPreset[] } = {}) => {
+  const makeStore = (seed: { catalogs?: DataCatalog[]; ruleSets?: DqRuleSet[]; checks?: DqCustomCheck[]; presets?: CustomSchemaPreset[]; dataSources?: unknown[] } = {}) => {
     const table = (methods: Record<string, unknown>) => new Proxy(methods, {
       get: (t, prop) => (typeof prop === 'string' && prop in t ? (t as Record<string, unknown>)[prop] : async () => []),
     })
@@ -633,13 +633,14 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
           case 'dqRuleSets': return table({ getByWorkspace: async () => seed.ruleSets ?? [] })
           case 'dqCustomChecks': return table({ getByRuleSet: async () => seed.checks ?? [] })
           case 'schemaPresets': return table({ getByWorkspace: async () => seed.presets ?? [] })
+          case 'dataSources': return table({ getByWorkspace: async () => seed.dataSources ?? [] })
           default: return table({})
         }
       },
     }) as unknown as Storage
   }
 
-  const ONLY = { schemas: true, dataQuality: true, catalogs: true } as unknown as NonNullable<Parameters<typeof buildWorkspaceZip>[2]>['sections']
+  const ONLY = { schemas: true, dataQuality: true, catalogs: true, databases: true } as unknown as NonNullable<Parameters<typeof buildWorkspaceZip>[2]>['sections']
 
   const exportZip = async (seed: Parameters<typeof makeStore>[0]) => {
     const built = await buildWorkspaceZip('w1', makeStore(seed), { sections: ONLY })
@@ -647,6 +648,20 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   }
   const readGitLinks = async (zip: JSZip) =>
     JSON.parse(await zip.files['git-links.json'].async('string')) as { links: { type: string; id: string; folder: string; url: string; branch: string }[] }
+
+  it('exports a real database but skips an ATHENA vocabulary reference', async () => {
+    const zip = await exportZip({
+      dataSources: [
+        { id: 'ds-real', workspaceId: 'w1', name: 'My Postgres', sourceType: 'database', status: 'connected', createdAt: '2020', updatedAt: '2021' },
+        { id: 'ds-vocab', workspaceId: 'w1', name: 'ATHENA vocabulary - Adult ICU Rennes', sourceType: 'database', status: 'connected', isVocabularyReference: true, createdAt: '2020', updatedAt: '2021' },
+      ],
+    })
+    // The real DB is versioned; the vocabulary reference (internal ATHENA target
+    // vocabulary) is not — it must not appear as a phantom database.
+    expect(zip.files['databases/my-postgres.json']).toBeDefined()
+    expect(zip.files['databases/athena-vocabulary-adult-icu-rennes.json']).toBeUndefined()
+    expect(Object.keys(zip.files).filter(p => p.startsWith('databases/') && p.endsWith('.json'))).toHaveLength(1)
+  })
 
   it('writes a folder marker + git-links entry for a linked data-catalog', async () => {
     const zip = await exportZip({ catalogs: [CATALOG({ gitRemoteConfig: GIT })] })

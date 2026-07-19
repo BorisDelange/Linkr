@@ -1709,6 +1709,11 @@ export async function buildWorkspaceZip(
     const dataSources = await storage.dataSources.getByWorkspace(workspaceId)
     for (const ds of dataSources) {
       if (excluded[ds.id]) continue
+      // Vocabulary references (ATHENA OMOP target vocabularies imported for
+      // mapping) are an internal artifact, not a real database — the whole UI
+      // hides them (isVocabularyReference). They must not be versioned either,
+      // or the workspace shows a phantom "Databases (1)" with an empty list.
+      if ((ds as { isVocabularyReference?: boolean }).isVocabularyReference) continue
       // DataSource has no index signature; widen via unknown to destructure dynamically
       const { connectionConfig, ...rest } = ds as unknown as Record<string, unknown>
       const safeDsJson = {

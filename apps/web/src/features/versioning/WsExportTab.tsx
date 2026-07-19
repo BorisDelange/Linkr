@@ -192,7 +192,9 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
         wiki: wikiPages.length,
         plugins: pluginCount,
         schemas: schemas.length,
-        databases: dataSources.length,
+        // Exclude ATHENA vocabulary references — internal artifacts the whole UI
+        // hides and the export skips, so they must not inflate the count either.
+        databases: dataSources.filter(ds => !ds.isVocabularyReference).length,
         conceptMapping: mappingProjects.length,
         sqlScripts: sqlCollections.length,
         etl: etlPipelines.length,
