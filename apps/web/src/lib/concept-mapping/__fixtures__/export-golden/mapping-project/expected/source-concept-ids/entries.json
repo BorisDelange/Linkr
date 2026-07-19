@@ -1,0 +1,22 @@
+{
+  "columns": [
+    "badgeLabel",
+    "vocabularyId",
+    "conceptCode",
+    "sourceConceptId"
+  ],
+  "entries": [
+    [
+      "Rennes",
+      "LOINC",
+      "20112-9",
+      2000000001
+    ],
+    [
+      "Rennes",
+      "LOINC",
+      "a,b",
+      2000000002
+    ]
+  ]
+}

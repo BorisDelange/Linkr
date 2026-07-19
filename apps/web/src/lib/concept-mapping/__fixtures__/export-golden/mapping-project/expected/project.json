@@ -1,0 +1,52 @@
+{
+  "id": "proj1",
+  "entityId": "adult-icu",
+  "name": {
+    "en": "Adult ICU",
+    "fr": "Réanimation adulte"
+  },
+  "description": {
+    "en": "ICU mapping"
+  },
+  "status": "in_progress",
+  "sourceType": "file",
+  "dataSourceId": "",
+  "badges": [
+    {
+      "id": "b1",
+      "label": {
+        "en": "Rennes"
+      },
+      "color": "blue"
+    }
+  ],
+  "fileSourceData": {
+    "fileName": "source-concepts.csv",
+    "columns": [
+      "terminology",
+      "concept_code",
+      "concept_name"
+    ],
+    "columnMapping": {
+      "terminologyColumn": "terminology",
+      "conceptCodeColumn": "concept_code",
+      "conceptNameColumn": "concept_name"
+    },
+    "rows": [],
+    "totalRowCount": 2
+  },
+  "organization": {
+    "id": "org1",
+    "name": {
+      "en": "CHU Rennes"
+    },
+    "type": "hospital",
+    "location": {
+      "en": "Rennes"
+    },
+    "country": {
+      "en": "France"
+    },
+    "website": "https://chu-rennes.fr"
+  }
+}

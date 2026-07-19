@@ -1,0 +1,28 @@
+[
+  {
+    "sourceConceptId": 1,
+    "sourceConceptName": "first",
+    "sourceVocabularyId": "LOINC",
+    "sourceConceptCode": "AA",
+    "targetConceptId": 3000905,
+    "targetConceptName": "Tidal volume",
+    "targetVocabularyId": "LOINC",
+    "targetConceptCode": "20112-9",
+    "equivalence": "skos:exactMatch",
+    "status": "unchecked",
+    "mappedBy": "Boris"
+  },
+  {
+    "sourceConceptId": 1,
+    "sourceConceptName": "last",
+    "sourceVocabularyId": "LOINC",
+    "sourceConceptCode": "ZZ",
+    "targetConceptId": 3000905,
+    "targetConceptName": "Tidal volume",
+    "targetVocabularyId": "LOINC",
+    "targetConceptCode": "20112-9",
+    "equivalence": "skos:exactMatch",
+    "status": "unchecked",
+    "mappedBy": "Boris"
+  }
+]
