@@ -8,6 +8,7 @@ Python tests use. This proves the full server path, not just the pure builder.
 
 import base64
 import json
+import os
 from pathlib import Path
 
 from app.models.mapping_project import ConceptMapping, MappingProject
@@ -116,6 +117,15 @@ async def _seed(db) -> MappingProject:
 async def test_assembler_reproduces_golden_tree(db):
     project = await _seed(db)
     tree = await build_mapping_project_tree_from_db(db, project)
+
+    # The server export is the authoritative fullstack shape (the API emits every
+    # field, None → null). GOLDEN_UPDATE=1 regenerates expected/ from it; the TS
+    # golden test then asserts the front reproduces the same bytes.
+    if os.environ.get("GOLDEN_UPDATE") == "1":
+        for path, content in tree.items():
+            dest = _EXPECTED / path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content)
 
     assert sorted(tree.keys()) == _expected_paths()
     for path in _expected_paths():

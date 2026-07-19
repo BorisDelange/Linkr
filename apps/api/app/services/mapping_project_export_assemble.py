@@ -20,79 +20,30 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mapping_project import ConceptMapping, MappingProject
+from app.schemas.mapping_project import ConceptMappingResponse, MappingProjectResponse
 from app.services import blob_store
 from app.services.mapping_project_export import build_mapping_project_tree
 from app.services.source_concept_id_scope import scoped_source_concept_ids
 
-# Order of the project.json keys BEFORE stripping — must match the frontend's
-# MappingProject object insertion order so the serialized JSON is byte-identical
-# (key order is insertion-order on both sides). Stripping/resetting happens in the
-# pure builder; here we only decide which keys exist and in what order.
-_PROJECT_KEY_ORDER = (
-    "id",
-    "entityId",
-    "workspaceId",
-    "name",
-    "description",
-    "status",
-    "sourceType",
-    "dataSourceId",
-    "badges",
-    "fileSourceData",
-)
-
-# ConceptMapping columns → camelCase, in the frontend mapping object's order. Only
-# non-null values are emitted (the frontend object omits undefined fields).
-_MAPPING_FIELDS = (
-    ("source_concept_id", "sourceConceptId"),
-    ("source_concept_name", "sourceConceptName"),
-    ("source_vocabulary_id", "sourceVocabularyId"),
-    ("source_domain_id", "sourceDomainId"),
-    ("source_concept_code", "sourceConceptCode"),
-    ("target_concept_id", "targetConceptId"),
-    ("target_concept_name", "targetConceptName"),
-    ("target_vocabulary_id", "targetVocabularyId"),
-    ("target_domain_id", "targetDomainId"),
-    ("target_concept_code", "targetConceptCode"),
-    ("equivalence", "equivalence"),
-    ("status", "status"),
-    ("mapped_by", "mappedBy"),
-    ("mapped_by_details", "mappedByDetails"),
-    ("reviewed_by", "reviewedBy"),
-    ("reviewed_by_details", "reviewedByDetails"),
-    ("comments", "comments"),
-    ("reviews", "reviews"),
-    # Instance-bookkeeping id/projectId/createdAt/updatedAt are dropped by the
-    # pure builder, so they need not be emitted here.
-)
-
 
 def _project_dict(project: MappingProject) -> dict:
-    out: dict = {}
-    for key in _PROJECT_KEY_ORDER:
-        col = _CAMEL_TO_COL.get(key, key)
-        value = getattr(project, col, None)
-        if value is not None:
-            out[key] = value
-    return out
-
-
-_CAMEL_TO_COL = {
-    "entityId": "entity_id",
-    "workspaceId": "workspace_id",
-    "sourceType": "source_type",
-    "dataSourceId": "data_source_id",
-    "fileSourceData": "file_source_data",
-}
+    """The project as the CLIENT sees it in server mode — i.e. exactly what the
+    API emits: MappingProjectResponse dumped by camelCase alias, in schema order,
+    with EVERY field present (None → null, no exclude_none). Feeding this to the
+    pure builder (which strips + resets) reproduces the frontend's project.json
+    byte for byte. Building the dict by hand drifted from the real field set/order."""
+    return MappingProjectResponse.model_validate(project).model_dump(
+        by_alias=True, mode="json"
+    )
 
 
 def _mapping_dict(m: ConceptMapping) -> dict:
-    out: dict = {}
-    for col, camel in _MAPPING_FIELDS:
-        value = getattr(m, col, None)
-        if value is not None:
-            out[camel] = value
-    return out
+    """The mapping as the client sees it: ConceptMappingResponse, camelCase alias,
+    all fields present (None → null). The pure builder drops id/projectId/created/
+    updated and keeps the rest in this exact order."""
+    return ConceptMappingResponse.model_validate(m).model_dump(
+        by_alias=True, mode="json"
+    )
 
 
 def _range_dict(r) -> dict:

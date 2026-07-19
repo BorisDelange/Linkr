@@ -33,12 +33,25 @@ export interface CompactSourceConceptIdEntries {
   entries: [string, string, string, number][]
 }
 
+/**
+ * Deterministic string order for VERSIONED exports. Do NOT use localeCompare here:
+ * its result depends on the browser's locale + ICU version, so two clients (or one
+ * after a browser update) could serialize the same data in a different order →
+ * spurious git diffs, and it can't be reproduced byte-for-byte by the server's
+ * Python builder. Ordering by code point is environment-independent and matches
+ * Python's native `sorted()` — the two engines stay in lockstep. Concept codes are
+ * BMP, so JS UTF-16-unit order and Python code-point order agree.
+ */
+export function compareCodePoints(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
 /** Serialize SourceConceptIdEntry[] to compact format for export (sorted, no timestamp). */
 export function toCompactEntries(entries: SourceConceptIdEntry[]): CompactSourceConceptIdEntries {
   const rows: [string, string, string, number][] = entries.map(
     e => [e.badgeLabel, e.vocabularyId, e.conceptCode, e.sourceConceptId],
   )
-  rows.sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]))
+  rows.sort((a, b) => compareCodePoints(a[0], b[0]) || compareCodePoints(a[1], b[1]) || compareCodePoints(a[2], b[2]))
   return { columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId'], entries: rows }
 }
 
@@ -97,7 +110,7 @@ type PortableRange = Pick<SourceConceptIdRange, 'badgeLabel' | 'rangeStart' | 'r
 export function toPortableRanges(ranges: SourceConceptIdRange[]): PortableRange[] {
   return ranges
     .map(({ badgeLabel, rangeStart, rangeEnd, nextId, totalConcepts }) => ({ badgeLabel, rangeStart, rangeEnd, nextId, totalConcepts }))
-    .sort((a, b) => a.badgeLabel.localeCompare(b.badgeLabel))
+    .sort((a, b) => compareCodePoints(a.badgeLabel, b.badgeLabel))
 }
 
 /**

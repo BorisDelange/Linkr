@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries } from './source-concept-ids-io'
+import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints } from './source-concept-ids-io'
 import type { SourceConceptIdEntry } from '@/types'
 
 function entry(over: Partial<SourceConceptIdEntry> = {}): SourceConceptIdEntry {
@@ -70,6 +70,27 @@ describe('source-concept-ids-io — compact round-trip', () => {
     expect(restored[0].workspaceId).toBe('ws1')
     expect(restored[0].id).toBe('ws1__ICU__LOINC__1234-5')
     expect(restored[0].sourceConceptId).toBe(2000001)
+  })
+})
+
+describe('compareCodePoints — deterministic, environment-independent order', () => {
+  it('orders by code point, NOT locale (the two disagree on _ vs letters)', () => {
+    // Real case from a Rennes lab dictionary: localeCompare puts '2INH_' AFTER
+    // '2INHF' (it demotes punctuation), code point puts it BEFORE ('F' 0x46 <
+    // '_' 0x5F). The versioned export must use code point so the server's Python
+    // sorted() reproduces it byte for byte.
+    expect(compareCodePoints('2INHF_OBR_2INHF', '2INH_OBR_2INH')).toBe(-1)
+    expect('2INH_OBR_2INH'.localeCompare('2INHF_OBR_2INHF')).toBe(-1) // locale disagrees
+  })
+
+  it('sorts entries by code point (matches Python sorted())', () => {
+    const compact = toCompactEntries([
+      entry({ conceptCode: '961400', badgeLabel: 'Rennes' }),
+      entry({ conceptCode: '9614+1', badgeLabel: 'Rennes' }),
+      entry({ conceptCode: '0000|', badgeLabel: 'Rennes' }),
+    ])
+    // '+' (0x2B) < '0' (0x30) < '|' (0x7C) by code point.
+    expect(compact.entries.map((e) => e[2])).toEqual(['0000|', '9614+1', '961400'])
   })
 })
 

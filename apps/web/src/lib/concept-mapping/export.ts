@@ -2,6 +2,7 @@ import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptId
 import { localized } from '@/lib/localized'
 import { stripInstanceFields, attachEntityOrganization } from '@/lib/entity-io'
 import { mappingKey } from '@/lib/concept-mapping/merge'
+import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -579,9 +580,9 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
   // iteration and drift across instances, producing spurious diffs. mappingKey is
   // the merge's own row identity, so this is a total order.
   cleaned.sort((a, b) => {
-    const byCode = a.sourceConceptCode.localeCompare(b.sourceConceptCode)
+    const byCode = compareCodePoints(a.sourceConceptCode, b.sourceConceptCode)
     if (byCode !== 0) return byCode
-    return mappingKey(a as ConceptMapping).localeCompare(mappingKey(b as ConceptMapping))
+    return compareCodePoints(mappingKey(a as ConceptMapping), mappingKey(b as ConceptMapping))
   })
   return JSON.stringify(cleaned, null, 2)
 }

@@ -1,15 +1,16 @@
 {
-  "_comment": "Frozen shared input for the mapping-project export golden test. Read by BOTH the TS test (export-golden.test.ts) and the future Python builder test, so they exercise the same case. sourceCsvBase64 is the raw source-concepts.csv bytes (the git variant writes them verbatim). Deterministic: no timestamps/uuids reach the export path.",
+  "_comment": "Frozen shared input for the mapping-project export golden test, in the FULLSTACK API shape: every field present, null for absent (the API has no exclude_none). Read by BOTH the TS test (export-golden.test.ts) and the Python assembler test, so they exercise the same case and prove server==client bytes. sourceCsvBase64 is the raw source-concepts.csv (written verbatim). Deterministic: no timestamps/uuids reach the export path.",
   "project": {
     "id": "proj1",
-    "entityId": "adult-icu",
     "workspaceId": "ws1",
+    "entityId": "adult-icu",
     "name": { "en": "Adult ICU", "fr": "Réanimation adulte" },
     "description": { "en": "ICU mapping" },
     "status": "in_progress",
+    "badges": [{ "id": "b1", "label": { "en": "Rennes" }, "color": "blue" }],
     "sourceType": "file",
     "dataSourceId": "ds-local-uuid",
-    "badges": [{ "id": "b1", "label": { "en": "Rennes" }, "color": "blue" }],
+    "vocabularyDataSourceId": null,
     "fileSourceData": {
       "fileName": "source-concepts.csv",
       "columns": ["terminology", "concept_code", "concept_name"],
@@ -20,12 +21,29 @@
       },
       "rows": [],
       "totalRowCount": 2
-    }
+    },
+    "rawFileSha": "12bc9202947734e7d501f1289798dc0dbc4ac0df2e1ed549f103ead4fc9e3ca1",
+    "rawFileName": "source-concepts.csv",
+    "scoresFileSha": null,
+    "scoresFileName": null,
+    "conceptSetIds": null,
+    "stats": null,
+    "importBatches": null,
+    "gitRemoteConfig": null,
+    "origin": "user",
+    "createdById": null,
+    "createdBy": null,
+    "createdByDetails": null,
+    "organization": null,
+    "lineageId": null,
+    "parentLineageId": null,
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z"
   },
   "sourceCsvBase64": "dGVybWlub2xvZ3ksY29uY2VwdF9jb2RlLGNvbmNlcHRfbmFtZQpMT0lOQywyMDExMi05LFRpZGFsIHZvbHVtZQpMT0lOQywiYSxiIixDb21tYSBuYW1lCg==",
   "mappings": [
-    { "id": "m2", "projectId": "proj1", "sourceConceptId": 1, "sourceConceptName": "last", "sourceVocabularyId": "LOINC", "sourceConceptCode": "ZZ", "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetConceptCode": "20112-9", "equivalence": "skos:exactMatch", "status": "unchecked", "mappedBy": "Boris", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
-    { "id": "m1", "projectId": "proj1", "sourceConceptId": 1, "sourceConceptName": "first", "sourceVocabularyId": "LOINC", "sourceConceptCode": "AA", "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetConceptCode": "20112-9", "equivalence": "skos:exactMatch", "status": "unchecked", "mappedBy": "Boris", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" }
+    { "sourceConceptId": 1, "sourceConceptName": "last", "sourceVocabularyId": "LOINC", "sourceDomainId": null, "sourceConceptCode": "ZZ", "sourceFrequency": null, "sourceCategoryId": null, "sourceSubcategoryId": null, "sourceConceptClassId": null, "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetDomainId": null, "targetConceptCode": "20112-9", "targetConceptClassId": null, "targetStandardConcept": null, "conceptSetId": null, "mappingType": null, "equivalence": "skos:exactMatch", "status": "unchecked", "matchScore": null, "comments": null, "reviews": null, "mappedBy": "Boris", "mappedByDetails": null, "mappedOn": null, "assignedReviewer": null, "reviewedBy": null, "reviewedByDetails": null, "reviewedOn": null, "reviewComment": null, "id": "m2", "projectId": "proj1", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+    { "sourceConceptId": 1, "sourceConceptName": "first", "sourceVocabularyId": "LOINC", "sourceDomainId": null, "sourceConceptCode": "AA", "sourceFrequency": null, "sourceCategoryId": null, "sourceSubcategoryId": null, "sourceConceptClassId": null, "targetConceptId": 3000905, "targetConceptName": "Tidal volume", "targetVocabularyId": "LOINC", "targetDomainId": null, "targetConceptCode": "20112-9", "targetConceptClassId": null, "targetStandardConcept": null, "conceptSetId": null, "mappingType": null, "equivalence": "skos:exactMatch", "status": "unchecked", "matchScore": null, "comments": null, "reviews": null, "mappedBy": "Boris", "mappedByDetails": null, "mappedOn": null, "assignedReviewer": null, "reviewedBy": null, "reviewedByDetails": null, "reviewedOn": null, "reviewComment": null, "id": "m1", "projectId": "proj1", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" }
   ],
   "ranges": [
     { "id": "ws1__Rennes", "workspaceId": "ws1", "badgeLabel": "Rennes", "rangeStart": 2000000001, "rangeEnd": 2001000000, "nextId": 2000000003, "totalConcepts": 2, "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" }

@@ -56,3 +56,32 @@ def test_each_file_matches_golden_byte_for_byte():
     for path in _expected_paths():
         expected = (_EXPECTED / path).read_bytes()
         assert tree[path] == expected, f"content mismatch for {path}"
+
+
+def test_entries_sorted_by_code_point_matches_ts():
+    """Python's native sorted() must give the SAME order as the TS export's
+    compareCodePoints (the versioned order). '+'(0x2B) < '0'(0x30) < '|'(0x7C)."""
+    from app.services.mapping_project_export import _compact_entries
+
+    entries = [
+        {
+            "badgeLabel": "Rennes",
+            "vocabularyId": "v",
+            "conceptCode": "961400",
+            "sourceConceptId": 3,
+        },
+        {
+            "badgeLabel": "Rennes",
+            "vocabularyId": "v",
+            "conceptCode": "9614+1",
+            "sourceConceptId": 2,
+        },
+        {
+            "badgeLabel": "Rennes",
+            "vocabularyId": "v",
+            "conceptCode": "0000|",
+            "sourceConceptId": 1,
+        },
+    ]
+    codes = [row[2] for row in _compact_entries(entries)["entries"]]
+    assert codes == ["0000|", "9614+1", "961400"]
