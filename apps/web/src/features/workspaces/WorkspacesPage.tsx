@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { paths } from '@/lib/paths'
@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
+import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { EditWorkspaceDialog } from './EditWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -125,7 +126,7 @@ export function WorkspacesPage() {
       setSearchParams((prev) => { prev.delete('new'); return prev }, { replace: true })
     }
   }, [searchParams, setSearchParams])
-  const importInputRef = useRef<HTMLInputElement>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
@@ -133,6 +134,8 @@ export function WorkspacesPage() {
 
 
   // Import conflict state
+  // pending.workspace already carries gitRemoteConfig (baked in before the conflict
+  // check), so runImport re-applies the git link on duplicate/overwrite too.
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
   const [importError, setImportError] = useState<FormattedError | null>(null)
   /** Git-linked entities found in the last import (metadata only — content stays in their repos). */
@@ -213,6 +216,12 @@ export function WorkspacesPage() {
       const existingOrg = await storage.organizations.getById(parsed.organization.id)
       if (!existingOrg) await storage.organizations.create(parsed.organization)
     }
+
+    // A duplicate is a fork: it must NOT inherit the source's git link, or a
+    // later sync would push over the original repo. A plain import keeps the
+    // link set from the import source (workspace.json never carries it — export
+    // strips gitRemoteConfig — so it's only ever the clone's remote).
+    if (duplicate) delete (wsMeta as Partial<Workspace>).gitRemoteConfig
 
     // Create workspace if it doesn't exist yet, or update if overwriting
     const existingWs = await storage.workspaces.getById(targetWsId)
@@ -661,11 +670,11 @@ export function WorkspacesPage() {
     }
   }, [doImport])
 
-  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
-
+  /** Import a workspace from an uploaded ZIP or a git clone (via ImportSourceDialog).
+   *  `gitRemote` is set when cloned from git → pre-link the workspace's Versioning
+   *  page to that repo (workspace.json export strips gitRemoteConfig, so it's only
+   *  ever set here). */
+  const handleImportSource = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     try {
       // Show the modal immediately while we parse the ZIP — that step alone can take a while
       // for large workspaces.
@@ -676,6 +685,7 @@ export function WorkspacesPage() {
         setImportError({ summary: t('workspaces.import_invalid_zip'), detail: null })
         return
       }
+      if (gitRemote) parsed.workspace.gitRemoteConfig = gitRemote
 
       const existingWs = await getStorage().workspaces.getById(parsed.workspace.id)
       if (existingWs) {
@@ -704,18 +714,11 @@ export function WorkspacesPage() {
               variant="outline"
               size="sm"
               className="gap-1 text-xs"
-              onClick={() => importInputRef.current?.click()}
+              onClick={() => setImportOpen(true)}
             >
               <Upload size={14} />
               {t('common.import')}
             </Button>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".zip"
-              className="hidden"
-              onChange={handleImportFile}
-            />
             <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
               <Plus size={14} />
               {t('workspaces.create')}
@@ -850,6 +853,9 @@ export function WorkspacesPage() {
         workspace={editingWorkspace ?? undefined}
         onOpenChange={(open) => { if (!open) setEditingWorkspace(null) }}
       />
+
+      {/* Import a workspace from a ZIP or a git clone */}
+      <ImportSourceDialog open={importOpen} onOpenChange={setImportOpen} accept=".zip" onImport={handleImportSource} />
 
       {/* Import conflict dialog */}
       <ImportConflictDialog
