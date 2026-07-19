@@ -4,8 +4,8 @@ import { Info, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { isValidOrcid, normalizeOrcid } from '@/lib/user-identity'
-import { localized } from '@/lib/localized'
-import type { Role, User, UserCreateInput } from '@/types'
+import { localized, setLocalized, hasLocalizedContent } from '@/lib/localized'
+import type { Role, User, UserCreateInput, LocalizedString } from '@/types'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -53,8 +53,9 @@ interface UserDraft {
   role: string
   firstName: string
   lastName: string
-  affiliation: string
-  profession: string
+  /** Multilingual, like the profile page — edited in the active app language. */
+  affiliation: LocalizedString | string
+  profession: LocalizedString | string
   orcid: string
 }
 
@@ -82,6 +83,11 @@ function draftFromUser(u: User): UserDraft {
     profession: u.profession ?? '',
     orcid: u.orcid ?? '',
   }
+}
+
+/** Keep a possibly-multilingual field if it carries any content, else drop it. */
+function localizedOrUndefined(v: LocalizedString | string): LocalizedString | string | undefined {
+  return hasLocalizedContent(v) ? v : undefined
 }
 
 export function UsersTab() {
@@ -127,8 +133,11 @@ export function UsersTab() {
     )
   }
 
-  const setField = (key: keyof UserDraft, value: string) =>
+  const setField = (key: Exclude<keyof UserDraft, 'affiliation' | 'profession'>, value: string) =>
     setDraft((d) => ({ ...d, [key]: value }))
+  // affiliation/profession are multilingual: edit the active language, keep the other.
+  const setLocalizedField = (key: 'affiliation' | 'profession', value: string) =>
+    setDraft((d) => ({ ...d, [key]: setLocalized(d[key], i18n.language, value) }))
 
   const openAdd = () => {
     setEditing(null)
@@ -166,8 +175,8 @@ export function UsersTab() {
       role: draft.role,
       firstName: draft.firstName.trim() || undefined,
       lastName: draft.lastName.trim() || undefined,
-      affiliation: draft.affiliation.trim() || undefined,
-      profession: draft.profession.trim() || undefined,
+      affiliation: localizedOrUndefined(draft.affiliation),
+      profession: localizedOrUndefined(draft.profession),
       orcid: orcid || undefined,
     }
     try {
@@ -244,7 +253,7 @@ export function UsersTab() {
                 <TableCell className="text-sm font-medium">{user.username}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{user.firstName}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{user.lastName}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{user.affiliation}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">{localized(user.affiliation, i18n.language)}</TableCell>
                 <TableCell>
                   <Badge variant={roleBadgeVariant(user.role)} className="text-[11px]">
                     {roleName(user.role)}
@@ -344,9 +353,9 @@ export function UsersTab() {
                 <Label htmlFor="user-affiliation">{t('profile.affiliation')}</Label>
                 <Input
                   id="user-affiliation"
-                  value={draft.affiliation}
+                  value={localized(draft.affiliation, i18n.language)}
                   placeholder={t('profile.affiliation_placeholder')}
-                  onChange={(e) => setField('affiliation', e.target.value)}
+                  onChange={(e) => setLocalizedField('affiliation', e.target.value)}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -354,9 +363,9 @@ export function UsersTab() {
                   <Label htmlFor="user-profession">{t('profile.profession')}</Label>
                   <Input
                     id="user-profession"
-                    value={draft.profession}
+                    value={localized(draft.profession, i18n.language)}
                     placeholder={t('profile.profession_placeholder')}
-                    onChange={(e) => setField('profession', e.target.value)}
+                    onChange={(e) => setLocalizedField('profession', e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
