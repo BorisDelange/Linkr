@@ -537,9 +537,16 @@ export async function queryDataSourceAll(
   const step = Math.min(pageSize, SERVER_PAGE_ROWS)
   const all: Record<string, unknown>[] = []
   for (let offset = 0; ; offset += step) {
+    // ORDER BY ALL is REQUIRED, not cosmetic: LIMIT/OFFSET over a query with no
+    // total order (e.g. the deduped `source_concepts` view, whose QUALIFY
+    // row_number has no stable global order) returns INCONSISTENT rows across
+    // pages — DuckDB may reorder between offsets, so boundary rows get skipped
+    // (and others duplicated). That silently dropped ~1400 of 17k source concepts
+    // during id assignment. A deterministic order over all columns makes the
+    // page windows stable and the union complete.
     const page = await queryDataSource(
       dataSourceId,
-      `SELECT * FROM (${baseSql}) AS _src LIMIT ${step} OFFSET ${offset}`,
+      `SELECT * FROM (${baseSql}) AS _src ORDER BY ALL LIMIT ${step} OFFSET ${offset}`,
     )
     all.push(...page)
     if (page.length < step) break
