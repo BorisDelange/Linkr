@@ -305,11 +305,15 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         }
       }
 
-      // Always save range with updated nextId and totalConcepts
+      // Save the range with the advanced nextId and the CUMULATIVE assigned count.
+      // totalConcepts must be the total concepts assigned to the badge (existing +
+      // newly added this run), NOT `pairsToAssign.size` (the current run's subset):
+      // assigning one project of a shared badge would otherwise shrink totalConcepts
+      // below the real count, contradicting nextId (the "132%" confusion).
       await getStorage().sourceConceptIdRanges.save({
         ...range,
         nextId,
-        totalConcepts: pairsToAssign.size,
+        totalConcepts: existing.length + toSave.length,
         updatedAt: now,
       })
       await load()
