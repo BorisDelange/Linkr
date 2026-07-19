@@ -96,21 +96,11 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   const quickActions = buildQuickActions(scope, files.map((f) => f.path))
   const runQuickAction = async (qa: QuickAction) => {
     if (committing || mustPullFirst || qa.paths.length === 0) return
-    // Recompute status against the freshest state before pushing, so a change
-    // made since the panel was opened (or a remote advance) is reflected — the
-    // Quick actions user never hits "Refresh" manually.
-    await refreshStatus(scope, id, branch)
-    if (syncStateSupported) await loadSyncState(scope, id, branch)
-    // refreshStatus updated the store; re-read the pull gate + the still-present
-    // paths from the latest status before committing.
-    const st = useGitSyncStore.getState()
-    if (st.syncState && (st.syncState.behind || st.syncState.diverged)) return
-    const fresh = buildQuickActions(scope, (st.status?.files ?? []).map((f) => f.path))
-      .find((a) => a.messageKey === qa.messageKey)
-    const paths = fresh?.paths ?? []
-    if (paths.length === 0) return
+    // No refresh here (neither before nor after): commitPushPaths deliberately
+    // skips the post-push recompute so the buttons don't flash clickable with
+    // stale paths. The user refreshes with the button above once the push lands.
     const message = t(qa.messageKey, { author: authorName || t('versioning.quick_unknown_author') })
-    const result = await commitPushPaths(scope, id, paths, message, branch)
+    const result = await commitPushPaths(scope, id, qa.paths, message, branch)
     if (result?.pushed) {
       setPushed(true)
       setTimeout(() => setPushed(false), 2000)
@@ -134,6 +124,39 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
     </div>
   ) : null
 
+  // Branch selector + Refresh, shared by both tabs so a Quick-actions user can
+  // switch branch and refresh just like in Details (quick actions don't
+  // auto-refresh after a push — the user refreshes here once the push lands).
+  const branchRow = (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <Label className="text-xs">{t('versioning.sync_branch')}</Label>
+        <Select value={branch} onValueChange={changeBranch}>
+          <SelectTrigger className="h-8 w-44 text-xs">
+            <SelectValue placeholder={branch} />
+          </SelectTrigger>
+          <SelectContent>
+            {(branches?.branches?.length ? branches.branches : [branch]).map((b) => (
+              <SelectItem key={b} value={b} className="text-xs">
+                {b}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 gap-1.5 text-xs"
+        onClick={() => refreshStatus(scope, id, branch)}
+        disabled={loadingStatus}
+      >
+        <RefreshCw size={13} className={loadingStatus ? 'animate-spin' : undefined} />
+        {t('versioning.sync_refresh')}
+      </Button>
+    </div>
+  )
+
   // Quick mode only exists for scopes that define quick actions (mapping
   // projects today). Elsewhere the panel is the Details UI alone, no tab bar.
   const hasQuickMode = quickActions.length > 0
@@ -149,13 +172,10 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           </TabsList>
         )}
 
-        {/* Quick actions: one-click commit+push for a non-Git user. Read-only
-            branch, no file list or message. Refreshes before pushing. */}
+        {/* Quick actions: one-click commit+push for a non-Git user. Branch +
+            refresh like Details, but no file selection or commit message. */}
         <TabsContent value="quick" className="flex min-h-0 flex-1 flex-col gap-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{t('versioning.sync_branch')}:</span>
-            <span className="font-mono font-medium text-foreground">{branch}</span>
-          </div>
+          {branchRow}
 
           {loadingStatus ? (
             <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
@@ -203,33 +223,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         {/* Details: the full expert UI (branch select, refresh, file selection,
             per-file diff, custom commit message). */}
         <TabsContent value="details" className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Label className="text-xs">{t('versioning.sync_branch')}</Label>
-          <Select value={branch} onValueChange={changeBranch}>
-            <SelectTrigger className="h-8 w-44 text-xs">
-              <SelectValue placeholder={branch} />
-            </SelectTrigger>
-            <SelectContent>
-              {(branches?.branches?.length ? branches.branches : [branch]).map((b) => (
-                <SelectItem key={b} value={b} className="text-xs">
-                  {b}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          onClick={() => refreshStatus(scope, id, branch)}
-          disabled={loadingStatus}
-        >
-          <RefreshCw size={13} className={loadingStatus ? 'animate-spin' : undefined} />
-          {t('versioning.sync_refresh')}
-        </Button>
-      </div>
+      {branchRow}
 
       {pullBanner}
 
