@@ -13,6 +13,7 @@ import { cleanGitUrl } from '@/lib/git-clone'
 import { toGitError } from '@/lib/git-error-message'
 import type { GitErrorCode, GitScope } from '@/lib/api/git'
 import type { GitRemoteConfig } from '@/types'
+import { useGitSyncStore } from '@/stores/git-sync-store'
 import { GitSyncPanel } from './GitSyncPanel'
 import { GitErrorInline } from './GitErrorInline'
 import { GitTokenDialog } from './GitTokenDialog'
@@ -40,6 +41,7 @@ interface GitRepositoryTabProps {
  */
 export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderPullDialog }: GitRepositoryTabProps) {
   const { t } = useTranslation()
+  const refreshStatus = useGitSyncStore((s) => s.refreshStatus)
   const [url, setUrl] = useState(gitRemote?.url ?? '')
   const [token, setToken] = useState('')
   const [linked, setLinked] = useState(!!gitRemote?.url)
@@ -119,6 +121,10 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
     // Token is per (user, host), not stored on the entity — save it directly.
     await gitSetHostToken(linkedUrl, newToken)
     setHasToken(!!newToken)
+    // Re-run the sync status now the token changed: a private repo that was showing
+    // "auth failed" (or every file as "added" over a phantom-empty remote) resolves
+    // to the real file list without waiting for a manual refresh.
+    if (syncScope && syncId) void refreshStatus(syncScope, syncId, branch)
   }
 
   // All versioning (remote verify + push/pull sync) runs server-side, so the whole
