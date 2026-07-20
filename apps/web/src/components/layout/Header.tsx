@@ -81,6 +81,8 @@ const workspaceSegmentTitleKeys: Record<string, string> = {
   'warehouse/schemas': 'app_warehouse.nav_schemas',
   'warehouse/schema-presets': 'app_warehouse.nav_schema_presets',
   'warehouse/concept-mapping': 'app_warehouse.nav_concept_mapping',
+  'warehouse/concept-mapping/projects': 'app_warehouse.nav_concept_mapping_projects',
+  'warehouse/concept-mapping/overview': 'app_warehouse.nav_concept_mapping_overview',
   'warehouse/data-quality': 'app_warehouse.nav_data_quality',
   'warehouse/etl': 'app_warehouse.nav_etl',
   'warehouse/sql-scripts': 'app_warehouse.nav_sql_scripts',

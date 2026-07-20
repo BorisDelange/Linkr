@@ -2670,6 +2670,8 @@
     "nav_schema_presets": "Modèles de schéma",
     "nav_schemas": "Schémas",
     "nav_concept_mapping": "Alignement de concepts",
+    "nav_concept_mapping_projects": "Alignement de concepts — Projets",
+    "nav_concept_mapping_overview": "Alignement de concepts — Vue inter-projets",
     "nav_data_quality": "Qualité des données",
     "nav_etl": "Pipelines ETL",
     "nav_sql_scripts": "Collections de scripts",

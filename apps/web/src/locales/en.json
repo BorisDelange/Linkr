@@ -2670,6 +2670,8 @@
     "nav_schema_presets": "Schema Presets",
     "nav_schemas": "Schemas",
     "nav_concept_mapping": "Concept Mapping",
+    "nav_concept_mapping_projects": "Concept Mapping — Projects",
+    "nav_concept_mapping_overview": "Concept Mapping — Cross-project overview",
     "nav_data_quality": "Data Quality",
     "nav_etl": "ETL Pipelines",
     "nav_sql_scripts": "Script Collections",
