@@ -114,7 +114,7 @@ async def test_entries_scoped_to_project_pairs(client, db):
     )
 
     project = await db.get(MappingProject, "mps")
-    ranges, entries = await scoped_source_concept_ids(db, project)
+    ranges, entries, _all = await scoped_source_concept_ids(db, project)
 
     # Whole-badge range kept; entries scoped to the project's dictionary pairs.
     assert [r.badge_label for r in ranges] == ["Rennes"]
@@ -197,7 +197,7 @@ async def test_large_dictionary_not_truncated(client, db):
     )
 
     project = await db.get(MappingProject, "mpl")
-    _, entries = await scoped_source_concept_ids(db, project)
+    _, entries, _all = await scoped_source_concept_ids(db, project)
     # Every dictionary concept is in scope — none dropped by the row cap.
     assert len(entries) == n
 
@@ -220,7 +220,7 @@ async def test_no_badges_yields_nothing(client, db):
         )
     ).json()
     project = await db.get(MappingProject, "mpn")
-    ranges, entries = await scoped_source_concept_ids(db, project)
+    ranges, entries, _all = await scoped_source_concept_ids(db, project)
     assert ranges == [] and entries == []
 
 
@@ -288,5 +288,5 @@ async def test_mapping_pairs_included_even_without_dictionary(client, db):
     )
 
     project = await db.get(MappingProject, "mpm")
-    _, entries = await scoped_source_concept_ids(db, project)
+    _, entries, _all = await scoped_source_concept_ids(db, project)
     assert {(e.vocabulary_id, e.concept_code) for e in entries} == {("LOINC", "1234-5")}

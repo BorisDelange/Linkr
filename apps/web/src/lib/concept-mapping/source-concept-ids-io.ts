@@ -158,6 +158,42 @@ export function resolveImportedRange(
   }
 }
 
+/**
+ * Reconcile a range's allocation counters with the ids actually assigned to its
+ * badge. `nextId` and `totalConcepts` are written only at assign time, so a range
+ * imported from a stale export (or produced by an older buggy assign) can carry
+ * a `nextId` BELOW the highest id already handed out — a later assign would then
+ * re-hand-out ids already in use. Deriving from the real entries fixes that:
+ *
+ *  - nextId        = max(range.nextId, max(entry.sourceConceptId) + 1)
+ *  - totalConcepts = max(range.totalConcepts, entries.length)
+ *
+ * Monotone (never lowers a value), so it's safe to apply on every import and
+ * every versioning read. Entries outside the range's window are ignored (they
+ * belong to a different allocation and don't constrain this window's nextId).
+ * Pure — unit-testable.
+ */
+export function reconcileRangeWithEntries<T extends PortableRange>(
+  range: T,
+  entries: Pick<SourceConceptIdEntry, 'sourceConceptId'>[],
+): T {
+  let maxId = 0
+  let count = 0
+  for (const e of entries) {
+    const id = e.sourceConceptId
+    if (id >= range.rangeStart && id <= range.rangeEnd) {
+      count++
+      if (id > maxId) maxId = id
+    }
+  }
+  if (count === 0) return range
+  return {
+    ...range,
+    nextId: Math.max(range.nextId, maxId + 1),
+    totalConcepts: Math.max(range.totalConcepts ?? 0, count),
+  }
+}
+
 export function toPortableRanges(ranges: SourceConceptIdRange[]): PortableRange[] {
   return ranges
     .map(({ badgeLabel, rangeStart, rangeEnd, nextId, totalConcepts }) => ({ badgeLabel, rangeStart, rangeEnd, nextId, totalConcepts }))
@@ -214,7 +250,19 @@ export function mergeSourceConceptIdRegistry(
     }
   }
 
-  return { ranges: [...rangeByBadge.values()], entries: [...entryByKey.values()] }
+  // Reconcile each range with its badge's real entries: a stale export can carry
+  // a nextId below the ids already assigned, which a later assign would re-use.
+  const entriesByBadge = new Map<string, SourceConceptIdEntry[]>()
+  for (const e of entryByKey.values()) {
+    const list = entriesByBadge.get(e.badgeLabel)
+    if (list) list.push(e)
+    else entriesByBadge.set(e.badgeLabel, [e])
+  }
+  const ranges = [...rangeByBadge.values()].map((r) =>
+    reconcileRangeWithEntries(r, entriesByBadge.get(r.badgeLabel) ?? []),
+  )
+
+  return { ranges, entries: [...entryByKey.values()] }
 }
 
 /**
@@ -242,7 +290,10 @@ export async function buildProjectSourceConceptIds(
       storage.sourceConceptIdRanges.get(project.workspaceId, label),
       storage.sourceConceptIdEntries.getByWorkspaceAndBadge(project.workspaceId, label),
     ])
-    if (range) ranges.push(range)
+    // Export the allocation counters derived from the real entries, not the
+    // possibly-stale stored range row — so ranges.json never claims a nextId
+    // below the ids already assigned (which would collide on the next assign).
+    if (range) ranges.push(reconcileRangeWithEntries(range, es))
     entries.push(...es)
   }
   if (ranges.length === 0 && entries.length === 0) return
@@ -273,6 +324,15 @@ export async function importProjectSourceConceptIds(
   // window). Filled while merging ranges, consumed when reconciling entries.
   const divergedBadges = new Set<string>()
 
+  // Parse the imported entries up front — they're needed to reconcile each range's
+  // allocation counters (a stale export can carry a nextId below the ids assigned).
+  let importedEntries: SourceConceptIdEntry[] = []
+  if (entriesFile) {
+    const raw = JSON.parse(await entriesFile.async('string')) as
+      CompactSourceConceptIdEntries | SourceConceptIdEntry[]
+    importedEntries = parseSourceConceptIdEntries(raw, workspaceId)
+  }
+
   if (rangesFile) {
     // New exports carry the portable subset (no workspaceId/timestamps); older ones
     // the full object. Merge against the local range (monotone nextId, local window
@@ -283,20 +343,20 @@ export async function importProjectSourceConceptIds(
       const local = await storage.sourceConceptIdRanges.get(workspaceId, r.badgeLabel)
       const { range, windowDiverged } = resolveImportedRange(local, r)
       if (windowDiverged) divergedBadges.add(r.badgeLabel)
+      // Fold in the ids actually present for this badge (local + imported), so a
+      // stale nextId can't land below an already-assigned id.
+      const badgeEntries = importedEntries.filter((e) => e.badgeLabel === range.badgeLabel)
+      const reconciled = reconcileRangeWithEntries(range, badgeEntries)
       await storage.sourceConceptIdRanges.save({
-        ...range,
+        ...reconciled,
         workspaceId,
         createdAt: local?.createdAt ?? r.createdAt ?? now,
         updatedAt: now,
       })
     }
   }
-  if (entriesFile) {
-    const raw = JSON.parse(await entriesFile.async('string')) as
-      CompactSourceConceptIdEntries | SourceConceptIdEntry[]
-    const entries = parseSourceConceptIdEntries(raw, workspaceId)
-    if (entries.length === 0) return
+  if (importedEntries.length > 0) {
     const existing = await storage.sourceConceptIdEntries.getByWorkspace(workspaceId)
-    await storage.sourceConceptIdEntries.saveBatch(reconcileImportedEntries(entries, existing, divergedBadges))
+    await storage.sourceConceptIdEntries.saveBatch(reconcileImportedEntries(importedEntries, existing, divergedBadges))
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints, resolveImportedRange, mergeSourceConceptIdRegistry } from './source-concept-ids-io'
+import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints, resolveImportedRange, reconcileRangeWithEntries, mergeSourceConceptIdRegistry } from './source-concept-ids-io'
 import type { SourceConceptIdEntry, SourceConceptIdRange } from '@/types'
 
 function range(over: Partial<SourceConceptIdRange> = {}): SourceConceptIdRange {
@@ -115,6 +115,37 @@ describe('resolveImportedRange — safe range merge on import', () => {
   })
 })
 
+describe('reconcileRangeWithEntries — repair stale allocation counters', () => {
+  const r = { badgeLabel: 'Rennes', rangeStart: 2000000001, rangeEnd: 2001000000, nextId: 2000000001, totalConcepts: 0 }
+  const ent = (id: number) => entry({ badgeLabel: 'Rennes', sourceConceptId: id })
+
+  it('raises a stale nextId above the highest assigned id (the RiCDC bug)', () => {
+    // Stored range says nextId=…177808 but entries were assigned up to …182283 —
+    // a later assign would re-hand-out …177808…182283. nextId must jump past them.
+    const stale = { ...r, nextId: 2000177808, totalConcepts: 177807 }
+    const entries = [ent(2000000001), ent(2000182283)]
+    const fixed = reconcileRangeWithEntries(stale, entries)
+    expect(fixed.nextId).toBe(2000182284)
+    expect(fixed.totalConcepts).toBe(177807) // kept: only 2 in-window here, but stored count is higher
+  })
+
+  it('never lowers nextId or totalConcepts (monotone)', () => {
+    const ahead = { ...r, nextId: 2000500000, totalConcepts: 400000 }
+    const fixed = reconcileRangeWithEntries(ahead, [ent(2000000005)])
+    expect(fixed.nextId).toBe(2000500000)
+    expect(fixed.totalConcepts).toBe(400000)
+  })
+
+  it('ignores entries outside the window', () => {
+    const fixed = reconcileRangeWithEntries(r, [ent(2099999999)])
+    expect(fixed.nextId).toBe(r.nextId) // untouched
+  })
+
+  it('no entries → unchanged', () => {
+    expect(reconcileRangeWithEntries(r, [])).toEqual(r)
+  })
+})
+
 describe('reconcileImportedEntries — diverged-window entry handling', () => {
   it('drops a NEW concept on a diverged badge (its id is out of the local window)', () => {
     const imported = [entry({ badgeLabel: 'Rennes', conceptCode: 'new', sourceConceptId: 2020000000 })]
@@ -201,6 +232,17 @@ describe('mergeSourceConceptIdRegistry — workspace reconstruction (entries own
     const { ranges } = mergeSourceConceptIdRegistry([projA, projB], root)
     expect(ranges).toHaveLength(1)
     expect(ranges[0].nextId).toBe(2000050000)
+  })
+
+  it('ranges: reconciles nextId with the real entries when the stored range is stale', () => {
+    // The stored range claims nextId behind the ids actually assigned (RiCDC bug).
+    const root = { ranges: [pr({ nextId: 2000177808, totalConcepts: 177807 })], entries: [] }
+    const proj = {
+      ranges: [],
+      entries: [entry({ badgeLabel: 'Rennes', conceptCode: 'z', sourceConceptId: 2000182283 })],
+    }
+    const { ranges } = mergeSourceConceptIdRegistry([proj], root)
+    expect(ranges[0].nextId).toBe(2000182284) // bumped past the highest assigned id
   })
 
   it('ranges: keeps one merged range per badge', () => {

@@ -115,13 +115,18 @@ def _dictionary_pairs(project: MappingProject) -> set[tuple[str, str]]:
 
 async def scoped_source_concept_ids(
     db: AsyncSession, project: MappingProject
-) -> tuple[list[SourceConceptIdRange], list[SourceConceptIdEntry]]:
-    """Ranges + entries for the project's badges, with entries filtered to the
-    (vocab, code) the project actually carries (mappings ∪ source dictionary).
-    Ranges are returned whole (badge-level allocation, not per-concept)."""
+) -> tuple[list[SourceConceptIdRange], list[SourceConceptIdEntry], list[SourceConceptIdEntry]]:
+    """Ranges + project-scoped entries + ALL badge entries for the project's badges.
+
+    The scoped entries are filtered to the (vocab, code) the project actually
+    carries (mappings ∪ source dictionary) — that's what entries.json exports. The
+    unfiltered badge entries are also returned so range counters can be reconciled
+    against every id assigned to the badge (not just this project's slice), which
+    the caller needs to keep nextId above the real max. Ranges are returned whole
+    (badge-level allocation, not per-concept)."""
     labels = _badge_labels(project)
     if not labels:
-        return [], []
+        return [], [], []
 
     ranges_res = await db.execute(
         select(SourceConceptIdRange).where(
@@ -145,4 +150,4 @@ async def scoped_source_concept_ids(
     pairs |= await asyncio.to_thread(_dictionary_pairs, project)
 
     entries = [e for e in all_entries if (e.vocabulary_id, e.concept_code) in pairs]
-    return ranges, entries
+    return ranges, entries, all_entries

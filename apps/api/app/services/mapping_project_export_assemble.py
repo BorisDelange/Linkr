@@ -46,13 +46,30 @@ def _mapping_dict(m: ConceptMapping) -> dict:
     )
 
 
-def _range_dict(r) -> dict:
+def _range_dict(r, entries) -> dict:
+    """Range as the export writes it, with its allocation counters reconciled
+    against the ids ACTUALLY assigned to the badge. nextId/totalConcepts are only
+    updated at assign time, so a stale row (or one from an older buggy assign) can
+    claim a nextId below the ids already handed out — a later assign would then
+    re-use them. Derive nextId = max(stored, max(in-window id)+1) so the export
+    never carries a nextId below reality. Monotone (never lowers a value)."""
+    in_window = [
+        e.source_concept_id
+        for e in entries
+        if e.badge_label == r.badge_label
+        and r.range_start <= e.source_concept_id <= r.range_end
+    ]
+    next_id = r.next_id
+    total = r.total_concepts or 0
+    if in_window:
+        next_id = max(next_id, max(in_window) + 1)
+        total = max(total, len(in_window))
     return {
         "badgeLabel": r.badge_label,
         "rangeStart": r.range_start,
         "rangeEnd": r.range_end,
-        "nextId": r.next_id,
-        "totalConcepts": r.total_concepts,
+        "nextId": next_id,
+        "totalConcepts": total,
     }
 
 
@@ -74,7 +91,7 @@ async def build_mapping_project_tree_from_db(
     )
     mappings = [_mapping_dict(m) for m in mappings_res.scalars().all()]
 
-    ranges, entries = await scoped_source_concept_ids(db, project)
+    ranges, entries, all_badge_entries = await scoped_source_concept_ids(db, project)
 
     # Inline organization: the entity's own frozen snapshot, else the workspace's
     # (resolved by the caller elsewhere). The frozen snapshot on the project is
@@ -92,7 +109,7 @@ async def build_mapping_project_tree_from_db(
     return build_mapping_project_tree(
         project=_project_dict(project),
         mappings=mappings,
-        ranges=[_range_dict(r) for r in ranges],
+        ranges=[_range_dict(r, all_badge_entries) for r in ranges],
         entries=[_entry_dict(e) for e in entries],
         organization=organization,
         source_csv=source_csv,

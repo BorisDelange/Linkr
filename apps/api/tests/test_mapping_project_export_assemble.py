@@ -16,8 +16,10 @@ from app.models.source_concept_id import SourceConceptIdEntry, SourceConceptIdRa
 from app.models.workspace import Workspace
 from app.services import blob_store
 from app.services.mapping_project_export_assemble import (
+    _range_dict,
     build_mapping_project_tree_from_db,
 )
+from types import SimpleNamespace
 
 _GOLDEN = (
     Path(__file__).resolve().parents[2]
@@ -115,6 +117,34 @@ async def _seed(db) -> MappingProject:
         )
     await db.commit()
     return project
+
+
+def _rng(**kw):
+    base = dict(badge_label="Rennes", range_start=2000000001, range_end=2001000000,
+               next_id=2000000001, total_concepts=0)
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def _ent(sid):
+    return SimpleNamespace(badge_label="Rennes", source_concept_id=sid)
+
+
+def test_range_dict_reconciles_stale_next_id_with_real_entries():
+    # The RiCDC bug: stored range claims nextId below the ids actually assigned.
+    r = _rng(next_id=2000177808, total_concepts=177807)
+    entries = [_ent(2000000001), _ent(2000182283)]
+    out = _range_dict(r, entries)
+    assert out["nextId"] == 2000182284  # bumped past the highest assigned id
+    assert out["totalConcepts"] == 177807  # kept (stored count higher than in-window)
+
+
+def test_range_dict_is_monotone_and_window_scoped():
+    r = _rng(next_id=2000500000, total_concepts=400000)
+    # An id outside the window must not affect the counters; stored values win.
+    out = _range_dict(r, [_ent(2099999999), _ent(2000000005)])
+    assert out["nextId"] == 2000500000
+    assert out["totalConcepts"] == 400000
 
 
 async def test_assembler_reproduces_golden_tree(db):
