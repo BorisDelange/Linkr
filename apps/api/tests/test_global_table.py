@@ -84,6 +84,16 @@ def test_materialize_and_page_with_filters():
         _, vocab_total = gts.query_page(dest, "flat", {"sourceVocabularyId": "LOINC"}, None, 10, 0)
         assert vocab_total == 2
 
+        # Assigned source-concept-id filter (was silently ignored — no where clause).
+        _, id_total = gts.query_page(dest, "flat", {"sourceConceptId": "2000001"}, None, 10, 0)
+        assert id_total == 1
+        # Partial id matches as text.
+        _, prefix_total = gts.query_page(dest, "flat", {"sourceConceptId": "200000"}, None, 10, 0)
+        assert prefix_total == 2
+        # A non-matching id filters everything out.
+        _, none_total = gts.query_page(dest, "flat", {"sourceConceptId": "9999999"}, None, 10, 0)
+        assert none_total == 0
+
 
 def test_cache_signature_changes_with_mappings():
     projects, mappings, _, registry = _fixtures()

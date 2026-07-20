@@ -464,6 +464,15 @@ def _where(filters: dict, mode: str) -> str:
         v = filters.get(key)
         if v:
             clauses.append(f"LOWER({col}) LIKE LOWER('%{_esc(str(v))}%')")
+    # Assigned source-concept-id: the column is the RESOLVED integer id; match it as
+    # text so a partial id filters (mirrors the code/name substring filters). Without
+    # this the filter value was silently ignored (the column had a sort mapping but
+    # no where clause), so typing an id filtered nothing.
+    sci = filters.get("sourceConceptId")
+    if sci:
+        clauses.append(
+            f"CAST(resolved_source_concept_id AS VARCHAR) LIKE '%{_esc(str(sci))}%'"
+        )
     return (" WHERE " + " AND ".join(clauses)) if clauses else ""
 
 
