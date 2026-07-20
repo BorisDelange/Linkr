@@ -7,8 +7,7 @@ import { GeneralTab } from './GeneralTab'
 import { UsersTab } from './UsersTab'
 import { RolesTab } from './RolesTab'
 import { OrganizationsTab } from './OrganizationsTab'
-import { SettingsImportExportTab } from './SettingsImportExportTab'
-import { SettingsVersioningTab } from './SettingsVersioningTab'
+import { SettingsBackupSyncTab } from './SettingsBackupSyncTab'
 
 export function SettingsPage() {
   const { t } = useTranslation()
@@ -39,8 +38,7 @@ export function SettingsPage() {
             <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
             <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>
             <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>
-            <TabsTrigger value="import-export">{t('settings.tab_import_export')}</TabsTrigger>
-            <TabsTrigger value="versioning">{t('settings.tab_versioning')}</TabsTrigger>
+            <TabsTrigger value="backup-sync">{t('settings.tab_backup_sync')}</TabsTrigger>
           </TabsList>
           <TabsContent value="general">
             <GeneralTab />
@@ -54,11 +52,8 @@ export function SettingsPage() {
           <TabsContent value="roles">
             {canManageRoles ? <RolesTab /> : <NoAccessNotice />}
           </TabsContent>
-          <TabsContent value="import-export">
-            {canVersionSettings ? <SettingsImportExportTab /> : <NoAccessNotice />}
-          </TabsContent>
-          <TabsContent value="versioning">
-            {canVersionSettings ? <SettingsVersioningTab /> : <NoAccessNotice />}
+          <TabsContent value="backup-sync">
+            {canVersionSettings ? <SettingsBackupSyncTab /> : <NoAccessNotice />}
           </TabsContent>
         </Tabs>
       </div>

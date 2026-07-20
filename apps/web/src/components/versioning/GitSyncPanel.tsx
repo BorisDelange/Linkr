@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,14 @@ interface GitSyncPanelProps {
   id: string
   /** The linked branch (config default), used until the user picks another. */
   defaultBranch: string
+  /**
+   * Custom pull UI for scopes with their own resolution flow (settings uses an
+   * upsert dialog, not the mapping-project 3-way merge). When provided, the
+   * behind/diverged banner opens THIS instead of the built-in PullResolveDialog,
+   * and syncState (behind/diverged detection) is enabled for the scope. `onPulled`
+   * refreshes the push status + sync anchor, exactly like the built-in flow.
+   */
+  renderPullDialog?: (args: { branch: string; onClose: () => void; onPulled: () => void | Promise<void> }) => ReactNode
 }
 
 /**
@@ -37,13 +45,15 @@ interface GitSyncPanelProps {
  * pick a branch, tick the files to include (data files unchecked by default),
  * review each file's diff in a full-size viewer, and commit + push the selection.
  */
-export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
+export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: GitSyncPanelProps) {
   const { t } = useTranslation()
   const { status, branches, syncState, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs } =
     useGitSyncStore()
   const authorName = useAppStore((s) => s.getUserDisplayName())
   // Behind/diverged detection is only wired for mapping projects in v1.
-  const syncStateSupported = scope === 'mapping-projects'
+  // behind/diverged detection: mapping projects (built-in 3-way pull) and any scope
+  // that supplies its own pull dialog (settings uses an upsert dialog).
+  const syncStateSupported = scope === 'mapping-projects' || !!renderPullDialog
   const lfsSet = lfsPaths()
   const [branch, setBranch] = useState(defaultBranch)
   const [message, setMessage] = useState('')
@@ -384,7 +394,17 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         />
       )}
 
-      {pullOpen && (
+      {pullOpen && renderPullDialog && renderPullDialog({
+        branch,
+        onClose: () => setPullOpen(false),
+        onPulled: async () => {
+          setPullOpen(false)
+          await refreshStatus(scope, id, branch)
+          await loadSyncState(scope, id, branch)
+        },
+      })}
+
+      {pullOpen && !renderPullDialog && (
         <PullResolveDialog
           projectId={id}
           branch={branch}

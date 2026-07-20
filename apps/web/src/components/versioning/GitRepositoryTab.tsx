@@ -26,6 +26,8 @@ interface GitRepositoryTabProps {
   /** Scope + id enable the push-only sync panel once linked (server mode only). */
   syncScope?: GitScope
   syncId?: string
+  /** Custom pull UI (forwarded to GitSyncPanel) for scopes with their own pull flow. */
+  renderPullDialog?: React.ComponentProps<typeof GitSyncPanel>['renderPullDialog']
 }
 
 /**
@@ -36,7 +38,7 @@ interface GitRepositoryTabProps {
  *    disconnect) so the sync panel below gets the room to show the repo's files.
  * The branch is detected on connect and switched from the sync panel's dropdown.
  */
-export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRepositoryTabProps) {
+export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderPullDialog }: GitRepositoryTabProps) {
   const { t } = useTranslation()
   const [url, setUrl] = useState(gitRemote?.url ?? '')
   const [token, setToken] = useState('')
@@ -191,7 +193,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
         </div>
 
         {syncScope && syncId && (
-          <GitSyncPanel scope={syncScope} id={syncId} defaultBranch={branch} />
+          <GitSyncPanel scope={syncScope} id={syncId} defaultBranch={branch} renderPullDialog={renderPullDialog} />
         )}
 
         {editingToken && (
