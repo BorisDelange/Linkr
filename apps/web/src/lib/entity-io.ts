@@ -1232,6 +1232,22 @@ async function resolveEntityOrganization(
  * UUID, so import upserts by id whether it comes from inline or the sidecar.
  * No-op when there's no org to attach or the meta entry is missing.
  */
+/**
+ * Reduce an organization to its portable provenance snapshot: keep the stable
+ * UUID + descriptive fields (the OrganizationInfo shape), drop the instance
+ * timestamps (createdAt/updatedAt) the importer re-stamps. Attaching a full
+ * Organization record verbatim otherwise leaked those timestamps into the inline
+ * snapshot and churned the versioning diff on every re-export — the same reason
+ * buildWorkspaceZip strips them from its root organization.json.
+ */
+function orgSnapshot(org: OrganizationInfo): OrganizationInfo {
+  const { createdAt: _c, updatedAt: _u, ...rest } = org as OrganizationInfo & {
+    createdAt?: string
+    updatedAt?: string
+  }
+  return rest
+}
+
 export async function attachEntityOrganization(
   zip: JSZip,
   metaPath: string,
@@ -1246,7 +1262,7 @@ export async function attachEntityOrganization(
   const entry = zip.files[metaPath]
   if (!org || !entry) return
   const meta = JSON.parse(await entry.async('string'))
-  meta.organization = org
+  meta.organization = orgSnapshot(org)
   zip.file(metaPath, json(meta))
 }
 
