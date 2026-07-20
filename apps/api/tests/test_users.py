@@ -149,6 +149,43 @@ async def test_cannot_remove_last_admin(client):
     assert r.status_code == 200
 
 
+async def test_cannot_enable_password_less_account(client, db):
+    """A password-less local account can't log in, so it can't be enabled — unless a
+    password is set (in the same request is fine). Mirrors a settings-imported user."""
+    from sqlalchemy import select
+
+    from app.models.user import User
+
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/users",
+        headers=headers,
+        json={"username": "ghost", "password": "tmp", "role": "user"},
+    )
+    ghost_id = r.json()["id"]
+    # The response exposes hasPassword — never the hash itself.
+    assert r.json()["hasPassword"] is True
+    assert "passwordHash" not in r.json() and "password_hash" not in r.json()
+
+    # Make it a disabled, password-less account (as a settings import produces).
+    ghost = (await db.execute(select(User).where(User.id == ghost_id))).scalar_one()
+    ghost.password_hash = None
+    ghost.is_active = False
+    await db.commit()
+
+    assert (await client.get(f"{API}/users/{ghost_id}", headers=headers)).json()["hasPassword"] is False
+
+    # Enabling without a password is refused...
+    r = await client.patch(f"{API}/users/{ghost_id}", headers=headers, json={"isActive": True})
+    assert r.status_code == 400
+    # ...but setting a password in the same request enables it.
+    r = await client.patch(
+        f"{API}/users/{ghost_id}", headers=headers, json={"isActive": True, "password": "newpw"}
+    )
+    assert r.status_code == 200
+    assert r.json()["isActive"] is True and r.json()["hasPassword"] is True
+
+
 async def test_cannot_disable_or_delete_own_account(client):
     """Even with another admin present, you can't disable or delete yourself — the
     fast path to locking yourself out; do it from another admin's session."""

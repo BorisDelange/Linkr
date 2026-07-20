@@ -254,6 +254,13 @@ export function UsersTab() {
       size: 108,
       cell: (u) => {
         const isSelf = u.id === currentUserId
+        const disabledAccount = u.isActive === false
+        // A password-less local account can't log in, so enabling it is pointless —
+        // block it and point to setting a password first (backend enforces too).
+        const cannotEnable = disabledAccount && u.hasPassword === false
+        const enableTitle = cannotEnable
+          ? t('settings.user_enable_needs_password')
+          : disabledAccount ? t('settings.user_enable') : t('settings.user_disable')
         return (
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon-xs" onClick={() => openEdit(u)} title={t('common.edit')}>
@@ -263,11 +270,12 @@ export function UsersTab() {
               variant="ghost"
               size="icon-xs"
               onClick={() => toggleActive(u)}
-              // Can't disable your own account, nor the last active admin (backend enforces both).
-              disabled={isSelf || (u.isActive !== false && u.role === 'admin' && activeAdminCount === 1)}
-              title={isSelf ? t('settings.user_cannot_self') : u.isActive === false ? t('settings.user_enable') : t('settings.user_disable')}
+              // Can't disable your own account, nor the last active admin, nor enable a
+              // password-less local account (backend enforces all three).
+              disabled={isSelf || cannotEnable || (!disabledAccount && u.role === 'admin' && activeAdminCount === 1)}
+              title={isSelf ? t('settings.user_cannot_self') : enableTitle}
             >
-              {u.isActive === false ? <Power size={14} /> : <PowerOff size={14} />}
+              {disabledAccount ? <Power size={14} /> : <PowerOff size={14} />}
             </Button>
             <Button
               variant="ghost"

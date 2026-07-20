@@ -1,4 +1,7 @@
 from datetime import datetime
+from typing import Any
+
+from pydantic import model_validator
 
 from app.schemas.base import CamelModel
 
@@ -72,6 +75,37 @@ class UserResponse(CamelModel):
     orcid: str | None = None
     is_active: bool
     auth_provider: str
+    # Whether the account can authenticate: a local password is set, OR it's an
+    # external (SSO/LDAP) account that authenticates elsewhere. The password hash
+    # itself is never exposed — only this boolean. Drives whether the UI lets you
+    # enable the account (activating a password-less local account is pointless: it
+    # still couldn't log in).
+    has_password: bool = False
     last_login: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_has_password(cls, data: Any) -> Any:
+        # `data` is the ORM User (from_attributes). Compute has_password from the
+        # hash / auth provider without ever letting the hash into the response.
+        if isinstance(data, dict):
+            return data
+        has_hash = bool(getattr(data, "password_hash", None))
+        external = getattr(data, "auth_provider", "local") != "local"
+        # Pydantic reads declared fields off the object; inject the computed one via
+        # a shim that still resolves everything else from the ORM attributes.
+        return _UserSource(data, has_hash or external)
+
+
+class _UserSource:
+    """Attribute proxy over the ORM User that adds a computed `has_password`, so the
+    hash never has to appear as a response field."""
+
+    def __init__(self, obj: Any, has_password: bool):
+        self._obj = obj
+        self.has_password = has_password
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._obj, name)

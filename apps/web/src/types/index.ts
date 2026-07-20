@@ -20,6 +20,9 @@ export interface User {
   profession?: LocalizedString | string
   orcid?: string
   isActive?: boolean
+  /** True when the account can authenticate (a local password is set, or it's an
+   *  external SSO/LDAP account). A password-less local account can't be enabled. */
+  hasPassword?: boolean
   authProvider?: string
   lastLogin?: string
   preferences?: Record<string, unknown>

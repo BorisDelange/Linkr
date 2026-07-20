@@ -1941,6 +1941,7 @@
     "user_active_badge": "Active",
     "user_status": "Status",
     "user_cannot_self": "You cannot do this to your own account",
+    "user_enable_needs_password": "Set a password first — a password-less account can't sign in",
     "no_users": "No users",
     "tab_backup_sync": "Backup & sync",
     "tab_import": "Import",

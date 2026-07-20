@@ -50,6 +50,17 @@ async def update(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="You cannot disable your own account",
             )
+    # A local account with no password can't log in, so activating it is pointless
+    # — refuse it (set a password first, or in the same request). External (SSO/LDAP)
+    # accounts authenticate elsewhere, so they may be activated without a local password.
+    if changes.get("is_active") is True:
+        will_have_password = bool(user.password_hash) or data.password is not None
+        is_external = user.auth_provider != "local"
+        if not will_have_password and not is_external:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Set a password before enabling this account",
+            )
     # Guard against demoting/deactivating the last remaining admin.
     demoting = changes.get("role") not in (None, "admin") and user.role == "admin"
     deactivating = changes.get("is_active") is False and user.role == "admin"
