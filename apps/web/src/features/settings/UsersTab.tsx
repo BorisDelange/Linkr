@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Info, Pencil, Plus, Power, PowerOff, Trash2, Users } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
+import { useAuthStore } from '@/stores/auth-store'
 import { isValidOrcid, normalizeOrcid } from '@/lib/user-identity'
 import { localized, localizedRaw, setLocalized, seedLocalizedForEditing, hasLocalizedContent } from '@/lib/localized'
 import type { Role, User, UserCreateInput, LocalizedString } from '@/types'
+import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -36,14 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 
 interface UserDraft {
@@ -94,6 +88,8 @@ function localizedOrUndefined(v: LocalizedString | string): LocalizedString | st
 
 export function UsersTab() {
   const { t, i18n } = useTranslation()
+  // Own account id: you can't disable or delete yourself (backend enforces too).
+  const currentUserId = useAuthStore((s) => s.user?.id)
   const [users, setUsers] = useState<User[]>([])
   const [roles, setRoles] = useState<Role[]>([])
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -119,21 +115,6 @@ export function UsersTab() {
     })()
     return () => { cancelled = true }
   }, [])
-
-  // Users/roles are server-only (accounts + server-side auth). Mirror the
-  // versioning tabs: show a "requires backend" notice in client-only mode.
-  if (!isServerMode()) {
-    return (
-      <div className="flex flex-col items-center py-10">
-        <Users size={32} className="text-muted-foreground/50" />
-        <p className="mt-3 text-sm font-medium text-foreground">{t('settings.users_requires_backend')}</p>
-        <div className="mt-3 flex max-w-md items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
-          <Info size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-xs text-amber-700 dark:text-amber-300">{t('settings.users_requires_backend_description')}</p>
-        </div>
-      </div>
-    )
-  }
 
   const setField = (key: Exclude<keyof UserDraft, 'affiliation' | 'profession'>, value: string) =>
     setDraft((d) => ({ ...d, [key]: value }))
@@ -235,6 +216,92 @@ export function UsersTab() {
   const adminCount = users.filter((u) => u.role === 'admin').length
   const activeAdminCount = users.filter((u) => u.role === 'admin' && u.isActive !== false).length
 
+  const columns = useMemo<ConceptColumn<User>[]>(() => [
+    { id: 'username', header: t('settings.user_username'), accessor: (u) => u.username, filter: 'text', size: 160 },
+    { id: 'firstName', header: t('profile.first_name'), accessor: (u) => u.firstName ?? '', filter: 'text', size: 130 },
+    { id: 'lastName', header: t('profile.last_name'), accessor: (u) => u.lastName ?? '', filter: 'text', size: 130 },
+    { id: 'email', header: t('settings.user_email'), accessor: (u) => u.email ?? '', filter: 'text', size: 190, hidden: true },
+    { id: 'affiliation', header: t('profile.affiliation'), accessor: (u) => localized(u.affiliation, i18n.language), filter: 'text', size: 180 },
+    { id: 'profession', header: t('profile.profession'), accessor: (u) => localized(u.profession, i18n.language), filter: 'text', size: 150, hidden: true },
+    { id: 'orcid', header: 'ORCID', accessor: (u) => u.orcid ?? '', filter: 'text', size: 160, hidden: true },
+    {
+      id: 'role',
+      header: t('settings.user_role'),
+      accessor: (u) => u.role,
+      filter: 'select',
+      selectOptionLabel: (v) => roleName(v),
+      size: 130,
+      cell: (u) => (
+        <Badge variant={roleBadgeVariant(u.role)} className="text-[11px]">{roleName(u.role)}</Badge>
+      ),
+    },
+    {
+      id: 'status',
+      header: t('settings.user_status'),
+      accessor: (u) => (u.isActive === false ? t('settings.user_disabled_badge') : t('settings.user_active_badge')),
+      filter: 'select',
+      size: 110,
+      center: true,
+      cell: (u) => u.isActive === false
+        ? <Badge variant="outline" className="text-[11px] text-amber-600 border-amber-200 bg-amber-50 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950">{t('settings.user_disabled_badge')}</Badge>
+        : <span className="text-[11px] text-muted-foreground">{t('settings.user_active_badge')}</span>,
+    },
+    {
+      id: 'actions',
+      header: '',
+      accessor: () => '',
+      filter: 'none',
+      size: 108,
+      cell: (u) => {
+        const isSelf = u.id === currentUserId
+        return (
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-xs" onClick={() => openEdit(u)} title={t('common.edit')}>
+              <Pencil size={14} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => toggleActive(u)}
+              // Can't disable your own account, nor the last active admin (backend enforces both).
+              disabled={isSelf || (u.isActive !== false && u.role === 'admin' && activeAdminCount === 1)}
+              title={isSelf ? t('settings.user_cannot_self') : u.isActive === false ? t('settings.user_enable') : t('settings.user_disable')}
+            >
+              {u.isActive === false ? <Power size={14} /> : <PowerOff size={14} />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setDeleteTarget(u)}
+              disabled={isSelf || (u.role === 'admin' && adminCount === 1)}
+              title={isSelf ? t('settings.user_cannot_self') : t('common.delete')}
+            >
+              <Trash2 size={14} />
+            </Button>
+          </div>
+        )
+      },
+    },
+    // roleName/roleBadgeVariant/openEdit/toggleActive close over roles+state; rebuild when they change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [t, i18n.language, roles, currentUserId, adminCount, activeAdminCount])
+
+  // Users/roles are server-only (accounts + server-side auth). Mirror the
+  // versioning tabs: show a "requires backend" notice in client-only mode. Placed
+  // after all hooks so hook order stays stable.
+  if (!isServerMode()) {
+    return (
+      <div className="flex flex-col items-center py-10">
+        <Users size={32} className="text-muted-foreground/50" />
+        <p className="mt-3 text-sm font-medium text-foreground">{t('settings.users_requires_backend')}</p>
+        <div className="mt-3 flex max-w-md items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+          <Info size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <p className="text-xs text-amber-700 dark:text-amber-300">{t('settings.users_requires_backend_description')}</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -248,69 +315,16 @@ export function UsersTab() {
         </Button>
       </div>
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('settings.user_username')}</TableHead>
-              <TableHead>{t('profile.first_name')}</TableHead>
-              <TableHead>{t('profile.last_name')}</TableHead>
-              <TableHead>{t('profile.affiliation')}</TableHead>
-              <TableHead>{t('settings.user_role')}</TableHead>
-              <TableHead className="w-20" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {users.map((user) => (
-              <TableRow key={user.id}>
-                <TableCell className="text-sm font-medium">{user.username}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{user.firstName}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{user.lastName}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{localized(user.affiliation, i18n.language)}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <Badge variant={roleBadgeVariant(user.role)} className="text-[11px]">
-                      {roleName(user.role)}
-                    </Badge>
-                    {user.isActive === false && (
-                      <Badge
-                        variant="outline"
-                        className="text-[11px] text-amber-600 border-amber-200 bg-amber-50 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950"
-                      >
-                        {t('settings.user_disabled_badge')}
-                      </Badge>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon-xs" onClick={() => openEdit(user)}>
-                      <Pencil size={14} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => toggleActive(user)}
-                      // Can't disable the last active admin (backend enforces too).
-                      disabled={user.isActive !== false && user.role === 'admin' && activeAdminCount === 1}
-                      title={user.isActive === false ? t('settings.user_enable') : t('settings.user_disable')}
-                    >
-                      {user.isActive === false ? <Power size={14} /> : <PowerOff size={14} />}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => setDeleteTarget(user)}
-                      disabled={user.role === 'admin' && adminCount === 1}
-                    >
-                      <Trash2 size={14} />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      {/* Rich datatable (resize / show-hide / filter / sort), like the source-concepts
+          table. Bounded height so it scrolls; the table's own bottom margin keeps the
+          scrollbar off the last row. */}
+      <div className="h-[calc(100vh-320px)] min-h-[280px] overflow-hidden rounded-lg border">
+        <ConceptDataTable
+          data={users}
+          columns={columns}
+          rowKey={(u) => u.id}
+          emptyMessage={t('settings.no_users')}
+        />
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

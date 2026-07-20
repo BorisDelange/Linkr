@@ -38,8 +38,18 @@ async def create(db: AsyncSession, data: UserCreate) -> User:
     return user
 
 
-async def update(db: AsyncSession, user: User, data: UserUpdate) -> User:
+async def update(
+    db: AsyncSession, user: User, data: UserUpdate, acting_user: User | None = None
+) -> User:
     changes = data.model_dump(exclude_unset=True, exclude={"password"})
+    # An admin can't disable their own account (nor demote themselves out of admin)
+    # — it's the fast path to locking yourself out; do it from another admin.
+    if acting_user is not None and acting_user.id == user.id:
+        if changes.get("is_active") is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot disable your own account",
+            )
     # Guard against demoting/deactivating the last remaining admin.
     demoting = changes.get("role") not in (None, "admin") and user.role == "admin"
     deactivating = changes.get("is_active") is False and user.role == "admin"
@@ -66,7 +76,12 @@ async def update(db: AsyncSession, user: User, data: UserUpdate) -> User:
     return user
 
 
-async def delete(db: AsyncSession, user: User) -> None:
+async def delete(db: AsyncSession, user: User, acting_user: User | None = None) -> None:
+    if acting_user is not None and acting_user.id == user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account",
+        )
     if user.role == "admin" and await _active_admin_count(db) <= 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

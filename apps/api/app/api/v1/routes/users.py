@@ -59,22 +59,22 @@ async def get_user(
 async def update_user(
     user_id: int,
     body: UserUpdate,
-    _admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     user = await user_service.get(db, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return await user_service.update(db, user, body)
+    return await user_service.update(db, user, body, acting_user=admin)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
-    _admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     user = await user_service.get(db, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    await user_service.delete(db, user)
+    await user_service.delete(db, user, acting_user=admin)

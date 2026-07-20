@@ -147,3 +147,23 @@ async def test_cannot_remove_last_admin(client):
     )
     r = await client.patch(f"{API}/users/{me['id']}", headers=headers, json={"role": "user"})
     assert r.status_code == 200
+
+
+async def test_cannot_disable_or_delete_own_account(client):
+    """Even with another admin present, you can't disable or delete yourself — the
+    fast path to locking yourself out; do it from another admin's session."""
+    headers = await _bootstrap_admin(client)
+    me = (await client.get(f"{API}/users", headers=headers)).json()[0]
+    # A second admin exists, so the last-admin guard is NOT what blocks this.
+    await client.post(
+        f"{API}/users",
+        headers=headers,
+        json={"username": "admin2", "password": "pw", "role": "admin"},
+    )
+    r = await client.patch(f"{API}/users/{me['id']}", headers=headers, json={"isActive": False})
+    assert r.status_code == 400
+    assert (await client.delete(f"{API}/users/{me['id']}", headers=headers)).status_code == 400
+    # Another admin CAN disable this account.
+    other = await _login(client, "admin2")
+    r = await client.patch(f"{API}/users/{me['id']}", headers=other, json={"isActive": False})
+    assert r.status_code == 200
