@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -689,6 +690,10 @@ export function WorkspacesPage() {
       })
     }
     await useWorkspaceStore.getState().loadWorkspaces()
+    // Import creates the linked organization straight through storage (bypassing
+    // the org store), so reload it — else Settings > Organizations and the
+    // workspace's org field stay empty until a full app reload.
+    await useOrganizationStore.getState().loadOrganizations()
     await loadProjects()
   }, [loadProjects])
 
