@@ -128,3 +128,27 @@ class GitHostTokenRequest(CamelModel):
 class GitHostTokenStatus(CamelModel):
     host: str | None = None
     has_token: bool = False
+
+
+class SettingsGitConfig(CamelModel):
+    """The settings-scope git remote ({url, branch}). authToken is accepted on write
+    (stripped + stored per (user, host)) but never returned."""
+
+    url: str | None = None
+    branch: str | None = None
+    auth_token: str | None = None
+
+
+class SettingsGitConfigResponse(CamelModel):
+    url: str | None = None
+    branch: str | None = None
+
+
+class SettingsImportResponse(CamelModel):
+    orgs_created: int = 0
+    orgs_updated: int = 0
+    roles_created: int = 0
+    roles_updated: int = 0
+    users_created: int = 0
+    users_updated: int = 0
+    warnings: list[str] = []

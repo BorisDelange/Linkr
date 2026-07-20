@@ -58,6 +58,33 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       excludeOther: true,
     },
   ],
+  // "What to version" as one-click presets: all, or just one entity kind.
+  settings: [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_settings',
+      messageKey: 'versioning.quick_msg_all_settings',
+      excludeOther: true,
+    },
+    {
+      labelKey: 'versioning.quick_sync_settings_organizations',
+      descriptionKey: 'versioning.quick_desc_settings_organizations',
+      messageKey: 'versioning.quick_msg_settings_organizations',
+      patterns: [/^organizations\.json$/],
+    },
+    {
+      labelKey: 'versioning.quick_sync_settings_users',
+      descriptionKey: 'versioning.quick_desc_settings_users',
+      messageKey: 'versioning.quick_msg_settings_users',
+      patterns: [/^users\.json$/],
+    },
+    {
+      labelKey: 'versioning.quick_sync_settings_roles',
+      descriptionKey: 'versioning.quick_desc_settings_roles',
+      messageKey: 'versioning.quick_msg_settings_roles',
+      patterns: [/^roles\.json$/],
+    },
+  ],
 }
 
 /** Resolve the scope's quick actions against the current changed paths. Each

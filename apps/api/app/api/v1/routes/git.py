@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_admin, get_current_user
 from app.core.permissions import require_project_permission, require_permission
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -36,14 +36,23 @@ from app.schemas.git import (
     GitSyncStateResponse,
     GitVerifyRequest,
     GitVerifyResponse,
+    SettingsGitConfig,
+    SettingsGitConfigResponse,
+    SettingsImportResponse,
 )
 from app.services import (
+    app_settings_service,
     git_credential_service,
     git_service,
     git_sync_state_service,
+    settings_import_service,
     workspace_service,
 )
 from app.services.mapping_project_export_assemble import assemble_mapping_project_zip
+from app.services.settings_export_assemble import (
+    SettingsSelection,
+    assemble_settings_zip,
+)
 
 router = APIRouter(prefix="/git", tags=["git"])
 
@@ -939,3 +948,244 @@ async def get_host_token_status(
     if not host:
         return {"host": None, "has_token": False}
     return {"host": host, "has_token": await git_credential_service.has_token_for_host(db, user, host)}
+
+
+# --- Settings scope (account-level: organizations + users + roles) --------
+#
+# Unlike the other scopes this one is not workspace-membership gated — it manages
+# accounts, so it requires the global admin. The "entity" is the app_settings
+# singleton, addressed as /git/settings/account/... so it slots into the same
+# generic client (scope="settings", id="account") that drives the shared
+# GitRepositoryTab + GitSyncPanel. The server always BUILDS the full export tree
+# (organizations + users + roles); which files to push is chosen in the panel
+# (per-file selection / quick actions), like every other scope.
+
+SETTINGS_ID = "settings/account"
+
+
+async def _settings_remote(db: AsyncSession) -> str | None:
+    row = await app_settings_service.get_or_create(db)
+    cfg = row.git_remote_config or {}
+    return cfg.get("url") or None
+
+
+async def _settings_branch(db: AsyncSession, fallback: str | None) -> str:
+    if fallback:
+        return fallback
+    row = await app_settings_service.get_or_create(db)
+    cfg = row.git_remote_config or {}
+    return cfg.get("branch") or "main"
+
+
+async def _settings_token(db: AsyncSession, user: User) -> str | None:
+    return await git_credential_service.token_for_url(db, user, await _settings_remote(db))
+
+
+@router.get("/settings/account/config", response_model=SettingsGitConfigResponse)
+async def settings_git_config(
+    _admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    row = await app_settings_service.get_or_create(db)
+    cfg = row.git_remote_config or {}
+    return {"url": cfg.get("url"), "branch": cfg.get("branch")}
+
+
+@router.put("/settings/account/config", response_model=SettingsGitConfigResponse)
+async def set_settings_git_config(
+    body: SettingsGitConfig,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set the settings-scope git remote. The token (if any) is stripped and stored
+    per (user, host); only {url, branch} is persisted and returned."""
+    payload = {"url": body.url, "branch": body.branch}
+    if body.auth_token:
+        payload["authToken"] = body.auth_token
+    row, token = await app_settings_service.set_git_remote_config(
+        db, payload if body.url else None
+    )
+    if token and body.url:
+        await git_credential_service.set_token_for_url(db, admin, body.url, token)
+    cfg = row.git_remote_config or {}
+    return {"url": cfg.get("url"), "branch": cfg.get("branch")}
+
+
+@router.post("/settings/account/status", response_model=GitStatusResponse)
+async def settings_status(
+    file: UploadFile | None = File(None),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    remote = await _settings_remote(db)
+    result = await _guard(
+        git_service.status(
+            git_service.settings_repo_getter,
+            SETTINGS_ID,
+            await assemble_settings_zip(db, SettingsSelection()),
+            await _settings_branch(db, branch),
+            remote,
+            await _settings_token(db, user),
+        )
+    )
+    return {"linked": remote is not None, **result}
+
+
+@router.post("/settings/account/diff", response_model=GitDiffResponse)
+async def settings_diff(
+    file: UploadFile | None = File(None),
+    path: str = Form(...),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    return await _guard(
+        git_service.diff(
+            git_service.settings_repo_getter,
+            SETTINGS_ID,
+            await assemble_settings_zip(db, SettingsSelection()),
+            await _settings_branch(db, branch),
+            path,
+            await _settings_remote(db),
+            await _settings_token(db, user),
+        )
+    )
+
+
+@router.get("/settings/account/branches", response_model=GitBranchesResponse)
+async def settings_branches(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    return await git_service.branches(
+        git_service.settings_repo_getter,
+        SETTINGS_ID,
+        await _settings_remote(db),
+        await _settings_token(db, user),
+    )
+
+
+@router.get("/settings/account/sync-state", response_model=GitSyncStateResponse)
+async def settings_sync_state(
+    branch: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    return await _sync_state(
+        db,
+        "settings",
+        git_service.settings_repo_getter,
+        SETTINGS_ID,
+        await _settings_branch(db, branch),
+        await _settings_remote(db),
+        await _settings_token(db, user),
+    )
+
+
+@router.post("/settings/account/commit-push", response_model=GitCommitResponse)
+async def settings_commit_push(
+    file: UploadFile | None = File(None),
+    message: str = Form(...),
+    branch: str | None = Form(None),
+    paths: list[str] | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    remote = await _settings_remote(db)
+    if remote is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Settings are not linked to a git remote"
+        )
+    resolved_branch = await _settings_branch(db, branch)
+    row = await git_sync_state_service.get(db, "settings", SETTINGS_ID, resolved_branch)
+    result = await _guard(
+        git_service.commit_push(
+            git_service.settings_repo_getter,
+            SETTINGS_ID,
+            await assemble_settings_zip(db, SettingsSelection()),
+            resolved_branch,
+            message,
+            remote,
+            await _settings_token(db, user),
+            paths,
+            row.synced_oid if row else None,
+        )
+    )
+    if result.get("pushed") and result.get("commit"):
+        await git_sync_state_service.set_oid(
+            db, "settings", SETTINGS_ID, resolved_branch, result["commit"]["oid"]
+        )
+    return result
+
+
+@router.post("/settings/account/set-sync-state", status_code=status.HTTP_204_NO_CONTENT)
+async def settings_set_sync_state(
+    body: GitSetSyncStateRequest,
+    _admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    await git_sync_state_service.set_oid(
+        db, "settings", SETTINGS_ID, body.branch, body.synced_oid
+    )
+
+
+async def _apply_settings_zip(
+    db: AsyncSession, zip_bytes: bytes, acting_username: str | None
+) -> SettingsImportResponse:
+    import io
+    import zipfile
+
+    def _read_tree() -> dict[str, bytes]:
+        tree: dict[str, bytes] = {}
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            for name in zf.namelist():
+                if name.endswith("/"):
+                    continue
+                tree[name] = zf.read(name)
+        return tree
+
+    import asyncio
+
+    tree = await asyncio.to_thread(_read_tree)
+    report = await settings_import_service.import_settings_tree(db, tree, acting_username)
+    return SettingsImportResponse(**report.as_dict())
+
+
+@router.post("/settings/account/import-file", response_model=SettingsImportResponse)
+async def settings_import_file(
+    file: UploadFile = File(...),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a settings ZIP (organizations/users/roles) and upsert it. New users
+    land disabled (no password). Only the files present in the ZIP are applied."""
+    return await _apply_settings_zip(db, await file.read(), admin.username)
+
+
+@router.post("/settings/account/import-remote", response_model=SettingsImportResponse)
+async def settings_import_remote(
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Pull the settings tree from the configured git remote and upsert it. Anchors
+    the sync state to the fetched head so a later push is diffed correctly."""
+    remote = await _settings_remote(db)
+    if remote is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Settings are not linked to a git remote"
+        )
+    resolved_branch = await _settings_branch(db, branch)
+    try:
+        zip_bytes, cloned_oid = await git_service.clone_to_zip(
+            remote, resolved_branch, await _settings_token(db, admin)
+        )
+    except git_service.GitError as exc:
+        raise _git_http_error(exc) from exc
+    report = await _apply_settings_zip(db, zip_bytes, admin.username)
+    if cloned_oid:
+        await git_sync_state_service.set_oid(
+            db, "settings", SETTINGS_ID, resolved_branch, cloned_oid
+        )
+    return report

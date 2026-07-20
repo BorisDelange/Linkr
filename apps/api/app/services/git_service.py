@@ -1098,5 +1098,11 @@ def schema_preset_repo_getter(uid: str) -> Path:
     return _entity_repo("schema-presets", uid)
 
 
+def settings_repo_getter(uid: str) -> Path:
+    # Account-level (per-instance) settings repo: organizations + users + roles.
+    # Single working tree keyed by the fixed id "account".
+    return _entity_repo("settings", uid)
+
+
 def user_plugin_repo_getter(uid: str) -> Path:
     return _entity_repo("user-plugins", uid)

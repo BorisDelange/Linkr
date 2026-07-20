@@ -18,6 +18,9 @@ export type GitScope =
   | 'dq-rule-sets'
   | 'schema-presets'
   | 'user-plugins'
+  // Account-level settings (organizations + users + roles), id "account". The
+  // server builds the export tree; the panel drives which files to push.
+  | 'settings'
 
 export interface GitFileChange {
   path: string
@@ -159,7 +162,7 @@ export class GitRemoteError extends Error {
 
 /** Turn a non-OK git response into a GitRemoteError, parsing the {code,message}
  *  detail when present (falls back to raw text / plain error). */
-async function gitError(res: Response): Promise<GitRemoteError> {
+export async function gitError(res: Response): Promise<GitRemoteError> {
   const text = await res.text()
   try {
     const body = JSON.parse(text)

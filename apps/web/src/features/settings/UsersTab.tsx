@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Info, Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { Info, Pencil, Plus, Power, PowerOff, Trash2, Users } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { isValidOrcid, normalizeOrcid } from '@/lib/user-identity'
-import { localized, localizedRaw, setLocalized, hasLocalizedContent } from '@/lib/localized'
+import { localized, localizedRaw, setLocalized, seedLocalizedForEditing, hasLocalizedContent } from '@/lib/localized'
 import type { Role, User, UserCreateInput, LocalizedString } from '@/types'
 import { Button } from '@/components/ui/button'
 import {
@@ -71,7 +71,7 @@ const emptyDraft: UserDraft = {
   orcid: '',
 }
 
-function draftFromUser(u: User): UserDraft {
+function draftFromUser(u: User, lang: string): UserDraft {
   return {
     username: u.username,
     password: '',
@@ -79,8 +79,10 @@ function draftFromUser(u: User): UserDraft {
     role: u.role,
     firstName: u.firstName ?? '',
     lastName: u.lastName ?? '',
-    affiliation: u.affiliation ?? '',
-    profession: u.profession ?? '',
+    // Pre-fill the active language from the other one when it's blank (convenience);
+    // the input then controls the raw value, so it stays clearable.
+    affiliation: seedLocalizedForEditing(u.affiliation, lang),
+    profession: seedLocalizedForEditing(u.profession, lang),
     orcid: u.orcid ?? '',
   }
 }
@@ -148,7 +150,7 @@ export function UsersTab() {
 
   const openEdit = (u: User) => {
     setEditing(u)
-    setDraft(draftFromUser(u))
+    setDraft(draftFromUser(u, i18n.language))
     setError(null)
     setDialogOpen(true)
   }
@@ -212,6 +214,16 @@ export function UsersTab() {
     }
   }
 
+  const toggleActive = async (u: User) => {
+    try {
+      await getStorage().users.update(u.id, { isActive: u.isActive === false })
+    } finally {
+      // Backend refuses to disable the last active admin — reload to reflect the
+      // real state whether it succeeded or was rejected.
+      await load()
+    }
+  }
+
   const roleBadgeVariant = (r: string) => {
     switch (r) {
       case 'admin': return 'default' as const
@@ -221,6 +233,7 @@ export function UsersTab() {
   }
 
   const adminCount = users.filter((u) => u.role === 'admin').length
+  const activeAdminCount = users.filter((u) => u.role === 'admin' && u.isActive !== false).length
 
   return (
     <div className="space-y-4">
@@ -255,14 +268,34 @@ export function UsersTab() {
                 <TableCell className="text-sm text-muted-foreground">{user.lastName}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{localized(user.affiliation, i18n.language)}</TableCell>
                 <TableCell>
-                  <Badge variant={roleBadgeVariant(user.role)} className="text-[11px]">
-                    {roleName(user.role)}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant={roleBadgeVariant(user.role)} className="text-[11px]">
+                      {roleName(user.role)}
+                    </Badge>
+                    {user.isActive === false && (
+                      <Badge
+                        variant="outline"
+                        className="text-[11px] text-amber-600 border-amber-200 bg-amber-50 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950"
+                      >
+                        {t('settings.user_disabled_badge')}
+                      </Badge>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
                     <Button variant="ghost" size="icon-xs" onClick={() => openEdit(user)}>
                       <Pencil size={14} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => toggleActive(user)}
+                      // Can't disable the last active admin (backend enforces too).
+                      disabled={user.isActive !== false && user.role === 'admin' && activeAdminCount === 1}
+                      title={user.isActive === false ? t('settings.user_enable') : t('settings.user_disable')}
+                    >
+                      {user.isActive === false ? <Power size={14} /> : <PowerOff size={14} />}
                     </Button>
                     <Button
                       variant="ghost"

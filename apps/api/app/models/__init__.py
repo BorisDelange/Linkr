@@ -29,10 +29,12 @@ from app.models.sql_script import SqlScriptCollection, SqlScriptFile
 from app.models.wiki_page import WikiPage
 from app.models.role import Role
 from app.models.git_credential import GitCredential
+from app.models.app_settings import AppSettings
 
 __all__ = [
     "User",
     "GitCredential",
+    "AppSettings",
     "Project",
     "DataSource",
     "DataSourceFile",

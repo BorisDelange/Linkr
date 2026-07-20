@@ -55,6 +55,10 @@ const CAT = {
   catalogs: 26,
   plugins: 27,
   concept_ids: 28,
+  // Settings scope (account-level) entity groups.
+  organizations: 30,
+  users: 31,
+  roles: 32,
   attrs: 90,
   other: 99,
 } as const
@@ -130,6 +134,12 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   ],
   'schema-presets': [
     { test: /^preset\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_preset_json' },
+    ATTRS_RULE,
+  ],
+  settings: [
+    { test: /^organizations\.json$/, category: 'organizations', order: CAT.organizations, descriptionKey: 'versioning.file_desc_settings_organizations' },
+    { test: /^users\.json$/, category: 'users', order: CAT.users, descriptionKey: 'versioning.file_desc_settings_users' },
+    { test: /^roles\.json$/, category: 'roles', order: CAT.roles, descriptionKey: 'versioning.file_desc_settings_roles' },
     ATTRS_RULE,
   ],
   'user-plugins': [

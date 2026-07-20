@@ -1,0 +1,156 @@
+"""Settings (account-level) versioning: export omits secrets, import upserts by
+stable identity, and hash-less users land disabled."""
+
+import io
+import json
+import zipfile
+
+from sqlalchemy import select
+
+from app.models.organization import Organization
+from app.models.role import Role
+from app.models.user import User
+from app.services import settings_import_service
+from app.services.settings_export_assemble import (
+    SettingsSelection,
+    assemble_settings_zip,
+    build_settings_tree,
+)
+
+
+def _read_zip(data: bytes) -> dict[str, dict]:
+    out = {}
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        for name in zf.namelist():
+            out[name] = json.loads(zf.read(name).decode("utf-8"))
+    return out
+
+
+async def _seed(db):
+    db.add(Organization(id="org-1", name={"en": "RiCDC"}, website="https://ricdc.fr"))
+    db.add(
+        User(
+            username="alice",
+            email="alice@x.fr",
+            first_name="Alice",
+            affiliation={"en": "CHU"},
+            role="admin",
+            password_hash="hashed-secret",
+            is_active=True,
+        )
+    )
+    db.add(
+        Role(
+            name="curator",
+            label={"en": "Curator"},
+            scope="workspace",
+            is_system=False,
+            permissions=[],
+        )
+    )
+    await db.commit()
+
+
+async def test_export_omits_password_and_isactive(db):
+    await _seed(db)
+    tree = await build_settings_tree(db, SettingsSelection())
+    users = json.loads(tree["users.json"].decode())
+    assert users[0]["username"] == "alice"
+    # Never export the hash, is_active, or any auth/session field.
+    for forbidden in ("passwordHash", "password_hash", "isActive", "authProvider", "id"):
+        assert forbidden not in users[0]
+    assert users[0]["affiliation"] == {"en": "CHU"}
+
+
+async def test_export_omits_unchecked_entities(db):
+    await _seed(db)
+    tree = await build_settings_tree(
+        db, SettingsSelection(organizations=True, users=False, roles=False)
+    )
+    assert "organizations.json" in tree
+    assert "users.json" not in tree
+    assert "roles.json" not in tree
+
+
+async def test_export_is_deterministic(db):
+    await _seed(db)
+    a = await assemble_settings_zip(db, SettingsSelection())
+    b = await assemble_settings_zip(db, SettingsSelection())
+    assert _read_zip(a) == _read_zip(b)
+
+
+def _tree(orgs=None, users=None, roles=None) -> dict[str, bytes]:
+    tree = {}
+    if orgs is not None:
+        tree["organizations.json"] = json.dumps(orgs).encode()
+    if users is not None:
+        tree["users.json"] = json.dumps(users).encode()
+    if roles is not None:
+        tree["roles.json"] = json.dumps(roles).encode()
+    return tree
+
+
+async def test_import_new_user_is_disabled_without_password(db):
+    report = await settings_import_service.import_settings_tree(
+        db, _tree(users=[{"username": "bob", "email": "b@x.fr", "role": "user"}])
+    )
+    assert report.users_created == 1
+    bob = await db.scalar(select(User).where(User.username == "bob"))
+    assert bob.password_hash is None
+    assert bob.is_active is False  # no password → disabled until an admin sets one
+
+
+async def test_import_existing_user_keeps_password_and_active(db):
+    await _seed(db)
+    # Re-import alice with an updated affiliation.
+    await settings_import_service.import_settings_tree(
+        db,
+        _tree(users=[{"username": "alice", "affiliation": {"en": "New CHU"}, "role": "admin"}]),
+    )
+    alice = await db.scalar(select(User).where(User.username == "alice"))
+    assert alice.affiliation == {"en": "New CHU"}  # profile updated
+    assert alice.password_hash == "hashed-secret"  # untouched
+    assert alice.is_active is True  # an active account is never disabled by import
+
+
+async def test_import_unknown_role_falls_back_to_user(db):
+    report = await settings_import_service.import_settings_tree(
+        db, _tree(users=[{"username": "carol", "role": "nonexistent-role"}])
+    )
+    carol = await db.scalar(select(User).where(User.username == "carol"))
+    assert carol.role == "user"
+    assert any("nonexistent-role" in w for w in report.warnings)
+
+
+async def test_import_skips_acting_admin(db):
+    await _seed(db)
+    await settings_import_service.import_settings_tree(
+        db,
+        _tree(users=[{"username": "alice", "role": "user"}]),
+        acting_username="alice",
+    )
+    alice = await db.scalar(select(User).where(User.username == "alice"))
+    assert alice.role == "admin"  # self not rewritten (no lockout)
+
+
+async def test_import_org_and_role_upsert(db):
+    await _seed(db)
+    await settings_import_service.import_settings_tree(
+        db,
+        _tree(
+            orgs=[{"id": "org-1", "name": {"en": "RiCDC v2"}, "website": "https://new.fr"}],
+            roles=[{"name": "curator", "label": {"en": "Data Curator"}, "scope": "workspace", "permissions": []}],
+        ),
+    )
+    org = await db.get(Organization, "org-1")
+    assert org.name == {"en": "RiCDC v2"} and org.website == "https://new.fr"
+    role = await db.scalar(select(Role).where(Role.name == "curator"))
+    assert role.label == {"en": "Data Curator"}
+
+
+async def test_import_new_role_never_system(db):
+    await settings_import_service.import_settings_tree(
+        db, _tree(roles=[{"name": "hacker", "label": {}, "isSystem": True, "permissions": []}])
+    )
+    role = await db.scalar(select(Role).where(Role.name == "hacker"))
+    assert role.is_system is False  # import can't mint a system role

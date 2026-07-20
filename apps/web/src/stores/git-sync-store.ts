@@ -39,7 +39,7 @@ export interface GitSyncError {
 // (offloading the browser), so the client sends no file — see server-export-plan
 // §5. Other scopes are still client-built; front-only always builds client-side.
 function serverBuildsZip(scope: GitScope): boolean {
-  return isServerMode() && scope === 'mapping-projects'
+  return isServerMode() && (scope === 'mapping-projects' || scope === 'settings')
 }
 
 // lfsOverrides: opt-in per-file LFS decisions applied when generating the export's
