@@ -1577,7 +1577,7 @@
     "sync_commit_push": "Valider et pousser",
     "diff_empty": "Aucune différence.",
     "remote_private": "Privé",
-    "remote_token_hint": "Optionnel. Requis uniquement pour un dépôt privé (jeton d'accès personnel).",
+    "remote_token_hint": "Optionnel. Requis uniquement pour un dépôt privé (jeton d'accès personnel). Votre jeton est enregistré pour vous et réutilisé pour tous les dépôts de cet hôte — les autres utilisateurs ne le voient jamais.",
     "remote_connect_failed": "Impossible de se connecter au dépôt",
     "change_added": "Ajouté",
     "change_modified": "Modifié",

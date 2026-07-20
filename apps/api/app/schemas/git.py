@@ -114,3 +114,17 @@ class GitVerifyResponse(CamelModel):
     ok: bool
     branches: list[str]
     default: str | None = None
+
+
+class GitHostTokenRequest(CamelModel):
+    """Store (or clear) the acting user's access token for a remote host. The host
+    is derived from `url` (a full repo URL is fine). An empty/omitted token clears
+    the stored credential for that host."""
+
+    url: str
+    token: str | None = None
+
+
+class GitHostTokenStatus(CamelModel):
+    host: str | None = None
+    has_token: bool = False

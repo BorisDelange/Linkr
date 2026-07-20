@@ -187,6 +187,30 @@ export async function gitVerifyRemote(url: string, token?: string): Promise<GitV
   return res.json()
 }
 
+export interface GitHostTokenStatus {
+  host: string | null
+  hasToken: boolean
+}
+
+/** Store (or clear, with an empty token) the CURRENT USER's git access token for
+ *  the host of `url`. Tokens are per (user, host): the same token is reused for
+ *  every repo on that host, and one user never pushes with another's token. The
+ *  token is never returned by the API. */
+export async function gitSetHostToken(url: string, token: string | null): Promise<GitHostTokenStatus> {
+  const res = await apiFetch('/api/v1/git/host-token', {
+    method: 'PUT',
+    body: JSON.stringify({ url, token: token || undefined }),
+  })
+  if (!res.ok) throw await gitError(res)
+  return res.json()
+}
+
+/** Whether the current user has a token stored for the host of `url` (presence
+ *  only — the token itself is never returned). */
+export async function gitHostTokenStatus(url: string): Promise<GitHostTokenStatus> {
+  return apiRequest<GitHostTokenStatus>(`/git/host-token?url=${encodeURIComponent(url)}`)
+}
+
 /** Clone a remote server-side, returning its content as a ZIP Blob for import,
  *  plus the cloned HEAD oid (so the import can anchor the new entity's sync
  *  state to it — see gitSetSyncState). */

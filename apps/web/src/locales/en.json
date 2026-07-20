@@ -1577,7 +1577,7 @@
     "pull_col_resolution": "Resolution",
     "diff_empty": "No differences.",
     "remote_private": "Private",
-    "remote_token_hint": "Optional. Required only for a private repository (personal access token).",
+    "remote_token_hint": "Optional. Required only for a private repository (personal access token). Your token is saved for you and reused across every repository on this host — other users never see it.",
     "remote_connect_failed": "Could not connect to the repository",
     "change_added": "Added",
     "change_modified": "Modified",

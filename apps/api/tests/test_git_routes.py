@@ -1,12 +1,15 @@
 """End-to-end git versioning routes: the router is mounted, the access token is
-encrypted at rest and never returned, and status/commit report changes."""
+stored per user (never on the entity, never returned), and status/commit report
+changes."""
 
 import io
 import zipfile
 
 from sqlalchemy import select
 
+from app.models.git_credential import GitCredential
 from app.models.project import Project
+from app.models.user import User
 
 API = "/api/v1"
 
@@ -29,7 +32,7 @@ def _zip(files: dict[str, str]) -> bytes:
     return buf.getvalue()
 
 
-async def test_git_token_encrypted_and_never_returned(client, db):
+async def test_git_token_never_persisted_on_entity(client, db):
     headers = await _bootstrap_admin(client)
     r = await client.post(
         f"{API}/projects",
@@ -46,15 +49,43 @@ async def test_git_token_encrypted_and_never_returned(client, db):
     )
     assert r.status_code == 201
     body = r.json()
-    # The token must not round-trip through the API's JSON config.
+    # The token must not round-trip through the API's JSON config...
     assert "authToken" not in body["gitRemoteConfig"]
     assert body["gitRemoteConfig"] == {"url": "https://x/y.git", "branch": "main"}
+    # ...and the entity no longer carries any token column (it's per-user now).
+    assert not hasattr(Project, "git_remote_secret")
 
-    # It is stored encrypted (not plaintext) in a dedicated column.
-    project = (
-        await db.execute(select(Project).where(Project.uid == "p-git-1"))
-    ).scalar_one()
-    assert project.git_remote_secret and project.git_remote_secret != "ghp_secret"
+
+async def test_host_token_is_stored_per_user_and_not_returned(client, db):
+    headers = await _bootstrap_admin(client)
+    # Store a token for a host via the per-user endpoint.
+    r = await client.put(
+        f"{API}/git/host-token",
+        headers=headers,
+        json={"url": "https://gitlab.com/group/repo.git", "token": "glpat-secret"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"host": "gitlab.com", "hasToken": True}
+
+    # Status endpoint reports the token is present (never the token itself).
+    r = await client.get(
+        f"{API}/git/host-token?url=https://gitlab.com/other/repo", headers=headers
+    )
+    assert r.json() == {"host": "gitlab.com", "hasToken": True}
+
+    # Stored encrypted, keyed to the acting (admin) user.
+    row = (await db.execute(select(GitCredential))).scalar_one()
+    assert row.host == "gitlab.com"
+    assert row.secret and row.secret != "glpat-secret"
+
+    # Clearing removes it.
+    r = await client.put(
+        f"{API}/git/host-token",
+        headers=headers,
+        json={"url": "https://gitlab.com/group/repo.git", "token": ""},
+    )
+    assert r.json()["hasToken"] is False
+    assert (await db.execute(select(GitCredential))).first() is None
 
 
 async def test_git_status_endpoint_reports_added_files(client):
@@ -119,11 +150,12 @@ async def test_git_mapping_project_scope(client, db):
             },
         },
     )
-    # Token encrypted, never returned in the config.
+    # Token stripped from the persisted config; the entity carries no token column.
     mp = (
         await db.execute(select(MappingProject).where(MappingProject.id == "mp-git-1"))
     ).scalar_one()
-    assert mp.git_remote_secret and mp.git_remote_secret != "glpat-secret"
+    assert "authToken" not in (mp.git_remote_config or {})
+    assert not hasattr(MappingProject, "git_remote_secret")
 
     files = {
         "file": ("export.zip", _zip({"mapping-project.json": "{}"}), "application/zip")

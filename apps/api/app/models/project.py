@@ -23,8 +23,6 @@ class Project(Base, TimestampMixin):
     short_description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    # Fernet ciphertext of the git access token; never returned by the API.
-    git_remote_secret: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(String(20))
     badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     todos: Mapped[list | None] = mapped_column(JSONB_or_JSON)

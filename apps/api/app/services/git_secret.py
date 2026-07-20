@@ -1,12 +1,10 @@
-"""Encrypted git access-token handling, shared by project & workspace services.
+"""Strip the git access token out of an incoming git_remote_config.
 
 The frontend sends the git link as `git_remote_config = {url, branch, authToken?}`.
-The token must not be persisted in that JSON (it's returned by the API); instead
-it's pulled out, encrypted with Fernet, and stored in a dedicated
-`git_remote_secret` column — mirroring data_source_service's secret handling.
+The token must never be persisted in that JSON (it's returned by the API). It is
+stored separately, per (user, host), by git_credential_service — so this module
+only splits the token off the config; the caller stores it against the user.
 """
-
-from app.core import crypto
 
 
 def split_config(config: dict | None) -> tuple[dict | None, str | None]:
@@ -23,24 +21,14 @@ def split_config(config: dict | None) -> tuple[dict | None, str | None]:
 
 
 def apply_to_entity(entity, changes: dict) -> None:
-    """Mutate `changes` in place so a git_remote_config update stores the token
-    encrypted on `entity.git_remote_secret` and keeps it out of the JSON column.
+    """Strip any `authToken` from a git_remote_config update before it's persisted.
 
-    Absence of a token in the payload leaves the stored secret untouched (editing
-    the branch/url won't wipe the credential); an explicit empty config (unlink)
-    clears it.
+    The token is stored per (user, host) by git_credential_service, never on the
+    entity — so here we only ensure it can't leak into the entity's JSON column.
+    `changes["git_remote_config"]` is rewritten in place to the token-less config;
+    `entity` is accepted for call-site symmetry but no longer mutated.
     """
     if "git_remote_config" not in changes:
         return
-    config, token = split_config(changes["git_remote_config"])
-    if config is None or config == {}:
-        entity.git_remote_secret = None
-    elif token is not None:
-        entity.git_remote_secret = crypto.encrypt(token)
+    config, _token = split_config(changes["git_remote_config"])
     changes["git_remote_config"] = config
-
-
-def token_for(entity) -> str | None:
-    """Decrypt the stored git token for a clone/push (server-side only)."""
-    secret = getattr(entity, "git_remote_secret", None)
-    return crypto.decrypt(secret) if secret else None

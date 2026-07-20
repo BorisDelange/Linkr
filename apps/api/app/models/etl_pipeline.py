@@ -26,9 +26,6 @@ class EtlPipeline(Base, TimestampMixin):
     last_run_at: Mapped[str | None] = mapped_column(String(40))
     last_run_duration_ms: Mapped[int | None] = mapped_column(Integer)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    # Encrypted git access token (Fernet); kept out of git_remote_config so it's
-    # never returned by the API. Mirrors DataSource.connection_secret.
-    git_remote_secret: Mapped[str | None] = mapped_column(Text)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # Stable creator identity (name resolved live from the directory); created_by /
     # created_by_details are the display snapshot kept for cross-instance imports.

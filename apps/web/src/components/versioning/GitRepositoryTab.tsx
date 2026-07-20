@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
-import { gitVerifyRemote } from '@/lib/api/git'
+import { gitVerifyRemote, gitSetHostToken, gitHostTokenStatus } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
 import { toGitError } from '@/lib/git-error-message'
 import type { GitErrorCode, GitScope } from '@/lib/api/git'
@@ -44,19 +44,24 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<{ code: GitErrorCode; raw: string } | null>(null)
   const [editingToken, setEditingToken] = useState(false)
-  // Whether an access token backs the current link (private repo). The backend
-  // never returns the token, so this is only known within the session that set it.
-  const [hasToken, setHasToken] = useState(!!gitRemote?.authToken)
+  // Whether the CURRENT USER has a token stored for this repo's host. Tokens are
+  // per (user, host) server-side; the token itself is never returned, only its
+  // presence — so this is fetched from the backend, not derived from the config.
+  const [hasToken, setHasToken] = useState(false)
 
   // gitRemote loads asynchronously (store fetch on mount / direct URL open), so
   // reflect a link that arrives after the first render — otherwise the tab stays
-  // on the empty connect form until the user switches tabs and remounts it.
+  // on the empty connect form until the user switches tabs and remounts it. Also
+  // fetch whether this user already has a token for the host.
   useEffect(() => {
-    if (gitRemote?.url) {
-      setLinked(true)
-      setHasToken(!!gitRemote.authToken)
-    }
-  }, [gitRemote?.url, gitRemote?.authToken])
+    if (!gitRemote?.url) return
+    setLinked(true)
+    let cancelled = false
+    gitHostTokenStatus(gitRemote.url)
+      .then((s) => { if (!cancelled) setHasToken(s.hasToken) })
+      .catch(() => { /* leave hasToken as-is */ })
+    return () => { cancelled = true }
+  }, [gitRemote?.url])
 
   const canConnect = url.trim().length > 0
   const linkedUrl = gitRemote?.url ?? url
@@ -75,11 +80,14 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
       let resolvedBranch = branch
       // Verify the remote is reachable before persisting, so a wrong URL or a
       // missing/invalid token is rejected up front. Detect the default branch too.
+      // A successful verify with a token also stores it for this user + host, so
+      // the token-less sync ops can use it afterwards.
       if (isServerMode()) {
         const check = await gitVerifyRemote(cleanUrl, token || undefined)
         if (check.default) resolvedBranch = check.default
       }
-      await onSave({ url: cleanUrl, branch: resolvedBranch, authToken: token || undefined })
+      // The link on the entity is url + branch only — the token lives per-user.
+      await onSave({ url: cleanUrl, branch: resolvedBranch })
       setUrl(cleanUrl)
       setHasToken(!!token)
       setLinked(true)
@@ -105,8 +113,9 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
   }
 
   const handleTokenSaved = async (newToken: string) => {
-    await onSave({ url: linkedUrl, branch, authToken: newToken })
-    setHasToken(true)
+    // Token is per (user, host), not stored on the entity — save it directly.
+    await gitSetHostToken(linkedUrl, newToken)
+    setHasToken(!!newToken)
   }
 
   // All versioning (remote verify + push/pull sync) runs server-side, so the whole

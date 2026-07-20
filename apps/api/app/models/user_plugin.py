@@ -19,9 +19,6 @@ class UserPlugin(Base, TimestampMixin):
     )
     files: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # filename -> code
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    # Encrypted git access token (Fernet); kept out of git_remote_config so it's
-    # never returned by the API. Mirrors DataSource.connection_secret.
-    git_remote_secret: Mapped[str | None] = mapped_column(Text)
     # Frozen origin-organization snapshot, carried across export/import.
     organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Creator provenance (see Project): created_by_id is the stable local identity;

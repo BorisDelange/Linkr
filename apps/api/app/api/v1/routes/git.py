@@ -9,8 +9,10 @@ the ZIP into the entity's git working tree and runs the requested git operation
 pull a remote in server mode (no in-browser CORS proxy needed).
 
 Read ops (status/diff/branches) require viewer; write ops (commit/push) require
-editor. Access tokens are decrypted server-side from the entity's
-git_remote_secret and never leave the server.
+editor. Access tokens are stored per (user, host) by git_credential_service and
+resolved for the acting user from the remote URL — never per entity, so one user
+never pushes with another's token. Tokens are decrypted server-side and never
+leave the server.
 """
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -26,6 +28,8 @@ from app.schemas.git import (
     GitCloneRequest,
     GitCommitResponse,
     GitDiffResponse,
+    GitHostTokenRequest,
+    GitHostTokenStatus,
     GitPullPreviewResponse,
     GitSetSyncStateRequest,
     GitStatusResponse,
@@ -34,7 +38,7 @@ from app.schemas.git import (
     GitVerifyResponse,
 )
 from app.services import (
-    git_secret,
+    git_credential_service,
     git_service,
     git_sync_state_service,
     workspace_service,
@@ -75,6 +79,12 @@ def _remote_url(entity) -> str | None:
     return cfg.get("url") or None
 
 
+async def _token(db: AsyncSession, user: User, entity) -> str | None:
+    """The acting user's git token for this entity's remote host (per-user, not
+    per-entity), or None when the entity is unlinked or the user has no token."""
+    return await git_credential_service.token_for_url(db, user, _remote_url(entity))
+
+
 async def _sync_state(
     db, scope, repo_getter, entity_id, branch, remote_url, token
 ) -> dict:
@@ -110,6 +120,8 @@ async def project_status(
     file: UploadFile = File(...),
     branch: str | None = Form(None),
     project=Depends(require_project_permission("project-settings:read")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     result = await _guard(
         git_service.status(
@@ -118,7 +130,7 @@ async def project_status(
             await file.read(),
             _default_branch(project, branch),
             _remote_url(project),
-            git_secret.token_for(project),
+            await _token(db, user, project),
         )
     )
     return {"linked": _remote_url(project) is not None, **result}
@@ -130,6 +142,8 @@ async def project_diff(
     path: str = Form(...),
     branch: str | None = Form(None),
     project=Depends(require_project_permission("project-settings:read")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     return await _guard(
         git_service.diff(
@@ -139,7 +153,7 @@ async def project_diff(
             _default_branch(project, branch),
             path,
             _remote_url(project),
-            git_secret.token_for(project),
+            await _token(db, user, project),
         )
     )
 
@@ -147,12 +161,14 @@ async def project_diff(
 @router.get("/projects/{project_uid}/branches", response_model=GitBranchesResponse)
 async def project_branches(
     project=Depends(require_project_permission("project-settings:read")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     return await git_service.branches(
         git_service.project_repo_getter,
         project.uid,
         _remote_url(project),
-        git_secret.token_for(project),
+        await _token(db, user, project),
     )
 
 
@@ -163,6 +179,8 @@ async def project_commit_push(
     branch: str | None = Form(None),
     paths: list[str] | None = Form(None),
     project=Depends(require_project_permission("project-settings:write")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     if _remote_url(project) is None:
         raise HTTPException(
@@ -176,7 +194,7 @@ async def project_commit_push(
             _default_branch(project, branch),
             message,
             _remote_url(project),
-            git_secret.token_for(project),
+            await _token(db, user, project),
             paths,
         )
     )
@@ -208,7 +226,7 @@ async def workspace_status(
             await file.read(),
             _default_branch(ws, branch),
             _remote_url(ws),
-            git_secret.token_for(ws),
+            await _token(db, _member, ws),
         )
     )
     return {"linked": _remote_url(ws) is not None, **result}
@@ -232,7 +250,7 @@ async def workspace_diff(
             _default_branch(ws, branch),
             path,
             _remote_url(ws),
-            git_secret.token_for(ws),
+            await _token(db, _member, ws),
         )
     )
 
@@ -248,7 +266,7 @@ async def workspace_branches(
         git_service.workspace_repo_getter,
         ws.id,
         _remote_url(ws),
-        git_secret.token_for(ws),
+        await _token(db, _member, ws),
     )
 
 
@@ -275,7 +293,7 @@ async def workspace_commit_push(
             _default_branch(ws, branch),
             message,
             _remote_url(ws),
-            git_secret.token_for(ws),
+            await _token(db, _member, ws),
             paths,
         )
     )
@@ -317,7 +335,7 @@ async def mapping_project_status(
             await _mapping_project_zip_bytes(db, mp, file),
             _default_branch(mp, branch),
             _remote_url(mp),
-            git_secret.token_for(mp),
+            await _token(db, user, mp),
         )
     )
     return {"linked": _remote_url(mp) is not None, **result}
@@ -345,7 +363,7 @@ async def mapping_project_diff(
             _default_branch(mp, branch),
             path,
             _remote_url(mp),
-            git_secret.token_for(mp),
+            await _token(db, user, mp),
         )
     )
 
@@ -366,7 +384,7 @@ async def mapping_project_branches(
         git_service.mapping_project_repo_getter,
         mp.id,
         _remote_url(mp),
-        git_secret.token_for(mp),
+        await _token(db, user, mp),
     )
 
 
@@ -390,7 +408,7 @@ async def mapping_project_sync_state(
         mp.id,
         _default_branch(mp, branch),
         _remote_url(mp),
-        git_secret.token_for(mp),
+        await _token(db, user, mp),
     )
 
 
@@ -420,7 +438,7 @@ async def mapping_project_pull_preview(
             _default_branch(mp, branch),
             _remote_url(mp),
             row.synced_oid if row else None,
-            git_secret.token_for(mp),
+            await _token(db, user, mp),
         )
     )
 
@@ -450,7 +468,7 @@ async def mapping_project_pull_file(
             _default_branch(mp, branch),
             path,
             _remote_url(mp),
-            git_secret.token_for(mp),
+            await _token(db, user, mp),
         )
     )
     return Response(content=data, media_type="application/octet-stream")
@@ -509,7 +527,7 @@ async def mapping_project_commit_push(
             resolved_branch,
             message,
             _remote_url(mp),
-            git_secret.token_for(mp),
+            await _token(db, user, mp),
             paths,
             row.synced_oid if row else None,
         )
@@ -562,7 +580,7 @@ async def sql_collection_status(
             await file.read(),
             _default_branch(c, branch),
             _remote_url(c),
-            git_secret.token_for(c),
+            await _token(db, user, c),
         )
     )
     return {"linked": _remote_url(c) is not None, **result}
@@ -588,7 +606,7 @@ async def sql_collection_diff(
             _default_branch(c, branch),
             path,
             _remote_url(c),
-            git_secret.token_for(c),
+            await _token(db, user, c),
         )
     )
 
@@ -607,7 +625,7 @@ async def sql_collection_branches(
         git_service.sql_collection_repo_getter,
         c.id,
         _remote_url(c),
-        git_secret.token_for(c),
+        await _token(db, user, c),
     )
 
 
@@ -638,7 +656,7 @@ async def sql_collection_commit_push(
             _default_branch(c, branch),
             message,
             _remote_url(c),
-            git_secret.token_for(c),
+            await _token(db, user, c),
             paths,
         )
     )
@@ -693,7 +711,7 @@ def _register_entity_git_routes(
                 await file.read(),
                 _default_branch(e, branch),
                 _remote_url(e),
-                git_secret.token_for(e),
+                await _token(db, user, e),
             )
         )
         return {"linked": _remote_url(e) is not None, **result}
@@ -722,7 +740,7 @@ def _register_entity_git_routes(
                 _default_branch(e, branch),
                 path,
                 _remote_url(e),
-                git_secret.token_for(e),
+                await _token(db, user, e),
             )
         )
 
@@ -740,7 +758,7 @@ def _register_entity_git_routes(
             get_fn, entity_id, db, user, read_perm, not_found
         )
         return await git_service.branches(
-            repo_getter, _entity_id(e), _remote_url(e), git_secret.token_for(e)
+            repo_getter, _entity_id(e), _remote_url(e), await _token(db, user, e)
         )
 
     @router.post(
@@ -773,7 +791,7 @@ def _register_entity_git_routes(
                 _default_branch(e, branch),
                 message,
                 _remote_url(e),
-                git_secret.token_for(e),
+                await _token(db, user, e),
                 paths,
             )
         )
@@ -843,21 +861,33 @@ _register_all_entity_git_routes()
 
 @router.post("/verify-remote", response_model=GitVerifyResponse)
 async def verify_remote(
-    body: GitVerifyRequest, _user: User = Depends(get_current_user)
+    body: GitVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """Check a remote is reachable with the given credentials before the caller
     persists the link — so an unreachable/unauthorized URL is rejected up front
-    instead of silently saved and only failing later in the sync panel."""
+    instead of silently saved and only failing later in the sync panel. On
+    success, remember the token for this user + host so the token-less sync ops
+    (status/diff/commit-push) can use it afterwards."""
     try:
-        return await git_service.verify_remote(body.url, body.token)
+        result = await git_service.verify_remote(body.url, body.token)
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
+    if body.token:
+        await git_credential_service.set_token_for_url(db, user, body.url, body.token)
+    return result
 
 
 @router.post("/clone")
-async def clone(body: GitCloneRequest, _user: User = Depends(get_current_user)):
+async def clone(
+    body: GitCloneRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     """Shallow-clone a remote server-side and stream back its content as a ZIP,
-    so the import flow works without an in-browser CORS proxy."""
+    so the import flow works without an in-browser CORS proxy. A token used here
+    is remembered for this user + host so later sync ops find it."""
     from fastapi.responses import Response
 
     try:
@@ -866,6 +896,8 @@ async def clone(body: GitCloneRequest, _user: User = Depends(get_current_user)):
         )
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
+    if body.token:
+        await git_credential_service.set_token_for_url(db, user, body.url, body.token)
     headers = {"Content-Disposition": 'attachment; filename="repo.zip"'}
     # Expose the cloned HEAD so the import flow can anchor the new entity's sync
     # state to it (see mapping_project_set_sync_state). Custom header must be
@@ -874,3 +906,36 @@ async def clone(body: GitCloneRequest, _user: User = Depends(get_current_user)):
         headers["X-Git-Cloned-Oid"] = cloned_oid
         headers["Access-Control-Expose-Headers"] = "X-Git-Cloned-Oid"
     return Response(content=data, media_type="application/zip", headers=headers)
+
+
+# --- Per-user host token management ---------------------------------------
+
+
+@router.put("/host-token", response_model=GitHostTokenStatus)
+async def set_host_token(
+    body: GitHostTokenRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Store (or clear, when the token is empty) the acting user's access token
+    for the host of `url`. The token is encrypted at rest and reused for every
+    repo on that host; it is never returned by the API."""
+    host = git_credential_service.host_of(body.url)
+    if not host:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Could not determine host from URL")
+    await git_credential_service.set_token(db, user, host, body.token)
+    return {"host": host, "has_token": bool(body.token)}
+
+
+@router.get("/host-token", response_model=GitHostTokenStatus)
+async def get_host_token_status(
+    url: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Whether the acting user has a token stored for the host of `url` (the token
+    itself is never returned — only its presence)."""
+    host = git_credential_service.host_of(url)
+    if not host:
+        return {"host": None, "has_token": False}
+    return {"host": host, "has_token": await git_credential_service.has_token_for_host(db, user, host)}
