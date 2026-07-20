@@ -47,7 +47,8 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
   // Whether the CURRENT USER has a token stored for this repo's host. Tokens are
   // per (user, host) server-side; the token itself is never returned, only its
   // presence — so this is fetched from the backend, not derived from the config.
-  const [hasToken, setHasToken] = useState(false)
+  // null = not yet known (fetch in flight); avoids flashing "No token" before it resolves.
+  const [hasToken, setHasToken] = useState<boolean | null>(null)
 
   // gitRemote loads asynchronously (store fetch on mount / direct URL open), so
   // reflect a link that arrives after the first render — otherwise the tab stays
@@ -141,10 +142,19 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
           >
             {linkedUrl}
           </a>
-          {hasToken && (
-            <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+          {/* Token status — shown once known so an absent token is visible (a private
+              repo with no token otherwise looks like a public one). Hidden while the
+              status fetch is in flight to avoid flashing a wrong "No token". */}
+          {hasToken !== null && (
+            <span
+              className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${
+                hasToken
+                  ? 'bg-muted text-muted-foreground'
+                  : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+              }`}
+            >
               <KeyRound size={10} />
-              {t('versioning.remote_private')}
+              {hasToken ? t('versioning.remote_token_set') : t('versioning.remote_no_token')}
             </span>
           )}
           <TooltipProvider delayDuration={200}>
@@ -158,7 +168,9 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId }: GitRe
                   disabled={saving}
                 >
                   <KeyRound size={13} />
-                  {t('versioning.remote_edit_token')}
+                  {/* Until the status resolves, keep the neutral "Edit"; only assert
+                      "Add" once we know there is no token. */}
+                  {hasToken === false ? t('versioning.remote_add_token') : t('versioning.remote_edit_token')}
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-xs">
