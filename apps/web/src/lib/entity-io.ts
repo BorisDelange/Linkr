@@ -1611,10 +1611,12 @@ export async function buildWorkspaceZip(
 
   // --- organization.json ---
   // The linked organization travels with the workspace so an import can
-  // reconstitute it (upsert by UUID) without a shared org registry.
+  // reconstitute it (upsert by UUID) without a shared org registry. Strip
+  // instance fields (createdAt/updatedAt) — the import re-stamps them; keeping
+  // them only produced spurious versioning diffs.
   if (workspace.organizationId) {
     const org = await storage.organizations.getById(workspace.organizationId)
-    if (org) zip.file('organization.json', json(org))
+    if (org) zip.file('organization.json', json(stripInstanceFields(org)))
   }
 
   // --- README.md (+ README.<lang>.md per extra language) ---

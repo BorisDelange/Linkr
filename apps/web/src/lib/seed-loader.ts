@@ -447,7 +447,12 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   if (manifest.organization) {
     const existing = await storage.organizations.getById(manifest.organization.id)
     if (!existing) {
-      await storage.organizations.create(manifest.organization)
+      // Export strips instance fields (createdAt/updatedAt) — re-stamp on load.
+      await storage.organizations.create({
+        ...manifest.organization,
+        createdAt: manifest.organization.createdAt ?? now,
+        updatedAt: now,
+      })
     }
   }
 
