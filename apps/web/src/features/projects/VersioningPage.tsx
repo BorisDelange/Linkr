@@ -4,13 +4,15 @@ import { useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useVersioningStore } from '@/stores/versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
+import { useRememberedVersioningTab } from '@/components/versioning/use-remembered-versioning-tab'
 import { ExportTab } from './versioning/ExportTab'
 
 export function VersioningPage() {
   const { t } = useTranslation()
   const projectUid = useAppStore((s) => s.activeProjectUid)
   const [searchParams] = useSearchParams()
-  const initialTab = searchParams.get('tab') === 'git' ? 'git' : 'export'
+  const forcedTab = searchParams.get('tab') === 'git' ? 'git' : null
+  const { initialTab, onTabChange } = useRememberedVersioningTab('projects', forcedTab)
   const { remoteConfig, loadRemoteConfig, setRemoteConfig, clearRemoteConfig } = useVersioningStore()
 
   useEffect(() => {
@@ -31,6 +33,7 @@ export function VersioningPage() {
           onSaveGitRemote={(cfg) => (cfg ? setRemoteConfig(cfg) : clearRemoteConfig())}
           exportContent={<ExportTab />}
           initialTab={initialTab}
+          onTabChange={onTabChange}
           syncScope="projects"
           syncId={projectUid ?? undefined}
         />

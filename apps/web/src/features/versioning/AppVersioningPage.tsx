@@ -4,13 +4,15 @@ import { useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
+import { useRememberedVersioningTab } from '@/components/versioning/use-remembered-versioning-tab'
 import { WsExportTab } from './WsExportTab'
 
 export function AppVersioningPage() {
   const { t } = useTranslation()
   const { wsUid } = useResolvedParams()
   const [searchParams] = useSearchParams()
-  const initialTab = searchParams.get('tab') === 'git' ? 'git' : 'export'
+  const forcedTab = searchParams.get('tab') === 'git' ? 'git' : null
+  const { initialTab, onTabChange } = useRememberedVersioningTab('workspaces', forcedTab)
   const { remoteConfig, loadRemoteConfig, setRemoteConfig, clearRemoteConfig } = useWorkspaceVersioningStore()
 
   useEffect(() => {
@@ -31,6 +33,7 @@ export function AppVersioningPage() {
           onSaveGitRemote={(cfg) => (wsUid ? (cfg ? setRemoteConfig(wsUid, cfg) : clearRemoteConfig(wsUid)) : Promise.resolve())}
           exportContent={<WsExportTab />}
           initialTab={initialTab}
+          onTabChange={onTabChange}
           syncScope="workspaces"
           syncId={wsUid ?? undefined}
         />
