@@ -14,7 +14,7 @@ export function SettingsBackupSyncTab() {
   const { t } = useTranslation()
   return (
     <Tabs defaultValue="import" className="mt-4">
-      <TabsList className="w-fit">
+      <TabsList className="mx-auto w-fit">
         <TabsTrigger value="import">{t('settings.tab_import')}</TabsTrigger>
         <TabsTrigger value="export">{t('settings.tab_export')}</TabsTrigger>
         <TabsTrigger value="git">{t('settings.tab_versioning')}</TabsTrigger>

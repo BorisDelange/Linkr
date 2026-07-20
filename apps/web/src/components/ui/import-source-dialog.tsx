@@ -40,6 +40,9 @@ interface ImportSourceDialogProps {
    * caller can link the imported entity to that repo. The existing import path is unchanged.
    */
   onImport: (file: File, gitRemote?: ImportGitRemote) => void | Promise<void>
+  /** Hide the "clone from Git" tab, leaving only ZIP upload. Used when a git remote
+   *  is already linked (there, pulling — not re-importing — is the git path). */
+  hideGit?: boolean
 }
 
 /**
@@ -49,7 +52,7 @@ interface ImportSourceDialogProps {
  * mode the git tab shows a "not available" notice — the in-browser CORS-proxy
  * clone was dropped (too fragile for too little value).
  */
-export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImport }: ImportSourceDialogProps) {
+export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImport, hideGit = false }: ImportSourceDialogProps) {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [url, setUrl] = useState('')
@@ -145,10 +148,12 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
               <FileArchive size={14} />
               {t('import_source.tab_upload')}
             </TabsTrigger>
-            <TabsTrigger value="git" className="flex-1 gap-1.5">
-              <GitBranch size={14} />
-              {t('import_source.tab_git')}
-            </TabsTrigger>
+            {!hideGit && (
+              <TabsTrigger value="git" className="flex-1 gap-1.5">
+                <GitBranch size={14} />
+                {t('import_source.tab_git')}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* Upload ZIP — drag-and-drop zone (matches the dataset upload dialog) */}
@@ -176,7 +181,8 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
             )}
           </TabsContent>
 
-          {/* Clone from Git — server-side only */}
+          {/* Clone from Git — server-side only; hidden when a remote is already linked */}
+          {!hideGit && (
           <TabsContent value="git" className="min-h-[230px] space-y-3 pt-3">
             {!serverMode ? (
               <ServerModeNotice inline className="mx-auto" />
@@ -206,6 +212,7 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
               </>
             )}
           </TabsContent>
+          )}
         </Tabs>
       </DialogContent>
     </Dialog>
