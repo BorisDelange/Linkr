@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
-import { localized, localizedRaw, setLocalized } from '@/lib/localized'
+import { localized, localizedRaw, setLocalized, seedLocalizedForEditing } from '@/lib/localized'
 import { LangHint } from '@/components/ui/lang-hint'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { Plus, Pencil, Trash2, Building2, MapPin, Globe, Mail, MoreHorizontal } from 'lucide-react'
@@ -88,13 +88,15 @@ export function OrganizationsTab() {
     if (!org) return
     setEditingId(orgId)
     const values: OrganizationInfo = {
-      name: org.name,
+      // Localized fields: pre-fill the active language from the other one when blank
+      // (convenience), so the field isn't empty just because it was only entered in
+      // one language. The input controls the raw value, so it stays clearable.
+      // Seed into baseline too, else this pre-fill would show as an unsaved change.
+      name: seedLocalizedForEditing(org.name, language),
       type: org.type ?? '',
-      // Localized fields keep their stored shape (or {}); coercing a missing one to
-      // '' would make the next setLocalized seed an empty `fr` — see emptyOrg.
-      customType: org.customType ?? {},
-      location: org.location ?? {},
-      country: org.country ?? {},
+      customType: seedLocalizedForEditing(org.customType, language),
+      location: seedLocalizedForEditing(org.location, language),
+      country: seedLocalizedForEditing(org.country, language),
       website: org.website ?? '',
       email: org.email ?? '',
       referenceId: org.referenceId ?? '',

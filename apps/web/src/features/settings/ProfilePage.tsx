@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
-import { localizedRaw, setLocalized } from '@/lib/localized'
+import { localizedRaw, setLocalized, seedLocalizedForEditing } from '@/lib/localized'
 import { LangHint } from '@/components/ui/lang-hint'
 import type { LocalizedString } from '@/types'
 import { useSaveForm } from '@/hooks/use-save-form'
@@ -33,13 +33,18 @@ interface AccountDraft {
   orcid: string
 }
 
-function accountDraftFrom(user: { firstName?: string; lastName?: string; email?: string; affiliation?: LocalizedString | string; profession?: LocalizedString | string; orcid?: string } | null): AccountDraft {
+function accountDraftFrom(
+  user: { firstName?: string; lastName?: string; email?: string; affiliation?: LocalizedString | string; profession?: LocalizedString | string; orcid?: string } | null,
+  lang: string,
+): AccountDraft {
   return {
     firstName: user?.firstName ?? '',
     lastName: user?.lastName ?? '',
     email: user?.email ?? '',
-    affiliation: user?.affiliation ?? '',
-    profession: user?.profession ?? '',
+    // Pre-fill the active language from the other one when blank; the input then
+    // controls the raw value, so it stays clearable.
+    affiliation: seedLocalizedForEditing(user?.affiliation, lang),
+    profession: seedLocalizedForEditing(user?.profession, lang),
     orcid: user?.orcid ?? '',
   }
 }
@@ -56,10 +61,12 @@ export function ProfilePage() {
     toggleDarkMode,
   } = useAppStore()
 
-  const [draft, setDraft] = useState<AccountDraft>(() => accountDraftFrom(user))
+  const [draft, setDraft] = useState<AccountDraft>(() => accountDraftFrom(user, language))
   const [passwordOpen, setPasswordOpen] = useState(false)
-  // Re-sync the draft if the stored user changes from elsewhere.
-  useEffect(() => { setDraft(accountDraftFrom(user)) }, [user?.firstName, user?.lastName, user?.email, user?.affiliation, user?.profession, user?.orcid])
+  // Re-sync the draft if the stored user changes from elsewhere. Re-runs on a
+  // language switch too, so the now-active language pre-fills from the other one
+  // when blank (accountDraftFrom seeds it).
+  useEffect(() => { setDraft(accountDraftFrom(user, language)) }, [user?.firstName, user?.lastName, user?.email, user?.affiliation, user?.profession, user?.orcid, language])
 
   const setField = (key: 'firstName' | 'lastName' | 'email' | 'orcid', value: string) => setDraft((d) => ({ ...d, [key]: value }))
   // affiliation/profession are multilingual: edit only the active app language,
@@ -70,7 +77,9 @@ export function ProfilePage() {
 
   const account = useSaveForm({
     current: draft,
-    baseline: accountDraftFrom(user),
+    // Baseline must be seeded exactly like the draft, else the FR↔EN pre-fill
+    // would read as an unsaved change.
+    baseline: accountDraftFrom(user, language),
     onSave: saveAccount,
   })
 

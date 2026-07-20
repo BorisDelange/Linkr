@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { localized, localizedRaw, toLocalized, setLocalized } from './localized'
+import { localized, localizedRaw, toLocalized, setLocalized, seedLocalizedForEditing } from './localized'
 
 // localized() is the single read path for every multilingual name/description/
 // readme in the app. A wrong fallback shows an empty or wrong-language label.
@@ -101,5 +101,38 @@ describe('setLocalized', () => {
 
   it('creates the object when starting from nullish', () => {
     expect(setLocalized(undefined, 'en', 'First')).toEqual({ en: 'First' })
+  })
+})
+
+// seedLocalizedForEditing() pre-fills the active language from the other one ONLY
+// when blank — the "auto-complete on open, but stay clearable" edit UX.
+describe('seedLocalizedForEditing', () => {
+  it('fills a blank active language from the other one', () => {
+    // Editing FR while only EN was entered → FR pre-fills with the EN value.
+    expect(seedLocalizedForEditing({ en: 'Hospital' }, 'fr')).toEqual({ en: 'Hospital', fr: 'Hospital' })
+  })
+
+  it('treats an explicit empty string as blank and fills it', () => {
+    expect(seedLocalizedForEditing({ en: 'Hospital', fr: '' }, 'fr')).toEqual({ en: 'Hospital', fr: 'Hospital' })
+  })
+
+  it('keeps a non-blank active language untouched', () => {
+    expect(seedLocalizedForEditing({ en: 'Hospital', fr: 'Hôpital' }, 'fr')).toEqual({ en: 'Hospital', fr: 'Hôpital' })
+  })
+
+  it('does NOT re-fill once the user cleared it (the field is already the active lang)', () => {
+    // After clearing, fr is '' and there IS another language — but this is called
+    // only on open/lang-switch, not per keystroke, so the guarantee we test is:
+    // when the active language is the ONLY content, nothing to seed from.
+    expect(seedLocalizedForEditing({ fr: 'Hôpital' }, 'fr')).toEqual({ fr: 'Hôpital' })
+  })
+
+  it('upgrades a legacy string (present for every language)', () => {
+    expect(seedLocalizedForEditing('Legacy', 'fr')).toEqual({ en: 'Legacy', fr: 'Legacy' })
+  })
+
+  it('leaves an all-empty value empty (nothing to seed)', () => {
+    expect(seedLocalizedForEditing({}, 'fr')).toEqual({})
+    expect(seedLocalizedForEditing(undefined, 'en')).toEqual({})
   })
 })

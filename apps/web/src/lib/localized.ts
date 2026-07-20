@@ -62,6 +62,26 @@ export function setLocalized(
 }
 
 /**
+ * Seed the active language for an edit form: if `lang`'s own value is blank
+ * (absent or an explicit empty string), pre-fill it from the best other-language
+ * value; otherwise keep it untouched. Called ONCE when a field enters editing
+ * (dialog open, language switch) — never on every keystroke — so:
+ *  - a never-touched language starts pre-filled from the other one (convenience), yet
+ *  - once shown, the input is controlled by localizedRaw, so clearing it leaves it
+ *    empty instead of snapping back to the other language.
+ * A legacy plain string is coerced to a LocalizedString first (backfilled on read).
+ */
+export function seedLocalizedForEditing(
+  value: LocalizedString | string | null | undefined,
+  lang: string,
+): LocalizedString {
+  const obj = toLocalized(value)
+  if (obj[lang] && obj[lang].trim() !== '') return obj
+  const seed = localized(value, lang)
+  return seed ? { ...obj, [lang]: seed } : obj
+}
+
+/**
  * Does a possibly-multilingual value carry any non-empty text? A plain string
  * must be non-blank; a LocalizedString must have at least one non-blank language.
  * Used to drop empty affiliation/profession from an author snapshot.
