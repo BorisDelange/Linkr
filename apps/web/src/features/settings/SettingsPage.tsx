@@ -7,6 +7,7 @@ import { GeneralTab } from './GeneralTab'
 import { UsersTab } from './UsersTab'
 import { RolesTab } from './RolesTab'
 import { OrganizationsTab } from './OrganizationsTab'
+import { SettingsImportExportTab } from './SettingsImportExportTab'
 import { SettingsVersioningTab } from './SettingsVersioningTab'
 
 export function SettingsPage() {
@@ -38,6 +39,7 @@ export function SettingsPage() {
             <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
             <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>
             <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>
+            <TabsTrigger value="import-export">{t('settings.tab_import_export')}</TabsTrigger>
             <TabsTrigger value="versioning">{t('settings.tab_versioning')}</TabsTrigger>
           </TabsList>
           <TabsContent value="general">
@@ -51,6 +53,9 @@ export function SettingsPage() {
           </TabsContent>
           <TabsContent value="roles">
             {canManageRoles ? <RolesTab /> : <NoAccessNotice />}
+          </TabsContent>
+          <TabsContent value="import-export">
+            {canVersionSettings ? <SettingsImportExportTab /> : <NoAccessNotice />}
           </TabsContent>
           <TabsContent value="versioning">
             {canVersionSettings ? <SettingsVersioningTab /> : <NoAccessNotice />}

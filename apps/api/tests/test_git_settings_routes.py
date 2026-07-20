@@ -73,6 +73,21 @@ async def test_settings_status_builds_full_tree_and_reports_added(client, tmp_pa
     assert "roles.json" in paths
 
 
+async def test_settings_export_zip_download(client):
+    headers = await _bootstrap_admin(client)
+    r = await client.get(f"{API}/git/settings/account/export", headers=headers)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    # The admin user always exists → users.json is in the tree.
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert "users.json" in names and "roles.json" in names
+
+
+async def test_settings_export_requires_admin(client):
+    r = await client.get(f"{API}/git/settings/account/export")
+    assert r.status_code in (401, 403)
+
+
 async def test_settings_import_file_creates_disabled_user(client):
     headers = await _bootstrap_admin(client)
     zip_bytes = _zip({"users.json": '[{"username": "imported", "role": "user"}]'})
@@ -85,3 +100,23 @@ async def test_settings_import_file_creates_disabled_user(client):
     users = (await client.get(f"{API}/users", headers=headers)).json()
     imported = next(u for u in users if u["username"] == "imported")
     assert imported["isActive"] is False
+
+
+async def test_settings_pull_preview_requires_remote(client):
+    """No remote configured → pull-preview is a clear 400, not a phantom-empty tree."""
+    headers = await _bootstrap_admin(client)
+    r = await client.get(f"{API}/git/settings/account/pull-preview", headers=headers)
+    assert r.status_code == 400
+
+
+async def test_settings_pull_preview_empty_repo_errors(client, tmp_path):
+    """A reachable but empty remote can't be cloned (no branch) → surfaced as a 400
+    the UI shows in the pull dialog, rather than looking like 'nothing to pull'."""
+    headers = await _bootstrap_admin(client)
+    await client.put(
+        f"{API}/git/settings/account/config",
+        headers=headers,
+        json={"url": _bare_repo(tmp_path), "branch": "main"},
+    )
+    r = await client.get(f"{API}/git/settings/account/pull-preview", headers=headers)
+    assert r.status_code == 400

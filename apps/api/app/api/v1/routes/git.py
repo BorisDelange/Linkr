@@ -39,6 +39,7 @@ from app.schemas.git import (
     SettingsGitConfig,
     SettingsGitConfigResponse,
     SettingsImportResponse,
+    SettingsPullPreview,
 )
 from app.services import (
     app_settings_service,
@@ -1130,26 +1131,61 @@ async def settings_set_sync_state(
     )
 
 
-async def _apply_settings_zip(
-    db: AsyncSession, zip_bytes: bytes, acting_username: str | None
-) -> SettingsImportResponse:
+def _read_zip_tree(zip_bytes: bytes) -> dict[str, bytes]:
     import io
     import zipfile
 
-    def _read_tree() -> dict[str, bytes]:
-        tree: dict[str, bytes] = {}
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            for name in zf.namelist():
-                if name.endswith("/"):
-                    continue
-                tree[name] = zf.read(name)
-        return tree
+    tree: dict[str, bytes] = {}
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        for name in zf.namelist():
+            if name.endswith("/"):
+                continue
+            tree[name] = zf.read(name)
+    return tree
 
+
+async def _apply_settings_zip(
+    db: AsyncSession,
+    zip_bytes: bytes,
+    acting_username: str | None,
+    selection: SettingsSelection | None = None,
+) -> SettingsImportResponse:
     import asyncio
 
-    tree = await asyncio.to_thread(_read_tree)
+    tree = await asyncio.to_thread(_read_zip_tree, zip_bytes)
+    if selection is not None:
+        tree = _selection_from_tree(tree, selection)
     report = await settings_import_service.import_settings_tree(db, tree, acting_username)
     return SettingsImportResponse(**report.as_dict())
+
+
+@router.get("/settings/account/export")
+async def settings_export_zip(
+    _admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the settings export as a ZIP (organizations + users + roles, no
+    passwords) — the offline/manual counterpart to git push."""
+    from fastapi.responses import Response
+
+    data = await assemble_settings_zip(db, SettingsSelection())
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="settings.zip"'},
+    )
+
+
+def _selection_from_tree(tree: dict[str, bytes], sel: SettingsSelection) -> dict[str, bytes]:
+    """Keep only the family files the caller opted into (import chooses what to apply)."""
+    keep = set()
+    if sel.organizations:
+        keep.add("organizations.json")
+    if sel.users:
+        keep.add("users.json")
+    if sel.roles:
+        keep.add("roles.json")
+    return {k: v for k, v in tree.items() if k in keep}
 
 
 @router.post("/settings/account/import-file", response_model=SettingsImportResponse)
@@ -1163,14 +1199,9 @@ async def settings_import_file(
     return await _apply_settings_zip(db, await file.read(), admin.username)
 
 
-@router.post("/settings/account/import-remote", response_model=SettingsImportResponse)
-async def settings_import_remote(
-    branch: str | None = Form(None),
-    db: AsyncSession = Depends(get_db),
-    admin: User = Depends(get_current_admin),
-):
-    """Pull the settings tree from the configured git remote and upsert it. Anchors
-    the sync state to the fetched head so a later push is diffed correctly."""
+async def _clone_settings_tree(db: AsyncSession, admin: User, branch: str | None):
+    """Clone the settings remote → (tree, cloned_oid, resolved_branch). Shared by the
+    pull preview and the pull apply."""
     remote = await _settings_remote(db)
     if remote is None:
         raise HTTPException(
@@ -1183,9 +1214,60 @@ async def settings_import_remote(
         )
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
-    report = await _apply_settings_zip(db, zip_bytes, admin.username)
+    import asyncio
+    tree = await asyncio.to_thread(_read_zip_tree, zip_bytes)
+    return tree, cloned_oid, resolved_branch
+
+
+@router.get("/settings/account/pull-preview", response_model=SettingsPullPreview)
+async def settings_pull_preview(
+    branch: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Fetch the remote settings tree and report how many organizations / users /
+    roles it contains, so the pull dialog can let the admin choose what to apply."""
+    import json
+
+    tree, _oid, _branch = await _clone_settings_tree(db, admin, branch)
+
+    def _count(name: str) -> int | None:
+        raw = tree.get(name)
+        if raw is None:
+            return None
+        try:
+            data = json.loads(raw.decode("utf-8"))
+            return len(data) if isinstance(data, list) else 0
+        except (ValueError, UnicodeDecodeError):
+            return 0
+
+    return SettingsPullPreview(
+        organizations=_count("organizations.json"),
+        users=_count("users.json"),
+        roles=_count("roles.json"),
+    )
+
+
+@router.post("/settings/account/import-remote", response_model=SettingsImportResponse)
+async def settings_import_remote(
+    branch: str | None = Form(None),
+    include_orgs: bool = Form(True),
+    include_users: bool = Form(True),
+    include_roles: bool = Form(True),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Pull the settings tree from the configured git remote and upsert the chosen
+    families. Anchors the sync state to the fetched head so a later push is diffed
+    correctly."""
+    tree, cloned_oid, resolved_branch = await _clone_settings_tree(db, admin, branch)
+    selection = SettingsSelection(
+        organizations=include_orgs, users=include_users, roles=include_roles
+    )
+    tree = _selection_from_tree(tree, selection)
+    report = await settings_import_service.import_settings_tree(db, tree, admin.username)
     if cloned_oid:
         await git_sync_state_service.set_oid(
             db, "settings", SETTINGS_ID, resolved_branch, cloned_oid
         )
-    return report
+    return SettingsImportResponse(**report.as_dict())
