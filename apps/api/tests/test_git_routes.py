@@ -3,13 +3,13 @@ stored per user (never on the entity, never returned), and status/commit report
 changes."""
 
 import io
+import subprocess
 import zipfile
 
 from sqlalchemy import select
 
 from app.models.git_credential import GitCredential
 from app.models.project import Project
-from app.models.user import User
 
 API = "/api/v1"
 
@@ -22,6 +22,16 @@ async def _bootstrap_admin(client) -> dict:
         f"{API}/auth/login", json={"username": "admin", "password": "pw"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+def _bare_repo(tmp_path) -> str:
+    """A reachable, empty git remote (file:// URL). status/diff now surface an auth
+    failure when a private remote can't be read, so a bogus URL no longer stands in
+    for 'empty remote' — an initialized bare repo does: ls-remote succeeds with no
+    branch, so the server-built tree shows as freshly added files (first push)."""
+    path = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(path)], check=True, capture_output=True)
+    return f"file://{path}"
 
 
 def _zip(files: dict[str, str]) -> bytes:
@@ -120,7 +130,7 @@ async def test_git_status_requires_auth(client):
     assert r.status_code in (401, 403)
 
 
-async def test_git_mapping_project_scope(client, db):
+async def test_git_mapping_project_scope(client, db, tmp_path):
     """The mapping-project git scope is mounted, token is encrypted, status runs."""
     from sqlalchemy import select
 
@@ -144,7 +154,7 @@ async def test_git_mapping_project_scope(client, db):
             "dataSourceId": "src-1",
             "conceptSetIds": [],
             "gitRemoteConfig": {
-                "url": "https://x/y.git",
+                "url": _bare_repo(tmp_path),
                 "branch": "main",
                 "authToken": "glpat-secret",
             },
@@ -170,7 +180,7 @@ async def test_git_mapping_project_scope(client, db):
     assert r.json()["added"] == 1
 
 
-async def test_git_mapping_project_status_builds_zip_server_side(client):
+async def test_git_mapping_project_status_builds_zip_server_side(client, tmp_path):
     """No uploaded file → the server assembles the export ZIP itself (fullstack
     path that offloads the browser). status reports the server-built tree."""
     headers = await _bootstrap_admin(client)
@@ -191,7 +201,7 @@ async def test_git_mapping_project_status_builds_zip_server_side(client):
             "dataSourceId": "src-1",
             "conceptSetIds": [],
             "gitRemoteConfig": {
-                "url": "https://x/y.git",
+                "url": _bare_repo(tmp_path),
                 "branch": "main",
                 "authToken": "glpat-secret",
             },
@@ -206,3 +216,35 @@ async def test_git_mapping_project_status_builds_zip_server_side(client):
     assert r.status_code == 200
     # A fresh repo sees the server-built tree as added files (at least the 3 core ones).
     assert r.json()["added"] >= 3
+
+
+async def test_git_status_surfaces_error_for_unreadable_remote(client):
+    """A remote that can't be read (bad host / auth) must NOT be mistaken for an
+    empty repo (every file 'added') — status returns an error so the UI can block
+    the file view and ask for a token instead of pushing over a phantom-empty repo."""
+    headers = await _bootstrap_admin(client)
+    ws = (
+        await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})
+    ).json()["id"]
+    await client.post(
+        f"{API}/mapping-projects",
+        headers=headers,
+        json={
+            "id": "mp-git-bad",
+            "workspaceId": ws,
+            "name": {"en": "M"},
+            "description": {},
+            "sourceType": "database",
+            "dataSourceId": "src-1",
+            "conceptSetIds": [],
+            # Unresolvable host → ls-remote fails; previously this silently looked empty.
+            "gitRemoteConfig": {"url": "https://nonexistent.invalid/x/y.git", "branch": "main"},
+        },
+    )
+    r = await client.post(
+        f"{API}/git/mapping-projects/mp-git-bad/status",
+        headers=headers,
+        data={"branch": "main"},
+    )
+    assert r.status_code == 400
+    assert "code" in r.json()["detail"]

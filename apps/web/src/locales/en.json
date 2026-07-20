@@ -1532,6 +1532,8 @@
     "sync_summary": "{{added}} added · {{modified}} modified · {{deleted}} deleted",
     "sync_computing": "Computing changes…",
     "sync_clean": "Nothing to commit — working tree matches the remote.",
+    "sync_auth_blocked_title": "Repository access token required",
+    "sync_auth_blocked_body": "This repository could not be read — it is private and you have no access token stored, or the stored token is invalid. Add your token above (Add token) to see and sync its changes.",
     "sync_message": "Commit message",
     "sync_message_ph": "Describe your changes",
     "sync_pushed": "Pushed",

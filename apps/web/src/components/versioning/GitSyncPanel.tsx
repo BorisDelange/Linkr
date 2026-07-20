@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDownToLine, GitCommitVertical, Info, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
+import { ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -82,7 +82,12 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
   }
 
   const files = status?.files ?? []
-  const nothingToCommit = !loadingStatus && files.length === 0
+  // A private remote that couldn't be read (missing/invalid token) must NOT fall
+  // through to the normal file view — the backend then sees an empty tree and
+  // every file shows as "added", as if the repo were empty. Block both tabs with
+  // a clear notice instead, pointing the user to add their token.
+  const authBlocked = !loadingStatus && (error?.code === 'auth_failed' || error?.code === 'auth_required')
+  const nothingToCommit = !loadingStatus && !authBlocked && files.length === 0
   const allChecked = files.length > 0 && files.every((f) => selected.has(f.path))
   // Block the push while the remote is ahead — pushing the local export would
   // fast-forward over the un-pulled remote work and drop it. The backend refuses
@@ -122,6 +127,19 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
         <ArrowDownToLine size={12} />
         {t('versioning.pull_action')}
       </Button>
+    </div>
+  ) : null
+
+  // Shown in place of the file view when the remote couldn't be read for auth
+  // reasons — so the user adds a token rather than pushing over what looks like
+  // an empty repo. Same amber treatment as the token badge in GitRepositoryTab.
+  const authBlock = authBlocked ? (
+    <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-xs text-amber-700 dark:text-amber-400">
+      <KeyRound size={15} className="mt-0.5 shrink-0" />
+      <div className="space-y-1">
+        <p className="font-medium">{t('versioning.sync_auth_blocked_title')}</p>
+        <p className="leading-relaxed">{t('versioning.sync_auth_blocked_body')}</p>
+      </div>
     </div>
   ) : null
 
@@ -183,6 +201,8 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
               <Loader2 size={14} className="animate-spin" />
               {t('versioning.sync_computing')}
             </div>
+          ) : authBlocked ? (
+            authBlock
           ) : nothingToCommit ? (
             <p className="py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
           ) : (
@@ -228,6 +248,9 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
 
       {pullBanner}
 
+      {authBlocked && authBlock}
+
+      {!authBlocked && <>
       {/* Mapping projects have no optional data files to version: source-concepts
           is always tracked and the re-derivable scores parquet is always gitignored,
           so the toggle would be a no-op there. */}
@@ -344,6 +367,7 @@ export function GitSyncPanel({ scope, id, defaultBranch }: GitSyncPanelProps) {
           {t('versioning.sync_commit_push')}
         </Button>
       </div>
+      </>}
         </TabsContent>
       </Tabs>
 

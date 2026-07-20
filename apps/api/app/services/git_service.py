@@ -298,7 +298,12 @@ def _sync_remote_branch(repo: Path, branch: str, remote_url: str | None, token: 
         return False
     _reject_internal_host(remote_url)
     fetch_url = _with_credentials(remote_url, token)
-    out = _run(repo, "ls-remote", "--heads", fetch_url, branch, token=token, check=False)
+    # ls-remote with check=True so an AUTH failure (private repo, no/invalid token)
+    # is surfaced as a GitError instead of being mistaken for an empty remote — the
+    # latter would make every file show as "added" (looks like the repo is empty)
+    # and silently hide that a token is required. A genuinely new/empty remote
+    # succeeds here with no matching ref, which we still treat as "first push".
+    out = _run(repo, "ls-remote", "--heads", fetch_url, branch, token=token)
     if f"refs/heads/{branch}" not in out:
         # Remote branch doesn't exist yet (first push) — start from an empty tree.
         _run(repo, "checkout", "-B", branch, check=False)

@@ -1532,6 +1532,8 @@
     "sync_summary": "{{added}} ajout(s) · {{modified}} modifié(s) · {{deleted}} supprimé(s)",
     "sync_computing": "Calcul des modifications…",
     "sync_clean": "Rien à valider — l'arborescence correspond au dépôt distant.",
+    "sync_auth_blocked_title": "Jeton d'accès au dépôt requis",
+    "sync_auth_blocked_body": "Ce dépôt n'a pas pu être lu — il est privé et vous n'avez aucun jeton d'accès enregistré, ou le jeton enregistré est invalide. Ajoutez votre jeton ci-dessus (Ajouter un jeton) pour voir et synchroniser ses modifications.",
     "sync_message": "Message de commit",
     "sync_message_ph": "Décrivez vos modifications",
     "sync_pushed": "Poussé",
