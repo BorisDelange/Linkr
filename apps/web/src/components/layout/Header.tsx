@@ -289,6 +289,198 @@ export function Header() {
     return key ? t(key) : t('nav.home')
   }
 
+  // The grey entity badge (project / mapping project / ETL pipeline / …). Rendered
+  // AFTER the workspace + project badges so the header reads outer→inner:
+  // workspace › project › element, mirroring the app hierarchy.
+  const entityBadge = pluginItem ? (
+    <EntityActionsMenu
+      item={pluginItem}
+      {...pluginActions}
+      syncScope="user-plugins"
+      canEdit={!editingPluginIsSystem}
+      canDelete={!editingPluginIsSystem}
+      align="start"
+      onDeleted={closePluginEditor}
+      open={pluginMenuOpen}
+      onOpenChange={setPluginMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <Puzzle size={10} className="text-muted-foreground" />
+          {localized(pluginItem.name, language)}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : cmProject ? (
+    <EntityActionsMenu
+      item={cmProject}
+      {...mappingActions}
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={cmMenuOpen}
+      onOpenChange={setCmMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <ArrowRightLeft size={10} className="text-muted-foreground" />
+          {localized(cmProject.name, language)}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : dashboardEntity ? (
+    <EntityActionsMenu
+      item={dashboardEntity}
+      {...dashboardActions}
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={dashMenuOpen}
+      onOpenChange={setDashMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <LayoutDashboard size={10} className="text-muted-foreground" />
+          {localized(dashboardEntity.name, language)}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : cohortEntity ? (
+    <EntityActionsMenu
+      item={cohortEntity}
+      {...cohortActions}
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={cohortMenuOpen}
+      onOpenChange={setCohortMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <UsersRound size={10} className="text-muted-foreground" />
+          {cohortEntity.name}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : etlEntity ? (
+    <EntityActionsMenu
+      item={etlEntity}
+      {...etlActions}
+      syncScope="etl-pipelines"
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={etlMenuOpen}
+      onOpenChange={setEtlMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <Workflow size={10} className="text-muted-foreground" />
+          {localized(etlEntity.name, language)}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : sqlEntity ? (
+    <EntityActionsMenu
+      item={sqlEntity}
+      {...sqlActions}
+      syncScope="sql-script-collections"
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={sqlMenuOpen}
+      onOpenChange={setSqlMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <SquareTerminal size={10} className="text-muted-foreground" />
+          {localized(sqlEntity.name, language)}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : catalogEntity ? (
+    <EntityActionsMenu
+      item={catalogEntity}
+      {...catalogActions}
+      syncScope="data-catalogs"
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={catalogMenuOpen}
+      onOpenChange={setCatalogMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <BookOpen size={10} className="text-muted-foreground" />
+          {localized(catalogEntity.name, language)}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : dqEntity ? (
+    <EntityActionsMenu
+      item={dqEntity}
+      {...dqActions}
+      syncScope="dq-rule-sets"
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={dqMenuOpen}
+      onOpenChange={setDqMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <ShieldCheck size={10} className="text-muted-foreground" />
+          {localized(dqEntity.name, language)}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : schemaItem ? (
+    <EntityActionsMenu
+      item={schemaItem}
+      {...schemaActions}
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={schemaMenuOpen}
+      onOpenChange={setSchemaMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <FileSpreadsheet size={10} className="text-muted-foreground" />
+          {localized(schemaItem.name, language)}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : null
+
   return (
     <>
       <header className="flex h-12 shrink-0 items-center justify-between border-b bg-background px-4">
@@ -302,194 +494,7 @@ export function Header() {
               <ArrowLeft size={15} />
             </button>
           )}
-          {pluginItem ? (
-            <EntityActionsMenu
-              item={pluginItem}
-              {...pluginActions}
-              syncScope="user-plugins"
-              canEdit={!editingPluginIsSystem}
-              canDelete={!editingPluginIsSystem}
-              align="start"
-              onDeleted={closePluginEditor}
-              open={pluginMenuOpen}
-              onOpenChange={setPluginMenuOpen}
-              trigger={
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
-                  aria-label={t('common.actions')}
-                >
-                  <Puzzle size={10} className="text-muted-foreground" />
-                  {localized(pluginItem.name, language)}
-                  <MoreHorizontal size={12} className="text-muted-foreground" />
-                </Badge>
-              }
-            />
-          ) : cmProject ? (
-            <EntityActionsMenu
-              item={cmProject}
-              {...mappingActions}
-              align="start"
-              onDeleted={handleEntityDeleted}
-              open={cmMenuOpen}
-              onOpenChange={setCmMenuOpen}
-              trigger={
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
-                  aria-label={t('common.actions')}
-                >
-                  <ArrowRightLeft size={10} className="text-muted-foreground" />
-                  {localized(cmProject.name, language)}
-                  <MoreHorizontal size={12} className="text-muted-foreground" />
-                </Badge>
-              }
-            />
-          ) : dashboardEntity ? (
-            <EntityActionsMenu
-              item={dashboardEntity}
-              {...dashboardActions}
-              align="start"
-              onDeleted={handleEntityDeleted}
-              open={dashMenuOpen}
-              onOpenChange={setDashMenuOpen}
-              trigger={
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
-                  aria-label={t('common.actions')}
-                >
-                  <LayoutDashboard size={10} className="text-muted-foreground" />
-                  {localized(dashboardEntity.name, language)}
-                  <MoreHorizontal size={12} className="text-muted-foreground" />
-                </Badge>
-              }
-            />
-          ) : cohortEntity ? (
-            <EntityActionsMenu
-              item={cohortEntity}
-              {...cohortActions}
-              align="start"
-              onDeleted={handleEntityDeleted}
-              open={cohortMenuOpen}
-              onOpenChange={setCohortMenuOpen}
-              trigger={
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
-                  aria-label={t('common.actions')}
-                >
-                  <UsersRound size={10} className="text-muted-foreground" />
-                  {cohortEntity.name}
-                  <MoreHorizontal size={12} className="text-muted-foreground" />
-                </Badge>
-              }
-            />
-          ) : etlEntity ? (
-            <EntityActionsMenu
-              item={etlEntity}
-              {...etlActions}
-              syncScope="etl-pipelines"
-              align="start"
-              onDeleted={handleEntityDeleted}
-              open={etlMenuOpen}
-              onOpenChange={setEtlMenuOpen}
-              trigger={
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
-                  aria-label={t('common.actions')}
-                >
-                  <Workflow size={10} className="text-muted-foreground" />
-                  {localized(etlEntity.name, language)}
-                  <MoreHorizontal size={12} className="text-muted-foreground" />
-                </Badge>
-              }
-            />
-          ) : sqlEntity ? (
-            <EntityActionsMenu
-              item={sqlEntity}
-              {...sqlActions}
-              syncScope="sql-script-collections"
-              align="start"
-              onDeleted={handleEntityDeleted}
-              open={sqlMenuOpen}
-              onOpenChange={setSqlMenuOpen}
-              trigger={
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
-                  aria-label={t('common.actions')}
-                >
-                  <SquareTerminal size={10} className="text-muted-foreground" />
-                  {localized(sqlEntity.name, language)}
-                  <MoreHorizontal size={12} className="text-muted-foreground" />
-                </Badge>
-              }
-            />
-          ) : catalogEntity ? (
-            <EntityActionsMenu
-              item={catalogEntity}
-              {...catalogActions}
-              syncScope="data-catalogs"
-              align="start"
-              onDeleted={handleEntityDeleted}
-              open={catalogMenuOpen}
-              onOpenChange={setCatalogMenuOpen}
-              trigger={
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
-                  aria-label={t('common.actions')}
-                >
-                  <BookOpen size={10} className="text-muted-foreground" />
-                  {localized(catalogEntity.name, language)}
-                  <MoreHorizontal size={12} className="text-muted-foreground" />
-                </Badge>
-              }
-            />
-          ) : dqEntity ? (
-            <EntityActionsMenu
-              item={dqEntity}
-              {...dqActions}
-              syncScope="dq-rule-sets"
-              align="start"
-              onDeleted={handleEntityDeleted}
-              open={dqMenuOpen}
-              onOpenChange={setDqMenuOpen}
-              trigger={
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
-                  aria-label={t('common.actions')}
-                >
-                  <ShieldCheck size={10} className="text-muted-foreground" />
-                  {localized(dqEntity.name, language)}
-                  <MoreHorizontal size={12} className="text-muted-foreground" />
-                </Badge>
-              }
-            />
-          ) : schemaItem ? (
-            <EntityActionsMenu
-              item={schemaItem}
-              {...schemaActions}
-              align="start"
-              onDeleted={handleEntityDeleted}
-              open={schemaMenuOpen}
-              onOpenChange={setSchemaMenuOpen}
-              trigger={
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
-                  aria-label={t('common.actions')}
-                >
-                  <FileSpreadsheet size={10} className="text-muted-foreground" />
-                  {localized(schemaItem.name, language)}
-                  <MoreHorizontal size={12} className="text-muted-foreground" />
-                </Badge>
-              }
-            />
-          ) : (
+          {!entityBadge && (
             <h1 className="text-[13px] font-medium text-foreground">
               {getPageLabel()}
             </h1>
@@ -611,6 +616,14 @@ export function Header() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+            </>
+          )}
+          {entityBadge && (
+            <>
+              {(activeWorkspaceName || activeProjectName) && (
+                <Separator orientation="vertical" className="!h-4" />
+              )}
+              {entityBadge}
             </>
           )}
         </div>
