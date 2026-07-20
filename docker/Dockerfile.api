@@ -4,7 +4,7 @@
 # the R packages install as prebuilt binaries in seconds — `arrow` in particular
 # isn't in Debian and compiling it from source on ARM is very slow. This is an
 # Ubuntu image; we add Python 3.12 (noble ships it) for the FastAPI backend.
-FROM rocker/r-ver:latest
+FROM rocker/r-ver:4.5.1
 
 WORKDIR /app
 
