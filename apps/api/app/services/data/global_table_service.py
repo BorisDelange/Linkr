@@ -64,7 +64,14 @@ def _is_artificial_id(project: dict) -> bool:
 
 
 def _project_badges(project: dict) -> list[str]:
-    return [b.get("label") for b in (project.get("badges") or []) if b.get("label")]
+    # A badge label is a LocalizedString ({"en": ..., "fr": ...}); resolve it to the
+    # canonical 'en' string (stable across UI language, and what the registry keys
+    # on). Returning the raw dict broke dedup mode ("|".join(sorted(badges))).
+    return [
+        _localized(b.get("label"))
+        for b in (project.get("badges") or [])
+        if b.get("label")
+    ]
 
 
 def _votes(reviews: list | None) -> tuple[int, int, int]:

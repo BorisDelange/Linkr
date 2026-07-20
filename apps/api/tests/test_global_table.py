@@ -11,7 +11,9 @@ def _fixtures():
     projects = [
         {
             "id": "p1", "name": {"en": "Proj 1"}, "source_type": "file",
-            "updated_at": "t1", "badges": [{"label": "ICU"}],
+            # Badge label is a LocalizedString (as real projects carry) — dedup mode
+            # must resolve it to a string, not join the raw dict (No-results bug).
+            "updated_at": "t1", "badges": [{"label": {"en": "ICU", "fr": "Réa"}}],
             "raw_file_sha": "sha1",
             # No conceptIdColumn → artificial id → resolved via registry.
             "file_source_data": {"columnMapping": {}},
@@ -62,6 +64,7 @@ def test_dedup_one_row_per_source_target_badge():
     assert len(rows) == 2  # one mapped + one unmapped
     mapped = next(r for r in rows if not r["is_unmapped"])
     assert mapped["project_count"] == 1
+    # LocalizedString badge label resolved to the 'en' string (not the raw dict).
     assert mapped["badge_labels"] == "ICU"
 
 
