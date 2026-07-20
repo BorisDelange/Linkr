@@ -50,6 +50,14 @@ async def test_settings_config_stores_url_never_token(client):
     r = await client.get(f"{API}/git/settings/account/config", headers=headers)
     assert r.json() == {"url": "https://gitlab.com/g/settings.git", "branch": "main"}
 
+    # The token WAS stored per (user, host): linking from Import (which sends the
+    # token alongside the config) means the Versioning tab can push without re-typing
+    # it. host-token status for the same host reports it's present.
+    r = await client.get(
+        f"{API}/git/host-token?url=https://gitlab.com/g/settings.git", headers=headers
+    )
+    assert r.json()["hasToken"] is True
+
 
 async def test_settings_status_builds_full_tree_and_reports_added(client, tmp_path):
     headers = await _bootstrap_admin(client)
