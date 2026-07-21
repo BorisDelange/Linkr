@@ -63,6 +63,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
   const [diffPath, setDiffPath] = useState<string | null>(null)
   const [pushed, setPushed] = useState(false)
   const [pullOpen, setPullOpen] = useState(false)
+  // Which quick action is mid-commit (its messageKey), so ONLY that card spins
+  // while the others merely disable — a shared `committing` would spin them all.
+  const [runningQuickAction, setRunningQuickAction] = useState<string | null>(null)
   // Quick actions (simple, one-click) is the default; Details is the full
   // branch/file/message UI for advanced users.
   const [mode, setMode] = useState<'quick' | 'details'>('quick')
@@ -119,10 +122,15 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
     // refresh — during that recompute the tab shows the computing spinner, not
     // stale clickable buttons.
     const message = t(qa.messageKey, { author: authorName || t('versioning.quick_unknown_author') })
-    const result = await commitPushPaths(scope, id, qa.files.map((f) => f.path), message, branch)
-    if (result?.pushed) {
-      setPushed(true)
-      setTimeout(() => setPushed(false), 2000)
+    setRunningQuickAction(qa.messageKey)
+    try {
+      const result = await commitPushPaths(scope, id, qa.files.map((f) => f.path), message, branch)
+      if (result?.pushed) {
+        setPushed(true)
+        setTimeout(() => setPushed(false), 2000)
+      }
+    } finally {
+      setRunningQuickAction(null)
     }
   }
 
@@ -249,8 +257,10 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
                     key={qa.messageKey}
                     action={qa}
                     primary={i === 0}
-                    committing={committing}
-                    disabled={mustPullFirst}
+                    running={runningQuickAction === qa.messageKey}
+                    // While one action commits, the others disable (but don't spin);
+                    // a pull-first requirement disables all.
+                    disabled={mustPullFirst || (runningQuickAction != null && runningQuickAction !== qa.messageKey)}
                     includeData={includeData}
                     supportsDataFiles={supportsDataFiles}
                     onRun={() => runQuickAction(qa)}
@@ -457,11 +467,13 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
  * Disabled when there's nothing to push or a pull is required.
  */
 function QuickActionCard({
-  action, primary, committing, disabled, includeData, supportsDataFiles, onRun, onOpenDiff, t,
+  action, primary, running, disabled, includeData, supportsDataFiles, onRun, onOpenDiff, t,
 }: {
   action: QuickAction
   primary: boolean
-  committing: boolean
+  /** THIS action is mid-commit → show its spinner. */
+  running: boolean
+  /** Disabled (another action is running, or a pull is required) — no spinner. */
   disabled: boolean
   includeData: boolean
   supportsDataFiles: boolean
@@ -531,9 +543,9 @@ function QuickActionCard({
           variant={primary ? 'default' : 'outline'}
           className="mt-1 h-8 w-full gap-1.5 text-xs"
           onClick={onRun}
-          disabled={committing || disabled || nothing}
+          disabled={running || disabled || nothing}
         >
-          {committing ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
+          {running ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
           {t(action.labelKey)}
         </Button>
       </div>
