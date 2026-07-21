@@ -426,6 +426,12 @@ endpoints `pull-preview`/`pull-file`, garde-fou push, patron datatable de review
 n'est PAS réutilisable tel quel, c'est le **merger** (clé d'appariement + champs comparés)
 et les **sections d'UI** — à repenser par scope.
 
+> **[TODO — plus tard] Pull côté client (front-only / WASM), pas serveur.** Le pull actuel
+> (mapping-project + project) passe par le backend (clone serveur `gitCloneToZip`, endpoints
+> `pull-preview`/`pull-file`). Le pull **côté client** — pour le mode front-only sans
+> backend — reste à faire pour tous les types, y compris ceux qui ont déjà le pull serveur.
+> À voir plus tard.
+
 Questions à trancher pour chaque scope quand on s'y attaquera :
 - **Quelle est l'unité de merge ?** (l'objet métier, pas le fichier) et **quelle clé stable**
   l'identifie entre instances (rappel : les `id` sont régénérés à l'import — cf. §3.1.1).
