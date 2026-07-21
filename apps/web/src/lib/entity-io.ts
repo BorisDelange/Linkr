@@ -405,6 +405,11 @@ const INSTANCE_FIELDS = [
   // on import (every create passes a fresh projectUid), so versioning it only
   // churns the diff — e.g. datasets/_tree.json flipping projectUid on reimport.
   'projectUid',
+  // Local database (data source) UUIDs the project points at. Databases are an
+  // instance-level resource that doesn't travel with the project, so these ids
+  // are meaningless on another instance and only churn the diff — the importer
+  // re-links its own databases. (Cf. the user's decision: databases stay unlinked.)
+  'linkedDataSourceIds',
 ] as const
 
 /** Return a copy of an entity's metadata without instance-specific fields.
