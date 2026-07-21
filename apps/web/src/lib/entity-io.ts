@@ -64,6 +64,7 @@ function normalizeImportedTodos(todos: unknown): TodoItem[] {
 // Source-concept-id compact format helpers live in source-concept-ids-io (shared
 // with the per-project export/import, kept out of this module to avoid a cycle).
 import type { CompactSourceConceptIdEntries } from '@/lib/concept-mapping/source-concept-ids-io'
+import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
 export type { CompactSourceConceptIdEntries }
 import {
   toPortableRanges,
@@ -528,7 +529,9 @@ export async function buildProjectZip(
   // --- dashboards/ (each dashboard = dashboard + tabs + widgets in one file) ---
   // Serialize with content keys (not UUID ids) so a delete+reimport re-derives the
   // same ids and the git diff stays byte-stable. See the key helpers above.
-  const dashboards = await storage.dashboards.getByProject(projectUid)
+  const dashboards = (await storage.dashboards.getByProject(projectUid))
+    .slice()
+    .sort((a, b) => compareCodePoints(dashboardKey(a), dashboardKey(b)))
   for (const d of dashboards) {
     const tabs = await storage.dashboardTabs.getByDashboard(d.id)
     const widgets: DashboardWidget[] = []
@@ -556,6 +559,9 @@ export async function buildProjectZip(
       })
     }
 
+    // Sorted by their content key so array order is byte-stable across instances
+    // (storage returns rows in PK order, which differs pre/post-reimport); import
+    // re-links by key, not by position, so reordering is safe.
     const tabsOut = tabs.map((tab) => {
       const out = stripInstanceFields(tab) as Record<string, unknown>
       const key = tabKeyMap.get(tab.id)!
@@ -564,7 +570,7 @@ export async function buildProjectZip(
       delete out.dashboardId
       delete out.parentTabId
       return { ...out, key, parentKey }
-    })
+    }).sort((a, b) => compareCodePoints(a.key, b.key))
 
     const widgetsOut = widgets.map((w) => {
       const out = stripInstanceFields(w) as Record<string, unknown>
@@ -573,7 +579,7 @@ export async function buildProjectZip(
       delete out.id
       delete out.tabId
       return { ...out, key, tabKey }
-    })
+    }).sort((a, b) => compareCodePoints(a.tabKey, b.tabKey) || compareCodePoints(a.key, b.key))
 
     zip.file(
       `dashboards/${slugify(localized(d.name, 'en') || dashKey || d.id)}.json`,
@@ -1679,9 +1685,16 @@ export async function applyClonedEntity(
   }
 
   if (type === 'sql-collection' || type === 'etl-pipeline') {
-    const treeName = '_tree.json'
-    const tree = (await readJson<(SqlScriptFile | EtlFile)[]>(treeName)) ?? []
-    if (tree.length === 0) return false
+    // The record itself (metadata) is re-applied from the repo's _collection.json /
+    // _pipeline.json — the workspace only carried a minimal pointer. Then the files.
+    const metaName = type === 'sql-collection' ? '_collection.json' : '_pipeline.json'
+    const meta = await readJson<SqlScriptCollection | EtlPipeline>(metaName)
+    if (meta) {
+      const { id: _id, workspaceId: _ws, ...changes } = dropForeignAuthorId(meta) as SqlScriptCollection
+      if (type === 'sql-collection') await storage.sqlScriptCollections.update(targetId, changes).catch(() => {})
+      else await storage.etlPipelines.update(targetId, changes as Partial<EtlPipeline>).catch(() => {})
+    }
+    const tree = (await readJson<(SqlScriptFile | EtlFile)[]>('_tree.json')) ?? []
     const byId = new Map(tree.map(f => [f.id, f as { id: string; name: string; parentId: string | null }]))
     const fkKey = type === 'sql-collection' ? 'collectionId' : 'pipelineId'
     for (const f of tree) {
@@ -1892,7 +1905,7 @@ export async function buildWorkspaceZip(
         // the git pointer. The clone (applyClonedEntity → importProjectContent) overwrites
         // the metadata from the repo. This kills the double-versioning where editing a
         // linked project rewrote its project.json in both its repo and the workspace branch.
-        const pointer = { uid: project.uid, projectId: project.projectId, name: project.name, gitRemoteConfig: git, appVersion: APP_VERSION }
+        const pointer = { uid: project.uid, projectId: project.projectId, name: project.name, gitRemoteConfig: git }
         zip.file(`projects/${folder}/project.json`, json(pointer))
         gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
       } else if (includeData[project.uid]) {
@@ -1961,10 +1974,12 @@ export async function buildWorkspaceZip(
       if (excluded[sp.presetId]) continue
       const git = resolveGitRemote(sp)
       if (git) {
-        // Metadata + git pointer only: the preset lives in schemas/<folder>/_schema.json
-        // and the portal build points the manifest at that marker.
+        // Pointer only — the linked repo's preset.json is the source of truth. Keep
+        // just presetId (create key + git detection), presetLabel (display), and the
+        // git pointer; the clone (applyClonedEntity) re-applies the full preset.
         const folder = slugify(sp.presetId)
-        zip.file(`schemas/${folder}/_schema.json`, json(sp))
+        const pointer = { presetId: sp.presetId, mapping: sp.mapping?.presetLabel ? { presetLabel: sp.mapping.presetLabel } : undefined, gitRemoteConfig: git }
+        zip.file(`schemas/${folder}/_schema.json`, json(pointer))
         gitLinks.push({ type: 'schema-preset', id: sp.presetId, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -2004,8 +2019,9 @@ export async function buildWorkspaceZip(
       const git = resolveGitRemote(collection)
 
       if (git) {
-        // Metadata + git pointer only.
-        zip.file(`sql-scripts/${folder}/_collection.json`, json(collection))
+        // Pointer only — the linked repo is the source of truth for the collection
+        // metadata AND its scripts; the clone (applyClonedEntity) re-applies both.
+        zip.file(`sql-scripts/${folder}/_collection.json`, json({ id: collection.id, name: collection.name, gitRemoteConfig: git }))
         gitLinks.push({ type: 'sql-collection', id: collection.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -2027,7 +2043,9 @@ export async function buildWorkspaceZip(
       const git = resolveGitRemote(pipeline)
 
       if (git) {
-        zip.file(`etl/${folder}/_pipeline.json`, json(pipeline))
+        // Pointer only — the linked repo is the source of truth for the pipeline
+        // metadata AND its files; the clone (applyClonedEntity) re-applies both.
+        zip.file(`etl/${folder}/_pipeline.json`, json({ id: pipeline.id, name: pipeline.name, gitRemoteConfig: git }))
         gitLinks.push({ type: 'etl-pipeline', id: pipeline.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -2045,16 +2063,16 @@ export async function buildWorkspaceZip(
     const dqRuleSets = await storage.dqRuleSets.getByWorkspace(workspaceId)
     for (const rs of dqRuleSets) {
       if (excluded[rs.id]) continue
-      const checks = await storage.dqCustomChecks.getByRuleSet(rs.id)
       const git = resolveGitRemote(rs)
       if (git) {
-        // Metadata + git pointer only: the { ruleSet, checks } bundle lives in
-        // data-quality/<folder>/_ruleset.json (same shape as the flat form).
+        // Pointer only — the linked repo's rule-set.json + checks.json are the source
+        // of truth; the clone (applyClonedEntity) re-applies metadata and checks.
         const folder = eid(rs)
-        zip.file(`data-quality/${folder}/_ruleset.json`, json({ ruleSet: rs, checks }))
+        zip.file(`data-quality/${folder}/_ruleset.json`, json({ ruleSet: { id: rs.id, name: rs.name, gitRemoteConfig: git }, checks: [] }))
         gitLinks.push({ type: 'dq-rule-set', id: rs.id, folder, url: git.url, branch: git.branch })
         continue
       }
+      const checks = await storage.dqCustomChecks.getByRuleSet(rs.id)
       zip.file(`data-quality/${eid(rs)}.json`, json({ ruleSet: rs, checks }))
     }
   }
@@ -2068,10 +2086,11 @@ export async function buildWorkspaceZip(
       const git = resolveGitRemote(mp)
 
       if (git) {
-        // Metadata + git pointer only — mappings.json / source-concepts.csv live in the
-        // linked repo. Same portable project.json as the standalone export (instance
-        // fields stripped, no diff churn), with the git pointer re-added on top.
-        zip.file(`mapping-projects/${folder}/project.json`, json({ ...cleanMappingProjectMeta(mp), gitRemoteConfig: git }))
+        // Pointer only — the linked repo's project.json is the source of truth for all
+        // metadata (+ mappings.json / source-concepts.csv). The clone re-applies it via
+        // importMappingProjectContent(replaceExisting). Kills the createdAt/etc. churn
+        // where versioning a linked mapping project rewrote its stub in the workspace.
+        zip.file(`mapping-projects/${folder}/project.json`, json({ id: mp.id, entityId: mp.entityId, name: mp.name, gitRemoteConfig: git }))
         gitLinks.push({ type: 'mapping-project', id: mp.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -2108,10 +2127,10 @@ export async function buildWorkspaceZip(
       if (excluded[cat.id]) continue
       const git = resolveGitRemote(cat)
       if (git) {
-        // Metadata + git pointer only: the DataCatalog lives in catalogs/<folder>/_catalog.json
-        // and the portal build points the manifest at that marker.
+        // Pointer only — the linked repo's catalog.json is the source of truth; the
+        // clone (applyClonedEntity) re-applies the full catalog metadata.
         const folder = eid(cat)
-        zip.file(`catalogs/${folder}/_catalog.json`, json(cat))
+        zip.file(`catalogs/${folder}/_catalog.json`, json({ id: cat.id, name: cat.name, gitRemoteConfig: git }))
         gitLinks.push({ type: 'data-catalog', id: cat.id, folder, url: git.url, branch: git.branch })
         continue
       }

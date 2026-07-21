@@ -795,13 +795,16 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(links).toContainEqual({ type: 'data-catalog', id: 'cat-1', folder: 'my-catalog', url: GIT.url, branch: 'main' })
   })
 
-  it('writes a folder marker holding { ruleSet, checks } + git-links entry for a linked dq-rule-set', async () => {
+  it('writes a minimal-pointer marker + git-links entry for a linked dq-rule-set (checks live in the repo)', async () => {
     const zip = await exportZip({ ruleSets: [RULESET({ gitRemoteConfig: GIT })], checks: [CHECK()] })
     const marker = zip.files['data-quality/my-ruleset/_ruleset.json']
     expect(marker).toBeDefined()
     const bundle = JSON.parse(await marker.async('string'))
     expect(bundle.ruleSet.id).toBe('rs-1')
-    expect(bundle.checks).toHaveLength(1)
+    expect(bundle.ruleSet.gitRemoteConfig).toEqual(GIT)
+    // Pointer only — the linked repo's checks.json is the source of truth, so the
+    // workspace marker no longer duplicates the checks (was: length 1).
+    expect(bundle.checks).toHaveLength(0)
     expect(zip.files['data-quality/my-ruleset.json']).toBeUndefined()
     const { links } = await readGitLinks(zip)
     expect(links).toContainEqual({ type: 'dq-rule-set', id: 'rs-1', folder: 'my-ruleset', url: GIT.url, branch: 'main' })
