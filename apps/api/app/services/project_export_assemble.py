@@ -116,9 +116,18 @@ def _analysis_dict(row: DatasetAnalysis) -> dict:
 
 
 async def build_project_tree_from_db(
-    db: AsyncSession, project: Project, include_data: bool
+    db: AsyncSession,
+    project: Project,
+    include_data: bool,
+    organization: dict | None = None,
 ) -> dict[str, bytes]:
-    """Assemble the export file tree for a project from DB + disk + blob store."""
+    """Assemble the export file tree for a project from DB + disk + blob store.
+
+    ``organization`` is the inherited org to inline into project.json when the
+    project has no snapshot of its own — mirrors ``attachEntityOrganization``'s
+    fallback (entity's own org, else the parent workspace's). The workspace export
+    passes its own org here; a standalone project export leaves it None and inlines
+    only the project's own snapshot."""
     project_dict = _dump(ProjectResponse, project)
 
     pipelines = [
@@ -200,11 +209,11 @@ async def build_project_tree_from_db(
         if att.blob_sha and blob_store.exists(att.blob_sha):
             attachment_blobs[att.id] = await blob_store.read_bytes(att.blob_sha)
 
-    organization = project.organization or None
+    resolved_org = project.organization or organization
 
     return build_project_tree(
         project=project_dict,
-        organization=organization,
+        organization=resolved_org,
         ide_files=ide_files,
         pipelines=pipelines,
         cohorts=cohorts,

@@ -1,0 +1,22 @@
+{
+  "id": "ds1",
+  "workspaceId": "ws1",
+  "alias": "wh",
+  "name": "Warehouse",
+  "description": null,
+  "sourceType": "postgres",
+  "schemaMapping": null,
+  "status": "connected",
+  "stats": null,
+  "errorMessage": null,
+  "isVocabularyReference": false,
+  "origin": "user",
+  "createdById": null,
+  "createdBy": "Boris Delange",
+  "createdByDetails": null,
+  "createdAt": "2026-01-01T00:00:00Z",
+  "updatedAt": "2026-02-01T00:00:00Z",
+  "connectionConfig": {
+    "engine": "postgres"
+  }
+}

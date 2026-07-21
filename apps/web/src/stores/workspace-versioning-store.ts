@@ -3,6 +3,9 @@ import type { GitCommit, GitRemoteConfig, WikiPage, CommitFileChange, FileChange
 import { buildWorkspaceZip, downloadBlob, slugify } from '@/lib/entity-io'
 import type { BuildWorkspaceZipOptions } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
+import { fetchWorkspaceExportZipFromServer } from '@/lib/api/workspaces'
+import { localized } from '@/lib/localized'
 
 const BACKEND_MSG = '[versioning] Requires backend — no-op in local mode'
 
@@ -81,6 +84,16 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
   exportZip: async (workspaceId: string, options: BuildWorkspaceZipOptions = {}) => {
     set({ loading: true })
     try {
+      // In server mode the backend builds the ZIP (offloads the browser); the front
+      // only triggers + downloads. Front-only keeps the client builder.
+      if (isServerMode()) {
+        const blob = await fetchWorkspaceExportZipFromServer(workspaceId, options)
+        if (!blob) return
+        const ws = await getStorage().workspaces.getById(workspaceId)
+        const name = ws ? localized(ws.name, 'en') || workspaceId : workspaceId
+        downloadBlob(blob, `${slugify(name)}.zip`)
+        return
+      }
       const result = await buildWorkspaceZip(workspaceId, getStorage(), options)
       if (result) {
         downloadBlob(result.blob, `${slugify(result.workspaceName)}.zip`)

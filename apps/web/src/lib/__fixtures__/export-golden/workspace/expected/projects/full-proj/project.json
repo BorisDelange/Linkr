@@ -1,0 +1,39 @@
+{
+  "projectId": "full-proj",
+  "name": {
+    "en": "Full Project"
+  },
+  "description": {
+    "en": "Full nested export"
+  },
+  "shortDescription": {},
+  "config": {},
+  "status": "active",
+  "badges": null,
+  "lineageId": null,
+  "parentLineageId": null,
+  "createdBy": "Boris Delange",
+  "createdByDetails": null,
+  "createdAt": "2026-01-01T00:00:00Z",
+  "version": "0.1.0",
+  "appVersion": "2.1.2",
+  "organization": {
+    "id": "org1",
+    "name": {
+      "en": "CHU Rennes"
+    },
+    "type": "hospital",
+    "location": {
+      "en": "Rennes"
+    },
+    "country": {
+      "en": "France"
+    },
+    "website": "https://chu-rennes.fr",
+    "email": null,
+    "customType": null,
+    "referenceId": null,
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00Z"
+  }
+}

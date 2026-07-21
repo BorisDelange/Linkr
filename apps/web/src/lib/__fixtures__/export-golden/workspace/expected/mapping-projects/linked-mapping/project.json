@@ -1,0 +1,11 @@
+{
+  "id": "mp-linked",
+  "entityId": "linked-mapping",
+  "name": {
+    "en": "Linked Mapping"
+  },
+  "gitRemoteConfig": {
+    "url": "https://git.example.org/mapping.git",
+    "branch": "main"
+  }
+}

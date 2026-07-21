@@ -1,0 +1,528 @@
+"""Load a workspace's data and assemble its export ZIP bytes server-side.
+
+The impure companion to ``workspace_export`` (which is pure): this reads the DB +
+disk + blob store, shapes each entity into the camelCase dict the frontend's
+Storage façade yields in server mode — in the SAME key order the API emits (so the
+JSON is byte-identical) — then zips the resulting file tree.
+
+Every ORM row is dumped through its ``XxxResponse`` schema
+(``model_validate(...).model_dump(by_alias=True, mode="json")``), exactly like the
+project/mapping-project assemblers: full field set, ``None`` → ``null``, schema
+field order preserved. The two heavy sections (unlinked-with-data projects and full
+mapping projects) reuse ``build_project_tree_from_db`` and the standalone mapping
+builder — the pure workspace builder just nests each sub-tree under
+``projects/<folder>/`` and ``mapping-projects/<folder>/``.
+
+The zip container mirrors ``git_service.clone_to_zip`` (io.BytesIO + ZIP_DEFLATED).
+git versions the extracted files, so only the per-file contents matter — the golden
+tests pin them. See docs/planning/server-export-plan.md §8.
+"""
+
+import asyncio
+import io
+import json
+import zipfile
+from dataclasses import dataclass, field
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.mapping_project import MappingProject
+from app.models.project import Project
+from app.models.workspace import Workspace
+from app.schemas.data_catalog import DataCatalogResponse
+from app.schemas.data_source import DataSourceResponse
+from app.schemas.dq_rule_set import DqCustomCheckResponse, DqRuleSetResponse
+from app.schemas.etl_pipeline import EtlFileResponse, EtlPipelineResponse
+from app.schemas.mapping_project import MappingProjectResponse, ServiceMappingResponse
+from app.schemas.organization import OrganizationResponse
+from app.schemas.project import ProjectResponse
+from app.schemas.schema_preset import SchemaPresetResponse
+from app.schemas.source_concept_id import SourceConceptIdRangeResponse
+from app.schemas.sql_script import SqlScriptCollectionResponse, SqlScriptFileResponse
+from app.schemas.user_plugin import UserPluginResponse
+from app.schemas.attachment import WikiAttachmentResponse
+from app.schemas.wiki_page import WikiPageResponse
+from app.schemas.workspace import WorkspaceResponse
+from app.services import (
+    attachment_service,
+    blob_store,
+    data_catalog_service,
+    data_source_service,
+    dq_rule_set_service,
+    etl_pipeline_service,
+    mapping_project_service,
+    organization_service,
+    schema_preset_service,
+    source_concept_id_service,
+    sql_script_service,
+    user_plugin_service,
+    wiki_page_service,
+)
+from app.services.mapping_project_export import build_mapping_project_tree
+from app.services.mapping_project_export_assemble import (
+    _entry_dict,
+    _mapping_dict,
+    _project_dict,
+    _range_dict,
+)
+from app.services.project_export_assemble import build_project_tree_from_db
+from app.services.source_concept_id_scope import scoped_source_concept_ids
+from app.services.workspace_export import (
+    _eid,
+    _json,
+    _localized_en,
+    _slugify,
+    _strip_instance_fields,
+    build_workspace_tree,
+)
+
+
+@dataclass
+class WorkspaceExportOptions:
+    """Mirrors the frontend ``BuildWorkspaceZipOptions``: section toggles (all on by
+    default), per-entity include-data opt-in, per-entity exclude opt-out, and the
+    credentials opt-in for databases."""
+
+    sections: dict[str, bool] = field(default_factory=dict)
+    include_entity_data: dict[str, bool] = field(default_factory=dict)
+    exclude_entities: dict[str, bool] = field(default_factory=dict)
+    include_credentials: bool = False
+
+    def on(self, key: str) -> bool:
+        return self.sections.get(key) is not False
+
+
+def _dump(schema, row) -> dict:
+    return schema.model_validate(row).model_dump(by_alias=True, mode="json")
+
+
+def _resolve_git_remote(cfg: dict | None) -> dict | None:
+    """Port of ``resolveGitRemote`` (entity-io.ts:1374): a remote with a URL, else
+    None. The legacy ``gitUrl`` field never reaches the server schemas, so only the
+    ``gitRemoteConfig`` branch applies."""
+    if cfg and cfg.get("url"):
+        return cfg
+    return None
+
+
+def _tree_path(file: dict, by_id: dict[str, dict]) -> str:
+    """Port of ``buildTreePath`` (entity-io.ts:1387): reconstruct a tree node's path
+    from its parent-name chain."""
+    parts = [file["name"]]
+    current = file
+    while current.get("parentId"):
+        parent = by_id.get(current["parentId"])
+        if not parent:
+            break
+        parts.insert(0, parent["name"])
+        current = parent
+    return "/".join(parts)
+
+
+def _to_portable_ranges(ranges: list[dict]) -> list[dict]:
+    """Port of ``toPortableRanges`` (source-concept-ids-io.ts:197): keep the
+    allocation subset in that key order, sort by badgeLabel (code-point order)."""
+    out = [
+        {
+            "badgeLabel": r["badgeLabel"],
+            "rangeStart": r["rangeStart"],
+            "rangeEnd": r["rangeEnd"],
+            "nextId": r["nextId"],
+            "totalConcepts": r["totalConcepts"],
+        }
+        for r in ranges
+    ]
+    out.sort(key=lambda r: r["badgeLabel"])
+    return out
+
+
+# --- projects ---------------------------------------------------------------
+
+
+async def _list_workspace_projects(db: AsyncSession, workspace_id: str) -> list[Project]:
+    result = await db.execute(select(Project).where(Project.workspace_id == workspace_id))
+    return list(result.scalars().all())
+
+
+def _project_folder(project: Project) -> str:
+    """Port of ``folder = project.projectId || slugify(resolveProjectName)``."""
+    return project.project_id or _slugify(_localized_en(project.name) or "project")
+
+
+async def _projects_section(
+    db: AsyncSession,
+    workspace_id: str,
+    opts: "WorkspaceExportOptions",
+    workspace_org: dict | None,
+) -> list[dict]:
+    entries: list[dict] = []
+    for project in await _list_workspace_projects(db, workspace_id):
+        if opts.exclude_entities.get(project.uid):
+            continue
+        git = _resolve_git_remote(project.git_remote_config)
+        entry: dict = {
+            "meta": _dump(ProjectResponse, project),
+            "git": git,
+            "folder": _project_folder(project),
+            "readme": project.readme,
+        }
+        if not git and opts.include_entity_data.get(project.uid):
+            # The full nested tree inlines the inherited org into project.json, like
+            # buildProjectZip's attachEntityOrganization fallback (project's own org,
+            # else the parent workspace's).
+            entry["sub_tree"] = await build_project_tree_from_db(
+                db, project, include_data=True, organization=workspace_org
+            )
+        entries.append(entry)
+    return entries
+
+
+# --- mapping projects -------------------------------------------------------
+
+
+def _clean_mapping_meta(project: MappingProject) -> dict:
+    """cleanMappingProjectMeta WITHOUT the inlined organization (the workspace
+    factors the org into its root organization.json). The standalone mapping
+    builder's project.json IS that clean form when given ``organization=None``, so
+    reuse it and lift the file out rather than re-implementing the strip logic."""
+    tree = build_mapping_project_tree(
+        project=_project_dict(project),
+        mappings=[],
+        ranges=[],
+        entries=[],
+        organization=None,
+        source_csv=None,
+    )
+    return json.loads(tree["project.json"].decode("utf-8"))
+
+
+async def _mapping_project_sub_tree(db: AsyncSession, project: MappingProject) -> dict[str, bytes]:
+    """The full mapping-project folder as it appears INSIDE a workspace export:
+    project.json (clean, NO inlined organization) + mappings.json +
+    source-concepts.csv + source-concept-ids/. Reuses the standalone mapping builder,
+    then drops its standalone ``.gitignore`` — the workspace mapping folder never
+    carries one (buildMappingProjectFolder omits it; the root .gitignore is not
+    written in the workspace variant either)."""
+    mappings = [
+        _mapping_dict(m) for m in await mapping_project_service.list_mappings(db, project.id)
+    ]
+    ranges, entries, all_badge_entries = await scoped_source_concept_ids(db, project)
+
+    source_csv = None
+    if (
+        project.source_type == "file"
+        and project.raw_file_sha
+        and blob_store.exists(project.raw_file_sha)
+    ):
+        source_csv = await blob_store.read_bytes(project.raw_file_sha)
+
+    tree = build_mapping_project_tree(
+        project=_project_dict(project),
+        mappings=mappings,
+        ranges=[_range_dict(r, all_badge_entries) for r in ranges],
+        entries=[_entry_dict(e) for e in entries],
+        organization=None,
+        source_csv=source_csv,
+    )
+    tree.pop(".gitignore", None)
+    return tree
+
+
+async def _mapping_projects_section(
+    db: AsyncSession, workspace_id: str, opts: "WorkspaceExportOptions"
+) -> tuple[list[dict], list[dict]]:
+    """Returns (mapping-project entries, portable workspace ranges)."""
+    entries: list[dict] = []
+    for mp in await mapping_project_service.list_for_workspace(db, workspace_id):
+        if opts.exclude_entities.get(mp.id):
+            continue
+        git = _resolve_git_remote(mp.git_remote_config)
+        mp_dict = _dump(MappingProjectResponse, mp)
+        entry: dict = {
+            "meta": _clean_mapping_meta(mp),
+            "git": git,
+            "folder": _eid(mp_dict),
+            "id": mp.id,
+            "entityId": mp_dict.get("entityId"),
+            "name": mp_dict.get("name"),
+        }
+        if not git and opts.include_entity_data.get(mp.id):
+            entry["sub_tree"] = await _mapping_project_sub_tree(db, mp)
+        entries.append(entry)
+
+    ranges = await source_concept_id_service.list_ranges(db, workspace_id)
+    id_ranges = _to_portable_ranges(
+        [_dump(SourceConceptIdRangeResponse, r) for r in ranges]
+    )
+    return entries, id_ranges
+
+
+# --- sql / etl full folders -------------------------------------------------
+
+
+async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, bytes]:
+    """Server equivalent of ``buildSqlCollectionFolder`` (entity-io.ts:1404):
+    _collection.json (stripped) + _tree.json (files without content) + each file at
+    its real path."""
+    tree: dict[str, bytes] = {}
+    tree["_collection.json"] = _json(
+        _strip_instance_fields(_dump(SqlScriptCollectionResponse, collection))
+    )
+    files = [
+        _dump(SqlScriptFileResponse, f)
+        for f in await sql_script_service.list_files(db, collection.id)
+    ]
+    by_id = {f["id"]: f for f in files}
+    tree["_tree.json"] = _json([{k: v for k, v in f.items() if k != "content"} for f in files])
+    for f in files:
+        if f["type"] == "file" and f.get("content") is not None:
+            tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
+    return tree
+
+
+async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]:
+    """Server equivalent of ``buildEtlPipelineFolder`` (entity-io.ts:1775):
+    _pipeline.json (stripped) + _tree.json + each file at its real path."""
+    tree: dict[str, bytes] = {}
+    tree["_pipeline.json"] = _json(
+        _strip_instance_fields(_dump(EtlPipelineResponse, pipeline))
+    )
+    files = [
+        _dump(EtlFileResponse, f)
+        for f in await etl_pipeline_service.list_files(db, pipeline.id)
+    ]
+    by_id = {f["id"]: f for f in files}
+    tree["_tree.json"] = _json([{k: v for k, v in f.items() if k != "content"} for f in files])
+    for f in files:
+        if f["type"] == "file" and f.get("content") is not None:
+            tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
+    return tree
+
+
+# --- plugins ----------------------------------------------------------------
+
+
+def _plugin_manifest_id(plugin_dict: dict) -> str | None:
+    """Port of ``pluginManifestId`` (entity-io.ts:1808): the ``id`` from the bundled
+    plugin.json manifest, else None."""
+    try:
+        return json.loads(plugin_dict.get("files", {}).get("plugin.json", "{}")).get("id")
+    except (ValueError, AttributeError):
+        return None
+
+
+async def _exportable_plugins(db: AsyncSession, workspace_id: str) -> list[dict]:
+    """Workspace plugins that are NOT copies of a built-in (mirrors the frontend
+    filter in buildWorkspaceZip: built-ins are reconstitutable from the app's plugin
+    registry on import, so their code is never bundled).
+
+    The registry is a FRONTEND-only concept — the built-in components are compiled
+    into the JS bundle (apps/web/src/lib/plugins/default-plugins.ts +
+    builtin-widget-plugins.ts) and have no server-side representation. We reproduce
+    the INTENT by matching the marker the seeder stamps on a built-in copy:
+    ``seedBuiltinPlugins`` sets ``entityId === manifest.id`` and stores ONLY the
+    manifest (+ optional analysis templates) as ``files`` — no user-authored code.
+    A row is treated as a built-in (and skipped) when its files are exactly that
+    seeded shape (plugin.json [+ analysis.*.template]) AND its entityId equals the
+    manifest id. Any plugin carrying other files is user-authored and exported.
+
+    This is an approximation of the frontend's registry lookup (see report note):
+    it never drops a genuinely user-authored plugin, and skips the seeded built-in
+    copies exactly as the frontend does for the shapes the seeder produces."""
+    out: list[dict] = []
+    for p in await user_plugin_service.list_for_workspace(db, workspace_id):
+        d = _dump(UserPluginResponse, p)
+        if _is_seeded_builtin(d):
+            continue
+        out.append(d)
+    return out
+
+
+def _is_seeded_builtin(plugin_dict: dict) -> bool:
+    """A workspace plugin that is a seeded copy of an app built-in (see
+    ``seedBuiltinPlugins``): entityId == manifest id, and files are only the
+    manifest plus optional ``analysis.*.template`` companions — never user code."""
+    files = plugin_dict.get("files") or {}
+    if "plugin.json" not in files:
+        return False
+    if _plugin_manifest_id(plugin_dict) != plugin_dict.get("entityId"):
+        return False
+    return all(
+        name == "plugin.json" or name.startswith("analysis.") for name in files
+    )
+
+
+# --- assembly ---------------------------------------------------------------
+
+
+async def build_workspace_tree_from_db(
+    db: AsyncSession, workspace: Workspace, options: WorkspaceExportOptions
+) -> dict[str, bytes]:
+    """Assemble the export file tree for a workspace from DB + disk + blob store."""
+    workspace_dict = _dump(WorkspaceResponse, workspace)
+
+    organization = None
+    if workspace.organization_id:
+        org = await organization_service.get(db, workspace.organization_id)
+        if org:
+            organization = _dump(OrganizationResponse, org)
+
+    projects = (
+        await _projects_section(db, workspace.id, options, organization)
+        if options.on("projects")
+        else None
+    )
+
+    wiki_pages = None
+    wiki_attachments = None
+    wiki_attachment_blobs: dict[str, bytes] = {}
+    if options.on("wiki"):
+        wiki_pages = [
+            _dump(WikiPageResponse, p)
+            for p in await wiki_page_service.list_for_workspace(db, workspace.id)
+        ]
+        wiki_attachments = []
+        for att in await attachment_service.list_wiki_by_workspace(db, workspace.id):
+            wiki_attachments.append(_dump(WikiAttachmentResponse, att))
+            if att.blob_sha and blob_store.exists(att.blob_sha):
+                wiki_attachment_blobs[att.id] = await blob_store.read_bytes(att.blob_sha)
+
+    schemas = None
+    if options.on("schemas"):
+        schemas = []
+        for sp in await schema_preset_service.list_for_workspace(db, workspace.id):
+            if options.exclude_entities.get(sp.preset_id):
+                continue
+            schemas.append(
+                {
+                    "meta": _dump(SchemaPresetResponse, sp),
+                    "git": _resolve_git_remote(sp.git_remote_config),
+                }
+            )
+
+    data_sources = None
+    if options.on("databases"):
+        data_sources = []
+        for ds in await data_source_service.list_for_workspace(db, workspace.id):
+            if options.exclude_entities.get(ds.id):
+                continue
+            if ds.is_vocabulary_reference:
+                continue
+            data_sources.append(_dump(DataSourceResponse, ds))
+
+    sql_collections = None
+    if options.on("sqlScripts"):
+        sql_collections = []
+        for c in await sql_script_service.list_for_workspace(db, workspace.id):
+            if options.exclude_entities.get(c.id):
+                continue
+            git = _resolve_git_remote(c.git_remote_config)
+            meta = _dump(SqlScriptCollectionResponse, c)
+            entry: dict = {"meta": meta, "git": git, "folder": _eid(meta)}
+            if not git and options.include_entity_data.get(c.id):
+                entry["sub_tree"] = await _sql_collection_sub_tree(db, c)
+            sql_collections.append(entry)
+
+    etl_pipelines = None
+    if options.on("etl"):
+        etl_pipelines = []
+        for p in await etl_pipeline_service.list_for_workspace(db, workspace.id):
+            if options.exclude_entities.get(p.id):
+                continue
+            git = _resolve_git_remote(p.git_remote_config)
+            meta = _dump(EtlPipelineResponse, p)
+            entry = {"meta": meta, "git": git, "folder": _eid(meta)}
+            if not git and options.include_entity_data.get(p.id):
+                entry["sub_tree"] = await _etl_pipeline_sub_tree(db, p)
+            etl_pipelines.append(entry)
+
+    dq_rule_sets = None
+    if options.on("dataQuality"):
+        dq_rule_sets = []
+        for rs in await dq_rule_set_service.list_for_workspace(db, workspace.id):
+            if options.exclude_entities.get(rs.id):
+                continue
+            checks = [
+                _dump(DqCustomCheckResponse, c)
+                for c in await dq_rule_set_service.list_checks(db, rs.id)
+            ]
+            meta = _dump(DqRuleSetResponse, rs)
+            dq_rule_sets.append(
+                {
+                    "meta": meta,
+                    "checks": checks,
+                    "git": _resolve_git_remote(rs.git_remote_config),
+                    "folder": _eid(meta),
+                }
+            )
+
+    mapping_projects = None
+    id_ranges = None
+    if options.on("conceptMapping"):
+        mapping_projects, id_ranges = await _mapping_projects_section(
+            db, workspace.id, options
+        )
+
+    catalogs = None
+    service_mappings = None
+    if options.on("catalogs"):
+        catalogs = []
+        for cat in await data_catalog_service.list_for_workspace(db, workspace.id):
+            if options.exclude_entities.get(cat.id):
+                continue
+            catalogs.append(
+                {
+                    "meta": _dump(DataCatalogResponse, cat),
+                    "git": _resolve_git_remote(cat.git_remote_config),
+                }
+            )
+        service_mappings = []
+        for sm in await mapping_project_service.list_service_mappings_for_workspace(
+            db, workspace.id
+        ):
+            if options.exclude_entities.get(sm.id):
+                continue
+            service_mappings.append(_dump(ServiceMappingResponse, sm))
+
+    plugins = None
+    if options.on("plugins"):
+        plugins = await _exportable_plugins(db, workspace.id)
+
+    return build_workspace_tree(
+        workspace=workspace_dict,
+        organization=organization,
+        projects=projects,
+        wiki_pages=wiki_pages,
+        wiki_attachments=wiki_attachments,
+        wiki_attachment_blobs=wiki_attachment_blobs,
+        schemas=schemas,
+        data_sources=data_sources,
+        keep_credentials=options.include_credentials,
+        sql_collections=sql_collections,
+        etl_pipelines=etl_pipelines,
+        dq_rule_sets=dq_rule_sets,
+        mapping_projects=mapping_projects,
+        id_ranges=id_ranges,
+        catalogs=catalogs,
+        service_mappings=service_mappings,
+        plugins=plugins,
+    )
+
+
+def _zip_tree(tree: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path, content in tree.items():
+            zf.writestr(path, content)
+    return buf.getvalue()
+
+
+async def assemble_workspace_zip(
+    db: AsyncSession, workspace: Workspace, options: WorkspaceExportOptions
+) -> bytes:
+    """Build the workspace's export ZIP bytes server-side (no client upload). Feeds
+    the same git flow (status/diff/commit-push) that used to receive the
+    client-built ZIP."""
+    tree = await build_workspace_tree_from_db(db, workspace, options)
+    return await asyncio.to_thread(_zip_tree, tree)

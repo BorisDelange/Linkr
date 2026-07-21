@@ -55,6 +55,10 @@ from app.services.settings_export_assemble import (
     SettingsSelection,
     assemble_settings_zip,
 )
+from app.services.workspace_export_assemble import (
+    WorkspaceExportOptions,
+    assemble_workspace_zip,
+)
 
 router = APIRouter(prefix="/git", tags=["git"])
 
@@ -66,6 +70,18 @@ async def _mapping_project_zip_bytes(db, mp, file: UploadFile | None) -> bytes:
     if file is not None:
         return await file.read()
     return await assemble_mapping_project_zip(db, mp)
+
+
+async def _workspace_zip_bytes(db, ws, file: UploadFile | None) -> bytes:
+    """The workspace's export ZIP: server-built when the client sends no file (the
+    fullstack path that offloads the browser), else the uploaded bytes (front-only
+    / transition). The git flow always versions the full workspace (all sections,
+    no per-entity data, no excludes) — the section/include-data/exclude toggles are
+    an Export-button concern, not a git-sync one (the client's git buildZip never
+    forwards them), so the default options reproduce what the front committed."""
+    if file is not None:
+        return await file.read()
+    return await assemble_workspace_zip(db, ws, WorkspaceExportOptions())
 
 
 async def _project_zip_bytes(
@@ -281,7 +297,7 @@ async def _load_workspace(workspace_id: str, db: AsyncSession, _member) -> Works
 @router.post("/workspaces/{workspace_id}/status", response_model=GitStatusResponse)
 async def workspace_status(
     workspace_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     branch: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     _member=Depends(require_permission("workspace-settings:read")),
@@ -291,7 +307,7 @@ async def workspace_status(
         git_service.status(
             git_service.workspace_repo_getter,
             ws.id,
-            await file.read(),
+            await _workspace_zip_bytes(db, ws, file),
             _default_branch(ws, branch),
             _remote_url(ws),
             await _token(db, _member, ws),
@@ -303,7 +319,7 @@ async def workspace_status(
 @router.post("/workspaces/{workspace_id}/diff", response_model=GitDiffResponse)
 async def workspace_diff(
     workspace_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
@@ -314,7 +330,7 @@ async def workspace_diff(
         git_service.diff(
             git_service.workspace_repo_getter,
             ws.id,
-            await file.read(),
+            await _workspace_zip_bytes(db, ws, file),
             _default_branch(ws, branch),
             path,
             _remote_url(ws),
@@ -341,7 +357,7 @@ async def workspace_branches(
 @router.post("/workspaces/{workspace_id}/commit-push", response_model=GitCommitResponse)
 async def workspace_commit_push(
     workspace_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     message: str = Form(...),
     branch: str | None = Form(None),
     paths: list[str] | None = Form(None),
@@ -357,7 +373,7 @@ async def workspace_commit_push(
         git_service.commit_push(
             git_service.workspace_repo_getter,
             ws.id,
-            await file.read(),
+            await _workspace_zip_bytes(db, ws, file),
             _default_branch(ws, branch),
             message,
             _remote_url(ws),

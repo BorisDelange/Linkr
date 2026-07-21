@@ -40,7 +40,7 @@ export interface GitSyncError {
 // additionally send the include-data toggle (their server builder honors it).
 // Other scopes are still client-built; front-only always builds client-side.
 function serverBuildsZip(scope: GitScope): boolean {
-  return isServerMode() && (scope === 'projects' || scope === 'mapping-projects' || scope === 'settings')
+  return isServerMode() && (scope === 'projects' || scope === 'workspaces' || scope === 'mapping-projects' || scope === 'settings')
 }
 
 // lfsOverrides: opt-in per-file LFS decisions applied when generating the export's

@@ -1,0 +1,11 @@
+{
+  "uid": "proj-linked",
+  "projectId": "linked-proj",
+  "name": {
+    "en": "Linked Project"
+  },
+  "gitRemoteConfig": {
+    "url": "https://git.example.org/linked.git",
+    "branch": "main"
+  }
+}

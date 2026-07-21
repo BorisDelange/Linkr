@@ -1,0 +1,48 @@
+{
+  "id": "mp1",
+  "entityId": "adult-icu",
+  "name": {
+    "en": "Adult ICU"
+  },
+  "description": {
+    "en": "ICU mapping"
+  },
+  "status": "in_progress",
+  "badges": [
+    {
+      "id": "b1",
+      "label": {
+        "en": "Rennes"
+      },
+      "color": "blue"
+    }
+  ],
+  "sourceType": "file",
+  "dataSourceId": "",
+  "rawFileSha": "12bc9202947734e7d501f1289798dc0dbc4ac0df2e1ed549f103ead4fc9e3ca1",
+  "rawFileName": "source-concepts.csv",
+  "scoresFileSha": null,
+  "scoresFileName": null,
+  "stats": null,
+  "createdBy": "Boris Delange",
+  "createdByDetails": null,
+  "lineageId": null,
+  "parentLineageId": null,
+  "createdAt": "2026-01-01T00:00:00Z",
+  "version": "0.1.0",
+  "fileSourceData": {
+    "fileName": "source-concepts.csv",
+    "columns": [
+      "terminology",
+      "concept_code",
+      "concept_name"
+    ],
+    "columnMapping": {
+      "terminologyColumn": "terminology",
+      "conceptCodeColumn": "concept_code",
+      "conceptNameColumn": "concept_name"
+    },
+    "rows": [],
+    "totalRowCount": 2
+  }
+}

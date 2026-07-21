@@ -1,0 +1,18 @@
+{
+  "id": "ws1",
+  "name": {
+    "en": "Rennes Workspace",
+    "fr": "Espace Rennes"
+  },
+  "description": {
+    "en": "Demo workspace"
+  },
+  "badges": [],
+  "createdBy": "Boris Delange",
+  "createdByDetails": null,
+  "lineageId": null,
+  "parentLineageId": null,
+  "createdAt": "2026-01-01T00:00:00Z",
+  "organizationId": "org1",
+  "appVersion": "2.1.2"
+}
