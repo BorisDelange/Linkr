@@ -254,6 +254,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
                     includeData={includeData}
                     supportsDataFiles={supportsDataFiles}
                     onRun={() => runQuickAction(qa)}
+                    onOpenDiff={setDiffPath}
                     t={t}
                   />
                 ))}
@@ -456,7 +457,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
  * Disabled when there's nothing to push or a pull is required.
  */
 function QuickActionCard({
-  action, primary, committing, disabled, includeData, supportsDataFiles, onRun, t,
+  action, primary, committing, disabled, includeData, supportsDataFiles, onRun, onOpenDiff, t,
 }: {
   action: QuickAction
   primary: boolean
@@ -465,6 +466,8 @@ function QuickActionCard({
   includeData: boolean
   supportsDataFiles: boolean
   onRun: () => void
+  /** Open the full-size diff viewer on a file — same as clicking a row in Details. */
+  onOpenDiff: (path: string) => void
   t: (k: string) => string
 }) {
   const nothing = action.files.length === 0
@@ -501,7 +504,15 @@ function QuickActionCard({
                       >
                         {meta.letter}
                       </span>
-                      <span className="block min-w-0 flex-1 truncate font-mono text-muted-foreground" title={f.path}>{f.path}</span>
+                      {/* Click opens the same full-size diff viewer as a Details row. */}
+                      <button
+                        type="button"
+                        onClick={() => onOpenDiff(f.path)}
+                        className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground hover:text-foreground hover:underline"
+                        title={f.path}
+                      >
+                        {f.path}
+                      </button>
                     </li>
                   )
                 })}
