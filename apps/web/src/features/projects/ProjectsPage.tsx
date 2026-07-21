@@ -57,6 +57,12 @@ export function ProjectsPage() {
   const { wsUid } = useResolvedParams()
   const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
+  // A project shows its origin org: its own inlined snapshot (imports) when present,
+  // else the workspace's org resolved live — same fallback as ListPageTemplate, so a
+  // freshly-created project (no inline snapshot) still shows the workspace org.
+  const workspaceOrgId = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === s.activeWorkspaceId)?.organizationId,
+  )
   const { atLeast: hasWsRole } = useMyWorkspaceRole()
   const canEditWs = hasWsRole('editor')
   const canDeleteWs = hasWsRole('owner')
@@ -428,6 +434,7 @@ export function ProjectsPage() {
                       createdById={raw?.createdById}
                       createdBy={raw?.createdBy}
                       createdByDetails={raw?.createdByDetails}
+                      organizationId={raw?.organization ? undefined : workspaceOrgId}
                       organization={raw?.organization}
                       createdAt={project.createdAt}
                       updatedAt={project.updatedAt}
