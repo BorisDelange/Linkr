@@ -350,7 +350,10 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
         {/* Force the column type (overrides inference; persisted in parseOptions). */}
         {COLUMN_TYPES.map((ty) => (
           <Item key={ty} onClick={() => { void setColumnType(fileId, col.id, ty) }} className="text-xs">
-            <TypeBadge type={ty} size="sm" />
+            {/* Fixed-width badge cell so labels line up (Aa is wider than #/⊘/◷). */}
+            <span className="inline-flex w-6 shrink-0 justify-center">
+              <TypeBadge type={ty} size="sm" />
+            </span>
             {t(`datasets.col_treat_as`, { type: t(`datasets.type_${ty}`), defaultValue: `Treat as {{type}}` })}
             {col.type === ty && <span className="ml-auto text-primary">✓</span>}
           </Item>

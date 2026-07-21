@@ -9,7 +9,7 @@ import { fetchColumnStats } from '@/lib/api/datasets'
 import { BarChart3 } from 'lucide-react'
 import { TypeBadge } from './TypeBadge'
 import { BoxPlot } from '@/components/charts/box-plot'
-import { niceStep } from '@/lib/chart-ticks'
+import { niceStep, niceTicks } from '@/lib/chart-ticks'
 
 interface ColumnStatsPanelProps {
   fileId: string | null
@@ -47,32 +47,30 @@ function computeNumericStats(values: number[]) {
   return { min, max, mean, median, std, q1, q3, iqr, n, sorted }
 }
 
-/** Round a bin-low to the step's precision so axis labels read cleanly (no
- * "479969.81"); shared by the front-only and server histogram builders. */
+/** A histogram bar: numeric bin low `x` (for a numeric axis with nice ticks),
+ * a rounded string `label` (tooltip), the `count`, and its `pct`. */
+interface HistBin { x: number; label: string; count: number; pct: number }
+
 function roundBinLabel(lo: number, step: number): string {
   const decimals = Math.max(0, -Math.floor(Math.log10(step)))
   return lo.toFixed(decimals)
 }
 
-function buildHistogram(sorted: number[], bins: number) {
+function buildHistogram(sorted: number[], bins: number): HistBin[] {
   if (sorted.length === 0) return []
   const dataMin = sorted[0]
   const dataMax = sorted[sorted.length - 1]
-  if (dataMin === dataMax) return [{ label: String(dataMin), count: sorted.length, pct: 100 }]
+  if (dataMin === dataMax) return [{ x: dataMin, label: String(dataMin), count: sorted.length, pct: 100 }]
 
   // "Nice bins": round the start and step to readable values so bars land on round ticks.
   const step = niceStep((dataMax - dataMin) / bins)
   const start = Math.floor(dataMin / step) * step
-  const result: { label: string; count: number; pct: number }[] = []
+  const result: HistBin[] = []
   for (let lo = start; lo < dataMax; lo += step) {
     const isLast = lo + step >= dataMax
     const hi = lo + step
     const count = sorted.filter((v) => v >= lo && (isLast ? v <= hi : v < hi)).length
-    result.push({
-      label: roundBinLabel(lo, step),
-      count,
-      pct: (count / sorted.length) * 100,
-    })
+    result.push({ x: lo, label: roundBinLabel(lo, step), count, pct: (count / sorted.length) * 100 })
   }
   return result
 }
@@ -167,7 +165,7 @@ function buildStatsFromServer(s: Record<string, unknown>, locale: string) {
     uniqueCount: Number(s.distinct ?? 0),
     isNumeric: false,
     numeric: null as null | Record<string, number>,
-    histogram: [] as { label: string; count: number; pct: number }[],
+    histogram: [] as HistBin[],
     isDate: false,
     dateStats: null as null | { earliest: string; latest: string; span: string },
     dateHistogram: [] as { label: string; count: number; pct: number }[],
@@ -186,12 +184,12 @@ function buildStatsFromServer(s: Record<string, unknown>, locale: string) {
       q1: Number(s.q1), q3: Number(s.q3), iqr: Number(s.iqr ?? 0),
     }
     const bins = (s.histogram as { lo: number; count: number | null }[] | undefined) ?? []
-    // Server bins are equal-width; round each label to the bin step's precision so
-    // the axis reads "480000" not "479969.81".
+    // Server bins are equal-width from the raw min/max; keep the numeric low `x`
+    // (the axis uses niceTicks for evenly-spaced round ticks) plus a rounded label.
     const binStep = bins.length > 1 ? Number(bins[1].lo) - Number(bins[0].lo) : 1
     base.histogram = bins
       .filter((b) => b.count != null)
-      .map((b) => ({ label: roundBinLabel(Number(b.lo), niceStep(binStep)), count: Number(b.count), pct: total ? (Number(b.count) / total) * 100 : 0 }))
+      .map((b) => ({ x: Number(b.lo), label: roundBinLabel(Number(b.lo), niceStep(binStep)), count: Number(b.count), pct: total ? (Number(b.count) / total) * 100 : 0 }))
   } else if (s.kind === 'date') {
     const min = s.min ? Date.parse(String(s.min)) : NaN
     const max = s.max ? Date.parse(String(s.max)) : NaN
@@ -297,7 +295,7 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
     const isNumeric = !isDate && (column.type === 'number' || (numericValues.length > 0 && numericValues.length === nonNullValues.length))
 
     let numeric = null
-    let histogram: { label: string; count: number; pct: number }[] = []
+    let histogram: HistBin[] = []
     if (isNumeric && numericValues.length > 0) {
       numeric = computeNumericStats(numericValues)
       histogram = buildHistogram(numeric.sorted, HISTOGRAM_BINS)
@@ -389,29 +387,45 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
           </div>
         )}
 
-        {/* Numeric histogram (Recharts) */}
-        {stats.isNumeric && stats.histogram.length > 1 && (
-          <div className="space-y-1 border-t pt-3">
-            <h4 className="font-medium text-muted-foreground mb-1.5">{t('datasets.stats_distribution')}</h4>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={stats.histogram} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 9 }}
-                  tickFormatter={(v: string) => Number(v).toLocaleString()}
-                  interval="preserveStartEnd"
-                />
-                <YAxis tick={{ fontSize: 9 }} width={30} />
-                <Tooltip
-                  formatter={(value) => [Number(value).toLocaleString(), 'Count']}
-                  labelFormatter={(label) => Number(label).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                  contentStyle={{ fontSize: 11, background: 'var(--color-popover)', border: '1px solid var(--color-border)', color: 'var(--color-popover-foreground)' }}
-                />
-                <Bar dataKey="count" fill="var(--color-primary)" radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+        {/* Numeric histogram — numeric X axis with niceTicks (round, evenly-spaced
+            ticks like the app's other charts). Each bar is plotted at its bin
+            CENTER and the domain is pinned to the exact data edges [lo, hi], so no
+            bar overflows past the Y axis; only round ticks inside that span show. */}
+        {stats.isNumeric && stats.histogram.length > 1 && (() => {
+          const lows = stats.histogram.map((b) => b.x)
+          const step = lows.length > 1 ? lows[1] - lows[0] : 1
+          const lo = lows[0]
+          const hi = lows[lows.length - 1] + step  // right edge of the last bin
+          const data = stats.histogram.map((b) => ({ ...b, center: b.x + step / 2 }))
+          // Round ticks from niceTicks, kept only where they fall within [lo, hi].
+          const scale = niceTicks([lo, hi])
+          const ticks = scale?.ticks.filter((tk) => tk >= lo && tk <= hi)
+          return (
+            <div className="space-y-1 border-t pt-3">
+              <h4 className="font-medium text-muted-foreground mb-1.5">{t('datasets.stats_distribution')}</h4>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={data} margin={{ top: 4, right: 4, bottom: 4, left: 4 }} barCategoryGap={0}>
+                  <XAxis
+                    dataKey="center"
+                    type="number"
+                    scale="linear"
+                    domain={[lo, hi]}
+                    ticks={ticks}
+                    tick={{ fontSize: 9 }}
+                    tickFormatter={(v: number) => Number(v).toLocaleString()}
+                  />
+                  <YAxis tick={{ fontSize: 9 }} width={30} />
+                  <Tooltip
+                    formatter={(value) => [Number(value).toLocaleString(), 'Count']}
+                    labelFormatter={(label) => Number(label).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    contentStyle={{ fontSize: 11, background: 'var(--color-popover)', border: '1px solid var(--color-border)', color: 'var(--color-popover-foreground)' }}
+                  />
+                  <Bar dataKey="count" fill="var(--color-primary)" radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )
+        })()}
 
         {/* Temporal statistics */}
         {stats.isDate && stats.dateStats && (
