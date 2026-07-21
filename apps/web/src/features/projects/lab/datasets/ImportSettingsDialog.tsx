@@ -25,6 +25,7 @@ import { useDatasetStore } from '@/stores/dataset-store'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { buildColumns } from '@/lib/dataset-utils'
+import { previewDatasetByPath } from '@/lib/api/datasets'
 import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
 
 interface ImportSettingsDialogProps {
@@ -89,6 +90,15 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
     setHasHeader(opts?.hasHeader !== false)
     setSelectedSheet(opts?.sheet ?? '')
 
+    // Server mode: the raw file lives on the server, not in IndexedDB. Skip the
+    // IDB load and preview by re-parsing the server file with the pending options.
+    if (isServerMode()) {
+      setRawBlob(null)
+      setRawFileName(file.name)
+      setLoadingRaw(false)
+      return
+    }
+
     getStorage().datasetRawFiles.get(file.id).then((raw) => {
       if (raw) {
         setRawBlob(raw.blob)
@@ -102,7 +112,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
       setRawBlob(null)
       setLoadingRaw(false)
     })
-  }, [open, file.id, file.parseOptions])
+  }, [open, file.id, file.name, file.parseOptions])
 
   const isCSVLike = useCallback((name: string) => {
     const ext = name.toLowerCase()
@@ -121,7 +131,40 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
   const showCSVOptions = rawFileName ? isCSVLike(rawFileName) : false
   const showExcelOptions = rawFileName ? isExcel(rawFileName) : false
 
-  // Parse the raw blob with current options
+  const buildParseOptions = useCallback((): DatasetParseOptions | undefined => {
+    const opts: DatasetParseOptions = {}
+    if (delimiter !== 'auto') opts.delimiter = delimiter
+    if (encoding !== 'UTF-8') opts.encoding = encoding
+    if (skipRows > 0) opts.skipRows = skipRows
+    if (!hasHeader) opts.hasHeader = false
+    if (selectedSheet) opts.sheet = selectedSheet
+    return Object.keys(opts).length > 0 ? opts : undefined
+  }, [delimiter, encoding, skipRows, hasHeader, selectedSheet])
+
+  // Server mode: preview by re-parsing the server's raw file with the pending
+  // options (no browser parse, no IDB blob) — same parser the reimport commits.
+  const parseServer = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await previewDatasetByPath(file.id, buildParseOptions())
+      if (res.sheetNames && res.sheetNames.length > 0) {
+        setSheetNames(res.sheetNames)
+        if (!selectedSheet) setSelectedSheet(res.sheetNames[0])
+      }
+      setParsed({
+        columns: res.columns as DatasetColumn[],
+        rows: [],
+        preview: res.preview.slice(0, 10),
+        totalRows: res.rowCount,
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('datasets.upload_parse_error'))
+    }
+    setLoading(false)
+  }, [file.id, buildParseOptions, selectedSheet, t])
+
+  // Parse the raw blob with current options (local/WASM mode only)
   const parseRaw = useCallback(() => {
     if (!rawBlob || !rawFileName) return
     setLoading(true)
@@ -216,14 +259,6 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
       }
       reader.readAsArrayBuffer(rawBlob)
     } else if (isParquet(rawFileName)) {
-      // Server mode re-parses the raw blob server-side (see store.reimportData),
-      // ignoring any client-parsed rows — so don't load DuckDB-WASM for a preview
-      // that would be thrown away. A minimal `parsed` keeps the Reimport button live.
-      if (isServerMode()) {
-        setParsed({ columns: [], rows: [], preview: [], totalRows: 0 })
-        setLoading(false)
-        return
-      }
       ;(async () => {
         try {
           const { getDuckDB } = await import('@/lib/duckdb/engine')
@@ -260,29 +295,28 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
     }
   }, [rawBlob, rawFileName, delimiter, skipRows, encoding, hasHeader, selectedSheet, isCSVLike, isExcel, isParquet, t])
 
-  // Auto-parse when raw file is loaded or options change
+  // Auto-parse when the raw file is loaded or options change. Server mode has no
+  // IDB blob — it previews by re-parsing the server file with the pending options.
   useEffect(() => {
-    if (rawBlob && rawFileName && !loadingRaw) {
+    if (loadingRaw) return
+    if (isServerMode()) {
+      parseServer()
+    } else if (rawBlob && rawFileName) {
       parseRaw()
     }
-  }, [rawBlob, rawFileName, loadingRaw, parseRaw])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawBlob, rawFileName, loadingRaw, delimiter, skipRows, encoding, hasHeader, selectedSheet])
 
   const handleReimport = useCallback(async () => {
     if (!parsed) return
     setReimporting(true)
     const store = useDatasetStore.getState()
-    const opts: DatasetParseOptions = {}
-    if (delimiter !== 'auto') opts.delimiter = delimiter
-    if (encoding !== 'UTF-8') opts.encoding = encoding
-    if (skipRows > 0) opts.skipRows = skipRows
-    if (!hasHeader) opts.hasHeader = false
-    if (selectedSheet) opts.sheet = selectedSheet
-    const parseOpts = Object.keys(opts).length > 0 ? opts : undefined
+    const parseOpts = buildParseOptions()
 
     await store.reimportData(file.id, parsed.columns, parsed.rows, parseOpts)
     setReimporting(false)
     onOpenChange(false)
-  }, [parsed, file.id, delimiter, encoding, skipRows, hasHeader, selectedSheet, onOpenChange])
+  }, [parsed, file.id, buildParseOptions, onOpenChange])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

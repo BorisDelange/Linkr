@@ -1,6 +1,5 @@
 """datasets/ disk-source-of-truth: scan + derived Parquet cache (pagination/stats)."""
 
-from app.config import settings
 from app.services import project_fs
 from app.services.data import dataset_fs
 
@@ -146,3 +145,85 @@ async def test_cache_reused_until_raw_changes(client, seed_roles):
     raw.write_text("a\n1\n2\n3\n")
     r2 = dataset_fs.resolve_cache(uid, "c.csv")
     assert r2["rowCount"] == 3
+
+
+# --- Server-side preview (import dialog) ---
+
+async def test_preview_matches_what_import_persists(client, seed_roles):
+    """The /preview endpoint parses an uploaded blob without persisting, and the
+    subsequent /import of the same blob yields the identical columns/rowCount —
+    so the previewed schema is exactly what lands (no papaparse/DuckDB drift)."""
+    from app.services import blob_store
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    # concept_code is numeric for its head then alphanumeric — the shape that used
+    # to be mis-typed `number` and silently produce a column-less dataset.
+    body = "".join(f"{200000 + i},lab{i}\n" for i in range(120)) + "G894,icd\n"
+    sha, _ = await blob_store.store_bytes(b"concept_code,label\n" + body.encode())
+
+    prev = await client.post(
+        f"{API}/dataset-files/preview",
+        headers=h,
+        json={"projectUid": uid, "sha": sha, "fileName": "codes.csv"},
+    )
+    assert prev.status_code == 200
+    pv = prev.json()
+    types = {c["name"]: c["type"] for c in pv["columns"]}
+    assert types == {"concept_code": "string", "label": "string"}
+    assert pv["rowCount"] == 121
+    assert len(pv["preview"]) <= 50
+
+    imp = await client.post(
+        f"{API}/dataset-files/import",
+        headers=h,
+        json={"projectUid": uid, "sha": sha, "path": "codes.csv"},
+    )
+    assert imp.status_code == 201
+    node = imp.json()
+    assert node["rowCount"] == pv["rowCount"]
+    assert [(c["name"], c["type"]) for c in node["columns"]] == [
+        (c["name"], c["type"]) for c in pv["columns"]
+    ]
+
+
+async def test_preview_honors_delimiter_option(client, seed_roles):
+    from app.services import blob_store
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    sha, _ = await blob_store.store_bytes(b"a;b\n1;2\n3;4\n")
+    prev = await client.post(
+        f"{API}/dataset-files/preview",
+        headers=h,
+        json={
+            "projectUid": uid, "sha": sha, "fileName": "semi.csv",
+            "parseOptions": {"delimiter": ";"},
+        },
+    )
+    assert prev.status_code == 200
+    assert [c["name"] for c in prev.json()["columns"]] == ["a", "b"]
+
+
+async def test_preview_path_reparses_existing_dataset(client, seed_roles):
+    """Import Settings preview: re-parse the already-imported file with new options
+    without persisting. Forcing a pipe delimiter re-splits a header the comma read
+    kept whole, and no cache is written (the on-disk dataset is untouched)."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "s.csv").write_text("a|b\n1|2\n3|4\n")
+    # Sniffed read auto-detects the pipe: two columns.
+    r1 = await client.post(
+        f"{API}/dataset-files/preview-path",
+        headers=h, json={"projectUid": uid, "path": "s.csv"},
+    )
+    assert [c["name"] for c in r1.json()["columns"]] == ["a", "b"]
+    # Forcing a comma delimiter overrides the sniffer: the pipes stay in one column.
+    r2 = await client.post(
+        f"{API}/dataset-files/preview-path",
+        headers=h,
+        json={"projectUid": uid, "path": "s.csv", "parseOptions": {"delimiter": ","}},
+    )
+    assert [c["name"] for c in r2.json()["columns"]] == ["a|b"]
+    # Preview must not have written a Parquet cache (it's non-destructive).
+    assert not list((project_fs.cache_dir(uid) / "datasets").glob("*.parquet"))

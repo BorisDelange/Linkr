@@ -37,16 +37,30 @@ _SQL_TYPE = {
 }
 
 
-def _columns_spec(columns: list[dict]) -> str:
-    """DuckDB ``read_json(columns=...)`` struct entry list, keyed by columnId.
+def _read_all_varchar_spec(columns: list[dict]) -> str:
+    """DuckDB ``read_json(columns=...)`` struct entry list, every column VARCHAR.
 
-    Forcing the column set + types keeps our typing authoritative and pins the
-    column order (so an all-null column doesn't get dropped by inference)."""
-    parts = [
-        f"{json.dumps(c['id'])}: '{_SQL_TYPE.get(c.get('type', 'string'), 'VARCHAR')}'"
-        for c in columns
-    ]
+    Reading as text pins the column set + order (so an all-null column isn't
+    dropped by inference) without letting a too-optimistic type verdict make the
+    read fail. The declared types are then applied with ``try_cast`` in the
+    SELECT (see ``_typed_projection``), so a stray non-numeric value in a column
+    inferred as ``number`` becomes NULL instead of aborting the whole write."""
+    parts = [f"{json.dumps(c['id'])}: 'VARCHAR'" for c in columns]
     return "{" + ", ".join(parts) + "}"
+
+
+def _typed_projection(columns: list[dict]) -> str:
+    """SELECT list casting each VARCHAR column to its declared type via
+    ``try_cast`` (NULL on failure), so one bad cell never fails the import."""
+    parts = []
+    for c in columns:
+        ident = _quote_ident(c["id"])
+        sql_type = _SQL_TYPE.get(c.get("type", "string"), "VARCHAR")
+        if sql_type == "VARCHAR":
+            parts.append(ident)
+        else:
+            parts.append(f"try_cast({ident} AS {sql_type}) AS {ident}")
+    return ", ".join(parts)
 
 
 def _effective_columns(rows: list[dict], columns: list[dict]) -> list[dict]:
@@ -83,7 +97,11 @@ def write_parquet(rows: list[dict], columns: list[dict], dir: Path | None = None
     con = duckdb.connect()
     try:
         if columns:
-            source = f"SELECT * FROM read_json('{json_path.as_posix()}', columns={_columns_spec(columns)})"
+            spec = _read_all_varchar_spec(columns)
+            source = (
+                f"SELECT {_typed_projection(columns)} "
+                f"FROM read_json('{json_path.as_posix()}', columns={spec})"
+            )
         else:
             # No columns and no row keys — emit a valid empty Parquet.
             source = "SELECT NULL WHERE FALSE"

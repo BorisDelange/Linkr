@@ -2,6 +2,9 @@
 Raw files (CSV/XLSX/Parquet) are scanned from disk; a derived Parquet cache powers
 pagination and column stats. Analyses (Lot 2) reconcile against this scan."""
 
+import asyncio
+
+import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,10 +27,13 @@ from app.schemas.dataset_fs import (
     DsImport,
     DsMove,
     DsNodeResponse,
+    DsPreview,
+    DsPreviewPath,
+    DsPreviewResponse,
     DsReimport,
 )
 from app.services import blob_store, dataset_service, project_fs
-from app.services.data import dataset_fs, dataset_rows
+from app.services.data import dataset_fs, dataset_parser, dataset_rows, file_reader
 
 router = APIRouter(prefix="/dataset-files", tags=["dataset-files"])
 
@@ -155,6 +161,69 @@ async def get_raw(
     return FileResponse(p, filename=name, headers={"x-file-name": name})
 
 
+@router.post("/preview", response_model=DsPreviewResponse)
+async def preview_dataset(
+    body: DsPreview,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Parse an already-uploaded blob for the import dialog's preview, WITHOUT
+    persisting it — same server parser (columns, types over the whole file, row
+    count, Excel sheet names) the eventual import uses, so what the user previews
+    is exactly what gets imported. In server mode this replaces the browser
+    (papaparse/xlsx) parse entirely."""
+    await _check_project(db, body.project_uid, user, "datasets:write")
+    if not blob_store.exists(body.sha):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
+    path = blob_store.path_for(body.sha)
+    try:
+        result = await asyncio.to_thread(
+            dataset_parser.preview_blob, path, body.file_name, body.parse_options
+        )
+    except file_reader.ExcelSupportUnavailable:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable")
+    except (ValueError, RuntimeError, duckdb.Error) as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Preview failed: {e}")
+    return DsPreviewResponse(
+        columns=result["columns"],
+        preview=result["preview"],
+        row_count=result["rowCount"],
+        sheet_names=result.get("sheetNames"),
+    )
+
+
+@router.post("/preview-path", response_model=DsPreviewResponse)
+async def preview_dataset_path(
+    body: DsPreviewPath,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Preview an already-imported dataset re-parsed with new options, WITHOUT
+    persisting — the Import Settings dialog's server-mode counterpart, so the
+    user sees the effect of changed options before committing a reimport."""
+    await _check_project(db, body.project_uid, user, "datasets:write")
+    try:
+        raw = project_fs.dataset_path(body.project_uid, body.path)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    if not raw.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
+    try:
+        result = await asyncio.to_thread(
+            dataset_parser.preview_blob, raw, raw.name, body.parse_options
+        )
+    except file_reader.ExcelSupportUnavailable:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable")
+    except (ValueError, RuntimeError, duckdb.Error) as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Preview failed: {e}")
+    return DsPreviewResponse(
+        columns=result["columns"],
+        preview=result["preview"],
+        row_count=result["rowCount"],
+        sheet_names=result.get("sheetNames"),
+    )
+
+
 @router.post("/import", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
 async def import_dataset(
     body: DsImport,
@@ -175,10 +244,17 @@ async def import_dataset(
 
     shutil.copyfile(blob_store.path_for(body.sha), dst)
     try:
-        res = dataset_fs.resolve_cache(body.project_uid, body.path)
+        res = dataset_fs.resolve_cache(body.project_uid, body.path, body.parse_options)
         columns, row_count = res["columns"], res["rowCount"]
-    except Exception:
-        columns, row_count = None, None
+    except file_reader.ExcelSupportUnavailable:
+        dst.unlink(missing_ok=True)
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable")
+    except (ValueError, RuntimeError, duckdb.Error) as e:
+        # The preview parsed this same blob server-side, so a failure here is
+        # unexpected — surface it instead of landing a phantom column-less
+        # dataset. Roll back the file we just copied so a retry starts clean.
+        dst.unlink(missing_ok=True)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Import failed: {e}")
     return DsNodeResponse(
         id=project_fs.node_id("ds", body.path),
         name=body.path.rsplit("/", 1)[-1], type="file",

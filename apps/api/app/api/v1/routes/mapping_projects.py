@@ -30,7 +30,7 @@ from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
 from app.services.data.global_table_service import _localized
 from app.services.mapping_project_export_assemble import assemble_mapping_project_zip
-from app.services.data import db_connect, file_reader
+from app.services.data import dataset_parser, db_connect, file_reader
 from app.services.data import global_table_service
 from app.services.data import scores_service
 from app.services.data.file_source import (
@@ -458,6 +458,8 @@ class FileColumnsPreview(CamelModel):
     sha: str
     file_name: str
     parse_options: dict | None = None
+    # Rows to materialize for the dialog's preview/auto-mapping (0 = names only).
+    preview_rows: int = 0
 
 
 @router.post(_PROJ + "/preview-columns")
@@ -466,9 +468,10 @@ async def preview_file_columns(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Columns + row count of an already-uploaded blob, before a project exists.
-    Lets the create dialog map columns of a file whose headers can't be read in
-    the browser (Parquet in server mode) without booting DuckDB-WASM.
+    """Columns + row count (+ optional preview rows + Excel sheet names) of an
+    already-uploaded blob, before a project exists. Lets the create dialog map
+    columns server-side without a browser parse (papaparse/xlsx/DuckDB-WASM), so
+    the previewed columns match exactly what the mapping query reads.
 
     Blobs are globally content-addressed, so gate on editor rights in the target
     workspace: without it any authenticated user could read the schema/row count
@@ -480,11 +483,17 @@ async def preview_file_columns(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Uploaded file not found")
     path = str(blob_store.path_for(body.sha))
     try:
-        cols, total = await asyncio.to_thread(
+        cols, total, rows = await asyncio.to_thread(
             db_connect.file_source_columns,
             path,
             body.file_name,
             body.parse_options,
+            body.preview_rows,
+        )
+        sheet_names = (
+            await asyncio.to_thread(dataset_parser.excel_sheet_names, blob_store.path_for(body.sha))
+            if file_reader.is_excel(body.file_name)
+            else None
         )
     except file_reader.ExcelSupportUnavailable:
         raise HTTPException(
@@ -492,7 +501,7 @@ async def preview_file_columns(
         )
     except Exception as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Preview failed: {e}")
-    return {"columns": cols, "rowCount": total}
+    return {"columns": cols, "rowCount": total, "rows": rows, "sheetNames": sheet_names}
 
 
 def _project_to_dict(p: MappingProject) -> dict:

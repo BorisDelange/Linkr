@@ -24,7 +24,7 @@ import {
 import { useDatasetStore } from '@/stores/dataset-store'
 import { buildColumns } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
-import { importDatasetOnServer } from '@/lib/api/datasets'
+import { importDatasetBySha, previewDatasetOnServer } from '@/lib/api/datasets'
 import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
 
 interface UploadDatasetDialogProps {
@@ -39,6 +39,10 @@ interface ParsedData {
   rows: Record<string, unknown>[]
   preview: Record<string, unknown>[]
   totalRows: number
+  // Server mode: the blob was uploaded during preview; reuse this sha at import
+  // instead of re-uploading. `rows` stays empty in server mode (the server holds
+  // the full data), so only `preview` drives the table.
+  sha?: string
 }
 
 type Delimiter = 'auto' | ',' | '\t' | ';' | '|'
@@ -124,22 +128,76 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     return f.name.toLowerCase().endsWith('.parquet')
   }, [])
 
+  const buildParseOptions = useCallback((): DatasetParseOptions | undefined => {
+    const opts: DatasetParseOptions = {}
+    if (delimiter !== 'auto') opts.delimiter = delimiter
+    if (encoding !== 'UTF-8') opts.encoding = encoding
+    if (skipRows > 0) opts.skipRows = skipRows
+    if (!hasHeader) opts.hasHeader = false
+    if (selectedSheet) opts.sheet = selectedSheet
+    return Object.keys(opts).length > 0 ? opts : undefined
+  }, [delimiter, encoding, skipRows, hasHeader, selectedSheet])
+
+  // Server mode: no browser parse at all — the server (DuckDB) parses the file
+  // and returns columns/types/rowCount/preview (+ Excel sheet names), so what the
+  // user previews is exactly what gets imported. The blob is uploaded once here
+  // and its sha reused at import time.
+  const parseServer = useCallback(async (f: File) => {
+    try {
+      const projectUid = useDatasetStore.getState().activeProjectUid ?? ''
+      const res = await previewDatasetOnServer({
+        projectUid,
+        file: f,
+        fileName: f.name,
+        parseOptions: buildParseOptions(),
+      })
+      if (res.sheetNames && res.sheetNames.length > 0) {
+        setSheetNames(res.sheetNames)
+        if (!selectedSheet) setSelectedSheet(res.sheetNames[0])
+      }
+      if (res.columns.length === 0) {
+        setError(t('datasets.upload_no_columns'))
+        setLoading(false)
+        return
+      }
+      setParsed({
+        fileName: f.name,
+        columns: res.columns as DatasetColumn[],
+        rows: [],
+        preview: res.preview.slice(0, 10),
+        totalRows: res.rowCount,
+        sha: res.sha,
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('datasets.upload_parse_error'))
+    }
+    setLoading(false)
+  }, [buildParseOptions, selectedSheet, t])
+
   const parseFile = useCallback((f: File) => {
     setLoading(true)
     setError(null)
 
-    if (isCSVLike(f)) {
+    const supported = isCSVLike(f) || isExcel(f) || isParquet(f)
+    if (!supported) {
+      setError(t('datasets.upload_unsupported_format'))
+      setLoading(false)
+      return
+    }
+
+    // In server mode every supported format is parsed server-side; the browser
+    // parsers (papaparse/xlsx/DuckDB-WASM) exist only for local (WASM) mode.
+    if (isServerMode()) {
+      parseServer(f)
+    } else if (isCSVLike(f)) {
       parseCSV(f)
     } else if (isExcel(f)) {
       parseExcel(f)
-    } else if (isParquet(f)) {
-      parseParquet(f)
     } else {
-      setError(t('datasets.upload_unsupported_format'))
-      setLoading(false)
+      parseParquet(f)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, isCSVLike, isExcel, isParquet, t])
+  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, isCSVLike, isExcel, isParquet, parseServer, t])
 
   const parseCSV = useCallback((f: File) => {
     const papaConfig: Papa.ParseLocalConfig<Record<string, unknown>, File> = {
@@ -252,16 +310,8 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     reader.readAsArrayBuffer(f)
   }, [skipRows, hasHeader, selectedSheet, t])
 
+  // Local (WASM) mode only — server mode parses Parquet via parseServer.
   const parseParquet = useCallback(async (f: File) => {
-    // Server mode parses the file server-side on import (DuckDB on the backend),
-    // so skip the WASM browser preview entirely — loading DuckDB-WASM here would
-    // defeat the point of full-stack mode. A minimal `parsed` unblocks the import
-    // button; columns/rows come back from the server after upload.
-    if (isServerMode()) {
-      setParsed({ fileName: f.name, columns: [], rows: [], preview: [], totalRows: 0 })
-      setLoading(false)
-      return
-    }
     try {
       // Use DuckDB to read Parquet files
       const { getDuckDB } = await import('@/lib/duckdb/engine')
@@ -333,22 +383,15 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     if (!parsed || !file) return
     const store = useDatasetStore.getState()
 
-    // Build parse options to persist
-    const opts: DatasetParseOptions = {}
-    if (delimiter !== 'auto') opts.delimiter = delimiter
-    if (encoding !== 'UTF-8') opts.encoding = encoding
-    if (skipRows > 0) opts.skipRows = skipRows
-    if (!hasHeader) opts.hasHeader = false
-    if (selectedSheet) opts.sheet = selectedSheet
-    const parseOpts = Object.keys(opts).length > 0 ? opts : undefined
+    const parseOpts = buildParseOptions()
 
     // Build raw file blob for re-import support
     const rawFile = { blob: file, fileName: file.name }
 
-    // Server mode: upload the raw file and let the backend parse it (DuckDB),
-    // rather than persisting the browser-parsed rows. The preview above still
-    // used the browser parse for a fast UX. Keep the dialog open until success
-    // so any error is shown in place.
+    // Server mode: the blob was already uploaded during the server preview — land
+    // it by its sha (no re-upload) and parse it with the SAME options the preview
+    // used, so what was previewed is exactly what gets imported. Keep the dialog
+    // open until success so any error is shown in place.
     if (isServerMode()) {
       const projectUid = store.activeProjectUid ?? ''
       const name =
@@ -363,12 +406,13 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
           await getStorage().datasetFiles.delete(existingFile.id)
           store.deleteNode(existingFile.id)
         }
-        const created = await importDatasetOnServer({
+        if (!parsed.sha) throw new Error(t('datasets.upload_parse_error'))
+        const created = await importDatasetBySha({
           projectUid,
           name,
           parentId,
-          file,
-          fileName: file.name,
+          sha: parsed.sha,
+          fileName: name,
           parseOptions: parseOpts,
         })
         store.addImportedFile(created)
@@ -407,7 +451,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     } finally {
       setImporting(false)
     }
-  }, [parsed, file, parentId, onOpenChange, existingFile, delimiter, encoding, skipRows, hasHeader, selectedSheet, t])
+  }, [parsed, file, parentId, onOpenChange, existingFile, buildParseOptions, t])
 
   const handleImport = useCallback(() => {
     if (!parsed) return

@@ -16,14 +16,32 @@ DuckDB reads all columns as VARCHAR so *we* own the typing, rather than letting
 DuckDB's own inference diverge from the frontend's.
 """
 
+import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
 from app.services.data.column_id import build_column_ids
-from app.services.data.file_reader import build_read_expr
-from app.services.data.type_inference import infer_column_type, parse_boolean
+from app.services.data.file_reader import build_read_expr, is_excel
+from app.services.data.type_inference import (
+    BOOL_FALSE,
+    BOOL_TRUE,
+    infer_column_type,
+    parse_boolean,
+)
+
+# Preview reads a bounded slice of rows; the full parse still scans everything.
+PREVIEW_ROWS = 50
+
+# Derived from type_inference (the source of truth) so the SQL-based preview
+# inference can't drift from the row-by-row parse used at import.
+_BOOL_TOKENS = sorted(BOOL_TRUE | BOOL_FALSE)
+# DuckDB (RE2) form of DATE_DATETIME_RE, unanchored (regexp_full_match anchors).
+_DATE_RE_SQL = (
+    r"\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?([+-]\d{2}:?\d{2}|Z)?)?"
+)
 
 
 def _relation(con: duckdb.DuckDBPyConnection, path: Path, name: str, opts: dict):
@@ -50,6 +68,29 @@ def _coerce(value: Any, col_type: str) -> Any:
     return s
 
 
+def _columns_from(headers: list[str], by_col_raw: list[list[Any]]) -> list[dict]:
+    ids = build_column_ids(headers)
+    return [
+        {
+            "id": ids[idx],
+            "name": name,
+            "type": infer_column_type(by_col_raw[idx]),
+            "order": idx,
+        }
+        for idx, name in enumerate(headers)
+    ]
+
+
+def _rows_from(raw_rows: list[tuple], columns: list[dict]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in raw_rows:
+        obj: dict[str, Any] = {}
+        for idx, col in enumerate(columns):
+            obj[col["id"]] = _coerce(row[idx] if idx < len(row) else None, col["type"])
+        rows.append(obj)
+    return rows
+
+
 def parse_blob(path: Path, file_name: str, parse_options: dict | None):
     """Return (columns, rows, row_count).
 
@@ -65,28 +106,125 @@ def parse_blob(path: Path, file_name: str, parse_options: dict | None):
     finally:
         con.close()
 
-    # Per-column raw values for type inference.
+    # Per-column raw values for type inference (scans the whole column).
     by_col_raw: list[list[Any]] = [[] for _ in headers]
     for row in raw_rows:
         for i in range(len(headers)):
             by_col_raw[i].append(row[i] if i < len(row) else None)
 
+    columns = _columns_from(headers, by_col_raw)
+    return columns, _rows_from(raw_rows, columns), len(raw_rows)
+
+
+def excel_sheet_names(path: Path) -> list[str]:
+    """Sheet names of an .xlsx, read from the zip's workbook.xml without loading
+    the whole workbook. Returns [] if the file isn't a readable xlsx zip."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            with zf.open("xl/workbook.xml") as fh:
+                tree = ET.parse(fh)
+    except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError):
+        return []
+    # The <sheet> elements live under <sheets>; the tag carries the spreadsheetml
+    # namespace, so match on the local name rather than a fixed prefix.
+    names: list[str] = []
+    for el in tree.iter():
+        if el.tag.rsplit("}", 1)[-1] == "sheet":
+            name = el.get("name")
+            if name:
+                names.append(name)
+    return names
+
+
+def preview_blob(path: Path, file_name: str, parse_options: dict | None) -> dict:
+    """Parse a blob for the import dialog's preview WITHOUT persisting anything.
+
+    Types are inferred over the WHOLE column (a single DuckDB aggregate pass, no
+    Python materialization) so the preview shows exactly the types the eventual
+    import will store; only ``PREVIEW_ROWS`` rows are materialized for display.
+    For Excel, the workbook's sheet names are returned so the dialog can populate
+    its sheet selector without a browser parse.
+
+    Returns {columns, preview, rowCount, sheetNames?}."""
+    opts = parse_options or {}
+    con = duckdb.connect()
+    try:
+        reader = build_read_expr(con, str(path), file_name, opts)
+        rel = con.sql(f"SELECT * FROM {reader}")
+        headers = list(rel.columns)
+        row_count = con.sql(f"SELECT count(*) FROM {reader}").fetchone()[0]
+        types = _infer_types_sql(con, reader, headers)
+        preview_raw = con.sql(
+            f"SELECT * FROM {reader} LIMIT {PREVIEW_ROWS}"
+        ).fetchall()
+    finally:
+        con.close()
+
     ids = build_column_ids(headers)
     columns = [
-        {
-            "id": ids[idx],
-            "name": name,
-            "type": infer_column_type(by_col_raw[idx]),
-            "order": idx,
-        }
+        {"id": ids[idx], "name": name, "type": types[idx], "order": idx}
         for idx, name in enumerate(headers)
     ]
+    result: dict[str, Any] = {
+        "columns": columns,
+        "preview": _rows_from(preview_raw, columns),
+        "rowCount": int(row_count),
+    }
+    if is_excel(file_name):
+        result["sheetNames"] = excel_sheet_names(path)
+    return result
 
-    rows: list[dict[str, Any]] = []
-    for row in raw_rows:
-        obj: dict[str, Any] = {}
-        for idx, col in enumerate(columns):
-            obj[col["id"]] = _coerce(row[idx] if idx < len(row) else None, col["type"])
-        rows.append(obj)
 
-    return columns, rows, len(rows)
+def _quote_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _infer_types_sql(
+    con: duckdb.DuckDBPyConnection, reader: str, headers: list[str]
+) -> list[str]:
+    """Infer each column's type over the whole file with one aggregate query,
+    mirroring ``infer_column_type``'s priority (boolean > number > date > string)
+    and its token/date semantics, but in SQL so no rows are materialized.
+
+    A column is a type iff EVERY non-null, non-empty value satisfies it. Empty
+    string counts as null (matching the Python coercion)."""
+    if not headers:
+        return []
+    bool_tokens = ", ".join(f"'{t}'" for t in _BOOL_TOKENS)
+    parts = []
+    for i, _name in enumerate(headers):
+        c = _quote_ident(f"col{i}")
+        # non-null, non-empty count and per-type "all match" counts.
+        parts.append(f"count({c}) FILTER (WHERE trim({c}) <> '') AS n_{i}")
+        parts.append(
+            f"count(*) FILTER (WHERE trim({c}) <> '' AND "
+            f"try_cast(trim({c}) AS DOUBLE) IS NOT NULL) AS num_{i}"
+        )
+        parts.append(
+            f"count(*) FILTER (WHERE trim({c}) <> '' AND "
+            f"lower(trim({c})) IN ({bool_tokens})) AS bool_{i}"
+        )
+        parts.append(
+            f"count(*) FILTER (WHERE trim({c}) <> '' AND "
+            f"regexp_full_match(trim({c}), '{_DATE_RE_SQL}')) AS date_{i}"
+        )
+    aliased = ", ".join(f"{_quote_ident(h)} AS {_quote_ident(f'col{i}')}"
+                        for i, h in enumerate(headers))
+    row = con.sql(
+        f"SELECT {', '.join(parts)} FROM (SELECT {aliased} FROM {reader})"
+    ).fetchone()
+
+    types: list[str] = []
+    for i in range(len(headers)):
+        n, num, bl, dt = row[i * 4], row[i * 4 + 1], row[i * 4 + 2], row[i * 4 + 3]
+        if n == 0:
+            types.append("unknown")
+        elif bl == n:
+            types.append("boolean")
+        elif num == n:
+            types.append("number")
+        elif dt == n:
+            types.append("date")
+        else:
+            types.append("string")
+    return types

@@ -513,27 +513,8 @@ export function CreateMappingProjectDialog({
     reader.readAsArrayBuffer(f)
   }, [skipRows, hasHeader, selectedSheet, t, applyParsedData])
 
+  // Local (WASM) mode only — server mode parses Parquet via parseServer.
   const parseParquet = useCallback(async (f: File) => {
-    // Server mode: Parquet has no client-readable headers, and column mapping is
-    // required before the project exists. Upload once now and read columns +
-    // count server-side (native, no DuckDB-WASM). Reuse the sha at create time.
-    if (isServerMode()) {
-      if (!activeWorkspaceId) {
-        setFileError(t('datasets.upload_parse_error'))
-        setFileLoading(false)
-        return
-      }
-      try {
-        const { columns, rowCount, sha } = await previewFileColumnsOnServer(activeWorkspaceId, f, f.name)
-        applyParsedData(columns, [])
-        setTotalRows(rowCount)
-        setPreUploadedSha(sha)
-      } catch {
-        setFileError(t('datasets.upload_parse_error'))
-      }
-      setFileLoading(false)
-      return
-    }
     try {
       const { getDuckDB } = await import('@/lib/duckdb/engine')
       const db = await getDuckDB()
@@ -557,19 +538,59 @@ export function CreateMappingProjectDialog({
       setFileError(t('datasets.upload_parse_error'))
     }
     setFileLoading(false)
-  }, [t, applyParsedData, activeWorkspaceId])
+  }, [t, applyParsedData])
+
+  // Server mode: one server parse for every format (no papaparse/xlsx/DuckDB-WASM
+  // in the browser), so the previewed/auto-mapped columns are exactly what the
+  // mapping query reads. Uploads once; the sha is reused at create time.
+  const parseServer = useCallback(async (f: File) => {
+    if (!activeWorkspaceId) {
+      setFileError(t('datasets.upload_parse_error'))
+      setFileLoading(false)
+      return
+    }
+    const opts: Record<string, unknown> = {}
+    if (delimiter !== 'auto') opts.delimiter = delimiter
+    if (encoding !== 'UTF-8') opts.encoding = encoding
+    if (skipRows > 0) opts.skipRows = skipRows
+    if (!hasHeader) opts.hasHeader = false
+    if (selectedSheet) opts.sheet = selectedSheet
+    try {
+      const { columns, rowCount, rows, sheetNames, sha } = await previewFileColumnsOnServer(
+        activeWorkspaceId, f, f.name, Object.keys(opts).length > 0 ? opts : undefined, PREVIEW_ROWS,
+      )
+      if (sheetNames && sheetNames.length > 0) {
+        setSheetNames(sheetNames)
+        if (!selectedSheet) setSelectedSheet(sheetNames[0])
+      }
+      if (columns.length === 0) {
+        setFileError(t('datasets.upload_no_columns'))
+        setFileLoading(false)
+        return
+      }
+      applyParsedData(columns, rows)
+      setTotalRows(rowCount)
+      setPreUploadedSha(sha)
+    } catch {
+      setFileError(t('datasets.upload_parse_error'))
+    }
+    setFileLoading(false)
+  }, [activeWorkspaceId, delimiter, encoding, skipRows, hasHeader, selectedSheet, applyParsedData, t])
 
   const parseFile = useCallback((f: File) => {
     setFileLoading(true)
     setFileError(null)
-    if (isCSVLike(f)) parseCSV(f)
-    else if (isExcel(f)) parseExcel(f)
-    else if (isParquet(f)) parseParquet(f)
-    else {
+    const supported = isCSVLike(f) || isExcel(f) || isParquet(f)
+    if (!supported) {
       setFileError(t('datasets.upload_unsupported_format'))
       setFileLoading(false)
+      return
     }
-  }, [isCSVLike, isExcel, isParquet, parseCSV, parseExcel, parseParquet, t])
+    if (isServerMode()) parseServer(f)
+    else if (isCSVLike(f)) parseCSV(f)
+    else if (isExcel(f)) parseExcel(f)
+    else parseParquet(f)
+  }, [isCSVLike, isExcel, isParquet, parseServer, parseCSV, parseExcel, parseParquet, t])
 
   // Re-parse when options change
   useEffect(() => {

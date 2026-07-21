@@ -80,6 +80,91 @@ export async function importDatasetOnServer(params: {
   return dsNodeToFile(params.projectUid, node)
 }
 
+/** A parsed column as returned by the server preview/import (id derives from name). */
+export interface ServerParsedColumn {
+  id: string
+  name: string
+  type: string
+  order?: number
+}
+
+export interface ServerPreview {
+  columns: ServerParsedColumn[]
+  preview: Record<string, unknown>[]
+  rowCount: number
+  sheetNames?: string[] | null
+  /** The uploaded blob's content hash, reused at import so it isn't re-uploaded. */
+  sha: string
+}
+
+/**
+ * Server-mode preview: upload the raw file once, then parse it server-side
+ * (same DuckDB parser the import uses) WITHOUT persisting — so the previewed
+ * columns/types/rowCount are exactly what the import will store. Returns the sha
+ * so the caller reuses the already-uploaded blob at import time.
+ */
+export async function previewDatasetOnServer(params: {
+  projectUid: string
+  file: Blob
+  fileName: string
+  parseOptions?: DatasetParseOptions
+  onProgress?: (fraction: number) => void
+}): Promise<ServerPreview> {
+  const { sha } = await uploadFileInChunks(params.file, params.fileName, params.onProgress)
+  const res = await apiRequest<Omit<ServerPreview, 'sha'>>('/dataset-files/preview', {
+    method: 'POST',
+    body: JSON.stringify({
+      projectUid: params.projectUid,
+      sha,
+      fileName: params.fileName,
+      parseOptions: params.parseOptions ?? null,
+    }),
+  })
+  return { ...res, sha }
+}
+
+/**
+ * Import a blob already uploaded during preview, referenced by its sha — no
+ * re-upload. Lands it in datasets/<path> and parses it into the Parquet cache.
+ */
+export async function importDatasetBySha(params: {
+  projectUid: string
+  name: string
+  parentId: string | null
+  sha: string
+  fileName: string
+  parseOptions?: DatasetParseOptions
+}): Promise<DatasetFile> {
+  const path = dsChildPath(params.parentId, params.fileName)
+  const node = await apiRequest<DsNode>('/dataset-files/import', {
+    method: 'POST',
+    body: JSON.stringify({
+      projectUid: params.projectUid,
+      path,
+      sha: params.sha,
+      parseOptions: params.parseOptions ?? null,
+    }),
+  })
+  return dsNodeToFile(params.projectUid, node)
+}
+
+/**
+ * Preview an already-imported dataset re-parsed with new options, WITHOUT
+ * persisting — the Import Settings dialog's server-mode counterpart. Reads the
+ * server's existing raw file (no upload), so the user sees the effect of changed
+ * options before committing a reimport.
+ */
+export function previewDatasetByPath(
+  datasetFileId: string,
+  parseOptions?: DatasetParseOptions,
+): Promise<Omit<ServerPreview, 'sha'>> {
+  const projectUid = _dsProject.get(datasetFileId) ?? ''
+  return apiRequest<Omit<ServerPreview, 'sha'>>('/dataset-files/preview-path', {
+    method: 'POST',
+    body: JSON.stringify({ projectUid, path: datasetFileId, parseOptions: parseOptions ?? null }),
+  })
+}
+
 /** One column filter in a server row query — mirrors ColumnFilterInput's shapes. */
 export interface ServerRowFilter {
   colId: string

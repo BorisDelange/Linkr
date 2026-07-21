@@ -89,19 +89,36 @@ export function queryGlobalTableOnServer(params: {
 }
 
 /** Upload a file and get its columns + row count server-side, before the project
- * exists — for previewing a file whose headers can't be read in the browser
- * (Parquet in server mode). Returns the sha so the caller can reuse the blob at
+ * exists — the server parses every format (papaparse/xlsx/DuckDB-WASM never run
+ * in server mode), so the mapped columns match what the mapping query reads.
+ * Optionally materializes `previewRows` rows for the auto-mapping preview, and
+ * returns Excel sheet names. Returns the sha so the caller reuses the blob at
  * create time instead of re-uploading. */
 export async function previewFileColumnsOnServer(
   workspaceId: string,
   file: Blob,
   fileName: string,
   parseOptions?: Record<string, unknown>,
-): Promise<{ columns: string[]; rowCount: number; sha: string }> {
+  previewRows = 0,
+): Promise<{
+  columns: string[]
+  rowCount: number
+  rows: Record<string, unknown>[]
+  sheetNames: string[] | null
+  sha: string
+}> {
   const { sha } = await uploadFileInChunks(file, fileName)
-  const res = await apiRequest<{ columns: string[]; rowCount: number }>(
+  const res = await apiRequest<{
+    columns: string[]
+    rowCount: number
+    rows: Record<string, unknown>[]
+    sheetNames: string[] | null
+  }>(
     `${PROJ}/preview-columns`,
-    { method: 'POST', body: JSON.stringify({ workspaceId, sha, fileName, parseOptions }) },
+    {
+      method: 'POST',
+      body: JSON.stringify({ workspaceId, sha, fileName, parseOptions, previewRows }),
+    },
   )
   return { ...res, sha }
 }

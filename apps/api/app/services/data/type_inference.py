@@ -41,13 +41,20 @@ def _is_number(s: str) -> bool:
 
 
 def infer_column_type(values: list[object]) -> ColumnType:
-    """Priority: boolean > number > date > string. Samples up to 200 non-null."""
+    """Priority: boolean > number > date > string. Scans ALL non-null values.
+
+    Server-side we hold the whole column in memory already (parse_blob fetches
+    every row), so we scan all of it rather than a 200-row sample: a column that
+    is numeric for its first hundreds of rows but has an alphanumeric code later
+    (e.g. MIMIC itemids then ICD codes like "G894") must be typed ``string``, not
+    ``number`` — a wrong ``number`` verdict makes the Parquet cast fail and the
+    whole import silently produce no columns."""
     non_null = [v for v in values if v is not None and v != ""]
     if not non_null:
         return "unknown"
 
     all_numbers = all_booleans = all_dates = True
-    for v in non_null[:200]:
+    for v in non_null:
         s = str(v).strip()
         if all_numbers and not _is_number(s):
             all_numbers = False

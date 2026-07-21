@@ -33,6 +33,16 @@ def test_nulls_and_missing_keys_become_null():
     assert out == [{"c0": "A", "c1": None}, {"c0": "B", "c1": None}]
 
 
+def test_uncastable_value_in_number_column_becomes_null_not_crash():
+    # Safety net for a too-optimistic type verdict: a non-numeric cell in a column
+    # declared `number` must try_cast to NULL, never abort the whole write (the
+    # bug that surfaced as "This dataset has no columns").
+    cols = [{"id": "c0", "type": "number"}]
+    rows = [{"c0": "1"}, {"c0": "G894"}, {"c0": "3"}]
+    out = _roundtrip(rows, cols)
+    assert out == [{"c0": 1.0}, {"c0": None}, {"c0": 3.0}]
+
+
 def test_columns_fallback_to_row_keys_when_undeclared():
     # A manually-created file writes rows before it has column metadata.
     out = _roundtrip([{"col-1-0": "x"}, {"col-1-0": "y"}], [])

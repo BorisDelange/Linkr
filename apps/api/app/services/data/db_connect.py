@@ -347,12 +347,18 @@ def query_file_source(
 
 
 def file_source_columns(
-    path: str, file_name: str | None, parse_options: dict | None
-) -> tuple[list[str], int]:
-    """Column names + total row count of a raw file blob, before any project /
-    columnMapping exists. Used to preview a file whose columns can't be read
-    client-side (Parquet in server mode) so the user can map them. Reads only the
-    schema for names (LIMIT 0) plus a COUNT(*); never materializes rows."""
+    path: str, file_name: str | None, parse_options: dict | None,
+    preview_rows: int = 0,
+) -> tuple[list[str], int, list[dict]]:
+    """Column names + total row count (+ optional preview rows) of a raw file
+    blob, before any project / columnMapping exists. Used to preview a file whose
+    columns can't be read client-side (Parquet in server mode, or any file in
+    server mode once the browser parse is removed) so the user can map them.
+
+    Reads the schema for names (LIMIT 0) plus a COUNT(*); materializes at most
+    ``preview_rows`` rows (0 = none). Keeps the mapping mount's ``nullstr='NA'``
+    so a literal "NA" cell becomes NULL identically to the browser DuckDB-WASM
+    path and the eventual server-side query."""
     con = duckdb.connect()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
@@ -361,7 +367,12 @@ def file_source_columns(
         )
         cols = [d[0] for d in con.execute(f"SELECT * FROM {reader} LIMIT 0").description]
         total = con.execute(f"SELECT COUNT(*) FROM {reader}").fetchone()[0]
-        return cols, int(total)
+        rows: list[dict] = []
+        if preview_rows > 0:
+            res = con.execute(f"SELECT * FROM {reader} LIMIT {int(preview_rows)}")
+            names = [d[0] for d in res.description]
+            rows = [_row_to_json(dict(zip(names, r))) for r in res.fetchall()]
+        return cols, int(total), rows
     finally:
         con.close()
 

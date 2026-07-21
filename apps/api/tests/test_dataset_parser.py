@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.services.data.dataset_parser import parse_blob
+from app.services.data.dataset_parser import parse_blob, preview_blob
 from app.services.data.type_inference import infer_column_type
 
 
@@ -32,6 +32,15 @@ def test_infer_string_and_unknown():
 
 def test_infer_ignores_blanks():
     assert infer_column_type(["1", "", None, "2"]) == "number"
+
+
+def test_infer_scans_whole_column_not_just_head():
+    # Regression: a column numeric for its first hundreds of rows but with an
+    # alphanumeric code later (MIMIC itemids then ICD codes) must be `string`,
+    # not `number` — a wrong `number` verdict broke the Parquet write and made
+    # the whole import silently produce no columns.
+    values = [str(200000 + i) for i in range(400)] + ["G894"]
+    assert infer_column_type(values) == "string"
 
 
 # --- End-to-end CSV parse ---
@@ -78,3 +87,47 @@ def test_parse_empty_cell_is_none(tmp_path):
     p = _write(tmp_path, "d.csv", "a,b\nx,\n")
     columns, rows, _ = parse_blob(p, "d.csv", {})
     assert rows[0]["col_b"] is None
+
+
+def test_parse_mixed_numeric_alnum_column_is_string(tmp_path):
+    # The `concept_code` shape: leading numeric itemids then ICD codes. Whole-file
+    # inference must type it `string` so the import doesn't fail on the Parquet cast.
+    head = "".join(f"{200000 + i}\n" for i in range(300))
+    p = _write(tmp_path, "codes.csv", "concept_code\n" + head + "G894\nC9754\n")
+    columns, rows, count = parse_blob(p, "codes.csv", {})
+    assert columns[0]["type"] == "string"
+    assert count == 302
+    assert rows[-1]["col_concept_code"] == "C9754"
+    assert rows[-2]["col_concept_code"] == "G894"
+
+
+# --- Server-side preview parity with the persisted parse ---
+
+def test_preview_types_and_count_match_parse(tmp_path):
+    csv = "a,b,c,d,e\n1,true,2020-01-01,foo,\n2,no,2020-06-15,bar,3\nX99,false,2021-12-31,baz,7\n"
+    p = _write(tmp_path, "mix.csv", csv)
+    prev = preview_blob(p, "mix.csv", None)
+    columns, _rows, count = parse_blob(p, "mix.csv", None)
+
+    prev_types = {c["name"]: c["type"] for c in prev["columns"]}
+    parse_types = {c["name"]: c["type"] for c in columns}
+    assert prev_types == parse_types
+    assert prev["rowCount"] == count
+    # ids/order also match so the dialog preview keys rows exactly like the import.
+    assert [c["id"] for c in prev["columns"]] == [c["id"] for c in columns]
+
+
+def test_preview_caps_rows_but_counts_all(tmp_path):
+    body = "".join(f"{i},v{i}\n" for i in range(500))
+    p = _write(tmp_path, "big.csv", "id,label\n" + body)
+    prev = preview_blob(p, "big.csv", None)
+    assert prev["rowCount"] == 500
+    assert len(prev["preview"]) <= 50
+    assert prev["preview"][0] == {"col_id": 0, "col_label": "v0"}
+
+
+def test_preview_mixed_alnum_column_is_string(tmp_path):
+    head = "".join(f"{200000 + i}\n" for i in range(300))
+    p = _write(tmp_path, "codes.csv", "concept_code\n" + head + "G894\n")
+    prev = preview_blob(p, "codes.csv", None)
+    assert prev["columns"][0]["type"] == "string"
