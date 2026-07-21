@@ -8,6 +8,29 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `version:` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
+## 1.0.1 — 2026-07-21
+
+Drug mapping (`references/mapping-drug.md`) reworked around a benchmark on the
+French UCD gold set (287/300 expert-validated codes vs this project's
+`similarity-scores.parquet`):
+
+- **Candidate search now uses the pre-computed similarity scores as the primary
+  source** (biolord first, jaro-winkler secondary), replacing the label-based
+  ILIKE search. On the gold set biolord found the correct ingredient in 66.8% of
+  cases at top-1 (77.3% at top-50) and 48.7% on brand-name codes where ILIKE
+  collapsed to 9.7%; ILIKE found nothing the scores missed. Ingredient/ATC/RxNorm
+  traversal is kept only as a **fallback** (scores absent or shortlist invalid).
+- **Roles split explicitly**: scores *find* candidates (blind to strength),
+  parsed ingredient/strength/form *validate and rank* them. A similarity score
+  may never settle a strength.
+- **Target the most granular standard concept** the source supports (branded
+  level when a brand name is present) instead of always Clinical Drug; Step 1 now
+  also parses the brand name. Accept RxNorm and RxNorm Extension.
+- **Validation tightened**: strength strict (equal / mathematically equivalent,
+  else flag — no approximation); dose form must match exactly (only lexical
+  variants of the same form allowed), a different-but-related form is a
+  `closeMatch` with the difference spelled out, never a silent exactMatch.
+
 ## 1.0.0 — 2026-07-21
 
 First versioned release. Consolidates the previous three-skill layout

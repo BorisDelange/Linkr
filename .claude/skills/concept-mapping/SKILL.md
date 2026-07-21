@@ -1,6 +1,6 @@
 ---
 name: concept-mapping
-version: 1.0.0
+version: 1.0.1
 description: >-
   Maps local hospital terminology codes to OMOP standard vocabularies (SNOMED CT,
   LOINC, UCUM, RxNorm, etc.) for a Linkr project. Single entry point: loads inputs,
@@ -13,7 +13,7 @@ argument-hint: [path-to-project-zip-or-folder]
 
 Read `references/omop-duckdb-reference.md` in this directory for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
 
-**This skill is versioned** (`version:` above + `CHANGELOG.md`). A publication using it can cite **"Linkr concept-mapping skill v1.0.0"**. **Whenever you modify any file in this skill folder** (`SKILL.md`, `references/*`, `scripts/*`, `review-template/*`), bump `version:` per SemVer and add a dated `CHANGELOG.md` entry in the same change — MAJOR for a breaking change to invocation/inputs/output schema, MINOR for a new capability, PATCH for clarifications or fixes. Keep the frontmatter version and the top changelog entry in sync.
+**This skill is versioned** (`version:` above + `CHANGELOG.md`). A publication using it cites **"Linkr concept-mapping skill v&lt;version&gt;"** with the `version:` value above. **Whenever you modify any file in this skill folder** (`SKILL.md`, `references/*`, `scripts/*`, `review-template/*`), bump `version:` per SemVer and add a dated `CHANGELOG.md` entry in the same change — MAJOR for a breaking change to invocation/inputs/output schema, MINOR for a new capability, PATCH for clarifications or fixes. Keep the frontmatter version and the top changelog entry in sync.
 
 ## Step 0: Check existing state and offer review page
 
