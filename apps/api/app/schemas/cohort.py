@@ -15,6 +15,8 @@ class CohortCreate(CamelModel):
     attrition: list | None = None
     materialization: dict | None = None
     schema_version: int = 3
+    # Creation date preserved on import round-trip; absent → server_default stamps now.
+    created_at: datetime | None = None
 
 
 class CohortUpdate(CamelModel):

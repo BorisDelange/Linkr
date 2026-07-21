@@ -42,6 +42,7 @@
   },
   "lineageId": null,
   "parentLineageId": null,
+  "createdAt": "2026-01-01T00:00:00Z",
   "fileSourceData": {
     "fileName": "source-concepts.csv",
     "columns": [

@@ -62,6 +62,36 @@ async def test_export_omits_password_and_isactive(db):
     assert users[0]["affiliation"] == {"en": "CHU"}
 
 
+async def test_export_keeps_createdat_drops_updatedat(db):
+    """createdAt is stable provenance (kept); updatedAt churns (dropped) — across
+    users, roles and organizations."""
+    await _seed(db)
+    tree = await build_settings_tree(db, SettingsSelection())
+    for path in ("users.json", "roles.json", "organizations.json"):
+        row = json.loads(tree[path].decode())[0]
+        assert "createdAt" in row and row["createdAt"], f"{path} lost createdAt"
+        assert "updatedAt" not in row, f"{path} leaked updatedAt"
+
+
+async def test_import_preserves_createdat_on_new_records(db):
+    """A created org/user/role takes its createdAt from the file (round-trip stable),
+    not a fresh now()."""
+    await settings_import_service.import_settings_tree(
+        db,
+        _tree(
+            orgs=[{"id": "org-9", "name": {"en": "X"}, "createdAt": "2020-03-04T05:06:07"}],
+            users=[{"username": "carol", "role": "user", "createdAt": "2020-03-04T05:06:07"}],
+            roles=[{"name": "auditor", "createdAt": "2020-03-04T05:06:07"}],
+        ),
+    )
+    org = await db.get(Organization, "org-9")
+    carol = await db.scalar(select(User).where(User.username == "carol"))
+    role = await db.scalar(select(Role).where(Role.name == "auditor"))
+    assert org.created_at.isoformat() == "2020-03-04T05:06:07"
+    assert carol.created_at.isoformat() == "2020-03-04T05:06:07"
+    assert role.created_at.isoformat() == "2020-03-04T05:06:07"
+
+
 async def test_export_omits_unchecked_entities(db):
     await _seed(db)
     tree = await build_settings_tree(

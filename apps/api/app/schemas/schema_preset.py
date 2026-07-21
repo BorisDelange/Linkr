@@ -13,6 +13,8 @@ class SchemaPresetSave(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    # Creation date preserved on import round-trip; applied only when creating.
+    created_at: datetime | None = None
 
 
 class SchemaPresetResponse(CamelModel):

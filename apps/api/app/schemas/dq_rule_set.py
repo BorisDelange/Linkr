@@ -22,6 +22,8 @@ class DqRuleSetCreate(CamelModel):
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
+    # Creation date preserved on import round-trip; absent → server_default now.
+    created_at: datetime | None = None
 
 
 class DqRuleSetUpdate(CamelModel):

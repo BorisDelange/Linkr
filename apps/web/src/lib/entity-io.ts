@@ -321,8 +321,15 @@ const json = (data: unknown) => JSON.stringify(data, null, 2)
 // Fields that are specific to the exporting instance/deployment, not portable
 // project content: the owning user, the workspace placement, the git link
 // (never commit a repo's own remote/token into itself), catalog/org metadata,
-// and local timestamps. Stripped from every exported entity metadata so a
-// round-trip export→import→export is stable across instances.
+// and `updatedAt`. Stripped from every exported entity metadata so a round-trip
+// export→import→export is stable across instances.
+//
+// `updatedAt` is stripped but `createdAt` is NOT: updatedAt moves on every edit
+// (and is re-stamped on import), so versioning it churns the diff for no gain;
+// createdAt is immutable provenance — the element's original creation date — kept
+// like createdBy so it survives a cross-instance import. The import preserves the
+// file's createdAt (front: `?? now` fallback / verbatim spread; back: the *Create
+// schemas accept created_at) rather than re-stamping it.
 //
 // NB: createdBy / createdByDetails are deliberately NOT stripped — they are the
 // original author's display snapshot and must survive a cross-instance import so
@@ -339,7 +346,6 @@ const INSTANCE_FIELDS = [
   'catalogVisibility',
   'organization',
   'organizationId',
-  'createdAt',
   'updatedAt',
 ] as const
 
@@ -1234,17 +1240,14 @@ async function resolveEntityOrganization(
  */
 /**
  * Reduce an organization to its portable provenance snapshot: keep the stable
- * UUID + descriptive fields (the OrganizationInfo shape), drop the instance
- * timestamps (createdAt/updatedAt) the importer re-stamps. Attaching a full
- * Organization record verbatim otherwise leaked those timestamps into the inline
- * snapshot and churned the versioning diff on every re-export — the same reason
- * buildWorkspaceZip strips them from its root organization.json.
+ * UUID + descriptive fields (the OrganizationInfo shape) and the createdAt
+ * provenance, drop only `updatedAt` (which the importer re-stamps and which
+ * churns the diff on every edit). Attaching a full Organization record verbatim
+ * otherwise leaked updatedAt into the inline snapshot and produced a spurious
+ * versioning diff on every re-export.
  */
 function orgSnapshot(org: OrganizationInfo): OrganizationInfo {
-  const { createdAt: _c, updatedAt: _u, ...rest } = org as OrganizationInfo & {
-    createdAt?: string
-    updatedAt?: string
-  }
+  const { updatedAt: _u, ...rest } = org as OrganizationInfo & { updatedAt?: string }
   return rest
 }
 
@@ -1899,7 +1902,7 @@ export async function buildWorkspaceZip(
       .filter(p => !builtinIds.has(pluginManifestId(p) ?? p.id))
     for (const plugin of plugins) {
       const folder = plugin.entityId || slugify(plugin.id)
-      zip.file(`plugins/${folder}/_plugin.json`, json({ id: plugin.id, entityId: plugin.entityId, workspaceId: plugin.workspaceId, createdBy: plugin.createdBy, createdByDetails: plugin.createdByDetails, createdAt: plugin.createdAt, updatedAt: plugin.updatedAt }))
+      zip.file(`plugins/${folder}/_plugin.json`, json({ id: plugin.id, entityId: plugin.entityId, workspaceId: plugin.workspaceId, createdBy: plugin.createdBy, createdByDetails: plugin.createdByDetails, createdAt: plugin.createdAt }))
       for (const [filename, content] of Object.entries(plugin.files)) {
         zip.file(`plugins/${folder}/${filename}`, content)
       }
@@ -2246,7 +2249,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
   for (const folder of pluginFolders) {
     const prefix = `plugins/${folder}/`
-    const pluginMeta = await readJsonFile<{ id: string; entityId?: string; workspaceId?: string; createdBy?: string; createdByDetails?: AuthorDetails; createdAt: string; updatedAt: string }>(zipData, `${prefix}_plugin.json`)
+    const pluginMeta = await readJsonFile<{ id: string; entityId?: string; workspaceId?: string; createdBy?: string; createdByDetails?: AuthorDetails; createdAt: string; updatedAt?: string }>(zipData, `${prefix}_plugin.json`)
     if (!pluginMeta) continue
     const files: Record<string, string> = {}
     for (const [path, entry] of Object.entries(zipData.files)) {

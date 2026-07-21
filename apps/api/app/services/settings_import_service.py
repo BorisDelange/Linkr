@@ -16,6 +16,7 @@ free (an absent file is simply skipped).
 """
 import json
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +58,19 @@ def _parse(tree: dict[str, bytes], path: str) -> list[dict]:
     return data if isinstance(data, list) else []
 
 
+def _created_at_kwarg(row: dict) -> dict:
+    """`{"created_at": <datetime>}` when the row carries a parseable createdAt,
+    else `{}` so the column's server_default stamps now. Only applied when a
+    record is CREATED — an existing record keeps its own creation date."""
+    raw = row.get("createdAt")
+    if not raw:
+        return {}
+    try:
+        return {"created_at": datetime.fromisoformat(raw)}
+    except (ValueError, TypeError):
+        return {}
+
+
 async def _import_orgs(db: AsyncSession, rows: list[dict], report: SettingsImportReport) -> None:
     for row in rows:
         oid = row.get("id")
@@ -75,7 +89,7 @@ async def _import_orgs(db: AsyncSession, rows: list[dict], report: SettingsImpor
             custom_fields=row.get("customFields"),
         )
         if existing is None:
-            db.add(Organization(id=oid, **fields))
+            db.add(Organization(id=oid, **fields, **_created_at_kwarg(row)))
             report.orgs_created += 1
         else:
             for k, v in fields.items():
@@ -100,6 +114,7 @@ async def _import_roles(db: AsyncSession, rows: list[dict], report: SettingsImpo
                     # code-seeded roles are system, matched by name below.
                     is_system=False,
                     permissions=perms,
+                    **_created_at_kwarg(row),
                 )
             )
             report.roles_created += 1
@@ -158,7 +173,7 @@ async def _import_users(
         existing = await db.scalar(select(User).where(User.username == username))
         if existing is None:
             # New account: no password → disabled until an admin sets one.
-            db.add(User(username=username, password_hash=None, is_active=False, **profile))
+            db.add(User(username=username, password_hash=None, is_active=False, **profile, **_created_at_kwarg(row)))
             report.users_created += 1
         else:
             # Guard: importing must not demote the last active admin.

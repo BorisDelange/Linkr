@@ -29,6 +29,9 @@ class ProjectCreate(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    # Creation date preserved on import round-trip. Absent for a fresh create or a
+    # legacy file → excluded by exclude_none → server_default stamps now.
+    created_at: datetime | None = None
 
 
 class ProjectUpdate(CamelModel):

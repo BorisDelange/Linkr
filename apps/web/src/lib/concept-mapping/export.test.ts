@@ -80,7 +80,7 @@ describe('exportToJson — author details round-trip', () => {
 })
 
 describe('buildMappingProjectFolder — portable project.json', () => {
-  it('strips instance-specific fields (gitRemoteConfig, ownerId, timestamps)', async () => {
+  it('strips instance-specific fields (gitRemoteConfig, ownerId, updatedAt) but keeps createdAt', async () => {
     const linked = {
       ...project,
       gitRemoteConfig: { url: 'https://gitlab.com/x/y', branch: 'main' },
@@ -103,7 +103,9 @@ describe('buildMappingProjectFolder — portable project.json', () => {
     expect(parsed.gitRemoteConfig).toBeUndefined()
     expect(parsed.ownerId).toBeUndefined()
     expect(parsed.workspaceId).toBeUndefined()
-    expect(parsed.createdAt).toBeUndefined()
+    // createdAt is kept (stable provenance); only updatedAt is stripped (it churns).
+    expect(parsed.createdAt).toBe('2026-01-01T00:00:00Z')
+    expect(parsed.updatedAt).toBeUndefined()
     // Local data-source UUIDs are not portable: vocabulary id dropped, source id blanked.
     expect(parsed.vocabularyDataSourceId).toBeUndefined()
     expect(parsed.dataSourceId).toBe('')

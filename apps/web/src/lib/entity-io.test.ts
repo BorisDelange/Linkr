@@ -16,7 +16,7 @@ vi.mock('@/lib/api/datasets', () => ({ importDatasetOnServer }))
 // or a round-trip export→import→export drifts (owner/workspace/git differ per instance)
 // and the repo's own git remote (with a possible token) would be committed into itself.
 describe('stripInstanceFields', () => {
-  it('drops owner, local author id, placement, git link, catalog/org and timestamps', () => {
+  it('drops owner, local author id, placement, git link, catalog/org and updatedAt, but KEEPS createdAt', () => {
     const meta = {
       uid: 'p1', name: { en: 'P' }, config: {},
       ownerId: 7, createdById: 3, workspaceId: 'ws-1',
@@ -26,7 +26,9 @@ describe('stripInstanceFields', () => {
       createdAt: '2020', updatedAt: '2021',
     }
     const out = stripInstanceFields(meta)
-    expect(out).toEqual({ uid: 'p1', name: { en: 'P' }, config: {} })
+    // createdAt is stable provenance and survives; updatedAt churns and is dropped.
+    expect(out).toEqual({ uid: 'p1', name: { en: 'P' }, config: {}, createdAt: '2020' })
+    expect('updatedAt' in out).toBe(false)
     // notably the token is gone
     expect(JSON.stringify(out)).not.toContain('secret')
   })
@@ -257,10 +259,32 @@ describe('parseProjectZip — organization bundle', () => {
   })
 })
 
-// Export strips instance fields (createdAt/updatedAt) from project.json, so a
-// real ZIP arrives WITHOUT them. Parsing must tolerate that — doImport re-stamps
-// the dates. Regression: an unguarded project.createdAt.split('T') in projectToItem
-// crashed the whole import ("can't access property split, createdAt is undefined").
+// The inline org snapshot keeps stable provenance (id + createdAt) but must drop
+// updatedAt, which the importer re-stamps and which would otherwise churn the diff.
+describe('attachEntityOrganization — org snapshot timestamps', () => {
+  it('keeps id + createdAt, drops updatedAt from the attached org', async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({ uid: 'p1', name: { en: 'P' } }))
+    const entity = {
+      organization: {
+        id: 'org-7', name: { en: 'Acme' },
+        createdAt: '2020-01-01T00:00:00Z', updatedAt: '2021-02-02T00:00:00Z',
+      },
+    }
+    // storage is unused when entity.organization is present.
+    await attachEntityOrganization(zip, 'project.json', entity, {} as never)
+    const written = JSON.parse(await zip.file('project.json')!.async('string'))
+    expect(written.organization.id).toBe('org-7')
+    expect(written.organization.createdAt).toBe('2020-01-01T00:00:00Z')
+    expect('updatedAt' in written.organization).toBe(false)
+  })
+})
+
+// A legacy export stripped createdAt from project.json (now kept), and updatedAt is
+// still always stripped, so a ZIP may arrive WITHOUT either. Parsing must tolerate
+// that — doImport falls back to now(). Regression: an unguarded
+// project.createdAt.split('T') in projectToItem crashed the whole import
+// ("can't access property split, createdAt is undefined").
 describe('parseProjectZip — project.json without timestamps', () => {
   it('parses a stripped project.json (no createdAt/updatedAt) without throwing', async () => {
     const zip = new JSZip()

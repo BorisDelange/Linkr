@@ -23,8 +23,11 @@ import json
 from typing import Any
 
 # Fields dropped from project.json so the exported metadata is portable — mirrors
-# INSTANCE_FIELDS in apps/web/src/lib/entity-io.ts (:331-343). ``dataSourceId`` is
-# NOT here: TS resets it to '' in place rather than removing it (required by type).
+# INSTANCE_FIELDS in apps/web/src/lib/entity-io.ts. ``createdAt`` is deliberately
+# NOT dropped (stable creation-date provenance, kept like createdBy); only
+# ``updatedAt`` is (it moves on every edit and is re-stamped on import).
+# ``dataSourceId`` is not here either: TS resets it to '' in place rather than
+# removing it (required by type).
 _INSTANCE_FIELDS = (
     "ownerId",
     "createdById",
@@ -35,7 +38,6 @@ _INSTANCE_FIELDS = (
     "catalogVisibility",
     "organization",
     "organizationId",
-    "createdAt",
     "updatedAt",
 )
 

@@ -9,6 +9,7 @@ Python tests use. This proves the full server path, not just the pure builder.
 import base64
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 
 from app.models.mapping_project import ConceptMapping, MappingProject
@@ -69,6 +70,10 @@ async def _seed(db) -> MappingProject:
         organization=data["organization"],
         created_by=p["createdBy"],
         created_by_details=p["createdByDetails"],
+        # createdAt is now kept in the export (stable provenance), so the seeded
+        # row must carry the fixture's value for the golden byte-parity to hold —
+        # a real import preserves it the same way.
+        created_at=datetime.fromisoformat(p["createdAt"]),
     )
     db.add(project)
     await db.commit()

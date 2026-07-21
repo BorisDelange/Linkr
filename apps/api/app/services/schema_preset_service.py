@@ -42,6 +42,10 @@ async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
     payload = data.model_dump()
     preset = await db.get(SchemaPreset, data.preset_id)
     if preset is None:
+        # A None created_at (fresh create / legacy file) must not override the
+        # DateTime column's server_default with NULL — drop it so it stamps now.
+        if payload.get("created_at") is None:
+            payload.pop("created_at", None)
         preset = SchemaPreset()
         git_secret.apply_to_entity(preset, payload)
         for key, value in payload.items():
@@ -49,8 +53,10 @@ async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
         db.add(preset)
     else:
         git_secret.apply_to_entity(preset, payload)
-        # preset_id is the PK — never reassign it on update.
+        # preset_id is the PK — never reassign it on update. created_at is the
+        # element's original creation date — never move it on a re-save.
         payload.pop("preset_id", None)
+        payload.pop("created_at", None)
         for key, value in payload.items():
             setattr(preset, key, value)
     await db.commit()

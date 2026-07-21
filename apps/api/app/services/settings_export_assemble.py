@@ -35,9 +35,16 @@ class SettingsSelection:
     roles: bool = True
 
 
+def _iso(dt) -> str | None:
+    """Creation date as an ISO string for the versioned file (kept as stable
+    provenance). None-safe. updatedAt is deliberately never exported."""
+    return dt.isoformat() if dt else None
+
+
 def _org_dict(o: Organization) -> dict:
-    # Full record minus instance/volatile fields (createdAt/updatedAt). Identity
-    # is the UUID id, kept so import upserts in place across instances.
+    # Full record minus volatile fields: NO updatedAt (churns on edit, re-stamped
+    # on import). createdAt IS kept as provenance. Identity is the UUID id, kept
+    # so import upserts in place across instances.
     return {
         "id": o.id,
         "name": o.name,
@@ -49,12 +56,13 @@ def _org_dict(o: Organization) -> dict:
         "customType": o.custom_type,
         "referenceId": o.reference_id,
         "customFields": o.custom_fields,
+        "createdAt": _iso(o.created_at),
     }
 
 
 def _user_dict(u: User) -> dict:
-    # NO passwordHash, NO isActive, NO auth/session fields. Only the profile a
-    # human would otherwise re-type by hand.
+    # NO passwordHash, NO isActive, NO auth/session fields, NO updatedAt. Only the
+    # profile a human would otherwise re-type by hand, plus createdAt provenance.
     return {
         "username": u.username,
         "email": u.email,
@@ -64,6 +72,7 @@ def _user_dict(u: User) -> dict:
         "profession": u.profession,
         "orcid": u.orcid,
         "role": u.role,
+        "createdAt": _iso(u.created_at),
     }
 
 
@@ -74,6 +83,7 @@ def _role_dict(r: Role) -> dict:
         "scope": r.scope,
         "isSystem": r.is_system,
         "permissions": r.permissions,
+        "createdAt": _iso(r.created_at),
     }
 
 
