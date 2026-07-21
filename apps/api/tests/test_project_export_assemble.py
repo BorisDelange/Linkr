@@ -169,14 +169,15 @@ async def _seed(db) -> Project:
 
 
 def _normalize_utc(content: bytes) -> bytes:
-    """Collapse the tz spelling of UTC timestamps so the SQLite-backed test can
-    assert against a Postgres-shaped golden. SQLite's DateTime(timezone=True) drops
-    tzinfo, so a datetime round-trips NAIVE and Pydantic emits ``...T00:00:00``;
+    """Collapse the tz spelling AND optional fractional seconds of UTC timestamps
+    so the SQLite-backed test can assert against a Postgres-shaped golden. SQLite's
+    DateTime(timezone=True) drops tzinfo, so a datetime round-trips NAIVE and Pydantic
+    emits ``...T00:00:00`` (and may carry microseconds ``...T00:00:00.123456``);
     Postgres keeps it tz-aware and Pydantic emits ``...T00:00:00Z``. Both denote the
     same instant. The golden is frozen in the production ``Z`` form (see the pure
-    builder test, which pins the exact bytes); here we only neutralize this one
-    environment artifact — every other byte must still match exactly."""
-    return re.sub(rb"(\d{2}:\d{2}:\d{2})Z", rb"\1", content)
+    builder test, which pins the exact bytes); here we only neutralize these
+    environment artifacts — every other byte must still match exactly."""
+    return re.sub(rb"(\d{2}:\d{2}:\d{2})(\.\d+)?Z?", rb"\1", content)
 
 
 async def test_assembler_reproduces_golden_tree(db):

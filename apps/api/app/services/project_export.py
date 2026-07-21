@@ -216,6 +216,10 @@ def _build_dashboard_json(
         out["key"] = key
         out["parentKey"] = parent_key
         tabs_out.append(out)
+    # Sort by content key so array order is byte-stable across instances (storage
+    # returns PK order, which differs pre/post-reimport) — mirrors the TS builder
+    # (entity-io.ts). Python str sort is code-point order == JS compareCodePoints.
+    tabs_out.sort(key=lambda t: t["key"])
 
     widgets_out = []
     for w in widgets:
@@ -227,6 +231,7 @@ def _build_dashboard_json(
         out["key"] = key
         out["tabKey"] = tab_key
         widgets_out.append(out)
+    widgets_out.sort(key=lambda w: (w["tabKey"], w["key"]))
 
     return _json({"dashboard": dashboard_out, "tabs": tabs_out, "widgets": widgets_out})
 
