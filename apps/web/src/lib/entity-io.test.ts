@@ -626,6 +626,72 @@ describe('importProjectContent — server-mode datasets', () => {
   })
 })
 
+// The project pull imports a curated SUBSET of the remote content: importProjectContent
+// with a `groups` set must write only those groups (and never the connections/databases,
+// which don't travel with a project). A regression here would let a pull add entities the
+// user didn't tick.
+describe('importProjectContent — selective groups (project pull)', () => {
+  const parsed = {
+    project: { uid: 'p1', name: { en: 'P' } } as unknown as ParsedProjectZip['project'],
+    ideFiles: [{ id: 's1', name: 'a.sql', type: 'file', parentId: null, content: 'SELECT 1' } as unknown as ParsedProjectZip['ideFiles'][number]],
+    pipelines: [{ id: 'pp1', name: { en: 'PL' } } as unknown as ParsedProjectZip['pipelines'][number]],
+    cohorts: [{ id: 'c1', name: 'Coh', level: 'visit' } as unknown as ParsedProjectZip['cohorts'][number]],
+    connections: [{ id: 'db1', name: 'DB' } as unknown as ParsedProjectZip['connections'][number]],
+    dashboards: [{ id: 'd1', name: { en: 'Dash' } } as unknown as ParsedProjectZip['dashboards'][number]],
+    dashboardTabs: [], dashboardWidgets: [],
+    datasetFiles: [], datasetAnalyses: [], datasetData: [], datasetRawFiles: [],
+    attachmentsMeta: [], attachmentBlobs: new Map(),
+  } as ParsedProjectZip
+
+  const makeStore = () => {
+    const calls: Record<string, number> = {}
+    const rec = (name: string) => vi.fn(async () => { calls[name] = (calls[name] ?? 0) + 1 })
+    const creators: Record<string, () => Promise<void>> = {
+      ideFiles: rec('ideFiles'), pipelines: rec('pipelines'), cohorts: rec('cohorts'),
+      connections: rec('connections'), dashboards: rec('dashboards'), datasetFiles: rec('datasetFiles'),
+    }
+    const store = new Proxy({}, {
+      get: (_t, prop) => {
+        const p = String(prop)
+        if (creators[p]) return { create: creators[p] }
+        return new Proxy({}, { get: () => async () => {} })
+      },
+    }) as unknown as Storage
+    return { store, calls }
+  }
+
+  beforeEach(() => { serverMode.value = false })
+
+  it('writes only the selected group and never connections', async () => {
+    const { store, calls } = makeStore()
+    await importProjectContent(parsed, 'p1', store, { groups: new Set(['dashboards']) })
+    expect(calls.dashboards).toBe(1)
+    expect(calls.ideFiles).toBeUndefined()
+    expect(calls.cohorts).toBeUndefined()
+    expect(calls.pipelines).toBeUndefined()
+    expect(calls.connections).toBeUndefined()
+  })
+
+  it('writes multiple selected groups, still skipping connections', async () => {
+    const { store, calls } = makeStore()
+    await importProjectContent(parsed, 'p1', store, { groups: new Set(['scripts', 'cohorts']) })
+    expect(calls.ideFiles).toBe(1)
+    expect(calls.cohorts).toBe(1)
+    expect(calls.dashboards).toBeUndefined()
+    expect(calls.connections).toBeUndefined()
+  })
+
+  it('with no groups option imports everything (plain import path)', async () => {
+    const { store, calls } = makeStore()
+    await importProjectContent(parsed, 'p1', store)
+    expect(calls.dashboards).toBe(1)
+    expect(calls.ideFiles).toBe(1)
+    expect(calls.cohorts).toBe(1)
+    expect(calls.pipelines).toBe(1)
+    expect(calls.connections).toBe(1)
+  })
+})
+
 // Three "git-linkable" entity types — data-catalog, dq-rule-set, schema-preset —
 // export as a metadata marker + a git-links.json pointer when linked, keep the flat
 // form when unlinked, and reconstitute full content from their own cloned repo.

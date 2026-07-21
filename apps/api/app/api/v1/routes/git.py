@@ -210,6 +210,48 @@ async def project_commit_push(
     )
 
 
+@router.get(
+    "/projects/{project_uid}/sync-state",
+    response_model=GitSyncStateResponse,
+)
+async def project_sync_state(
+    branch: str | None = None,
+    project=Depends(require_project_permission("project-settings:read")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Where the local project stands vs the remote branch (behind/diverged),
+    reading the DB anchor. No ZIP — the check only compares remote oids, so the
+    client needn't rebuild the export just to learn it's out of date."""
+    return await _sync_state(
+        db,
+        "projects",
+        git_service.project_repo_getter,
+        project.uid,
+        _default_branch(project, branch),
+        _remote_url(project),
+        await _token(db, user, project),
+    )
+
+
+@router.post(
+    "/projects/{project_uid}/set-sync-state",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def project_set_sync_state(
+    body: GitSetSyncStateRequest,
+    project=Depends(require_project_permission("project-settings:write")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Anchor the project's sync state to a known remote commit — called after a
+    git import or a pull so it has a base to compare against (a later push
+    elsewhere is then detected as 'behind'). Write access required."""
+    await git_sync_state_service.set_oid(
+        db, "projects", project.uid, body.branch, body.synced_oid
+    )
+
+
 # --- Workspace scope ------------------------------------------------------
 
 

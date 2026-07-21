@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { GitRepositoryTab } from './GitRepositoryTab'
 import type { GitRemoteConfig } from '@/types'
 import type { GitScope } from '@/lib/api/git'
+import type { GitSyncPanel } from './GitSyncPanel'
 
 export type VersioningTab = 'export' | 'git'
 
@@ -27,6 +28,8 @@ interface VersioningTabsProps {
   /** Scope + id enable the push-only sync panel in the Git tab (server mode). */
   syncScope?: GitScope
   syncId?: string
+  /** Custom pull UI for scopes with their own pull flow (forwarded to the sync panel). */
+  renderPullDialog?: React.ComponentProps<typeof GitSyncPanel>['renderPullDialog']
   /** Hide the Export tab and show only Git (e.g. entities whose export lives elsewhere). */
   gitOnly?: boolean
 }
@@ -46,6 +49,7 @@ export function VersioningTabs({
   fillHeight = false,
   syncScope,
   syncId,
+  renderPullDialog,
   gitOnly = false,
 }: VersioningTabsProps) {
   const { t } = useTranslation()
@@ -85,7 +89,7 @@ export function VersioningTabs({
       )}
 
       <TabsContent value="git" className={sideContentClass}>
-        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} syncScope={syncScope} syncId={syncId} />
+        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} syncScope={syncScope} syncId={syncId} renderPullDialog={renderPullDialog} />
       </TabsContent>
     </Tabs>
   )

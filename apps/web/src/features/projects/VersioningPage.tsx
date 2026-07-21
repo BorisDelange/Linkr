@@ -5,6 +5,12 @@ import { useAppStore } from '@/stores/app-store'
 import { useVersioningStore } from '@/stores/versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
 import { useRememberedVersioningTab } from '@/components/versioning/use-remembered-versioning-tab'
+import { ProjectPullDialog } from '@/components/versioning/ProjectPullDialog'
+import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDatasetStore } from '@/stores/dataset-store'
+import { useFileStore } from '@/stores/file-store'
+import { usePipelineStore } from '@/stores/pipeline-store'
+import { useCohortStore } from '@/stores/cohort-store'
 import { ExportTab } from './versioning/ExportTab'
 
 export function VersioningPage() {
@@ -36,6 +42,24 @@ export function VersioningPage() {
           onTabChange={onTabChange}
           syncScope="projects"
           syncId={projectUid ?? undefined}
+          renderPullDialog={projectUid ? ({ branch, onClose, onPulled }) => (
+            <ProjectPullDialog
+              projectUid={projectUid}
+              branch={branch}
+              onClose={onClose}
+              onPulled={async () => {
+                // The pull wrote to storage; the project views read from in-memory
+                // stores — invalidate them so the pulled dashboards/datasets/scripts/
+                // cohorts/pipelines show without a manual refresh (mirrors import).
+                useDashboardStore.setState({ activeProjectUid: null, loaded: false })
+                useDatasetStore.setState({ activeProjectUid: null })
+                useFileStore.setState({ activeProjectUid: null })
+                await usePipelineStore.getState().loadPipelines()
+                await useCohortStore.getState().loadCohorts()
+                await onPulled()
+              }}
+            />
+          ) : undefined}
         />
       </div>
     </div>

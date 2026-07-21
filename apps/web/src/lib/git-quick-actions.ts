@@ -50,6 +50,26 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       patterns: [/^project\.json$/, /^mappings\.(json|csv)$/],
     },
   ],
+  projects: [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_project',
+      messageKey: 'versioning.quick_msg_all_project',
+      excludeOther: true,
+    },
+    {
+      labelKey: 'versioning.quick_sync_dashboards',
+      descriptionKey: 'versioning.quick_desc_dashboards',
+      messageKey: 'versioning.quick_msg_dashboards',
+      patterns: [/^dashboards\//],
+    },
+    {
+      labelKey: 'versioning.quick_sync_scripts',
+      descriptionKey: 'versioning.quick_desc_scripts',
+      messageKey: 'versioning.quick_msg_scripts',
+      patterns: [/^scripts\//],
+    },
+  ],
   workspaces: [
     {
       labelKey: 'versioning.quick_sync_all',

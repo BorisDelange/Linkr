@@ -798,11 +798,55 @@ function remapColIds<T>(value: T, colIdMap: Map<string, string>): T {
  * different instance never collide. The project record itself must already exist.
  * Shared by project import, workspace import, and git clone — does NOT touch in-memory caches.
  */
+/** Pullable content groups of a project (each maps to a folder in the export).
+ *  Databases are deliberately absent — they're an instance-level resource that
+ *  doesn't travel with the project (see linkedDataSourceIds in INSTANCE_FIELDS). */
+export type ProjectPullGroup =
+  | 'dashboards'
+  | 'scripts'
+  | 'cohorts'
+  | 'datasets'
+  | 'pipeline'
+  | 'readme'
+
+export interface ImportProjectOptions {
+  /** When set, only these groups are written; others are skipped entirely.
+   *  Undefined = import everything (the plain import/clone path). The create loops
+   *  are insert-only, so a pull that OVERWRITES an existing entity must delete its
+   *  (deterministic) id first — see deleteDerivedProjectIds in project-pull.ts. */
+  groups?: Set<ProjectPullGroup>
+}
+
 export async function importProjectContent(
   parsed: ParsedProjectZip,
   projectUid: string,
   storage: Storage,
+  options: ImportProjectOptions = {},
 ): Promise<void> {
+  const { groups } = options
+  const wants = (g: ProjectPullGroup): boolean => !groups || groups.has(g)
+  // A selective (pull) import narrows the content to the chosen groups by emptying
+  // the arrays of the ones not wanted — the loops below stay unchanged. A plain
+  // import passes no `groups`, so every array is kept. Dataset row data/raw files
+  // ride with the dataset files.
+  if (groups) {
+    parsed = {
+      ...parsed,
+      ideFiles: wants('scripts') ? parsed.ideFiles : [],
+      pipelines: wants('pipeline') ? parsed.pipelines : [],
+      cohorts: wants('cohorts') ? parsed.cohorts : [],
+      dashboards: wants('dashboards') ? parsed.dashboards : [],
+      dashboardTabs: wants('dashboards') ? parsed.dashboardTabs : [],
+      dashboardWidgets: wants('dashboards') ? parsed.dashboardWidgets : [],
+      datasetFiles: wants('datasets') ? parsed.datasetFiles : [],
+      datasetData: wants('datasets') ? parsed.datasetData : [],
+      datasetRawFiles: wants('datasets') ? parsed.datasetRawFiles : [],
+      datasetAnalyses: wants('datasets') ? parsed.datasetAnalyses : [],
+      // Databases (connections) never travel with a project pull; readme/attachments
+      // are handled by the pull module, not here.
+      connections: [],
+    }
+  }
   // Derive each new id deterministically from (projectUid + originalId) instead
   // of a random UUID, so re-importing the same project yields the same ids and a
   // git export→import→export round-trip is stable — while ids from a different

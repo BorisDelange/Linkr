@@ -130,6 +130,47 @@ async def test_git_status_requires_auth(client):
     assert r.status_code in (401, 403)
 
 
+async def test_project_set_and_read_sync_state(client, db):
+    """The project pull needs a sync anchor: set-sync-state must persist the oid and
+    sync-state must read it back (behind/diverged detection). Both are project-scoped
+    additions — the mapping-project routes already had them."""
+    from app.services import git_sync_state_service
+
+    headers = await _bootstrap_admin(client)
+    await client.post(
+        f"{API}/projects",
+        headers=headers,
+        json={"uid": "p-git-sync", "name": {"en": "PS"}},
+    )
+
+    r = await client.post(
+        f"{API}/git/projects/p-git-sync/set-sync-state",
+        headers=headers,
+        json={"branch": "main", "syncedOid": "deadbeef"},
+    )
+    assert r.status_code == 204
+
+    row = await git_sync_state_service.get(db, "projects", "p-git-sync", "main")
+    assert row is not None and row.synced_oid == "deadbeef"
+
+    # sync-state is reachable and reports "unlinked" (no remote) rather than 404.
+    r = await client.get(
+        f"{API}/git/projects/p-git-sync/sync-state",
+        headers=headers,
+        params={"branch": "main"},
+    )
+    assert r.status_code == 200
+    assert r.json()["linked"] is False
+
+
+async def test_project_set_sync_state_requires_auth(client):
+    r = await client.post(
+        f"{API}/git/projects/whatever/set-sync-state",
+        json={"branch": "main", "syncedOid": "x"},
+    )
+    assert r.status_code in (401, 403)
+
+
 async def test_git_mapping_project_scope(client, db, tmp_path):
     """The mapping-project git scope is mounted, token is encrypted, status runs."""
     from sqlalchemy import select

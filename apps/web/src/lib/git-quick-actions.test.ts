@@ -3,7 +3,16 @@ import { buildQuickActions } from './git-quick-actions'
 
 describe('buildQuickActions', () => {
   it('returns no actions for a scope without presets', () => {
-    expect(buildQuickActions('projects', ['project.json'])).toEqual([])
+    expect(buildQuickActions('etl-pipelines', ['_pipeline.json'])).toEqual([])
+  })
+
+  it('projects: Sync all takes every changed path; per-group actions narrow', () => {
+    const changed = ['project.json', 'scripts/a.sql', 'dashboards/d.json', 'cohorts/c.json']
+    const [all, dashboards, scripts] = buildQuickActions('projects', changed)
+    expect(all.labelKey).toBe('versioning.quick_sync_all')
+    expect(all.paths).toEqual(changed)
+    expect(dashboards.paths).toEqual(['dashboards/d.json'])
+    expect(scripts.paths).toEqual(['scripts/a.sql'])
   })
 
   it('mapping-projects: Sync all takes every changed path (order preserved)', () => {
