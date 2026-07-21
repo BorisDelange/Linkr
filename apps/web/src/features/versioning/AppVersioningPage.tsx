@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { useLocation, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
@@ -11,9 +11,20 @@ export function AppVersioningPage() {
   const { t } = useTranslation()
   const { wsUid } = useResolvedParams()
   const [searchParams] = useSearchParams()
-  const forcedTab = searchParams.get('tab') === 'git' ? 'git' : null
+  const location = useLocation()
+  const tabParam = searchParams.get('tab')
+  const forcedTab = tabParam === 'git' || tabParam === 'export' ? tabParam : null
   const { initialTab, onTabChange } = useRememberedVersioningTab('workspaces', forcedTab)
   const { remoteConfig, loadRemoteConfig, setRemoteConfig, clearRemoteConfig } = useWorkspaceVersioningStore()
+  // Controlled tab so a menu changing ?tab= while already on this page switches
+  // the tab (see VersioningPage for the rationale — adjust during render, keyed
+  // on location.key so re-clicking the same menu item re-forces).
+  const [tab, setTab] = useState(initialTab)
+  const [lastNav, setLastNav] = useState(location.key)
+  if (location.key !== lastNav) {
+    setLastNav(location.key)
+    if (forcedTab) setTab(forcedTab)
+  }
 
   useEffect(() => {
     if (wsUid) void loadRemoteConfig(wsUid)
@@ -32,8 +43,8 @@ export function AppVersioningPage() {
           gitRemote={remoteConfig}
           onSaveGitRemote={(cfg) => (wsUid ? (cfg ? setRemoteConfig(wsUid, cfg) : clearRemoteConfig(wsUid)) : Promise.resolve())}
           exportContent={<WsExportTab />}
-          initialTab={initialTab}
-          onTabChange={onTabChange}
+          tab={tab}
+          onTabChange={(v) => { setTab(v); onTabChange(v) }}
           syncScope="workspaces"
           syncId={wsUid ?? undefined}
         />

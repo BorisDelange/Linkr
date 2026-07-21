@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { useLocation, useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useVersioningStore } from '@/stores/versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
@@ -17,8 +17,21 @@ export function VersioningPage() {
   const { t } = useTranslation()
   const projectUid = useAppStore((s) => s.activeProjectUid)
   const [searchParams] = useSearchParams()
-  const forcedTab = searchParams.get('tab') === 'git' ? 'git' : null
+  const location = useLocation()
+  const tabParam = searchParams.get('tab')
+  const forcedTab = tabParam === 'git' || tabParam === 'export' ? tabParam : null
   const { initialTab, onTabChange } = useRememberedVersioningTab('projects', forcedTab)
+  // Drive the active tab as controlled state so a menu that changes ?tab= while
+  // we're already on this page switches the tab (a remount isn't triggered, so
+  // initialTab alone wouldn't re-apply). We adjust state during render (keyed on
+  // location.key so re-clicking the same menu item re-forces) rather than in an
+  // effect, per React's "adjusting state on prop change" guidance — no extra pass.
+  const [tab, setTab] = useState(initialTab)
+  const [lastNav, setLastNav] = useState(location.key)
+  if (location.key !== lastNav) {
+    setLastNav(location.key)
+    if (forcedTab) setTab(forcedTab)
+  }
   const { remoteConfig, loadRemoteConfig, setRemoteConfig, clearRemoteConfig } = useVersioningStore()
 
   useEffect(() => {
@@ -38,8 +51,8 @@ export function VersioningPage() {
           gitRemote={remoteConfig}
           onSaveGitRemote={(cfg) => (cfg ? setRemoteConfig(cfg) : clearRemoteConfig())}
           exportContent={<ExportTab />}
-          initialTab={initialTab}
-          onTabChange={onTabChange}
+          tab={tab}
+          onTabChange={(v) => { setTab(v); onTabChange(v) }}
           syncScope="projects"
           syncId={projectUid ?? undefined}
           renderPullDialog={projectUid ? ({ branch, onClose, onPulled }) => (
