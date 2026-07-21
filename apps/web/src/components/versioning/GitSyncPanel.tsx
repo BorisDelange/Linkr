@@ -226,6 +226,12 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
         <TabsContent value="quick" className="flex min-h-0 flex-1 flex-col gap-3">
           {branchRow}
 
+          {/* Kept above the loading/empty states so it can be (un)ticked WHILE the
+              status is still computing — toggling supersedes the in-flight compute
+              and recomputes, so the user needn't wait for the first result. Hidden
+              only when the remote can't be read (auth blocked). */}
+          {!authBlocked && includeDataToggle}
+
           {loadingStatus ? (
             <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
               <Loader2 size={14} className="animate-spin" />
@@ -237,7 +243,6 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
             <p className="py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
           ) : (
             <div className="space-y-3">
-              {includeDataToggle}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {quickActions.map((qa, i) => (
                   <QuickActionCard
