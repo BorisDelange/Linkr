@@ -298,6 +298,20 @@ describe('parseProjectZip — project.json without timestamps', () => {
     expect(parsed!.project.createdAt).toBeUndefined()
     expect(parsed!.project.updatedAt).toBeUndefined()
   })
+
+  // A clean git export drops `uid` and often has no lineage yet (lineageId: null).
+  // Its only identifier is the stable `projectId` — the parse guard must accept it,
+  // else a valid bundle (e.g. the NeoCLIP repo) is rejected as "not a project".
+  it('parses a project identified only by projectId (no uid, null lineageId)', async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({
+      projectId: 'neoclip', name: { en: 'NeoCLIP' }, description: {},
+      lineageId: null, parentLineageId: null,
+    }))
+    const parsed = await parseProjectZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.project.projectId).toBe('neoclip')
+  })
 })
 
 // A workspace's linked organization travels in organization.json (by UUID) so an

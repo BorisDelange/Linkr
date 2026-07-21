@@ -954,8 +954,10 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   if (!projectFile) return null
   const projectRaw = JSON.parse(await projectFile.async('string'))
   // Clean git-versioned exports strip `uid` (the local PK) and identify the project
-  // by lineageId instead; the target uid is supplied by the caller, not read here.
-  if (!projectRaw || (!projectRaw.uid && !projectRaw.lineageId)) return null
+  // by its stable `projectId` (and `lineageId` when it has one); the target uid is
+  // supplied by the caller, not read here. Accept any of the three as proof that
+  // this is a real project.json — `lineageId` alone is often null on a fresh export.
+  if (!projectRaw || (!projectRaw.uid && !projectRaw.projectId && !projectRaw.lineageId)) return null
   // Strip export-only fields
   const { appVersion: _av, ...projectMeta } = projectRaw as Project & { appVersion?: string }
 
