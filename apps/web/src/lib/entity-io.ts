@@ -1472,7 +1472,15 @@ async function resolveEntityOrganization(
  * versioning diff on every re-export.
  */
 function orgSnapshot(org: OrganizationInfo): OrganizationInfo {
-  const { updatedAt: _u, ...rest } = org as OrganizationInfo & { updatedAt?: string }
+  const { updatedAt: _u, ...rest } = org as OrganizationInfo & { updatedAt?: string; createdAt?: string }
+  // The org is a JSON blob, so its inner createdAt escapes the datetime normalization
+  // applied to first-class datetime fields — normalize it here to the same ms+Z form
+  // (toISOString) so a server-stored second-precision date doesn't churn the diff.
+  const createdAt = (rest as { createdAt?: string }).createdAt
+  if (createdAt) {
+    const d = new Date(createdAt)
+    if (!Number.isNaN(d.getTime())) (rest as { createdAt?: string }).createdAt = d.toISOString()
+  }
   return rest
 }
 
@@ -1872,12 +1880,12 @@ export async function buildWorkspaceZip(
 
   // --- organization.json ---
   // The linked organization travels with the workspace so an import can
-  // reconstitute it (upsert by UUID) without a shared org registry. Strip
-  // instance fields (createdAt/updatedAt) — the import re-stamps them; keeping
-  // them only produced spurious versioning diffs.
+  // reconstitute it (upsert by UUID) without a shared org registry. orgSnapshot
+  // drops updatedAt (re-stamped on import) and normalizes createdAt to ms+Z, so
+  // this root org matches the inline snapshots and doesn't churn the diff.
   if (workspace.organizationId) {
     const org = await storage.organizations.getById(workspace.organizationId)
-    if (org) zip.file('organization.json', json(stripInstanceFields(org)))
+    if (org) zip.file('organization.json', json(orgSnapshot(org as unknown as OrganizationInfo)))
   }
 
   // --- README.md (+ README.<lang>.md per extra language) ---

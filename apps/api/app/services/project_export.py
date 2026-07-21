@@ -29,6 +29,7 @@ from typing import Any
 # this must equal the frontend's version.ts APP_VERSION so front-only and server
 # exports are byte-identical.
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
+from app.services.org_snapshot import org_snapshot
 
 # Fields specific to the exporting instance/deployment, dropped from every
 # exported entity's metadata — mirrors INSTANCE_FIELDS in
@@ -116,12 +117,6 @@ def _to_localized(value: Any) -> dict:
     if isinstance(value, str) and value:
         return {"en": value}
     return {}
-
-
-def _org_snapshot(org: dict) -> dict:
-    """Port of ``orgSnapshot`` (entity-io.ts:1468): keep the org's portable fields,
-    drop only ``updatedAt`` (re-stamped on import; churns the diff)."""
-    return {k: v for k, v in org.items() if k != "updatedAt"}
 
 
 def _dashboard_key(dashboard: dict) -> str:
@@ -248,7 +243,7 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     out = _strip_instance_fields(meta)
     out["appVersion"] = APP_VERSION
     if organization:
-        out["organization"] = _org_snapshot(organization)
+        out["organization"] = org_snapshot(organization)
     return _json(out)
 
 

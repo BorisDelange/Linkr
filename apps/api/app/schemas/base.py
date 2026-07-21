@@ -1,8 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_serializer
 from pydantic.alias_generators import to_camel
+
+from app.core.datetime_format import to_iso_ms_z
 
 
 class CamelModel(BaseModel):
@@ -31,6 +33,5 @@ class CamelModel(BaseModel):
         the services to write DateTime columns, which need real datetime objects —
         stringifying there raised 'SQLite DateTime type only accepts datetime'."""
         if isinstance(value, datetime):
-            utc = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
-            return utc.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc.microsecond // 1000:03d}Z"
+            return to_iso_ms_z(value)
         return handler(value)

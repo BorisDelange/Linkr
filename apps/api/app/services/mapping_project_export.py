@@ -22,6 +22,8 @@ the caller.
 import json
 from typing import Any
 
+from app.services.org_snapshot import org_snapshot
+
 # Fields dropped from project.json so the exported metadata is portable — mirrors
 # INSTANCE_FIELDS in apps/web/src/lib/entity-io.ts. ``createdAt`` is deliberately
 # NOT dropped (stable creation-date provenance, kept like createdBy); only
@@ -157,10 +159,7 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
         }
 
     if organization:
-        # Port of orgSnapshot (entity-io.ts:1468): keep the org's portable fields,
-        # drop updatedAt (re-stamped on import; churns the diff). The project export
-        # path already does this via _org_snapshot — this path had missed it.
-        out["organization"] = {k: v for k, v in organization.items() if k != "updatedAt"}
+        out["organization"] = org_snapshot(organization)
 
     return _json(out)
 

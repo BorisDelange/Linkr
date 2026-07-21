@@ -31,6 +31,7 @@ from typing import Any
 # (``appVersion``) — see app/export_version.py. It equals the frontend's
 # version.ts APP_VERSION so front-only and server exports are byte-identical.
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
+from app.services.org_snapshot import org_snapshot
 
 # Fields specific to the exporting instance/deployment, dropped from every
 # exported entity's metadata — mirrors INSTANCE_FIELDS in
@@ -494,7 +495,9 @@ def build_workspace_tree(
     tree["workspace.json"] = _json(ws_out)
 
     if workspace.get("organizationId") and organization:
-        tree["organization.json"] = _json(_strip_instance_fields(organization))
+        # org_snapshot drops updatedAt and normalizes createdAt to ms+Z — the same
+        # portable shape as the inline org snapshots, so this root org doesn't churn.
+        tree["organization.json"] = _json(org_snapshot(organization))
 
     tree.update(_readme_files("", workspace.get("readme")))
 
