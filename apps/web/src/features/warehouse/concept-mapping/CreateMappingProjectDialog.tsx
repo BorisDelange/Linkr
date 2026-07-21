@@ -41,6 +41,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { VersionField } from '@/components/ui/version-field'
 import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -98,6 +99,7 @@ export function CreateMappingProjectDialog({
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<MappingProjectStatus>('in_progress')
   const [badges, setBadges] = useState<ProjectBadge[]>([])
+  const [version, setVersion] = useState('0.1.0')
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
@@ -204,6 +206,7 @@ export function CreateMappingProjectDialog({
       setDescription(localized(editingProject.description, language))
       setStatus(editingProject.status ?? 'in_progress')
       setBadges(editingProject.badges ?? [])
+      setVersion(editingProject.version ?? '0.1.0')
       setSourceType(editingProject.sourceType ?? 'database')
       setDataSourceId(editingProject.dataSourceId ?? '')
       if (editingProject.fileSourceData?.columnMapping) {
@@ -217,6 +220,7 @@ export function CreateMappingProjectDialog({
       setDescription('')
       setStatus('in_progress')
       setBadges([])
+      setVersion('0.1.0')
       setNewBadgeLabel('')
       setNewBadgeColor('blue')
       setSourceType('file')
@@ -649,6 +653,7 @@ export function CreateMappingProjectDialog({
         status,
         badges,
         sourceType,
+        version: version.trim() || '0.1.0',
         ...authoring,
       }
       if (sourceType === 'database') {
@@ -694,6 +699,7 @@ export function CreateMappingProjectDialog({
         sourceType,
         dataSourceId: sourceType === 'database' ? dataSourceId : '',
         conceptSetIds: [],
+        version: version.trim() || '0.1.0',
         ...stampAuthored(),
         ...stampLineage(),
         createdAt: now,
@@ -1213,6 +1219,8 @@ export function CreateMappingProjectDialog({
                 })()}
               </div>
             </div>
+
+            <VersionField value={version} onChange={setVersion} />
 
             {isEdit && editingProject && (
               <div className="border-t pt-4">

@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { VersionField } from '@/components/ui/version-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { getStatusDotClass } from './ProjectSettingsPage'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
@@ -40,13 +41,14 @@ interface CreateProjectDialogProps {
 
 export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingProject }: CreateProjectDialogProps) {
   const { t } = useTranslation()
-  const { addProject, updateProject, updateProjectStatus, updateProjectBadges, updateProjectAuthoring, _projectsRaw, language } = useAppStore()
+  const { addProject, updateProject, updateProjectStatus, updateProjectBadges, updateProjectVersion, updateProjectAuthoring, _projectsRaw, language } = useAppStore()
   const isEditing = !!editingProject
   const [name, setName] = useState('')
   const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<ProjectStatus>('active')
   const [badges, setBadges] = useState<ProjectBadge[]>([])
+  const [version, setVersion] = useState('0.1.0')
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
@@ -59,6 +61,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       setDescription(editingProject ? localized(editingProject.description, language) : '')
       setStatus(editingProject?.status ?? 'active')
       setBadges(editingProject?.badges ?? [])
+      setVersion(editingProject?.version ?? '0.1.0')
       setNewBadgeLabel('')
       setNewBadgeColor('blue')
       setAuthoring({})
@@ -103,6 +106,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       await updateProject(editingProject.uid, name.trim(), description.trim())
       updateProjectStatus(editingProject.uid, status)
       updateProjectBadges(editingProject.uid, badges)
+      updateProjectVersion(editingProject.uid, version.trim() || '0.1.0')
       // Authoring re-attribution isn't covered by the name/status/badges stores;
       // this both persists it and refreshes the in-memory project so the widget
       // updates without a page reload.
@@ -113,6 +117,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       const uid = await addProject(name.trim(), description.trim(), workspaceId, entityId)
       if (status !== 'active') updateProjectStatus(uid, status)
       if (badges.length > 0) updateProjectBadges(uid, badges)
+      if (version.trim() && version.trim() !== '0.1.0') updateProjectVersion(uid, version.trim())
     }
     onOpenChange(false)
   }
@@ -214,6 +219,8 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 <p className="text-xs text-destructive">{t('project_settings.badge_label_exists')}</p>
               )}
             </div>
+
+            <VersionField value={version} onChange={setVersion} />
 
             {isEditing && editingProject && (
               <div className="border-t pt-4">

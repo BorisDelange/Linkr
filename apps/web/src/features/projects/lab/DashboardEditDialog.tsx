@@ -15,6 +15,7 @@ import {
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useAppStore } from '@/stores/app-store'
 import { useSaveForm } from '@/hooks/use-save-form'
+import { VersionField } from '@/components/ui/version-field'
 import { localized, setLocalized } from '@/lib/localized'
 import type { Dashboard } from '@/types'
 
@@ -24,20 +25,23 @@ export function DashboardEditDialog({ item, onOpenChange }: { item: Dashboard; o
   const updateDashboard = useDashboardStore((s) => s.updateDashboard)
   const initialName = localized(item.name, language)
   const initialDescription = item.description ? localized(item.description, language) : ''
+  const initialVersion = item.version ?? '0.1.0'
   const [name, setName] = useState(initialName)
   const [description, setDescription] = useState(initialDescription)
+  const [version, setVersion] = useState(initialVersion)
 
   const doSave = () => {
     updateDashboard(item.id, {
       name: setLocalized(item.name, language, name.trim()),
       description: setLocalized(item.description ?? {}, language, description.trim()),
+      version: version.trim() || '0.1.0',
     })
     onOpenChange(false)
   }
 
   const { canSaveNow, save } = useSaveForm({
-    current: { name: name.trim(), description: description.trim() },
-    baseline: { name: initialName, description: initialDescription },
+    current: { name: name.trim(), description: description.trim(), version: version.trim() },
+    baseline: { name: initialName, description: initialDescription, version: initialVersion },
     onSave: doSave,
     canSave: name.trim().length > 0,
   })
@@ -69,6 +73,7 @@ export function DashboardEditDialog({ item, onOpenChange }: { item: Dashboard; o
               placeholder={t('dashboard.field_description_placeholder')}
             />
           </div>
+          <VersionField value={version} onChange={setVersion} />
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>

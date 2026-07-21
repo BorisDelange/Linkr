@@ -169,6 +169,7 @@ interface CohortState {
     description: string
     level: CohortLevel
     criteriaTree?: CriteriaGroupNode
+    version?: string
   }) => Promise<string>
 
   updateCohort: (id: string, changes: Partial<Cohort>) => Promise<void>
@@ -239,6 +240,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       criteriaTree: source.criteriaTree ?? makeEmptyTree(),
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ...stampAuthored(),
+      version: source.version || '0.1.0',
       createdAt: now,
       updatedAt: now,
     }

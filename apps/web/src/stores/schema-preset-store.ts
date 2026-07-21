@@ -80,6 +80,7 @@ export function buildSchemaPreset(
     presetId,
     mapping: { ...mapping, presetId },
     gitRemoteConfig: existing?.gitRemoteConfig,
+    version: existing?.version ?? '0.1.0',
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     workspaceId: workspaceId ?? existing?.workspaceId,

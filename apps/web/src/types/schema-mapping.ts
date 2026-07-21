@@ -231,6 +231,8 @@ export interface CustomSchemaPreset extends Authored {
   presetId: string
   workspaceId?: string
   mapping: SchemaMapping
+  /** User-facing semver (default '0.1.0'). Portable across export/import. */
+  version?: string
   /**
    * Git repository this preset is linked to. When set, workspace export emits only a
    * metadata marker (`schemas/<folder>/_schema.json`) plus a git-links.json pointer;

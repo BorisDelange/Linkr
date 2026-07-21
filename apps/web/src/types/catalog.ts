@@ -165,6 +165,8 @@ export interface DataCatalog extends Seedable, Authored, Lineaged {
   gitRemoteConfig?: GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
   organization?: OrganizationInfo
+  /** User-facing semver (default '0.1.0'). Portable across export/import. */
+  version?: string
   createdAt: string
   updatedAt: string
 }

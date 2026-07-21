@@ -161,6 +161,8 @@ export interface Cohort extends Authored {
   materialization?: CohortMaterialization
   /** Schema version for migration (current = 3) */
   schemaVersion: number
+  /** User-facing semver (default '0.1.0'), distinct from schemaVersion (migration counter). */
+  version?: string
   createdAt: string
   updatedAt: string
 }

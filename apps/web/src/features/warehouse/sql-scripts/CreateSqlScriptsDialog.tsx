@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { VersionField } from '@/components/ui/version-field'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -46,6 +47,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [defaultDbId, setDefaultDbId] = useState('')
+  const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
   const [saving, setSaving] = useState(false)
 
@@ -59,12 +61,14 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
       setEntityId(editingCollection.entityId ?? '')
       setDescription(localized(editingCollection.description, language))
       setDefaultDbId(editingCollection.defaultDataSourceId ?? '')
+      setVersion(editingCollection.version ?? '0.1.0')
       setAuthoring({})
     } else if (open && !editingCollection) {
       setName('')
       setEntityId('')
       setDescription('')
       setDefaultDbId('')
+      setVersion('0.1.0')
       setAuthoring({})
     }
   }, [open, editingCollection, language])
@@ -81,6 +85,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           name: setLocalized(editingCollection.name, language, name.trim()),
           description: setLocalized(editingCollection.description, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
+          version: version.trim() || '0.1.0',
           ...authoring,
         })
         onOpenChange(false)
@@ -93,6 +98,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           name: setLocalized({}, language, name.trim()),
           description: setLocalized({}, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
+          version: version.trim() || '0.1.0',
           ...stampAuthored(),
           ...stampLineage(),
           createdAt: now,
@@ -197,6 +203,8 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
             </Select>
             <p className="text-xs text-muted-foreground">{t('sql_scripts.default_database_hint')}</p>
           </div>
+
+          <VersionField value={version} onChange={setVersion} />
 
           {isEditing && editingCollection && (
             <div className="border-t pt-4">

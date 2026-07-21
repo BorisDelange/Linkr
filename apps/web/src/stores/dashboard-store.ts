@@ -226,6 +226,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       filterConfig: [],
       gridV: 2,
       ...stampAuthored(),
+      version: '0.1.0',
       createdAt: now,
       updatedAt: now,
     }

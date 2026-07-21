@@ -58,13 +58,13 @@ export function CohortListPage() {
   }, [cohorts, searchQuery, sort])
   const basePath = `/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`
 
-  const handleCreate = async (data: { name: string; description: string }) => {
+  const handleCreate = async (data: { name: string; description: string; version: string }) => {
     if (!uid) return
     const id = await addCohort({ projectUid: uid, level: 'visit_detail', ...data })
     navigate(paths.cohort(wsUid ?? '', uid, id))
   }
 
-  const handleEditSubmit = (data: { name: string; description: string }) => {
+  const handleEditSubmit = (data: { name: string; description: string; version: string }) => {
     if (editingCohort) updateCohort(editingCohort.id, data)
     setEditingCohort(null)
   }
@@ -138,7 +138,7 @@ export function CohortListPage() {
         open={!!editingCohort}
         onOpenChange={(open) => { if (!open) setEditingCohort(null) }}
         onSubmit={handleEditSubmit}
-        editing={editingCohort ? { name: editingCohort.name, description: editingCohort.description } : undefined}
+        editing={editingCohort ? { name: editingCohort.name, description: editingCohort.description, version: editingCohort.version } : undefined}
       />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>

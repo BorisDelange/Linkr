@@ -30,7 +30,7 @@ import type { PluginBadge, PluginFormFields } from '@/types/plugin'
 
 const EMPTY_FIELDS: PluginFormFields = {
   name: '', description: '', scope: 'lab', languages: ['python'], icon: 'Puzzle',
-  iconColor: 'blue', badges: [], pythonDeps: [], rDeps: [], version: '1.0.0', catalogVisibility: undefined,
+  iconColor: 'blue', badges: [], pythonDeps: [], rDeps: [], version: '0.1.0', catalogVisibility: undefined,
 }
 
 interface PluginSettingsDialogProps {
@@ -94,7 +94,7 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
         badges: (m.badges as PluginBadge[]) ?? [],
         pythonDeps: deps.python ?? [],
         rDeps: deps.r ?? [],
-        version: (m.version as string) ?? '1.0.0',
+        version: (m.version as string) ?? '0.1.0',
         catalogVisibility: m.catalogVisibility as PluginFormFields['catalogVisibility'],
       })
     } else {

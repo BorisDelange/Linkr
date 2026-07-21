@@ -52,7 +52,8 @@ describe('stripInstanceFields', () => {
   })
 
   it('leaves portable content untouched', () => {
-    const meta = { uid: 'p1', name: { en: 'P' }, description: { en: 'D' }, badges: [{ id: 'b' }], status: 'active' }
+    // version is a portable user-facing field — kept, like status/badges.
+    const meta = { uid: 'p1', name: { en: 'P' }, description: { en: 'D' }, badges: [{ id: 'b' }], status: 'active', version: '1.2.0' }
     expect(stripInstanceFields(meta)).toEqual(meta)
   })
 

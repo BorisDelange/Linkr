@@ -191,6 +191,8 @@ export interface Project extends Seedable, Authored, Lineaged {
   organization?: OrganizationInfo
   /** Whether this project appears in the community catalog. Defaults to 'unlisted'. */
   catalogVisibility?: CatalogVisibility
+  /** User-facing semver, bumped by hand in the edit dialog (default '0.1.0'). Portable. */
+  version?: string
   createdAt: string
   updatedAt: string
 }
@@ -450,6 +452,8 @@ export interface Dashboard extends Seedable, Authored {
   /** Grid-resolution version. Absent/1 = legacy 24-col grid; 2 = current 48-col grid. Widget
    *  layouts are doubled once on load when migrating 1→2 so they keep their visual size. */
   gridV?: number
+  /** User-facing semver (default '0.1.0'). Portable across export/import. */
+  version?: string
   createdAt: string
   updatedAt: string
 }
@@ -761,6 +765,8 @@ export interface EtlPipeline extends Seedable, Authored, Lineaged {
   gitRemoteConfig?: GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
   organization?: OrganizationInfo
+  /** User-facing semver (default '0.1.0'). Portable across export/import. */
+  version?: string
   createdAt: string
   updatedAt: string
 }
@@ -834,6 +840,8 @@ export interface SqlScriptCollection extends Authored, Lineaged {
   gitRemoteConfig?: GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
   organization?: OrganizationInfo
+  /** User-facing semver (default '0.1.0'). Portable across export/import. */
+  version?: string
   createdAt: string
   updatedAt: string
 }
@@ -883,6 +891,8 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
   gitRemoteConfig?: GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
   organization?: OrganizationInfo
+  /** User-facing semver (default '0.1.0'). Portable across export/import. */
+  version?: string
   createdAt: string
   updatedAt: string
 }

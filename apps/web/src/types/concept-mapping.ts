@@ -195,6 +195,8 @@ export interface MappingProject extends Seedable, Authored, Lineaged {
   gitRemoteConfig?: import('./index').GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
   organization?: import('./index').OrganizationInfo
+  /** User-facing semver (default '0.1.0'). Portable across export/import. */
+  version?: string
   createdAt: string
   updatedAt: string
 }

@@ -22,6 +22,7 @@ import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { VersionField } from '@/components/ui/version-field'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDqStore } from '@/stores/dq-store'
@@ -46,6 +47,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const [description, setDescription] = useState('')
   const [entityId, setEntityId] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
+  const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
   const isEdit = !!editingRuleSet
@@ -58,12 +60,14 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
       setDescription(localized(editingRuleSet.description, language))
       setEntityId(editingRuleSet.entityId ?? '')
       setDataSourceId(editingRuleSet.dataSourceId)
+      setVersion(editingRuleSet.version ?? '0.1.0')
       setAuthoring({})
     } else {
       setName('')
       setDescription('')
       setEntityId('')
       setDataSourceId('')
+      setVersion('0.1.0')
       setAuthoring({})
     }
   }, [editingRuleSet, open])
@@ -76,6 +80,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         name: setLocalized(editingRuleSet.name, language, name.trim()),
         description: setLocalized(editingRuleSet.description, language, description.trim()),
         dataSourceId,
+        version: version.trim() || '0.1.0',
         ...authoring,
       })
       onOpenChange(false)
@@ -90,6 +95,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         description: setLocalized(undefined, language, description.trim()),
         dataSourceId,
         status: 'draft',
+        version: version.trim() || '0.1.0',
         ...stampAuthored(),
         ...stampLineage(),
         createdAt: now,
@@ -153,6 +159,8 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               </SelectContent>
             </Select>
           </div>
+
+          <VersionField value={version} onChange={setVersion} />
 
           {isEdit && editingRuleSet && (
             <div className="border-t pt-4">

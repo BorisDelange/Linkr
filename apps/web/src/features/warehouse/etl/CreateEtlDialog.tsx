@@ -25,6 +25,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { VersionField } from '@/components/ui/version-field'
 import { localized, setLocalized } from '@/lib/localized'
 import type { EtlPipeline } from '@/types'
 
@@ -47,6 +48,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const [entityId, setEntityId] = useState('')
   const [sourceId, setSourceId] = useState('')
   const [targetId, setTargetId] = useState('')
+  const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
   const [saving, setSaving] = useState(false)
 
@@ -61,12 +63,14 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
       setEntityId(editingPipeline.entityId ?? '')
       setSourceId(editingPipeline.sourceDataSourceId)
       setTargetId(editingPipeline.targetDataSourceId ?? '')
+      setVersion(editingPipeline.version ?? '0.1.0')
       setAuthoring({})
     } else if (open && !editingPipeline) {
       setName('')
       setEntityId('')
       setSourceId('')
       setTargetId('')
+      setVersion('0.1.0')
       setAuthoring({})
     }
   }, [open, editingPipeline, language])
@@ -83,6 +87,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           name: setLocalized(editingPipeline.name, language, name.trim()),
           sourceDataSourceId: sourceId,
           targetDataSourceId: targetId || undefined,
+          version: version.trim() || '0.1.0',
           ...authoring,
         })
         onOpenChange(false)
@@ -97,6 +102,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           sourceDataSourceId: sourceId,
           targetDataSourceId: targetId || undefined,
           status: 'draft',
+          version: version.trim() || '0.1.0',
           ...stampAuthored(),
           ...stampLineage(),
           createdAt: now,
@@ -182,6 +188,8 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
             </Select>
             <p className="text-xs text-muted-foreground">{t('etl.target_database_hint')}</p>
           </div>
+
+          <VersionField value={version} onChange={setVersion} />
 
           {isEditing && editingPipeline && (
             <div className="border-t pt-4">

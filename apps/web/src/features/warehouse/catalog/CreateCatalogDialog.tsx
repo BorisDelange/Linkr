@@ -22,6 +22,7 @@ import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { VersionField } from '@/components/ui/version-field'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -47,6 +48,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
+  const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
   const isEdit = !!editingCatalog
@@ -59,12 +61,14 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       setEntityId(editingCatalog.entityId ?? '')
       setDescription(localized(editingCatalog.description, language))
       setDataSourceId(editingCatalog.dataSourceId)
+      setVersion(editingCatalog.version ?? '0.1.0')
       setAuthoring({})
     } else {
       setName('')
       setEntityId('')
       setDescription('')
       setDataSourceId('')
+      setVersion('0.1.0')
       setAuthoring({})
     }
   }, [editingCatalog, open])
@@ -77,6 +81,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         name: setLocalized(editingCatalog.name, language, name.trim()),
         description: setLocalized(editingCatalog.description, language, description.trim()),
         dataSourceId,
+        version: version.trim() || '0.1.0',
         ...authoring,
       })
       onOpenChange(false)
@@ -94,6 +99,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' },
         anonymization: { threshold: 10, mode: 'replace' },
         status: 'draft',
+        version: version.trim() || '0.1.0',
         ...stampAuthored(),
         ...stampLineage(),
         createdAt: now,
@@ -158,6 +164,8 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
               </SelectContent>
             </Select>
           </div>
+
+          <VersionField value={version} onChange={setVersion} />
 
           {isEdit && editingCatalog && (
             <div className="border-t pt-4">

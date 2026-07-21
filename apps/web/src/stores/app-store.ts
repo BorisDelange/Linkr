@@ -132,6 +132,7 @@ interface AppState {
   restoreReadmeVersion: (uid: string, snapshotId: string) => void
   updateProjectStatus: (uid: string, status: ProjectStatus) => void
   updateProjectBadges: (uid: string, badges: ProjectBadge[]) => void
+  updateProjectVersion: (uid: string, version: string) => void
   updateProjectOrganization: (uid: string, org: OrganizationInfo | undefined) => void
   /** Persist an author/organization provenance re-attribution and reflect it in memory. */
   updateProjectAuthoring: (uid: string, patch: Partial<Pick<Project, 'createdById' | 'createdBy' | 'createdByDetails' | 'organization'>>) => Promise<void>
@@ -324,6 +325,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ownerId: get().user?.id ?? 0,
       ...stampAuthored(),
       ...stampLineage(),
+      version: '0.1.0',
       createdAt: now,
       updatedAt: now,
     }
@@ -418,6 +420,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }))
     getStorage().projects.update(uid, { badges })
+  },
+
+  updateProjectVersion: (uid, version) => {
+    set((s) => ({
+      _projectsRaw: s._projectsRaw.map((p) =>
+        p.uid === uid ? { ...p, version } : p
+      ),
+    }))
+    getStorage().projects.update(uid, { version })
   },
 
   updateProjectOrganization: (uid, organization) => {
