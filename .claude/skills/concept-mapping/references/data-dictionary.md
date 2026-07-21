@@ -4,8 +4,8 @@ Read this only when the user wants to align source concepts **onto a curated dat
 dictionary** (a folder of OHDSI concept-set JSON files) in priority, falling back
 to the full OMOP vocabulary only when no dictionary target fits. This is the
 single source of truth for dictionary mapping — both the orchestrator (input
-prep) and `/concept-mapping-ai` (target selection) point here. Skip it entirely
-for plain OMOP mapping.
+prep, Step 2e) and the AI mapping procedure `mapping-ai.md` (target selection)
+point here. Skip it entirely for plain OMOP mapping.
 
 The INDICATE Data Dictionary is one such dictionary, but any concept-set
 collection in this format works. Never assume a dictionary folder — the user
@@ -111,10 +111,10 @@ The dictionary has two parallel folders, one file (`<id>.json`) per set in each:
   (`conceptId`, `conceptName`, `vocabularyId`, `standardConcept`), e.g. the
   canonical `3019550 Sodium [Moles/volume] in Serum or Plasma`.
 
-## Orchestrator role — prepare inputs and hand off
+## Orchestrator role — prepare inputs, then run the AI procedure
 
-The orchestrator only **prepares inputs**; all target selection happens in
-`/concept-mapping-ai`.
+The orchestrator's Step 2e only **prepares inputs**; all target selection happens
+while following `mapping-ai.md`.
 
 1. **Build `dict_targets` from the resolved sets.** Build
    `dict_targets(concept_id, concept_set_uid, source_repo, category,
@@ -132,11 +132,11 @@ The orchestrator only **prepares inputs**; all target selection happens in
    dictionary target in this category, which source concepts align onto it?".
    Restrict the pre-computed `similarity-scores.parquet` (biolord +
    jaro-winkler) to `concept_id ∈ dict_targets`, keep source candidates above a
-   threshold (default `semantic/biolord ≥ 0.5`), pass those candidate pairs to
-   the sub-skill.
+   threshold (default `semantic/biolord ≥ 0.5`), carry those candidate pairs into
+   the AI procedure.
 
-Hand off to `/concept-mapping-ai` with: the `dict_targets` table, **the
-dictionary folder path** (so it can read each set's `longDescription`), the
+Then follow `mapping-ai.md` with, in scope: the `dict_targets` table, **the
+dictionary folder path** (so you can read each set's `longDescription`), the
 active `category`, and the candidate pairs.
 
 ## Sub-skill role — target selection

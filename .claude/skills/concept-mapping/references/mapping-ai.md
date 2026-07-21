@@ -1,40 +1,33 @@
----
-name: concept-mapping-ai
-description: >-
-  Agentic sub-skill for OMOP concept mapping. Maps source clinical concepts
-  (measurements, conditions, procedures, observations) to OMOP standard concepts
-  using DuckDB search, web search, and clinical reasoning. Called by the
-  concept-mapping orchestrator — do not invoke directly unless you already have
-  a loaded DuckDB session and project context.
----
+# Mapping — clinical concepts (measurements, conditions, procedures, observations)
 
-# Concept Mapping — Agentic (Claude)
+Read this when the selected batch is **non-drug** (Measurement, Condition,
+Procedure, Observation). It is the agentic mapping procedure the orchestrator
+runs after inputs are loaded (Step 5). For Drug concepts, read
+`mapping-drug.md` instead. Both share the same DuckDB session, type
+definitions, and SSSOM guidelines from `omop-duckdb-reference.md`.
 
-Read `.claude/skills/concept-mapping/references/omop-duckdb-reference.md` for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
+## Context in place before this procedure runs
 
-## Context expected from the orchestrator
-
-By the time this skill runs, the following are already in place:
 - DuckDB session at `/tmp/concept-mapping-session.duckdb` with tables: `concept`, `concept_synonym`, `concept_relationship`, `concept_ancestor`, `source_concepts`, `existing_mappings`
 - `project.json` read → `projectId` known
 - Source concept batch selected and previewed
 - `similarity-scores.parquet` path (may be absent if not precomputed)
-- **Optionally, data-dictionary priority mode** (from the orchestrator's Step 2e): a `dict_targets(concept_id, concept_set_uid, source_repo, category, subcategory, set_name)` table, the dictionary folder path, an active `category`, and an **iteration direction** (`source-first` | `dictionary-first`). When present, follow the full protocol in `.claude/skills/concept-mapping/references/data-dictionary.md` (align onto the dictionary first, OMOP fallback, `longDescription`/Mapping Notes authority, stamping). The direction decides which loop Step 2 runs.
+- **Optionally, data-dictionary priority mode** (from the orchestrator's Step 2e): a `dict_targets(concept_id, concept_set_uid, source_repo, category, subcategory, set_name)` table, the dictionary folder path, an active `category`, and an **iteration direction** (`source-first` | `dictionary-first`). When present, follow the full protocol in `data-dictionary.md` (align onto the dictionary first, OMOP fallback, `longDescription`/Mapping Notes authority, stamping). The direction decides which loop Step 2 runs.
 
-## Step 0: Decide where the AI output goes
+## Step A: Decide where the AI output goes
 
 At the start of every session, ask the user the following questions before processing any concept:
 
 **Q1 — Destination** (default: suggestions)
 > "Should my AI matches land in `similarity-scores.parquet` as **suggestions** (a Linkr reviewer accepts/rejects them later in the UI), or directly in `mappings.json` as **authored mappings**?"
 
-- `suggestions` → write rows with `method = "ai/<model-id>"`. Use the actual model ID (e.g. `claude-opus-4-7`).
+- `suggestions` → write rows with `method = "ai/<model-id>"`. Use the actual model ID (e.g. `claude-opus-4-8`).
 - `mappings` → write full `ConceptMapping` objects with `status: "unchecked"`.
 
 **Q2 — Author** (only if `mappings` was chosen)
 > "Author for these mappings: me (Claude, model = `<current-model-id>`) or you?"
 
-- If "Claude" → `mappedBy = "Claude Opus 4.7"` (or whichever model is active).
+- If "Claude" → `mappedBy = "Claude Opus 4.8"` (or whichever model is active).
 - If "user" → ask for first + last name, then `mappedBy = "<First Last>"`.
 
 **Q3 — Top-K** (only if `suggestions` was chosen, default: 5)
@@ -50,7 +43,7 @@ In `mappings` mode, per-batch confirmation is implicit — every concept always 
 
 Store these choices for the whole session — do not re-ask between batches unless the user asks to change them.
 
-## Step 1: Load pre-computed scores (if available)
+## Step B: Load pre-computed scores (if available)
 
 If `similarity-scores.parquet` was provided, load it:
 
@@ -62,17 +55,17 @@ CREATE TABLE precomputed_scores AS
 
 Filter out rows with `method LIKE 'ai/%'` if you only want non-AI signals. Use these scores to prioritize DuckDB search candidates. A concept with `semantic/biolord` score > 0.90 is a strong lead — verify it, don't skip the reasoning step.
 
-## Step 2: Process concepts in batches
+## Step C: Process concepts in batches
 
 **If data-dictionary priority mode is active with direction `dictionary-first`,
 run the inverted loop instead of the source-by-source loop below** — iterate
 over `dict_targets` (one category at a time), and for each target collect and
 align *all* the source concepts that fit it (N sources → 1 target), presenting
 grouped by target. The full dictionary-first execution steps, the multi-source
-rule, and the end-of-category coverage report live in
-`.claude/skills/concept-mapping/references/data-dictionary.md` ("Two iteration
-directions"). The candidate evaluation (2c), edge cases (2e), and output schema
-(Step 3) are identical to below; only the loop variable and presentation change.
+rule, and the end-of-category coverage report live in `data-dictionary.md`
+("Two iteration directions"). The candidate evaluation (C3), edge cases (C5),
+and output schema (Step D) are identical to below; only the loop variable and
+presentation change.
 
 Otherwise (plain OMOP, or dictionary priority with direction `source-first`),
 process source concept by source concept:
@@ -81,7 +74,7 @@ Default batch size: 10. Ask the user if they want a different size.
 
 For each source concept in the batch:
 
-### 2a. Understand the source concept
+### C1. Understand the source concept
 
 1. Read `concept_name` — translate to English if in French or abbreviated
 2. Read `info_json` fields:
@@ -90,9 +83,9 @@ For each source concept in the batch:
    - `numerical_data`: unit, min, max, mean — validates the mapping
    - `categorical_data`: possible values — reveals what the concept represents
    - `hospital_units`: clinical context (ICU, step-down, etc.)
-3. Infer OMOP domain (see domain heuristics in `references/omop-duckdb-reference.md`)
+3. Infer OMOP domain (see domain heuristics in `omop-duckdb-reference.md`)
 
-### 2b. Search for candidates
+### C2. Search for candidates
 
 Apply strategies in order. Stop when you have ≥ 3 strong candidates.
 
@@ -100,7 +93,7 @@ Apply strategies in order. Stop when you have ≥ 3 strong candidates.
 If `scores.parquet` loaded, retrieve top candidates for this concept. High `semantic/biolord` score (> 0.85) with matching domain is a strong signal.
 
 **Strategy 2 — Direct name search**
-Search `concept` and `concept_synonym` with the English translation. See DuckDB patterns in `references/omop-duckdb-reference.md`.
+Search `concept` and `concept_synonym` with the English translation. See DuckDB patterns in `omop-duckdb-reference.md`.
 
 **Strategy 3 — Keyword decomposition**
 Break the name into clinical keywords. Search combinations. Useful for compound terms (e.g., "Pression artérielle systolique" → "systolic" + "arterial" + "pressure").
@@ -123,10 +116,9 @@ first, OMOP fallback only when nothing fits. The full protocol —
 `concept_sets_resolved/` vs `expression.items[]` (the classification-node trap),
 the `longDescription`/Mapping Notes authority, the four-branch resolution order,
 and `concept_set_uid`/`concept_set_source_repo` stamping — lives in
-`.claude/skills/concept-mapping/references/data-dictionary.md`. Read it now and
-follow it for this batch.
+`data-dictionary.md`. Read it now and follow it for this batch.
 
-### 2c. Evaluate and rank candidates
+### C3. Evaluate and rank candidates
 
 For each candidate:
 1. **Semantic equivalence** — does it mean the same thing?
@@ -135,7 +127,7 @@ For each candidate:
 4. **Unit compatibility** — for measurements: does the LOINC expect the same unit as `numerical_data.unit`?
 5. **Standard status** — prefer `standard_concept = 'S'` over `'C'` or non-standard
 
-Assign SSSOM equivalence level (see `references/omop-duckdb-reference.md` for full guidelines):
+Assign SSSOM equivalence level (see `omop-duckdb-reference.md` for full guidelines):
 - `skos:exactMatch` — truly identical meaning, no information loss
 - `skos:closeMatch` — very similar but some qualifier lost (method, device, location, timing)
 - `skos:broadMatch` — target is more general
@@ -144,7 +136,7 @@ Assign SSSOM equivalence level (see `references/omop-duckdb-reference.md` for fu
 
 **Be rigorous: default to `closeMatch`, not `exactMatch`.** Use exactMatch only when concepts are fully equivalent with no qualifiers lost.
 
-### 2c-bis. Write the justification comment
+### C4. Write the justification comment
 
 The `comment` is the single most-read field for a human reviewer accepting or
 rejecting the suggestion — treat it as the sentence that lets them agree without
@@ -190,9 +182,9 @@ Bad → Good examples:
 - `broad, unit ok` → *"broadMatch: target is generic heart rate and does not
   capture the source's pulse-oximetry method; unit (beats/min) matches."*
 
-### 2d. Present to user
+### C5. Present to user
 
-The presentation flow depends on the destination chosen at Step 0:
+The presentation flow depends on the destination chosen at Step A:
 
 **Mode `mappings` (authored)** — present each source concept individually and require explicit user confirmation before writing. A mapping written here lands directly in `mappings.json` as `status: unchecked`, so every concept must be accepted by hand.
 
@@ -205,7 +197,7 @@ Candidate 1 (recommended):
   <concept_id> — <concept_name> [<vocabulary_id>]
   Domain: <domain_id> | Class: <concept_class_id> | Standard: <S|C>
   Equivalence: skos:<level>
-  Reasoning: <the justification comment — follow the rules in 2c-bis: full sentences, no unexplained abbreviations, and for any inexact match state precisely what is lost>
+  Reasoning: <the justification comment — follow the rules in C4: full sentences, no unexplained abbreviations, and for any inexact match state precisely what is lost>
   Pre-computed scores: syntactic/jaro-winkler=0.92, semantic/biolord=0.89
 
 Candidate 2 (alternative):
@@ -216,7 +208,7 @@ Candidate 2 (alternative):
 
 Never write a `mappings.json` row without explicit user confirmation.
 
-**Mode `suggestions`** — behavior depends on Q4 (per-batch review) chosen at Step 0.
+**Mode `suggestions`** — behavior depends on Q4 (per-batch review) chosen at Step A.
 
 - **Q4 = no (default, autonomous)**: present the whole batch as a compact recommendation table for transparency, then flush directly to `similarity-scores.parquet` without asking. The user's approval happens later in the Linkr UI.
 - **Q4 = yes**: present the table and require the user to confirm before flushing each batch — same pattern as the `mappings` mode above.
@@ -230,27 +222,29 @@ Recommended format for the batch table:
 | ... |
 ```
 
-### 2e. Handle edge cases
+### C6. Handle edge cases
 
 - **No good match**: explain why (too specific, administrative concept, no equivalent in OMOP), suggest `status: ignored` or `status: flagged`
 - **Multiple equally good candidates**: present both, ask user to choose
 - **Non-standard concept found**: use `concept_relationship` with `Maps to` to find the standard equivalent
-- **Drug concept in non-drug batch**: note it, defer to `/concept-mapping-drug`
+- **Drug concept in non-drug batch**: note it, defer to the drug procedure (`mapping-drug.md`)
 
-## Step 3: Return the batch to the orchestrator
+## Step D: Persist the batch
 
-Return both the `mode` chosen at Step 0 (`"suggestions"` or `"mappings"`) and the rows. The orchestrator handles writing.
+Write according to the `mode` chosen at Step A. This is the same persistence the
+orchestrator's Step 6 describes — do it inline here.
 
 ### If mode = "suggestions"
 
-Return one or more rows per source concept (up to top-K, per Q3), matching the parquet schema used by `compute_scores.py`:
+Append one or more rows per source concept (up to top-K, per Q3) to
+`similarity-scores.parquet`, matching the schema used by `compute_scores.py`:
 
 | Field | Value |
 |---|---|
 | `source_vocabulary_id` | from the source concept |
 | `source_concept_code` | from the source concept |
 | `concept_id` | OMOP target concept id |
-| `method` | `"ai/<model-id>"` (e.g. `"ai/claude-opus-4-7"`) |
+| `method` | `"ai/<model-id>"` (e.g. `"ai/claude-opus-4-8"`) |
 | `score` | 0.0–1.0 confidence (top candidate 0.85+, weaker ones lower) |
 | `equivalence` | one of `skos:exactMatch`, `closeMatch`, `broadMatch`, `narrowMatch`, `relatedMatch` |
 | `comment` | one short sentence justifying the match (free text, can include unit/granularity notes) |
@@ -258,17 +252,24 @@ Return one or more rows per source concept (up to top-K, per Q3), matching the p
 | `concept_set_uid` | `metadata.uniqueId` of the data-dictionary concept set the target came from (data-dictionary priority mode, branches 1–2). `null` for full-OMOP fallback targets. |
 | `concept_set_source_repo` | `metadata.sourceRepo` of that dictionary (lets Linkr offer "import this dictionary" when the set is absent locally). `null` whenever `concept_set_uid` is null. |
 
+Never overwrite existing rows for the same `(source_vocabulary_id, source_concept_code, concept_id, method)` key.
+
 This is the only place in the system where `equivalence` is nuanced — for `syntactic/*` and `semantic/*` it is always `skos:exactMatch`, `comment` is null, and both `concept_set_*` columns are null.
 
 ### If mode = "mappings"
 
-Return a list of approved `ConceptMapping` objects (see `references/omop-duckdb-reference.md` for full structure). The orchestrator writes them to `mappings.json`.
+Append approved `ConceptMapping` objects to `mappings.json` (see
+`omop-duckdb-reference.md` for full structure). Never overwrite existing
+mappings; key on `(sourceVocabularyId, sourceConceptCode)`.
 
 Key fields to populate:
-- `mappedBy`: from Q2 — either `"Claude Opus 4.7"` (use actual current model name) or `"<First Last>"`
+- `mappedBy`: from Q2 — either `"Claude Opus 4.8"` (use actual current model name) or `"<First Last>"`
 - `status`: `"unchecked"` (user approved during session, but not yet reviewed by a second person)
 - `comments`: one comment with two lines — description of the mapping, then equivalence justification
 - `matchScore`: 0.0–1.0 based on your confidence (exactMatch + strong pre-computed score → 0.95+; closeMatch with uncertainty → 0.6–0.75)
+
+After writing, refresh `state.json` (orchestrator Step 6 hook) and return to the
+orchestrator's Step 7 summary.
 
 ## Guidelines
 
@@ -276,4 +277,4 @@ Key fields to populate:
 - **info_json is gold** — units, ranges, and categorical values often disambiguate between two near-identical LOINC codes
 - **Don't re-map** — always check `existing_mappings` before processing a concept
 - **One concept at a time** — present one source concept fully before moving to the next
-- **Cite your reasoning** — the comment field is read by human reviewers; make it useful. Follow the comment-writing rules in **2c-bis** (full sentences in the user's language, no unexplained abbreviations, concrete unit/distribution/specimen only when it drove the choice, and a precise statement of what is lost for every inexact match).
+- **Cite your reasoning** — the comment field is read by human reviewers; make it useful. Follow the comment-writing rules in **C4** (full sentences in the user's language, no unexplained abbreviations, concrete unit/distribution/specimen only when it drove the choice, and a precise statement of what is lost for every inexact match).

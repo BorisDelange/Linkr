@@ -1,8 +1,8 @@
 # Concept Mapping — Reference
 
 Type definitions, source/target data shapes, and DuckDB query patterns shared by
-the orchestrator and both sub-skills. Read the section you need — this file is a
-lookup, not a linear read.
+the orchestrator and both mapping procedures (`mapping-ai.md`, `mapping-drug.md`).
+Read the section you need — this file is a lookup, not a linear read.
 
 ## Contents
 
@@ -17,7 +17,7 @@ lookup, not a linear read.
 
 ## similarity-scores.parquet schema
 
-Long-format parquet emitted by `compute_scores.py` and (in `suggestions` mode) by `/concept-mapping-ai`. Loaded by Linkr to populate the Suggestions panel.
+Long-format parquet emitted by `compute_scores.py` and (in `suggestions` mode) by the AI mapping procedure (`mapping-ai.md` / `mapping-drug.md`). Loaded by Linkr to populate the Suggestions panel.
 
 | Column | Type | Description |
 |---|---|---|

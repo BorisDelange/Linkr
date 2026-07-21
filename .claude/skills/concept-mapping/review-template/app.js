@@ -270,7 +270,7 @@ function renderEquiv(ai) {
           </span>
         </div>`;
       }).join("")
-    : `<div class="status-empty">No AI suggestions yet. Run /concept-mapping-ai in suggestions mode.</div>`;
+    : `<div class="status-empty">No AI suggestions yet. Run /concept-mapping in suggestions mode.</div>`;
 
   const dictEl = $("ai-dictionary");
   if (ai.dictionaryConcepts > 0) {
@@ -355,7 +355,7 @@ function renderSessions(sessions) {
       : "";
     return `<div class="session">
       <div class="session-top">
-        <span class="session-skill">${esc(s.subSkill || "session")}</span>
+        <span class="session-skill">${esc(s.domain || s.subSkill || "session")}</span>
         <span class="session-time">${esc(fmtDate(when))}</span>
       </div>
       ${concepts ? `<div class="session-body">${esc(concepts)}</div>` : ""}

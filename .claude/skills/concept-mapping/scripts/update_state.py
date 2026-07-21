@@ -14,7 +14,7 @@ Options:
     --project-dir   Required. Folder containing source-concepts.csv, mappings.json, ...
     --vocab-dir     Optional. Used to detect concept_embeddings.parquet co-location.
     --session       Optional JSON string. Appends an entry to state.sessions.
-                    Example: '{"subSkill":"concept-mapping-ai","concepts":["REA/x"],"outcomes":{"accepted":1}}'
+                    Example: '{"domain":"Measurement","concepts":["REA/x"],"outcomes":{"accepted":1}}'
     --methods-event Optional. One of: "embed_done", "scores_done". Updates state.methods accordingly.
 
 Reads (when present):

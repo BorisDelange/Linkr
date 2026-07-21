@@ -102,7 +102,7 @@ Mapping projects are created and managed in Linkr itself — that is where you i
 
    > /concept-mapping `<projects_dir>/my-project`
 
-   The orchestrator reads `config.local.json`, finds the right paths, loads the project, runs the precompute scripts (Section 6 + `compute_scores.py`), and routes to the appropriate sub-skill (`concept-mapping-ai` or `concept-mapping-drug`).
+   The skill reads `config.local.json`, finds the right paths, loads the project, runs the precompute scripts (Section 6 + `compute_scores.py`), and follows the domain-appropriate mapping procedure (clinical concepts or drugs) — all in one skill.
 
 5. Once the skill has appended new mappings to `mappings.json`, import the updated file back into Linkr to continue review and validation there.
 

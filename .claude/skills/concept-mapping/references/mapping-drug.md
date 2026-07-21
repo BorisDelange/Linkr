@@ -1,16 +1,10 @@
----
-name: concept-mapping-drug
-description: >-
-  Agentic sub-skill for mapping drug concepts to RxNorm Clinical Drug in OMOP.
-  Handles national/local drug terminologies using structured component matching
-  (ingredient + strength + dose form) and ATC/RxNorm relationship traversal.
-  Called by the concept-mapping orchestrator for Drug domain concepts.
-  Do not invoke directly unless you already have a loaded DuckDB session.
----
+# Mapping — drug concepts (RxNorm Clinical Drug)
 
-# Concept Mapping — Drugs
-
-Read `.claude/skills/concept-mapping/references/omop-duckdb-reference.md` for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
+Read this when the selected batch is **Drug domain** (medications,
+prescriptions). It replaces the generic clinical procedure in `mapping-ai.md`
+for drugs, because generic fuzzy name matching fails for them. Both share the
+same DuckDB session, type definitions, and SSSOM guidelines from
+`omop-duckdb-reference.md`.
 
 ## Why drug mapping is different
 
@@ -18,12 +12,13 @@ Generic fuzzy name matching fails for drugs. "Paracetamol 500 MG Oral Tablet" an
 
 The target in OMOP is always an RxNorm **Clinical Drug** (`concept_class_id = 'Clinical Drug'`, `vocabulary_id = 'RxNorm'`, `standard_concept = 'S'`).
 
-## Context expected from the orchestrator
+## Context in place before this procedure runs
 
 - DuckDB session at `/tmp/concept-mapping-session.duckdb`
 - Tables loaded: `concept`, `concept_synonym`, `concept_relationship`, `concept_ancestor`, `source_concepts`, `existing_mappings`
 - `projectId` known
 - Source concept batch filtered to Drug domain
+- Destination + author choices from `mapping-ai.md` Step A already made for the session (suggestions vs mappings, top-K, per-batch review). If this batch is the first of the session, ask those questions now (same wording as `mapping-ai.md` Step A) before processing.
 
 ## Step 1: Parse the source drug label
 
@@ -183,7 +178,7 @@ Candidate 1 (recommended):
   <concept_id> — <concept_name> [RxNorm, Clinical Drug]
   Ingredient match: ✓ | Strength match: ✓ 500 MG | Dose form match: ✓ Oral Tablet
   Equivalence: skos:exactMatch
-  Reasoning: <one sentence>
+  Reasoning: <one sentence — follow the comment rules in mapping-ai.md C4>
 
 Candidate 2 (if applicable):
   ...
@@ -194,14 +189,24 @@ Candidate 2 (if applicable):
 
 **Option 4 — Map to ingredient only**: use when no Clinical Drug matches but the ingredient is unambiguous. This is a `skos:broadMatch` (ingredient is more general than a specific drug product).
 
-## Step 7: Return approved mappings to orchestrator
+Presentation and confirmation follow the destination mode chosen at Step A of
+`mapping-ai.md`: in `mappings` mode confirm each concept by hand; in
+`suggestions` mode, autonomous unless per-batch review was requested.
 
-Return approved `ConceptMapping` objects. Key fields:
+## Step 7: Persist the batch
+
+Write according to the session `mode` (same rules as `mapping-ai.md` Step D).
+For `mappings` mode, key fields:
 - `targetConceptId`: RxNorm Clinical Drug concept_id (preferred), or RxNorm Ingredient for broadMatch
-- `mappedBy`: "Claude Sonnet 4.6" (actual model name)
+- `mappedBy`: "Claude Opus 4.8" (actual model name) or the user's name
 - `status`: "unchecked"
 - `matchScore`: 0.95 for full 3-component match, 0.75 for ingredient+form only, 0.5 for ingredient only
 - `comments`: strategy used + which components matched/mismatched
+
+For `suggestions` mode, use `method = "ai/<model-id>"` and the same 10-column
+parquet schema as `mapping-ai.md` Step D (`concept_set_*` null unless a data
+dictionary drove the target). Then refresh `state.json` and return to the
+orchestrator's Step 7 summary.
 
 ## Guidelines
 

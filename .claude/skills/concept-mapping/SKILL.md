@@ -1,17 +1,19 @@
 ---
 name: concept-mapping
+version: 1.0.0
 description: >-
-  Orchestrates OMOP concept mapping for a Linkr project. Entry point for all
-  mapping work: loads inputs, runs precomputation scripts, and routes to
-  sub-skills (concept-mapping-ai, concept-mapping-drug) based on concept domain.
-  Use when the user wants to map local hospital terminology codes to OMOP standard
-  vocabularies (SNOMED CT, LOINC, UCUM, RxNorm, etc.).
+  Maps local hospital terminology codes to OMOP standard vocabularies (SNOMED CT,
+  LOINC, UCUM, RxNorm, etc.) for a Linkr project. Single entry point: loads inputs,
+  runs precomputation scripts, then follows the domain-appropriate mapping procedure
+  (references/mapping-ai.md for clinical concepts, references/mapping-drug.md for drugs).
 argument-hint: [path-to-project-zip-or-folder]
 ---
 
-# Concept Mapping — Orchestrator
+# Concept Mapping
 
 Read `references/omop-duckdb-reference.md` in this directory for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
+
+**This skill is versioned** (`version:` above + `CHANGELOG.md`). A publication using it can cite **"Linkr concept-mapping skill v1.0.0"**. **Whenever you modify any file in this skill folder** (`SKILL.md`, `references/*`, `scripts/*`, `review-template/*`), bump `version:` per SemVer and add a dated `CHANGELOG.md` entry in the same change — MAJOR for a breaking change to invocation/inputs/output schema, MINOR for a new capability, PATCH for clarifications or fixes. Keep the frontmatter version and the top changelog entry in sync.
 
 ## Step 0: Check existing state and offer review page
 
@@ -67,6 +69,14 @@ Accept ONE of:
 - **Individual files**: explicit paths to `mappings.json` and `source-concepts.csv`
 
 Read `project.json` to understand project context. Extract `projectId` for use in mappings.
+
+**If the mapping project is a git repo** (a `.git` folder in `project_dir`, or the user gave a repo URL/clone), the precompute scripts will drop large generated artifacts into it — `similarity-scores.parquet`, `source_embeddings.parquet`, and `source-concepts-normalized.csv`. These are derived, can be regenerated, and are large; they must **never** be versioned. Ensure the repo's `.gitignore` ignores them:
+
+- Read `project_dir/.gitignore` (create it if absent).
+- For each of the three entries not already present, append it.
+- Tell the user plainly what you added, e.g. *"Added `similarity-scores.parquet`, `source_embeddings.parquet` and `source-concepts-normalized.csv` to the repo's `.gitignore` — these generated files stay out of version control."*
+
+Do this before running any script in Step 4. (Consistent with Linkr's export convention: strip volatile/large artifacts, gitignore parquet, opt into git-LFS only when the user wants the data itself versioned.)
 
 ### 2b. OHDSI vocabulary location
 
@@ -127,11 +137,11 @@ therefore *what gets fully covered*.**
 > In short: source-first covers all *your codes*; dictionary-first covers all
 > *the dictionary's sets*. Which one?"
 
-The orchestrator's job here is only to build the `dict_targets` table and the
-candidate shortlist, then hand off to `/concept-mapping-ai` with the dictionary
-folder path, the active category, **and the chosen direction**
-(`source-first` | `dictionary-first`). All target selection happens in the
-sub-skill; the direction only tells it which loop to run.
+At this step (Step 2e) you only build the `dict_targets` table and the candidate
+shortlist; the actual mapping then follows `references/mapping-ai.md` with the
+dictionary folder path, the active category, **and the chosen direction**
+(`source-first` | `dictionary-first`) in scope. All target selection happens in
+that procedure; the direction only tells it which loop to run.
 
 ## Step 3: Load data into DuckDB
 
@@ -210,62 +220,49 @@ The output `similarity-scores.parquet` schema (and its resume/idempotency rules)
 is documented in `references/omop-duckdb-reference.md`. The user loads it in Linkr (Suggestions tab →
 "Load scores file").
 
-## Step 5: AI mapping (route to sub-skill)
+## Step 5: AI mapping (load the domain procedure)
 
-> **⚠️ The sub-skill needs the FULL `source-concepts.csv`** — all columns, including `info_json`/`metadata_json` (`full_name`, units, ranges, categorical values, hospital units…). This metadata is what disambiguates near-identical targets. **Never** pass `source-concepts-normalized.csv`: that 3-column file (Step 4a) exists only for `compute_scores.py`. The `source_concepts` table loaded in Step 3 already holds the full CSV — use it.
+> **⚠️ The mapping procedure needs the FULL `source-concepts.csv`** — all columns, including `info_json`/`metadata_json` (`full_name`, units, ranges, categorical values, hospital units…). This metadata is what disambiguates near-identical targets. **Never** use `source-concepts-normalized.csv`: that 3-column file (Step 4a) exists only for `compute_scores.py`. The `source_concepts` table loaded in Step 3 already holds the full CSV — use it.
 
-Based on the selected concepts' inferred domain, recommend the appropriate sub-skill:
+Based on the selected concepts' inferred domain, read the matching reference file in this directory and follow it for the batch:
 
-| Concept domain | Sub-skill |
+| Concept domain | Procedure to read |
 |---|---|
-| Measurement, Condition, Procedure, Observation | `/concept-mapping-ai` |
-| Drug (medications, prescriptions) | `/concept-mapping-drug` |
-| Mixed batch | Run `/concept-mapping-ai` first, then `/concept-mapping-drug` for Drug concepts |
+| Measurement, Condition, Procedure, Observation | `references/mapping-ai.md` |
+| Drug (medications, prescriptions) | `references/mapping-drug.md` |
+| Mixed batch | Follow `mapping-ai.md` first for the non-drug concepts, then `mapping-drug.md` for the Drug concepts |
 
-The sub-skill itself asks the user (at session start) whether its output should land in `similarity-scores.parquet` (as AI suggestions, default) or directly in `mappings.json` (as authored mappings), and who the author is. See the sub-skill's SKILL.md for the exact prompts.
+That procedure asks the user (at session start) whether output should land in `similarity-scores.parquet` (as AI suggestions, default) or directly in `mappings.json` (as authored mappings), and who the author is, then does the mapping and the persistence (its Step D) itself. Keep in scope while following it:
 
-Tell the user which sub-skill will handle the batch and why. Then invoke it.
-
-Pass along:
-- Project files (`project.json` path, `mappings.json` path, the **full** `source-concepts.csv` path — never the normalized one)
+- Project files (`project.json`, `mappings.json`, the **full** `source-concepts.csv` — never the normalized one)
 - Vocabulary location
 - Selected concept list (or filter to re-derive it)
 - `similarity-scores.parquet` path if available
 - `projectId` from `project.json`
-- **If data-dictionary priority mode (Step 2e) is active**: the `dict_targets` table (or dictionary folder path), the active `category`, the chosen **iteration direction** (`source-first` | `dictionary-first`), and the instruction to align onto the dictionary first with OMOP fallback. The sub-skill stamps `concept_set_uid` + `concept_set_source_repo` on every suggestion whose target is a dictionary concept.
+- **If data-dictionary priority mode (Step 2e) is active**: the `dict_targets` table (or dictionary folder path), the active `category`, the chosen **iteration direction** (`source-first` | `dictionary-first`), and the instruction to align onto the dictionary first with OMOP fallback. Stamp `concept_set_uid` + `concept_set_source_repo` on every suggestion whose target is a dictionary concept.
 
-## Step 6: Persist sub-skill output
+## Step 6: Record the session
 
-The sub-skill returns a list of rows plus a `mode` flag telling you where to write them:
+The mapping procedure (Step D of `mapping-ai.md` / Step 7 of `mapping-drug.md`) already writes rows to `similarity-scores.parquet` or `mappings.json`. Both enforce the same invariants — recall them here:
 
-- `mode = "suggestions"` → append to `similarity-scores.parquet` with `method = "ai/<model-id>"`, populating `equivalence`/`comment`/`created_at`, plus `concept_set_uid`/`concept_set_source_repo` when the target came from a data dictionary (null otherwise). Use the same parquet schema as `compute_scores.py` (10 columns). Never overwrite existing rows for the same `(source_vocabulary_id, source_concept_code, concept_id, method)` key.
-- `mode = "mappings"` → append to `mappings.json` (existing flow below).
+- **suggestions** → `method = "ai/<model-id>"`, populate `equivalence`/`comment`/`created_at`, plus `concept_set_uid`/`concept_set_source_repo` when the target came from a data dictionary (null otherwise). Same 10-column parquet schema as `compute_scores.py`. Never overwrite an existing row for the same `(source_vocabulary_id, source_concept_code, concept_id, method)` key.
+- **mappings** → append to `mappings.json`, never overwriting; key on `(sourceVocabularyId, sourceConceptCode)`. See `references/omop-duckdb-reference.md` for the full `ConceptMapping` structure.
 
-### Writing mappings.json (mode = "mappings")
-
-1. Read the current `mappings.json`
-2. Append new mappings — **never overwrite existing ones**
-3. Write back the full array
-4. Report: N new mappings added, N concepts still unmapped
-5. Refresh `state.json` and record the session:
+After the batch is persisted, refresh `state.json` and record the session:
 
 ```bash
 python .claude/skills/concept-mapping/scripts/update_state.py \
   --project-dir <project_dir> \
   --vocab-dir   <vocab_dir> \
-  --session '{"subSkill":"concept-mapping-ai","concepts":["REA/x","REA/y"],"outcomes":{"accepted":8,"flagged":1,"skipped":1}}'
+  --session '{"domain":"Measurement","concepts":["REA/x","REA/y"],"outcomes":{"accepted":8,"flagged":1,"skipped":1}}'
 ```
-
-Source concept uniqueness key: `(sourceVocabularyId, sourceConceptCode)`. Check existing mappings before adding.
-
-See `references/omop-duckdb-reference.md` for the full `ConceptMapping` JSON structure.
 
 ## Step 7: Summary
 
 After each batch:
 1. Summary table: source name → target name, vocabulary, equivalence, status
 2. Remaining unmapped concept count
-3. Ask whether to continue with the next batch or switch domain/sub-skill
+3. Ask whether to continue with the next batch or switch domain (clinical ↔ drug procedure)
 
 ## Cleanup
 
