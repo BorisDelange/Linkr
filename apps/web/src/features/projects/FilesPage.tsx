@@ -151,6 +151,9 @@ export function FilesPage() {
 
   const [createFileOpen, setCreateFileOpen] = useState(false)
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
+  // Folder the create dialogs target (null = scripts root). Set by the toolbar
+  // (null) or a folder's right-click "New file / New folder" (that folder).
+  const [createParentId, setCreateParentId] = useState<string | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
@@ -772,10 +775,17 @@ export function FilesPage() {
     clearExecutionResults()
   }, [clearExecutionResults])
 
+  // Open a create dialog targeting a folder (null = scripts root).
+  const openCreate = useCallback((parentId: string | null, folderMode: boolean) => {
+    setCreateParentId(parentId)
+    if (folderMode) setCreateFolderOpen(true)
+    else setCreateFileOpen(true)
+  }, [])
+
   // Cmd+N: open new file dialog
   const handleNewFile = useCallback(() => {
-    setCreateFileOpen(true)
-  }, [])
+    openCreate(null, false)
+  }, [openCreate])
 
   // Global shortcuts (scope: 'global')
   const globalHandlers: ShortcutHandlers = useMemo(
@@ -818,7 +828,7 @@ export function FilesPage() {
                         variant="ghost"
                         size="icon-xs"
                         disabled={!canWriteIde}
-                        onClick={() => setCreateFileOpen(true)}
+                        onClick={() => openCreate(null, false)}
                       >
                         <FilePlus size={14} />
                       </Button>
@@ -831,7 +841,7 @@ export function FilesPage() {
                         variant="ghost"
                         size="icon-xs"
                         disabled={!canWriteIde}
-                        onClick={() => setCreateFolderOpen(true)}
+                        onClick={() => openCreate(null, true)}
                       >
                         <FolderPlus size={14} />
                       </Button>
@@ -884,7 +894,7 @@ export function FilesPage() {
                   </Tooltip>
                 </div>
               </div>
-              <FileTree />
+              <FileTree onNewChild={openCreate} />
             </div>
           </Allotment.Pane>
 
@@ -1812,12 +1822,12 @@ export function FilesPage() {
         <CreateFileDialog
           open={createFileOpen}
           onOpenChange={setCreateFileOpen}
-          parentId={null}
+          parentId={createParentId}
         />
         <CreateFolderDialog
           open={createFolderOpen}
           onOpenChange={setCreateFolderOpen}
-          parentId={null}
+          parentId={createParentId}
         />
         <UploadDialog
           open={uploadOpen}

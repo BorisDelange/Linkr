@@ -1419,7 +1419,8 @@
     "close": "Close",
     "close_all": "Close all",
     "close_others": "Close others",
-    "save": "Save"
+    "save": "Save",
+    "root_folder": "scripts (root)"
   },
   "pipeline": {
     "title": "Pipeline",
@@ -2974,7 +2975,8 @@
     "save": "Save",
     "run": "Run",
     "run_selection": "Run selection",
-    "run_line": "Run current line"
+    "run_line": "Run current line",
+    "no_database_available": "No database available"
   },
   "app_versioning": {
     "title": "Versioning",

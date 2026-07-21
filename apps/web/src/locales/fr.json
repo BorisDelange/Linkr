@@ -1419,7 +1419,8 @@
     "close": "Fermer",
     "close_all": "Tout fermer",
     "close_others": "Fermer les autres",
-    "save": "Enregistrer"
+    "save": "Enregistrer",
+    "root_folder": "scripts (racine)"
   },
   "pipeline": {
     "title": "Pipeline",
@@ -2974,7 +2975,8 @@
     "save": "Enregistrer",
     "run": "Exécuter",
     "run_selection": "Exécuter la sélection",
-    "run_line": "Exécuter la ligne courante"
+    "run_line": "Exécuter la ligne courante",
+    "no_database_available": "Aucune base disponible"
   },
   "app_versioning": {
     "title": "Versioning",

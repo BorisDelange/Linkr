@@ -215,14 +215,14 @@ function EtlFileTreeItem({
     return (
       <div>
         <div
-          className="flex w-full min-w-0 items-center gap-1.5 py-1 pr-2 text-xs"
+          className="flex h-6 w-full min-w-0 items-center gap-1.5 pr-2 text-xs"
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
-          {isFolder ? <span className="w-3" /> : <span className="w-3" />}
-          <FileCode size={14} className={getFileColor(file)} />
+          <span className="w-3 shrink-0" />
+          <FileCode size={14} className={cn('shrink-0', getFileColor(file))} />
           <span
             className={cn(
-              '-ml-0.5 flex min-w-0 flex-1 items-center rounded border bg-background',
+              '-ml-0.5 flex h-5 min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
               renameClashes ? 'border-destructive' : 'border-primary',
             )}
           >
@@ -236,7 +236,7 @@ function EtlFileTreeItem({
                 if (e.key === 'Enter') handleRenameSubmit()
                 else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
               }}
-              className="w-0 min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
+              className="w-0 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
             />
             <button
               type="button"
@@ -244,9 +244,9 @@ function EtlFileTreeItem({
               aria-label={t('common.cancel')}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setEditing(false)}
-              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+              className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
             >
-              <X size={12} />
+              <X size={11} />
             </button>
             <button
               type="button"
@@ -255,9 +255,9 @@ function EtlFileTreeItem({
               aria-label={t('common.save')}
               onMouseDown={(e) => e.preventDefault()}
               onClick={handleRenameSubmit}
-              className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
+              className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
             >
-              <Check size={12} />
+              <Check size={11} />
             </button>
           </span>
         </div>
@@ -293,24 +293,24 @@ function EtlFileTreeItem({
               else onSelect(file.id)
             }}
             className={cn(
-              'flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
+              'flex h-6 w-full items-center gap-1.5 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
           >
             {isFolder ? (
               <>
-                {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                {isExpanded ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
                 {isExpanded ? (
-                  <FolderOpen size={14} className="text-blue-400" />
+                  <FolderOpen size={14} className="shrink-0 text-blue-400" />
                 ) : (
-                  <Folder size={14} className="text-blue-400" />
+                  <Folder size={14} className="shrink-0 text-blue-400" />
                 )}
               </>
             ) : (
               <>
-                <span className="w-3" />
-                <FileCode size={14} className={getFileColor(file)} />
+                <span className="w-3 shrink-0" />
+                <FileCode size={14} className={cn('shrink-0', getFileColor(file))} />
               </>
             )}
             <span className="truncate">{file.name}</span>

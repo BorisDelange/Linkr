@@ -125,6 +125,17 @@ export function CreateFileDialog({
   const folderTree = useMemo(() => buildScriptsFolderTree(files), [files])
   const scriptsFolderId = useMemo(() => getScriptsFolderId(files), [files])
 
+  // On the open transition, point the parent picker at the folder the dialog was
+  // launched from (adjust-state-during-render — no effect). The scripts root maps
+  // to the "__root__" sentinel (it isn't listed among the scripts subfolders).
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
+    if (open) {
+      setSelectedParentId(!parentId || parentId === scriptsFolderId ? '__root__' : parentId)
+    }
+  }
+
   const finalName = name.includes('.') ? name.trim() : `${name.trim()}${selectedType.ext}`
   const actualParentId = selectedParentId === '__root__' ? scriptsFolderId : selectedParentId
   const isDuplicate = finalName.length > 0 && files.some(
@@ -190,7 +201,15 @@ export function CreateFileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        onOpenAutoFocus={(e) => {
+          // Radix would focus the first tabbable element (the type Select);
+          // send the caret to the name field (the only <input> here) instead.
+          e.preventDefault()
+          e.currentTarget.querySelector('input')?.focus()
+        }}
+      >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>{t('files.create_file')}</DialogTitle>
@@ -264,7 +283,6 @@ export function CreateFileDialog({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={`${t('files.file_name_placeholder')}${selectedType.ext}`}
-                autoFocus
               />
               {isDuplicate && (
                 <p className="text-xs text-destructive">{t('files.name_already_exists')}</p>

@@ -51,8 +51,6 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
@@ -62,6 +60,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SqlScriptsFileTree } from './SqlScriptsFileTree'
+import { CreateSqlScriptFileDialog } from './CreateSqlScriptFileDialog'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
@@ -78,7 +77,6 @@ const SQL_EDITOR_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'run_file',
   'toggle_comment',
 ]
-import type { SqlScriptFile } from '@/types'
 
 interface Props {
   collectionId: string
@@ -98,7 +96,6 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     selectFile,
     closeFile,
     updateFileContent,
-    createFile,
     isFileDirty,
     saveFile,
     revertFile,
@@ -121,9 +118,9 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   const [editorVisible, setEditorVisible] = useState(true)
   const [createFileOpen, setCreateFileOpen] = useState(false)
   const [createFolderMode, setCreateFolderMode] = useState(false)
-  const [newFileName, setNewFileName] = useState('')
-  // Re-entrancy guard: Enter-in-input + button-click could both fire the handler.
-  const creatingFile = useRef(false)
+  // Folder the create dialog targets (null = root). Set by the toolbar (root) or
+  // a folder's right-click "New script / New folder" (that folder).
+  const [createParentId, setCreateParentId] = useState<string | null>(null)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
@@ -165,48 +162,12 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     testConnection(activeDbId)
   }, [activeDbId])
 
-  // The final name (files get a .sql suffix) and whether it collides with an
-  // existing top-level sibling — computed live so the dialog can react as you type.
-  const effectiveNewName = (() => {
-    const n = newFileName.trim()
-    if (!n) return ''
-    return !createFolderMode && !n.includes('.') ? `${n}.sql` : n
-  })()
-  const newNameClashes =
-    !!effectiveNewName &&
-    files.some((f) => f.parentId === null && f.name.toLowerCase() === effectiveNewName.toLowerCase())
-
-  // Create new file
-  const handleCreateFile = async () => {
-    // Guard against a double trigger (Enter key + button click) creating two rows.
-    if (creatingFile.current) return
-    if (!effectiveNewName || newNameClashes) return
-    const name = effectiveNewName
-
-    creatingFile.current = true
-    try {
-      const now = new Date().toISOString()
-      if (createFolderMode) {
-        const folder: SqlScriptFile = {
-          id: crypto.randomUUID(), collectionId, name, type: 'folder',
-          parentId: null, order: files.length, createdAt: now,
-        }
-        await createFile(folder)
-      } else {
-        const file: SqlScriptFile = {
-          id: crypto.randomUUID(), collectionId, name, type: 'file',
-          parentId: null, content: '', order: files.length, createdAt: now,
-        }
-        await createFile(file)
-        selectFile(file.id)
-      }
-      setCreateFileOpen(false)
-      setNewFileName('')
-      setCreateFolderMode(false)
-    } finally {
-      creatingFile.current = false
-    }
-  }
+  // Open the create dialog targeting a folder (null = root).
+  const openCreate = useCallback((parentId: string | null, folderMode: boolean) => {
+    setCreateParentId(parentId)
+    setCreateFolderMode(folderMode)
+    setCreateFileOpen(true)
+  }, [])
 
   // Execute SQL
   const executeSql = useCallback(
@@ -325,9 +286,9 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   const globalShortcutHandlers = useMemo<ShortcutHandlers>(
     () => ({
       toggle_sidebar: () => setExplorerVisible((v) => !v),
-      new_file: () => { setCreateFolderMode(false); setCreateFileOpen(true) },
+      new_file: () => openCreate(null, false),
     }),
-    [],
+    [openCreate],
   )
   useGlobalShortcuts(globalShortcutHandlers)
 
@@ -365,7 +326,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                   <div className="flex items-center gap-0.5">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={() => { setCreateFolderMode(false); setCreateFileOpen(true) }}>
+                        <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={() => openCreate(null, false)}>
                           <FilePlus size={14} />
                         </Button>
                       </TooltipTrigger>
@@ -373,11 +334,11 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={() => { setCreateFolderMode(true); setCreateFileOpen(true) }}>
+                        <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={() => openCreate(null, true)}>
                           <FolderPlus size={14} />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{t('common.new_folder')}</TooltipContent>
+                      <TooltipContent>{t('files.new_folder')}</TooltipContent>
                     </Tooltip>
                   </div>
                   <Tooltip>
@@ -389,7 +350,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                     <TooltipContent>{t('files.collapse_explorer')}</TooltipContent>
                   </Tooltip>
                 </div>
-                <SqlScriptsFileTree />
+                <SqlScriptsFileTree onNewChild={openCreate} />
               </div>
             </Allotment.Pane>
 
@@ -475,11 +436,18 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                   {/* Database selector — same picker UI as the IDE's RunButton. */}
                   <div className="mx-1 h-4 w-px bg-border" />
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="xs" className="gap-1 max-w-[160px] text-[11px]">
+                    <DropdownMenuTrigger asChild disabled={dbSources.length === 0}>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        disabled={dbSources.length === 0}
+                        className="gap-1 max-w-[160px] text-[11px]"
+                      >
                         <Database size={11} className="shrink-0" />
                         <span className="truncate">
-                          {activeDb?.name ?? t('sql_scripts.select_database')}
+                          {dbSources.length === 0
+                            ? t('sql_scripts.no_database_available')
+                            : activeDb?.name ?? t('sql_scripts.select_database')}
                         </span>
                         <ChevronDown size={10} className="shrink-0 opacity-50" />
                       </Button>
@@ -796,41 +764,14 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
         </div>
       </div>
 
-      {/* Create file/folder dialog */}
-      <Dialog open={createFileOpen} onOpenChange={(open) => { setCreateFileOpen(open); if (!open) setNewFileName('') }}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{createFolderMode ? t('common.new_folder') : t('sql_scripts.new_file')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label>{createFolderMode ? t('common.name') : t('sql_scripts.file_name')}</Label>
-              <Input
-                value={newFileName}
-                onChange={(e) => setNewFileName(e.target.value)}
-                placeholder={createFolderMode ? 'measurement' : 'urine_output.sql'}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateFile()
-                }}
-                autoFocus
-              />
-              {newNameClashes && (
-                <p className="text-xs text-destructive">
-                  {t('sql_scripts.name_exists', { name: effectiveNewName })}
-                </p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateFileOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button onClick={handleCreateFile} disabled={!newFileName.trim() || newNameClashes}>
-              {t('common.create')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Create file/folder dialog — type + parent-folder picker, like the IDE. */}
+      <CreateSqlScriptFileDialog
+        open={createFileOpen}
+        onOpenChange={setCreateFileOpen}
+        collectionId={collectionId}
+        parentId={createParentId}
+        folderMode={createFolderMode}
+      />
 
       {/* Unsaved changes dialog */}
       <Dialog open={!!closeConfirmFileId} onOpenChange={(open) => { if (!open) setCloseConfirmFileId(null) }}>

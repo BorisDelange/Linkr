@@ -18,7 +18,8 @@ import {
   Trash2,
   Download,
   Copy,
-  FolderInput,
+  FilePlus,
+  FolderPlus,
   Clipboard,
   Lock,
   Notebook,
@@ -49,6 +50,8 @@ interface FileTreeItemProps {
   getChildren: (parentId: string) => TreeNode[]
   expandedFolders: string[]
   selectedFileId: string | null
+  /** Open a create dialog targeting a folder (null = scripts root). */
+  onNewChild: (parentId: string | null, folderMode: boolean) => void
 }
 
 function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean, isDataset = false) {
@@ -124,6 +127,7 @@ export function FileTreeItem({
   getChildren,
   expandedFolders,
   selectedFileId,
+  onNewChild,
 }: FileTreeItemProps) {
   const { t } = useTranslation()
   const canWrite = useMyProjectRole().can('ide:write')
@@ -285,12 +289,12 @@ export function FileTreeItem({
     return (
       <>
         <div
-          className="flex w-full min-w-0 items-center gap-1 px-2 py-1 text-xs"
+          className="flex h-6 w-full min-w-0 items-center gap-1 px-2 text-xs"
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
           {rowIcon}
           <span className={cn(
-            '-ml-0.5 flex min-w-0 flex-1 items-center rounded border bg-background',
+            '-ml-0.5 flex h-5 min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
             renameClashes ? 'border-destructive' : 'border-primary',
           )}>
             <input
@@ -303,7 +307,7 @@ export function FileTreeItem({
                 if (e.key === 'Enter') submitRename()
                 else if (e.key === 'Escape') { e.preventDefault(); setRenaming(false) }
               }}
-              className="w-0 min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
+              className="w-0 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
             />
             <button
               type="button"
@@ -311,9 +315,9 @@ export function FileTreeItem({
               aria-label={t('common.cancel')}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setRenaming(false)}
-              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+              className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
             >
-              <X size={12} />
+              <X size={11} />
             </button>
             <button
               type="button"
@@ -322,9 +326,9 @@ export function FileTreeItem({
               aria-label={t('common.save')}
               onMouseDown={(e) => e.preventDefault()}
               onClick={submitRename}
-              className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
+              className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
             >
-              <Check size={12} />
+              <Check size={11} />
             </button>
           </span>
         </div>
@@ -336,6 +340,7 @@ export function FileTreeItem({
             getChildren={getChildren}
             expandedFolders={expandedFolders}
             selectedFileId={selectedFileId}
+            onNewChild={onNewChild}
           />
         ))}
       </>
@@ -354,7 +359,7 @@ export function FileTreeItem({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             className={cn(
-              'flex w-full items-center gap-1 px-2 py-1 text-left text-xs hover:bg-accent/50 transition-colors',
+              'flex h-6 w-full items-center gap-1 px-2 text-left text-xs hover:bg-accent/50 transition-colors',
               isSelected && !isFolder && 'bg-accent text-accent-foreground',
               dragOver && 'bg-accent/70 ring-1 ring-primary/50'
             )}
@@ -390,6 +395,19 @@ export function FileTreeItem({
             </>
           ) : (
             <>
+              {isFolder && (
+                <>
+                  <ContextMenuItem disabled={!canWrite} onClick={() => onNewChild(node.id, false)}>
+                    <FilePlus size={14} />
+                    {t('files.new_file')}
+                  </ContextMenuItem>
+                  <ContextMenuItem disabled={!canWrite} onClick={() => onNewChild(node.id, true)}>
+                    <FolderPlus size={14} />
+                    {t('files.new_folder')}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                </>
+              )}
               <ContextMenuItem onClick={startRename} disabled={!canWrite}>
                 <Pencil size={14} />
                 {t('files.rename')}
@@ -416,12 +434,6 @@ export function FileTreeItem({
                 <ContextMenuItem onClick={handleDownload}>
                   <Download size={14} />
                   {t('files.download')}
-                </ContextMenuItem>
-              )}
-              {isFolder && !isBridge && (
-                <ContextMenuItem disabled>
-                  <FolderInput size={14} />
-                  {t('files.move')}
                 </ContextMenuItem>
               )}
               <ContextMenuSeparator />
@@ -467,6 +479,7 @@ export function FileTreeItem({
             getChildren={getChildren}
             expandedFolders={expandedFolders}
             selectedFileId={selectedFileId}
+            onNewChild={onNewChild}
           />
         ))}
 

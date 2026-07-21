@@ -525,7 +525,7 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
                 <div className="flex w-full items-center gap-1.5 px-3 py-1 text-xs">
                   {getFileIcon(filename)}
                   <span className={cn(
-                    'flex min-w-0 flex-1 items-center rounded border bg-background',
+                    'flex h-5 min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
                     renameClashes ? 'border-destructive' : 'border-primary',
                   )}>
                     <input
@@ -538,7 +538,7 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
                         if (e.key === 'Enter') handleRename(filename)
                         else if (e.key === 'Escape') { e.preventDefault(); setRenamingFile(null) }
                       }}
-                      className="w-0 min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
+                      className="w-0 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
                     />
                     <button
                       type="button"
@@ -546,9 +546,9 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
                       aria-label={t('common.cancel')}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => setRenamingFile(null)}
-                      className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+                      className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
                     >
-                      <X size={12} />
+                      <X size={11} />
                     </button>
                     <button
                       type="button"
@@ -557,9 +557,9 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
                       aria-label={t('common.save')}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => handleRename(filename)}
-                      className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
+                      className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
                     >
-                      <Check size={12} />
+                      <Check size={11} />
                     </button>
                   </span>
                 </div>

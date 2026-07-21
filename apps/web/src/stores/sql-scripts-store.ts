@@ -58,6 +58,8 @@ interface SqlScriptsState {
   loadCollectionFiles: (collectionId: string) => Promise<void>
   createFile: (file: SqlScriptFile) => Promise<void>
   updateFile: (id: string, changes: Partial<SqlScriptFile>) => Promise<void>
+  moveFile: (id: string, parentId: string | null) => Promise<void>
+  duplicateFile: (id: string) => Promise<void>
   deleteFile: (id: string) => Promise<void>
 
   // Editor state
@@ -210,16 +212,83 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
     }))
   },
 
+  moveFile: async (id, parentId) => {
+    const node = get().files.find((f) => f.id === id)
+    if (!node || node.parentId === parentId) return
+    // Guard against dropping a folder into itself or one of its descendants.
+    if (node.type === 'folder' && parentId) {
+      const descendants = new Set<string>()
+      const collect = (pid: string) => {
+        for (const f of get().files) {
+          if (f.parentId === pid) {
+            descendants.add(f.id)
+            collect(f.id)
+          }
+        }
+      }
+      collect(id)
+      if (parentId === id || descendants.has(parentId)) return
+    }
+    await getStorage().sqlScriptFiles.update(id, { parentId })
+    set((s) => ({
+      files: s.files.map((f) => (f.id === id ? { ...f, parentId } : f)),
+    }))
+  },
+
+  duplicateFile: async (id) => {
+    const original = get().files.find((f) => f.id === id)
+    if (!original || original.type !== 'file') return
+    const dot = original.name.lastIndexOf('.')
+    const base = dot > 0 ? original.name.slice(0, dot) : original.name
+    const ext = dot > 0 ? original.name.slice(dot) : ''
+    const siblingNames = new Set(
+      get().files.filter((f) => f.parentId === original.parentId).map((f) => f.name.toLowerCase()),
+    )
+    let name = `${base} (copy)${ext}`
+    let counter = 2
+    while (siblingNames.has(name.toLowerCase())) {
+      name = `${base} (copy ${counter})${ext}`
+      counter++
+    }
+    const copy: SqlScriptFile = {
+      ...original,
+      id: crypto.randomUUID(),
+      name,
+      order: get().files.length,
+      createdAt: new Date().toISOString(),
+    }
+    await getStorage().sqlScriptFiles.create(copy)
+    set((s) => ({ files: [...s.files, copy].sort((a, b) => a.order - b.order) }))
+  },
+
   deleteFile: async (id) => {
-    await getStorage().sqlScriptFiles.delete(id)
+    const all = get().files
+    const node = all.find((f) => f.id === id)
+    // Deleting a folder removes its whole subtree.
+    const idsToRemove = new Set<string>([id])
+    if (node?.type === 'folder') {
+      const collect = (pid: string) => {
+        for (const f of all) {
+          if (f.parentId === pid) {
+            idsToRemove.add(f.id)
+            collect(f.id)
+          }
+        }
+      }
+      collect(id)
+    }
+    for (const rid of idsToRemove) {
+      await getStorage().sqlScriptFiles.delete(rid)
+    }
     set((s) => {
       const newDirtyMap = new Map(s._dirtyMap)
-      newDirtyMap.delete(id)
+      for (const rid of idsToRemove) newDirtyMap.delete(rid)
+      const remainingOpen = s.openFileIds.filter((fid) => !idsToRemove.has(fid))
       return {
-        files: s.files.filter((f) => f.id !== id),
-        openFileIds: s.openFileIds.filter((fid) => fid !== id),
-        selectedFileId: s.selectedFileId === id
-          ? s.openFileIds.filter((fid) => fid !== id)[0] ?? null
+        files: s.files.filter((f) => !idsToRemove.has(f.id)),
+        openFileIds: remainingOpen,
+        selectedFileId: idsToRemove.has(s.selectedFileId ?? '')
+          ? remainingOpen[0] ?? null
           : s.selectedFileId,
         _dirtyMap: newDirtyMap,
       }

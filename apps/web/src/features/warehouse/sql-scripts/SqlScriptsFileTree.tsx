@@ -2,12 +2,17 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   FileCode,
+  FileText,
   Folder,
   FolderOpen,
   ChevronRight,
   ChevronDown,
   Trash2,
   Pencil,
+  Copy,
+  Download,
+  FilePlus,
+  FolderPlus,
   Check,
   X,
 } from 'lucide-react'
@@ -34,11 +39,18 @@ import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import type { SqlScriptFile } from '@/types'
 
-export function SqlScriptsFileTree() {
+interface Props {
+  /** Open the create dialog targeting a folder (null = root). */
+  onNewChild: (parentId: string | null, folderMode: boolean) => void
+}
+
+export function SqlScriptsFileTree({ onNewChild }: Props) {
   const { t } = useTranslation()
-  const { files, selectedFileId, selectFile, deleteFile, updateFile } = useSqlScriptsStore()
+  const { files, selectedFileId, selectFile, deleteFile, updateFile, moveFile, duplicateFile } =
+    useSqlScriptsStore()
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [deleteConfirmFileId, setDeleteConfirmFileId] = useState<string | null>(null)
+  const [rootDragOver, setRootDragOver] = useState(false)
 
   const toggleFolder = (id: string) => {
     setExpandedFolders((prev) => {
@@ -48,6 +60,10 @@ export function SqlScriptsFileTree() {
       return next
     })
   }
+
+  const expandFolder = useCallback((id: string) => {
+    setExpandedFolders((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+  }, [])
 
   const handleDeleteRequest = useCallback((id: string) => {
     setDeleteConfirmFileId(id)
@@ -71,6 +87,16 @@ export function SqlScriptsFileTree() {
       (f) => f.parentId === parentId && f.id !== exceptId && f.name.toLowerCase() === name.toLowerCase(),
     )
 
+  const handleRootDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setRootDragOver(false)
+    const draggedId = e.dataTransfer.getData('text/plain')
+    if (!draggedId) return
+    const node = files.find((f) => f.id === draggedId)
+    if (!node || node.parentId === null) return
+    moveFile(draggedId, null)
+  }
+
   if (files.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
@@ -83,7 +109,12 @@ export function SqlScriptsFileTree() {
   return (
     <>
       <ScrollArea className="flex-1">
-        <div className="py-1">
+        <div
+          className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setRootDragOver(true) }}
+          onDragLeave={() => setRootDragOver(false)}
+          onDrop={handleRootDrop}
+        >
           {rootFiles.sort((a, b) => a.order - b.order).map((file) => (
             <SqlScriptsFileTreeItem
               key={file.id}
@@ -93,9 +124,13 @@ export function SqlScriptsFileTree() {
               isFolder={file.type === 'folder'}
               isExpanded={expandedFolders.has(file.id)}
               onToggleFolder={toggleFolder}
+              onExpandFolder={expandFolder}
               onSelect={selectFile}
               onDelete={handleDeleteRequest}
               onRename={(id, name) => updateFile(id, { name })}
+              onMove={moveFile}
+              onDuplicate={duplicateFile}
+              onNewChild={onNewChild}
               nameExists={nameExists}
               getChildren={getChildren}
               expandedFolders={expandedFolders}
@@ -127,6 +162,14 @@ export function SqlScriptsFileTree() {
   )
 }
 
+function getAllDescendantIds(files: SqlScriptFile[], parentId: string): string[] {
+  const ids = [parentId]
+  for (const child of files.filter((f) => f.parentId === parentId)) {
+    ids.push(...getAllDescendantIds(files, child.id))
+  }
+  return ids
+}
+
 function SqlScriptsFileTreeItem({
   file,
   depth,
@@ -134,9 +177,13 @@ function SqlScriptsFileTreeItem({
   isFolder,
   isExpanded,
   onToggleFolder,
+  onExpandFolder,
   onSelect,
   onDelete,
   onRename,
+  onMove,
+  onDuplicate,
+  onNewChild,
   nameExists,
   getChildren,
   expandedFolders,
@@ -148,9 +195,13 @@ function SqlScriptsFileTreeItem({
   isFolder: boolean
   isExpanded: boolean
   onToggleFolder: (id: string) => void
+  onExpandFolder: (id: string) => void
   onSelect: (id: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, name: string) => void
+  onMove: (id: string, parentId: string | null) => void
+  onDuplicate: (id: string) => void
+  onNewChild: (parentId: string | null, folderMode: boolean) => void
   nameExists: (parentId: string | null, name: string, exceptId: string) => boolean
   getChildren: (parentId: string) => SqlScriptFile[]
   expandedFolders: Set<string>
@@ -161,6 +212,7 @@ function SqlScriptsFileTreeItem({
   const canDelete = useMyWorkspaceRole().can('sql-scripts:delete')
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(file.name)
+  const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -206,6 +258,45 @@ function SqlScriptsFileTreeItem({
     setEditing(true)
   }
 
+  const handleDownload = () => {
+    if (isFolder) return
+    const blob = new Blob([file.content ?? ''], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = file.name
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', file.id)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    // Dropping on a folder moves into it; dropping on a file moves into that
+    // file's parent (so dropping next to a root file lands at the root).
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    if (isFolder) setDragOver(true)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+    const draggedId = e.dataTransfer.getData('text/plain')
+    if (!draggedId || draggedId === file.id) return
+    const targetParentId = isFolder ? file.id : file.parentId
+    // Reject dropping a folder into itself or one of its descendants.
+    const allFiles = useSqlScriptsStore.getState().files
+    if (targetParentId && getAllDescendantIds(allFiles, draggedId).includes(targetParentId)) return
+    onMove(draggedId, targetParentId)
+    if (isFolder) onExpandFolder(file.id)
+  }
+
   const childItems =
     isFolder && isExpanded
       ? getChildren(file.id).map((child) => (
@@ -217,9 +308,13 @@ function SqlScriptsFileTreeItem({
             isFolder={child.type === 'folder'}
             isExpanded={expandedFolders.has(child.id)}
             onToggleFolder={onToggleFolder}
+            onExpandFolder={onExpandFolder}
             onSelect={onSelect}
             onDelete={onDelete}
             onRename={onRename}
+            onMove={onMove}
+            onDuplicate={onDuplicate}
+            onNewChild={onNewChild}
             nameExists={nameExists}
             getChildren={getChildren}
             expandedFolders={expandedFolders}
@@ -240,23 +335,29 @@ function SqlScriptsFileTreeItem({
   ) : (
     <>
       <span className="w-3 shrink-0" />
-      <FileCode size={14} className="shrink-0 text-blue-500" />
+      {file.name.endsWith('.md') ? (
+        <FileText size={14} className="shrink-0 text-muted-foreground" />
+      ) : (
+        <FileCode size={14} className="shrink-0 text-orange-400" />
+      )}
     </>
   )
 
   // Editing renders a plain row (no <button>/ContextMenuTrigger): an <input>
   // nested in a <button> is invalid HTML and made the button steal focus/keys
   // (selection cleared, Escape leaked). A div keeps the input fully in control.
+  // The row keeps the exact height of a non-editing row (h-6 / gap / paddings)
+  // so starting a rename doesn't shift the tree.
   if (editing) {
     return (
       <div>
         <div
-          className="flex w-full min-w-0 items-center gap-1.5 py-1 pr-2 text-xs"
+          className="flex h-6 w-full min-w-0 items-center gap-1.5 pr-2 text-xs"
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
           {icon}
           <span className={cn(
-            '-ml-1 flex min-w-0 flex-1 items-center rounded border bg-background',
+            '-ml-1 flex h-5 min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
             renameClashes ? 'border-destructive' : 'border-primary',
           )}>
             <input
@@ -269,7 +370,7 @@ function SqlScriptsFileTreeItem({
                 if (e.key === 'Enter') handleRenameSubmit()
                 else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
               }}
-              className="w-0 min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
+              className="w-0 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
             />
             <button
               type="button"
@@ -277,9 +378,9 @@ function SqlScriptsFileTreeItem({
               aria-label={t('common.cancel')}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setEditing(false)}
-              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+              className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
             >
-              <X size={12} />
+              <X size={11} />
             </button>
             <button
               type="button"
@@ -288,9 +389,9 @@ function SqlScriptsFileTreeItem({
               aria-label={t('common.save')}
               onMouseDown={(e) => e.preventDefault()}
               onClick={handleRenameSubmit}
-              className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
+              className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
             >
-              <Check size={12} />
+              <Check size={11} />
             </button>
           </span>
         </div>
@@ -304,13 +405,19 @@ function SqlScriptsFileTreeItem({
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button
+            draggable
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
             onClick={() => {
               if (isFolder) onToggleFolder(file.id)
               else onSelect(file.id)
             }}
             className={cn(
-              'flex w-full min-w-0 items-center gap-1.5 py-1 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
+              'flex h-6 w-full min-w-0 items-center gap-1.5 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
+              dragOver && 'bg-accent/70 ring-1 ring-primary/50',
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
           >
@@ -319,10 +426,35 @@ function SqlScriptsFileTreeItem({
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
+          {isFolder && (
+            <>
+              <ContextMenuItem onClick={() => onNewChild(file.id, false)} disabled={!canWrite}>
+                <FilePlus size={14} />
+                {t('sql_scripts.new_file')}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => onNewChild(file.id, true)} disabled={!canWrite}>
+                <FolderPlus size={14} />
+                {t('files.new_folder')}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          )}
           <ContextMenuItem onClick={handleStartRename} disabled={!canWrite}>
             <Pencil size={14} />
             {t('sql_scripts.rename')}
           </ContextMenuItem>
+          {!isFolder && (
+            <ContextMenuItem onClick={() => onDuplicate(file.id)} disabled={!canWrite}>
+              <Copy size={14} />
+              {t('files.duplicate')}
+            </ContextMenuItem>
+          )}
+          {!isFolder && (
+            <ContextMenuItem onClick={handleDownload}>
+              <Download size={14} />
+              {t('files.download')}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"

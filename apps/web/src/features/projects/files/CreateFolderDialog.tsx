@@ -42,6 +42,17 @@ export function CreateFolderDialog({
   const folderTree = useMemo(() => buildScriptsFolderTree(files), [files])
   const scriptsFolderId = useMemo(() => getScriptsFolderId(files), [files])
 
+  // On the open transition, point the parent picker at the folder the dialog was
+  // launched from (adjust-state-during-render — no effect). The scripts root maps
+  // to the "__root__" sentinel (it isn't listed among the scripts subfolders).
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
+    if (open) {
+      setSelectedParentId(!parentId || parentId === scriptsFolderId ? '__root__' : parentId)
+    }
+  }
+
   const trimmedName = name.trim()
   const actualParentId = selectedParentId === '__root__' ? scriptsFolderId : selectedParentId
   const isDuplicate = trimmedName.length > 0 && files.some(
@@ -59,7 +70,15 @@ export function CreateFolderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        onOpenAutoFocus={(e) => {
+          // Radix would focus the first tabbable element (the parent Select);
+          // send the caret to the name field (the only <input> here) instead.
+          e.preventDefault()
+          e.currentTarget.querySelector('input')?.focus()
+        }}
+      >
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle>{t('files.create_folder')}</DialogTitle>

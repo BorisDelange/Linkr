@@ -34,7 +34,12 @@ function sortRootNodes(a: TreeNode, b: TreeNode): number {
   return sortNodes(a, b)
 }
 
-export function FileTree() {
+interface FileTreeProps {
+  /** Open a create dialog targeting a folder (null = scripts root). */
+  onNewChild: (parentId: string | null, folderMode: boolean) => void
+}
+
+export function FileTree({ onNewChild }: FileTreeProps) {
   const { t } = useTranslation()
   const { expandedFolders, selectedFileId, moveNode } = useFileStore()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
@@ -99,6 +104,7 @@ export function FileTree() {
             getChildren={getChildren}
             expandedFolders={expandedFolders}
             selectedFileId={selectedFileId}
+            onNewChild={onNewChild}
           />
         ))}
       </div>

@@ -70,7 +70,7 @@ export function InlineRenameField({
   return (
     <span
       className={cn(
-        'flex min-w-0 flex-1 items-center rounded border bg-background',
+        'flex min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
         clashes ? 'border-destructive' : 'border-primary',
         className,
       )}
@@ -86,7 +86,7 @@ export function InlineRenameField({
           if (e.key === 'Enter') submit()
           else if (e.key === 'Escape') { e.preventDefault(); onCancel() }
         }}
-        className="w-0 min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
+        className="w-0 min-w-0 flex-1 bg-transparent px-1 text-xs outline-none"
       />
       <button
         type="button"
@@ -94,9 +94,9 @@ export function InlineRenameField({
         aria-label={t('common.cancel')}
         onMouseDown={(e) => e.preventDefault()}
         onClick={(e) => { e.stopPropagation(); onCancel() }}
-        className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+        className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
       >
-        <X size={12} />
+        <X size={11} />
       </button>
       <button
         type="button"
@@ -105,9 +105,9 @@ export function InlineRenameField({
         aria-label={t('common.save')}
         onMouseDown={(e) => e.preventDefault()}
         onClick={(e) => { e.stopPropagation(); submit() }}
-        className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
+        className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
       >
-        <Check size={12} />
+        <Check size={11} />
       </button>
     </span>
   )
