@@ -2,11 +2,21 @@
 
 > Document de conception + suivi d'implémentation.
 >
-> **Périmètre confirmé : le pull ne concerne QUE les mapping projects.** Pour tous les
-> autres scopes versionnables (projects, sql-collections, etl-pipelines, data-catalogs,
-> dq-rule-sets, schema-presets, user-plugins, workspaces), le pull sera **revu au cas par
-> cas plus tard** — chaque type a des familles de contenu différentes et mérite sa propre
-> stratégie de merge. La détection (bandeau behind/diverged) reste, elle, généralisable.
+> **Périmètre actuel du pull : mapping-project ET project.** Les autres scopes
+> versionnables (sql-collections, etl-pipelines, data-catalogs, dq-rule-sets,
+> schema-presets, user-plugins, workspaces) n'ont pour l'instant que **Link + Push** ; leur
+> pull sera **revu au cas par cas plus tard** — chaque type a des familles de contenu
+> différentes et mérite sa propre stratégie de merge. La détection (bandeau behind/diverged)
+> reste, elle, généralisable, mais n'est câblée que pour mapping-project et project.
+>
+> **Deux mécanismes de pull distincts, selon le type :**
+> - **mapping-project** : merge fin serveur via endpoints dédiés `pull-preview`/`pull-file`
+>   (merge ligne à ligne des mappings, champ à champ des métadonnées). Cf. §3.
+> - **project** : clone complet du repo → ZIP → diff par groupe (dashboards/scripts/cohorts/
+>   datasets/pipeline/README) → réécriture via `importProjectContent` (insert-only, ids
+>   déterministes). Pas de merge fin ligne à ligne ; UI `ProjectPullDialog` +
+>   `lib/project-pull.ts`. Côté serveur : `sync-state`/`set-sync-state` seulement (le
+>   contenu passe par le clone, pas par un `pull-preview` projet).
 >
 > **Avancement :**
 > - **[FAIT]** Détection : table `git_sync_state`, bandeau behind/diverged, ancrage à
@@ -22,6 +32,11 @@
 >   - garde-fou : **push refusé tant qu'on est behind** (`pull_required`) pour ne pas
 >     écraser le travail distant.
 >   - Commits `a4aa3242`, `3cff0f3e`, `0653fc4d`, `743af8e6`, `8fb00a89`, `d0077b07`.
+> - **[FAIT]** Pull project : clone-based (pas de `pull-preview` projet). `ProjectPullDialog`
+>   propose une sélection par groupe (dashboards/scripts/cohorts/datasets/pipeline/README) ;
+>   le pull clone le remote, diffe chaque groupe, applique via `importProjectContent`
+>   (insert-only, ids déterministes) puis avance l'ancre `set-sync-state`. Bandeau
+>   behind/diverged actif pour les projets (`renderPullDialog` dans `VersioningPage`).
 > - **[À TESTER]** flux complet bout-en-bout (2 workspaces, pull/push), en particulier le
 >   chemin **LFS** de `pull-file` (source CSV / scores parquet) contre un vrai endpoint —
 >   validé en logique seulement jusqu'ici.
@@ -376,11 +391,35 @@ champ-par-champ des mappings ; commit de merge git.)*
 
 ## 8 — Pull pour les autres scopes (À FAIRE PLUS TARD, au cas par cas)
 
-Seul le **mapping project** a un pull complet. Les autres scopes versionnables n'ont pour
-l'instant que la **détection** (le bandeau behind/diverged est généralisable) ; le pull lui-
-même reste à concevoir **composant par composant**. Ce n'est pas mécanique : chaque type a
-ses propres familles de contenu, donc sa propre logique de merge ET sa propre UI de
-résolution. Il faut **réfléchir à la logique métier de chaque composant avant de coder**.
+**Mapping-project** (merge fin) et **project** (clone-based) ont un pull complet + bandeau
+behind/diverged. Les **six autres** scopes versionnables (sql-script-collections,
+etl-pipelines, data-catalogs, dq-rule-sets, schema-presets, workspaces) n'ont pour l'instant
+que **Link + Push** : ni bandeau de détection, ni pull. Le pull reste à concevoir
+**composant par composant**. Ce n'est pas mécanique : chaque type a ses propres familles de
+contenu, donc sa propre logique de merge ET sa propre UI de résolution. Il faut **réfléchir
+à la logique métier de chaque composant avant de coder**.
+
+État factuel du câblage (vérifié dans le code) :
+
+| Scope | Link | Push | Bandeau statut | Pull | Quick-actions |
+|---|---|---|---|---|---|
+| project | ✓ | ✓ | ✓ | ✓ (clone) | ✓ |
+| mapping-project | ✓ | ✓ | ✓ | ✓ (merge fin) | ✓ |
+| sql-script-collection | ✓ | ✓ | ✗ | ✗ | ✗ |
+| etl-pipeline | ✓ | ✓ | ✗ | ✗ | ✗ |
+| data-catalog | ✓ | ✓ | ✗ | ✗ | ✗ |
+| dq-rule-set | ✓ | ✓ | ✗ | ✗ | ✗ |
+| schema-preset | ✓ | ✓ | ✗ | ✗ | ✗ |
+| workspace | ✓ | ✓ | ✗ | ✗ | ~ (sync-all seulement) |
+
+Détails de câblage : Link/Push sont scope-génériques (`git-sync-store.ts` + factory
+`_register_entity_git_routes` dans `git.py`). Le bandeau + Pull sont gardés centralement par
+`syncStateSupported = scope==='mapping-projects' || !!renderPullDialog` (`GitSyncPanel.tsx`) ;
+seuls mapping-project (intégré) et project (via `ProjectPullDialog`) le passent. Les
+« quick-actions » viennent des `DEFS` de `git-quick-actions.ts` : seuls project, mapping-project
+et workspace (sync-all uniquement) y ont une entrée. Les endpoints serveur `sync-state`/`pull-*`
+n'existent que pour projects (sync-state seul), mapping-projects (jeu complet) et
+settings/account.
 
 Point important : la brique réutilisable est l'**infra** (table `git_sync_state`, ancre,
 endpoints `pull-preview`/`pull-file`, garde-fou push, patron datatable de review). Ce qui
@@ -394,11 +433,10 @@ Questions à trancher pour chaque scope quand on s'y attaquera :
 - **À quoi ressemble l'UI de résolution** pour ce contenu (une datatable ? un diff ? un
   simple bloc mien/leur ?).
 
-Esquisse par scope (à valider, non figé) :
+Esquisse par scope restant (à valider, non figé — projects et mapping-projects déjà faits) :
 
 | Scope | Unité probable | Familles / points à penser |
 |---|---|---|
-| **projects** | hétérogène | dashboards (arbre onglets/widgets), scripts IDE (fichiers), datasets (métadonnées), README, badges, pipeline. Sans doute plusieurs sous-UI, pas un seul merger. Le plus complexe. |
 | **sql-script-collections** | un script | fichiers SQL (nom + contenu) → diff texte par script + métadonnées. |
 | **etl-pipelines** | une étape / un fichier | scripts inline + config du pipeline. |
 | **data-catalogs** | une entrée | config/DCAT-AP JSON ; `catalog_results` = cache (ne pas merger). |
