@@ -10,7 +10,9 @@ class DqRuleSetCreate(CamelModel):
     git_remote_config: dict | None = None
     name: dict = {}
     description: dict = {}
-    data_source_id: str
+    # Defaults to "" so a git-linked rule set can be created from a minimal
+    # workspace pointer; the clone re-applies the real data source id from the repo.
+    data_source_id: str = ""
     status: str = "draft"
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None

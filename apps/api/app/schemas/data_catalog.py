@@ -10,7 +10,9 @@ class DataCatalogCreate(CamelModel):
     git_remote_config: dict | None = None
     name: dict = {}
     description: dict = {}
-    data_source_id: str
+    # Defaults to "" so a git-linked catalog can be created from a minimal
+    # workspace pointer; the clone re-applies the real data source id from the repo.
+    data_source_id: str = ""
     dimensions: list = []
     anonymization: dict = {}
     category_column: str | None = None

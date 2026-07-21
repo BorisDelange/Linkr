@@ -11,7 +11,10 @@ class MappingProjectCreate(CamelModel):
     description: dict = {}
     status: str | None = None
     badges: list | None = None
-    source_type: str
+    # Defaults to "file" so a git-linked project can be created from a minimal
+    # workspace pointer (id/name/gitRemoteConfig only); the clone re-applies the
+    # real sourceType from the linked repo's project.json.
+    source_type: str = "file"
     data_source_id: str | None = None
     vocabulary_data_source_id: str | None = None
     file_source_data: dict | None = None
