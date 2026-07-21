@@ -7,7 +7,7 @@ import { APP_VERSION } from '@/lib/version'
 import { deterministicId } from '@/lib/deterministic-id'
 import type {
   Project, IdeFile, Pipeline, Cohort, IdeConnection,
-  Dashboard, DashboardTab, DashboardWidget,
+  Dashboard, DashboardTab, DashboardWidget, DashboardFilter,
   DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, ReadmeAttachment,
   Workspace, WikiPage, WikiAttachment,
   SqlScriptCollection, SqlScriptFile,
@@ -318,6 +318,60 @@ function buildDatasetPath(file: DatasetFile, byId: Map<string, DatasetFile>): st
 
 const json = (data: unknown) => JSON.stringify(data, null, 2)
 
+// Dashboard content keys — uid-independent stable ids for the git round-trip.
+//
+// Dashboard/tab/widget ids are UUIDs, so a delete+reimport (fresh project uid)
+// re-derives every id and churns the whole diff. Instead we strip the UUIDs on
+// export and re-derive each id on import from a stable CONTENT key (like datasets,
+// whose id is a slug/path). Keys are computed identically in export and import.
+//
+// Name uniqueness is only UI-enforced, so keys disambiguate on collision:
+// tabs by displayOrder, widgets by grid position (y,x) then index.
+
+/** dashboardKey — slug of the English name, matching the export filename. */
+function dashboardKey(d: Dashboard): string {
+  return slugify(localized(d.name, 'en') || '')
+}
+
+/**
+ * tabKeyMap — every tab id → its parent-qualified content key. Sub-tabs (one level
+ * of nesting) are qualified by their parent tab's key; root tabs by their dashboard.
+ * Siblings colliding on the same base slug get `#<displayOrder>` appended.
+ */
+function buildTabKeyMap(dashKey: string, tabs: DashboardTab[]): Map<string, string> {
+  const keyOf = new Map<string, string>()
+  const seen = new Set<string>()
+  // Parents before children so a sub-tab's parent key is already resolved.
+  const ordered = [...tabs].sort((a, b) => (a.parentTabId ? 1 : 0) - (b.parentTabId ? 1 : 0))
+  for (const tab of ordered) {
+    const base = slugify(localized(tab.name, 'en') || '')
+    const parent = tab.parentTabId ? keyOf.get(tab.parentTabId) : null
+    let key = `${parent ?? dashKey}/${base}`
+    if (seen.has(key)) key = `${key}#${tab.displayOrder}`
+    seen.add(key)
+    keyOf.set(tab.id, key)
+  }
+  return keyOf
+}
+
+/**
+ * widgetKeyMap — every widget id → its content key, qualified by its tab key and
+ * disambiguated by grid position (widgets have no order field), then `#i` on a tie.
+ */
+function buildWidgetKeyMap(tabKeyMap: Map<string, string>, widgets: DashboardWidget[]): Map<string, string> {
+  const keyOf = new Map<string, string>()
+  const seen = new Set<string>()
+  for (const w of widgets) {
+    const tabKey = tabKeyMap.get(w.tabId) ?? ''
+    const base = `${tabKey}/${slugify(localized(w.name, 'en') || '')}@${w.layout.y},${w.layout.x}`
+    let key = base
+    for (let i = 1; seen.has(key); i++) key = `${base}#${i}`
+    seen.add(key)
+    keyOf.set(w.id, key)
+  }
+  return keyOf
+}
+
 // Fields that are specific to the exporting instance/deployment, not portable
 // project content: the owning user, the workspace placement, the git link
 // (never commit a repo's own remote/token into itself), catalog/org metadata,
@@ -401,7 +455,10 @@ export async function buildProjectZip(
 
   // --- project.json (without readme/todos/notes — those go in separate files —
   // nor instance-specific fields like ownerId/workspaceId/gitRemoteConfig) ---
-  const { readme: _r, todos: _t, notes: _n, ...projectMeta } = project
+  // `uid` is the local primary key: a delete+reimport regenerates it, so writing it
+  // would churn the diff. It's dropped here (NOT added to INSTANCE_FIELDS, which
+  // children share); lineageId/parentLineageId stay for cross-instance identity.
+  const { readme: _r, todos: _t, notes: _n, uid: _uid, ...projectMeta } = project
   zip.file('project.json', json({ ...stripInstanceFields(projectMeta), appVersion: APP_VERSION }))
 
   // --- README.md (+ README.<lang>.md per extra language) ---
@@ -456,6 +513,8 @@ export async function buildProjectZip(
   }
 
   // --- dashboards/ (each dashboard = dashboard + tabs + widgets in one file) ---
+  // Serialize with content keys (not UUID ids) so a delete+reimport re-derives the
+  // same ids and the git diff stays byte-stable. See the key helpers above.
   const dashboards = await storage.dashboards.getByProject(projectUid)
   for (const d of dashboards) {
     const tabs = await storage.dashboardTabs.getByDashboard(d.id)
@@ -463,9 +522,49 @@ export async function buildProjectZip(
     for (const tab of tabs) {
       widgets.push(...(await storage.dashboardWidgets.getByTab(tab.id)))
     }
+    const dashKey = dashboardKey(d)
+    const tabKeyMap = buildTabKeyMap(dashKey, tabs)
+    const widgetKeyMap = buildWidgetKeyMap(tabKeyMap, widgets)
+
+    const dashboardOut = stripInstanceFields(d) as Record<string, unknown>
+    delete dashboardOut.id
+    // projectUid is the parent's local PK (regenerated on reimport); import re-sets it.
+    delete dashboardOut.projectUid
+    if (Array.isArray(dashboardOut.filterConfig)) {
+      dashboardOut.filterConfig = (dashboardOut.filterConfig as DashboardFilter[]).map((f) => {
+        const out = { ...f } as Record<string, unknown>
+        delete out.id
+        if (f.scope?.type === 'tabs') {
+          out.scope = { type: 'tabs', tabKeys: f.scope.tabIds.map((id) => tabKeyMap.get(id) ?? id) }
+        } else if (f.scope?.type === 'widgets') {
+          out.scope = { type: 'widgets', widgetKeys: f.scope.widgetIds.map((id) => widgetKeyMap.get(id) ?? id) }
+        }
+        return out
+      })
+    }
+
+    const tabsOut = tabs.map((tab) => {
+      const out = stripInstanceFields(tab) as Record<string, unknown>
+      const key = tabKeyMap.get(tab.id)!
+      const parentKey = tab.parentTabId ? tabKeyMap.get(tab.parentTabId) ?? null : null
+      delete out.id
+      delete out.dashboardId
+      delete out.parentTabId
+      return { ...out, key, parentKey }
+    })
+
+    const widgetsOut = widgets.map((w) => {
+      const out = stripInstanceFields(w) as Record<string, unknown>
+      const key = widgetKeyMap.get(w.id)!
+      const tabKey = tabKeyMap.get(w.tabId)!
+      delete out.id
+      delete out.tabId
+      return { ...out, key, tabKey }
+    })
+
     zip.file(
-      `dashboards/${slugify(localized(d.name, 'en') || d.id)}.json`,
-      json({ dashboard: stripInstanceFields(d), tabs: tabs.map(stripInstanceFields), widgets: widgets.map(stripInstanceFields) }),
+      `dashboards/${slugify(localized(d.name, 'en') || dashKey || d.id)}.json`,
+      json({ dashboard: dashboardOut, tabs: tabsOut, widgets: widgetsOut }),
     )
   }
 
@@ -540,6 +639,12 @@ export async function buildProjectZip(
 // Parse project ZIP — supports both new structured layout and legacy flat layout
 // ---------------------------------------------------------------------------
 
+// A git-versioned export strips the UUID ids from tabs/widgets and carries content
+// keys instead (key/parentKey/tabKey); a legacy export still carries id/dashboardId/
+// tabId/parentTabId. Import reads whichever is present, per record.
+export type ParsedDashboardTab = DashboardTab & { key?: string; parentKey?: string | null }
+export type ParsedDashboardWidget = DashboardWidget & { key?: string; tabKey?: string }
+
 export interface ParsedProjectZip {
   project: Project
   /** Organization inherited from the parent workspace, bundled by UUID for cross-instance upsert. */
@@ -549,8 +654,8 @@ export interface ParsedProjectZip {
   cohorts: Cohort[]
   connections: IdeConnection[]
   dashboards: Dashboard[]
-  dashboardTabs: DashboardTab[]
-  dashboardWidgets: DashboardWidget[]
+  dashboardTabs: ParsedDashboardTab[]
+  dashboardWidgets: ParsedDashboardWidget[]
   datasetFiles: DatasetFile[]
   datasetAnalyses: DatasetAnalysis[]
   /** CSV data parsed from _data/ folder, keyed by datasetFileId */
@@ -703,6 +808,25 @@ export async function importProjectContent(
   const { datasetIdMap, colIdMap } = await importDatasets(parsed, projectUid, storage, mapId)
   const resolveDatasetId = (oldId: string): string => datasetIdMap.get(oldId) ?? mapId(oldId)
 
+  // Dashboard/tab/widget ids: a git-versioned export carries content keys (re-derive
+  // the id from the key, uid-independent → byte-stable round-trip) while a legacy
+  // export carries UUID ids (fall back to mapId). Detection is per record. The key
+  // namespace is the cross-instance lineage when present, so two instances importing
+  // the same clean bundle land on IDENTICAL ids regardless of their local project uid.
+  const ns = parsed.project.lineageId ?? projectUid
+  const keyId = (key: string): string => deterministicId(ns, key)
+  const dashKeyToId = new Map(parsed.dashboards.map((d) => [dashboardKey(d), keyId(dashboardKey(d))]))
+  const tabKeyToId = new Map(
+    parsed.dashboardTabs.filter((t) => t.key).map((t) => [t.key!, keyId(t.key!)]),
+  )
+  const widgetKeyToId = new Map(
+    parsed.dashboardWidgets.filter((w) => w.key).map((w) => [w.key!, keyId(w.key!)]),
+  )
+  // A tabKey is `<dashboardKey-or-parentTabKey>/<slug>[#n]`; its dashboard portion is the
+  // first segment, resolved back to the dashboard id for a tab's dashboardId.
+  const dashIdForTabKey = (tabKey: string): string =>
+    dashKeyToId.get(tabKey.split('/')[0]) ?? keyId(tabKey.split('/')[0])
+
   for (const f of parsed.ideFiles) {
     await storage.ideFiles.create({ ...f, id: mapId(f.id), projectUid, parentId: f.parentId ? mapId(f.parentId) : null })
   }
@@ -716,32 +840,66 @@ export async function importProjectContent(
     await storage.connections.create({ ...c, id: mapId(c.id), projectUid })
   }
   for (const d of parsed.dashboards) {
-    const filterConfig = (d.filterConfig ?? []).map(f => ({
-      ...f,
-      id: mapId(f.id),
-      datasetFileId: resolveDatasetId(f.datasetFileId),
-      // Bridge the filter's columnId by name like widgets' config colIds — identity for a
-      // deterministic-id export, the rescue path for a legacy col-<ts> export.
-      columnId: colIdMap.get(f.columnId) ?? f.columnId,
-      ...(f.scope?.type === 'tabs' ? { scope: { ...f.scope, tabIds: f.scope.tabIds.map(mapId) } } : {}),
-      ...(f.scope?.type === 'widgets' ? { scope: { ...f.scope, widgetIds: f.scope.widgetIds.map(mapId) } } : {}),
-    }))
+    const dashId = d.id ? mapId(d.id) : keyId(dashboardKey(d))
+    const filterConfig = (d.filterConfig ?? []).map((f, index) => {
+      // A key-based export drops the filter id and rewrites scope ids to keys; re-derive both.
+      const scope = f.scope as
+        | { type: 'tabs'; tabIds?: string[]; tabKeys?: string[] }
+        | { type: 'widgets'; widgetIds?: string[]; widgetKeys?: string[] }
+        | { type: 'all' }
+        | undefined
+      let rewrittenScope = f.scope
+      if (scope?.type === 'tabs') {
+        rewrittenScope = scope.tabKeys
+          ? { type: 'tabs', tabIds: scope.tabKeys.map((k) => tabKeyToId.get(k) ?? keyId(k)) }
+          : { type: 'tabs', tabIds: (scope.tabIds ?? []).map(mapId) }
+      } else if (scope?.type === 'widgets') {
+        rewrittenScope = scope.widgetKeys
+          ? { type: 'widgets', widgetIds: scope.widgetKeys.map((k) => widgetKeyToId.get(k) ?? keyId(k)) }
+          : { type: 'widgets', widgetIds: (scope.widgetIds ?? []).map(mapId) }
+      }
+      return {
+        ...f,
+        id: f.id ? mapId(f.id) : keyId(`${dashboardKey(d)}#f${index}`),
+        datasetFileId: resolveDatasetId(f.datasetFileId),
+        // Bridge the filter's columnId by name like widgets' config colIds — identity for a
+        // deterministic-id export, the rescue path for a legacy col-<ts> export.
+        columnId: colIdMap.get(f.columnId) ?? f.columnId,
+        ...(f.scope ? { scope: rewrittenScope } : {}),
+      }
+    })
     await storage.dashboards.create(dropForeignAuthorId({
       ...d,
-      id: mapId(d.id),
+      id: dashId,
       projectUid,
       filterConfig,
       defaultDatasetFileId: d.defaultDatasetFileId ? resolveDatasetId(d.defaultDatasetFileId) : d.defaultDatasetFileId,
     }))
   }
   for (const tab of parsed.dashboardTabs) {
-    await storage.dashboardTabs.create({ ...tab, id: mapId(tab.id), dashboardId: mapId(tab.dashboardId), parentTabId: tab.parentTabId ? mapId(tab.parentTabId) : (tab.parentTabId ?? null) })
+    const { key, parentKey, ...rest } = tab
+    if (key) {
+      await storage.dashboardTabs.create({
+        ...rest,
+        id: keyId(key),
+        dashboardId: dashIdForTabKey(key),
+        parentTabId: parentKey ? (tabKeyToId.get(parentKey) ?? keyId(parentKey)) : null,
+      })
+    } else {
+      await storage.dashboardTabs.create({
+        ...rest,
+        id: mapId(tab.id),
+        dashboardId: mapId(tab.dashboardId),
+        parentTabId: tab.parentTabId ? mapId(tab.parentTabId) : (tab.parentTabId ?? null),
+      })
+    }
   }
   for (const w of parsed.dashboardWidgets) {
+    const { key, tabKey, ...rest } = w
     await storage.dashboardWidgets.create({
-      ...w,
-      id: mapId(w.id),
-      tabId: mapId(w.tabId),
+      ...rest,
+      id: key ? keyId(key) : mapId(w.id),
+      tabId: tabKey ? (tabKeyToId.get(tabKey) ?? keyId(tabKey)) : mapId(w.tabId),
       datasetFileId: w.datasetFileId ? resolveDatasetId(w.datasetFileId) : w.datasetFileId,
       source: remapColIds(w.source, colIdMap),
     })
@@ -787,7 +945,9 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   const projectFile = zipData.files['project.json']
   if (!projectFile) return null
   const projectRaw = JSON.parse(await projectFile.async('string'))
-  if (!projectRaw?.uid) return null
+  // Clean git-versioned exports strip `uid` (the local PK) and identify the project
+  // by lineageId instead; the target uid is supplied by the caller, not read here.
+  if (!projectRaw || (!projectRaw.uid && !projectRaw.lineageId)) return null
   // Strip export-only fields
   const { appVersion: _av, ...projectMeta } = projectRaw as Project & { appVersion?: string }
 

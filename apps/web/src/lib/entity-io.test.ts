@@ -839,3 +839,129 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(await applyClonedEntity(new JSZip(), 'schema-preset', 'x', store)).toBe(false)
   })
 })
+
+// The git round-trip goal: delete a project + reimport it from git into a fresh
+// instance (new project uid) = ZERO diff. Dashboards/tabs/widgets used to churn
+// because their ids were UUIDs re-derived from the (regenerated) project uid. A
+// git-versioned export now strips those UUIDs and carries CONTENT keys; import
+// re-derives the ids from the lineage namespace, so the SAME clean bundle imported
+// under two different uids yields byte-identical ids.
+describe('§4 uid-independent dashboard ids', () => {
+  type Captured = {
+    dashboards: Record<string, unknown>[]
+    tabs: Record<string, unknown>[]
+    widgets: Record<string, unknown>[]
+  }
+  const makeStore = () => {
+    const cap: Captured = { dashboards: [], tabs: [], widgets: [] }
+    const store = new Proxy({}, {
+      get: (_t, prop) => {
+        if (prop === 'dashboards') return { create: async (d: Record<string, unknown>) => { cap.dashboards.push(d) } }
+        if (prop === 'dashboardTabs') return { create: async (t: Record<string, unknown>) => { cap.tabs.push(t) } }
+        if (prop === 'dashboardWidgets') return { create: async (w: Record<string, unknown>) => { cap.widgets.push(w) } }
+        return new Proxy({}, { get: () => async () => {} })
+      },
+    }) as unknown as Storage
+    return { store, cap }
+  }
+
+  // A clean git-versioned bundle: project has lineageId but NO uid; tabs carry
+  // key/parentKey (a root tab + one sub-tab), widgets carry key/tabKey, and the
+  // dashboard's filterConfig has no id and a key-based scope.
+  const cleanBundle = (): ParsedProjectZip => ({
+    project: { name: { en: 'P' }, lineageId: 'lin-abc' } as unknown as ParsedProjectZip['project'],
+    ideFiles: [], pipelines: [], cohorts: [], connections: [],
+    dashboards: [{
+      projectUid: '', name: { en: 'Overview' }, gridV: 2,
+      filterConfig: [{
+        datasetFileId: 'data.csv', columnId: 'col_sex', columnName: 'sex',
+        type: 'categorical', inputType: 'multi-select',
+        scope: { type: 'tabs', tabKeys: ['overview/summary'] },
+      }],
+    } as unknown as ParsedProjectZip['dashboards'][number]],
+    dashboardTabs: [
+      { key: 'overview/summary', parentKey: null, name: { en: 'Summary' }, displayOrder: 0 } as unknown as ParsedProjectZip['dashboardTabs'][number],
+      { key: 'overview/summary/detail', parentKey: 'overview/summary', name: { en: 'Detail' }, displayOrder: 1 } as unknown as ParsedProjectZip['dashboardTabs'][number],
+    ],
+    dashboardWidgets: [
+      { key: 'overview/summary/kpi@0,0', tabKey: 'overview/summary', name: { en: 'KPI' }, layout: { x: 0, y: 0, w: 4, h: 2 }, source: { type: 'inline', language: 'sql', code: '', config: {} } } as unknown as ParsedProjectZip['dashboardWidgets'][number],
+    ],
+    datasetFiles: [], datasetAnalyses: [], datasetData: [], datasetRawFiles: [],
+    attachmentsMeta: [], attachmentBlobs: new Map(),
+  })
+
+  beforeEach(() => { serverMode.value = false })
+
+  it('re-derives IDENTICAL ids for the same clean bundle across two different project uids', async () => {
+    const a = makeStore()
+    const b = makeStore()
+    await importProjectContent(cleanBundle(), 'uidA', a.store)
+    await importProjectContent(cleanBundle(), 'uidB', b.store)
+
+    const da = a.cap.dashboards[0] as { id: string; filterConfig: { id: string; scope: { tabIds: string[] } }[] }
+    const db = b.cap.dashboards[0] as { id: string; filterConfig: { id: string; scope: { tabIds: string[] } }[] }
+    const ta = a.cap.tabs as { id: string; dashboardId: string; parentTabId: string | null }[]
+    const tb = b.cap.tabs as { id: string; dashboardId: string; parentTabId: string | null }[]
+    const wa = a.cap.widgets[0] as { id: string; tabId: string }
+    const wb = b.cap.widgets[0] as { id: string; tabId: string }
+
+    // Zero-diff: every derived id matches across the two different uids.
+    expect(da.id).toBe(db.id)
+    expect(da.filterConfig[0].id).toBe(db.filterConfig[0].id)
+    expect(da.filterConfig[0].scope.tabIds).toEqual(db.filterConfig[0].scope.tabIds)
+    expect(ta.map(t => t.id)).toEqual(tb.map(t => t.id))
+    expect(ta.map(t => t.dashboardId)).toEqual(tb.map(t => t.dashboardId))
+    expect(ta.map(t => t.parentTabId)).toEqual(tb.map(t => t.parentTabId))
+    expect(wa.id).toBe(wb.id)
+    expect(wa.tabId).toBe(wb.tabId)
+
+    // The relationships are internally consistent (not just equal to each other):
+    // the widget sits on the root tab, the sub-tab points at its parent, the
+    // filter scope references the root tab, and every tab belongs to the dashboard.
+    expect(wa.tabId).toBe(ta[0].id)
+    expect(ta[1].parentTabId).toBe(ta[0].id)
+    expect(da.filterConfig[0].scope.tabIds).toEqual([ta[0].id])
+    expect(ta.every(t => t.dashboardId === da.id)).toBe(true)
+  })
+
+  // A legacy export (UUID ids, project.uid, no content keys) must still import via
+  // the mapId path — the change is a tolerant per-record read, not a migration.
+  it('still imports a legacy UUID-based bundle (mapId path)', async () => {
+    const legacy: ParsedProjectZip = {
+      project: { uid: 'p1', name: { en: 'P' } } as unknown as ParsedProjectZip['project'],
+      ideFiles: [], pipelines: [], cohorts: [], connections: [],
+      dashboards: [{
+        id: 'dash-uuid', projectUid: 'p1', name: { en: 'D' }, gridV: 2,
+        filterConfig: [{
+          id: 'f-uuid', datasetFileId: 'ds-uuid', columnId: 'c1', columnName: 'sex',
+          type: 'categorical', inputType: 'multi-select',
+          scope: { type: 'tabs', tabIds: ['tab-uuid'] },
+        }],
+      } as unknown as ParsedProjectZip['dashboards'][number]],
+      dashboardTabs: [
+        { id: 'tab-uuid', dashboardId: 'dash-uuid', name: { en: 'T' }, displayOrder: 0, parentTabId: null } as unknown as ParsedProjectZip['dashboardTabs'][number],
+        { id: 'sub-uuid', dashboardId: 'dash-uuid', name: { en: 'S' }, displayOrder: 1, parentTabId: 'tab-uuid' } as unknown as ParsedProjectZip['dashboardTabs'][number],
+      ],
+      dashboardWidgets: [
+        { id: 'w-uuid', tabId: 'tab-uuid', name: { en: 'W' }, layout: { x: 0, y: 0, w: 4, h: 2 }, source: { type: 'inline', language: 'sql', code: '', config: {} } } as unknown as ParsedProjectZip['dashboardWidgets'][number],
+      ],
+      datasetFiles: [], datasetAnalyses: [], datasetData: [], datasetRawFiles: [],
+      attachmentsMeta: [], attachmentBlobs: new Map(),
+    }
+
+    const { store, cap } = makeStore()
+    await importProjectContent(legacy, 'p1', store)
+
+    const d = cap.dashboards[0] as { id: string; filterConfig: { id: string; scope: { tabIds: string[] } }[] }
+    const tabs = cap.tabs as { id: string; dashboardId: string; parentTabId: string | null }[]
+    const w = cap.widgets[0] as { id: string; tabId: string }
+    // All ids remapped through mapId(projectUid, oldId) — deterministic, non-empty,
+    // and the FK relationships still hold after remapping.
+    expect(d.id).toBeTruthy()
+    expect(tabs[0].dashboardId).toBe(d.id)
+    expect(tabs[1].parentTabId).toBe(tabs[0].id)
+    expect(w.tabId).toBe(tabs[0].id)
+    expect(d.filterConfig[0].scope.tabIds).toEqual([tabs[0].id])
+    expect(d.filterConfig[0].id).toBeTruthy()
+  })
+})
