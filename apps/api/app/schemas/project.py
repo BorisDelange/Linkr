@@ -32,6 +32,7 @@ class ProjectCreate(CamelModel):
     # Creation date preserved on import round-trip. Absent for a fresh create or a
     # legacy file → excluded by exclude_none → server_default stamps now.
     created_at: datetime | None = None
+    version: str = "0.1.0"
 
 
 class ProjectUpdate(CamelModel):
@@ -56,6 +57,7 @@ class ProjectUpdate(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    version: str | None = None
 
 
 class ProjectResponse(CamelModel):
@@ -82,5 +84,6 @@ class ProjectResponse(CamelModel):
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    version: str
     created_at: datetime
     updated_at: datetime

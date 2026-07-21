@@ -19,6 +19,7 @@ class SqlScriptCollectionCreate(CamelModel):
     parent_lineage_id: str | None = None
     # Creation date preserved on import round-trip; absent → server_default now.
     created_at: datetime | None = None
+    version: str = "0.1.0"
 
 
 class SqlScriptCollectionUpdate(CamelModel):
@@ -34,6 +35,7 @@ class SqlScriptCollectionUpdate(CamelModel):
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
+    version: str | None = None
 
 
 class SqlScriptCollectionResponse(CamelModel):
@@ -52,6 +54,7 @@ class SqlScriptCollectionResponse(CamelModel):
     parent_lineage_id: str | None = None
     created_at: datetime
     updated_at: datetime
+    version: str
 
 
 class SqlScriptFileCreate(CamelModel):

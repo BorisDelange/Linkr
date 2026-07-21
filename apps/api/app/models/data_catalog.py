@@ -30,6 +30,8 @@ class DataCatalog(Base, TimestampMixin):
     last_compute_duration_ms: Mapped[int | None] = mapped_column(Integer)
     dcat_ap_metadata: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
+    # User-facing semver, portable across export/import (see Project.version).
+    version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
     # Stable creator identity (name resolved live from the directory); created_by /
     # created_by_details are the display snapshot kept for cross-instance imports.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

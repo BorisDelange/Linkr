@@ -17,6 +17,7 @@ class CohortCreate(CamelModel):
     schema_version: int = 3
     # Creation date preserved on import round-trip; absent → server_default stamps now.
     created_at: datetime | None = None
+    version: str = "0.1.0"
 
 
 class CohortUpdate(CamelModel):
@@ -29,6 +30,7 @@ class CohortUpdate(CamelModel):
     attrition: list | None = None
     materialization: dict | None = None
     schema_version: int | None = None
+    version: str | None = None
 
 
 class CohortResponse(CamelModel):
@@ -45,3 +47,4 @@ class CohortResponse(CamelModel):
     schema_version: int
     created_at: datetime
     updated_at: datetime
+    version: str

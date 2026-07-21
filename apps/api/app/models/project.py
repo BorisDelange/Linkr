@@ -38,6 +38,9 @@ class Project(Base, TimestampMixin):
     parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     catalog_visibility: Mapped[str | None] = mapped_column(String(20))
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
+    # User-facing semver, bumped by hand in the edit dialog. Portable (kept in
+    # exports/git, preserved on import) — distinct from APP_VERSION (the app build).
+    version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     # Creator provenance. created_by_id is the stable identity (name resolved live
     # from the directory); created_by / created_by_details are the display snapshot

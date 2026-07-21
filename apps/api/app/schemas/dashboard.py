@@ -23,6 +23,7 @@ class DashboardCreate(CamelModel):
     created_by_details: dict | None = None
     # Creation date preserved on import round-trip; absent → server_default now.
     created_at: datetime | None = None
+    version: str = "0.1.0"
 
 
 class DashboardUpdate(CamelModel):
@@ -37,6 +38,7 @@ class DashboardUpdate(CamelModel):
     grid_v: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
+    version: str | None = None
 
 
 class DashboardResponse(CamelModel):
@@ -57,6 +59,7 @@ class DashboardResponse(CamelModel):
     created_by_details: dict | None = None
     created_at: datetime
     updated_at: datetime
+    version: str
 
 
 # Tab/widget name is a LocalizedString dict ({"en": ...}); legacy rows and old export

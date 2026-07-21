@@ -21,6 +21,8 @@ class SqlScriptCollection(Base, TimestampMixin):
     description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     default_data_source_id: Mapped[str | None] = mapped_column(String(36))
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # User-facing semver, portable across export/import (see Project.version).
+    version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
     # Stable creator identity (name resolved live from the directory); created_by /
     # created_by_details are the display snapshot kept for cross-instance imports.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

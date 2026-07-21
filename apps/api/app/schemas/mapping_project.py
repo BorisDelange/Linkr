@@ -32,6 +32,7 @@ class MappingProjectCreate(CamelModel):
     parent_lineage_id: str | None = None
     # Creation date preserved on import round-trip; absent → server_default now.
     created_at: datetime | None = None
+    version: str = "0.1.0"
 
 
 class MappingProjectUpdate(CamelModel):
@@ -59,6 +60,7 @@ class MappingProjectUpdate(CamelModel):
     stats: dict | None = None
     import_batches: list | None = None
     git_remote_config: dict | None = None
+    version: str | None = None
 
 
 class MappingProjectResponse(CamelModel):
@@ -90,6 +92,7 @@ class MappingProjectResponse(CamelModel):
     parent_lineage_id: str | None = None
     created_at: datetime
     updated_at: datetime
+    version: str
 
 
 # --- Concept mappings ------------------------------------------------------

@@ -38,6 +38,7 @@
     "lineageId": null,
     "parentLineageId": null,
     "createdAt": "2026-01-01T00:00:00Z",
+    "version": "0.1.0",
     "updatedAt": "2026-01-01T00:00:00Z"
   },
   "sourceCsvBase64": "dGVybWlub2xvZ3ksY29uY2VwdF9jb2RlLGNvbmNlcHRfbmFtZQpMT0lOQywyMDExMi05LFRpZGFsIHZvbHVtZQpMT0lOQywiYSxiIixDb21tYSBuYW1lCg==",

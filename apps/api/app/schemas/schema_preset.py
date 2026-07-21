@@ -15,6 +15,7 @@ class SchemaPresetSave(CamelModel):
     created_by_details: dict | None = None
     # Creation date preserved on import round-trip; applied only when creating.
     created_at: datetime | None = None
+    version: str = "0.1.0"
 
 
 class SchemaPresetResponse(CamelModel):
@@ -27,3 +28,4 @@ class SchemaPresetResponse(CamelModel):
     created_by_details: dict | None = None
     created_at: datetime
     updated_at: datetime
+    version: str

@@ -27,3 +27,6 @@ class Cohort(Base, TimestampMixin):
     # Persisted and shared across users in fullstack mode.
     materialization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     schema_version: Mapped[int] = mapped_column(Integer, default=3)
+    # User-facing semver (distinct from schema_version, the internal migration
+    # counter). Portable across export/import (see Project.version).
+    version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
