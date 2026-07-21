@@ -76,6 +76,7 @@ function ComponentAnalysis({ analysis, plugin }: { analysis: DatasetAnalysis; pl
       columns={columns}
       onConfigChange={onConfigChange}
       rows={dataRows}
+      datasetFileId={analysis.datasetFileId}
     />
   )
 
@@ -126,6 +127,7 @@ function ScriptAnalysis({
       config={analysis.config}
       columns={columns}
       onConfigChange={onConfigChange}
+      datasetFileId={analysis.datasetFileId}
     />
   )
 

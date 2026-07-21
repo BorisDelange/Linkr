@@ -382,6 +382,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
                     columns={columns}
                     onConfigChange={handleConfigChange}
                     rows={filteredRows}
+                    datasetFileId={datasetFileId ?? undefined}
                   />
                 )}
                 {activeTab === 'code' && (

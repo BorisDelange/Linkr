@@ -25,6 +25,8 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { isServerMode } from '@/lib/api-client'
+import { fetchColumnDistinct } from '@/lib/api/datasets'
 import { ColorPickerPopover } from '@/components/ui/color-picker-popover'
 import { PaletteEditor } from '@/components/ui/palette-editor'
 import { CHART_PALETTES } from '@/lib/plugins/shared-styles'
@@ -38,6 +40,9 @@ interface GenericConfigPanelProps {
   onConfigChange: (changes: Record<string, unknown>) => void
   /** Data rows — needed for column-value-select fields. */
   rows?: Record<string, unknown>[]
+  /** Dataset file id — lets column-value-select fetch distinct values from the
+   *  server when `rows` is empty (server mode), instead of showing nothing. */
+  datasetFileId?: string
 }
 
 export function GenericConfigPanel({
@@ -46,6 +51,7 @@ export function GenericConfigPanel({
   columns,
   onConfigChange,
   rows,
+  datasetFileId,
 }: GenericConfigPanelProps) {
   const { i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
@@ -135,6 +141,7 @@ export function GenericConfigPanel({
           config={configWithDefaults}
           onConfigChange={onConfigChange}
           rows={rows}
+          datasetFileId={datasetFileId}
         />
       ) : fieldThenBooleans ? (
         <div key={group.keys.join('-')} className="grid items-end gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -147,6 +154,7 @@ export function GenericConfigPanel({
             config={configWithDefaults}
             onConfigChange={onConfigChange}
             rows={rows}
+            datasetFileId={datasetFileId}
           />
           <div className="flex flex-wrap items-end gap-x-5 gap-y-1">
             {group.keys.slice(1).map((key, idx) => (
@@ -160,6 +168,7 @@ export function GenericConfigPanel({
                 config={configWithDefaults}
                 onConfigChange={onConfigChange}
                 rows={rows}
+                datasetFileId={datasetFileId}
               />
             ))}
           </div>
@@ -178,6 +187,7 @@ export function GenericConfigPanel({
               config={configWithDefaults}
               onConfigChange={onConfigChange}
               rows={rows}
+              datasetFileId={datasetFileId}
             />
           ))}
         </div>
@@ -194,6 +204,7 @@ export function GenericConfigPanel({
               config={configWithDefaults}
               onConfigChange={onConfigChange}
               rows={rows}
+              datasetFileId={datasetFileId}
             />
           ))}
         </div>
@@ -309,9 +320,10 @@ interface FieldRendererProps {
   config: Record<string, unknown>
   onConfigChange: (changes: Record<string, unknown>) => void
   rows?: Record<string, unknown>[]
+  datasetFileId?: string
 }
 
-function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfigChange, rows }: FieldRendererProps) {
+function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfigChange, rows, datasetFileId }: FieldRendererProps) {
   switch (field.type) {
     case 'column-select':
       return field.multi ? (
@@ -346,6 +358,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           config={config}
           onConfigChange={onConfigChange}
           rows={rows}
+          datasetFileId={datasetFileId}
         />
       )
     case 'select':
@@ -682,12 +695,13 @@ function ColumnValueSelect({
   config,
   onConfigChange,
   rows,
+  datasetFileId,
 }: FieldRendererProps) {
   const { t } = useTranslation()
   const columnFieldId = config[field.columnField ?? ''] as string | undefined
   const current = (value as string | undefined) ?? ''
 
-  const uniqueValues = useMemo(() => {
+  const localValues = useMemo(() => {
     if (!columnFieldId || !rows) return []
     const seen = new Set<string>()
     for (const row of rows) {
@@ -696,6 +710,26 @@ function ColumnValueSelect({
     }
     return Array.from(seen).sort()
   }, [columnFieldId, rows])
+
+  // Server mode: `rows` is empty (the browser never holds the dataset), so the
+  // distinct values must be fetched server-side. Front-only uses localValues.
+  // Tagged with the column id so a result for a previous column is never shown.
+  const [serverValues, setServerValues] = useState<{ colId: string; values: string[] }>({ colId: '', values: [] })
+  const needsServer = isServerMode() && !!datasetFileId && !!columnFieldId && (!rows || rows.length === 0)
+  useEffect(() => {
+    if (!needsServer) return
+    let cancelled = false
+    fetchColumnDistinct(datasetFileId!, columnFieldId!, { limit: 500 })
+      .then((res) => { if (!cancelled) setServerValues({ colId: columnFieldId!, values: res.values }) })
+      .catch(() => { if (!cancelled) setServerValues({ colId: columnFieldId!, values: [] }) })
+    return () => { cancelled = true }
+  }, [needsServer, datasetFileId, columnFieldId])
+
+  const uniqueValues = localValues.length > 0
+    ? localValues
+    : needsServer && serverValues.colId === columnFieldId
+      ? serverValues.values
+      : []
 
   return (
     <div className="space-y-1.5">

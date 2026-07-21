@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
+import { queryDatasetRows } from '@/lib/api/datasets'
 import { ImportSettingsDialog } from './ImportSettingsDialog'
 import type { DatasetFile } from '@/types'
 
@@ -156,13 +157,22 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
     }
 
     // No raw file (e.g. a manually-created dataset): reconstruct a CSV. In server
-    // mode the rows aren't in memory, so fetch them from the server instead.
+    // mode the rows aren't in memory (datasetData.get no-ops on the API adapter),
+    // so page them from the server; front-only reads the in-memory/IDB rows.
     const columns = node.columns ?? []
     if (columns.length === 0) return
     let rows = useDatasetStore.getState().getFileRows(node.id)
     if (rows.length === 0) {
-      const data = await getStorage().datasetData.get(node.id)
-      rows = data?.rows ?? []
+      if (isServerMode()) {
+        const total = node.rowCount ?? 0
+        if (total > 0) {
+          const page = await queryDatasetRows(node.id, { offset: 0, limit: total })
+          rows = page.rows
+        }
+      } else {
+        const data = await getStorage().datasetData.get(node.id)
+        rows = data?.rows ?? []
+      }
     }
     const header = columns.map((c) => c.name).join(',')
     const lines = rows.map((row) =>

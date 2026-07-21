@@ -363,6 +363,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
                           columns={columns}
                           onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
                           rows={rows}
+                          datasetFileId={datasetFileId ?? undefined}
                         />
                       </div>
                     )}

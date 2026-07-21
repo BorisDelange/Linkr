@@ -345,35 +345,41 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
     const findDf = (folder: string) =>
       datasetFiles.find(f => f.name.replace(/\.[^.]+$/, '') === folder && f.type === 'file')
 
-    const sidecarFolders = new Set(projectIndex?.datasetDataSidecars ?? [])
-    for (const folder of sidecarFolders) {
-      const df = findDf(folder)
-      if (!df) continue
-      const sidecar = await fetchJson<{ rows: Record<string, unknown>[] }>(`${base}/datasets/${folder}/_data.json`)
-      if (sidecar?.rows?.length) {
-        await storage.datasetData.save({ datasetFileId: df.id, rows: sidecar.rows }).catch(() => {})
+    // Server mode: dataset rows + raw files are pre-provisioned server-side (portal
+    // build), and the API storage adapter's save() is a no-op anyway, so fetching
+    // these blobs into the browser would be pure wasted download/parse. Skip them —
+    // same rationale as the Parquet-DB guard below. Front-only keeps loading them.
+    if (!isServerMode()) {
+      const sidecarFolders = new Set(projectIndex?.datasetDataSidecars ?? [])
+      for (const folder of sidecarFolders) {
+        const df = findDf(folder)
+        if (!df) continue
+        const sidecar = await fetchJson<{ rows: Record<string, unknown>[] }>(`${base}/datasets/${folder}/_data.json`)
+        if (sidecar?.rows?.length) {
+          await storage.datasetData.save({ datasetFileId: df.id, rows: sidecar.rows }).catch(() => {})
+        }
       }
-    }
 
-    for (const [folder, csvPath] of Object.entries(projectIndex?.datasetCsvFiles ?? {})) {
-      if (sidecarFolders.has(folder)) continue // rows already loaded from the sidecar
-      const df = findDf(folder)
-      if (!df) continue
-      const csv = await fetchText(`${base}/datasets/${folder}/${csvPath}`)
-      if (!csv) continue
-      const rows = parseSeedCsv(csv, df)
-      if (rows.length > 0) {
-        await storage.datasetData.save({ datasetFileId: df.id, rows }).catch(() => {})
+      for (const [folder, csvPath] of Object.entries(projectIndex?.datasetCsvFiles ?? {})) {
+        if (sidecarFolders.has(folder)) continue // rows already loaded from the sidecar
+        const df = findDf(folder)
+        if (!df) continue
+        const csv = await fetchText(`${base}/datasets/${folder}/${csvPath}`)
+        if (!csv) continue
+        const rows = parseSeedCsv(csv, df)
+        if (rows.length > 0) {
+          await storage.datasetData.save({ datasetFileId: df.id, rows }).catch(() => {})
+        }
       }
-    }
 
-    // Restore original uploaded files so "Import settings" works in the seeded app.
-    for (const [folder, rawName] of Object.entries(projectIndex?.datasetRawFiles ?? {})) {
-      const df = findDf(folder)
-      if (!df) continue
-      const bytes = await fetchBinary(`${base}/datasets/${folder}/${rawName}`)
-      if (bytes) {
-        await storage.datasetRawFiles.save({ datasetFileId: df.id, blob: new Blob([bytes]), fileName: rawName }).catch(() => {})
+      // Restore original uploaded files so "Import settings" works in the seeded app.
+      for (const [folder, rawName] of Object.entries(projectIndex?.datasetRawFiles ?? {})) {
+        const df = findDf(folder)
+        if (!df) continue
+        const bytes = await fetchBinary(`${base}/datasets/${folder}/${rawName}`)
+        if (bytes) {
+          await storage.datasetRawFiles.save({ datasetFileId: df.id, blob: new Blob([bytes]), fileName: rawName }).catch(() => {})
+        }
       }
     }
   }
@@ -1123,7 +1129,11 @@ async function seedDataset(config: SeedDataset): Promise<void> {
   }
 
   await storage.datasetFiles.create(datasetFile)
-  await storage.datasetData.save({ datasetFileId: config.id, rows: data.rows })
+  // Server mode: rows are pre-provisioned server-side and the API adapter's save()
+  // is a no-op, so only persist rows into the browser store in front-only mode.
+  if (!isServerMode()) {
+    await storage.datasetData.save({ datasetFileId: config.id, rows: data.rows })
+  }
 
   localStorage.setItem(lsKey, '1')
   console.info(`[seed-loader] Dataset "${config.fileName}" seeded: ${data.rows.length} rows`)

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
+import { uploadDataSourceFile } from '@/lib/api/data-sources'
 import { useDataSourceStore } from './data-source-store'
 import type {
   IdeConnection,
@@ -138,6 +139,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
     const storedHandles: StoredFileHandle[] = []
     const storedFiles: StoredFile[] = []
+    // Server mode: files are streamed to the blob store AFTER the connection row
+    // exists (the import endpoint loads the source, else 404s), so queue them here.
+    let serverFilesToUpload: File[] | null = null
 
     if (isLocal) {
       // Local engine: file-based. FS Access handles are client-only; never
@@ -163,24 +167,40 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           connectionConfig.fileNames = storedHandles.map((h) => h.fileName)
         }
       } else if (source.files && source.files.length > 0) {
-        for (const file of source.files) {
-          const data = await file.arrayBuffer()
-          const storedFile: StoredFile = {
-            id: crypto.randomUUID(),
-            dataSourceId: id,
-            fileName: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
-            fileSize: file.size,
-            data,
-            createdAt: now,
+        const fileNameOf = (f: File) =>
+          (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
+        if (isServerMode()) {
+          // Server mode: stream the bytes up after the row is created (below),
+          // never materialize the whole file in memory here (fails > 2 GB). Only
+          // set the config markers up front, using deterministic ids.
+          const names = source.files.map(fileNameOf)
+          if (names.length === 1) {
+            connectionConfig.fileId = crypto.randomUUID()
+          } else {
+            connectionConfig.fileIds = names.map(() => crypto.randomUUID())
+            connectionConfig.fileNames = names
           }
-          storedFiles.push(storedFile)
-          await getStorage().files.create(storedFile)
-        }
-        if (storedFiles.length === 1) {
-          connectionConfig.fileId = storedFiles[0].id
+          serverFilesToUpload = source.files
         } else {
-          connectionConfig.fileIds = storedFiles.map((f) => f.id)
-          connectionConfig.fileNames = storedFiles.map((f) => f.fileName)
+          for (const file of source.files) {
+            const data = await file.arrayBuffer()
+            const storedFile: StoredFile = {
+              id: crypto.randomUUID(),
+              dataSourceId: id,
+              fileName: fileNameOf(file),
+              fileSize: file.size,
+              data,
+              createdAt: now,
+            }
+            storedFiles.push(storedFile)
+            await getStorage().files.create(storedFile)
+          }
+          if (storedFiles.length === 1) {
+            connectionConfig.fileId = storedFiles[0].id
+          } else {
+            connectionConfig.fileIds = storedFiles.map((f) => f.id)
+            connectionConfig.fileNames = storedFiles.map((f) => f.fileName)
+          }
         }
       }
     } else if (source.remoteConfig) {
@@ -206,8 +226,17 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     await getStorage().connections.create(conn)
     set((s) => ({ customConnections: [...s.customConnections, conn] }))
 
+    // Now that the connection row exists on the server, stream its files up.
+    // Doing this before creation would 404 (the import endpoint loads the source).
+    if (serverFilesToUpload) {
+      for (const file of serverFilesToUpload) {
+        const fileName = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+        await uploadDataSourceFile(id, file, fileName)
+      }
+    }
+
     if (isLocal && isServerMode()) {
-      // Server mode: the file bytes were uploaded to the blob store above and
+      // Server mode: the file bytes were streamed to the blob store above and
       // are queried server-side — no browser WASM mount. Mark it connected.
       await updateConnStatus(id, 'connected', set, get)
     } else if (isLocal) {
