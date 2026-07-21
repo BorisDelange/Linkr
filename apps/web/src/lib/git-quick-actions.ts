@@ -1,14 +1,21 @@
-import type { GitScope } from '@/lib/api/git'
+import type { GitFileChange, GitScope } from '@/lib/api/git'
 import { gitFileMeta } from '@/lib/git-file-meta'
+
+/** One changed file an action will commit, with its git change type (A/M/D) so the
+ *  UI can badge it — a "deleted" row makes clear the action REMOVES that file. */
+export interface QuickActionFile {
+  path: string
+  changeType: string
+}
 
 /**
  * A one-click commit+push preset for the versioning panel: a curated subset of
  * the currently-changed files, committed together with an auto-generated
  * message — so a non-developer needn't hand-tick files for the common cases.
  *
- * `paths` is already narrowed to the files that ACTUALLY changed (the intersection
+ * `files` is already narrowed to the files that ACTUALLY changed (the intersection
  * of the preset's patterns with the current change set), so the UI can list the
- * exact paths in a tooltip and disable the action when nothing relevant changed.
+ * exact paths + change badges and disable the action when nothing relevant changed.
  */
 export interface QuickAction {
   /** i18n key for the action title (e.g. versioning.quick_sync_all). */
@@ -17,8 +24,11 @@ export interface QuickAction {
   descriptionKey: string
   /** i18n key for the commit message, interpolated with { author }. */
   messageKey: string
-  /** The changed paths this action will commit + push, in list order. */
-  paths: string[]
+  /** The changed files this action will commit + push, in list order. */
+  files: QuickActionFile[]
+  /** The primary "sync everything" preset — carries the shared accent color and,
+   *  when data files aren't included, the deletion warning. */
+  isSyncAll: boolean
 }
 
 interface QuickActionDef {
@@ -30,7 +40,8 @@ interface QuickActionDef {
   patterns?: RegExp[]
   /** Drop paths whose git-file category is "other" (unrecognised files). Used by
    *  "Sync all" so a stray/unknown file isn't swept into a one-click commit —
-   *  the user handles those deliberately from the Details tab. */
+   *  the user handles those deliberately from the Details tab. This also marks the
+   *  preset as the "Sync all" one for the shared accent + data-deletion warning. */
   excludeOther?: boolean
 }
 
@@ -107,22 +118,37 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
   ],
 }
 
-/** Resolve the scope's quick actions against the current changed paths. Each
- *  action's `paths` preserves the order of `changedPaths`. Actions whose patterns
- *  match nothing still appear with an empty `paths` (the UI disables them). */
+/** Heavy dataset content files (gated by the "include data files" toggle). When the
+ *  toggle is OFF these are gitignored and dropped from the export, so a "Sync all"
+ *  against a remote that HAS them pushes their DELETION — the UI warns about that. */
+const DATA_FILE_RE = /^datasets\/.*\.(csv|parquet|xlsx|xls)$|^datasets\/.*\/_data\.json$/
+export function isDataFilePath(path: string): boolean {
+  return DATA_FILE_RE.test(path)
+}
+
+/** Resolve the scope's quick actions against the current changed files. Each
+ *  action's `files` preserves the order of `changes`. Actions whose patterns
+ *  match nothing still appear with an empty `files` (the UI disables them). */
 export function buildQuickActions(
   scope: GitScope,
-  changedPaths: string[],
+  changes: GitFileChange[],
 ): QuickAction[] {
   const defs = DEFS[scope]
   if (!defs) return []
   return defs.map((def) => {
-    let paths = def.patterns
-      ? changedPaths.filter((p) => def.patterns!.some((re) => re.test(p)))
-      : [...changedPaths]
+    let files: QuickActionFile[] = (def.patterns
+      ? changes.filter((c) => def.patterns!.some((re) => re.test(c.path)))
+      : [...changes]
+    ).map((c) => ({ path: c.path, changeType: c.changeType }))
     if (def.excludeOther) {
-      paths = paths.filter((p) => gitFileMeta(scope, p).category !== 'other')
+      files = files.filter((f) => gitFileMeta(scope, f.path).category !== 'other')
     }
-    return { labelKey: def.labelKey, descriptionKey: def.descriptionKey, messageKey: def.messageKey, paths }
+    return {
+      labelKey: def.labelKey,
+      descriptionKey: def.descriptionKey,
+      messageKey: def.messageKey,
+      files,
+      isSyncAll: !!def.excludeOther,
+    }
   })
 }

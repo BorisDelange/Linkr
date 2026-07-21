@@ -1518,6 +1518,7 @@
     "quick_tab": "Actions rapides",
     "details_tab": "Détails",
     "quick_will_push": "Seront validés et poussés :",
+    "quick_deletes_data": "Les fichiers de données ne sont pas inclus : cela supprimera donc les fichiers de données déjà présents sur le dépôt distant. Cochez « Inclure les fichiers de données » ci-dessus pour les conserver.",
     "quick_nothing": "Rien à valider — ces fichiers n'ont pas changé.",
     "quick_unknown_author": "auteur inconnu",
     "quick_pull_required": "Le dépôt distant a des changements que vous n'avez pas encore — synchronisation impossible tant que vous ne les avez pas récupérés (utilisez le bouton Pull ci-dessous).",

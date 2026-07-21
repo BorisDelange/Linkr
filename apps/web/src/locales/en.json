@@ -1518,6 +1518,7 @@
     "quick_tab": "Quick actions",
     "details_tab": "Details",
     "quick_will_push": "Will be committed and pushed:",
+    "quick_deletes_data": "Data files aren't included, so this will delete the data files already on the remote. Tick “Include data files” above to keep them.",
     "quick_nothing": "Nothing to commit — these files haven't changed.",
     "quick_unknown_author": "unknown author",
     "quick_pull_required": "The remote has changes you don't have yet — syncing isn't possible until you pull them first (use the Pull button below).",
