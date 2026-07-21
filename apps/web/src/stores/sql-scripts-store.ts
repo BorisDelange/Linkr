@@ -9,7 +9,7 @@ import type { SqlScriptCollection, SqlScriptFile } from '@/types'
 export interface SqlOutputTab {
   id: string
   label: string
-  type: 'table' | 'text'
+  type: 'table' | 'text' | 'markdown'
   content: unknown
 }
 

@@ -628,11 +628,14 @@ export function FilesPage() {
   const runCode = useCallback(
     (code: string, label: string) => {
       if (isMarkdown) {
+        // Markdown has no partial run: always render the whole file, whatever the
+        // trigger (Run file / selection / line).
+        const name = selectedNode?.name ?? label
         addOutputTab({
-          id: `markdown-${label}`,
-          label: `Preview — ${label}`,
+          id: `markdown-${name}`,
+          label: `Preview — ${name}`,
           type: 'markdown',
-          content: code,
+          content: selectedNode?.content ?? code,
         })
         setOutputVisible(true)
       } else if (isSql && activeConnectionId) {
@@ -643,7 +646,7 @@ export function FilesPage() {
         executeCode(code, label, 'r')
       }
     },
-    [isMarkdown, isSql, activeConnectionId, executeSql, executeCode, selectedLanguage, addOutputTab, setOutputVisible]
+    [isMarkdown, isSql, activeConnectionId, executeSql, executeCode, selectedLanguage, selectedNode, addOutputTab, setOutputVisible]
   )
 
   const handleRunFile = useCallback(() => {

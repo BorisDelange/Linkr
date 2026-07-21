@@ -53,7 +53,9 @@ import {
 } from '@/components/ui/context-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import type * as Monaco from 'monaco-editor'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { useSqlScriptsStore, type SqlOutputTab, type SqlExecutionResult } from '@/stores/sql-scripts-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -129,6 +131,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
 
   const fileTabScrollRef = useRef<HTMLDivElement>(null)
   const outputTabScrollRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
 
   const scrollTabs = useCallback((ref: React.RefObject<HTMLDivElement | null>, dir: 'left' | 'right') => {
     const el = ref.current
@@ -226,15 +229,66 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     [activeDbId, t, addExecutionResult, addOutputTab],
   )
 
+  // Run a file: Markdown opens a rendered preview tab (no DB needed, same as the
+  // IDE); everything else is executed as SQL against the active database.
+  const runFile = useCallback(
+    async (content: string, name: string) => {
+      if (name.endsWith('.md')) {
+        addOutputTab({
+          id: `markdown-${name}`,
+          label: `Preview — ${name}`,
+          type: 'markdown',
+          content,
+        })
+        setOutputVisible(true)
+        return
+      }
+      await executeSql(content, name)
+    },
+    [addOutputTab, setOutputVisible, executeSql],
+  )
+
   const handleRunFile = useCallback(async () => {
     if (!selectedFile?.content) return
     setIsRunning(true)
     try {
-      await executeSql(selectedFile.content, selectedFile.name)
+      await runFile(selectedFile.content, selectedFile.name)
     } finally {
       setIsRunning(false)
     }
-  }, [selectedFile, executeSql])
+  }, [selectedFile, runFile])
+
+  // Cmd+Enter: run the selection if any, else the current line (RStudio-style).
+  // Markdown has no partial run — it always renders the whole file (like Run file).
+  const handleRunSelectionOrLine = useCallback(async () => {
+    if (!selectedFile) return
+    if (selectedFile.name.endsWith('.md')) {
+      await handleRunFile()
+      return
+    }
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!editor || !model) return
+    const selection = editor.getSelection()
+    let sql = ''
+    let label = selectedFile.name
+    if (selection && !selection.isEmpty()) {
+      sql = model.getValueInRange(selection)
+      label = `${selectedFile.name} (selection)`
+    } else {
+      const pos = editor.getPosition()
+      if (!pos) return
+      sql = model.getLineContent(pos.lineNumber)
+      label = `${selectedFile.name}:${pos.lineNumber}`
+    }
+    if (!sql.trim()) return
+    setIsRunning(true)
+    try {
+      await executeSql(sql, label)
+    } finally {
+      setIsRunning(false)
+    }
+  }, [selectedFile, handleRunFile, executeSql])
 
   const handleRunAll = useCallback(async () => {
     const sqlFiles = files
@@ -728,11 +782,13 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                         {selectedFile ? (
                           <CodeEditor
                             key={selectedFileId}
+                            editorRef={editorRef}
                             value={selectedFile.content ?? ''}
                             language={selectedFile.name.endsWith('.md') ? 'markdown' : 'sql'}
                             onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
                             onSave={handleSaveFile}
                             onRunFile={handleRunFile}
+                            onRunSelectionOrLine={handleRunSelectionOrLine}
                           />
                         ) : (
                           <div className="flex h-full items-center justify-center">
@@ -881,6 +937,11 @@ function SqlOutputContent({
       {!isConsoleTab && activeTab?.type === 'text' && (
         <ScrollArea className="h-full">
           <pre className="whitespace-pre-wrap p-4 font-mono text-xs">{String(activeTab.content)}</pre>
+        </ScrollArea>
+      )}
+      {!isConsoleTab && activeTab?.type === 'markdown' && (
+        <ScrollArea className="h-full">
+          <MarkdownRenderer content={String(activeTab.content)} className="p-4" />
         </ScrollArea>
       )}
     </div>

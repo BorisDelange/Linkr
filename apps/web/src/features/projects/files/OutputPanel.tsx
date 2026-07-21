@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { useFileStore, type ExecutionResult } from '@/stores/file-store'
 import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check, ChevronsUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -352,11 +351,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
         )}
         {!showExecContent && activeTab?.type === 'markdown' && (
           <ScrollArea className="h-full">
-            <div className="prose prose-sm dark:prose-invert max-w-none p-4">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {String(activeTab.content)}
-              </ReactMarkdown>
-            </div>
+            <MarkdownRenderer content={String(activeTab.content)} className="p-4" />
           </ScrollArea>
         )}
       </div>

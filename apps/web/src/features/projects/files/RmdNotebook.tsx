@@ -22,8 +22,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import {
   Play,
   Plus,
@@ -1646,16 +1645,14 @@ function RmdCellBlock({
         {/* Cell body */}
         {cell.type === 'markdown' && isPreview ? (
           // Rendered markdown preview
-          <div
-            className="px-3 py-2 prose prose-sm dark:prose-invert max-w-none min-h-[2rem] cursor-pointer [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-            onDoubleClick={onTogglePreview}
-          >
+          <div className="min-h-[2rem] cursor-pointer" onDoubleClick={onTogglePreview}>
             {cell.content.trim() ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {cell.content}
-              </ReactMarkdown>
+              <MarkdownRenderer
+                content={cell.content}
+                className="px-3 py-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+              />
             ) : (
-              <p className="text-muted-foreground/50 italic">Empty markdown cell</p>
+              <p className="px-3 py-2 text-muted-foreground/50 italic">Empty markdown cell</p>
             )}
           </div>
         ) : (

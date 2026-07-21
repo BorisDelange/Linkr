@@ -54,6 +54,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import type * as Monaco from 'monaco-editor'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { TableIcon, FileText, Copy, Code, Check, Database } from 'lucide-react'
@@ -141,6 +142,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   // Tab scroll refs
   const fileTabScrollRef = useRef<HTMLDivElement>(null)
   const outputTabScrollRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
 
   const scrollTabs = useCallback((ref: React.RefObject<HTMLDivElement | null>, dir: 'left' | 'right') => {
     const el = ref.current
@@ -283,6 +285,33 @@ export function EtlScriptsTab({ pipelineId }: Props) {
     setIsRunning(true)
     try {
       await executeSql(selectedFile.content, selectedFile.name, resolveFileDataSourceId(selectedFile))
+    } finally {
+      setIsRunning(false)
+    }
+  }, [selectedFile, executeSql, resolveFileDataSourceId])
+
+  // Cmd+Enter: run the selection if any, else the current line (RStudio-style).
+  const handleRunSelectionOrLine = useCallback(async () => {
+    if (!selectedFile) return
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!editor || !model) return
+    const selection = editor.getSelection()
+    let sql = ''
+    let label = selectedFile.name
+    if (selection && !selection.isEmpty()) {
+      sql = model.getValueInRange(selection)
+      label = `${selectedFile.name} (selection)`
+    } else {
+      const pos = editor.getPosition()
+      if (!pos) return
+      sql = model.getLineContent(pos.lineNumber)
+      label = `${selectedFile.name}:${pos.lineNumber}`
+    }
+    if (!sql.trim()) return
+    setIsRunning(true)
+    try {
+      await executeSql(sql, label, resolveFileDataSourceId(selectedFile))
     } finally {
       setIsRunning(false)
     }
@@ -781,11 +810,13 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                       {selectedFile ? (
                         <CodeEditor
                           key={selectedFileId}
+                          editorRef={editorRef}
                           value={selectedFile.content ?? ''}
                           language={editorLanguage}
                           onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
                           onSave={handleEditorSave}
                           onRunFile={handleRunFile}
+                          onRunSelectionOrLine={handleRunSelectionOrLine}
                         />
                       ) : (
                         <div className="flex h-full items-center justify-center">
