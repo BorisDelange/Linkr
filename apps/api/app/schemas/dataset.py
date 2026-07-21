@@ -78,6 +78,7 @@ class DatasetRowFilter(CamelModel):
     max: float | None = None
     from_: str | None = Field(default=None, alias="from")
     to: str | None = None
+    values: list[str] | None = None  # categorical multi-select (match any)
 
 
 class DatasetNaFilter(CamelModel):

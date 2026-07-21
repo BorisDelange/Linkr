@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import type { DatasetColumn } from '@/types'
 import { parseBoolean } from '@/lib/dataset-utils'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 
 const INPUT_CLASS =
   'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
@@ -13,7 +14,13 @@ export type ColumnFilterValue =
   | string                              // string/unknown text search, boolean select
   | { min?: number; max?: number }      // number range
   | { from?: string; to?: string }      // date/datetime range
+  | { in: string[] }                    // categorical multi-select (list mode)
   | undefined
+
+/** A categorical (list-mode) filter value: an `{ in: [...] }` selection. */
+export function isCategoricalFilter(v: ColumnFilterValue): v is { in: string[] } {
+  return v != null && typeof v === 'object' && 'in' in v
+}
 
 export interface ColumnFilterInputProps {
   colId: string
@@ -23,6 +30,10 @@ export interface ColumnFilterInputProps {
   onChange: (colId: string, value: ColumnFilterValue) => void
   /** Whether the date column contains time components. */
   isDatetime?: boolean
+  /** When true, render a multi-select of distinct values instead of a text box. */
+  listMode?: boolean
+  /** Distinct values for the multi-select (list mode). */
+  listOptions?: string[]
 }
 
 export function ColumnFilterInput({
@@ -32,8 +43,23 @@ export function ColumnFilterInput({
   value,
   onChange,
   isDatetime,
+  listMode,
+  listOptions,
 }: ColumnFilterInputProps) {
   const { t } = useTranslation()
+
+  // Categorical multi-select (list mode) — any column can opt into it.
+  if (listMode) {
+    const selected = isCategoricalFilter(value) ? value.in : []
+    return (
+      <MultiSelectFilter
+        value={selected}
+        options={listOptions ?? []}
+        placeholder={`${colName}...`}
+        onChange={(next) => onChange(colId, next.length > 0 ? { in: next } : undefined)}
+      />
+    )
+  }
 
   // Boolean filter
   if (colType === 'boolean') {
@@ -136,6 +162,12 @@ export function applyColumnFilter(
   filterValue: ColumnFilterValue,
 ): boolean {
   if (filterValue == null) return true
+
+  // Categorical multi-select: match the cell's string form against the selection.
+  if (isCategoricalFilter(filterValue)) {
+    if (filterValue.in.length === 0) return true
+    return filterValue.in.includes(String(cellValue ?? ''))
+  }
 
   if (colType === 'number') {
     const { min, max } = filterValue as { min?: number; max?: number }

@@ -64,7 +64,13 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
 
   const datasetFile = files.find((f) => f.id === datasetFileId)
   const columns = datasetFile?.columns ?? []
-  const rows = getFileRows(datasetFileId)
+  // Only the config/preview view uses rows; the plugin-list view (the one the "+"
+  // opens) doesn't. Materializing the whole in-memory dataset eagerly on every
+  // render made opening the dialog lag — gate it behind an active config plugin.
+  const rows = useMemo(
+    () => (configPlugin ? getFileRows(datasetFileId) : []),
+    [configPlugin, datasetFileId, getFileRows],
+  )
 
   useEffect(() => {
     if (open) {

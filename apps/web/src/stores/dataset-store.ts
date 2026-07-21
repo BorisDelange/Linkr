@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
 import { uniqueColumnId } from '@/lib/column-id'
+import { coerceValue } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
 import { duplicateDataset, reimportDataset } from '@/lib/api/datasets'
 import { stampAuthored } from '@/stores/app-store'
@@ -53,6 +54,11 @@ interface DatasetState {
   removeColumn: (fileId: string, columnId: string) => void
   renameColumn: (fileId: string, columnId: string, newName: string) => void
   reorderColumns: (fileId: string, fromIndex: number, toIndex: number) => void
+  /** Force a column's type (right-click "Treat as…"). Persisted in parseOptions;
+   *  server re-parses the cache, local re-coerces in-memory rows. */
+  setColumnType: (fileId: string, columnId: string, type: DatasetColumn['type']) => Promise<void>
+  /** Set a column's filter UI mode (list ↔ text). Persisted in parseOptions. */
+  setColumnFilterMode: (fileId: string, columnId: string, mode: 'list' | 'text') => Promise<void>
   importData: (fileId: string, columns: DatasetColumn[], rows: Record<string, unknown>[]) => void
   createFileWithData: (name: string, parentId: string | null, columns: DatasetColumn[], rows: Record<string, unknown>[], parseOptions?: import('@/types').DatasetParseOptions, rawFile?: { blob: Blob; fileName: string }) => Promise<string>
   reimportData: (fileId: string, columns: DatasetColumn[], rows: Record<string, unknown>[], parseOptions?: import('@/types').DatasetParseOptions) => Promise<void>
@@ -783,6 +789,52 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     }))
     await storage.datasetFiles.update(fileId, { columns, rowCount: rows.length, parseOptions, updatedAt: new Date().toISOString() })
     await storage.datasetData.save({ datasetFileId: fileId, rows })
+  },
+
+  setColumnType: async (fileId, columnId, type) => {
+    const file = get().files.find((f) => f.id === fileId)
+    if (!file || file.type !== 'file') return
+    const parseOptions = {
+      ...file.parseOptions,
+      columnTypes: { ...file.parseOptions?.columnTypes, [columnId]: type },
+    }
+    if (isServerMode()) {
+      // Rebuild the Parquet cache with the forced type so stats/filters/sort agree.
+      const updated = await reimportDataset(fileId, parseOptions)
+      set((s) => ({
+        files: s.files.map((f) => f.id === fileId ? { ...f, ...updated, parseOptions } : f),
+        _dirtyVersion: s._dirtyVersion + 1,
+      }))
+      return
+    }
+    // Local mode: apply the override to the column metadata + re-coerce the loaded
+    // rows in place (no raw re-read). Coercion mirrors the server parser.
+    const columns = (file.columns ?? []).map((c) => c.id === columnId ? { ...c, type } : c)
+    const rows = _loadedData.get(fileId)
+    if (rows) {
+      for (const row of rows) row[columnId] = coerceValue(row[columnId], type)
+    }
+    set((s) => ({
+      files: s.files.map((f) => f.id === fileId ? { ...f, columns, parseOptions, updatedAt: new Date().toISOString() } : f),
+      _dirtyVersion: s._dirtyVersion + 1,
+    }))
+    const storage = getStorage()
+    await storage.datasetFiles.update(fileId, { columns, parseOptions, updatedAt: new Date().toISOString() })
+    if (rows) await storage.datasetData.save({ datasetFileId: fileId, rows })
+  },
+
+  setColumnFilterMode: async (fileId, columnId, mode) => {
+    const file = get().files.find((f) => f.id === fileId)
+    if (!file || file.type !== 'file') return
+    const parseOptions = {
+      ...file.parseOptions,
+      columnFilterMode: { ...file.parseOptions?.columnFilterMode, [columnId]: mode },
+    }
+    set((s) => ({
+      files: s.files.map((f) => f.id === fileId ? { ...f, parseOptions, updatedAt: new Date().toISOString() } : f),
+      _dirtyVersion: s._dirtyVersion + 1,
+    }))
+    await getStorage().datasetFiles.update(fileId, { parseOptions, updatedAt: new Date().toISOString() })
   },
 
   addImportedFile: (node) => {

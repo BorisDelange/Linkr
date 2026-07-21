@@ -23,6 +23,26 @@ export function parseBoolean(value: unknown): boolean | null {
   return null
 }
 
+/** Coerce a raw cell value to a column's declared type (mirrors the server
+ *  dataset_parser `_coerce`): empty → null; number → number when parseable else
+ *  the original string; boolean → bool when a known token else the string;
+ *  string/date/unknown → the original string. Used when a column's type is
+ *  overridden client-side so rows re-read consistently. */
+export function coerceValue(value: unknown, type: DatasetColumn['type']): unknown {
+  if (value == null) return null
+  const s = String(value)
+  if (s === '') return null
+  if (type === 'number') {
+    const n = Number(s)
+    return isNaN(n) ? s : n
+  }
+  if (type === 'boolean') {
+    const b = parseBoolean(s)
+    return b === null ? s : b
+  }
+  return s
+}
+
 /** Detect whether date-typed values contain time components (for choosing date vs datetime-local input). */
 export function hasTimeComponent(values: unknown[]): boolean {
   for (const v of values) {

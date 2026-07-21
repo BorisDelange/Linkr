@@ -26,6 +26,7 @@ import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { buildColumns } from '@/lib/dataset-utils'
 import { previewDatasetByPath } from '@/lib/api/datasets'
+import { TypeBadge } from './TypeBadge'
 import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
 
 interface ImportSettingsDialogProps {
@@ -474,8 +475,10 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                         <th className="border-b border-r px-2 py-1.5 text-center font-medium text-muted-foreground w-10">#</th>
                         {parsed.columns.map((col) => (
                           <th key={col.id} className="border-b px-2 py-1.5 text-left font-medium whitespace-nowrap">
-                            {col.name}
-                            <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">{col.type}</span>
+                            <span className="inline-flex items-center gap-1.5">
+                              {col.name}
+                              <TypeBadge type={col.type} size="sm" />
+                            </span>
                           </th>
                         ))}
                       </tr>

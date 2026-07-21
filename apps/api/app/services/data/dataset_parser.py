@@ -68,13 +68,24 @@ def _coerce(value: Any, col_type: str) -> Any:
     return s
 
 
-def _columns_from(headers: list[str], by_col_raw: list[list[Any]]) -> list[dict]:
+_VALID_TYPES = {"string", "number", "boolean", "date"}
+
+
+def _typed(inferred: str, col_id: str, overrides: dict | None) -> str:
+    """The column's effective type: a valid user override wins over inference."""
+    forced = (overrides or {}).get(col_id)
+    return forced if forced in _VALID_TYPES else inferred
+
+
+def _columns_from(
+    headers: list[str], by_col_raw: list[list[Any]], overrides: dict | None = None
+) -> list[dict]:
     ids = build_column_ids(headers)
     return [
         {
             "id": ids[idx],
             "name": name,
-            "type": infer_column_type(by_col_raw[idx]),
+            "type": _typed(infer_column_type(by_col_raw[idx]), ids[idx], overrides),
             "order": idx,
         }
         for idx, name in enumerate(headers)
@@ -112,7 +123,7 @@ def parse_blob(path: Path, file_name: str, parse_options: dict | None):
         for i in range(len(headers)):
             by_col_raw[i].append(row[i] if i < len(row) else None)
 
-    columns = _columns_from(headers, by_col_raw)
+    columns = _columns_from(headers, by_col_raw, opts.get("columnTypes"))
     return columns, _rows_from(raw_rows, columns), len(raw_rows)
 
 
@@ -161,8 +172,9 @@ def preview_blob(path: Path, file_name: str, parse_options: dict | None) -> dict
         con.close()
 
     ids = build_column_ids(headers)
+    overrides = opts.get("columnTypes")
     columns = [
-        {"id": ids[idx], "name": name, "type": types[idx], "order": idx}
+        {"id": ids[idx], "name": name, "type": _typed(types[idx], ids[idx], overrides), "order": idx}
         for idx, name in enumerate(headers)
     ]
     result: dict[str, Any] = {

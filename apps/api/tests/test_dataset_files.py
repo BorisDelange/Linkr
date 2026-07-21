@@ -50,6 +50,30 @@ async def test_rows_query_paginates_over_cache(client, seed_roles):
     assert body["total"] == 50 and len(body["rows"]) == 10
 
 
+async def test_rows_query_column_filter_applies(client, seed_roles):
+    """A column filter actually narrows the result (guards the camelCase key wiring
+    between the API schema dump and _build_where)."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "w.csv").write_text("ward\nICU\nER\nICU\nWard\n")
+    files = (await client.get(f"{API}/dataset-files", headers=h, params={"projectUid": uid})).json()
+    col_id = files[0]["columns"][0]["id"]
+    # Substring text filter → only the two ICU rows.
+    r = await client.post(
+        f"{API}/dataset-files/rows/query",
+        headers=h, params={"projectUid": uid, "path": "w.csv"},
+        json={"offset": 0, "limit": 10, "filters": [{"colId": col_id, "value": "icu"}]},
+    )
+    assert r.json()["total"] == 2
+    # Categorical multi-select → ICU + ER rows.
+    r2 = await client.post(
+        f"{API}/dataset-files/rows/query",
+        headers=h, params={"projectUid": uid, "path": "w.csv"},
+        json={"offset": 0, "limit": 10, "filters": [{"colId": col_id, "values": ["ICU", "ER"]}]},
+    )
+    assert r2.json()["total"] == 3
+
+
 async def test_column_stats_over_cache(client, seed_roles):
     h = await _admin_headers(client)
     uid = await _project(client, h)

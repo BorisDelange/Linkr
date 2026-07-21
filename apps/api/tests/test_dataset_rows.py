@@ -1,6 +1,11 @@
 """Round-trip + paging parity for the Parquet row store (dataset_rows)."""
 
-from app.services.data.dataset_rows import distinct_values, read_parquet, write_parquet
+from app.services.data.dataset_rows import (
+    distinct_values,
+    query_page,
+    read_parquet,
+    write_parquet,
+)
 
 
 def _roundtrip(rows, columns, **kw):
@@ -110,3 +115,35 @@ def test_distinct_values_empty_col_id():
     cols = [{"id": "c0", "type": "string"}]
     out = distinct_values(_parquet([{"c0": "a"}], cols), "")
     assert out == {"values": [], "truncated": False}
+
+
+def test_query_page_categorical_values_filter():
+    # A checkbox-list (categorical) filter: `values` matches any, regardless of type.
+    cols = [{"id": "c0", "type": "string"}]
+    rows = [{"c0": v} for v in ["ICU", "ER", "Ward", "ICU"]]
+    path = _parquet(rows, cols)
+    page, total = query_page(
+        path, {"c0": "string"},
+        filters=[{"colId": "c0", "values": ["ICU", "ER"]}],
+    )
+    assert total == 3
+    assert sorted(r["c0"] for r in page) == ["ER", "ICU", "ICU"]
+
+
+def test_query_page_categorical_values_on_number_column():
+    cols = [{"id": "c0", "type": "number"}]
+    rows = [{"c0": 5}, {"c0": 6}, {"c0": 7}]
+    path = _parquet(rows, cols)
+    # 5/7 stored as 5.0/7.0 → match by their VARCHAR form.
+    page, total = query_page(
+        path, {"c0": "number"},
+        filters=[{"colId": "c0", "values": ["5.0", "7.0"]}],
+    )
+    assert total == 2
+
+
+def test_query_page_empty_values_is_noop():
+    cols = [{"id": "c0", "type": "string"}]
+    path = _parquet([{"c0": "a"}, {"c0": "b"}], cols)
+    _, total = query_page(path, {"c0": "string"}, filters=[{"colId": "c0", "values": []}])
+    assert total == 2

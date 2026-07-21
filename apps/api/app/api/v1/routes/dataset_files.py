@@ -96,9 +96,11 @@ async def query_rows(
 ):
     res = await _resolve_file(db, project_uid, path, user, "datasets:read")
     col_types = {c["id"]: c["type"] for c in res["columns"]}
-    filters = [f.model_dump(by_alias=False) for f in body.filters]
-    na = [n.model_dump(by_alias=False) for n in body.na]
-    sort = body.sort.model_dump(by_alias=False) if body.sort else None
+    # by_alias=True so keys are camelCase (colId/from/values) — the exact keys
+    # _build_where reads; a snake_case dump would silently no-op every filter.
+    filters = [f.model_dump(by_alias=True) for f in body.filters]
+    na = [n.model_dump(by_alias=True) for n in body.na]
+    sort = body.sort.model_dump(by_alias=True) if body.sort else None
     rows, total = dataset_rows.query_page(
         res["parquet"], col_types, offset=body.offset, limit=body.limit,
         sort=sort, filters=filters, na=na,

@@ -1,7 +1,7 @@
 """Disk-source-of-truth datasets: the raw files under projects/<uid>/datasets/
 are the single source of truth; a derived Parquet cache under
 projects/<uid>/.cache/datasets/ powers pagination/stats/kernel injection
-(Dataiku/Spark pattern — the raw stays king, the columnar form is a cache).
+(the raw file stays authoritative, the columnar form is only a cache).
 
 The cache is keyed by a hash of the dataset's relative path, invalidated when the
 raw file's (mtime, size) change, and purged when the raw file disappears.

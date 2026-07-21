@@ -131,3 +131,30 @@ def test_preview_mixed_alnum_column_is_string(tmp_path):
     p = _write(tmp_path, "codes.csv", "concept_code\n" + head + "G894\n")
     prev = preview_blob(p, "codes.csv", None)
     assert prev["columns"][0]["type"] == "string"
+
+
+# --- Per-column type override (right-click "Treat as…") ---
+
+def test_type_override_wins_over_inference(tmp_path):
+    # id infers as number; force it to string. The forced type is applied and the
+    # value is kept as text (not coerced to a float).
+    p = _write(tmp_path, "d.csv", "id,label\n1,a\n2,b\n")
+    opts = {"columnTypes": {"col_id": "string"}}
+    columns, rows, _ = parse_blob(p, "d.csv", opts)
+    by_name = {c["name"]: c["type"] for c in columns}
+    assert by_name["id"] == "string"
+    assert rows[0]["col_id"] == "1"
+
+
+def test_preview_type_override_matches_parse(tmp_path):
+    p = _write(tmp_path, "d.csv", "id,label\n1,a\n2,b\n")
+    opts = {"columnTypes": {"col_id": "string"}}
+    prev = preview_blob(p, "d.csv", opts)
+    assert {c["name"]: c["type"] for c in prev["columns"]}["id"] == "string"
+
+
+def test_invalid_type_override_ignored(tmp_path):
+    p = _write(tmp_path, "d.csv", "id\n1\n2\n")
+    columns, _, _ = parse_blob(p, "d.csv", {"columnTypes": {"col_id": "bogus"}})
+    # Falls back to inference (number), never trusts an unknown type string.
+    assert columns[0]["type"] == "number"

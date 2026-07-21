@@ -173,6 +173,8 @@ export interface ServerRowFilter {
   max?: number
   from?: string
   to?: string
+  /** Categorical multi-select: match any of these values (by string form). */
+  values?: string[]
 }
 
 export interface ServerRowsQuery {

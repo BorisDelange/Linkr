@@ -8,6 +8,8 @@ import { isServerMode } from '@/lib/api-client'
 import { fetchColumnStats } from '@/lib/api/datasets'
 import { BarChart3 } from 'lucide-react'
 import { TypeBadge } from './TypeBadge'
+import { BoxPlot } from '@/components/charts/box-plot'
+import { niceStep } from '@/lib/chart-ticks'
 
 interface ColumnStatsPanelProps {
   fileId: string | null
@@ -45,23 +47,11 @@ function computeNumericStats(values: number[]) {
   return { min, max, mean, median, std, q1, q3, iqr, n, sorted }
 }
 
-/** Round a number to a "nice" value (1, 2, 2.5, 5, 10 × 10^n) for readable axis steps. */
-function niceNum(range: number, round: boolean): number {
-  const exp = Math.floor(Math.log10(range))
-  const frac = range / 10 ** exp
-  let niceFrac: number
-  if (round) {
-    if (frac < 1.5) niceFrac = 1
-    else if (frac < 3) niceFrac = 2
-    else if (frac < 7) niceFrac = 5
-    else niceFrac = 10
-  } else {
-    if (frac <= 1) niceFrac = 1
-    else if (frac <= 2) niceFrac = 2
-    else if (frac <= 5) niceFrac = 5
-    else niceFrac = 10
-  }
-  return niceFrac * 10 ** exp
+/** Round a bin-low to the step's precision so axis labels read cleanly (no
+ * "479969.81"); shared by the front-only and server histogram builders. */
+function roundBinLabel(lo: number, step: number): string {
+  const decimals = Math.max(0, -Math.floor(Math.log10(step)))
+  return lo.toFixed(decimals)
 }
 
 function buildHistogram(sorted: number[], bins: number) {
@@ -71,16 +61,15 @@ function buildHistogram(sorted: number[], bins: number) {
   if (dataMin === dataMax) return [{ label: String(dataMin), count: sorted.length, pct: 100 }]
 
   // "Nice bins": round the start and step to readable values so bars land on round ticks.
-  const step = niceNum((dataMax - dataMin) / bins, true)
+  const step = niceStep((dataMax - dataMin) / bins)
   const start = Math.floor(dataMin / step) * step
-  const decimals = Math.max(0, -Math.floor(Math.log10(step)))
   const result: { label: string; count: number; pct: number }[] = []
   for (let lo = start; lo < dataMax; lo += step) {
     const isLast = lo + step >= dataMax
     const hi = lo + step
     const count = sorted.filter((v) => v >= lo && (isLast ? v <= hi : v < hi)).length
     result.push({
-      label: lo.toFixed(decimals),
+      label: roundBinLabel(lo, step),
       count,
       pct: (count / sorted.length) * 100,
     })
@@ -197,9 +186,12 @@ function buildStatsFromServer(s: Record<string, unknown>, locale: string) {
       q1: Number(s.q1), q3: Number(s.q3), iqr: Number(s.iqr ?? 0),
     }
     const bins = (s.histogram as { lo: number; count: number | null }[] | undefined) ?? []
+    // Server bins are equal-width; round each label to the bin step's precision so
+    // the axis reads "480000" not "479969.81".
+    const binStep = bins.length > 1 ? Number(bins[1].lo) - Number(bins[0].lo) : 1
     base.histogram = bins
       .filter((b) => b.count != null)
-      .map((b) => ({ label: String(b.lo), count: Number(b.count), pct: total ? (Number(b.count) / total) * 100 : 0 }))
+      .map((b) => ({ label: roundBinLabel(Number(b.lo), niceStep(binStep)), count: Number(b.count), pct: total ? (Number(b.count) / total) * 100 : 0 }))
   } else if (s.kind === 'date') {
     const min = s.min ? Date.parse(String(s.min)) : NaN
     const max = s.max ? Date.parse(String(s.max)) : NaN
@@ -383,6 +375,17 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
             <StatRow label="Q1 (25%)" value={stats.numeric.q1} />
             <StatRow label="Q3 (75%)" value={stats.numeric.q3} />
             <StatRow label={t('datasets.stats_max')} value={stats.numeric.max} />
+            <div className="pt-2">
+              <BoxPlot
+                min={stats.numeric.min}
+                p25={stats.numeric.q1}
+                median={stats.numeric.median}
+                p75={stats.numeric.q3}
+                max={stats.numeric.max}
+                mean={stats.numeric.mean}
+                height={44}
+              />
+            </div>
           </div>
         )}
 

@@ -147,6 +147,14 @@ def _build_where(
             continue
         ident = _quote_ident(col)
         ctype = col_types[col]
+        # Categorical (multi-select) filter: match any of the chosen values by
+        # their string form, regardless of the column's type. Empty list = no-op.
+        values = f.get("values")
+        if isinstance(values, list) and values:
+            placeholders = ", ".join("?" for _ in values)
+            clauses.append(f"CAST({ident} AS VARCHAR) IN ({placeholders})")
+            params.extend(str(v) for v in values)
+            continue
         if ctype == "number":
             if f.get("min") is not None:
                 clauses.append(f"{ident} >= ?")

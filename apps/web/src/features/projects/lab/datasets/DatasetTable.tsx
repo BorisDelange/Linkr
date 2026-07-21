@@ -42,8 +42,11 @@ import {
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { TypeBadge } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
+import { useColumnDistinct } from './use-column-distinct'
 import { hasTimeComponent, columnTint } from '@/lib/dataset-utils'
-import type { DatasetColumn } from '@/types'
+import type { DatasetColumn, DatasetParseOptions } from '@/types'
+
+const COLUMN_TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 'date']
 
 interface DatasetTableProps {
   fileId: string
@@ -57,10 +60,11 @@ const PAGE_SIZES = [25, 50, 100, 250, 500]
 
 export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenColumns, onHiddenColumnsChange }: DatasetTableProps) {
   const { t } = useTranslation()
-  const { files, getFileRows, _dirtyVersion } = useDatasetStore()
+  const { files, getFileRows, setColumnType, setColumnFilterMode, _dirtyVersion } = useDatasetStore()
 
   const file = files.find((f) => f.id === fileId)
   const columns = file?.columns ?? []
+  const parseOptions: DatasetParseOptions | undefined = file?.parseOptions
   const server = isServerMode()
   // Front-only mode holds all rows in memory (subscribe to _dirtyVersion to
   // re-render on change). Server mode fetches one page at a time (see below).
@@ -105,6 +109,29 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     }
     return map
   }, [columns, rows])
+
+  // A column filters as a checkbox list when it's a string column not explicitly
+  // set to 'text' (explicit 'list' or auto). Its distinct values are then fetched
+  // (server) / scanned (local); columns above the cap fall back to text search.
+  const listColumnIds = useMemo(
+    () => columns
+      .filter((c) => c.type === 'string' && parseOptions?.columnFilterMode?.[c.id] !== 'text')
+      .map((c) => c.id),
+    [columns, parseOptions],
+  )
+  const distinctByCol = useColumnDistinct({ fileId, columns, listColumnIds, rows })
+  const isListMode = useCallback(
+    (col: DatasetColumn) => {
+      if (col.type !== 'string') return false
+      const explicit = parseOptions?.columnFilterMode?.[col.id]
+      if (explicit === 'text') return false
+      const opts = distinctByCol[col.id]
+      // Auto mode: only when the (capped) distinct set actually fits a dropdown.
+      if (explicit === 'list') return opts != null
+      return opts != null && opts.length > 0 && opts.length < 100
+    },
+    [distinctByCol, parseOptions],
+  )
 
   // --- Server mode: one page fetched on demand (never the whole dataset) ---
   const serverState = useServerDatasetRows({
@@ -319,6 +346,28 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           <Settings2 size={13} />
           {t('datasets.col_view_stats')}
         </Item>
+        <Separator />
+        {/* Force the column type (overrides inference; persisted in parseOptions). */}
+        {COLUMN_TYPES.map((ty) => (
+          <Item key={ty} onClick={() => { void setColumnType(fileId, col.id, ty) }} className="text-xs">
+            <TypeBadge type={ty} size="sm" />
+            {t(`datasets.col_treat_as`, { type: t(`datasets.type_${ty}`), defaultValue: `Treat as {{type}}` })}
+            {col.type === ty && <span className="ml-auto text-primary">✓</span>}
+          </Item>
+        ))}
+        {col.type === 'string' && (
+          <>
+            <Separator />
+            <Item
+              onClick={() => { void setColumnFilterMode(fileId, col.id, isListMode(col) ? 'text' : 'list') }}
+              className="text-xs"
+            >
+              <Filter size={13} />
+              {isListMode(col) ? t('datasets.col_filter_as_text') : t('datasets.col_filter_as_list')}
+            </Item>
+          </>
+        )}
+        <Separator />
         <Item onClick={() => resetColWidth(col.id)} className="text-xs">
           <Columns2 size={13} />
           {t('datasets.col_reset_width')}
@@ -461,6 +510,8 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                     value={columnFilters[col.id]}
                     onChange={handleFilterChange}
                     isDatetime={samplesByCol[col.id] ? hasTimeComponent(samplesByCol[col.id]) : false}
+                    listMode={isListMode(col)}
+                    listOptions={distinctByCol[col.id]}
                   />
                 </th>
                 )

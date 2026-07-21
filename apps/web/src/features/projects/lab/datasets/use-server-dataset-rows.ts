@@ -4,7 +4,7 @@ import {
   type ServerRowFilter,
   type ServerRowsQuery,
 } from '@/lib/api/datasets'
-import type { ColumnFilterValue } from './ColumnFilterInput'
+import { isCategoricalFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import type { DatasetColumn } from '@/types'
 
 interface Params {
@@ -33,6 +33,10 @@ function toServerFilters(
   const out: ServerRowFilter[] = []
   for (const [colId, value] of Object.entries(columnFilters)) {
     if (value == null) continue
+    if (isCategoricalFilter(value)) {
+      if (value.in.length > 0) out.push({ colId, values: value.in })
+      continue
+    }
     const type = typeById.get(colId)
     if (type === 'number') {
       const { min, max } = value as { min?: number; max?: number }

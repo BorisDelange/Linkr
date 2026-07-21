@@ -688,6 +688,13 @@ export interface DatasetParseOptions {
   hasHeader?: boolean
   /** Excel sheet name (only for .xlsx/.xls files). */
   sheet?: string
+  /** Per-column type override (right-click "Treat as…"), keyed by columnId. Wins
+   *  over inference at parse time, so stats/filters use the chosen type. */
+  columnTypes?: Record<string, DatasetColumn['type']>
+  /** Per-column filter UI mode, keyed by columnId. 'list' = multi-select of
+   *  distinct values; 'text' = substring search. Absent → auto (list for a
+   *  low-cardinality string column, text otherwise). */
+  columnFilterMode?: Record<string, 'list' | 'text'>
 }
 
 export interface DatasetFile extends Seedable, Authored {
