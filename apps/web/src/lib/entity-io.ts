@@ -401,6 +401,10 @@ const INSTANCE_FIELDS = [
   'organization',
   'organizationId',
   'updatedAt',
+  // Child entities' back-reference to their local project/parent uid. Regenerated
+  // on import (every create passes a fresh projectUid), so versioning it only
+  // churns the diff — e.g. datasets/_tree.json flipping projectUid on reimport.
+  'projectUid',
 ] as const
 
 /** Return a copy of an entity's metadata without instance-specific fields.
@@ -408,6 +412,10 @@ const INSTANCE_FIELDS = [
 export function stripInstanceFields<T extends object>(meta: T): Partial<T> {
   const out: Partial<T> = { ...meta }
   for (const f of INSTANCE_FIELDS) delete (out as Record<string, unknown>)[f]
+  // An empty createdAt is a legacy record predating creation-date tracking — omit
+  // it rather than writing `"createdAt": ""` (no false date, no churn). A real
+  // createdAt is kept as portable provenance.
+  if (!(out as Record<string, unknown>).createdAt) delete (out as Record<string, unknown>).createdAt
   return out
 }
 
@@ -483,7 +491,7 @@ export async function buildProjectZip(
     .map((f) => (syntheticRoot && f.parentId === syntheticRoot.id ? { ...f, parentId: null } : f))
   if (ideFiles.length > 0) {
     const byId = new Map(ideFiles.map(f => [f.id, f]))
-    zip.file('scripts/_tree.json', json(ideFiles.map(({ content: _, ...meta }) => meta)))
+    zip.file('scripts/_tree.json', json(ideFiles.map(({ content: _, projectUid: _p, ...meta }) => meta)))
     for (const f of ideFiles) {
       if (f.type === 'file' && f.content != null) {
         zip.file(buildIdePath(f, byId), f.content)
