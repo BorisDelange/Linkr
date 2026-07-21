@@ -35,11 +35,12 @@ export interface GitSyncError {
   raw: string
 }
 
-// In server mode the backend assembles the mapping-project export ZIP itself
-// (offloading the browser), so the client sends no file — see server-export-plan
-// §5. Other scopes are still client-built; front-only always builds client-side.
+// In server mode the backend assembles the export ZIP itself (offloading the
+// browser), so the client sends no file — see server-export-plan §5/§8. Projects
+// additionally send the include-data toggle (their server builder honors it).
+// Other scopes are still client-built; front-only always builds client-side.
 function serverBuildsZip(scope: GitScope): boolean {
-  return isServerMode() && (scope === 'mapping-projects' || scope === 'settings')
+  return isServerMode() && (scope === 'projects' || scope === 'mapping-projects' || scope === 'settings')
 }
 
 // lfsOverrides: opt-in per-file LFS decisions applied when generating the export's
@@ -213,7 +214,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       // user actually chose — otherwise unchecking LFS for a big file has no effect
       // until commit, and it keeps showing as changed (its blob vs an LFS pointer).
       const zip = await buildZip(scope, id, includeData, get().lfsOverrides)
-      const status = await gitStatus(scope, id, zip, branch)
+      const status = await gitStatus(scope, id, zip, branch, includeData)
       if (gen !== statusGen) return // superseded by a newer refresh — drop this result
       // Re-seed the selection: keep the user's choices for paths that still
       // change, default-select new paths. Deletions are never checked by default
@@ -269,7 +270,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       // Same .gitattributes as the status/commit build, so the diff of a big file
       // matches its chosen LFS state (pointer vs blob) rather than the default rule.
       const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
-      const diff = await gitDiff(scope, id, zip, path, branch)
+      const diff = await gitDiff(scope, id, zip, path, branch, get().includeData)
       _diffCache.set(cacheKey, diff)
       return diff
     } catch (err) {
@@ -288,7 +289,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     set({ committing: true, error: null })
     try {
       const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
-      const result = await gitCommitPush(scope, id, zip, message, branch, paths)
+      const result = await gitCommitPush(scope, id, zip, message, branch, paths, get().includeData)
       // After a commit the pushed files are clean; refresh so the UI updates and
       // the local anchor is level with the remote again (otherwise the pushed
       // files keep showing as "to commit"). refreshStatus flips loadingStatus, so

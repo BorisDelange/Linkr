@@ -50,6 +50,7 @@ from app.services import (
     workspace_service,
 )
 from app.services.mapping_project_export_assemble import assemble_mapping_project_zip
+from app.services.project_export_assemble import assemble_project_zip
 from app.services.settings_export_assemble import (
     SettingsSelection,
     assemble_settings_zip,
@@ -65,6 +66,18 @@ async def _mapping_project_zip_bytes(db, mp, file: UploadFile | None) -> bytes:
     if file is not None:
         return await file.read()
     return await assemble_mapping_project_zip(db, mp)
+
+
+async def _project_zip_bytes(
+    db, project, file: UploadFile | None, include_data: bool
+) -> bytes:
+    """The project's export ZIP: server-built when the client sends no file (the
+    fullstack path that offloads the browser), else the uploaded bytes (front-only
+    / transition). ``include_data`` mirrors the panel's include-data toggle —
+    baked into the ZIP by the client build, so the server reproduces it here."""
+    if file is not None:
+        return await file.read()
+    return await assemble_project_zip(db, project, include_data)
 
 
 def _git_http_error(exc: git_service.GitError) -> HTTPException:
@@ -127,8 +140,9 @@ def _default_branch(entity, fallback: str | None) -> str:
 
 @router.post("/projects/{project_uid}/status", response_model=GitStatusResponse)
 async def project_status(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     branch: str | None = Form(None),
+    include_data: bool = Form(False),
     project=Depends(require_project_permission("project-settings:read")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -137,7 +151,7 @@ async def project_status(
         git_service.status(
             git_service.project_repo_getter,
             project.uid,
-            await file.read(),
+            await _project_zip_bytes(db, project, file, include_data),
             _default_branch(project, branch),
             _remote_url(project),
             await _token(db, user, project),
@@ -148,9 +162,10 @@ async def project_status(
 
 @router.post("/projects/{project_uid}/diff", response_model=GitDiffResponse)
 async def project_diff(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
+    include_data: bool = Form(False),
     project=Depends(require_project_permission("project-settings:read")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -159,7 +174,7 @@ async def project_diff(
         git_service.diff(
             git_service.project_repo_getter,
             project.uid,
-            await file.read(),
+            await _project_zip_bytes(db, project, file, include_data),
             _default_branch(project, branch),
             path,
             _remote_url(project),
@@ -184,10 +199,11 @@ async def project_branches(
 
 @router.post("/projects/{project_uid}/commit-push", response_model=GitCommitResponse)
 async def project_commit_push(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     message: str = Form(...),
     branch: str | None = Form(None),
     paths: list[str] | None = Form(None),
+    include_data: bool = Form(False),
     project=Depends(require_project_permission("project-settings:write")),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -200,7 +216,7 @@ async def project_commit_push(
         git_service.commit_push(
             git_service.project_repo_getter,
             project.uid,
-            await file.read(),
+            await _project_zip_bytes(db, project, file, include_data),
             _default_branch(project, branch),
             message,
             _remote_url(project),

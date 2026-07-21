@@ -1,0 +1,15 @@
+[
+  {
+    "id": "pl-1",
+    "name": {
+      "en": "Main pipeline"
+    },
+    "nodes": [
+      {
+        "id": "n1"
+      }
+    ],
+    "edges": [],
+    "createdAt": "2026-01-03T00:00:00Z"
+  }
+]

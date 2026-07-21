@@ -1,0 +1,46 @@
+{
+  "projectId": "demo-project",
+  "name": {
+    "en": "Demo Project",
+    "fr": "Projet démo"
+  },
+  "description": {
+    "en": "A demo"
+  },
+  "shortDescription": {
+    "en": "demo"
+  },
+  "config": {
+    "theme": "light"
+  },
+  "status": "active",
+  "badges": [
+    {
+      "label": "ICU"
+    }
+  ],
+  "lineageId": "lin-1",
+  "parentLineageId": null,
+  "createdBy": "Ada Lovelace",
+  "createdByDetails": {
+    "orcid": "0000-0000-0000-0001"
+  },
+  "version": "0.3.0",
+  "createdAt": "2026-01-02T03:04:05Z",
+  "appVersion": "2.1.2",
+  "organization": {
+    "id": "org-1",
+    "name": {
+      "en": "InterHop"
+    },
+    "type": "hospital",
+    "location": "Rennes",
+    "country": "FR",
+    "website": "https://interhop.org",
+    "email": "contact@interhop.org",
+    "customType": null,
+    "referenceId": "ref-1",
+    "customFields": {},
+    "createdAt": "2025-12-01T00:00:00Z"
+  }
+}

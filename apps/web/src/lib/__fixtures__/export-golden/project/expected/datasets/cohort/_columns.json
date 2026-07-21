@@ -1,0 +1,14 @@
+[
+  {
+    "id": "col_age",
+    "name": "age",
+    "type": "number",
+    "order": 0
+  },
+  {
+    "id": "col_sex",
+    "name": "sex",
+    "type": "string",
+    "order": 1
+  }
+]

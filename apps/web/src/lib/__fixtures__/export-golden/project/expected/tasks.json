@@ -1,0 +1,14 @@
+{
+  "todos": [
+    {
+      "id": "t1",
+      "text": {
+        "en": "Do the thing"
+      },
+      "done": false
+    }
+  ],
+  "notes": {
+    "en": "Some notes"
+  }
+}

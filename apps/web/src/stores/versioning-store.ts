@@ -4,6 +4,9 @@ import { useAppStore } from '@/stores/app-store'
 import { getStorage } from '@/lib/storage'
 import { buildProjectZip, downloadBlob, slugify } from '@/lib/entity-io'
 import type { BuildProjectZipOptions } from '@/lib/entity-io'
+import { isServerMode } from '@/lib/api-client'
+import { fetchProjectExportZipFromServer } from '@/lib/api/projects'
+import { localized } from '@/lib/localized'
 
 const BACKEND_MSG = '[versioning] Requires backend — no-op in local mode'
 
@@ -62,6 +65,16 @@ export const useVersioningStore = create<VersioningState>((set) => ({
   exportZip: async (options) => {
     const projectUid = useAppStore.getState().activeProjectUid
     if (!projectUid) return
+    // In server mode the backend builds the ZIP (offloads the browser); the front
+    // only triggers + downloads. Front-only keeps the client builder.
+    if (isServerMode()) {
+      const blob = await fetchProjectExportZipFromServer(projectUid, options?.includeDataFiles ?? false)
+      if (!blob) return
+      const project = await getStorage().projects.getById(projectUid)
+      const name = project ? localized(project.name, 'en') || projectUid : projectUid
+      downloadBlob(blob, `${slugify(name)}.zip`)
+      return
+    }
     const result = await buildProjectZip(projectUid, getStorage(), options)
     if (!result) return
     downloadBlob(result.blob, `${slugify(result.projectName)}.zip`)

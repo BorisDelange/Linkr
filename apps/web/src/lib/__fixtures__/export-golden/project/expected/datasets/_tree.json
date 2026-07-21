@@ -1,0 +1,47 @@
+[
+  {
+    "id": "sub",
+    "name": "sub",
+    "type": "folder",
+    "parentId": null,
+    "path": "sub"
+  },
+  {
+    "id": "sub/labs.csv",
+    "name": "labs.csv",
+    "type": "file",
+    "parentId": "sub",
+    "path": "sub/labs.csv",
+    "columns": [
+      {
+        "id": "col_val",
+        "name": "val",
+        "type": "number",
+        "order": 0
+      }
+    ],
+    "rowCount": 2
+  },
+  {
+    "id": "cohort.csv",
+    "name": "cohort.csv",
+    "type": "file",
+    "parentId": null,
+    "path": "cohort.csv",
+    "columns": [
+      {
+        "id": "col_age",
+        "name": "age",
+        "type": "number",
+        "order": 0
+      },
+      {
+        "id": "col_sex",
+        "name": "sex",
+        "type": "string",
+        "order": 1
+      }
+    ],
+    "rowCount": 3
+  }
+]

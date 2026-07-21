@@ -1,0 +1,11 @@
+{
+  "id": "an-1",
+  "datasetPath": "cohort.csv",
+  "name": "Age histogram",
+  "type": "chart",
+  "config": {
+    "col": "col_age"
+  },
+  "createdAt": "2026-01-07T00:00:00Z",
+  "datasetFileId": "cohort.csv"
+}

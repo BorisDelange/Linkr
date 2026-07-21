@@ -1,0 +1,17 @@
+{
+  "id": "co-1",
+  "name": "Adults",
+  "description": "age >= 18",
+  "level": "patient",
+  "criteriaTree": {
+    "op": "and",
+    "rules": []
+  },
+  "customSql": null,
+  "resultCount": 42,
+  "attrition": null,
+  "materialization": null,
+  "schemaVersion": 3,
+  "createdAt": "2026-01-04T00:00:00Z",
+  "version": "0.1.0"
+}

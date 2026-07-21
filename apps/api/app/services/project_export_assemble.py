@@ -1,0 +1,238 @@
+"""Load a project's data and assemble its export ZIP bytes server-side.
+
+The impure companion to ``project_export`` (which is pure): this reads the DB +
+disk (project_fs) + blob store, shapes each entity into the camelCase dict the
+frontend's Storage façade yields in server mode — in the SAME key order the API
+emits (so the JSON is byte-identical) — then zips the resulting file tree.
+
+Every ORM row is dumped through its ``XxxResponse`` schema
+(``model_validate(...).model_dump(by_alias=True, mode="json")``) exactly like
+``mapping_project_export_assemble``: full field set, ``None`` → ``null``, schema
+field order preserved. Disk-derived entities (IDE scripts, datasets tree) are
+shaped to match their server-mode API adapters (id === relative path for
+datasets, synthetic ``scripts`` root for IDE files), because that is what the
+frontend consumes.
+
+The zip container mirrors ``git_service.clone_to_zip`` (io.BytesIO +
+ZIP_DEFLATED). git versions the extracted files, so only the per-file contents
+matter — the golden tests pin them. See docs/planning/server-export-plan.md §8.
+"""
+
+import asyncio
+import io
+import zipfile
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.dataset import DatasetAnalysis
+from app.models.project import Project
+from app.schemas.cohort import CohortResponse
+from app.schemas.dashboard import (
+    DashboardResponse,
+    DashboardTabResponse,
+    DashboardWidgetResponse,
+)
+from app.schemas.dataset import DatasetAnalysisResponse
+from app.schemas.ide_connection import IdeConnectionResponse
+from app.schemas.pipeline import PipelineResponse
+from app.schemas.project import ProjectResponse
+from app.services import (
+    attachment_service,
+    blob_store,
+    cohort_service,
+    dashboard_service,
+    ide_connection_service,
+    pipeline_service,
+    project_fs,
+)
+from app.services.data import dataset_fs
+from app.services.project_export import build_project_tree
+
+
+def _dump(schema, row) -> dict:
+    """ORM row → the exact camelCase dict the API emits (all fields, None → null,
+    schema field order). Feeding these to the pure builder reproduces the
+    frontend's per-file bytes."""
+    return schema.model_validate(row).model_dump(by_alias=True, mode="json")
+
+
+def _ide_node(project_uid: str, node: dict) -> dict:
+    """One IDE scripts node as the frontend sees it in server mode (api/ide-files
+    ``toIdeFile``): {id, projectUid, name, type, parentId, content, language,
+    createdAt:''}. Content is read from disk for files; ``createdAt`` is empty
+    (disk-derived, no timestamp) — the builder drops it. Key order matches the
+    adapter so scripts/_tree.json is byte-identical."""
+    is_file = node["type"] == "file"
+    return {
+        "id": node["id"],
+        "projectUid": project_uid,
+        "name": node["name"],
+        "type": node["type"],
+        "parentId": node["parentId"],
+        "content": project_fs.read_script(project_uid, node["path"]) if is_file else None,
+        "language": node["language"],
+        "createdAt": "",
+    }
+
+
+def _dataset_node(project_uid: str, node: dict) -> dict:
+    """One datasets-tree node as the frontend sees it in server mode (api/datasets
+    ``dsNodeToFile``): id === relative path, parentId === parent path. columns /
+    rowCount are omitted when absent (the adapter maps null → undefined, which
+    ``JSON.stringify`` drops). createdAt/updatedAt are '' (stripped by the builder)."""
+    columns, row_count = None, None
+    if node["type"] == "file":
+        try:
+            res = dataset_fs.resolve_cache(project_uid, node["path"])
+            columns, row_count = res["columns"], res["rowCount"]
+        except Exception:
+            columns, row_count = None, None
+    path = node["path"]
+    parent_path = path.rsplit("/", 1)[0] if "/" in path else None
+    out: dict = {
+        "id": path,
+        "projectUid": project_uid,
+        "name": node["name"],
+        "type": node["type"],
+        "parentId": parent_path,
+        "path": path,
+    }
+    if columns is not None:
+        out["columns"] = columns
+    if row_count is not None:
+        out["rowCount"] = row_count
+    out["createdAt"] = ""
+    out["updatedAt"] = ""
+    return out
+
+
+def _analysis_dict(row: DatasetAnalysis) -> dict:
+    """One analysis as the frontend sees it in server mode (api/datasets maps the
+    DatasetAnalysisResponse and appends ``datasetFileId`` = its datasetPath)."""
+    d = _dump(DatasetAnalysisResponse, row)
+    d["datasetFileId"] = d["datasetPath"]
+    return d
+
+
+async def build_project_tree_from_db(
+    db: AsyncSession, project: Project, include_data: bool
+) -> dict[str, bytes]:
+    """Assemble the export file tree for a project from DB + disk + blob store."""
+    project_dict = _dump(ProjectResponse, project)
+
+    pipelines = [
+        _dump(PipelineResponse, p)
+        for p in await pipeline_service.list_for_project(db, project.uid)
+    ]
+    cohorts = [
+        _dump(CohortResponse, c)
+        for c in await cohort_service.list_for_project(db, project.uid)
+    ]
+    connections = [
+        _dump(IdeConnectionResponse, c)
+        for c in await ide_connection_service.list_for_project(db, project.uid)
+    ]
+
+    dashboards = []
+    for d in await dashboard_service.list_for_project(db, project.uid):
+        tabs = await dashboard_service.list_tabs(db, d.id)
+        widgets = []
+        for tab in tabs:
+            widgets.extend(await dashboard_service.list_widgets(db, tab.id))
+        dashboards.append(
+            {
+                "dashboard": _dump(DashboardResponse, d),
+                "tabs": [_dump(DashboardTabResponse, t) for t in tabs],
+                "widgets": [_dump(DashboardWidgetResponse, w) for w in widgets],
+            }
+        )
+
+    # Datasets: disk-derived tree (id === relative path), the shape the frontend
+    # consumes in server mode. Analyses are keyed in the DB by dataset_path.
+    ide_files = [
+        _ide_node(project.uid, n)
+        for n in await asyncio.to_thread(project_fs.scan_scripts, project.uid)
+    ]
+    ds_nodes = await asyncio.to_thread(project_fs.scan_datasets, project.uid)
+    dataset_files = [_dataset_node(project.uid, n) for n in ds_nodes]
+
+    analyses_res = await db.execute(
+        select(DatasetAnalysis).where(DatasetAnalysis.project_uid == project.uid)
+    )
+    dataset_analyses: dict[str, list[dict]] = {}
+    for row in analyses_res.scalars().all():
+        dataset_analyses.setdefault(row.dataset_path, []).append(_analysis_dict(row))
+
+    # Row data is never shipped by the server-mode datasetData adapter (rows are
+    # paginated on demand), so it stays empty — the export writes the raw file
+    # verbatim when include_data is on, without a _data.json sidecar (matches the
+    # front's server-mode behavior). Raw files are read from disk per dataset.
+    dataset_data: dict[str, list[dict]] = {}
+    dataset_raw_files: dict[str, dict] = {}
+    if include_data:
+        for node in ds_nodes:
+            if node["type"] != "file":
+                continue
+            path = node["path"]
+            file_path = await asyncio.to_thread(project_fs.dataset_path, project.uid, path)
+            if file_path.is_file():
+                blob = await asyncio.to_thread(file_path.read_bytes)
+                dataset_raw_files[path] = {
+                    "blob": blob,
+                    "fileName": path.rsplit("/", 1)[-1],
+                }
+
+    attachments = []
+    attachment_blobs: dict[str, bytes] = {}
+    for att in await attachment_service.list_readme(db, project.uid):
+        attachments.append(
+            {
+                "id": att.id,
+                "projectUid": att.project_uid,
+                "workspaceId": att.workspace_id,
+                "fileName": att.file_name,
+                "mimeType": att.mime_type,
+                "fileSize": att.file_size,
+                "createdAt": att.created_at,
+            }
+        )
+        if att.blob_sha and blob_store.exists(att.blob_sha):
+            attachment_blobs[att.id] = await blob_store.read_bytes(att.blob_sha)
+
+    organization = project.organization or None
+
+    return build_project_tree(
+        project=project_dict,
+        organization=organization,
+        ide_files=ide_files,
+        pipelines=pipelines,
+        cohorts=cohorts,
+        connections=connections,
+        dashboards=dashboards,
+        dataset_files=dataset_files,
+        dataset_analyses=dataset_analyses,
+        dataset_data=dataset_data,
+        dataset_raw_files=dataset_raw_files,
+        attachments=attachments,
+        attachment_blobs=attachment_blobs,
+        include_data_files=include_data,
+    )
+
+
+def _zip_tree(tree: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path, content in tree.items():
+            zf.writestr(path, content)
+    return buf.getvalue()
+
+
+async def assemble_project_zip(
+    db: AsyncSession, project: Project, include_data: bool
+) -> bytes:
+    """Build the project's export ZIP bytes server-side (no client upload). Feeds
+    the same git flow (status/diff/commit-push) that used to receive the
+    client-built ZIP."""
+    tree = await build_project_tree_from_db(db, project, include_data)
+    return await asyncio.to_thread(_zip_tree, tree)

@@ -1,0 +1,12 @@
+{
+  "id": "cx-1",
+  "name": "Warehouse",
+  "source": "postgres",
+  "dataSourceId": null,
+  "connectionConfig": {
+    "host": "db.local"
+  },
+  "status": "connected",
+  "errorMessage": null,
+  "createdAt": "2026-01-05T00:00:00Z"
+}
