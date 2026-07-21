@@ -1754,6 +1754,16 @@ export async function applyClonedEntity(
   const parsed = await parseProjectZip(new File([blob], 'clone.zip'))
   if (!parsed) return false
   await importProjectContent(parsed, targetId, storage)
+  // The workspace only carried a pointer (uid/name/gitRemoteConfig); the repo's
+  // project.json is authoritative for the rest of the metadata. Overwrite it here,
+  // keeping the local uid/workspaceId and re-applying the git pointer (the repo
+  // export strips gitRemoteConfig as an instance field).
+  const { uid: _uid, workspaceId: _ws, readme: _rd, todos: _td, notes: _nt, ...meta } = dropForeignAuthorId(parsed.project) as Project
+  await storage.projects.update(targetId, {
+    ...meta,
+    ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+  }).catch(() => {})
   return true
 }
 
@@ -1876,9 +1886,14 @@ export async function buildWorkspaceZip(
       const projectMetaOut = { ...stripInstanceFields(projectMeta), ...(git ? { gitRemoteConfig: git } : {}), appVersion: APP_VERSION }
 
       if (git) {
-        // Metadata + git pointer only — content comes from the linked repo at portal build time.
-        zip.file(`projects/${folder}/project.json`, json(projectMetaOut))
-        writeReadmeFiles(zip, `projects/${folder}/`, project.readme)
+        // Pointer only — the linked repo's own project.json is the source of truth for
+        // ALL metadata (name/description/version/author/…) + README. The workspace keeps
+        // just enough to create the record and clone: uid, folder slug, display name, and
+        // the git pointer. The clone (applyClonedEntity → importProjectContent) overwrites
+        // the metadata from the repo. This kills the double-versioning where editing a
+        // linked project rewrote its project.json in both its repo and the workspace branch.
+        const pointer = { uid: project.uid, projectId: project.projectId, name: project.name, gitRemoteConfig: git, appVersion: APP_VERSION }
+        zip.file(`projects/${folder}/project.json`, json(pointer))
         gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
       } else if (includeData[project.uid]) {
         // Full project content nested under projects/<folder>/ (reuses buildProjectZip layout).
