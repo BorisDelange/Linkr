@@ -207,7 +207,7 @@ export function CreateFileDialog({
           // Radix would focus the first tabbable element (the type Select);
           // send the caret to the name field (the only <input> here) instead.
           e.preventDefault()
-          e.currentTarget.querySelector('input')?.focus()
+          ;(e.currentTarget as HTMLElement).querySelector('input')?.focus()
         }}
       >
         <form onSubmit={handleSubmit}>
