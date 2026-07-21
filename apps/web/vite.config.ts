@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import seedHashesPlugin from './vite-plugin-seed-hashes'
 import path from 'path'
 import { execSync } from 'child_process'
+import { readFileSync } from 'fs'
 
 // Inject git commit hash at build time for version detection
 const gitHash = (() => {
@@ -11,6 +12,18 @@ const gitHash = (() => {
     return execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim()
   } catch {
     return 'dev'
+  }
+})()
+
+// The export-format app version — single source of truth is the repo-root
+// VERSION file, read here so the frontend and the backend (apps/api/app/
+// export_version.py reads the same file) stamp exports with the SAME string. A
+// drift would fabricate false git diffs between a front-only and a server export.
+const appVersion = (() => {
+  try {
+    return readFileSync(path.resolve(__dirname, '../../VERSION'), 'utf-8').trim()
+  } catch {
+    return '0.0.0'
   }
 })()
 
@@ -36,6 +49,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), seedHashesPlugin(), stripCoiInServerMode()],
   define: {
     __APP_BUILD_HASH__: JSON.stringify(gitHash),
+    __APP_VERSION__: JSON.stringify(appVersion),
   },
   resolve: {
     alias: {

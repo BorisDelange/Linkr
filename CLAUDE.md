@@ -47,3 +47,7 @@ docker compose -f docker/docker-compose.yml up
 **No comments** — only add a comment when the WHY is non-obvious (hidden constraint, workaround, surprising invariant). Never describe what the code does.
 
 **Tests follow the code** — when you change or add *pure, critical* logic (SQL escaping/validation, OMOP/query builders, fuzzy-search, import/export, format helpers), add or update its test in the same change. Run `npm run test` before pushing. Do not unit-test volatile UI components. Details → `docs/conventions.md` + `.claude/skills/write-tests/`.
+
+**Two independent versions** — don't conflate them:
+- **Export-format version** = repo-root `VERSION` file. Stamped into exports (`project.json` `appVersion`). Read by BOTH front (`vite.config.ts`/`vitest.config.ts` inject `__APP_VERSION__` → `lib/version.ts`) and back (`apps/api/app/export_version.py`). Bump it in ONE place (`VERSION`) when the export format changes or on a release. Front and server MUST stamp the same string or git shows false diffs — the project-export golden tests guard this.
+- **Server/deployment version** = `apps/api/app/config.py` `app_version` (+ `pyproject.toml`). Only logs / `/health` / OpenAPI title. Bump on a server release. It is deliberately NOT the export version — never wire one to the other.
