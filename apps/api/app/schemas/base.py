@@ -19,13 +19,17 @@ class CamelModel(BaseModel):
         from_attributes=True,
     )
 
-    @field_serializer("*", mode="wrap")
+    @field_serializer("*", mode="wrap", when_used="json")
     def _serialize_datetimes(self, value: Any, handler: Any) -> Any:
         """Emit every datetime exactly like the frontend's Date.toISOString():
         UTC, millisecond precision, trailing 'Z'. Pydantic's default isoformat()
         yields microseconds and a '+00:00' offset (or none for naive values), so
         the same record exported by the API vs. the browser produced different
-        strings and churned the git diff. Non-datetime fields pass through."""
+        strings and churned the git diff. Non-datetime fields pass through.
+
+        when_used='json' is critical: a plain model_dump() (python mode) is used by
+        the services to write DateTime columns, which need real datetime objects —
+        stringifying there raised 'SQLite DateTime type only accepts datetime'."""
         if isinstance(value, datetime):
             utc = value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
             return utc.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc.microsecond // 1000:03d}Z"
