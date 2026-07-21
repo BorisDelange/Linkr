@@ -26,7 +26,7 @@
     "orcid": "0000-0000-0000-0001"
   },
   "version": "0.3.0",
-  "createdAt": "2026-01-02T03:04:05Z",
+  "createdAt": "2026-01-02T03:04:05.000Z",
   "appVersion": "2.1.2",
   "organization": {
     "id": "org-1",
@@ -41,6 +41,6 @@
     "customType": null,
     "referenceId": "ref-1",
     "customFields": {},
-    "createdAt": "2025-12-01T00:00:00Z"
+    "createdAt": "2025-12-01T00:00:00.000Z"
   }
 }

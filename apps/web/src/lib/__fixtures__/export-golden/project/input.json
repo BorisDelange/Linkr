@@ -24,8 +24,8 @@
     "createdBy": "Ada Lovelace",
     "createdByDetails": { "orcid": "0000-0000-0000-0001" },
     "version": "0.3.0",
-    "createdAt": "2026-01-02T03:04:05Z",
-    "updatedAt": "2026-06-30T10:00:00Z"
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "updatedAt": "2026-06-30T10:00:00.000Z"
   },
   "organization": {
     "id": "org-1",
@@ -38,8 +38,8 @@
     "customType": null,
     "referenceId": "ref-1",
     "customFields": {},
-    "createdAt": "2025-12-01T00:00:00Z",
-    "updatedAt": "2026-06-01T00:00:00Z"
+    "createdAt": "2025-12-01T00:00:00.000Z",
+    "updatedAt": "2026-06-01T00:00:00.000Z"
   },
   "workspace": { "id": "ws-1", "organizationId": "org-1" },
   "ideFiles": [
@@ -49,13 +49,13 @@
     { "id": "ide-f1bdda93d9a278e3", "projectUid": "proj-uid-1", "name": "main.py", "type": "file", "parentId": "ide-da39a3ee5e6b4b0d", "content": "print('hello')\n", "language": "python", "createdAt": "" }
   ],
   "pipelines": [
-    { "id": "pl-1", "projectUid": "proj-uid-1", "name": { "en": "Main pipeline" }, "nodes": [{ "id": "n1" }], "edges": [], "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z" }
+    { "id": "pl-1", "projectUid": "proj-uid-1", "name": { "en": "Main pipeline" }, "nodes": [{ "id": "n1" }], "edges": [], "createdAt": "2026-01-03T00:00:00.000Z", "updatedAt": "2026-06-01T00:00:00.000Z" }
   ],
   "cohorts": [
-    { "id": "co-1", "projectUid": "proj-uid-1", "name": "Adults", "description": "age >= 18", "level": "patient", "criteriaTree": { "op": "and", "rules": [] }, "customSql": null, "resultCount": 42, "attrition": null, "materialization": null, "schemaVersion": 3, "createdAt": "2026-01-04T00:00:00Z", "updatedAt": "2026-06-02T00:00:00Z", "version": "0.1.0" }
+    { "id": "co-1", "projectUid": "proj-uid-1", "name": "Adults", "description": "age >= 18", "level": "patient", "criteriaTree": { "op": "and", "rules": [] }, "customSql": null, "resultCount": 42, "attrition": null, "materialization": null, "schemaVersion": 3, "createdAt": "2026-01-04T00:00:00.000Z", "updatedAt": "2026-06-02T00:00:00.000Z", "version": "0.1.0" }
   ],
   "connections": [
-    { "id": "cx-1", "projectUid": "proj-uid-1", "name": "Warehouse", "source": "postgres", "dataSourceId": null, "connectionConfig": { "host": "db.local" }, "status": "connected", "errorMessage": null, "createdAt": "2026-01-05T00:00:00Z" }
+    { "id": "cx-1", "projectUid": "proj-uid-1", "name": "Warehouse", "source": "postgres", "dataSourceId": null, "connectionConfig": { "host": "db.local" }, "status": "connected", "errorMessage": null, "createdAt": "2026-01-05T00:00:00.000Z" }
   ],
   "dashboards": [
     {
@@ -78,8 +78,8 @@
         "createdById": 3,
         "createdBy": "Ada Lovelace",
         "createdByDetails": { "orcid": "0000-0000-0000-0001" },
-        "createdAt": "2026-01-06T00:00:00Z",
-        "updatedAt": "2026-06-03T00:00:00Z",
+        "createdAt": "2026-01-06T00:00:00.000Z",
+        "updatedAt": "2026-06-03T00:00:00.000Z",
         "version": "0.1.0"
       },
       "tabs": [
@@ -99,12 +99,12 @@
   ],
   "datasetAnalyses": {
     "cohort.csv": [
-      { "id": "an-1", "projectUid": "proj-uid-1", "datasetPath": "cohort.csv", "name": "Age histogram", "type": "chart", "config": { "col": "col_age" }, "createdAt": "2026-01-07T00:00:00Z", "updatedAt": "2026-06-04T00:00:00Z", "datasetFileId": "cohort.csv" }
+      { "id": "an-1", "projectUid": "proj-uid-1", "datasetPath": "cohort.csv", "name": "Age histogram", "type": "chart", "config": { "col": "col_age" }, "createdAt": "2026-01-07T00:00:00.000Z", "updatedAt": "2026-06-04T00:00:00.000Z", "datasetFileId": "cohort.csv" }
     ]
   },
   "datasetData": {},
   "datasetRawFiles": {},
   "attachments": [
-    { "id": "att-1", "projectUid": "proj-uid-1", "workspaceId": null, "fileName": "diagram.png", "mimeType": "image/png", "fileSize": 4, "createdAt": "2026-01-08T00:00:00Z", "dataBase64": "AAECAw==" }
+    { "id": "att-1", "projectUid": "proj-uid-1", "workspaceId": null, "fileName": "diagram.png", "mimeType": "image/png", "fileSize": 4, "createdAt": "2026-01-08T00:00:00.000Z", "dataBase64": "AAECAw==" }
   ]
 }
