@@ -394,11 +394,14 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
         {stats.isNumeric && stats.histogram.length > 1 && (() => {
           const lows = stats.histogram.map((b) => b.x)
           const step = lows.length > 1 ? lows[1] - lows[0] : 1
-          const lo = lows[0]
-          const hi = lows[lows.length - 1] + step  // right edge of the last bin
+          const dataLo = lows[0]                       // first bin's left edge
+          const hi = lows[lows.length - 1] + step      // last bin's right edge
           const data = stats.histogram.map((b) => ({ ...b, center: b.x + step / 2 }))
-          // Round ticks from niceTicks, kept only where they fall within [lo, hi].
-          const scale = niceTicks([lo, hi])
+          // Round, evenly-spaced ticks. The domain starts at the first ROUND tick
+          // at or below the data (niceTicks' domain[0]) — not 0 — so there's no big
+          // empty gap on the left and no bar overflows. Keep ticks within the domain.
+          const scale = niceTicks([dataLo, hi])
+          const lo = scale ? Math.min(scale.domain[0], dataLo) : dataLo
           const ticks = scale?.ticks.filter((tk) => tk >= lo && tk <= hi)
           return (
             <div className="space-y-1 border-t pt-3">
