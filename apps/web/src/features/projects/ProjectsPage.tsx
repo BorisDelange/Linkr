@@ -188,6 +188,11 @@ export function ProjectsPage() {
     let uid: string
     if (duplicate) {
       uid = crypto.randomUUID()
+    } else if (!project.uid) {
+      // A clean/git export strips uid (buildProjectZip). With no uid the
+      // collision check + delete-then-create below would operate on `undefined`
+      // (corrupting the store / keying a record `undefined`), so mint a fresh one.
+      uid = crypto.randomUUID()
     } else {
       const currentWs = wsUid ?? activeWorkspaceId
       const globalExisting = useAppStore.getState()._projectsRaw.find((p) => p.uid === project.uid)

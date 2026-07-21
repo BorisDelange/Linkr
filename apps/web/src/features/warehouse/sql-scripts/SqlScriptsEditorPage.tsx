@@ -208,7 +208,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
           )
           addOutputTab({
             id: `sql-result-${label}`,
-            label: `Result — ${label}`,
+            label: t('sql_scripts.tab_result', { name: label }),
             type: 'table',
             content: { headers, rows: tableRows },
           })
@@ -236,7 +236,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
       if (name.endsWith('.md')) {
         addOutputTab({
           id: `markdown-${name}`,
-          label: `Preview — ${name}`,
+          label: t('sql_scripts.tab_preview', { name }),
           type: 'markdown',
           content,
         })
@@ -245,7 +245,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
       }
       await executeSql(content, name)
     },
-    [addOutputTab, setOutputVisible, executeSql],
+    [addOutputTab, setOutputVisible, executeSql, t],
   )
 
   const handleRunFile = useCallback(async () => {
@@ -274,7 +274,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     let label = selectedFile.name
     if (selection && !selection.isEmpty()) {
       sql = model.getValueInRange(selection)
-      label = `${selectedFile.name} (selection)`
+      label = t('sql_scripts.label_selection', { name: selectedFile.name })
     } else {
       const pos = editor.getPosition()
       if (!pos) return
@@ -288,7 +288,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     } finally {
       setIsRunning(false)
     }
-  }, [selectedFile, handleRunFile, executeSql])
+  }, [selectedFile, handleRunFile, executeSql, t])
 
   const handleRunAll = useCallback(async () => {
     const sqlFiles = files

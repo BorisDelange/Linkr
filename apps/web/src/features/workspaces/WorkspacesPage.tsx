@@ -142,6 +142,9 @@ export function WorkspacesPage() {
   const [importError, setImportError] = useState<FormattedError | null>(null)
   /** Git-linked entities found in the last import (metadata only — content stays in their repos). */
   const [gitLinkedSummary, setGitLinkedSummary] = useState<GitLinkedEntity[] | null>(null)
+  // Target workspace for a manual clone-retry from the summary dialog — without it
+  // the retry would restore the entity into workspaceId '' (orphaned, invisible).
+  const [gitLinkedWsId, setGitLinkedWsId] = useState<string | null>(null)
   const [cloneToken, setCloneToken] = useState('')
   const [cloneState, setCloneState] = useState<Record<string, 'pending' | 'done' | 'error'>>({})
 
@@ -181,7 +184,10 @@ export function WorkspacesPage() {
     }
   }, [cloneToken])
 
-  const handleCloneEntity = useCallback((e: GitLinkedEntity) => cloneEntityContent(e), [cloneEntityContent])
+  const handleCloneEntity = useCallback(
+    (e: GitLinkedEntity) => cloneEntityContent(e, { workspaceId: gitLinkedWsId ?? undefined }),
+    [cloneEntityContent, gitLinkedWsId],
+  )
 
   /** Progress line while auto-cloning git-linked entities after a workspace import. */
   const reportCloneProgress = useCallback((done: number, total: number, name: string) => {
@@ -728,7 +734,7 @@ export function WorkspacesPage() {
         setImportProgress(null)
         // Show the dialog only when something still needs the user (a failed/pending
         // auto-clone, or client-only / duplicate where auto-clone can't run).
-        if (anyFailed) setGitLinkedSummary(linked)
+        if (anyFailed) { setGitLinkedWsId(targetWsId); setGitLinkedSummary(linked) }
       }
     } catch (err) {
       setImportError(formatApiError(err))
@@ -1034,7 +1040,7 @@ export function WorkspacesPage() {
       <ImportErrorDialog error={importError} onClose={() => setImportError(null)} />
 
       {/* Git-linked entities summary after import (metadata only — content lives in their repos) */}
-      <AlertDialog open={gitLinkedSummary !== null} onOpenChange={(open) => { if (!open) setGitLinkedSummary(null) }}>
+      <AlertDialog open={gitLinkedSummary !== null} onOpenChange={(open) => { if (!open) { setGitLinkedSummary(null); setGitLinkedWsId(null) } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
@@ -1095,7 +1101,7 @@ export function WorkspacesPage() {
             })}
           </div>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={() => { setGitLinkedSummary(null); setCloneState({}) }}>
+            <AlertDialogAction onClick={() => { setGitLinkedSummary(null); setGitLinkedWsId(null); setCloneState({}) }}>
               {t('common.ok')}
             </AlertDialogAction>
           </AlertDialogFooter>

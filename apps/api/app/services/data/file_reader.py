@@ -14,6 +14,7 @@ is chosen from the original `file_name`'s extension. Excel needs DuckDB's
 under the shared extension directory.
 """
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -49,13 +50,20 @@ def python_decode_codec(encoding: str | None) -> str | None:
     return _PY_DECODE.get(encoding or "")
 
 
-def _transcode_to_utf8(path: str, codec: str) -> str:
+# Transcoded UTF-8 temp files created for a given connection, so the caller can
+# unlink them after the read (build_read_expr returns a SQL expression that reads
+# the temp *later*, so it can't delete it itself). Keyed by id(con); cleaned via
+# cleanup_transcoded(con) in the caller's finally.
+_transcoded: dict[int, list[str]] = {}
+
+
+def _transcode_to_utf8(con: duckdb.DuckDBPyConnection, path: str, codec: str) -> str:
     """Rewrite a CSV blob from `codec` to a UTF-8 temp file, returning its path.
 
     DuckDB's CSV reader has no Windows-1252 token (cp1252's 0x80–0x9F printables
     — curly quotes, €, … — would be mangled if read as latin-1), so the bytes are
-    decoded in Python and re-encoded UTF-8 first. The temp file lives until the
-    process cleans it up; it is only read synchronously during the same call."""
+    decoded in Python and re-encoded UTF-8 first. The temp is registered against
+    `con` and removed by ``cleanup_transcoded(con)`` after the read."""
     with open(path, "rb") as fh:
         text = fh.read().decode(codec, errors="replace")
     tmp = tempfile.NamedTemporaryFile(
@@ -66,7 +74,18 @@ def _transcode_to_utf8(path: str, codec: str) -> str:
         tmp.write(text)
     finally:
         tmp.close()
+    _transcoded.setdefault(id(con), []).append(tmp.name)
     return tmp.name
+
+
+def cleanup_transcoded(con: duckdb.DuckDBPyConnection) -> None:
+    """Unlink any UTF-8 temp files build_read_expr created for `con`. Call in the
+    caller's ``finally`` (alongside ``con.close()``)."""
+    for tmp_path in _transcoded.pop(id(con), []):
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def _sql_str(value: str) -> str:
@@ -132,7 +151,7 @@ def build_read_expr(
     if codec:
         # DuckDB can't read this encoding — transcode the blob to a UTF-8 temp and
         # read that instead (as utf-8, the reader default).
-        path = _transcode_to_utf8(path, codec)
+        path = _transcode_to_utf8(con, path, codec)
         encoding = "UTF-8"
     args = [_sql_str(path), "all_varchar=true", f"header={str(header).lower()}"]
     delim = opts.get("delimiter")

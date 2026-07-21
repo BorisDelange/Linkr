@@ -38,6 +38,24 @@ def test_nulls_and_missing_keys_become_null():
     assert out == [{"c0": "A", "c1": None}, {"c0": "B", "c1": None}]
 
 
+def test_french_boolean_tokens_survive_the_write():
+    # Regression: inference classifies oui/non/vrai/faux/o as boolean and the
+    # preview renders them True/False, but DuckDB's `try_cast(x AS BOOLEAN)`
+    # returns NULL for exactly those FR tokens — so the old projection silently
+    # NULLed a whole French boolean column on import (preview != import). The
+    # projection now mirrors parse_boolean's token sets.
+    cols = [{"id": "c0", "type": "boolean"}]
+    rows = [
+        {"c0": "oui"}, {"c0": "non"}, {"c0": "vrai"}, {"c0": "faux"},
+        {"c0": "o"}, {"c0": "yes"}, {"c0": "no"}, {"c0": "TRUE"},
+        {"c0": " Oui "}, {"c0": "xyz"}, {"c0": None},
+    ]
+    out = _roundtrip(rows, cols)
+    assert [r["c0"] for r in out] == [
+        True, False, True, False, True, True, False, True, True, None, None
+    ]
+
+
 def test_uncastable_value_in_number_column_becomes_null_not_crash():
     # Safety net for a too-optimistic type verdict: a non-numeric cell in a column
     # declared `number` must try_cast to NULL, never abort the whole write (the

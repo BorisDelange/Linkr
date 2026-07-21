@@ -41,6 +41,22 @@ def test_windows_1252_transcoded_then_read_as_utf8(tmp_path):
     assert val == "“hi” €"
 
 
+def test_transcoded_temp_is_cleaned_up(tmp_path):
+    # The UTF-8 temp created for a cp1252 read must not accumulate on the server.
+    import os
+    from app.services.data.file_reader import cleanup_transcoded
+
+    src = tmp_path / "w1252.csv"
+    src.write_bytes(b"a\n\x93hi\x94\n")
+    con = _con()
+    expr = build_read_expr(con, str(src), "w1252.csv", {"encoding": "Windows-1252"})
+    tmp_path_read = expr.split("'")[1]  # the transcoded temp inside read_csv('...')
+    assert os.path.exists(tmp_path_read)
+    con.execute(f"SELECT a FROM {expr}").fetchall()
+    cleanup_transcoded(con)
+    assert not os.path.exists(tmp_path_read)
+
+
 def test_python_decode_codec_only_for_windows_1252():
     assert python_decode_codec("Windows-1252") == "cp1252"
     assert python_decode_codec("ISO-8859-1") is None

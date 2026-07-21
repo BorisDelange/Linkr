@@ -152,6 +152,38 @@ async def test_import_unknown_role_falls_back_to_user(db):
     assert any("nonexistent-role" in w for w in report.warnings)
 
 
+async def test_import_refuses_admin_role_on_new_user(db):
+    # A file must not be able to plant an admin (latent, activated later unflagged).
+    report = await settings_import_service.import_settings_tree(
+        db, _tree(users=[{"username": "mallory", "role": "admin"}])
+    )
+    mallory = await db.scalar(select(User).where(User.username == "mallory"))
+    assert mallory.role == "user"  # refused, not admin
+    assert mallory.is_active is False
+    assert any("mallory" in w and "admin" in w for w in report.warnings)
+
+
+async def test_import_cannot_promote_existing_user_to_admin(db):
+    await _seed(db)
+    db.add(User(username="dave", role="user", password_hash="h", is_active=True))
+    await db.commit()
+    await settings_import_service.import_settings_tree(
+        db, _tree(users=[{"username": "dave", "role": "admin"}])
+    )
+    dave = await db.scalar(select(User).where(User.username == "dave"))
+    assert dave.role == "user"  # import can't promote a live account to admin
+
+
+async def test_import_cannot_demote_existing_admin(db):
+    await _seed(db)  # alice is admin
+    report = await settings_import_service.import_settings_tree(
+        db, _tree(users=[{"username": "alice", "role": "user"}]),
+    )
+    alice = await db.scalar(select(User).where(User.username == "alice"))
+    assert alice.role == "admin"  # import can't strip administrators
+    assert any("alice" in w and "demote" in w for w in report.warnings)
+
+
 async def test_import_skips_acting_admin(db):
     await _seed(db)
     await settings_import_service.import_settings_tree(

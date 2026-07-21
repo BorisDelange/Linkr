@@ -1682,6 +1682,9 @@
     "file_cat_catalogs": "Catalogues",
     "file_cat_plugins": "Plugins",
     "file_cat_concept_ids": "Identifiants de concepts source",
+    "file_cat_organizations": "Organisations",
+    "file_cat_users": "Utilisateurs",
+    "file_cat_roles": "Rôles",
     "file_cat_attrs": "Configuration Git",
     "file_cat_other": "Autres",
     "file_desc_project_json": "Paramètres du projet : nom, description et options. Le cœur du projet.",
@@ -3007,7 +3010,10 @@
     "run": "Exécuter",
     "run_selection": "Exécuter la sélection",
     "run_line": "Exécuter la ligne courante",
-    "no_database_available": "Aucune base disponible"
+    "no_database_available": "Aucune base disponible",
+    "tab_result": "Résultat — {{name}}",
+    "tab_preview": "Aperçu — {{name}}",
+    "label_selection": "{{name}} (sélection)"
   },
   "app_versioning": {
     "title": "Versioning",

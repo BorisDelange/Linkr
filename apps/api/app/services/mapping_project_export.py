@@ -42,12 +42,30 @@ _INSTANCE_FIELDS = (
 )
 
 
+def _js_numbers(value: Any) -> Any:
+    """Normalize whole-valued floats to int so serialization matches JS.
+    ``JSON.stringify(1.0)`` → ``"1"`` but Python ``json.dumps(1.0)`` → ``"1.0"``;
+    a mapping's ``matchScore`` of 1.0/0.0 (exact/zero match) would otherwise emit
+    different bytes server- vs client-side → a spurious git diff on a shared remote.
+    Fractions (0.85) are left untouched (JS keeps them too)."""
+    if isinstance(value, bool):
+        return value  # bool is an int subclass — never coerce
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _js_numbers(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_js_numbers(v) for v in value]
+    return value
+
+
 def _json(value: Any) -> bytes:
     """Serialize like TS ``JSON.stringify(x, null, 2)``: 2-space indent, ``": "``
     and ``",\\n"`` separators, insertion-order keys (never sorted), UTF-8, no
-    trailing newline. ``None`` values are omitted upstream (TS omits ``undefined``)."""
+    trailing newline, JS number formatting (whole floats as ints). ``None`` values
+    are omitted upstream (TS omits ``undefined``)."""
     return json.dumps(
-        value, indent=2, ensure_ascii=False, separators=(",", ": ")
+        _js_numbers(value), indent=2, ensure_ascii=False, separators=(",", ": ")
     ).encode("utf-8")
 
 
@@ -139,7 +157,10 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
         }
 
     if organization:
-        out["organization"] = organization
+        # Port of orgSnapshot (entity-io.ts:1468): keep the org's portable fields,
+        # drop updatedAt (re-stamped on import; churns the diff). The project export
+        # path already does this via _org_snapshot — this path had missed it.
+        out["organization"] = {k: v for k, v in organization.items() if k != "updatedAt"}
 
     return _json(out)
 

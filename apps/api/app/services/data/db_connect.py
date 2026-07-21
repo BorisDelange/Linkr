@@ -343,6 +343,7 @@ def query_file_source(
         _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql, max_rows=max_rows)
     finally:
+        file_reader.cleanup_transcoded(con)
         con.close()
 
 
@@ -374,6 +375,7 @@ def file_source_columns(
             rows = [_row_to_json(dict(zip(names, r))) for r in res.fetchall()]
         return cols, int(total), rows
     finally:
+        file_reader.cleanup_transcoded(con)
         con.close()
 
 

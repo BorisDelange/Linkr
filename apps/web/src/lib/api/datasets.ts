@@ -124,6 +124,29 @@ export async function previewDatasetOnServer(params: {
 }
 
 /**
+ * Re-preview a blob already uploaded (by sha) with new parse options, WITHOUT
+ * re-uploading — the option-tweak path for the upload dialog. Same `/preview`
+ * endpoint as previewDatasetOnServer, minus the chunked upload.
+ */
+export async function previewDatasetBySha(params: {
+  projectUid: string
+  sha: string
+  fileName: string
+  parseOptions?: DatasetParseOptions
+}): Promise<ServerPreview> {
+  const res = await apiRequest<Omit<ServerPreview, 'sha'>>('/dataset-files/preview', {
+    method: 'POST',
+    body: JSON.stringify({
+      projectUid: params.projectUid,
+      sha: params.sha,
+      fileName: params.fileName,
+      parseOptions: params.parseOptions ?? null,
+    }),
+  })
+  return { ...res, sha: params.sha }
+}
+
+/**
  * Import a blob already uploaded during preview, referenced by its sha — no
  * re-upload. Lands it in datasets/<path> and parses it into the Parquet cache.
  */

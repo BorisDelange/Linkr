@@ -150,7 +150,10 @@ def remove_repo(kind: str, entity_id: str) -> None:
     deleted so its versioning folder doesn't linger as an orphan. `kind` is the
     same folder segment the *_repo helpers use ("workspaces", "mapping-projects",
     "sql-collections", …). No-op if the dir is absent (never versioned)."""
-    shutil.rmtree(settings.data_path / kind / entity_id, ignore_errors=True)
+    # entity_id comes from trusted DB callers today, but this is an rmtree — guard
+    # against an id that resolves outside data_path/<kind> (defense in depth).
+    target = _safe_join(settings.data_path / kind, entity_id)
+    shutil.rmtree(target, ignore_errors=True)
 
 
 _GH_NAV_SEGMENTS = ("tree", "blob", "commit", "commits", "pull", "pulls", "releases", "tags", "branches", "find", "raw")

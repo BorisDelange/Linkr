@@ -1682,6 +1682,9 @@
     "file_cat_catalogs": "Catalogs",
     "file_cat_plugins": "Plugins",
     "file_cat_concept_ids": "Source concept IDs",
+    "file_cat_organizations": "Organizations",
+    "file_cat_users": "Users",
+    "file_cat_roles": "Roles",
     "file_cat_attrs": "Git configuration",
     "file_cat_other": "Other",
     "file_desc_project_json": "Project settings: name, description and options. The heart of the project.",
@@ -3007,7 +3010,10 @@
     "run": "Run",
     "run_selection": "Run selection",
     "run_line": "Run current line",
-    "no_database_available": "No database available"
+    "no_database_available": "No database available",
+    "tab_result": "Result — {{name}}",
+    "tab_preview": "Preview — {{name}}",
+    "label_selection": "{{name}} (selection)"
   },
   "app_versioning": {
     "title": "Versioning",

@@ -102,6 +102,33 @@ async def test_editing_a_widget_bumps_the_dashboard(db):
     assert refreshed.updated_at.replace(tzinfo=timezone.utc) > _OLD
 
 
+async def test_editing_a_widget_bumps_dashboard_via_db_fallback(db):
+    """Same as above but the tab is NOT session-resident — the listener must fall
+    back to the indexed DB lookup (the two-hop branch tests didn't cover)."""
+    ws = await _ws(db)
+    db.add(Project(uid="pr2", workspace_id=ws, name={"en": "P"}))
+    await db.commit()
+    dash = Dashboard(id="d2", project_uid="pr2", name={"en": "D"})
+    db.add(dash)
+    await db.commit()
+    db.add(DashboardTab(id="t2", dashboard_id="d2", name={"en": "T"}, display_order=0))
+    await db.commit()
+    db.add(DashboardWidget(id="w2", tab_id="t2", name={"en": "W"}, layout={"x": 0, "y": 0, "w": 4, "h": 2}))
+    await db.commit()
+    await _stamp_old(db, dash)
+
+    # Drop everything from the session, then load ONLY the widget — the tab is
+    # absent from the identity map, so the listener must query for dashboard_id.
+    db.expire_all()
+    w = await db.get(DashboardWidget, "w2")
+    w.name = {"en": "W2"}
+    await db.commit()
+
+    db.expire_all()
+    refreshed = await db.get(Dashboard, "d2")
+    assert refreshed.updated_at.replace(tzinfo=timezone.utc) > _OLD
+
+
 async def test_no_child_write_leaves_parent_untouched(db):
     """A read (or an unrelated write) must NOT bump the element."""
     ws = await _ws(db)

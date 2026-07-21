@@ -18,7 +18,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import ALL_PERMISSIONS
@@ -131,14 +131,6 @@ async def _known_role_names(db: AsyncSession) -> set[str]:
     return set(rows)
 
 
-async def _active_admin_count(db: AsyncSession) -> int:
-    return await db.scalar(
-        select(func.count())
-        .select_from(User)
-        .where(User.role == "admin", User.is_active.is_(True))
-    )
-
-
 async def _import_users(
     db: AsyncSession,
     rows: list[dict],
@@ -156,7 +148,15 @@ async def _import_users(
             continue
 
         role = row.get("role") or "user"
-        if role not in role_names and role != "admin":
+        # 'admin' is the hardcoded global superuser (not a Role row). An imported
+        # file must NEVER grant it — on a new account it would plant a latent admin
+        # (activated later via the routine enable flow, unflagged), on an existing
+        # active account it would silently promote (bypassing the user_service
+        # guards, which this path doesn't traverse). Refuse it → 'user'.
+        if role == "admin":
+            report.warnings.append(f"{username}: refused imported 'admin' role → 'user'")
+            role = "user"
+        elif role not in role_names:
             report.warnings.append(f"{username}: unknown role '{role}' → 'user'")
             role = "user"
 
@@ -176,10 +176,13 @@ async def _import_users(
             db.add(User(username=username, password_hash=None, is_active=False, **profile, **_created_at_kwarg(row)))
             report.users_created += 1
         else:
-            # Guard: importing must not demote the last active admin.
-            would_demote = existing.role == "admin" and role != "admin"
-            if would_demote and await _active_admin_count(db) <= 1:
-                report.warnings.append(f"{username}: kept admin (last administrator)")
+            # Importing never changes a local account's admin status in EITHER
+            # direction: 'admin' is refused above (no promotion), and a locally
+            # existing admin keeps admin here (no demotion — a file must not be
+            # able to strip administrators, which also can't lock out the last one).
+            if existing.role == "admin":
+                if role != "admin":
+                    report.warnings.append(f"{username}: kept admin (import can't demote)")
                 profile["role"] = "admin"
             # Update profile only; never touch password_hash or is_active.
             for k, v in profile.items():

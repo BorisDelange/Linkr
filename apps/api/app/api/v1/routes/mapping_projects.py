@@ -45,6 +45,17 @@ _MAP = "/concept-mappings"
 _SVC = "/service-mappings"
 
 
+def _attachment_disposition(filename: str) -> str:
+    """RFC 5987 Content-Disposition. Starlette latin-1-encodes headers, so a raw
+    non-latin1 filename (CJK / em-dash / emoji in a project name) would raise
+    UnicodeEncodeError → 500. Emit an ASCII fallback plus a UTF-8 filename*."""
+    import urllib.parse
+
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    utf8_name = urllib.parse.quote(filename)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
+
+
 async def _load_project(
     db: AsyncSession, project_id: str, user: User, permission: str
 ) -> MappingProject:
@@ -570,7 +581,7 @@ async def export_zip(
     return Response(
         content=zip_bytes,
         media_type="application/zip",
-        headers={"content-disposition": f'attachment; filename="{slug}.zip"'},
+        headers={"content-disposition": _attachment_disposition(f"{slug}.zip")},
     )
 
 

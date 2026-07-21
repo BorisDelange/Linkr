@@ -336,6 +336,10 @@ async function deleteOverwrittenEntities(
     const byId = new Map(local.map((f) => [f.id, f]))
     for (const f of local) {
       if (f.type !== 'file' || !sel.datasets.has(treePath(f, byId))) continue
+      // Analyses re-import at a deterministic id (mapId) via db.add, which throws
+      // on a duplicate — delete them first (like the full-import cleanup) or the
+      // overwrite leaves the dataset half-deleted. See entity-io deleteByDataset.
+      await storage.datasetAnalyses.deleteByDataset(f.id).catch(() => {})
       await storage.datasetData.delete(f.id).catch(() => {})
       await storage.datasetRawFiles.delete(f.id).catch(() => {})
       await storage.datasetFiles.delete(f.id)

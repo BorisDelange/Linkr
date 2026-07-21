@@ -24,7 +24,7 @@ import {
 import { useDatasetStore } from '@/stores/dataset-store'
 import { buildColumns } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
-import { importDatasetBySha, previewDatasetOnServer } from '@/lib/api/datasets'
+import { importDatasetBySha, previewDatasetBySha, previewDatasetOnServer } from '@/lib/api/datasets'
 import { TypeBadge } from './TypeBadge'
 import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
 
@@ -79,6 +79,11 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Server preview: the raw file is uploaded ONCE (per selected file); its sha is
+  // cached so option tweaks re-preview by sha instead of re-uploading the whole
+  // file each keystroke. previewSeq discards out-of-order preview responses.
+  const uploadedShaRef = useRef<{ file: File; sha: string } | null>(null)
+  const previewSeqRef = useRef(0)
 
   // Parse options
   const [delimiter, setDelimiter] = useState<Delimiter>('auto')
@@ -104,6 +109,8 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setHasHeader(true)
       setSheetNames([])
       setSelectedSheet('')
+      uploadedShaRef.current = null
+      previewSeqRef.current++
     }
   }, [open])
 
@@ -144,14 +151,19 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   // user previews is exactly what gets imported. The blob is uploaded once here
   // and its sha reused at import time.
   const parseServer = useCallback(async (f: File) => {
+    const seq = ++previewSeqRef.current
     try {
       const projectUid = useDatasetStore.getState().activeProjectUid ?? ''
-      const res = await previewDatasetOnServer({
-        projectUid,
-        file: f,
-        fileName: f.name,
-        parseOptions: buildParseOptions(),
-      })
+      // Upload the raw file only the FIRST time this file is previewed; every
+      // later option tweak re-previews by the cached sha (no full re-upload).
+      const cached = uploadedShaRef.current
+      const res = cached && cached.file === f
+        ? await previewDatasetBySha({ projectUid, sha: cached.sha, fileName: f.name, parseOptions: buildParseOptions() })
+        : await previewDatasetOnServer({ projectUid, file: f, fileName: f.name, parseOptions: buildParseOptions() })
+      uploadedShaRef.current = { file: f, sha: res.sha }
+      // Drop a stale response (a newer option change already fired, or the dialog
+      // closed / a different file was picked) so it can't overwrite fresher state.
+      if (seq !== previewSeqRef.current) return
       if (res.sheetNames && res.sheetNames.length > 0) {
         setSheetNames(res.sheetNames)
         if (!selectedSheet) setSelectedSheet(res.sheetNames[0])
@@ -170,9 +182,10 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
         sha: res.sha,
       })
     } catch (e) {
+      if (seq !== previewSeqRef.current) return
       setError(e instanceof Error ? e.message : t('datasets.upload_parse_error'))
     }
-    setLoading(false)
+    if (seq === previewSeqRef.current) setLoading(false)
   }, [buildParseOptions, selectedSheet, t])
 
   const parseFile = useCallback((f: File) => {

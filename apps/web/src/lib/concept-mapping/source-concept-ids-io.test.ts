@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints, resolveImportedRange, reconcileRangeWithEntries, mergeSourceConceptIdRegistry } from './source-concept-ids-io'
+import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints, resolveImportedRange, reconcileRangeWithEntries, mergeSourceConceptIdRegistry, scopeEntriesToProject, sourceConceptPairKey } from './source-concept-ids-io'
 import type { SourceConceptIdEntry, SourceConceptIdRange } from '@/types'
 
 function range(over: Partial<SourceConceptIdRange> = {}): SourceConceptIdRange {
@@ -23,6 +23,27 @@ function entry(over: Partial<SourceConceptIdEntry> = {}): SourceConceptIdEntry {
     ...over,
   }
 }
+
+describe('scopeEntriesToProject — keep only the project (vocab, code) universe', () => {
+  it('drops entries whose (vocab, code) is not in the project pair set', () => {
+    const mine = entry({ vocabularyId: 'LOINC', conceptCode: '1234-5' })
+    const otherProjectSameBadge = entry({ id: 'x', vocabularyId: 'SNOMED', conceptCode: '9999' })
+    const pairs = new Set([sourceConceptPairKey('LOINC', '1234-5')])
+    const out = scopeEntriesToProject([mine, otherProjectSameBadge], pairs)
+    expect(out).toEqual([mine])
+  })
+
+  it('is a no-op filter when every entry is in scope', () => {
+    const a = entry({ vocabularyId: 'V', conceptCode: 'a' })
+    const b = entry({ id: 'b', vocabularyId: 'V', conceptCode: 'b' })
+    const pairs = new Set([sourceConceptPairKey('V', 'a'), sourceConceptPairKey('V', 'b')])
+    expect(scopeEntriesToProject([a, b], pairs)).toEqual([a, b])
+  })
+
+  it('drops everything for an empty pair set', () => {
+    expect(scopeEntriesToProject([entry()], new Set())).toEqual([])
+  })
+})
 
 describe('source-concept-ids-io — compact round-trip', () => {
   it('preserves the assigned sourceConceptId through compact serialize → parse', () => {

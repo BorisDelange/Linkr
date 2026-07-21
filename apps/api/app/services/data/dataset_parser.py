@@ -24,7 +24,7 @@ from typing import Any
 import duckdb
 
 from app.services.data.column_id import build_column_ids
-from app.services.data.file_reader import build_read_expr, is_excel
+from app.services.data.file_reader import build_read_expr, cleanup_transcoded, is_excel
 from app.services.data.type_inference import (
     BOOL_FALSE,
     BOOL_TRUE,
@@ -115,6 +115,7 @@ def parse_blob(path: Path, file_name: str, parse_options: dict | None):
         headers = list(rel.columns)
         raw_rows = rel.fetchall()  # list of tuples, VARCHAR cells
     finally:
+        cleanup_transcoded(con)
         con.close()
 
     # Per-column raw values for type inference (scans the whole column).
@@ -169,6 +170,7 @@ def preview_blob(path: Path, file_name: str, parse_options: dict | None) -> dict
             f"SELECT * FROM {reader} LIMIT {PREVIEW_ROWS}"
         ).fetchall()
     finally:
+        cleanup_transcoded(con)
         con.close()
 
     ids = build_column_ids(headers)
@@ -206,19 +208,24 @@ def _infer_types_sql(
     parts = []
     for i, _name in enumerate(headers):
         c = _quote_ident(f"col{i}")
+        # Strip the SAME whitespace the row-by-row parser does: Python str.strip()
+        # trims tab/newline/CR too, but DuckDB's one-arg trim() strips only spaces
+        # — so a "\ttrue" cell would infer boolean at import but string in preview.
+        # Build the ASCII-whitespace set via chr() so the SQL stays readable.
+        tc = f"trim({c}, ' ' || chr(9) || chr(10) || chr(13) || chr(11) || chr(12))"
         # non-null, non-empty count and per-type "all match" counts.
-        parts.append(f"count({c}) FILTER (WHERE trim({c}) <> '') AS n_{i}")
+        parts.append(f"count({c}) FILTER (WHERE {tc} <> '') AS n_{i}")
         parts.append(
-            f"count(*) FILTER (WHERE trim({c}) <> '' AND "
-            f"try_cast(trim({c}) AS DOUBLE) IS NOT NULL) AS num_{i}"
+            f"count(*) FILTER (WHERE {tc} <> '' AND "
+            f"try_cast({tc} AS DOUBLE) IS NOT NULL) AS num_{i}"
         )
         parts.append(
-            f"count(*) FILTER (WHERE trim({c}) <> '' AND "
-            f"lower(trim({c})) IN ({bool_tokens})) AS bool_{i}"
+            f"count(*) FILTER (WHERE {tc} <> '' AND "
+            f"lower({tc}) IN ({bool_tokens})) AS bool_{i}"
         )
         parts.append(
-            f"count(*) FILTER (WHERE trim({c}) <> '' AND "
-            f"regexp_full_match(trim({c}), '{_DATE_RE_SQL}')) AS date_{i}"
+            f"count(*) FILTER (WHERE {tc} <> '' AND "
+            f"regexp_full_match({tc}, '{_DATE_RE_SQL}')) AS date_{i}"
         )
     aliased = ", ".join(f"{_quote_ident(h)} AS {_quote_ident(f'col{i}')}"
                         for i, h in enumerate(headers))

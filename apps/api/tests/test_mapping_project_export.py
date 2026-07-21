@@ -85,3 +85,19 @@ def test_entries_sorted_by_code_point_matches_ts():
     ]
     codes = [row[2] for row in _compact_entries(entries)["entries"]]
     assert codes == ["0000|", "9614+1", "961400"]
+
+
+def test_whole_float_matchscore_serializes_like_js():
+    """JS JSON.stringify(1.0) === '1'; Python json.dumps(1.0) === '1.0'. A
+    matchScore of 1.0/0.0 (exact/zero match) must emit the SAME bytes as the TS
+    builder or a mixed-mode team gets a perpetual spurious diff. Fractions stay."""
+    from app.services.mapping_project_export import _serialize_mappings
+
+    out = _serialize_mappings([
+        {"sourceConceptCode": "A", "matchScore": 1.0},
+        {"sourceConceptCode": "B", "matchScore": 0.0},
+        {"sourceConceptCode": "C", "matchScore": 0.85},
+    ]).decode()
+    assert '"matchScore": 1' in out and '"matchScore": 1.0' not in out
+    assert '"matchScore": 0' in out and '"matchScore": 0.0' not in out
+    assert '"matchScore": 0.85' in out

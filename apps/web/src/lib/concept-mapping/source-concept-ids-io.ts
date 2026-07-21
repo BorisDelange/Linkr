@@ -200,6 +200,29 @@ export function toPortableRanges(ranges: SourceConceptIdRange[]): PortableRange[
     .sort((a, b) => compareCodePoints(a.badgeLabel, b.badgeLabel))
 }
 
+/** (vocabularyId, conceptCode) universe of a project, keyed `vocab__code` —
+ *  the same key `mergeSourceConceptIdRegistry` and SourceIdTab use. */
+export type SourceConceptPairKey = string
+
+export function sourceConceptPairKey(vocabularyId: string, conceptCode: string): SourceConceptPairKey {
+  return `${vocabularyId}__${conceptCode}`
+}
+
+/**
+ * Scope registry entries to the (vocab, code) a project actually carries, so a
+ * single-project export keeps only its own ids — not every project's ids that
+ * merely share the badge. Mirrors the server (source_concept_id_scope.py); without
+ * it a front-only export (whole-badge) and a server export (scoped) churn a shared
+ * git remote. `pairs` is the project's universe (mappings ∪ source dictionary).
+ * Pure — unit-testable.
+ */
+export function scopeEntriesToProject(
+  entries: SourceConceptIdEntry[],
+  pairs: Set<SourceConceptPairKey>,
+): SourceConceptIdEntry[] {
+  return entries.filter((e) => pairs.has(sourceConceptPairKey(e.vocabularyId, e.conceptCode)))
+}
+
 /** One source of registry data read from a ZIP/seed: a set of ranges and entries,
  *  either the workspace root or a single mapping-project subfolder. */
 export interface SourceConceptIdGroup {
@@ -290,9 +313,14 @@ export async function buildProjectSourceConceptIds(
       storage.sourceConceptIdRanges.get(project.workspaceId, label),
       storage.sourceConceptIdEntries.getByWorkspaceAndBadge(project.workspaceId, label),
     ])
-    // Export the allocation counters derived from the real entries, not the
-    // possibly-stale stored range row — so ranges.json never claims a nextId
-    // below the ids already assigned (which would collide on the next assign).
+    // NOTE: front-only exports the WHOLE badge's entries, while the server scopes
+    // them to the project's (vocab, code) via DuckDB (source_concept_id_scope.py).
+    // scopeEntriesToProject exists to close that gap, but faithful scoping needs
+    // the deduped source dictionary (the server reads it through the
+    // `source_concepts` view); reproducing that here — CSV quoting, QUALIFY dedup,
+    // terminology-column fallback — would risk a THIRD, divergent behaviour, so a
+    // mixed front-only/server team still sees entries.json churn on a shared
+    // remote. Tracked as a known limitation (server-export-plan §6).
     if (range) ranges.push(reconcileRangeWithEntries(range, es))
     entries.push(...es)
   }

@@ -28,6 +28,8 @@ from typing import Any
 
 import duckdb
 
+from app.services.data.type_inference import BOOL_FALSE, BOOL_TRUE
+
 _SQL_TYPE = {
     "number": "DOUBLE",
     "boolean": "BOOLEAN",
@@ -35,6 +37,27 @@ _SQL_TYPE = {
     "string": "VARCHAR",
     "unknown": "VARCHAR",
 }
+
+
+def _bool_case(ident: str) -> str:
+    """Boolean projection mirroring ``parse_boolean`` (type_inference.py) —
+    lower+trim then match the FR/EN token sets. NOT ``try_cast(... AS BOOLEAN)``:
+    DuckDB's BOOLEAN cast rejects ``oui/non/vrai/faux/o`` (returns NULL), yet
+    inference classifies those as boolean and the preview renders them True/False.
+    Delegating to the cast would silently NULL a whole French boolean column on
+    import (preview != import). Any token outside both sets → NULL, like the parser."""
+    key = f"lower(trim({ident}))"
+    trues = ", ".join(_sql_literal(t) for t in sorted(BOOL_TRUE))
+    falses = ", ".join(_sql_literal(f) for f in sorted(BOOL_FALSE))
+    return (
+        f"CASE WHEN {key} IN ({trues}) THEN true "
+        f"WHEN {key} IN ({falses}) THEN false ELSE NULL END"
+    )
+
+
+def _sql_literal(value: str) -> str:
+    """Single-quoted SQL string literal with quote-doubling."""
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _read_all_varchar_spec(columns: list[dict]) -> str:
@@ -55,8 +78,11 @@ def _typed_projection(columns: list[dict]) -> str:
     parts = []
     for c in columns:
         ident = _quote_ident(c["id"])
-        sql_type = _SQL_TYPE.get(c.get("type", "string"), "VARCHAR")
-        if sql_type == "VARCHAR":
+        ctype = c.get("type", "string")
+        sql_type = _SQL_TYPE.get(ctype, "VARCHAR")
+        if ctype == "boolean":
+            parts.append(f"{_bool_case(ident)} AS {ident}")
+        elif sql_type == "VARCHAR":
             parts.append(ident)
         else:
             parts.append(f"try_cast({ident} AS {sql_type}) AS {ident}")
