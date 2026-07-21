@@ -6,7 +6,12 @@ from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
 from app.models.user import User
 from app.models.wiki_page import WikiPage
-from app.schemas.wiki_page import WikiPageCreate, WikiPageResponse, WikiPageUpdate
+from app.schemas.wiki_page import (
+    WikiPageCreate,
+    WikiPageResponse,
+    WikiPageSearchResult,
+    WikiPageUpdate,
+)
 from app.services import wiki_page_service
 
 router = APIRouter(prefix="/wiki-pages", tags=["wiki-pages"])
@@ -31,6 +36,17 @@ async def list_wiki_pages(
 ):
     await check_workspace_permission(db, workspace_id, user, "wiki:read")
     return await wiki_page_service.list_for_workspace(db, workspace_id)
+
+
+@router.get("/search", response_model=list[WikiPageSearchResult])
+async def search_wiki_pages(
+    workspace_id: str = Query(alias="workspaceId"),
+    q: str = Query(default=""),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await check_workspace_permission(db, workspace_id, user, "wiki:read")
+    return await wiki_page_service.search_for_workspace(db, workspace_id, q)
 
 
 @router.post("", response_model=WikiPageResponse, status_code=status.HTTP_201_CREATED)

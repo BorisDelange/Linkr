@@ -41,6 +41,12 @@ class WikiPageUpdate(CamelModel):
     created_by_details: dict | None = None
 
 
+class WikiPageSearchResult(CamelModel):
+    id: str
+    title: dict[str, str]
+    snippet: str
+
+
 class WikiPageResponse(CamelModel):
     id: str
     workspace_id: str | None = None

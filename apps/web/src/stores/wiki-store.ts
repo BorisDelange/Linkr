@@ -78,6 +78,10 @@ export const useWikiStore = create<WikiState>((set, get) => ({
   activePageId: null,
   viewMode: 'view',
 
+  // TODO(fullstack-offload): in server mode this still fetches every page's
+  // full `content` JSONB. A later task should make the list metadata-only and
+  // lazy-load content per page (the editor already loads the open page). Search
+  // already goes through the server endpoint (see WikiSearchDialog).
   loadPages: async (workspaceId) => {
     const storage = getStorage()
     const pages = await storage.wikiPages.getByWorkspace(workspaceId)

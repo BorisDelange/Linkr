@@ -1,6 +1,21 @@
 import { apiRequest } from '@/lib/api-client'
 import type { WikiPageStorage } from '@/lib/storage'
-import type { WikiPage } from '@/types'
+import type { LocalizedString, WikiPage } from '@/types'
+
+export interface WikiPageSearchResult {
+  id: string
+  title: LocalizedString
+  snippet: string
+}
+
+export function searchWikiPages(
+  workspaceId: string,
+  query: string,
+): Promise<WikiPageSearchResult[]> {
+  return apiRequest<WikiPageSearchResult[]>(
+    `/wiki-pages/search?workspaceId=${encodeURIComponent(workspaceId)}&q=${encodeURIComponent(query)}`,
+  )
+}
 
 /**
  * Server-mode implementation of WikiPageStorage backed by the FastAPI API.

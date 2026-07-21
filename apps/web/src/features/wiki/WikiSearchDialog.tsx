@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Search, FileText } from 'lucide-react'
 import {
@@ -11,22 +11,61 @@ import { Input } from '@/components/ui/input'
 import { useWikiStore } from '@/stores/wiki-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
+import { isServerMode } from '@/lib/api-client'
+import { searchWikiPages, type WikiPageSearchResult } from '@/lib/api/wiki-pages'
+import type { LocalizedString } from '@/types'
 
 interface WikiSearchDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
+interface SearchResultView {
+  id: string
+  title: LocalizedString
+  snippet: string
+}
+
 export function WikiSearchDialog({ open, onOpenChange }: WikiSearchDialogProps) {
   const { t } = useTranslation()
-  const { searchPages, setActivePage, getBreadcrumbs } = useWikiStore()
+  const { searchPages, setActivePage, getBreadcrumbs, getPage, currentWorkspaceId } = useWikiStore()
   const language = useAppStore((s) => s.language)
   const [query, setQuery] = useState('')
 
-  const results = useMemo(() => {
-    if (!query.trim()) return []
-    return searchPages(query.trim())
-  }, [query, searchPages])
+  const serverMode = isServerMode()
+
+  const localResults = useMemo<SearchResultView[]>(() => {
+    if (serverMode || !query.trim()) return []
+    const q = query.trim()
+    return searchPages(q).map((p) => {
+      const content = localized(p.content, language)
+      const idx = content.toLowerCase().indexOf(q.toLowerCase())
+      const snippet = idx >= 0
+        ? '...' + content.slice(Math.max(0, idx - 30), idx + q.length + 50).trim() + '...'
+        : ''
+      return { id: p.id, title: p.title, snippet }
+    })
+  }, [serverMode, query, searchPages, language])
+
+  const [serverResults, setServerResults] = useState<WikiPageSearchResult[]>([])
+
+  useEffect(() => {
+    if (!serverMode || !currentWorkspaceId) return
+    const q = query.trim()
+    let cancelled = false
+    const handle = setTimeout(() => {
+      if (!q) {
+        setServerResults([])
+        return
+      }
+      searchWikiPages(currentWorkspaceId, q)
+        .then((res) => { if (!cancelled) setServerResults(res) })
+        .catch(() => { if (!cancelled) setServerResults([]) })
+    }, 200)
+    return () => { cancelled = true; clearTimeout(handle) }
+  }, [serverMode, currentWorkspaceId, query])
+
+  const results: SearchResultView[] = serverMode ? serverResults : localResults
 
   const handleSelect = (pageId: string) => {
     setActivePage(pageId)
@@ -59,33 +98,29 @@ export function WikiSearchDialog({ open, onOpenChange }: WikiSearchDialogProps) 
             </div>
           )}
 
-          {results.map((page) => {
-            const crumbs = getBreadcrumbs(page.id)
+          {results.map((result) => {
+            const crumbs = getBreadcrumbs(result.id)
             const path = crumbs.map((c) => localized(c.title, language)).join(' / ')
-            // Extract matching context
-            const content = localized(page.content, language)
-            const idx = content.toLowerCase().indexOf(query.toLowerCase())
-            const context = idx >= 0
-              ? '...' + content.slice(Math.max(0, idx - 30), idx + query.length + 50).trim() + '...'
-              : ''
 
             return (
               <button
-                key={page.id}
+                key={result.id}
                 type="button"
-                onClick={() => handleSelect(page.id)}
+                onClick={() => handleSelect(result.id)}
                 className="flex w-full items-start gap-3 border-b px-4 py-3 text-left transition-colors last:border-0 hover:bg-accent"
               >
                 <FileText size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-foreground">
-                    {page.icon && <span className="mr-1">{page.icon}</span>}
-                    {highlightMatch(localized(page.title, language), query)}
+                    {getPage(result.id)?.icon && (
+                      <span className="mr-1">{getPage(result.id)?.icon}</span>
+                    )}
+                    {highlightMatch(localized(result.title, language), query)}
                   </p>
-                  <p className="text-[11px] text-muted-foreground">{path}</p>
-                  {context && (
+                  {path && <p className="text-[11px] text-muted-foreground">{path}</p>}
+                  {result.snippet && (
                     <p className="mt-0.5 text-xs text-muted-foreground/80">
-                      {highlightMatch(context, query)}
+                      {highlightMatch(result.snippet, query)}
                     </p>
                   )}
                 </div>
