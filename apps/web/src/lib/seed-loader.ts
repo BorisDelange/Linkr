@@ -14,7 +14,7 @@ import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS, getSchemaPreset } from '@/lib/schema-presets'
-import { getAllPlugins } from '@/lib/plugins/registry'
+import { seedBuiltinPlugins } from '@/lib/plugins/seed-builtin'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { parseSourceConceptIdEntries, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
@@ -496,18 +496,7 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   }
 
   // --- Seed built-in plugins for this workspace ---
-  for (const p of getAllPlugins()) {
-    if (p.workspaceId) continue // skip non-built-in
-    const files: Record<string, string> = { 'plugin.json': JSON.stringify(p.manifest, null, 2) }
-    if (p.templates) {
-      for (const [lang, content] of Object.entries(p.templates)) {
-        const ext = lang === 'r' ? '.R.template' : '.py.template'
-        files[`analysis${ext}`] = content
-      }
-    }
-    const userPlugin: UserPlugin = { id: p.manifest.id, entityId: p.manifest.id, files, workspaceId: wsId, createdAt: now, updatedAt: now }
-    await storage.userPlugins.create(userPlugin).catch(() => {})
-  }
+  await seedBuiltinPlugins(storage, wsId, now)
 
   // --- Workspace internals (non-re-seedable bootstrap content) ---
   // The manifest's `internals` mirrors the old `_index.json` minus the first-class entity
