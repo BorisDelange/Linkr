@@ -1799,19 +1799,22 @@ export async function applyClonedEntity(
   // badge stuck 'failed'). The sql/etl/dq branches above delete-first for the
   // same reason.
   await deleteProjectData(storage, targetId)
-  await importProjectContent(parsed, targetId, storage)
-  // The workspace only carried a pointer (uid/name/gitRemoteConfig); the repo's
-  // project.json + README.md + tasks.json are authoritative for the rest of the
-  // metadata (readme/todos/notes included — the lightweight workspace entry never
-  // carried them). Overwrite it here, keeping the local uid/workspaceId and
-  // re-applying the git pointer (the repo export strips gitRemoteConfig as an
-  // instance field).
+  // Apply the project's own metadata BEFORE its content. The workspace only carried
+  // a pointer (uid/name/gitRemoteConfig); the repo's project.json + README.md +
+  // tasks.json are authoritative for the rest (readme/todos/notes included — the
+  // lightweight workspace entry never carried them). Doing this first means a later
+  // failure while importing sub-entities (a colliding dashboard id, a bad dataset)
+  // still leaves the README, tasks and git link on the record instead of dropping
+  // them — the previous order lost all three whenever content import threw. Keep the
+  // local uid/workspaceId and re-apply the git pointer (the repo export strips
+  // gitRemoteConfig as an instance field).
   const { uid: _uid, workspaceId: _ws, ...meta } = dropForeignAuthorId(parsed.project) as Project
   await storage.projects.update(targetId, {
     ...meta,
     ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
     ...(workspaceId ? { workspaceId } : {}),
   }).catch(() => {})
+  await importProjectContent(parsed, targetId, storage)
   return true
 }
 
