@@ -12,6 +12,7 @@ import { useWikiStore } from '@/stores/wiki-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDqStore } from '@/stores/dq-store'
+import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { isServerMode, formatApiError, type FormattedError } from '@/lib/api-client'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
@@ -249,11 +250,15 @@ export function WorkspacesPage() {
   }
 
   // --- Import logic ---
-  const doImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean) => {
+  const doImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean): Promise<{ targetWsId: string; idMap: Map<string, string> }> => {
     const storage = getStorage()
     const now = new Date().toISOString()
     const { appVersion: _av, ...wsMeta } = parsed.workspace
     const targetWsId = duplicate ? crypto.randomUUID() : wsMeta.id
+    // On a duplicate, every git-linked child is re-minted with a fresh uuid; the
+    // post-import auto-clone must target those NEW ids, not the ZIP's original ones.
+    // Keyed `${type}:${originalId}` → new id (see GitLinkedEntity.type vocabulary).
+    const idMap = new Map<string, string>()
 
     /** Report a phase to the progress modal. Called between blocks of work. */
     const reportPhase = (phaseKey: string, done?: number, total?: number) => {
@@ -368,6 +373,7 @@ export function WorkspacesPage() {
       const { project } = entry
       if (!project?.uid) continue
       const uid = duplicate ? crypto.randomUUID() : project.uid
+      idMap.set(`project:${project.uid}`, uid)
       const existing = await storage.projects.getById(uid)
       if (existing && !duplicate) {
         // Update metadata + readme only
@@ -396,6 +402,7 @@ export function WorkspacesPage() {
     }
     for (const sp of parsed.schemas) {
       const presetId = duplicate ? crypto.randomUUID() : sp.presetId
+      idMap.set(`schema-preset:${sp.presetId}`, presetId)
       if (!duplicate) await storage.schemaPresets.delete(sp.presetId).catch(() => {})
       await storage.schemaPresets.save({ ...sp, presetId, workspaceId: targetWsId })
     }
@@ -473,6 +480,7 @@ export function WorkspacesPage() {
     }
     for (const { collection, files } of parsed.sqlCollections) {
       const id = duplicate ? crypto.randomUUID() : collection.id
+      idMap.set(`sql-collection:${collection.id}`, id)
       if (!duplicate) {
         await storage.sqlScriptFiles.deleteByCollection(collection.id).catch(() => {})
         await storage.sqlScriptCollections.delete(collection.id).catch(() => {})
@@ -504,6 +512,7 @@ export function WorkspacesPage() {
     }
     for (const { pipeline, files } of parsed.etlPipelines) {
       const id = duplicate ? crypto.randomUUID() : pipeline.id
+      idMap.set(`etl-pipeline:${pipeline.id}`, id)
       if (!duplicate) {
         await storage.etlFiles.deleteByPipeline(pipeline.id).catch(() => {})
         await storage.etlPipelines.delete(pipeline.id).catch(() => {})
@@ -535,6 +544,7 @@ export function WorkspacesPage() {
     }
     for (const { ruleSet, checks } of parsed.dqRuleSets) {
       const id = duplicate ? crypto.randomUUID() : ruleSet.id
+      idMap.set(`dq-rule-set:${ruleSet.id}`, id)
       if (!duplicate) {
         await storage.dqCustomChecks.deleteByRuleSet(ruleSet.id).catch(() => {})
         await storage.dqRuleSets.delete(ruleSet.id).catch(() => {})
@@ -575,6 +585,7 @@ export function WorkspacesPage() {
       const reportEvery = Math.max(1, Math.floor(totalMappings / 100)) // ~100 UI updates max
       for (const { project: mp, mappings, scoresFile } of parsed.mappingProjects) {
         const id = duplicate ? crypto.randomUUID() : mp.id
+        idMap.set(`mapping-project:${mp.id}`, id)
         if (!duplicate) {
           await storage.conceptMappings.deleteByProject(mp.id).catch(() => {})
           await storage.mappingProjects.delete(mp.id).catch(() => {})
@@ -651,6 +662,7 @@ export function WorkspacesPage() {
     }
     for (const cat of parsed.catalogs) {
       const id = duplicate ? crypto.randomUUID() : cat.id
+      idMap.set(`data-catalog:${cat.id}`, id)
       if (!duplicate) await storage.dataCatalogs.delete(cat.id).catch(() => {})
       await storage.dataCatalogs.create({
         ...cat, id, workspaceId: targetWsId, updatedAt: now,
@@ -700,6 +712,9 @@ export function WorkspacesPage() {
     useSqlScriptsStore.setState({ collectionsLoaded: false })
     useEtlStore.setState({ etlPipelinesLoaded: false })
     useDqStore.setState({ dqRuleSetsLoaded: false })
+    // NB: never flip catalogsLoaded to false — it feeds App.tsx's full-screen gate,
+    // which would unmount this page (and kill the import-progress modal). Reload the
+    // catalog store below instead (loadCatalogs sets the flag straight back to true).
     // Concept mapping: also clear the in-memory `mappings` array — leftover entries from a
     // previously-deleted workspace would otherwise pollute the new project view.
     {
@@ -725,24 +740,31 @@ export function WorkspacesPage() {
     // workspace's org field stay empty until a full app reload.
     await useOrganizationStore.getState().loadOrganizations()
     await loadProjects()
+    // catalogsLoaded feeds the global App-shell gate: leaving it false replaces the
+    // whole app with a full-screen loader. Reload it now (flips the flag back to true)
+    // instead of waiting for some later loadCatalogs() to un-block the shell.
+    await useCatalogStore.getState().loadCatalogs()
+    return { targetWsId, idMap }
   }, [loadProjects])
 
   /** Run an import while showing the progress modal and clearing it afterwards. */
   const runImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean) => {
     setImportProgress({ phaseKey: 'workspaces.import_phase_workspace' })
     try {
-      await doImport(parsed, duplicate)
+      const { targetWsId, idMap } = await doImport(parsed, duplicate)
       // Git-linked entities carry only metadata in the workspace ZIP — their full
       // content lives in their repos. Auto-clone each and load it now (server mode),
       // so the entity arrives complete instead of empty. Best-effort per item; a
       // repo that needs a token (or fails) drops to the summary dialog for a manual
-      // retry. Skipped for duplicates (their ids are re-minted → can't retarget).
-      const linked = collectGitLinkedEntities(parsed)
+      // retry. Works for duplicates too: retarget each clone to the entity's freshly
+      // minted id via idMap (else content would apply to the ZIP's original ids).
+      const linked = collectGitLinkedEntities(parsed).map((e) => ({
+        ...e, id: idMap.get(`${e.type}:${e.id}`) ?? e.id,
+      }))
       if (linked.length > 0) {
-        const targetWsId = parsed.workspace.id
         const token = parsed.workspace.gitRemoteConfig?.authToken
         let anyFailed = false
-        if (isServerMode() && !duplicate) {
+        if (isServerMode()) {
           // Mark every linked entity 'pending' up front so a clone that never runs
           // (or dies mid-loop) still leaves the card badged; each clone then clears
           // it on success or flips it to 'failed'.
@@ -752,12 +774,21 @@ export function WorkspacesPage() {
             const ok = await cloneEntityContent(linked[i], { token, workspaceId: targetWsId })
             if (!ok) anyFailed = true
           }
+          // The clones wrote content AFTER doImport's store invalidation, so drop the
+          // per-page loaded flags again to force a reload with the now-populated
+          // children. catalogsLoaded feeds the global App-shell gate, so reload it
+          // (flag back to true) rather than leaving it false and blanking the app.
+          useSqlScriptsStore.setState({ collectionsLoaded: false })
+          useEtlStore.setState({ etlPipelinesLoaded: false })
+          useDqStore.setState({ dqRuleSetsLoaded: false })
+          useConceptMappingStore.setState({ mappingProjectsLoaded: false })
+          await useCatalogStore.getState().loadCatalogs()
         } else {
           anyFailed = true
         }
         setImportProgress(null)
         // Show the dialog only when something still needs the user (a failed/pending
-        // auto-clone, or client-only / duplicate where auto-clone can't run).
+        // auto-clone, or client-only where auto-clone can't run).
         if (anyFailed) { setGitLinkedWsId(targetWsId); setGitLinkedSummary(linked) }
       }
     } catch (err) {

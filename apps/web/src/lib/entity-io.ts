@@ -1705,16 +1705,26 @@ export async function applyClonedEntity(
     const tree = (await readJson<(SqlScriptFile | EtlFile)[]>('_tree.json')) ?? []
     const byId = new Map(tree.map(f => [f.id, f as { id: string; name: string; parentId: string | null }]))
     const fkKey = type === 'sql-collection' ? 'collectionId' : 'pipelineId'
-    // Replace existing files: a re-clone (e.g. a retry, or re-import over a prior
-    // pointer) would otherwise hit a UNIQUE id collision and leave the entity empty.
+    // Clear this collection's/pipeline's own files first, so a retry or a re-clone
+    // over a prior pointer doesn't leave stale rows.
     if (type === 'sql-collection') await storage.sqlScriptFiles.deleteByCollection(targetId).catch(() => {})
     else await storage.etlFiles.deleteByPipeline(targetId).catch(() => {})
+    // Re-mint every file id. sql_script_files.id is a GLOBAL primary key, so the
+    // repo's original ids collide the moment the same repo is cloned into a second
+    // workspace (or as a copy) — deleteByCollection only clears the target's rows,
+    // not the sibling's. Rewrite parentId through the same old→new map.
+    const idMap = new Map<string, string>(tree.map(f => [f.id, crypto.randomUUID()]))
     for (const f of tree) {
-      const rec: Record<string, unknown> = dropForeignAuthorId({ ...f, [fkKey]: targetId })
-      if (f.type === 'file') {
-        const entry = zip.files[buildTreePath(f, byId)]
-        if (entry) rec.content = await entry.async('string')
-      }
+      const content = f.type === 'file'
+        ? await zip.files[buildTreePath(f, byId)]?.async('string')
+        : undefined
+      const rec: Record<string, unknown> = dropForeignAuthorId({
+        ...f,
+        id: idMap.get(f.id),
+        parentId: f.parentId ? (idMap.get(f.parentId) ?? f.parentId) : f.parentId,
+        [fkKey]: targetId,
+      })
+      if (content !== undefined) rec.content = content
       if (type === 'sql-collection') await storage.sqlScriptFiles.create(rec as unknown as SqlScriptFile).catch(() => {})
       else await storage.etlFiles.create(rec as unknown as EtlFile).catch(() => {})
     }
@@ -1761,8 +1771,10 @@ export async function applyClonedEntity(
     const checks = (await readJson<DqCustomCheck[]>('checks.json')) ?? []
     await storage.dqCustomChecks.deleteByRuleSet(targetId).catch(() => {})
     for (const c of checks) {
-      const { ruleSetId: _rs, ...rest } = c
-      await storage.dqCustomChecks.create({ ...rest, ruleSetId: targetId } as DqCustomCheck).catch(() => {})
+      // Re-mint the check id: it's a global PK, so the repo's original id collides
+      // when the same rule-set repo is cloned into a second workspace or as a copy.
+      const { id: _cid, ruleSetId: _rs, ...rest } = c
+      await storage.dqCustomChecks.create({ ...rest, id: crypto.randomUUID(), ruleSetId: targetId } as DqCustomCheck).catch(() => {})
     }
     return true
   }
