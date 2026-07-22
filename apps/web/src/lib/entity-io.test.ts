@@ -926,13 +926,15 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
   })
 })
 
-// The git round-trip goal: delete a project + reimport it from git into a fresh
-// instance (new project uid) = ZERO diff. Dashboards/tabs/widgets used to churn
-// because their ids were UUIDs re-derived from the (regenerated) project uid. A
-// git-versioned export now strips those UUIDs and carries CONTENT keys; import
-// re-derives the ids from the lineage namespace, so the SAME clean bundle imported
-// under two different uids yields byte-identical ids.
-describe('§4 uid-independent dashboard ids', () => {
+// Dashboard/tab/widget ids are derived from CONTENT keys namespaced by the LOCAL
+// projectUid. Two goals, in tension, both satisfied:
+//   (1) Re-import into the SAME project uid → identical ids → byte-stable git
+//       round-trip (delete + reimport = zero diff).
+//   (2) Import into a DIFFERENT project uid (e.g. the same lineage cloned into a
+//       second workspace) → DISTINCT ids → no global-PK collision. Namespacing by
+//       the shared lineageId instead used to collide here, surfacing as an
+//       unhandled 500 (UNIQUE constraint failed) on POST /dashboards.
+describe('§4 projectUid-scoped dashboard ids', () => {
   type Captured = {
     dashboards: Record<string, unknown>[]
     tabs: Record<string, unknown>[]
@@ -978,32 +980,53 @@ describe('§4 uid-independent dashboard ids', () => {
 
   beforeEach(() => { serverMode.value = false })
 
-  it('re-derives IDENTICAL ids for the same clean bundle across two different project uids', async () => {
+  it('re-derives IDENTICAL ids for the same clean bundle imported into the SAME uid (round-trip stability)', async () => {
     const a = makeStore()
     const b = makeStore()
     await importProjectContent(cleanBundle(), 'uidA', a.store)
-    await importProjectContent(cleanBundle(), 'uidB', b.store)
+    await importProjectContent(cleanBundle(), 'uidA', b.store)
 
     const da = a.cap.dashboards[0] as { id: string; filterConfig: { id: string; scope: { tabIds: string[] } }[] }
     const db = b.cap.dashboards[0] as { id: string; filterConfig: { id: string; scope: { tabIds: string[] } }[] }
-    const ta = a.cap.tabs as { id: string; dashboardId: string; parentTabId: string | null }[]
-    const tb = b.cap.tabs as { id: string; dashboardId: string; parentTabId: string | null }[]
-    const wa = a.cap.widgets[0] as { id: string; tabId: string }
-    const wb = b.cap.widgets[0] as { id: string; tabId: string }
+    const ta = a.cap.tabs as { id: string }[]
+    const tb = b.cap.tabs as { id: string }[]
+    const wa = a.cap.widgets[0] as { id: string }
+    const wb = b.cap.widgets[0] as { id: string }
 
-    // Zero-diff: every derived id matches across the two different uids.
+    // Same uid → zero-diff: every derived id matches.
     expect(da.id).toBe(db.id)
     expect(da.filterConfig[0].id).toBe(db.filterConfig[0].id)
-    expect(da.filterConfig[0].scope.tabIds).toEqual(db.filterConfig[0].scope.tabIds)
     expect(ta.map(t => t.id)).toEqual(tb.map(t => t.id))
-    expect(ta.map(t => t.dashboardId)).toEqual(tb.map(t => t.dashboardId))
-    expect(ta.map(t => t.parentTabId)).toEqual(tb.map(t => t.parentTabId))
     expect(wa.id).toBe(wb.id)
-    expect(wa.tabId).toBe(wb.tabId)
+  })
 
-    // The relationships are internally consistent (not just equal to each other):
-    // the widget sits on the root tab, the sub-tab points at its parent, the
-    // filter scope references the root tab, and every tab belongs to the dashboard.
+  it('re-derives DISTINCT ids across two different project uids (no global-PK collision)', async () => {
+    const a = makeStore()
+    const b = makeStore()
+    // Same lineageId in both bundles — the collision case: the shared lineage must
+    // NOT drive the id, or the second import collides on dashboards.id.
+    await importProjectContent(cleanBundle(), 'uidA', a.store)
+    await importProjectContent(cleanBundle(), 'uidB', b.store)
+
+    const da = a.cap.dashboards[0] as { id: string }
+    const db = b.cap.dashboards[0] as { id: string }
+    const wa = a.cap.widgets[0] as { id: string }
+    const wb = b.cap.widgets[0] as { id: string }
+
+    expect(da.id).not.toBe(db.id)
+    expect(wa.id).not.toBe(wb.id)
+  })
+
+  it('keeps FK relationships internally consistent after import', async () => {
+    const a = makeStore()
+    await importProjectContent(cleanBundle(), 'uidA', a.store)
+
+    const da = a.cap.dashboards[0] as { id: string; filterConfig: { scope: { tabIds: string[] } }[] }
+    const ta = a.cap.tabs as { id: string; dashboardId: string; parentTabId: string | null }[]
+    const wa = a.cap.widgets[0] as { id: string; tabId: string }
+
+    // The widget sits on the root tab, the sub-tab points at its parent, the filter
+    // scope references the root tab, and every tab belongs to the dashboard.
     expect(wa.tabId).toBe(ta[0].id)
     expect(ta[1].parentTabId).toBe(ta[0].id)
     expect(da.filterConfig[0].scope.tabIds).toEqual([ta[0].id])

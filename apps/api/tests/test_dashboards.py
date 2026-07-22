@@ -141,6 +141,19 @@ async def test_legacy_string_name_accepted(client):
     assert r.json()["name"] == "Test 1"
 
 
+async def test_duplicate_id_returns_409_not_500(client):
+    # Importing the same project (same lineage) into a second workspace re-derives
+    # the same content-key ids; a colliding dashboards.id must surface as a clean
+    # 409 conflict, not an unhandled 500.
+    headers = await _admin_headers(client)
+    proj = await _project(client, headers)
+    await _dashboard(client, headers, proj, did="dup")
+    r = await client.post(f"{API}/dashboards", headers=headers, json={
+        "id": "dup", "projectUid": proj, "name": {"en": "Again"}, "filterConfig": [],
+    })
+    assert r.status_code == 409
+
+
 async def test_non_member_cannot_access(client, db):
     admin = await _admin_headers(client)
     proj = await _project(client, admin)

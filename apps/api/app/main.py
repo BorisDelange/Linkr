@@ -5,6 +5,7 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
@@ -109,6 +110,15 @@ class _ErrorLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         try:
             return await call_next(request)
+        except IntegrityError:
+            # A unique/FK violation is a client-side conflict (e.g. importing an
+            # entity whose id already exists), not a server fault — surface it as a
+            # clean 409 so the client can report it instead of a misleading 500.
+            logger.warning("integrity_conflict", path=request.url.path)
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "Resource already exists or violates a constraint"},
+            )
         except Exception:
             logger.exception("unhandled_error", path=request.url.path)
             return JSONResponse(status_code=500, content={"detail": "Internal server error"})

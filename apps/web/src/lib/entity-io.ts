@@ -872,12 +872,15 @@ export async function importProjectContent(
   const resolveDatasetId = (oldId: string): string => datasetIdMap.get(oldId) ?? mapId(oldId)
 
   // Dashboard/tab/widget ids: a git-versioned export carries content keys (re-derive
-  // the id from the key, uid-independent → byte-stable round-trip) while a legacy
-  // export carries UUID ids (fall back to mapId). Detection is per record. The key
-  // namespace is the cross-instance lineage when present, so two instances importing
-  // the same clean bundle land on IDENTICAL ids regardless of their local project uid.
-  const ns = parsed.project.lineageId ?? projectUid
-  const keyId = (key: string): string => deterministicId(ns, key)
+  // the id from the key → stable across re-imports into the same project) while a
+  // legacy export carries UUID ids (fall back to mapId). Detection is per record.
+  // The namespace is the LOCAL projectUid, NOT the lineage: dashboards/tabs/widgets
+  // are global PKs, so scoping by lineage would collide when the same project (same
+  // lineageId) is imported twice on one instance (e.g. into a second workspace) —
+  // that surfaced as an unhandled 500 (UNIQUE constraint) on POST /dashboards. Cross-
+  // instance identity stays on the project row's lineageId; internal widget ids need
+  // only be locally unique + round-trip stable, which projectUid gives.
+  const keyId = (key: string): string => deterministicId(projectUid, key)
   const dashKeyToId = new Map(parsed.dashboards.map((d) => [dashboardKey(d), keyId(dashboardKey(d))]))
   const tabKeyToId = new Map(
     parsed.dashboardTabs.filter((t) => t.key).map((t) => [t.key!, keyId(t.key!)]),
