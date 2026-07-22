@@ -44,6 +44,16 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('pk_git_sync_state')),
     sa.UniqueConstraint('scope', 'entity_id', 'branch', name='uq_git_sync_state_key')
     )
+    op.create_table('git_content_status',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('scope', sa.String(length=40), nullable=False),
+    sa.Column('entity_id', sa.String(length=64), nullable=False),
+    sa.Column('workspace_id', sa.String(length=36), nullable=False),
+    sa.Column('status', sa.String(length=20), nullable=False),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_git_content_status')),
+    sa.UniqueConstraint('scope', 'entity_id', name='uq_git_content_status_key')
+    )
+    op.create_index(op.f('ix_git_content_status_workspace_id'), 'git_content_status', ['workspace_id'], unique=False)
     op.create_table('organizations',
     sa.Column('name', app.models.base.LocalizedText(), nullable=False),
     sa.Column('type', sa.String(length=50), nullable=True),
@@ -848,6 +858,8 @@ def downgrade() -> None:
 
     op.drop_table('roles')
     op.drop_table('organizations')
+    op.drop_index(op.f('ix_git_content_status_workspace_id'), table_name='git_content_status')
+    op.drop_table('git_content_status')
     op.drop_table('git_sync_state')
     op.drop_table('app_settings')
     # ### end Alembic commands ###

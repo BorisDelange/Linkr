@@ -263,12 +263,14 @@ describe('parseProjectZip — organization bundle', () => {
 // The inline org snapshot keeps stable provenance (id + createdAt) but must drop
 // updatedAt, which the importer re-stamps and which would otherwise churn the diff.
 describe('attachEntityOrganization — org snapshot timestamps', () => {
-  it('keeps id + createdAt, drops updatedAt from the attached org', async () => {
+  it('keeps id, normalizes createdAt to ms+Z, drops updatedAt from the attached org', async () => {
     const zip = new JSZip()
     zip.file('project.json', JSON.stringify({ uid: 'p1', name: { en: 'P' } }))
     const entity = {
       organization: {
         id: 'org-7', name: { en: 'Acme' },
+        // Second-precision (as the backend stores it) → normalized to ms+Z so the
+        // inline org matches every other timestamp in the export (no diff churn).
         createdAt: '2020-01-01T00:00:00Z', updatedAt: '2021-02-02T00:00:00Z',
       },
     }
@@ -276,7 +278,7 @@ describe('attachEntityOrganization — org snapshot timestamps', () => {
     await attachEntityOrganization(zip, 'project.json', entity, {} as never)
     const written = JSON.parse(await zip.file('project.json')!.async('string'))
     expect(written.organization.id).toBe('org-7')
-    expect(written.organization.createdAt).toBe('2020-01-01T00:00:00Z')
+    expect(written.organization.createdAt).toBe('2020-01-01T00:00:00.000Z')
     expect('updatedAt' in written.organization).toBe(false)
   })
 })

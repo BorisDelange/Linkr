@@ -281,3 +281,46 @@ export async function gitSetSyncState(scope: GitScope, id: string, branch: strin
   })
   if (!res.ok) throw await gitError(res)
 }
+
+/** A git-linked entity whose content isn't reconstituted yet (pointer imported,
+ *  clone pending or failed). Drives the "content not imported" card badge. */
+export interface GitContentStatus {
+  scope: GitScope
+  entityId: string
+  status: 'pending' | 'failed'
+}
+
+/** Map a GitLinkedEntity.type (singular) to its GitScope (the API path segment). */
+export const scopeForLinkedType: Record<string, GitScope> = {
+  'project': 'projects',
+  'mapping-project': 'mapping-projects',
+  'sql-collection': 'sql-script-collections',
+  'etl-pipeline': 'etl-pipelines',
+  'data-catalog': 'data-catalogs',
+  'dq-rule-set': 'dq-rule-sets',
+  'schema-preset': 'schema-presets',
+}
+
+/** Inverse of scopeForLinkedType: GitScope → the singular GitLinkedEntity type. */
+export const linkedTypeForScope: Partial<Record<GitScope, string>> = Object.fromEntries(
+  Object.entries(scopeForLinkedType).map(([type, scope]) => [scope, type]),
+)
+
+export async function gitContentStatusList(workspaceId: string): Promise<GitContentStatus[]> {
+  const res = await apiFetch(`/api/v1/git/workspaces/${workspaceId}/content-status`)
+  if (!res.ok) throw await gitError(res)
+  return res.json()
+}
+
+export async function gitSetContentStatus(workspaceId: string, scope: GitScope, entityId: string, status: 'pending' | 'failed'): Promise<void> {
+  const res = await apiFetch(`/api/v1/git/workspaces/${workspaceId}/content-status`, {
+    method: 'PUT',
+    body: JSON.stringify({ scope, entityId, workspaceId, status }),
+  })
+  if (!res.ok) throw await gitError(res)
+}
+
+export async function gitClearContentStatus(workspaceId: string, scope: GitScope, entityId: string): Promise<void> {
+  const res = await apiFetch(`/api/v1/git/workspaces/${workspaceId}/content-status/${scope}/${entityId}`, { method: 'DELETE' })
+  if (!res.ok) throw await gitError(res)
+}

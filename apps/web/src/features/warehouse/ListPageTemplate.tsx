@@ -6,7 +6,10 @@ import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { shortenIdAmong } from '@/lib/short-id'
-import type { GitScope } from '@/lib/api/git'
+import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
+import { useGitContentStatuses } from '@/components/versioning/use-git-content-statuses'
+import { linkedTypeForScope, type GitScope } from '@/lib/api/git'
+import type { GitLinkedEntity } from '@/lib/entity-io'
 import type { GitRemoteConfig, LocalizedString, OrganizationInfo } from '@/types'
 import type { AuthorDetails } from '@/types/author'
 import { Button } from '@/components/ui/button'
@@ -133,6 +136,10 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   const workspaceOrgId = useWorkspaceStore((s) =>
     s._workspacesRaw.find((w) => w.id === s.activeWorkspaceId)?.organizationId,
   )
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  // Git-linked entities whose content wasn't reconstituted → card badge + retry.
+  const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(activeWorkspaceId)
+  const linkedType = syncScope ? linkedTypeForScope[syncScope] : undefined
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -231,6 +238,20 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                       />,
                     )}
                   </div>
+                  {activeWorkspaceId && syncScope && linkedType && getGitRemote?.(item) && contentStatuses.get(`${syncScope}:${item.id}`) && (
+                    <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                      <GitContentStatusBadge
+                        workspaceId={activeWorkspaceId}
+                        scope={syncScope}
+                        type={linkedType as GitLinkedEntity['type']}
+                        id={item.id}
+                        name={typeof item.name === 'string' ? item.name : (item.name?.en ?? item.id)}
+                        gitRemote={getGitRemote(item)}
+                        status={contentStatuses.get(`${syncScope}:${item.id}`)}
+                        onResolved={refetchContentStatuses}
+                      />
+                    </div>
+                  )}
                   <CardMetaFooter
                     className="mt-auto"
                     createdById={item.createdById}

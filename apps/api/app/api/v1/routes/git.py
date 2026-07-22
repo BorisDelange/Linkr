@@ -27,6 +27,8 @@ from app.schemas.git import (
     GitBranchesResponse,
     GitCloneRequest,
     GitCommitResponse,
+    GitContentStatusEntry,
+    GitContentStatusUpdate,
     GitDiffResponse,
     GitHostTokenRequest,
     GitHostTokenStatus,
@@ -43,6 +45,7 @@ from app.schemas.git import (
 )
 from app.services import (
     app_settings_service,
+    git_content_status_service,
     git_credential_service,
     git_service,
     git_sync_state_service,
@@ -1380,3 +1383,56 @@ async def settings_import_remote(
             db, "settings", SETTINGS_ID, resolved_branch, cloned_oid
         )
     return SettingsImportResponse(**report.as_dict())
+
+
+# --- Git-linked content reconstitution status (badge + retry) --------------
+
+
+@router.get(
+    "/workspaces/{workspace_id}/content-status",
+    response_model=list[GitContentStatusEntry],
+)
+async def workspace_content_status(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:read")),
+):
+    """The git-linked entities in this workspace whose content is not yet
+    reconstituted (pending clone, or failed) — so the UI can badge their cards."""
+    rows = await git_content_status_service.list_for_workspace(db, workspace_id)
+    return [
+        GitContentStatusEntry(scope=r.scope, entity_id=r.entity_id, status=r.status)
+        for r in rows
+    ]
+
+
+@router.put(
+    "/workspaces/{workspace_id}/content-status",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def set_workspace_content_status(
+    workspace_id: str,
+    body: GitContentStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:write")),
+):
+    """Mark a git-linked entity's content as pending/failed (set at import, updated
+    on a failed retry)."""
+    await git_content_status_service.set_status(
+        db, body.scope, body.entity_id, body.workspace_id, body.status
+    )
+
+
+@router.delete(
+    "/workspaces/{workspace_id}/content-status/{scope}/{entity_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def clear_workspace_content_status(
+    workspace_id: str,
+    scope: str,
+    entity_id: str,
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:write")),
+):
+    """Clear the status once the entity's content is reconstituted (successful clone)."""
+    await git_content_status_service.clear(db, scope, entity_id)

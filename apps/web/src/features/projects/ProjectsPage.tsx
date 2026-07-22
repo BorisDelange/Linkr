@@ -21,6 +21,8 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
+import { useGitContentStatuses } from '@/components/versioning/use-git-content-statuses'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
@@ -57,6 +59,7 @@ export function ProjectsPage() {
   const { wsUid } = useResolvedParams()
   const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
+  const { statuses: contentStatuses, refetch: refetchContentStatuses } = useGitContentStatuses(activeWorkspaceId)
   // A project shows its origin org: its own inlined snapshot (imports) when present,
   // else the workspace's org resolved live — same fallback as ListPageTemplate, so a
   // freshly-created project (no inline snapshot) still shows the workspace org.
@@ -435,6 +438,20 @@ export function ProjectsPage() {
                     </div>
                     <BadgeStrip badges={badges} className="mt-1.5 h-5" />
                    </div>
+                    {activeWorkspaceId && raw?.gitRemoteConfig?.url && contentStatuses.get(`projects:${project.uid}`) && (
+                      <div className="px-1" onClick={(e) => e.stopPropagation()}>
+                        <GitContentStatusBadge
+                          workspaceId={activeWorkspaceId}
+                          scope="projects"
+                          type="project"
+                          id={project.uid}
+                          name={typeof project.name === 'string' ? project.name : project.uid}
+                          gitRemote={raw.gitRemoteConfig}
+                          status={contentStatuses.get(`projects:${project.uid}`)}
+                          onResolved={refetchContentStatuses}
+                        />
+                      </div>
+                    )}
                     <CardMetaFooter
                       createdById={raw?.createdById}
                       createdBy={raw?.createdBy}

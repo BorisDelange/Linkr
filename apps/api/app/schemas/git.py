@@ -161,3 +161,18 @@ class SettingsPullPreview(CamelModel):
     organizations: int | None = None
     users: int | None = None
     roles: int | None = None
+
+
+class GitContentStatusEntry(CamelModel):
+    """A git-linked entity whose content is not reconstituted (pending/failed)."""
+
+    scope: str
+    entity_id: str
+    status: str
+
+
+class GitContentStatusUpdate(CamelModel):
+    scope: str
+    entity_id: str
+    workspace_id: str
+    status: str  # 'pending' | 'failed'

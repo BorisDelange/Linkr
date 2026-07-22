@@ -148,6 +148,22 @@ export function WorkspacesPage() {
   const [cloneToken, setCloneToken] = useState('')
   const [cloneState, setCloneState] = useState<Record<string, 'pending' | 'done' | 'error'>>({})
 
+  /** Record (or clear) the git-linked content reconstitution status so the entity
+   *  card can badge "not imported" + offer a retry. Best-effort, server mode only. */
+  const syncContentStatus = useCallback(async (
+    e: GitLinkedEntity, workspaceId: string | undefined, status: 'pending' | 'failed' | null,
+  ): Promise<void> => {
+    const wsId = workspaceId ?? gitLinkedWsId
+    if (!wsId || !isServerMode()) return
+    const { scopeForLinkedType, gitSetContentStatus, gitClearContentStatus } = await import('@/lib/api/git')
+    const scope = scopeForLinkedType[e.type]
+    if (!scope) return
+    try {
+      if (status === null) await gitClearContentStatus(wsId, scope, e.id)
+      else await gitSetContentStatus(wsId, scope, e.id, status)
+    } catch { /* status is advisory — never block the import/clone on it */ }
+  }, [gitLinkedWsId])
+
   /** Clone a git-linked entity server-side and load its full content under its
    *  imported record. `token`/`workspaceId` override the component state so the
    *  auto-clone loop (which runs before React commits the token input) can pass
@@ -176,13 +192,17 @@ export function WorkspacesPage() {
           await gitSetSyncState('mapping-projects', e.id, e.branch, cloned.oid)
         } catch { /* leave unanchored */ }
       }
+      // Content reconstitution status: clear it on success (card badge disappears),
+      // mark 'failed' otherwise so the card shows a retry affordance.
+      await syncContentStatus(e, opts.workspaceId, ok ? null : 'failed')
       setCloneState(s => ({ ...s, [key]: ok ? 'done' : 'error' }))
       return ok
     } catch {
+      await syncContentStatus(e, opts.workspaceId, 'failed')
       setCloneState(s => ({ ...s, [key]: 'error' }))
       return false
     }
-  }, [cloneToken])
+  }, [cloneToken, syncContentStatus])
 
   const handleCloneEntity = useCallback(
     (e: GitLinkedEntity) => cloneEntityContent(e, { workspaceId: gitLinkedWsId ?? undefined }),
@@ -723,6 +743,10 @@ export function WorkspacesPage() {
         const token = parsed.workspace.gitRemoteConfig?.authToken
         let anyFailed = false
         if (isServerMode() && !duplicate) {
+          // Mark every linked entity 'pending' up front so a clone that never runs
+          // (or dies mid-loop) still leaves the card badged; each clone then clears
+          // it on success or flips it to 'failed'.
+          for (const e of linked) await syncContentStatus(e, targetWsId, 'pending')
           for (let i = 0; i < linked.length; i++) {
             reportCloneProgress(i, linked.length, linked[i].name)
             const ok = await cloneEntityContent(linked[i], { token, workspaceId: targetWsId })
