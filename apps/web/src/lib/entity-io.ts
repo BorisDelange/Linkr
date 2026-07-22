@@ -1792,10 +1792,12 @@ export async function applyClonedEntity(
   if (!parsed) return false
   await importProjectContent(parsed, targetId, storage)
   // The workspace only carried a pointer (uid/name/gitRemoteConfig); the repo's
-  // project.json is authoritative for the rest of the metadata. Overwrite it here,
-  // keeping the local uid/workspaceId and re-applying the git pointer (the repo
-  // export strips gitRemoteConfig as an instance field).
-  const { uid: _uid, workspaceId: _ws, readme: _rd, todos: _td, notes: _nt, ...meta } = dropForeignAuthorId(parsed.project) as Project
+  // project.json + README.md + tasks.json are authoritative for the rest of the
+  // metadata (readme/todos/notes included — the lightweight workspace entry never
+  // carried them). Overwrite it here, keeping the local uid/workspaceId and
+  // re-applying the git pointer (the repo export strips gitRemoteConfig as an
+  // instance field).
+  const { uid: _uid, workspaceId: _ws, ...meta } = dropForeignAuthorId(parsed.project) as Project
   await storage.projects.update(targetId, {
     ...meta,
     ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
