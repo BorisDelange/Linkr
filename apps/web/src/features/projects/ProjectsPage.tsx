@@ -176,7 +176,11 @@ export function ProjectsPage() {
   // --- Import ---
   const doImport = useCallback(async (parsed: ParsedProjectZip, duplicate: boolean, gitRemote?: ImportGitRemote) => {
     const { project } = parsed
-    if (!project?.uid) return
+    // A clean/git export strips `uid` (buildProjectZip), so guard on the project
+    // object itself — the uid-minting branch below handles the missing uid. Bailing
+    // on `!project.uid` here silently dropped every stripped-export import (the
+    // modal just closed with nothing created).
+    if (!project) return
 
     const now = new Date().toISOString()
     const storage = getStorage()
