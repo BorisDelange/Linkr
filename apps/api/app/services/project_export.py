@@ -116,7 +116,9 @@ def _to_localized(value: Any) -> dict:
 
 
 def _dashboard_key(dashboard: dict) -> str:
-    return _slugify(_localized_en(dashboard.get("name")))
+    # Falls back to the id like the TS twin (entity-io dashboardKey) and
+    # project-pull's natural key, so an unnamed dashboard stays stable.
+    return _slugify(_localized_en(dashboard.get("name")) or dashboard.get("id") or "")
 
 
 def _build_tab_key_map(dash_key: str, tabs: list[dict]) -> dict[str, str]:

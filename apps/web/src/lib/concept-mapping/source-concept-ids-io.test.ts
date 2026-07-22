@@ -101,6 +101,22 @@ describe('source-concept-ids-io — compact round-trip', () => {
     expect(restored[0].id).toBe('ws1__ICU__LOINC__1234-5')
     expect(restored[0].sourceConceptId).toBe(2000001)
   })
+
+  it('drops short or malformed compact rows instead of minting broken entries', () => {
+    const malformed = {
+      columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId'],
+      entries: [
+        ['ICU', 'LOINC', '1234-5', 2000001],
+        ['ICU', 'LOINC'],
+        ['ICU', 'LOINC', '9999-9', 'not-a-number'],
+        'garbage',
+        ['ICU', 'LOINC', '5678-9', 2000002],
+      ],
+    } as unknown as Parameters<typeof parseSourceConceptIdEntries>[0]
+    const restored = parseSourceConceptIdEntries(malformed, 'ws1')
+    expect(restored).toHaveLength(2)
+    expect(restored.map((e) => e.conceptCode)).toEqual(['1234-5', '5678-9'])
+  })
 })
 
 describe('resolveImportedRange — safe range merge on import', () => {

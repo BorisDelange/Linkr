@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
@@ -462,7 +463,7 @@ async def terminal_ws(websocket: WebSocket):
     try:
         if language == "bash":
             await _terminal_pty_loop(
-                websocket, project_uid, session_id=str(id(websocket)), user_id=user.id
+                websocket, project_uid, session_id=uuid.uuid4().hex, user_id=user.id
             )
         else:
             env_id = websocket.query_params.get("envId", "default")

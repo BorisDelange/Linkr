@@ -125,6 +125,7 @@ async function buildZip(
 // so a slow earlier response can't clobber the panel with stale (wrong branch or
 // includeData) results. Module-level so bumping it never triggers a re-render.
 let statusGen = 0
+let syncStateGen = 0
 
 interface GitSyncState {
   status: GitStatus | null
@@ -254,11 +255,15 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   },
 
   loadSyncState: async (scope, id, branch) => {
+    const gen = ++syncStateGen
     try {
       // Cheap oid-only check on the server — no export ZIP to build, so opening the
       // Versioning tab doesn't pay the (heavy) export cost just to show the banner.
-      set({ syncState: await gitSyncState(scope, id, branch) })
+      const syncState = await gitSyncState(scope, id, branch)
+      if (gen !== syncStateGen) return // superseded by a newer load — drop this result
+      set({ syncState })
     } catch (err) {
+      if (gen !== syncStateGen) return
       set({ error: toGitError(err) })
     }
   },

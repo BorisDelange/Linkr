@@ -3571,6 +3571,7 @@
     "source_id_delete_confirm_title": "Supprimer la plage de badge",
     "source_id_delete_confirm_desc": "La plage de badge \"{{badge}}\" et tous ses IDs source attribués seront définitivement supprimés. Cette action est irréversible.",
     "source_id_assign_no_concepts": "Aucun concept source trouvé pour ce badge.",
+    "source_id_assign_exhausted": "Plage épuisée : seulement {{count}} nouveaux IDs assignés — une partie des {{total}} concepts reste sans ID. Étendez la plage.",
     "source_id_assign_all_done": "Les {{total}} concepts sont déjà tous assignés.",
     "source_id_assign_result": "{{count}} nouveaux IDs assignés ({{total}} concepts au total).",
     "source_id_assign_progress": "Assignation… {{done}} / {{total}}",

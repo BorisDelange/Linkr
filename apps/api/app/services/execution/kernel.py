@@ -464,12 +464,13 @@ class KernelManager:
         """Drop kernels idle past the timeout. Caller holds the lock; returns the
         evicted kernels to shut down outside it (shutdown awaits the process)."""
         timeout = self._timeout_seconds()
-        if timeout <= 0:
-            return []
         evicted: list[Kernel] = []
         for key in list(self._kernels):
             kernel = self._kernels[key]
-            if not kernel.busy and kernel.idle_seconds() > timeout:
+            # Dead kernels are evicted immediately (even with the idle timeout
+            # disabled) — they'd otherwise count toward the per-user cap.
+            idle = timeout > 0 and not kernel.busy and kernel.idle_seconds() > timeout
+            if not kernel.alive or idle:
                 evicted.append(kernel)
                 del self._kernels[key]
         return evicted

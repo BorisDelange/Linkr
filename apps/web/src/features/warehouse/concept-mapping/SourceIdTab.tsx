@@ -76,7 +76,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const [loading, setLoading] = useState(() => !rangeCache.has(workspaceId))
   const [edits, setEdits] = useState<Record<string, RangeEdit>>({})
   const [assignLoading, setAssignLoading] = useState<string | null>(null)
-  const [assignResult, setAssignResult] = useState<{ badge: string; newlyAssigned: number; total: number } | null>(null)
+  const [assignResult, setAssignResult] = useState<{ badge: string; newlyAssigned: number; total: number; exhausted: boolean } | null>(null)
   // Live progress during a large assignment: { done, total } saved so far.
   const [assignProgress, setAssignProgress] = useState<{ badge: string; done: number; total: number } | null>(null)
   const [resetConfirm, setResetConfirm] = useState<string | null>(null) // badgeLabel or 'all'
@@ -265,6 +265,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       // save() meant one HTTP round-trip each in server mode (183k concepts →
       // 183k requests), which is what made assignment crawl.
       const toSave: SourceConceptIdEntry[] = []
+      let exhausted = false
       for (const pairKey of pairsToAssign) {
         if (existingMap.has(pairKey)) continue // already in this badge
 
@@ -278,7 +279,10 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         const sourceConceptId = existingGlobalId ?? nextId
 
         if (!existingGlobalId) {
-          if (nextId > range.rangeEnd) break // range exhausted
+          if (nextId > range.rangeEnd) {
+            exhausted = true // surfaced in the result — a silent break under-assigns
+            break
+          }
           nextId++
           newlyAssigned++
         }
@@ -317,7 +321,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         updatedAt: now,
       })
       await load()
-      setAssignResult({ badge: badgeLabel, newlyAssigned, total: pairsToAssign.size })
+      setAssignResult({ badge: badgeLabel, newlyAssigned, total: pairsToAssign.size, exhausted })
     } finally {
       setAssignProgress(null)
       setAssignLoading(null)
@@ -467,12 +471,14 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                           </p>
                         )}
                         {!assignProgress && assignResult && assignResult.badge === range.badgeLabel && (
-                          <p className={`text-[11px] ${assignResult.newlyAssigned > 0 ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
-                            {assignResult.total === 0
-                              ? t('concept_mapping.source_id_assign_no_concepts')
-                              : assignResult.newlyAssigned === 0
-                                ? t('concept_mapping.source_id_assign_all_done', { total: assignResult.total.toLocaleString() })
-                                : t('concept_mapping.source_id_assign_result', { count: assignResult.newlyAssigned.toLocaleString(), total: assignResult.total.toLocaleString() } as Record<string, string>)}
+                          <p className={`text-[11px] ${assignResult.exhausted ? 'text-amber-600 dark:text-amber-400' : assignResult.newlyAssigned > 0 ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                            {assignResult.exhausted
+                              ? t('concept_mapping.source_id_assign_exhausted', { count: assignResult.newlyAssigned.toLocaleString(), total: assignResult.total.toLocaleString() } as Record<string, string>)
+                              : assignResult.total === 0
+                                ? t('concept_mapping.source_id_assign_no_concepts')
+                                : assignResult.newlyAssigned === 0
+                                  ? t('concept_mapping.source_id_assign_all_done', { total: assignResult.total.toLocaleString() })
+                                  : t('concept_mapping.source_id_assign_result', { count: assignResult.newlyAssigned.toLocaleString(), total: assignResult.total.toLocaleString() } as Record<string, string>)}
                           </p>
                         )}
                       </div>

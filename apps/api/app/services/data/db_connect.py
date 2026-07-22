@@ -10,6 +10,7 @@ never stored: it lives only for the duration of the connection.
 import datetime
 import os
 import re
+import uuid
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
@@ -549,7 +550,7 @@ def materialize_parquet(
     setup, search_path = _source_setup(config, password, files, known)
     dest = Path(dest_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(dest.suffix + f".tmp-{os.getpid()}")
+    tmp = dest.with_suffix(dest.suffix + f".tmp-{os.getpid()}-{uuid.uuid4().hex}")
     con = setup()
     try:
         con.execute(f"SET search_path='{search_path}'")

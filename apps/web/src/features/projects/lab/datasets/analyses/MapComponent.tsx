@@ -126,17 +126,20 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<MapServerData | null>(null)
+  const [serverError, setServerError] = useState<string | null>(null)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('map', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
-        if (out.stderr) { setServerData({ rows: [], colorCats: [], sizeMin: null, sizeMax: null }); return }
-        try { setServerData(JSON.parse(out.stdout.trim()) as MapServerData) }
-        catch { setServerData({ rows: [], colorCats: [], sizeMin: null, sizeMax: null }) }
+        if (out.stderr) { setServerError(out.stderr); return }
+        try {
+          setServerData(JSON.parse(out.stdout.trim()) as MapServerData)
+          setServerError(null)
+        } catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch(() => { if (!cancelled) setServerData({ rows: [], colorCats: [], sizeMin: null, sizeMax: null }) })
+      .catch((e) => { if (!cancelled) setServerError(String(e)) })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -226,6 +229,13 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
   }, [points])
 
   // --- Validation / empty states ---
+  if (server && serverError) {
+    return (
+      <div className="flex h-full items-center justify-center p-8 text-center text-xs text-muted-foreground">
+        <p className="whitespace-pre-wrap">{serverError}</p>
+      </div>
+    )
+  }
   if (!latCol || !lonCol) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-center text-xs text-muted-foreground">

@@ -241,6 +241,12 @@ export function buildFileSourceConceptsGroupCountQuery(
 
 /** Build SELECT parts for concept dictionaries (no counts). */
 function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
+  // Optional columns must be emitted by EVERY branch (NULL when the dictionary
+  // lacks them) or the UNION ALL has heterogeneous column sets and DuckDB throws.
+  const hasTermName = dicts.some((d) => d.terminologyNameColumn)
+  const hasCategory = dicts.some((d) => d.categoryColumn)
+  const hasSubcategory = dicts.some((d) => d.subcategoryColumn)
+  const extraAliases = [...new Set(dicts.flatMap((d) => Object.keys(d.extraColumns ?? {})))]
   return dicts.map((dict) => {
     // When idColumn is absent (code-only tables like d_icd_diagnoses), generate a
     // deterministic integer hash from the code column so the rest of the pipeline
@@ -256,16 +262,20 @@ function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
     const termIdCol = dict.terminologyIdColumn ?? dict.vocabularyColumn
     const vocabCol = termIdCol ? `, d.${termIdCol} AS vocabulary_id` : `, '${dict.table}' AS vocabulary_id`
 
-    const termNameCol = dict.terminologyNameColumn ? `, d.${dict.terminologyNameColumn} AS terminology_name` : ''
-    const categoryCol = dict.categoryColumn ? `, d.${dict.categoryColumn} AS category` : ''
-    const subcategoryCol = dict.subcategoryColumn ? `, d.${dict.subcategoryColumn} AS subcategory` : ''
+    const termNameCol = hasTermName
+      ? `, ${dict.terminologyNameColumn ? `d.${dict.terminologyNameColumn}` : 'NULL'} AS terminology_name`
+      : ''
+    const categoryCol = hasCategory
+      ? `, ${dict.categoryColumn ? `d.${dict.categoryColumn}` : 'NULL'} AS category`
+      : ''
+    const subcategoryCol = hasSubcategory
+      ? `, ${dict.subcategoryColumn ? `d.${dict.subcategoryColumn}` : 'NULL'} AS subcategory`
+      : ''
 
-    const extraCols: string[] = []
-    if (dict.extraColumns) {
-      for (const [alias, col] of Object.entries(dict.extraColumns)) {
-        extraCols.push(`, d.${col} AS ${alias}`)
-      }
-    }
+    const extraCols = extraAliases.map((alias) => {
+      const col = dict.extraColumns?.[alias]
+      return `, ${col ? `d.${col}` : 'NULL'} AS ${alias}`
+    })
 
     return `SELECT
       ${idExpr},

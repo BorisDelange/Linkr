@@ -3571,6 +3571,7 @@
     "source_id_delete_confirm_title": "Delete badge range",
     "source_id_delete_confirm_desc": "The badge range \"{{badge}}\" and all its assigned source concept IDs will be permanently deleted. This cannot be undone.",
     "source_id_assign_no_concepts": "No source concepts found for this badge.",
+    "source_id_assign_exhausted": "Range exhausted: only {{count}} new IDs assigned — some of the {{total}} concepts are left without an ID. Extend the range.",
     "source_id_assign_all_done": "All {{total}} concepts already assigned.",
     "source_id_assign_result": "{{count}} new IDs assigned ({{total}} total concepts).",
     "source_id_assign_progress": "Assigning… {{done}} / {{total}}",

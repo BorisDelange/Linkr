@@ -230,9 +230,10 @@ export async function applyProjectPull(
 
 /** Build a ParsedProjectZip containing only the picked items of each group. */
 function narrowParsed(parsed: ParsedProjectZip, sel: ProjectPullSelection): ParsedProjectZip {
-  const keptDashIds = new Set(
-    parsed.dashboards.filter((d) => sel.dashboards.has(dashboardNaturalKey(d))).map((d) => d.id),
-  )
+  // Filter by natural key, not via an id Set: a key-based export carries no
+  // dashboard ids, and Set([undefined]).has(undefined) would keep them ALL.
+  const keptDashboards = parsed.dashboards.filter((d) => sel.dashboards.has(dashboardNaturalKey(d)))
+  const keptDashIds = new Set(keptDashboards.map((d) => d.id).filter(Boolean))
   // Tabs/widgets ride with their dashboard. A parsed tab may carry a `key` (content
   // key) or a `dashboardId`; match on whichever links it to a kept dashboard.
   const keptTabs = parsed.dashboardTabs.filter((tab) => {
@@ -259,7 +260,7 @@ function narrowParsed(parsed: ParsedProjectZip, sel: ProjectPullSelection): Pars
 
   return {
     ...parsed,
-    dashboards: parsed.dashboards.filter((d) => keptDashIds.has(d.id)),
+    dashboards: keptDashboards,
     dashboardTabs: keptTabs,
     dashboardWidgets: keptWidgets,
     cohorts: parsed.cohorts.filter((c) => sel.cohorts.has(cohortNaturalKey(c))),

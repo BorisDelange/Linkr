@@ -121,7 +121,7 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
 /** Heavy dataset content files (gated by the "include data files" toggle). When the
  *  toggle is OFF these are gitignored and dropped from the export, so a "Sync all"
  *  against a remote that HAS them pushes their DELETION — the UI warns about that. */
-const DATA_FILE_RE = /^datasets\/.*\.(csv|parquet|xlsx|xls)$|^datasets\/.*\/_data\.json$/
+const DATA_FILE_RE = /^datasets\/.*\.(csv|parquet|pq|xlsx|xls)$|^datasets\/.*\/_data\.json$/i
 export function isDataFilePath(path: string): boolean {
   return DATA_FILE_RE.test(path)
 }

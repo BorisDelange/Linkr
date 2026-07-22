@@ -64,16 +64,28 @@ export function parseSourceConceptIdEntries(
   if (Array.isArray(raw)) return raw.map(e => ({ ...e, workspaceId, id: `${workspaceId}__${e.badgeLabel}__${e.vocabularyId}__${e.conceptCode}` }))
 
   // Compact format: { columns, entries } — 5th column (createdAt) tolerated but ignored.
+  // Short/malformed rows are dropped rather than producing entries with undefined
+  // fields (which would mint broken ids and NaN sourceConceptIds downstream).
   const now = new Date().toISOString()
-  return raw.entries.map(([badgeLabel, vocabularyId, conceptCode, sourceConceptId]) => ({
-    id: `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`,
-    workspaceId,
-    badgeLabel,
-    vocabularyId,
-    conceptCode,
-    sourceConceptId,
-    createdAt: now,
-  }))
+  return raw.entries
+    .filter(
+      (row): row is [string, string, string, number] =>
+        Array.isArray(row) &&
+        row.length >= 4 &&
+        typeof row[0] === 'string' &&
+        typeof row[1] === 'string' &&
+        typeof row[2] === 'string' &&
+        Number.isFinite(row[3]),
+    )
+    .map(([badgeLabel, vocabularyId, conceptCode, sourceConceptId]) => ({
+      id: `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`,
+      workspaceId,
+      badgeLabel,
+      vocabularyId,
+      conceptCode,
+      sourceConceptId,
+      createdAt: now,
+    }))
 }
 
 const json = (data: unknown) => JSON.stringify(data, null, 2)

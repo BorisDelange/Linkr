@@ -329,9 +329,12 @@ const json = (data: unknown) => JSON.stringify(data, null, 2)
 // Name uniqueness is only UI-enforced, so keys disambiguate on collision:
 // tabs by displayOrder, widgets by grid position (y,x) then index.
 
-/** dashboardKey — slug of the English name, matching the export filename. */
+/** dashboardKey — slug of the English name, matching the export filename.
+ *  Falls back to the id like project-pull's dashboardNaturalKey, so an unnamed
+ *  dashboard keeps a stable, non-colliding key on both sides (parity: Python
+ *  _dashboard_key). */
 function dashboardKey(d: Dashboard): string {
-  return slugify(localized(d.name, 'en') || '')
+  return slugify(localized(d.name, 'en') || d.id)
 }
 
 /**
@@ -719,8 +722,13 @@ async function importDatasets(
 
   if (!isServerMode()) {
     for (const df of parsed.datasetFiles) {
-      await storage.datasetFiles.create({ ...df, id: mapId(df.id), projectUid, parentId: df.parentId ? mapId(df.parentId) : null })
-      datasetIdMap.set(df.id, mapId(df.id))
+      const id = mapId(df.id)
+      // Folders carry no data: delete-then-create so a pull into an existing tree
+      // doesn't ConstraintError on an ancestor folder (files stay insert-only —
+      // a colliding FILE must keep failing loudly rather than silently merging).
+      if (df.type === 'folder') await storage.datasetFiles.delete(id).catch(() => {})
+      await storage.datasetFiles.create({ ...df, id, projectUid, parentId: df.parentId ? mapId(df.parentId) : null })
+      datasetIdMap.set(df.id, id)
     }
     for (const dd of parsed.datasetData) {
       await storage.datasetData.save({ datasetFileId: mapId(dd.datasetFileId), rows: dd.rows })
