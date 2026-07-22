@@ -83,7 +83,7 @@ export function SummaryPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col px-6 pb-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col px-6 pb-1">
         <TabsList variant="line" className="shrink-0">
           <TabsTrigger value="overview">{t('summary.tab_overview')}</TabsTrigger>
           <TabsTrigger value="readme">{t('summary.tab_readme')}</TabsTrigger>
