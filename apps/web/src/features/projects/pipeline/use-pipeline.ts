@@ -127,7 +127,6 @@ export function usePipeline() {
     pipelineRef.current = pipeline
   })
 
-  // Load pipeline on mount
   useEffect(() => {
     if (!uid) return
     let cancelled = false
@@ -171,7 +170,6 @@ export function usePipeline() {
     [onEdgesChange, schedulePersist],
   )
 
-  // Handle new connections
   const onConnect: OnConnect = useCallback(
     (params) => {
       setEdges((eds) => rfAddEdge({ ...params, type: 'smoothstep', id: crypto.randomUUID() }, eds))
@@ -180,7 +178,6 @@ export function usePipeline() {
     [setEdges, schedulePersist],
   )
 
-  // Add a new node at a given position
   const addNode = useCallback(
     (type: PipelineNodeType, position: { x: number; y: number }) => {
       if (!pipelineRef.current) return
@@ -207,7 +204,6 @@ export function usePipeline() {
     [setNodes, schedulePersist],
   )
 
-  // Delete all selected nodes (supports multi-selection)
   const deleteSelectedNodes = useCallback(() => {
     const selectedIds = new Set(nodesRef.current.filter((n) => n.selected).map((n) => n.id))
     if (selectedNodeId) selectedIds.add(selectedNodeId)
@@ -229,7 +225,6 @@ export function usePipeline() {
     schedulePersist()
   }, [selectedNodeId, setNodes, setEdges, schedulePersist])
 
-  // Update node data (for the panel)
   const updateNodeData = useCallback(
     (nodeId: string, data: Partial<PipelineNodeData>) => {
       setNodes((nds) =>
@@ -243,7 +238,6 @@ export function usePipeline() {
     [setNodes, storeUpdateNode],
   )
 
-  // Add an edge from the panel (source → target)
   const addEdge = useCallback(
     (source: string, target: string) => {
       const id = crypto.randomUUID()
@@ -253,7 +247,6 @@ export function usePipeline() {
     [setEdges, schedulePersist],
   )
 
-  // Remove an edge by id (from the panel)
   const removeEdge = useCallback(
     (edgeId: string) => {
       setEdges((eds) => eds.filter((e) => e.id !== edgeId))
@@ -262,7 +255,6 @@ export function usePipeline() {
     [setEdges, schedulePersist],
   )
 
-  // Add a script reference to a scripts node
   const addScript = useCallback(
     (nodeId: string, filePath: string) => {
       setNodes((nds) =>
@@ -293,7 +285,6 @@ export function usePipeline() {
     [setNodes, storeUpdateNode],
   )
 
-  // Remove a script by id from a scripts node
   const removeScript = useCallback(
     (nodeId: string, scriptId: string) => {
       setNodes((nds) =>
@@ -334,7 +325,6 @@ export function usePipeline() {
     [setNodes, storeUpdateNode],
   )
 
-  // Set or clear parent group for a node
   const setNodeParent = useCallback(
     (nodeId: string, parentId: string | null, relativePosition?: { x: number; y: number }) => {
       setNodes((nds) => {
@@ -348,7 +338,6 @@ export function usePipeline() {
               position: relativePosition ?? n.position,
             }
           }
-          // Remove from parent
           const { parentId: _removed, expandParent: _exp, ...rest } = n
           return {
             ...rest,
@@ -363,7 +352,6 @@ export function usePipeline() {
     [setNodes, schedulePersist],
   )
 
-  // Get the currently selected node
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null
 
   // Available data sources and cohorts for the project

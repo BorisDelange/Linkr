@@ -251,7 +251,6 @@ export function PluginEditor() {
   const activeContent = activeFile ? files[activeFile] ?? '' : ''
   const activeLanguage = activeFile ? languageFromFilename(activeFile) : 'plaintext'
 
-  // Check if a specific file is dirty (content differs from original)
   const isFileDirtyFn = (filename: string) => {
     return files[filename] !== originalFiles[filename]
   }

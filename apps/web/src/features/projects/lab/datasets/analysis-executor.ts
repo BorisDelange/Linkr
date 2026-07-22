@@ -22,12 +22,10 @@ import { getWebR, executeR } from '@/lib/runtimes/webr-engine'
  * multiple executions run concurrently (e.g. dashboard widgets).
  */
 function buildInjectionCode(columns: DatasetColumn[], jsonDataB64: string): string {
-  // Build rename mapping: { col_id: col_name }
   const renameEntries = columns
     .map((c) => `    ${JSON.stringify(c.id)}: ${JSON.stringify(c.name)}`)
     .join(',\n')
 
-  // Build type coercion
   const coercions = columns
     .map((c) => {
       if (c.type === 'number')
@@ -73,7 +71,6 @@ export async function executeAnalysisCode(
   const jsonData = JSON.stringify(rows)
   const jsonDataB64 = btoa(unescape(encodeURIComponent(jsonData)))
 
-  // Build full code: injection preamble + user script
   const preamble = buildInjectionCode(columns, jsonDataB64)
   const fullCode = preamble + '\n' + code
 
@@ -137,7 +134,6 @@ export async function executeAnalysisCodeR(
   const bytes = encoder.encode(jsonData)
   await webR.FS.writeFile('/tmp/_linkr_dataset.json', bytes)
 
-  // Build full code: injection preamble + user script
   const preamble = buildRInjectionCode(columns)
   const fullCode = preamble + '\n' + code
 

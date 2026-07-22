@@ -18,7 +18,6 @@ if settings.resolved_database_url.startswith("sqlite"):
 
 
 async def get_db() -> AsyncSession:
-    """Dependency that provides a database session."""
     async with async_session() as session:
         yield session
 

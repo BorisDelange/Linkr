@@ -41,7 +41,7 @@ export interface GitSyncError {
 // server builder honors it). Front-only always builds client-side. Like the
 // mapping-project builder, server-built ZIPs don't take per-file LFS overrides
 // (documented trade-off — these scopes are light JSON content).
-function serverBuildsZip(scope: GitScope): boolean {
+function serverBuildsZip(): boolean {
   return isServerMode()
 }
 
@@ -111,7 +111,7 @@ async function buildZip(
   lfsOverrides?: Map<string, boolean>,
 ): Promise<Blob | null> {
   // null → the server builds the ZIP; the client uploads nothing.
-  if (serverBuildsZip(scope)) return null
+  if (serverBuildsZip()) return null
   const key = _zipKey(scope, id, includeData, lfsOverrides)
   if (_zipCache && _zipCache.key === key) return _zipCache.blob
   const blob = await buildZipUncached(scope, id, includeData, lfsOverrides)

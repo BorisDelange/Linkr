@@ -75,7 +75,6 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [selectedSheet, setSelectedSheet] = useState<string>('')
 
-  // Load raw file and initialize options when dialog opens
   useEffect(() => {
     if (!open) return
     setLoadingRaw(true)
@@ -83,7 +82,6 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
     setParsed(null)
     setSheetNames([])
 
-    // Initialize from saved parse options
     const opts = file.parseOptions
     setDelimiter((opts?.delimiter as Delimiter) ?? 'auto')
     setSkipRows(opts?.skipRows ?? 0)

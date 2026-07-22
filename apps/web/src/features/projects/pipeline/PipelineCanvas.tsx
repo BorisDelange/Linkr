@@ -59,7 +59,6 @@ export function PipelineCanvas() {
   const [paletteOpen, setPaletteOpen] = useState(true)
   const addCountRef = useRef(0)
 
-  // Handle drop from palette
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'

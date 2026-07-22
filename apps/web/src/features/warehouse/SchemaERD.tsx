@@ -132,7 +132,6 @@ function ERDTableNode({ data }: NodeProps<Node<ERDNodeData>>) {
 const nodeTypes = { erdTable: ERDTableNode }
 
 // ---------------------------------------------------------------------------
-// Build graph from SchemaMapping — nodes with handle dots + FK edges
 // ---------------------------------------------------------------------------
 
 function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; edges: Edge[] } {

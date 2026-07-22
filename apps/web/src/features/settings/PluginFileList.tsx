@@ -169,7 +169,6 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
     await loadDatasets(uid)
   }, [setTestProject, loadDatasets])
 
-  // Load datasets on mount if a project is already selected (e.g. switching plugins)
   useEffect(() => {
     if (testProjectUid) loadDatasets(testProjectUid)
   }, [testProjectUid, loadDatasets])

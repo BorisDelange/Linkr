@@ -56,7 +56,6 @@ export function GenericConfigPanel({
   const { i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
 
-  // Build effective config with defaults filled in for unset fields
   const configWithDefaults = useMemo(() => {
     const result = { ...config }
     for (const [key, field] of Object.entries(schema)) {
@@ -67,7 +66,6 @@ export function GenericConfigPanel({
     return result
   }, [config, schema])
 
-  // Filter out fields whose visibleWhen condition is not met
   const visibleEntries = Object.entries(schema).filter(([, field]) => {
     if (!field.visibleWhen) return true
     const conditions = Array.isArray(field.visibleWhen) ? field.visibleWhen : [field.visibleWhen]
@@ -102,7 +100,6 @@ export function GenericConfigPanel({
     }
   }
 
-  // Build sections: group consecutive groups by their section label
   type SectionBlock = { sectionLabel: string | null; defaultOpen: boolean; groups: typeof groups }
   const sectionBlocks: SectionBlock[] = []
   for (const group of groups) {
@@ -769,7 +766,6 @@ function SelectField({
 }: Omit<FieldRendererProps, 'rows'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? ''
 
-  // Filter options by column type if configured
   const visibleOptions = useMemo(() => {
     const allOptions = field.options ?? []
     if (!field.filterOptionsByColumn) return allOptions
@@ -1199,7 +1195,6 @@ function ColorSelectField({
 }: Omit<FieldRendererProps, 'columns'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? 'blue'
 
-  // Build special options from field.options (e.g. "auto", "none")
   const specialOptions = useMemo(() => {
     if (!field.options) return undefined
     return field.options.map(opt => ({

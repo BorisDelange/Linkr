@@ -2,7 +2,6 @@ import structlog
 
 
 def setup_logging(debug: bool = False) -> None:
-    """Configure structured logging with structlog."""
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

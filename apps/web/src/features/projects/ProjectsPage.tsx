@@ -77,7 +77,6 @@ export function ProjectsPage() {
   const [sort, setSort] = useState<SortState | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 
-  // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ uid: string; name: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
@@ -92,7 +91,6 @@ export function ProjectsPage() {
     }
   }, [searchParams, setSearchParams])
 
-  // Filter projects by workspace if we're inside one
   const displayProjects = wsUid ? getWorkspaceProjects(wsUid) : projects
 
   const rawByUid = useMemo(() => new Map(_projectsRaw.map((p) => [p.uid, p])), [_projectsRaw])

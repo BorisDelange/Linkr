@@ -159,7 +159,6 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
     const newConfig = { ...config, ...changes }
     setConfig(newConfig)
     if (isCodeCustomized) {
-      // Reset code customization when config changes
       setIsCodeCustomized(false)
       setUserCode('')
       persistSource({ config: { ...newConfig, isCodeCustomized: false, userCode: undefined } })

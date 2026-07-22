@@ -346,7 +346,6 @@ function prepareData(
 
   if (predictorSpecs.length === 0) return null
 
-  // Build predictor names list (for intercept + all dummies)
   const predictorNames: string[] = ['(Intercept)']
   for (const spec of predictorSpecs) {
     if (spec.isNumeric) {
@@ -385,7 +384,6 @@ function prepareData(
     }
   }
 
-  // Build X and y, filtering incomplete cases
   const p = predictorNames.length
   const Xrows: number[][] = []
   const yVec: number[] = []
@@ -405,7 +403,6 @@ function prepareData(
       if (isNaN(yVal)) { nMissing++; continue }
     }
 
-    // Build predictor row
     const xRow: number[] = [1] // intercept
     let skip = false
     for (const spec of predictorSpecs) {
@@ -576,10 +573,8 @@ function fitLogistic(
     const delta = choleskySolve(XtWX, gradient)
     if (!delta) return null
 
-    // Update
     const newBeta = beta.map((b, j) => b + delta[j])
 
-    // Check convergence
     const change = delta.reduce((s, d) => s + d * d, 0)
     beta = newBeta
     if (change < tol) break
@@ -787,7 +782,6 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
   const allVals = [...values, ...ciLows, ...ciHighs, refValue]
   let minVal = Math.min(...allVals.filter(isFinite))
   let maxVal = Math.max(...allVals.filter(isFinite))
-  // Add 10% padding
   const range = maxVal - minVal || 1
   minVal -= range * 0.1
   maxVal += range * 0.1

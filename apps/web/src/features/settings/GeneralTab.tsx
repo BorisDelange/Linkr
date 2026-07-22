@@ -114,7 +114,6 @@ function FileBrowserDialog({
     if (open) fetchEntries(currentPath)
   }
 
-  // Fetch on open
   useState(() => { if (open) fetchEntries(currentPath) })
 
   const navigateUp = () => {

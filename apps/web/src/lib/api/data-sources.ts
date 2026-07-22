@@ -155,10 +155,9 @@ async function fetchBlob(fileId: string): Promise<ArrayBuffer> {
 /**
  * Reconstruct a StoredFile (with its raw bytes) from server metadata.
  *
- * The bytes are downloaded because the browser DuckDB-WASM mount path still
- * needs them (registerFileBuffer). This transfer disappears once the server-side
- * query engine lands (see docs/architecture.md, "Fullstack Storage & Compute"): reading the tables will
- * then happen on the server and getByDataSource will no longer ship bytes.
+ * This downloads the full blob. Server-mode queries run on the server and the
+ * store mount paths short-circuit before reaching this, so it only serves
+ * callers that genuinely need the raw bytes (FileStorage contract).
  */
 async function toStoredFile(meta: FileMeta): Promise<StoredFile> {
   return {

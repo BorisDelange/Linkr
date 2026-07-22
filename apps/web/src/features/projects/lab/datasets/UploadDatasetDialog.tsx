@@ -95,7 +95,6 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [selectedSheet, setSelectedSheet] = useState<string>('')
 
-  // Reset state on close
   useEffect(() => {
     if (!open) {
       setFile(null)
@@ -399,7 +398,6 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
 
     const parseOpts = buildParseOptions()
 
-    // Build raw file blob for re-import support
     const rawFile = { blob: file, fileName: file.name }
 
     // Server mode: the blob was already uploaded during the server preview — land
@@ -449,7 +447,6 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
         await store.reimportData(existingFile.id, parsed.columns, parsed.rows, parseOpts)
         store.openFile(existingFile.id)
         store.selectFile(existingFile.id)
-        // Save raw file for re-import
         const { getStorage } = await import('@/lib/storage')
         await getStorage().datasetRawFiles.save({ datasetFileId: existingFile.id, ...rawFile })
       } else {

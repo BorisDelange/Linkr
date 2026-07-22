@@ -315,7 +315,6 @@ export function FilesPage() {
     const dsFile = datasetFiles.find((f) => f.id === dsFileId)
     if (!dsFile) return
 
-    // Close the file tab that was auto-opened by selectFile
     closeFile(selectedFileId!)
 
     // Load data then open as output tab.
@@ -422,7 +421,6 @@ export function FilesPage() {
     if (!node || node.type !== 'file') return
     const ext = node.name.split('.').pop()?.toLowerCase()
     if (ext !== 'csv' && ext !== 'tsv') {
-      // Clear decorations if switching away from CSV
       if (csvDecorationsRef.current.length > 0) {
         csvDecorationsRef.current = editor.deltaDecorations(csvDecorationsRef.current, [])
       }
@@ -588,7 +586,6 @@ export function FilesPage() {
             : result.stderr,
         })
 
-        // Add figures as output tabs
         for (const fig of result.figures) {
           addOutputTab({
             id: fig.id,
@@ -599,7 +596,6 @@ export function FilesPage() {
           setActiveOutputTab(fig.id)
         }
 
-        // Add table as output tab
         if (result.table) {
           addOutputTab({
             id: `table-${Date.now()}`,
@@ -719,7 +715,6 @@ export function FilesPage() {
     }
   }, [selectedNode, isVirtualFile, saveFile, editorModeFileIds, addOutputTab])
 
-  // Close file with unsaved changes confirmation
   const handleCloseFile = useCallback((fid: string) => {
     if (isFileDirty(fid)) {
       setCloseConfirmFileId(fid)
@@ -742,25 +737,21 @@ export function FilesPage() {
     setCloseConfirmFileId(null)
   }, [closeConfirmFileId, revertFile, closeFile])
 
-  // Close all file tabs (force close without save prompt)
   const handleCloseAllFiles = useCallback(() => {
     for (const fid of openFileIds) closeFile(fid)
   }, [openFileIds, closeFile])
 
-  // Close all file tabs except the given one
   const handleCloseOtherFiles = useCallback((keepId: string) => {
     for (const fid of openFileIds) {
       if (fid !== keepId) closeFile(fid)
     }
   }, [openFileIds, closeFile])
 
-  // Close all output tabs
   const handleCloseAllOutputTabs = useCallback(() => {
     clearExecutionResults()
     for (const tab of outputTabs) closeOutputTab(tab.id)
   }, [outputTabs, closeOutputTab, clearExecutionResults])
 
-  // Close all output tabs except the given one
   const handleCloseOtherOutputTabs = useCallback((keepId: string) => {
     if (keepId === '__exec_console__') {
       for (const tab of outputTabs) closeOutputTab(tab.id)

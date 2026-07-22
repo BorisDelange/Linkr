@@ -473,7 +473,6 @@ function chiSquareTest(
   const nRows = categories.length
   const nCols = groupNames.length
 
-  // Build contingency table
   const observed: number[][] = Array.from({ length: nRows }, () => new Array(nCols).fill(0))
   for (let j = 0; j < nCols; j++) {
     const vals = groups.get(groupNames[j])!
@@ -778,7 +777,6 @@ function computeAllTests(
   const groupCol = columns.find((c) => c.id === groupColumnId)
   if (!groupCol) return []
 
-  // Build groups
   const groupMap = new Map<string, Record<string, unknown>[]>()
   for (const row of rows) {
     const gv = row[groupColumnId]
@@ -957,7 +955,6 @@ function computeAllTests(
         catGroups.set(gn, vals)
       }
 
-      // Check if 2x2 for Fisher decision
       const allCategories = new Set<string>()
       for (const vals of catGroups.values()) {
         for (const v of vals) allCategories.add(v)
