@@ -94,10 +94,13 @@ function savePreferences(prefs: Preferences): void {
 // --- Project conversion ---
 
 function projectToItem(project: Project, lang: string): ProjectItem {
+  // Records imported from a git-linked pointer (or old data) may lack name/description.
+  const name = project.name ?? {}
+  const description = project.description ?? {}
   return {
     uid: project.uid,
-    name: project.name[lang] ?? project.name['en'] ?? Object.values(project.name)[0] ?? '',
-    description: project.description[lang] ?? project.description['en'] ?? Object.values(project.description)[0] ?? '',
+    name: name[lang] ?? name['en'] ?? Object.values(name)[0] ?? '',
+    description: description[lang] ?? description['en'] ?? Object.values(description)[0] ?? '',
     createdAt: project.createdAt?.split('T')[0] ?? '',
     updatedAt: project.updatedAt,
   }

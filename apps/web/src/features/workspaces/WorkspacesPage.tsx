@@ -349,6 +349,8 @@ export function WorkspacesPage() {
       const entity: Project = {
         ...project,
         uid,
+        // A git-linked pointer project.json carries no description.
+        description: project.description ?? {},
         createdById: undefined,
         projectId: duplicate ? (project.projectId ? `${project.projectId}-copy` : undefined) : project.projectId,
         workspaceId: targetWsId,
@@ -399,6 +401,7 @@ export function WorkspacesPage() {
       } else {
         await storage.projects.create({
           ...project, uid, workspaceId: targetWsId,
+          description: project.description ?? {},
           name: duplicate
             ? (typeof project.name === 'string'
               ? `${project.name} (copy)` as unknown as Project['name']

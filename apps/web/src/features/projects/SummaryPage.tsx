@@ -37,9 +37,9 @@ export function SummaryPage() {
   if (!project) return null
 
   const projectName =
-    project.name[language] ?? Object.values(project.name)[0]
+    project.name?.[language] ?? Object.values(project.name ?? {})[0]
   const projectDesc =
-    project.description[language] ?? Object.values(project.description)[0]
+    project.description?.[language] ?? Object.values(project.description ?? {})[0]
   const badges = project.badges ?? []
   const status = project.status ?? 'active'
 
