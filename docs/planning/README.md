@@ -1,22 +1,65 @@
-# Planning — current state & remaining work
+# Planning — session planner
 
-The **as-built** (what is implemented) is documented in `docs/architecture.md` — notably
-the "Fullstack Storage & Compute", "Permissions Model", "Server-Owned Rendering" and
-"Versioning (as-built)" sections. This folder contains only the **remaining work**; the
-completed plans (render-server-spec, settings-versioning, git-sync, server-export,
-workspace-source-concept-ids-ownership) were deleted after graduating into
-architecture.md, their leftovers merged below.
+Read this at the start of a session and pick. One line per remaining item.
+The as-built is in `docs/architecture.md`; details for each item live in the linked plan.
 
-## Efforts
+**Status**: 🔜 ready to do · 🤔 needs your decision · 💤 later/maybe · 🧪 needs manual testing
+**Effort**: S (< ½ day) · M (½–2 days) · L (several days)
 
-| Effort | Doc | Status |
-|---|---|---|
-| **Versioning** (LFS test, pull-overwrite for other scopes, server import) | [versioning-plan.md](versioning-plan.md) | Nearly done — stripping + server export ALL scopes DONE; 1 TO TEST (LFS), 2 to arbitrate, front-only pull WON'T DO |
-| **IDE — environments & jobs** (real venv/renv per env, job management) | [ide-environments-plan.md](ide-environments-plan.md) | **100% TODO**, decisions ratified with the PO — ready to implement |
-| **Dataset edit layer** (spreadsheet-style editing, replayable ops over immutable raw) | [dataset-edit-layer-plan.md](dataset-edit-layer-plan.md) | **100% TODO**, design not yet arbitrated (vs "pipeline-only transforms") |
-| **Fullstack — backlog** (multi-user, job queue, functional Pipeline, Reports, Run/R streaming) | [fullstack-storage-plan.md](fullstack-storage-plan.md) | Fullstack transition DONE; living unordered backlog |
-| **Permissions** (PO validation of the model, minors, group-access bucket) | [users-authorizations-audit.md](users-authorizations-audit.md) | Model implemented; PO end-to-end validation pending |
-| **Long-term vision** | [../vision-roadmap.md](../vision-roadmap.md) | Pillars 2–3 not started |
+## Versioning — [versioning-plan.md](versioning-plan.md)
 
-Note: [../health-dcat-ap.md](../health-dcat-ap.md) (HealthDCAT-AP reference) remains a
-reference document, not an effort.
+| St | Item | Effort |
+|----|------|--------|
+| 🧪 | LFS pull/push end-to-end against a real GitLab/GitHub remote (scores parquet, big CSV) | S (manual) |
+| 🤔 | Pull for the 6 entity scopes + workspaces — as **pull-overwrite** (reuse `applyClonedEntity`) or drop | M |
+| 🔜 | Server-side guard: refuse `paths=None` (git add -A) on the commit-push HTTP route | S |
+| 💤 | Server-side import (`POST /projects/import`, `/workspaces/import`) — last big client-offload | L |
+
+## IDE — environments & jobs — [ide-environments-plan.md](ide-environments-plan.md)
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Real environments (uv/renv, manifest+lockfile, git-versioned) + job management — decisions ratified, 0 code | L |
+
+## Dataset edit layer — [dataset-edit-layer-plan.md](dataset-edit-layer-plan.md)
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | Spreadsheet-style edits over immutable raw — design not yet arbitrated vs "pipeline-only transforms" (the dataset-store edit API is its unused groundwork) | L |
+
+## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Pipeline actually functional (end-to-end transforms) | L |
+| 🔜 | Reports page | L |
+| 💤 | Multi-user concurrent editing (conflicts, locking) | L |
+| 💤 | Job queue / multi-worker perf (uvicorn is 1 worker) | M |
+| 💤 | Run streaming + realtime R output polish | M |
+| 💤 | Cosmetic: drop `render` from the `/execute` purpose docs/enum | S |
+
+## Permissions — [users-authorizations-audit.md](users-authorizations-audit.md)
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | PO end-to-end validation of the permission model (catalogue is implemented but "not settled") | S (review) |
+| 💤 | Group-access rework bucket: `workspace_id is None → no check` pattern + `update_project` destination-workspace check | M |
+| 💤 | Minors: inline gating by context, organizations read open to all, test-connection SSRF | S–M |
+
+## Code quality leftovers (from REVIEW-LOG)
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Split entity-io.ts (~2.5k lines → export/import/clone); seed-loader.ts / WorkspacesPage.tsx also > 800 | M |
+| 🤔 | Regenerate the bundled activity-dashboard seed (still uses legacy `col-N` ids) → then drop the colIdMap rescue in entity-io | S |
+| 🤔 | Cohort schema migrations v1→v4: removable once no old cohort persists in your DB/IDB | S |
+| 💤 | git-content-retry: token input/hint on auth-gated failure | S |
+| 💤 | PTY idle sweep (kernel sessions sweep; PTY is bounded by WS lifetime) | S |
+
+## Long-term vision — [../vision-roadmap.md](../vision-roadmap.md)
+
+Pillars 2 (Monitoring) and 3 (Deployment) not started.
+
+---
+
+*[../health-dcat-ap.md](../health-dcat-ap.md) is a reference document, not an effort.*
