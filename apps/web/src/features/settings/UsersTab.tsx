@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
@@ -48,6 +48,7 @@ interface UserDraft {
   role: string
   firstName: string
   lastName: string
+  email: string
   /** Multilingual, like the profile page — edited in the active app language. */
   affiliation: LocalizedString | string
   profession: LocalizedString | string
@@ -61,6 +62,7 @@ const emptyDraft: UserDraft = {
   role: 'user',
   firstName: '',
   lastName: '',
+  email: '',
   affiliation: '',
   profession: '',
   orcid: '',
@@ -74,6 +76,7 @@ function draftFromUser(u: User, lang: string): UserDraft {
     role: u.role,
     firstName: u.firstName ?? '',
     lastName: u.lastName ?? '',
+    email: u.email ?? '',
     // Pre-fill the active language from the other one when it's blank (convenience);
     // the input then controls the raw value, so it stays clearable.
     affiliation: seedLocalizedForEditing(u.affiliation, lang),
@@ -142,6 +145,21 @@ export function UsersTab() {
     return r ? localized(r.label, i18n.language) || r.name : name
   }
 
+  // Cmd/Ctrl+S saves the dialog like clicking Save, instead of the browser's
+  // save-page dialog.
+  const formRef = useRef<HTMLFormElement>(null)
+  useEffect(() => {
+    if (!dialogOpen) return
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        formRef.current?.requestSubmit()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [dialogOpen])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!draft.username.trim()) return
@@ -159,6 +177,7 @@ export function UsersTab() {
       role: draft.role,
       firstName: draft.firstName.trim() || undefined,
       lastName: draft.lastName.trim() || undefined,
+      email: draft.email.trim() || undefined,
       affiliation: localizedOrUndefined(draft.affiliation),
       profession: localizedOrUndefined(draft.profession),
       orcid: orcid || undefined,
@@ -329,7 +348,7 @@ export function UsersTab() {
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-lg">
-          <form onSubmit={handleSubmit}>
+          <form ref={formRef} onSubmit={handleSubmit}>
             <DialogHeader>
               <DialogTitle>{editing ? t('settings.edit_user') : t('settings.add_user')}</DialogTitle>
               <DialogDescription>{t('settings.add_user_description')}</DialogDescription>
@@ -395,6 +414,16 @@ export function UsersTab() {
                   <Label htmlFor="user-last-name">{t('profile.last_name')}</Label>
                   <Input id="user-last-name" value={draft.lastName} onChange={(e) => setField('lastName', e.target.value)} />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="user-email">{t('profile.email')}</Label>
+                <Input
+                  id="user-email"
+                  type="email"
+                  value={draft.email}
+                  placeholder={t('profile.email_placeholder')}
+                  onChange={(e) => setField('email', e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="user-affiliation">{t('profile.affiliation')}</Label>

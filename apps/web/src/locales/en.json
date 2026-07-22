@@ -2361,13 +2361,14 @@
     "line_numbers_relative": "Relative",
     "tab_size": "Tab size",
     "theme": "Theme",
-    "theme_auto": "Auto",
+    "theme_linkr_auto": "Linkr (auto light/dark)",
+    "theme_vs_auto": "VS Code (auto light/dark)",
     "theme_linkr_light": "Linkr Light",
     "theme_linkr_dark": "Linkr Dark",
     "theme_vs_light": "VS Light",
     "theme_vs_dark": "VS Dark",
     "auto_save": "Auto-save",
-    "auto_save_delay": "Auto-save delay"
+    "auto_save_delay": "Auto-save delay (seconds)"
   },
   "shortcuts": {
     "title": "Keyboard shortcuts",
@@ -3986,6 +3987,7 @@
     "admin_password": "Password",
     "admin_password_confirm": "Confirm password",
     "admin_password_mismatch": "Passwords do not match",
+    "error_missing_fields": "Username and password are required.",
     "create_account": "Create Account",
     "creating": "Creating account…",
     "error_generic": "Setup failed. Please try again."

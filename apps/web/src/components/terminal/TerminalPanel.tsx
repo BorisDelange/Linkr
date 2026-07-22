@@ -7,7 +7,7 @@ import { getPyodide, getPyodideStatus } from '@/lib/runtimes/pyodide-engine'
 import { getWebR, getWebRStatus } from '@/lib/runtimes/webr-engine'
 import { isServerMode } from '@/lib/api-client'
 import { TerminalSocket } from '@/lib/api/terminal-ws'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, isEditorThemeDark } from '@/stores/app-store'
 
 type TerminalType = 'bash' | 'python' | 'r'
 
@@ -123,7 +123,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
   const fitAddonRef = useRef<FitAddon | null>(null)
   const darkMode = useAppStore((s) => s.darkMode)
   const editorTheme = useAppStore((s) => s.editorSettings.theme)
-  const isDark = editorTheme === 'auto' ? darkMode : editorTheme === 'linkr-dark' || editorTheme === 'vs-dark'
+  const isDark = isEditorThemeDark(editorTheme, darkMode)
   const xtermTheme = isDark ? terminalThemes.dark : terminalThemes.light
 
   // Update terminal theme when it changes without recreating the terminal
@@ -157,8 +157,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
     let socket: TerminalSocket | null = null
 
     const currentTheme = useAppStore.getState()
-    const currentEditorTheme = currentTheme.editorSettings.theme
-    const currentIsDark = currentEditorTheme === 'auto' ? currentTheme.darkMode : currentEditorTheme === 'linkr-dark' || currentEditorTheme === 'vs-dark'
+    const currentIsDark = isEditorThemeDark(currentTheme.editorSettings.theme, currentTheme.darkMode)
     const initialTheme = currentIsDark ? terminalThemes.dark : terminalThemes.light
 
     const terminal = new Terminal({

@@ -51,11 +51,16 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault()
+    setCreateError('')
+    if (!username || !password) {
+      setCreateError(t('setup.error_missing_fields'))
+      return
+    }
+    // Shown as the hint under the Confirm field (passwordMismatch below) — no
+    // duplicate banner here.
     if (password !== confirmPassword) return
-    if (!username || !password) return
 
     setCreating(true)
-    setCreateError('')
     try {
       const res = await fetch(`${getApiBaseUrl()}/api/v1/setup/initialize`, {
         method: 'POST',
@@ -87,7 +92,9 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     }
   }
 
-  const passwordMismatch = confirmPassword.length > 0 && password !== confirmPassword
+  // Live hint under the field: only once both fields have content, so it
+  // doesn't flash red while the user is still typing the first one.
+  const passwordMismatch = confirmPassword.length > 0 && password.length > 0 && password !== confirmPassword
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
@@ -184,7 +191,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                   />
                   {passwordMismatch && (
-                    <p className="text-xs text-destructive">{t('setup.admin_password_mismatch')}</p>
+                    <p className="text-[11px] text-destructive">{t('setup.admin_password_mismatch')}</p>
                   )}
                 </div>
 
@@ -202,7 +209,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                     type="submit"
                     size="sm"
                     className="ml-auto"
-                    disabled={creating || !username || !password || passwordMismatch}
+                    disabled={creating || !username || !password || !confirmPassword || passwordMismatch}
                   >
                     {creating && <Loader2 size={14} className="animate-spin" />}
                     {creating ? t('setup.creating') : t('setup.create_account')}

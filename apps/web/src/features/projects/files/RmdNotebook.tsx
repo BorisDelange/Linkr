@@ -60,7 +60,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, resolveEditorTheme } from '@/stores/app-store'
 import { CellOutput } from '@/components/editor/CellOutput'
 import { parseRmdFile, serializeRmdFile, parseChunkOptions, serializeChunkOptions, type RmdCell } from '@/lib/rmd-parser'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
@@ -216,9 +216,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   const { t } = useTranslation()
   const darkMode = useAppStore((s) => s.darkMode)
   const editorTheme = useAppStore((s) => s.editorSettings.theme)
-  const resolvedTheme = editorTheme === 'auto'
-    ? darkMode ? 'linkr-dark' : 'linkr-light'
-    : editorTheme
+  const resolvedTheme = resolveEditorTheme(editorTheme, darkMode)
   const fontSize = useAppStore((s) => s.editorSettings.fontSize)
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {

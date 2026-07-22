@@ -49,13 +49,33 @@ interface ManagedUser {
   role: string
 }
 
+/** `*-auto` follows the app's light/dark mode (see darkMode) within that theme
+ *  family — `linkr-auto` picks linkr-light/linkr-dark, `vs-auto` picks vs/vs-dark.
+ *  The other 4 are a fixed choice regardless of app mode. */
+export type EditorTheme = 'linkr-auto' | 'vs-auto' | 'linkr-light' | 'linkr-dark' | 'vs' | 'vs-dark'
+
+/** Resolve an EditorTheme + the app's darkMode into a concrete Monaco theme name
+ *  (never one of the `*-auto` values). A theme persisted before the 'auto' split
+ *  falls through to the linkr-auto behavior. */
+export function resolveEditorTheme(theme: EditorTheme, darkMode: boolean): 'linkr-light' | 'linkr-dark' | 'vs' | 'vs-dark' {
+  if (theme === 'vs-auto') return darkMode ? 'vs-dark' : 'vs'
+  if (theme === 'linkr-light' || theme === 'linkr-dark' || theme === 'vs' || theme === 'vs-dark') return theme
+  return darkMode ? 'linkr-dark' : 'linkr-light'
+}
+
+/** Is the resolved Monaco theme a dark one? Used by non-Monaco consumers (xterm)
+ *  that only need the light/dark split, not the specific theme name. */
+export function isEditorThemeDark(theme: EditorTheme, darkMode: boolean): boolean {
+  return resolveEditorTheme(theme, darkMode) === 'linkr-dark' || resolveEditorTheme(theme, darkMode) === 'vs-dark'
+}
+
 export interface EditorSettings {
   fontSize: number
   wordWrap: 'on' | 'off'
   minimap: boolean
   lineNumbers: 'on' | 'off' | 'relative'
   tabSize: number
-  theme: 'auto' | 'linkr-light' | 'linkr-dark' | 'vs' | 'vs-dark'
+  theme: EditorTheme
   autoSave: boolean
   autoSaveDelay: number
 }
@@ -190,7 +210,7 @@ const defaultEditorSettings: EditorSettings = {
   minimap: false,
   lineNumbers: 'on',
   tabSize: 2,
-  theme: 'auto',
+  theme: 'linkr-auto',
   autoSave: false,
   autoSaveDelay: 1000,
 }

@@ -59,4 +59,9 @@ export const paths = {
   warehouseEtl: (wsUid: string) => `${ws(wsUid)}/warehouse/etl`,
   warehouseDataQuality: (wsUid: string) => `${ws(wsUid)}/warehouse/data-quality`,
   warehouseSchemas: (wsUid: string) => `${ws(wsUid)}/warehouse/schemas`,
+  warehouseDatabases: (wsUid: string) => `${ws(wsUid)}/warehouse/databases`,
+  warehouseConceptMapping: (wsUid: string) => `${ws(wsUid)}/warehouse/concept-mapping/projects`,
+  warehouseConceptMappingProject: (wsUid: string, mappingProjectId: string) =>
+    `${ws(wsUid)}/warehouse/concept-mapping/${shortenId(mappingProjectId)}`,
+  wiki: (wsUid: string) => `${ws(wsUid)}/wiki`,
 } as const

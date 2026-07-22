@@ -1,7 +1,7 @@
 import { useRef, useCallback, useEffect } from 'react'
 import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, resolveEditorTheme } from '@/stores/app-store'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import type { KeyCombo } from '@/types/shortcuts'
 import { linkrDark, linkrLight } from './monaco-themes'
@@ -101,12 +101,7 @@ export function CodeEditor({
     onRunFileRef.current = onRunFile
   })
 
-  const resolvedTheme =
-    editorSettings.theme === 'auto'
-      ? darkMode
-        ? 'linkr-dark'
-        : 'linkr-light'
-      : editorSettings.theme
+  const resolvedTheme = resolveEditorTheme(editorSettings.theme, darkMode)
 
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme('linkr-dark', linkrDark)

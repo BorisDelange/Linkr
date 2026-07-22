@@ -2361,13 +2361,14 @@
     "line_numbers_relative": "Relatifs",
     "tab_size": "Taille de tabulation",
     "theme": "Thème",
-    "theme_auto": "Auto",
+    "theme_linkr_auto": "Linkr (auto clair/sombre)",
+    "theme_vs_auto": "VS Code (auto clair/sombre)",
     "theme_linkr_light": "Linkr Clair",
     "theme_linkr_dark": "Linkr Sombre",
     "theme_vs_light": "VS Clair",
     "theme_vs_dark": "VS Sombre",
     "auto_save": "Sauvegarde automatique",
-    "auto_save_delay": "Délai de sauvegarde"
+    "auto_save_delay": "Délai de sauvegarde (secondes)"
   },
   "shortcuts": {
     "title": "Raccourcis clavier",
@@ -3986,6 +3987,7 @@
     "admin_password": "Mot de passe",
     "admin_password_confirm": "Confirmer le mot de passe",
     "admin_password_mismatch": "Les mots de passe ne correspondent pas",
+    "error_missing_fields": "Le nom d'utilisateur et le mot de passe sont requis.",
     "create_account": "Créer le compte",
     "creating": "Création en cours…",
     "error_generic": "La configuration a échoué. Veuillez réessayer."

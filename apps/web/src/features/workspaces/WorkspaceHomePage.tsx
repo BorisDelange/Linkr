@@ -100,13 +100,13 @@ export function WorkspaceHomePage() {
   const wsName = localized(workspace?.name, language)
   const readme = localized(workspace?.readme, language)
 
-  const projectsPath = `/workspaces/${wsUid}/projects`
-  const databasesPath = `/workspaces/${wsUid}/warehouse/databases`
-  const mappingPath = `/workspaces/${wsUid}/warehouse/concept-mapping`
-  const wikiPath = `/workspaces/${wsUid}/wiki`
+  const projectsPath = paths.projects(wsUid ?? '')
+  const databasesPath = paths.warehouseDatabases(wsUid ?? '')
+  const mappingPath = paths.warehouseConceptMapping(wsUid ?? '')
+  const wikiPath = paths.wiki(wsUid ?? '')
 
   const handleOpenMappingProject = (id: string) => {
-    navigate(`/workspaces/${wsUid}/warehouse/concept-mapping/${id}`)
+    navigate(paths.warehouseConceptMappingProject(wsUid ?? '', id))
   }
 
   return (
@@ -166,7 +166,7 @@ export function WorkspaceHomePage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col px-6 pb-6">
+      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col px-6 pb-3">
         <TabsList variant="line" className="shrink-0">
           <TabsTrigger value="overview">{t('summary.tab_overview')}</TabsTrigger>
           <TabsTrigger value="readme">{t('summary.tab_readme')}</TabsTrigger>
@@ -289,8 +289,8 @@ function OverviewTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
-      {/* Readme + Recent entities — top half */}
-      <div className="grid min-h-0 basis-1/2 grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* Readme + Recent entities — fill all remaining vertical space above the stat cards */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
         <ReadmePreview readme={readme} resolveUrls={resolveUrls} onViewFull={onViewReadme} />
         <RecentEntitiesCard
           recentProjects={recentProjects}

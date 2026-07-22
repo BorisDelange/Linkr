@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore, type EditorSettings } from '@/stores/app-store'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -9,6 +10,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+
+const FONT_SIZE_MIN = 8
+const FONT_SIZE_MAX = 32
+const TAB_SIZE_MIN = 1
+const TAB_SIZE_MAX = 16
+const AUTO_SAVE_DELAY_MIN_S = 0.5
+const AUTO_SAVE_DELAY_MAX_S = 30
 
 export function EditorSettingsForm() {
   const { t } = useTranslation()
@@ -25,11 +33,12 @@ export function EditorSettingsForm() {
             updateEditorSettings({ theme: v as EditorSettings['theme'] })
           }
         >
-          <SelectTrigger className="w-36">
+          <SelectTrigger className="w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="auto">{t('editor.theme_auto')}</SelectItem>
+            <SelectItem value="linkr-auto">{t('editor.theme_linkr_auto')}</SelectItem>
+            <SelectItem value="vs-auto">{t('editor.theme_vs_auto')}</SelectItem>
             <SelectItem value="linkr-light">{t('editor.theme_linkr_light')}</SelectItem>
             <SelectItem value="linkr-dark">{t('editor.theme_linkr_dark')}</SelectItem>
             <SelectItem value="vs">{t('editor.theme_vs_light')}</SelectItem>
@@ -41,45 +50,37 @@ export function EditorSettingsForm() {
       {/* Font size */}
       <div className="flex items-center justify-between">
         <Label className="text-sm">{t('editor.font_size')}</Label>
-        <Select
-          value={String(editorSettings.fontSize)}
-          onValueChange={(v) =>
-            updateEditorSettings({ fontSize: Number(v) })
-          }
-        >
-          <SelectTrigger className="w-24">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {[11, 12, 13, 14, 15, 16, 18, 20].map((size) => (
-              <SelectItem key={size} value={String(size)}>
-                {size}px
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Input
+          type="number"
+          min={FONT_SIZE_MIN}
+          max={FONT_SIZE_MAX}
+          value={editorSettings.fontSize}
+          onChange={(e) => {
+            const n = Number(e.target.value)
+            if (Number.isFinite(n)) {
+              updateEditorSettings({ fontSize: Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, n)) })
+            }
+          }}
+          className="w-24"
+        />
       </div>
 
       {/* Tab size */}
       <div className="flex items-center justify-between">
         <Label className="text-sm">{t('editor.tab_size')}</Label>
-        <Select
-          value={String(editorSettings.tabSize)}
-          onValueChange={(v) =>
-            updateEditorSettings({ tabSize: Number(v) })
-          }
-        >
-          <SelectTrigger className="w-24">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {[2, 4, 8].map((size) => (
-              <SelectItem key={size} value={String(size)}>
-                {size}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Input
+          type="number"
+          min={TAB_SIZE_MIN}
+          max={TAB_SIZE_MAX}
+          value={editorSettings.tabSize}
+          onChange={(e) => {
+            const n = Number(e.target.value)
+            if (Number.isFinite(n)) {
+              updateEditorSettings({ tabSize: Math.min(TAB_SIZE_MAX, Math.max(TAB_SIZE_MIN, n)) })
+            }
+          }}
+          className="w-24"
+        />
       </div>
 
       {/* Line numbers */}
@@ -143,26 +144,25 @@ export function EditorSettingsForm() {
         />
       </div>
 
-      {/* Auto-save delay (only visible when autoSave is on) */}
+      {/* Auto-save delay (only visible when autoSave is on) — stored in ms, edited in seconds */}
       {editorSettings.autoSave && (
         <div className="flex items-center justify-between">
           <Label className="text-sm">{t('editor.auto_save_delay')}</Label>
-          <Select
-            value={String(editorSettings.autoSaveDelay)}
-            onValueChange={(v) =>
-              updateEditorSettings({ autoSaveDelay: Number(v) })
-            }
-          >
-            <SelectTrigger className="w-24">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="500">0.5s</SelectItem>
-              <SelectItem value="1000">1s</SelectItem>
-              <SelectItem value="2000">2s</SelectItem>
-              <SelectItem value="5000">5s</SelectItem>
-            </SelectContent>
-          </Select>
+          <Input
+            type="number"
+            min={AUTO_SAVE_DELAY_MIN_S}
+            max={AUTO_SAVE_DELAY_MAX_S}
+            step={0.5}
+            value={editorSettings.autoSaveDelay / 1000}
+            onChange={(e) => {
+              const n = Number(e.target.value)
+              if (Number.isFinite(n)) {
+                const clamped = Math.min(AUTO_SAVE_DELAY_MAX_S, Math.max(AUTO_SAVE_DELAY_MIN_S, n))
+                updateEditorSettings({ autoSaveDelay: Math.round(clamped * 1000) })
+              }
+            }}
+            className="w-24"
+          />
         </div>
       )}
     </div>
