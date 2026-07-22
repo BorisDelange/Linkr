@@ -228,7 +228,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
         ? status.files
             .filter((f) => f.changeType !== 'deleted' && !isUnownedConfigModification(f))
             .map((f) => f.path)
-        : defaultSelectedPaths(status.files)
+        : defaultSelectedPaths(scope, status.files)
       const defaults = new Set(defaultList)
       const selected = new Set(
         changed.filter((p) => (hadStatus ? prev.has(p) : defaults.has(p))),

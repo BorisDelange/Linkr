@@ -868,4 +868,4 @@ async def test_export_zip_builds_server_side(client):
     } <= names
     # Source CSV is written verbatim.
     assert zf.read("source-concepts.csv") == csv
-    assert zf.read(".gitignore") == b"similarity-scores.parquet\n"
+    assert zf.read(".gitignore") == b"*.parquet\nreview/\nstate.json\n"

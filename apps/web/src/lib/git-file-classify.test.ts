@@ -38,21 +38,26 @@ describe('defaultSelectedPaths', () => {
 
   it('selects everything except data files', () => {
     const files = [f('project.json'), f('datasets/c/data.csv'), f('dashboards/d.json'), f('datasets/_tree.json')]
-    expect(defaultSelectedPaths(files)).toEqual(['project.json', 'dashboards/d.json', 'datasets/_tree.json'])
+    expect(defaultSelectedPaths('projects', files)).toEqual(['project.json', 'dashboards/d.json', 'datasets/_tree.json'])
   })
 
-  it('never selects deletions by default (files Linkr does not own, e.g. review/, state.json)', () => {
+  it('selects a deletion of a Linkr-OWNED file (its removal is a genuine deletion to push)', () => {
+    const files = [f('project.json'), f('dashboards/old.json', 'deleted'), f('scripts/gone.sql', 'deleted')]
+    expect(defaultSelectedPaths('projects', files)).toEqual(['project.json', 'dashboards/old.json', 'scripts/gone.sql'])
+  })
+
+  it('leaves a deletion of an UNOWNED (other-category) file unchecked (review/, state.json)', () => {
     const files = [f('project.json'), f('review/app.js', 'deleted'), f('state.json', 'deleted')]
-    expect(defaultSelectedPaths(files)).toEqual(['project.json'])
+    expect(defaultSelectedPaths('projects', files)).toEqual(['project.json'])
   })
 
   it('leaves a MODIFIED .gitignore/.gitattributes unchecked (would clobber a hand-enriched remote copy)', () => {
     const files = [f('project.json'), f('.gitignore', 'modified'), f('.gitattributes', 'modified')]
-    expect(defaultSelectedPaths(files)).toEqual(['project.json'])
+    expect(defaultSelectedPaths('projects', files)).toEqual(['project.json'])
   })
 
   it('selects an ADDED .gitignore (Linkr\'s copy is the only one)', () => {
     const files = [f('.gitignore', 'added'), f('.gitattributes', 'added')]
-    expect(defaultSelectedPaths(files)).toEqual(['.gitignore', '.gitattributes'])
+    expect(defaultSelectedPaths('projects', files)).toEqual(['.gitignore', '.gitattributes'])
   })
 })

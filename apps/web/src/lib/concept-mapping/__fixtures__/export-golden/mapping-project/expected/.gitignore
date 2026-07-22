@@ -1,1 +1,3 @@
-similarity-scores.parquet
+*.parquet
+review/
+state.json

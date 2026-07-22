@@ -743,11 +743,13 @@ export async function buildMappingProjectFolder(
  * (queryDataSource/ensureMounted) is intentionally omitted — versioning tracks
  * the mapping definition, not a re-derivable DB dump.
  *
- * The precomputed similarity-scores.parquet is never versioned (it can be
- * ~100 MB and is fully re-derivable — its latest version lives in the app's
- * OPFS/IDB / server blob store, not in git); a `.gitignore` excludes it so it
- * can never be added by accident. LFS is never applied automatically — a file
- * is tracked via LFS only through the user's per-file toggle (lfsOverrides).
+ * Parquet payloads (the precomputed similarity-scores.parquet and any other) are
+ * never versioned — they can be ~100 MB and are fully re-derivable, their latest
+ * version living in the app's OPFS/IDB / server blob store, not in git. The
+ * `.gitignore` also excludes review/ and state.json, foreign files another tool
+ * (the concept-mapping agent) writes into the repo that Linkr doesn't own. LFS is
+ * never applied automatically — a file is tracked via LFS only through the user's
+ * per-file toggle (lfsOverrides).
  */
 export async function buildMappingProjectZip(
   projectId: string,
@@ -761,7 +763,7 @@ export async function buildMappingProjectZip(
   await buildMappingProjectFolder(zip, '', project, storage, { includeScores: false })
   await attachEntityOrganization(zip, 'project.json', project, storage)
 
-  zip.file('.gitignore', 'similarity-scores.parquet\n')
+  zip.file('.gitignore', '*.parquet\nreview/\nstate.json\n')
 
   // LFS is opt-in only (see git-lfs.ts) — nothing is tracked automatically, so
   // .gitattributes exists only when the user forced a file into LFS by hand.

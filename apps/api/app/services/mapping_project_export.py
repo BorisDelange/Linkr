@@ -195,6 +195,6 @@ def build_mapping_project_tree(
     if entries:
         tree["source-concept-ids/entries.json"] = _json(_compact_entries(entries))
 
-    tree[".gitignore"] = b"similarity-scores.parquet\n"
+    tree[".gitignore"] = b"*.parquet\nreview/\nstate.json\n"
 
     return tree

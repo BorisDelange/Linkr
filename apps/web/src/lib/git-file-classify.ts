@@ -7,6 +7,9 @@
  * via its dynamic .gitignore.
  */
 
+import { gitFileMeta } from '@/lib/git-file-meta'
+import type { GitScope } from '@/lib/api/git'
+
 const DATA_EXTENSIONS = ['.csv', '.parquet', '.pq', '.xlsx', '.xls']
 
 export function isDataFile(path: string): boolean {
@@ -33,14 +36,25 @@ export function isUnownedConfigModification(f: { path: string; changeType: strin
 
 /**
  * Paths checked by default in the commit list. Excludes data files (health data
- * isn't pushed by accident), deletions, and modifications to hand-enriched repo
- * config. A "deleted" file is one present on the remote but absent from Linkr's
- * export — often a file created by another tool (the concept-mapping agent's
- * review/, state.json, …). Linkr shouldn't propose to erase or overwrite files it
- * doesn't own without an explicit tick.
+ * isn't pushed by accident) and modifications to hand-enriched repo config.
+ *
+ * A "deleted" file is one present on the remote but absent from Linkr's export.
+ * When it maps to a KNOWN category (a mapping, dashboard, script, … that Linkr
+ * owns) its absence is a genuine deletion, so we check it by default — else the
+ * remote keeps a stale copy of a Linkr-managed file the user actually removed.
+ * When it falls in the 'other' bucket it's a foreign file another tool created
+ * (the concept-mapping agent's review/, state.json, …); Linkr must not propose to
+ * erase what it doesn't own, so those stay unchecked.
  */
-export function defaultSelectedPaths(files: { path: string; changeType: string }[]): string[] {
+export function defaultSelectedPaths(
+  scope: GitScope,
+  files: { path: string; changeType: string }[],
+): string[] {
   return files
-    .filter((f) => f.changeType !== 'deleted' && !isDataFile(f.path) && !isUnownedConfigModification(f))
+    .filter((f) => {
+      if (isDataFile(f.path) || isUnownedConfigModification(f)) return false
+      if (f.changeType === 'deleted') return gitFileMeta(scope, f.path).category !== 'other'
+      return true
+    })
     .map((f) => f.path)
 }
