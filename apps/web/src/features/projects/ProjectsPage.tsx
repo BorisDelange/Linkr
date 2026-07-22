@@ -45,7 +45,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
-import { formatApiError, type FormattedError } from '@/lib/api-client'
+import { formatApiError, isServerMode, type FormattedError } from '@/lib/api-client'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { CreateProjectDialog } from './CreateProjectDialog'
@@ -194,10 +194,17 @@ export function ProjectsPage() {
     if (duplicate) {
       uid = crypto.randomUUID()
     } else if (!project.uid) {
-      // A clean/git export strips uid (buildProjectZip). With no uid the
-      // collision check + delete-then-create below would operate on `undefined`
-      // (corrupting the store / keying a record `undefined`), so mint a fresh one.
-      uid = crypto.randomUUID()
+      // A clean/git export strips uid (buildProjectZip). Overwrite must still
+      // target the matching project (by lineageId, or by the permanent projectId
+      // — a git-pointer import has no lineageId), else "Overwrite" would mint a
+      // fresh uid and CREATE A COPY next to the existing one. Mint only when the
+      // project genuinely isn't here yet.
+      const currentWs = wsUid ?? activeWorkspaceId
+      const match = useAppStore.getState()._projectsRaw.find((p) =>
+        p.workspaceId === currentWs
+        && ((project.lineageId && p.lineageId === project.lineageId)
+          || (project.projectId && p.projectId === project.projectId)))
+      uid = match?.uid ?? crypto.randomUUID()
     } else {
       const currentWs = wsUid ?? activeWorkspaceId
       const globalExisting = useAppStore.getState()._projectsRaw.find((p) => p.uid === project.uid)
@@ -271,7 +278,20 @@ export function ProjectsPage() {
     await useCohortStore.getState().loadCohorts()
 
     await loadProjects()
-  }, [wsUid, activeWorkspaceId, loadProjects])
+
+    // A manual import over a badged git-pointer resolves its "content not
+    // imported" status (advisory — best effort on both backends).
+    if (workspaceId) {
+      if (isServerMode()) {
+        const { gitClearContentStatus } = await import('@/lib/api/git')
+        await gitClearContentStatus(workspaceId, 'projects', uid).catch(() => {})
+      } else {
+        const { setLocalGitContentStatus } = await import('@/components/versioning/use-git-content-statuses')
+        setLocalGitContentStatus(workspaceId, 'projects', uid, null)
+      }
+      await refetchContentStatuses()
+    }
+  }, [wsUid, activeWorkspaceId, loadProjects, refetchContentStatuses])
 
   // --- Duplicate a project (export then re-import as copy) ---
   const handleDuplicateProject = useCallback(async (projectUid: string) => {
@@ -290,15 +310,18 @@ export function ProjectsPage() {
         return
       }
 
-      // A conflict is "the same work already here" — same lineageId (falling back
-      // to uid for legacy exports) *within the target workspace*. The same project
-      // living in another workspace is fine: importing it here is a legitimate,
-      // independent copy, so we don't warn about it anymore.
+      // A conflict is "the same work already here" — same lineageId, same
+      // permanent projectId (a clean/git export strips uid, and a git-pointer
+      // project imported from a workspace ZIP has no lineageId — projectId is the
+      // identity that survives both), or same uid — *within the target workspace*.
+      // The same project living in another workspace is fine: importing it here
+      // is a legitimate, independent copy, so we don't warn about it anymore.
       const currentWs = wsUid ?? activeWorkspaceId
       const all = useAppStore.getState()._projectsRaw
       const existing = all.find((p) =>
         p.workspaceId === currentWs
         && ((parsed.project.lineageId && p.lineageId === parsed.project.lineageId)
+          || (parsed.project.projectId && p.projectId === parsed.project.projectId)
           || p.uid === parsed.project.uid))
       if (existing) {
         const existingName = typeof existing.name === 'string' ? existing.name : (existing.name.en || Object.values(existing.name)[0] || '')
