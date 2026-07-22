@@ -21,7 +21,7 @@ import { SettingsPullDialog } from './SettingsPullDialog'
  */
 export function SettingsVersioningTab() {
   if (!isServerMode()) {
-    return <div className="mt-6"><ServerModeNotice inline /></div>
+    return <div className="mt-6 flex justify-center"><ServerModeNotice inline /></div>
   }
   return <SettingsVersioningInner />
 }

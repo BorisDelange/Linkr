@@ -17,7 +17,7 @@ export function SettingsExportTab() {
   const [error, setError] = useState<string | null>(null)
 
   if (!isServerMode()) {
-    return <div className="mt-6"><ServerModeNotice inline /></div>
+    return <div className="mt-6 flex justify-center"><ServerModeNotice inline /></div>
   }
 
   const doExport = async () => {
