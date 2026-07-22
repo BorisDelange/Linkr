@@ -50,7 +50,7 @@ import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
-import { seedBuiltinPlugins } from '@/lib/plugins/seed-builtin'
+import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { gitCloneToZip } from '@/lib/api/git'
 import { getStorage } from '@/lib/storage'
@@ -686,8 +686,8 @@ export function WorkspacesPage() {
       })
     }
     // Built-in plugins are stripped from the export (reconstitutable from the app
-    // registry), so re-seed them here — same path the default-data seed uses.
-    await seedBuiltinPlugins(storage, targetWsId, now)
+    // registry), so re-seed them here — idempotent per workspace, unique row ids.
+    await seedBuiltinPluginsForWorkspace(targetWsId)
 
     reportPhase('workspaces.import_phase_finalizing')
     await yieldToBrowser()

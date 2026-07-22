@@ -14,7 +14,7 @@ import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS, getSchemaPreset } from '@/lib/schema-presets'
-import { seedBuiltinPlugins } from '@/lib/plugins/seed-builtin'
+import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { parseSourceConceptIdEntries, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
@@ -496,7 +496,7 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
   }
 
   // --- Seed built-in plugins for this workspace ---
-  await seedBuiltinPlugins(storage, wsId, now)
+  await seedBuiltinPluginsForWorkspace(wsId)
 
   // --- Workspace internals (non-re-seedable bootstrap content) ---
   // The manifest's `internals` mirrors the old `_index.json` minus the first-class entity
