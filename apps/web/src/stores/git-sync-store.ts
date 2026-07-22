@@ -38,11 +38,11 @@ export interface GitSyncError {
 // In server mode the backend assembles the export ZIP itself (offloading the
 // browser), so the client sends no file — see docs/architecture.md ("Fullstack
 // Storage & Compute"). Projects additionally send the include-data toggle (their
-// server builder honors it). Other scopes are still client-built (extending them
-// is tracked in docs/planning/versioning-plan.md); front-only always builds
-// client-side.
+// server builder honors it). Front-only always builds client-side. Like the
+// mapping-project builder, server-built ZIPs don't take per-file LFS overrides
+// (documented trade-off — these scopes are light JSON content).
 function serverBuildsZip(scope: GitScope): boolean {
-  return isServerMode() && (scope === 'projects' || scope === 'workspaces' || scope === 'mapping-projects' || scope === 'settings')
+  return isServerMode()
 }
 
 // lfsOverrides: opt-in per-file LFS decisions applied when generating the export's
@@ -293,6 +293,10 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     get()._commitPushPaths(scope, id, paths, message, branch),
 
   _commitPushPaths: async (scope, id, paths, message, branch) => {
+    // An empty array must never reach the API: `if (paths)` is true for [] so no
+    // paths field would be sent, and the server treats missing paths as "commit
+    // everything" (git add -A) — the opposite of an empty selection.
+    if (paths.length === 0) return null
     set({ committing: true, error: null })
     try {
       const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
