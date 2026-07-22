@@ -23,8 +23,13 @@ export interface BoxPlotProps {
 }
 
 export function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: BoxPlotProps) {
+  // Fed by two callers with untrusted numeric input (server stats that may be
+  // absent → NaN, free-form concept-stat parsing). A NaN quartile would make every
+  // pct() "NaN%" and render garbage; bail instead. clamp guards a max < min case.
+  if (![min, p25, median, p75, max].every(Number.isFinite)) return null
   const range = max - min || 1
-  const pct = (v: number) => `${((v - min) / range) * 100}%`
+  const clamp = (n: number) => Math.max(0, Math.min(100, n))
+  const pct = (v: number) => `${clamp(((v - min) / range) * 100)}%`
   const cy = height / 2
 
   return (
@@ -37,7 +42,7 @@ export function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: BoxPl
       <line x1={pct(max)} y1={cy - 6} x2={pct(max)} y2={cy + 6} stroke="currentColor" strokeWidth={1.5} className="text-muted-foreground" />
       {/* IQR box */}
       <rect
-        x={pct(p25)} y={cy - 10} width={`${((p75 - p25) / range) * 100}%`} height={20}
+        x={pct(p25)} y={cy - 10} width={`${clamp(((p75 - p25) / range) * 100)}%`} height={20}
         fill="var(--color-primary)" fillOpacity={0.15} stroke="var(--color-primary)" strokeWidth={1.5} rx={2}
       />
       {/* Median line */}

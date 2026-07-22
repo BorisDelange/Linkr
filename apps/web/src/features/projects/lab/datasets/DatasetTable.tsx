@@ -119,7 +119,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
       .map((c) => c.id),
     [columns, parseOptions],
   )
-  const distinctByCol = useColumnDistinct({ fileId, columns, listColumnIds, rows })
+  const distinctByCol = useColumnDistinct({ fileId, columns, listColumnIds, rows, dataVersion: _dirtyVersion })
   const isListMode = useCallback(
     (col: DatasetColumn) => {
       if (col.type !== 'string') return false

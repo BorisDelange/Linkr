@@ -419,7 +419,7 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
                   />
                   <YAxis tick={{ fontSize: 9 }} width={30} />
                   <Tooltip
-                    formatter={(value) => [Number(value).toLocaleString(), 'Count']}
+                    formatter={(value) => [Number(value).toLocaleString(), t('datasets.stats_count')]}
                     labelFormatter={(label) => Number(label).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     contentStyle={{ fontSize: 11, background: 'var(--color-popover)', border: '1px solid var(--color-border)', color: 'var(--color-popover-foreground)' }}
                   />

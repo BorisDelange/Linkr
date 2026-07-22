@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { applyColumnFilter, isCategoricalFilter } from './ColumnFilterInput'
+import { toServerFilters } from './use-server-dataset-rows'
 import { coerceValue } from '@/lib/dataset-utils'
+import type { DatasetColumn } from '@/types'
+
+const col = (id: string, type: DatasetColumn['type']): DatasetColumn =>
+  ({ id, name: id, type }) as DatasetColumn
 
 describe('applyColumnFilter — categorical (list) mode', () => {
   it('matches the cell against the selected values by string form', () => {
@@ -41,6 +46,37 @@ describe('applyColumnFilter — text/number/date still work', () => {
   it('number range', () => {
     expect(applyColumnFilter(5, 'number', { min: 1, max: 10 })).toBe(true)
     expect(applyColumnFilter(11, 'number', { min: 1, max: 10 })).toBe(false)
+  })
+  it('date range compares lexically (ISO strings sort chronologically)', () => {
+    expect(applyColumnFilter('2020-06-15', 'date', { from: '2020-01-01', to: '2020-12-31' })).toBe(true)
+    expect(applyColumnFilter('2021-01-01', 'date', { from: '2020-01-01', to: '2020-12-31' })).toBe(false)
+    expect(applyColumnFilter(null, 'date', { from: '2020-01-01' })).toBe(false)
+  })
+  it('boolean matches the selected truth value via parseBoolean, empty target passes all', () => {
+    expect(applyColumnFilter('oui', 'boolean', 'true')).toBe(true)
+    expect(applyColumnFilter('non', 'boolean', 'true')).toBe(false)
+    expect(applyColumnFilter('non', 'boolean', 'false')).toBe(true)
+    expect(applyColumnFilter('anything', 'boolean', '')).toBe(true)
+    expect(applyColumnFilter('unparseable', 'boolean', 'true')).toBe(false)
+  })
+})
+
+describe('toServerFilters — UI filter → server payload', () => {
+  const columns = [col('c_num', 'number'), col('c_date', 'date'), col('c_str', 'string')]
+
+  it('maps a categorical selection to { colId, values } and skips an empty selection', () => {
+    expect(toServerFilters({ c_str: { in: ['ICU', 'ER'] } }, columns)).toEqual([{ colId: 'c_str', values: ['ICU', 'ER'] }])
+    expect(toServerFilters({ c_str: { in: [] } }, columns)).toEqual([])
+  })
+
+  it('maps number/date/string filters by column type', () => {
+    expect(toServerFilters({ c_num: { min: 1, max: 10 } }, columns)).toEqual([{ colId: 'c_num', min: 1, max: 10 }])
+    expect(toServerFilters({ c_date: { from: '2020-01-01', to: '2020-12-31' } }, columns)).toEqual([{ colId: 'c_date', from: '2020-01-01', to: '2020-12-31' }])
+    expect(toServerFilters({ c_str: 'sepsis' }, columns)).toEqual([{ colId: 'c_str', value: 'sepsis' }])
+  })
+
+  it('drops null filter values', () => {
+    expect(toServerFilters({ c_num: null as never }, columns)).toEqual([])
   })
 })
 

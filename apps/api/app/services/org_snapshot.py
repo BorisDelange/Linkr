@@ -41,6 +41,9 @@ def org_snapshot(org: dict) -> dict:
     (b) normalizes ``createdAt`` to the ms+Z form the rest of the export uses. Every
     export path that attaches an org (project, mapping-project, workspace root) calls
     this, so the same org serializes identically everywhere."""
+    # normalize_iso_ms_z only rewrites ISO-8601 strings; a non-ISO createdAt is left
+    # verbatim and could then differ from the TS side (new Date(...) is permissive).
+    # Org createdAt is always ISO from a controlled source, so this holds in practice.
     out = {k: v for k, v in org.items() if k != "updatedAt"}
     if isinstance(out.get("createdAt"), str):
         out["createdAt"] = normalize_iso_ms_z(out["createdAt"])

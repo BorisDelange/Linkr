@@ -21,9 +21,12 @@ matter — the golden tests pin them. See docs/planning/server-export-plan.md §
 import asyncio
 import io
 import zipfile
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.datetime_format import normalize_iso_ms_z, to_iso_ms_z
 
 from app.models.dataset import DatasetAnalysis
 from app.models.project import Project
@@ -203,7 +206,14 @@ async def build_project_tree_from_db(
                 "fileName": att.file_name,
                 "mimeType": att.mime_type,
                 "fileSize": att.file_size,
-                "createdAt": att.created_at,
+                # created_at is a String column today (rides through _json as-is),
+                # but normalize to ms+Z so a future migration to DateTime can't emit
+                # a raw datetime (TypeError in json.dumps) or a divergent format.
+                "createdAt": (
+                    to_iso_ms_z(att.created_at)
+                    if isinstance(att.created_at, datetime)
+                    else normalize_iso_ms_z(att.created_at)
+                ),
             }
         )
         if att.blob_sha and blob_store.exists(att.blob_sha):

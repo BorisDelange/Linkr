@@ -19,9 +19,9 @@ ranges, entries, org, raw source-concepts.csv bytes) — the DB/blob reads live 
 the caller.
 """
 
-import json
 from typing import Any
 
+from app.core.json_export import export_json as _json
 from app.services.org_snapshot import org_snapshot
 
 # Fields dropped from project.json so the exported metadata is portable — mirrors
@@ -44,31 +44,10 @@ _INSTANCE_FIELDS = (
 )
 
 
-def _js_numbers(value: Any) -> Any:
-    """Normalize whole-valued floats to int so serialization matches JS.
-    ``JSON.stringify(1.0)`` → ``"1"`` but Python ``json.dumps(1.0)`` → ``"1.0"``;
-    a mapping's ``matchScore`` of 1.0/0.0 (exact/zero match) would otherwise emit
-    different bytes server- vs client-side → a spurious git diff on a shared remote.
-    Fractions (0.85) are left untouched (JS keeps them too)."""
-    if isinstance(value, bool):
-        return value  # bool is an int subclass — never coerce
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    if isinstance(value, dict):
-        return {k: _js_numbers(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_js_numbers(v) for v in value]
-    return value
-
-
-def _json(value: Any) -> bytes:
-    """Serialize like TS ``JSON.stringify(x, null, 2)``: 2-space indent, ``": "``
-    and ``",\\n"`` separators, insertion-order keys (never sorted), UTF-8, no
-    trailing newline, JS number formatting (whole floats as ints). ``None`` values
-    are omitted upstream (TS omits ``undefined``)."""
-    return json.dumps(
-        _js_numbers(value), indent=2, ensure_ascii=False, separators=(",", ": ")
-    ).encode("utf-8")
+# _json is the shared export serializer (app/core/json_export.export_json):
+# whole-valued floats (a mapping's ``matchScore`` of 1.0/0.0) are emitted as ints
+# to match ``JSON.stringify`` — else the same mapping churns the diff on a shared
+# remote. ``None`` values are omitted upstream (TS omits ``undefined``).
 
 
 def _mapping_key(m: dict) -> str:

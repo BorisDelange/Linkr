@@ -1423,7 +1423,7 @@ async def set_workspace_content_status(
     """Mark a git-linked entity's content as pending/failed (set at import, updated
     on a failed retry)."""
     await git_content_status_service.set_status(
-        db, body.scope, body.entity_id, body.workspace_id, body.status
+        db, body.scope, body.entity_id, workspace_id, body.status
     )
 
 
@@ -1439,4 +1439,4 @@ async def clear_workspace_content_status(
     _member=Depends(require_permission("workspace-settings:write")),
 ):
     """Clear the status once the entity's content is reconstituted (successful clone)."""
-    await git_content_status_service.clear(db, scope, entity_id)
+    await git_content_status_service.clear(db, workspace_id, scope, entity_id)

@@ -19,7 +19,7 @@
     "description": "year_of_birth in range",
     "category": "plausibility",
     "severity": "warning",
-    "threshold": 0.05,
+    "threshold": 100,
     "sql": "SELECT COUNT(*) FROM person WHERE year_of_birth < 1900;",
     "order": 1,
     "createdAt": "2026-01-02T03:04:05.000Z",

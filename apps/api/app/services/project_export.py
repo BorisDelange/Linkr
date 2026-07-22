@@ -20,7 +20,6 @@ mode) and returns the file tree — the DB/disk/blob reads live in the caller
 (project_export_assemble).
 """
 
-import json
 import unicodedata
 from typing import Any
 
@@ -28,6 +27,7 @@ from typing import Any
 # app/export_version.py. NOT config.app_version (the deployment/build version):
 # this must equal the frontend's version.ts APP_VERSION so front-only and server
 # exports are byte-identical.
+from app.core.json_export import export_json as _json
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.org_snapshot import org_snapshot
 
@@ -51,14 +51,10 @@ _INSTANCE_FIELDS = (
 )
 
 
-def _json(value: Any) -> bytes:
-    """Serialize like TS ``JSON.stringify(x, null, 2)``: 2-space indent, ``": "``
-    and ``",\\n"`` separators, insertion-order keys (never sorted), UTF-8, no
-    trailing newline. ``None`` values are kept as ``null`` (the frontend objects
-    carry explicit nulls in server mode); ``undefined`` keys never reach here."""
-    return json.dumps(
-        value, indent=2, ensure_ascii=False, separators=(",", ": ")
-    ).encode("utf-8")
+# _json is the shared export serializer (app/core/json_export.export_json):
+# 2-space indent, ``": "``/``",\n`` separators, insertion-order keys, UTF-8, no
+# trailing newline, and whole-valued floats emitted as ints (JS parity — a DQ
+# threshold of 0/100 must serialize as ``0``/``100``, not ``0.0``/``100.0``).
 
 
 def _strip_instance_fields(meta: dict) -> dict:

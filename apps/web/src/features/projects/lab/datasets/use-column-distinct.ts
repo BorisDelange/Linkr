@@ -14,6 +14,9 @@ interface Params {
   listColumnIds: string[]
   /** In-memory rows (front-only mode); empty in server mode. */
   rows: Record<string, unknown>[]
+  /** Bumps when the in-memory rows change (cell edit / row add), so local-mode
+   *  distinct options refresh. Ignored in server mode. */
+  dataVersion?: number
 }
 
 /**
@@ -23,7 +26,7 @@ interface Params {
  * mode scans the in-memory rows. Returns `{}` entries until loaded. Columns that
  * exceed the cap come back `truncated` (still usable via the search box).
  */
-export function useColumnDistinct({ fileId, columns, listColumnIds, rows }: Params) {
+export function useColumnDistinct({ fileId, columns, listColumnIds, rows, dataVersion }: Params) {
   const [options, setOptions] = useState<Record<string, string[]>>({})
   const key = listColumnIds.slice().sort().join(',')
 
@@ -63,7 +66,7 @@ export function useColumnDistinct({ fileId, columns, listColumnIds, rows }: Para
     })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId, key])
+  }, [fileId, key, dataVersion])
 
   return options
 }

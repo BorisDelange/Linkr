@@ -23,9 +23,10 @@ never re-implements those builders: the caller runs ``build_project_tree`` /
 ``build_mapping_project_tree`` and passes the result in.
 """
 
-import json
 import unicodedata
 from typing import Any
+
+from app.core.json_export import export_json as _json
 
 # The export-format version stamped into workspace.json / project pointers
 # (``appVersion``) — see app/export_version.py. It equals the frontend's
@@ -53,13 +54,10 @@ _INSTANCE_FIELDS = (
 )
 
 
-def _json(value: Any) -> bytes:
-    """Serialize like TS ``JSON.stringify(x, null, 2)``: 2-space indent, ``": "``
-    and ``",\\n"`` separators, insertion-order keys (never sorted), UTF-8, no
-    trailing newline."""
-    return json.dumps(
-        value, indent=2, ensure_ascii=False, separators=(",", ": ")
-    ).encode("utf-8")
+# _json is the shared export serializer (app/core/json_export.export_json):
+# 2-space indent, ``": "``/``",\n`` separators, insertion-order keys, UTF-8, no
+# trailing newline, and whole-valued floats emitted as ints (JS parity — a DQ
+# threshold of 0/100 must serialize as ``0``/``100``, not ``0.0``/``100.0``).
 
 
 def _slugify(name: str) -> str:

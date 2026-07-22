@@ -34,6 +34,11 @@ export function isUnownedConfigModification(f: { path: string; changeType: strin
   return (name === '.gitignore' || name === '.gitattributes') && f.changeType === 'modified'
 }
 
+function isConfigFile(path: string): boolean {
+  const name = path.split('/').pop() ?? path
+  return name === '.gitignore' || name === '.gitattributes'
+}
+
 /**
  * Paths checked by default in the commit list. Excludes data files (health data
  * isn't pushed by accident) and modifications to hand-enriched repo config.
@@ -53,7 +58,13 @@ export function defaultSelectedPaths(
   return files
     .filter((f) => {
       if (isDataFile(f.path) || isUnownedConfigModification(f)) return false
-      if (f.changeType === 'deleted') return gitFileMeta(scope, f.path).category !== 'other'
+      // A deleted .gitignore/.gitattributes is category 'config' (not 'other'), so
+      // don't let the deletion branch below propose to erase a hand-enriched remote
+      // copy by default — same reasoning as isUnownedConfigModification.
+      if (f.changeType === 'deleted') {
+        if (isConfigFile(f.path)) return false
+        return gitFileMeta(scope, f.path).category !== 'other'
+      }
       return true
     })
     .map((f) => f.path)

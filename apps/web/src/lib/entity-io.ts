@@ -1793,6 +1793,12 @@ export async function applyClonedEntity(
   const blob = await zip.generateAsync({ type: 'blob' })
   const parsed = await parseProjectZip(new File([blob], 'clone.zip'))
   if (!parsed) return false
+  // Delete-first so a retry after a partially-successful clone is idempotent:
+  // importProjectContent derives sub-entity ids deterministically from targetId
+  // and inserts without catch, so a re-run would collide and throw (leaving the
+  // badge stuck 'failed'). The sql/etl/dq branches above delete-first for the
+  // same reason.
+  await deleteProjectData(storage, targetId)
   await importProjectContent(parsed, targetId, storage)
   // The workspace only carried a pointer (uid/name/gitRemoteConfig); the repo's
   // project.json + README.md + tasks.json are authoritative for the rest of the

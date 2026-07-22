@@ -260,6 +260,22 @@ export function WorkspacesPage() {
     // Keyed `${type}:${originalId}` → new id (see GitLinkedEntity.type vocabulary).
     const idMap = new Map<string, string>()
 
+    // Resolve the id a workspace-level child (SQL collection, ETL pipeline, DQ
+    // rule set, mapping project, catalog, …) should land under. A duplicate always
+    // gets a fresh uuid. A plain import keeps the ZIP id (so a git round-trip
+    // overwrites in place) — EXCEPT when that id already belongs to a child in
+    // ANOTHER workspace: the delete-then-create below would then move that other
+    // workspace's entity into this one (silent cross-workspace clobber), so mint a
+    // fresh id instead. Mirrors the uid guard in ProjectsPage.doImport.
+    const resolveChildId = async (
+      getById: (id: string) => Promise<{ workspaceId?: string } | undefined>,
+      originalId: string,
+    ): Promise<string> => {
+      if (duplicate) return crypto.randomUUID()
+      const existing = await getById(originalId).catch(() => undefined)
+      return existing && existing.workspaceId !== targetWsId ? crypto.randomUUID() : originalId
+    }
+
     /** Report a phase to the progress modal. Called between blocks of work. */
     const reportPhase = (phaseKey: string, done?: number, total?: number) => {
       setImportProgress({ phaseKey, done, total })
@@ -479,9 +495,9 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const { collection, files } of parsed.sqlCollections) {
-      const id = duplicate ? crypto.randomUUID() : collection.id
+      const id = await resolveChildId((i) => storage.sqlScriptCollections.getById(i), collection.id)
       idMap.set(`sql-collection:${collection.id}`, id)
-      if (!duplicate) {
+      if (id === collection.id) {
         await storage.sqlScriptFiles.deleteByCollection(collection.id).catch(() => {})
         await storage.sqlScriptCollections.delete(collection.id).catch(() => {})
       }
@@ -491,9 +507,13 @@ export function WorkspacesPage() {
           ? { name: copyLocalizedName(collection.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: collection.lineageId }
           : { lineageId: collection.lineageId ?? crypto.randomUUID() }),
       })
+      // Remint child file ids whenever the parent id was re-minted (a duplicate,
+      // or a plain import that dodged a cross-workspace collision) — else they'd
+      // collide with the other workspace's files.
+      const remint = id !== collection.id
       const fileIdMap = new Map<string, string>()
       const mapFileId = (oldId: string): string => {
-        if (!duplicate) return oldId
+        if (!remint) return oldId
         if (!fileIdMap.has(oldId)) fileIdMap.set(oldId, crypto.randomUUID())
         return fileIdMap.get(oldId)!
       }
@@ -511,9 +531,9 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const { pipeline, files } of parsed.etlPipelines) {
-      const id = duplicate ? crypto.randomUUID() : pipeline.id
+      const id = await resolveChildId((i) => storage.etlPipelines.getById(i), pipeline.id)
       idMap.set(`etl-pipeline:${pipeline.id}`, id)
-      if (!duplicate) {
+      if (id === pipeline.id) {
         await storage.etlFiles.deleteByPipeline(pipeline.id).catch(() => {})
         await storage.etlPipelines.delete(pipeline.id).catch(() => {})
       }
@@ -523,9 +543,10 @@ export function WorkspacesPage() {
           ? { name: copyLocalizedName(pipeline.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: pipeline.lineageId }
           : { lineageId: pipeline.lineageId ?? crypto.randomUUID() }),
       })
+      const remint = id !== pipeline.id
       const fileIdMap = new Map<string, string>()
       const mapFileId = (oldId: string): string => {
-        if (!duplicate) return oldId
+        if (!remint) return oldId
         if (!fileIdMap.has(oldId)) fileIdMap.set(oldId, crypto.randomUUID())
         return fileIdMap.get(oldId)!
       }
@@ -543,9 +564,9 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const { ruleSet, checks } of parsed.dqRuleSets) {
-      const id = duplicate ? crypto.randomUUID() : ruleSet.id
+      const id = await resolveChildId((i) => storage.dqRuleSets.getById(i), ruleSet.id)
       idMap.set(`dq-rule-set:${ruleSet.id}`, id)
-      if (!duplicate) {
+      if (id === ruleSet.id) {
         await storage.dqCustomChecks.deleteByRuleSet(ruleSet.id).catch(() => {})
         await storage.dqRuleSets.delete(ruleSet.id).catch(() => {})
       }
@@ -555,9 +576,10 @@ export function WorkspacesPage() {
           ? { name: copyLocalizedName(ruleSet.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: ruleSet.lineageId }
           : { lineageId: ruleSet.lineageId ?? crypto.randomUUID() }),
       })
+      const remintChecks = id !== ruleSet.id
       for (const check of checks) {
         await storage.dqCustomChecks.create({
-          ...check, id: duplicate ? crypto.randomUUID() : check.id, ruleSetId: id,
+          ...check, id: remintChecks ? crypto.randomUUID() : check.id, ruleSetId: id,
         })
       }
     }
@@ -568,8 +590,8 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const cs of parsed.conceptSets) {
-      const id = duplicate ? crypto.randomUUID() : cs.id
-      if (!duplicate) await storage.conceptSets.delete(cs.id).catch(() => {})
+      const id = await resolveChildId((i) => storage.conceptSets.getById(i), cs.id)
+      if (id === cs.id) await storage.conceptSets.delete(cs.id).catch(() => {})
       await storage.conceptSets.create({
         ...cs, id, workspaceId: targetWsId, updatedAt: now,
         ...(duplicate ? { name: `${cs.name} (copy)`, createdAt: now } : {}),
@@ -584,9 +606,10 @@ export function WorkspacesPage() {
       let mappingIdx = 0
       const reportEvery = Math.max(1, Math.floor(totalMappings / 100)) // ~100 UI updates max
       for (const { project: mp, mappings, scoresFile } of parsed.mappingProjects) {
-        const id = duplicate ? crypto.randomUUID() : mp.id
+        const id = await resolveChildId((i) => storage.mappingProjects.getById(i), mp.id)
         idMap.set(`mapping-project:${mp.id}`, id)
-        if (!duplicate) {
+        const remintMappings = id !== mp.id
+        if (id === mp.id) {
           await storage.conceptMappings.deleteByProject(mp.id).catch(() => {})
           await storage.mappingProjects.delete(mp.id).catch(() => {})
         }
@@ -613,7 +636,7 @@ export function WorkspacesPage() {
         }
         for (const m of mappings) {
           await storage.conceptMappings.create({
-            ...m, id: duplicate ? crypto.randomUUID() : m.id, projectId: id,
+            ...m, id: remintMappings ? crypto.randomUUID() : m.id, projectId: id,
           })
           mappingIdx++
           if (mappingIdx % reportEvery === 0) {
@@ -661,9 +684,9 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const cat of parsed.catalogs) {
-      const id = duplicate ? crypto.randomUUID() : cat.id
+      const id = await resolveChildId((i) => storage.dataCatalogs.getById(i), cat.id)
       idMap.set(`data-catalog:${cat.id}`, id)
-      if (!duplicate) await storage.dataCatalogs.delete(cat.id).catch(() => {})
+      if (id === cat.id) await storage.dataCatalogs.delete(cat.id).catch(() => {})
       await storage.dataCatalogs.create({
         ...cat, id, workspaceId: targetWsId, updatedAt: now,
         ...(duplicate ? { name: copyLocalizedName(cat.name), createdAt: now } : {}),
@@ -676,8 +699,8 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const sm of parsed.serviceMappings) {
-      const id = duplicate ? crypto.randomUUID() : sm.id
-      if (!duplicate) await storage.serviceMappings.delete(sm.id).catch(() => {})
+      const id = await resolveChildId((i) => storage.serviceMappings.getById(i), sm.id)
+      if (id === sm.id) await storage.serviceMappings.delete(sm.id).catch(() => {})
       await storage.serviceMappings.create({
         ...sm, id, workspaceId: targetWsId, updatedAt: now,
         ...(duplicate ? { name: `${sm.name} (copy)`, createdAt: now } : {}),

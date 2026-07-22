@@ -13,7 +13,7 @@
   "status": "draft",
   "lastRunAt": null,
   "lastRunDurationMs": null,
-  "lastScore": null,
+  "lastScore": 100,
   "createdBy": "Boris Delange",
   "createdByDetails": {
     "firstName": "Boris",

@@ -315,7 +315,7 @@ export async function gitContentStatusList(workspaceId: string): Promise<GitCont
 export async function gitSetContentStatus(workspaceId: string, scope: GitScope, entityId: string, status: 'pending' | 'failed'): Promise<void> {
   const res = await apiFetch(`/api/v1/git/workspaces/${workspaceId}/content-status`, {
     method: 'PUT',
-    body: JSON.stringify({ scope, entityId, workspaceId, status }),
+    body: JSON.stringify({ scope, entityId, status }),
   })
   if (!res.ok) throw await gitError(res)
 }

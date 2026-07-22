@@ -60,4 +60,9 @@ describe('defaultSelectedPaths', () => {
     const files = [f('.gitignore', 'added'), f('.gitattributes', 'added')]
     expect(defaultSelectedPaths('projects', files)).toEqual(['.gitignore', '.gitattributes'])
   })
+
+  it('leaves a DELETED .gitignore/.gitattributes unchecked (would erase a hand-enriched remote copy)', () => {
+    const files = [f('project.json'), f('.gitignore', 'deleted'), f('.gitattributes', 'deleted')]
+    expect(defaultSelectedPaths('projects', files)).toEqual(['project.json'])
+  })
 })

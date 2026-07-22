@@ -25,7 +25,7 @@ export interface ServerRowsState {
 }
 
 /** Translate DatasetTable's UI filter values into the server query shape. */
-function toServerFilters(
+export function toServerFilters(
   columnFilters: Record<string, ColumnFilterValue>,
   columns: DatasetColumn[],
 ): ServerRowFilter[] {

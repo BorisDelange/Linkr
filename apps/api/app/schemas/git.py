@@ -172,7 +172,9 @@ class GitContentStatusEntry(CamelModel):
 
 
 class GitContentStatusUpdate(CamelModel):
+    # workspace_id is NOT accepted from the body — the row is tagged to the
+    # path-authorized workspace, so a caller with write on workspace A can't write
+    # or clear a badge belonging to workspace B.
     scope: str
     entity_id: str
-    workspace_id: str
     status: str  # 'pending' | 'failed'
