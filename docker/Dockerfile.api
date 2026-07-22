@@ -38,6 +38,12 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 COPY apps/api/ ./
 RUN pip install --no-cache-dir -e ".[execution]"
 
+# Export-format version: in the repo it lives at the monorepo root, above the
+# copied apps/api tree, so ship it explicitly and point export_version.py at it.
+# It MUST match the value baked into the web bundle (same VERSION file at build).
+COPY VERSION /app/VERSION
+ENV LINKR_VERSION_FILE=/app/VERSION
+
 # Pre-bundle DuckDB extensions into the image so an offline deployment never
 # needs to reach the network on first use. They install under
 # <dir>/v<ver>/<platform>/; the entrypoint seeds the runtime data volume's
