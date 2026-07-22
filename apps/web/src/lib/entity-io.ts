@@ -1705,6 +1705,10 @@ export async function applyClonedEntity(
     const tree = (await readJson<(SqlScriptFile | EtlFile)[]>('_tree.json')) ?? []
     const byId = new Map(tree.map(f => [f.id, f as { id: string; name: string; parentId: string | null }]))
     const fkKey = type === 'sql-collection' ? 'collectionId' : 'pipelineId'
+    // Replace existing files: a re-clone (e.g. a retry, or re-import over a prior
+    // pointer) would otherwise hit a UNIQUE id collision and leave the entity empty.
+    if (type === 'sql-collection') await storage.sqlScriptFiles.deleteByCollection(targetId).catch(() => {})
+    else await storage.etlFiles.deleteByPipeline(targetId).catch(() => {})
     for (const f of tree) {
       const rec: Record<string, unknown> = dropForeignAuthorId({ ...f, [fkKey]: targetId })
       if (f.type === 'file') {
