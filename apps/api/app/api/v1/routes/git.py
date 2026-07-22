@@ -1012,9 +1012,13 @@ async def clone(
     is remembered for this user + host so later sync ops find it."""
     from fastapi.responses import Response
 
+    # Fall back to the user's stored (user, host) token when the request carries
+    # none — so a retry clone of a private repo (the card's "content not imported"
+    # button, which has no token to hand) reuses the token saved at first import.
+    token = body.token or await git_credential_service.token_for_url(db, user, body.url)
     try:
         data, cloned_oid = await git_service.clone_to_zip(
-            body.url, body.branch or "main", body.token
+            body.url, body.branch or "main", token
         )
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
