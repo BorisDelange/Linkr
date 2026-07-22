@@ -652,7 +652,7 @@ export async function buildProjectZip(
 }
 
 // ---------------------------------------------------------------------------
-// Parse project ZIP — supports both new structured layout and legacy flat layout
+// Parse project ZIP (v3 structured layout — see the layout comment above buildProjectZip)
 // ---------------------------------------------------------------------------
 
 // A git-versioned export strips the UUID ids from tabs/widgets and carries content
@@ -993,22 +993,6 @@ export async function importProjectContent(
 export async function parseProjectZip(file: File): Promise<ParsedProjectZip | null> {
   const zipData = stripRootFolder(await JSZip.loadAsync(file))
 
-  // Detect layout:
-  // - legacy: flat JSON files (ide-files.json, cohorts.json, etc.)
-  // - v2: underscore-prefixed folders (_ide_tree.json, _cohorts/, _dashboards/)
-  // - v3 (current): unprefixed folders (scripts/_tree.json, cohorts/, dashboards/)
-  const hasLegacyLayout = zipData.files['ide-files.json'] != null || zipData.files['cohorts.json'] != null
-  const hasNewLayout = zipData.files['_ide_tree.json'] != null
-    || zipData.files['scripts/_tree.json'] != null
-    || Object.keys(zipData.files).some(p =>
-      p.startsWith('_cohorts/') || p.startsWith('_dashboards/')
-      || p.startsWith('cohorts/') || p.startsWith('dashboards/')
-      || p.startsWith('scripts/'))
-
-  if (!hasLegacyLayout && !hasNewLayout) {
-    if (!zipData.files['project.json']) return null
-  }
-
   // --- Read project.json ---
   const projectFile = zipData.files['project.json']
   if (!projectFile) return null
@@ -1049,9 +1033,7 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
     projectMeta.notes = toLocalized(tasks.notes)
   }
 
-  const parsed = (hasNewLayout || !hasLegacyLayout)
-    ? await parseNewLayout(zipData, projectMeta)
-    : await parseLegacyLayout(zipData, projectMeta)
+  const parsed = await parseNewLayout(zipData, projectMeta)
   return { ...parsed, organization }
 }
 
@@ -1127,47 +1109,12 @@ export function parseCsvLine(line: string): string[] {
   return result
 }
 
-async function parseLegacyLayout(zip: JSZip, project: Project): Promise<ParsedProjectZip> {
-  const ideFiles = (await readJsonFile<IdeFile[]>(zip, 'ide-files.json')) ?? []
-  const pipelines = (await readJsonFile<Pipeline[]>(zip, 'pipelines.json')) ?? []
-  const cohorts = (await readJsonFile<Cohort[]>(zip, 'cohorts.json')) ?? []
-  const connections = (await readJsonFile<IdeConnection[]>(zip, 'connections.json')) ?? []
-  const dashboards = (await readJsonFile<Dashboard[]>(zip, 'dashboards.json')) ?? []
-  const dashboardTabs = (await readJsonFile<DashboardTab[]>(zip, 'dashboard-tabs.json')) ?? []
-  const dashboardWidgets = (await readJsonFile<DashboardWidget[]>(zip, 'dashboard-widgets.json')) ?? []
-  const datasetFiles = (await readJsonFile<DatasetFile[]>(zip, 'dataset-files.json')) ?? []
-  const datasetAnalyses = (await readJsonFile<DatasetAnalysis[]>(zip, 'dataset-analyses.json')) ?? []
-  const attachmentsMeta = (await readJsonFile<Omit<ReadmeAttachment, 'data'>[]>(zip, 'readme-attachments.json')) ?? []
-
-  const attachmentBlobs = new Map<string, ArrayBuffer>()
-  for (const meta of attachmentsMeta) {
-    const entry = zip.files[`attachments/${meta.id}-${meta.fileName}`]
-      ?? zip.files[`_attachments/${meta.id}-${meta.fileName}`]
-    if (entry) attachmentBlobs.set(meta.id, await entry.async('arraybuffer'))
-  }
-
-  return {
-    project, ideFiles, pipelines, cohorts, connections,
-    dashboards, dashboardTabs, dashboardWidgets,
-    datasetFiles, datasetAnalyses, datasetData: [], datasetRawFiles: [], attachmentsMeta, attachmentBlobs,
-  }
-}
-
-/** Read a JSON file from the first matching path. */
-async function readJsonFileFromEither<T>(zip: JSZip, ...paths: string[]): Promise<T | null> {
-  for (const p of paths) {
-    const result = await readJsonFile<T>(zip, p)
-    if (result != null) return result
-  }
-  return null
-}
-
-/** Scan a folder (and its legacy `_`-prefixed variant) for JSON files. */
-function scanFolder(zip: JSZip, folder: string, legacyFolder: string): [string, JSZip.JSZipObject][] {
+/** Scan a folder for JSON files. */
+function scanFolder(zip: JSZip, folder: string): [string, JSZip.JSZipObject][] {
   const results: [string, JSZip.JSZipObject][] = []
   for (const [path, entry] of Object.entries(zip.files)) {
     if (entry.dir) continue
-    if (path.startsWith(folder) || path.startsWith(legacyFolder)) {
+    if (path.startsWith(folder)) {
       results.push([path, entry])
     }
   }
@@ -1175,47 +1122,40 @@ function scanFolder(zip: JSZip, folder: string, legacyFolder: string): [string, 
 }
 
 async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProjectZip> {
-  // --- IDE files (v3: scripts/_tree.json, v2: _ide_tree.json) ---
-  const ideFiles = (await readJsonFileFromEither<IdeFile[]>(zip, 'scripts/_tree.json', '_ide_tree.json')) ?? []
+  // --- IDE files (scripts/_tree.json) ---
+  const ideFiles = (await readJsonFile<IdeFile[]>(zip, 'scripts/_tree.json')) ?? []
   if (ideFiles.length > 0) {
     const byId = new Map(ideFiles.map(f => [f.id, f]))
     for (const f of ideFiles) {
       if (f.type !== 'file') continue
-      const relPath = buildIdePath(f, byId)
-      // v3: files are under scripts/, v2: files are at root (relPath without scripts/ prefix)
-      // buildIdePath now always prepends scripts/, so for v2 we try without the prefix too
-      const entry = zip.files[relPath]
-        ?? zip.files[relPath.replace(/^scripts\//, '')]
+      const entry = zip.files[buildIdePath(f, byId)]
       if (entry) {
         f.content = await entry.async('string')
       }
     }
   }
 
-  // --- Pipelines (v3: pipeline/, v2: _pipeline/) ---
-  const pipelines = (await readJsonFileFromEither<Pipeline[]>(zip, 'pipeline/pipeline.json', '_pipeline/pipeline.json')) ?? []
+  const pipelines = (await readJsonFile<Pipeline[]>(zip, 'pipeline/pipeline.json')) ?? []
 
-  // --- Cohorts (v3: cohorts/, v2: _cohorts/) ---
   const cohorts: Cohort[] = []
-  for (const [path, entry] of scanFolder(zip, 'cohorts/', '_cohorts/')) {
+  for (const [path, entry] of scanFolder(zip, 'cohorts/')) {
     if (path.endsWith('.json')) {
       cohorts.push(JSON.parse(await entry.async('string')))
     }
   }
 
-  // --- Connections (v3: databases/, v2: _databases/) ---
   const connections: IdeConnection[] = []
-  for (const [path, entry] of scanFolder(zip, 'databases/', '_databases/')) {
+  for (const [path, entry] of scanFolder(zip, 'databases/')) {
     if (path.endsWith('.json')) {
       connections.push(JSON.parse(await entry.async('string')))
     }
   }
 
-  // --- Dashboards (v3: dashboards/, v2: _dashboards/) ---
+  // --- Dashboards (each file = dashboard + tabs + widgets) ---
   const dashboards: Dashboard[] = []
   const dashboardTabs: DashboardTab[] = []
   const dashboardWidgets: DashboardWidget[] = []
-  for (const [path, entry] of scanFolder(zip, 'dashboards/', '_dashboards/')) {
+  for (const [path, entry] of scanFolder(zip, 'dashboards/')) {
     if (path.endsWith('.json')) {
       const bundle = JSON.parse(await entry.async('string')) as {
         dashboard: Dashboard; tabs: DashboardTab[]; widgets: DashboardWidget[]
@@ -1226,10 +1166,9 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
     }
   }
 
-  // --- Dataset files + analyses (v3: datasets/, v2: _datasets/) ---
-  const datasetFiles = (await readJsonFileFromEither<DatasetFile[]>(zip, 'datasets/_tree.json', '_datasets/_tree.json')) ?? []
+  const datasetFiles = (await readJsonFile<DatasetFile[]>(zip, 'datasets/_tree.json')) ?? []
   const datasetAnalyses: DatasetAnalysis[] = []
-  for (const [path, entry] of scanFolder(zip, 'datasets/', '_datasets/')) {
+  for (const [path, entry] of scanFolder(zip, 'datasets/')) {
     // Skip the dataset metadata sidecars — only true analysis JSONs become datasetAnalyses.
     // (_data.json holds parsed rows, not an analysis: parsing it here pushed an idless object whose
     //  mapId(undefined) collided across every data file, breaking import with a uniqueness error.)
@@ -1272,7 +1211,6 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
       } else {
         const csvEntry = rawEntry?.entry
           ?? zip.files[`datasets/${folderName}/${fileName}`]
-          ?? zip.files[`_data/${dsPath}`]
         if (csvEntry) {
           const parsed = parseCsvToDatasetData(await csvEntry.async('string'), df)
           if (parsed) datasetData.push(parsed)
@@ -1287,12 +1225,10 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
     }
   }
 
-  // --- Attachments (v3: attachments/, v2: _attachments/) ---
-  const attachmentsMeta = (await readJsonFileFromEither<Omit<ReadmeAttachment, 'data'>[]>(zip, 'attachments/_meta.json', '_attachments/_meta.json')) ?? []
+  const attachmentsMeta = (await readJsonFile<Omit<ReadmeAttachment, 'data'>[]>(zip, 'attachments/_meta.json')) ?? []
   const attachmentBlobs = new Map<string, ArrayBuffer>()
   for (const meta of attachmentsMeta) {
     const entry = zip.files[`attachments/${meta.id}-${meta.fileName}`]
-      ?? zip.files[`_attachments/${meta.id}-${meta.fileName}`]
     if (entry) attachmentBlobs.set(meta.id, await entry.async('arraybuffer'))
   }
 
@@ -2305,7 +2241,6 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
 
   // --- projects/ ---
-  // Detect format: lightweight (only project.json + README.md) vs full (has _pipeline/, _cohorts/, etc.)
   const projects = new Map<string, ParsedProjectZip>()
   const projectEntries: ParsedProjectEntry[] = []
   const projectFolders = new Set<string>()
@@ -2314,15 +2249,18 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const parts = path.split('/')
     if (parts.length >= 2 && parts[1]) projectFolders.add(parts[1])
   }
+  // A lightweight entry (catalog-only) and a git-linked pointer carry only
+  // project.json + README*.md; anything else under the folder means full nested
+  // content in the buildProjectZip layout.
+  const lightweightFile = /^(?:project\.json|README(?:\.[a-z]{2})?\.md)$/
   for (const folder of projectFolders) {
     const prefix = `projects/${folder}/`
-    // Check if this is a lightweight entry (no _pipeline, _cohorts, _dashboards, etc.)
-    const hasFullContent = Object.keys(zipData.files).some(p =>
-      p.startsWith(prefix) && (p.includes('/_pipeline/') || p.includes('/_cohorts/') || p.includes('/_dashboards/') || p.includes('/_datasets/') || p.includes('/_ide_tree.json'))
+    const hasFullContent = Object.entries(zipData.files).some(([p, entry]) =>
+      !entry.dir && p.startsWith(prefix) && !lightweightFile.test(p.slice(prefix.length))
     )
 
     if (hasFullContent) {
-      // Legacy full project ZIP
+      // Re-pack the subtree so the single project parser handles it.
       const projectZip = new JSZip()
       for (const [path, entry] of Object.entries(zipData.files)) {
         if (!path.startsWith(prefix) || entry.dir) continue
