@@ -805,6 +805,11 @@ export function WorkspacesPage() {
           useEtlStore.setState({ etlPipelinesLoaded: false })
           useDqStore.setState({ dqRuleSetsLoaded: false })
           useConceptMappingStore.setState({ mappingProjectsLoaded: false })
+          // A git-linked project's own metadata (README, tasks, git pointer) is written
+          // by the clone's projects.update, AFTER doImport's loadProjects ran — so the
+          // app store still holds the empty-README pointer row. Reload it, else the
+          // project's Summary shows a blank README/tasks until a full page reload.
+          await loadProjects()
           await useCatalogStore.getState().loadCatalogs()
         } else {
           anyFailed = true
