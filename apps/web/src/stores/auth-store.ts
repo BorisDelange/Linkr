@@ -92,8 +92,12 @@ export const useAuthStore = create<AuthState>()((set, get) => {
         if (res.ok) {
           const data = await res.json()
           set({ needsSetup: data.needs_setup, isCheckingAuth: false, serverUnreachable: false })
+        } else if (res.status === 502 || res.status === 503 || res.status === 504) {
+          // Gateway errors come from the reverse proxy (nginx), not the backend:
+          // the proxy answered but the API behind it is down — that's unreachable.
+          set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: true })
         } else {
-          // The server answered (even with an error) — it's reachable.
+          // The backend itself answered (even with an error) — it's reachable.
           set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: false })
         }
       } catch {
