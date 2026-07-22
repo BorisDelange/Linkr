@@ -4,7 +4,6 @@ import { KeyRound, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { isServerMode } from '@/lib/api-client'
-import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { gitSetSyncState } from '@/lib/api/git'
 import { toGitError } from '@/lib/git-error-message'
@@ -39,9 +38,6 @@ export function SettingsImportTab() {
     return () => { cancelled = true }
   }, [])
 
-  if (!isServerMode()) {
-    return <div className="mt-6 flex justify-center"><ServerModeNotice inline /></div>
-  }
 
   const handleImport = async (file: File, gitRemote?: ImportGitRemote) => {
     setError(null); setReport(null)

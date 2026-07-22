@@ -1470,7 +1470,7 @@
     "description": "Version control and export your project.",
     "content_not_imported": "Content not imported",
     "content_not_imported_hint": "This git-linked element was imported as a pointer, but its content could not be reconstituted from the linked repository.",
-    "content_not_imported_hint_clientonly": "This git-linked element was imported as a pointer only — its content wasn't downloaded. Cloning from Git isn't available in client-only mode; run Linkr in server mode to load it.",
+    "content_not_imported_hint_clientonly": "This git-linked element was imported as a pointer only — its content wasn't downloaded.\nCloning from Git isn't available in client-only mode; run Linkr in server mode to load it.",
     "content_retry_import": "Retry import",
     "tab_remote": "Remote",
     "tab_export": "Export",

@@ -3,8 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { Download, KeyRound, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { isServerMode } from '@/lib/api-client'
-import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { downloadBlob } from '@/lib/entity-io'
 import { toGitError } from '@/lib/git-error-message'
 import { downloadSettingsZip } from '@/lib/api/settings-versioning'
@@ -16,9 +14,6 @@ export function SettingsExportTab() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  if (!isServerMode()) {
-    return <div className="mt-6 flex justify-center"><ServerModeNotice inline /></div>
-  }
 
   const doExport = async () => {
     setBusy(true); setError(null)

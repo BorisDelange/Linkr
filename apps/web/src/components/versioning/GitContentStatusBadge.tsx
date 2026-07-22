@@ -49,7 +49,7 @@ export function GitContentStatusBadge({ workspaceId, scope, type, id, name, gitR
             {t('versioning.content_not_imported')}
           </Badge>
         </TooltipTrigger>
-        <TooltipContent>
+        <TooltipContent className="max-w-xs whitespace-pre-line">
           {isServerMode()
             ? t('versioning.content_not_imported_hint')
             : t('versioning.content_not_imported_hint_clientonly')}

@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyRound } from 'lucide-react'
-import { isServerMode } from '@/lib/api-client'
-import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import type { GitRemoteConfig } from '@/types'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import {
@@ -20,9 +18,6 @@ import { SettingsPullDialog } from './SettingsPullDialog'
  * roles). Offline ZIP import/export lives in the Import and Export tabs.
  */
 export function SettingsVersioningTab() {
-  if (!isServerMode()) {
-    return <div className="mt-6 flex justify-center"><ServerModeNotice inline /></div>
-  }
   return <SettingsVersioningInner />
 }
 

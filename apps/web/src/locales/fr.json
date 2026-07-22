@@ -1470,7 +1470,7 @@
     "description": "Contrôle de version et export de votre projet.",
     "content_not_imported": "Contenu non importé",
     "content_not_imported_hint": "Cet élément lié par Git a été importé sous forme de pointeur, mais son contenu n'a pas pu être reconstitué depuis le dépôt lié.",
-    "content_not_imported_hint_clientonly": "Cet élément lié à Git a été importé comme pointeur uniquement — son contenu n'a pas été téléchargé. Le clonage Git n'est pas disponible en mode client seul ; lancez Linkr en mode serveur pour le charger.",
+    "content_not_imported_hint_clientonly": "Cet élément lié à Git a été importé comme pointeur uniquement — son contenu n'a pas été téléchargé.\nLe clonage Git n'est pas disponible en mode client seul ; lancez Linkr en mode serveur pour le charger.",
     "content_retry_import": "Réessayer l'import",
     "tab_remote": "Distant",
     "tab_export": "Export",
