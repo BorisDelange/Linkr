@@ -53,7 +53,7 @@ async def export_zip(
     """Build the project's export ZIP server-side and return it for download — the
     same git-variant tree the versioning flow commits. Offloads the browser: no
     dataset data comes down just to be re-zipped. ``include_data`` mirrors the
-    export dialog's toggle. See docs/planning/server-export-plan.md §8 step 4."""
+    export dialog's toggle. See docs/architecture.md ("Fullstack Storage & Compute")."""
     from fastapi.responses import Response
 
     from app.services.project_export import _slugify

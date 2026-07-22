@@ -574,7 +574,7 @@ async def export_zip(
     """Build the project's export ZIP server-side and return it for download —
     the git variant tree (project.json, mappings.json, source-concepts.csv,
     source-concept-ids/, .gitignore). Offloads the browser: no data comes down
-    just to be re-zipped. See docs/planning/server-export-plan.md §8 step 4."""
+    just to be re-zipped. See docs/architecture.md ("Fullstack Storage & Compute")."""
     project = await _load_project(db, project_id, user, "concept-mapping:read")
     zip_bytes = await assemble_mapping_project_zip(db, project)
     slug = _localized(project.name, "en") or project.id

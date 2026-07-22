@@ -131,7 +131,7 @@ function sameWindow(a: { rangeStart: number; rangeEnd: number }, b: { rangeStart
 
 /**
  * Decide the range to persist on import, given the local range (if any) and the
- * imported one. Rules (see docs/planning/server-export-plan.md §6):
+ * imported one. Rules (see docs/architecture.md, "Versioning (as-built)"):
  *  - no local range → take the imported one.
  *  - same window → keep the local window but advance nextId to max(local, imported)
  *    (MONOTONE: the allocation counter must never go backwards, or a later assign
@@ -232,7 +232,7 @@ export interface SourceConceptIdGroup {
 
 /**
  * Reconstruct the workspace registry from the workspace root group + each mapping
- * project's group (see docs/planning/workspace-source-concept-ids-ownership.md).
+ * project's group (see docs/architecture.md, "Versioning (as-built)").
  *
  * RANGES: merged per badge with a monotone `nextId` (max across all groups) and
  * the widest window — via resolveImportedRange, so a stale root can never drag
@@ -320,7 +320,7 @@ export async function buildProjectSourceConceptIds(
     // `source_concepts` view); reproducing that here — CSV quoting, QUALIFY dedup,
     // terminology-column fallback — would risk a THIRD, divergent behaviour, so a
     // mixed front-only/server team still sees entries.json churn on a shared
-    // remote. Tracked as a known limitation (server-export-plan §6).
+    // remote. Tracked as a known limitation (docs/planning/versioning-plan.md §8).
     if (range) ranges.push(reconcileRangeWithEntries(range, es))
     entries.push(...es)
   }

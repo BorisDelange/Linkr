@@ -230,3 +230,45 @@ Clinical tables: `measurement`, `condition_occurrence`, `drug_exposure`, `proced
 ## Fuzzy Search
 
 See `docs/fuzzy-search.md`. All searches with typo/accent tolerance must use `buildFuzzySearchSql` from `apps/web/src/lib/fuzzy-search.ts`.
+
+---
+
+## Fullstack Storage & Compute (as-built)
+
+Two deployment modes; `isServerMode()` (= `!!VITE_API_URL`) decides where compute runs — **the mode alone, never the nature of the data**. Front-only (WASM) must never break.
+
+- **DB / files split**: lightweight metadata in the database (SQLite/Postgres), heavy/binary content in files under `LINKR_DATA_DIR` (default `~/.linkr`): `linkr.db`, `_files/<sha256>` (blobs deduplicated by hash), `projects/<uid>/` (real per-project working tree: `scripts/`, `datasets/`, `.cache/datasets/` derived Parquet cache). For `scripts/` and `datasets/` **disk is the single source** (RStudio/Jupyter style); everywhere else DB = truth of the metadata, files = blobs. Recomputable shareable caches live in a shared server `stats_cache` table (reset = global invalidation).
+- **Server DuckDB engine**: `queryDataSource`/`computeStats` routed to the server in fullstack mode (read-only attach, connection pool, materialized Parquet cache). Zero WASM runtime and zero IndexedDB opened in server mode (verified at the bundle level).
+- **Kernels**: persistent R/Python processes keyed `(project_uid, user_id, language, env_id)`; idle eviction (`session_timeout_minutes`) + `max_sessions_per_user`; StatusBar shows Ready/Busy/RSS/PID/restart. Dataset injection is server-side (Parquet → `dataset` variable via pandas/arrow), kernel cwd = the project folder.
+- **Terminal**: WebSocket `/execute/terminal` — Python/R stream over the persistent kernel (Ctrl+C → SIGINT, kernel survives), Bash = real PTY. WS auth via `?token=`.
+- **Datasets**: raw files on disk are immutable; server-paginated preview/rows (`LIMIT/OFFSET`, `ORDER BY`/`WHERE`) + per-column stats as DuckDB aggregates; `datasets/` surfaced read-only in the IDE tree.
+- **Server-side export builders**: in server mode the backend assembles export/versioning ZIPs itself for projects / workspaces / mapping-projects / settings, and has standalone builders for the six workspace-child scopes (`apps/api/app/services/*_export*.py`); the TS builders remain the front-only path (bypassed, never deleted). TS↔Python byte parity is pinned by **golden tests**: one frozen `expected/` extracted tree per scope, checked by a twin TS test + Python test, compared per extracted file (never zip-container bytes).
+
+Remaining work: `docs/planning/fullstack-storage-plan.md`.
+
+---
+
+## Permissions Model (as-built)
+
+- **Three tiers** — Global / Workspace / Project — over a resources × actions catalogue (`apps/api/app/core/permissions.py`): most resources carry `read/write/delete`; only `ide` adds `execute`. Global resources: `workspaces` (= create), `users`, `roles`, `organizations`, `app-database`, plus cross-cutting `all-workspaces` / `all-projects`.
+- **Resolution**: global admin > project override (`project_members` — may broaden, restrict, or set `none` = project hidden) > inherited workspace role. Roles are permission bundles (viewer < editor < owner, plus custom roles).
+- **Enforcement is server-side** (atomic `resource:action` checks — `require_project_permission` / `check_workspace_permission`; 403). UI gating is cosmetic only: `my-role` returns the effective permission list, the `can('resource:action')` hook disables/hides controls (front-only and admin → always true).
+- **PO end-to-end validation of the catalogue is still pending** — see `docs/planning/users-authorizations-audit.md`.
+
+---
+
+## Server-Owned Rendering
+
+Built-in analysis widgets never send code in server mode: the client posts `{kind, spec}` to `POST /execute/render` (spec = column names + options, structured), and the server owns one static Python program per analysis kind (`apps/api/app/services/execution/render/` — table1, correlation-matrix, map, kaplan-meier, sankey, key-indicator, regression, plot-builder, statistical-tests). Each spec is validated (pydantic per kind, unknown keys rejected). `/execute` **refuses** `purpose="render"` (`execution.py`) — free-form code always requires `ide:execute` — which closes the viewer-RCE hole. Front-only keeps computing analyses in the browser.
+
+---
+
+## Versioning (as-built)
+
+- **Detection**: shared table `git_sync_state(scope, entity_id, branch, synced_oid)` anchors the last synced commit (written at push and at resolved pull; lazily adopted after an import). Behind/diverged banner wired for projects + mapping-projects; **push is refused while behind** (`pull_required`).
+- **Pull, two mechanisms**: **mapping-project** = fine-grained 3-way merge (BASE = anchor, REMOTE, LOCAL = DB) at the entity level (`concept-mapping/merge.ts`, `PullResolveDialog`): mappings merged per line keyed by **source+target** (ids are regenerated on import, never used as identity), metadata per field, source-concepts and scores as whole blocks (LFS-resolved via `pull-file`). **project** = clone-based overlay: clone remote → ZIP → diff per group (dashboards/scripts/cohorts/datasets/pipeline/README) → re-apply via `importProjectContent` (insert-only, deterministic ids). A pull never makes a git commit: it writes the DB + advances the anchor; the next push reflects the merge.
+- **Settings scope `account`**: organizations / users / roles versioned as a first-class GitScope (`settings_repo_getter`, `settings_export_assemble.py`) reusing the same panel UI. **Passwords are never exported**; a re-imported user without a password hash lands disabled; upsert by stable identity (username / role name / org UUID-lineageId).
+- **Source-concept-id ownership**: entries belong to each mapping project (`mapping-projects/{slug}/source-concept-ids/entries.json`); the workspace root keeps only `ranges.json` (per-badge allocation). Import/seed reconstruct the registry as the union of per-project entries (root `entries.json` read only as legacy fallback) + a monotone range merge (`nextId = max`) so a stale root never regresses the allocation counter.
+- **Server-side ZIP build** for projects / workspaces / mapping-projects / settings (see Fullstack section above); **instance-field stripping** for mapping projects (drop ids/timestamps/local UUIDs, stable sort, scores parquet gitignored, LFS opt-in).
+
+Remaining work (pull for other scopes, front-only pull, stripping extension, server import): `docs/planning/versioning-plan.md`.

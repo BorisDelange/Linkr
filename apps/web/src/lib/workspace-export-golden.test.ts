@@ -3,7 +3,7 @@
  *
  * Freezes the EXACT extracted-file tree that `buildWorkspaceZip` produces, so the
  * server-side Python builder (apps/api/app/services/workspace_export.py) can be held
- * to the same bytes (see docs/planning/server-export-plan.md §2/§8). We compare the
+ * to the same bytes (see docs/architecture.md, "Fullstack Storage & Compute"). We compare the
  * DECOMPRESSED per-file contents, not the raw .zip container — git versions the
  * extracted tree, and the container isn't byte-reproducible across JSZip and Python
  * zipfile.

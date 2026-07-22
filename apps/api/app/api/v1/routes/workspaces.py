@@ -71,7 +71,7 @@ async def export_zip(
     the same git-variant tree the versioning flow commits, honoring the export
     dialog's section / per-entity data / exclude / credentials toggles. Offloads the
     browser: it no longer reads every entity's data just to re-zip it. See
-    docs/planning/server-export-plan.md §8 step 4. POST (not GET) because the
+    docs/architecture.md ("Fullstack Storage & Compute"). POST (not GET) because the
     options are a structured body."""
     from fastapi.responses import Response
 

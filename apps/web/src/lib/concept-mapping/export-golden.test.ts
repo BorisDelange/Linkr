@@ -3,7 +3,7 @@
  *
  * Freezes the EXACT extracted-file tree that `buildMappingProjectFolder` +
  * `buildProjectSourceConceptIds` produce, so a server-side Python builder can be
- * held to the same bytes (see docs/planning/server-export-plan.md §4bis). We
+ * held to the same bytes (see docs/architecture.md, "Fullstack Storage & Compute"). We
  * compare the DECOMPRESSED per-file contents, not the raw .zip container — git
  * versions the extracted tree, and the container isn't byte-reproducible across
  * JSZip and Python zipfile.

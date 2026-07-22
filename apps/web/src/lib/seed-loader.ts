@@ -726,7 +726,7 @@ async function loadWorkspaceInternals(
   }
 
   // --- source-concept-ids/ registry: root ranges + per-project entries, merged.
-  // Ownership model (docs/planning/workspace-source-concept-ids-ownership.md): the
+  // Ownership model (docs/architecture.md, "Versioning (as-built)"): the
   // root holds the whole-workspace RANGES; each mapping project's subfolder owns
   // its ENTRIES. A legacy root entries.json is still read as a fallback. The merge
   // keeps nextId monotone and lets a project's fresher range win over a stale root.

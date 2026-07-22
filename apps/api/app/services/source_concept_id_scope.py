@@ -10,7 +10,7 @@ consistent on reimport (ids are global per (vocab, code) per workspace).
 
 Server-side twin of what the frontend's SourceIdTab derives from DuckDB: the
 project's (vocab, code) pair set. This replaces the whole-badge scoping the
-client did in buildProjectSourceConceptIds — see docs/planning/server-export-plan.md §6.
+client did in buildProjectSourceConceptIds — see docs/architecture.md ("Versioning (as-built)").
 """
 
 import asyncio

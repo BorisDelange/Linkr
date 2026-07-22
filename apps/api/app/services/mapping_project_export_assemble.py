@@ -9,7 +9,7 @@ JSON is byte-identical — then zips the resulting file tree.
 The zip container mirrors ``git_service.clone_to_zip`` (io.BytesIO + ZIP_DEFLATED,
 posix paths). git versions the extracted files, so container byte-reproducibility
 across JSZip/zipfile is not required — only the per-file contents, which the
-golden tests pin. See docs/planning/server-export-plan.md §3.
+golden tests pin. See docs/architecture.md ("Fullstack Storage & Compute").
 """
 
 import asyncio

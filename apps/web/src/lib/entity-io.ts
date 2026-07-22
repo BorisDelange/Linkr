@@ -2144,7 +2144,7 @@ export async function buildWorkspaceZip(
     }
 
     // --- source-concept-ids/ranges.json (whole-workspace badge allocation) ---
-    // Ownership model (docs/planning/workspace-source-concept-ids-ownership.md):
+    // Ownership model (docs/architecture.md, "Versioning (as-built)"):
     // the RANGES (per-badge allocation window + nextId, shared across projects on
     // a badge) live at the workspace root — a single source of truth. The ENTRIES
     // are NOT written here anymore: they belong to each project and travel in

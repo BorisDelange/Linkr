@@ -12,7 +12,7 @@ shared golden fixture + twin tests
 (apps/web/src/lib/concept-mapping/__fixtures__/export-golden/mapping-project/,
 apps/web/src/lib/concept-mapping/export-golden.test.ts, and
 apps/api/tests/test_mapping_project_export.py) guard this. See
-docs/planning/server-export-plan.md §4bis for the byte-level contract.
+docs/architecture.md ("Fullstack Storage & Compute") for the byte-level contract.
 
 This is a PURE module: it takes already-loaded data (project dict, mappings,
 ranges, entries, org, raw source-concepts.csv bytes) — the DB/blob reads live in

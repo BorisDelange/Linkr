@@ -12,7 +12,7 @@ shared golden fixture + twin tests
 (apps/web/src/lib/entity-io/__fixtures__/export-golden/project/,
 apps/web/src/lib/entity-io.project-golden.test.ts, and
 apps/api/tests/test_project_export.py) guard this. See
-docs/planning/server-export-plan.md §2/§8 for the contract.
+docs/architecture.md ("Fullstack Storage & Compute") for the contract.
 
 This is a PURE module: it takes already-loaded data (camelCase dicts + raw
 bytes in the SAME shape/order the frontend's Storage façade yields in server

@@ -3,7 +3,7 @@
 The registry is workspace-wide (keyed by badge); a per-project export must keep
 only the entries whose (vocab, code) belongs to THIS project — its mappings plus
 its source dictionary — not every project sharing the badge. See
-app/services/source_concept_id_scope.py and docs/planning/server-export-plan.md §6.
+app/services/source_concept_id_scope.py and docs/architecture.md ("Versioning (as-built)").
 """
 
 from app.models.mapping_project import MappingProject

@@ -36,9 +36,11 @@ export interface GitSyncError {
 }
 
 // In server mode the backend assembles the export ZIP itself (offloading the
-// browser), so the client sends no file — see server-export-plan §5/§8. Projects
-// additionally send the include-data toggle (their server builder honors it).
-// Other scopes are still client-built; front-only always builds client-side.
+// browser), so the client sends no file — see docs/architecture.md ("Fullstack
+// Storage & Compute"). Projects additionally send the include-data toggle (their
+// server builder honors it). Other scopes are still client-built (extending them
+// is tracked in docs/planning/versioning-plan.md); front-only always builds
+// client-side.
 function serverBuildsZip(scope: GitScope): boolean {
   return isServerMode() && (scope === 'projects' || scope === 'workspaces' || scope === 'mapping-projects' || scope === 'settings')
 }

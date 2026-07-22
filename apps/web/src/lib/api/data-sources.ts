@@ -157,7 +157,7 @@ async function fetchBlob(fileId: string): Promise<ArrayBuffer> {
  *
  * The bytes are downloaded because the browser DuckDB-WASM mount path still
  * needs them (registerFileBuffer). This transfer disappears once the server-side
- * query engine lands (fullstack-storage-plan §03 step b): reading the tables will
+ * query engine lands (see docs/architecture.md, "Fullstack Storage & Compute"): reading the tables will
  * then happen on the server and getByDataSource will no longer ship bytes.
  */
 async function toStoredFile(meta: FileMeta): Promise<StoredFile> {

@@ -15,7 +15,7 @@ builder — the pure workspace builder just nests each sub-tree under
 
 The zip container mirrors ``git_service.clone_to_zip`` (io.BytesIO + ZIP_DEFLATED).
 git versions the extracted files, so only the per-file contents matter — the golden
-tests pin them. See docs/planning/server-export-plan.md §8.
+tests pin them. See docs/architecture.md ("Fullstack Storage & Compute").
 """
 
 import asyncio
