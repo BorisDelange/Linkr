@@ -1,5 +1,4 @@
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.concept_stats_cache import ConceptStatsCache
@@ -35,14 +34,3 @@ async def delete_for_source(db: AsyncSession, data_source_id: str) -> None:
         )
     )
     await db.commit()
-
-
-async def list_for_source(
-    db: AsyncSession, data_source_id: str
-) -> list[ConceptStatsCache]:
-    result = await db.execute(
-        select(ConceptStatsCache).where(
-            ConceptStatsCache.data_source_id == data_source_id
-        )
-    )
-    return list(result.scalars().all())

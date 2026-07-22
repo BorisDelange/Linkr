@@ -65,7 +65,6 @@ WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     "reports": RWD,  # stub page ("coming soon") — reserved so roles can pre-grant
 }
 
-RESOURCES = list(WORKSPACE_CATALOGUE.keys())
 PERMISSIONS = [f"{r}:{a}" for r, acts in WORKSPACE_CATALOGUE.items() for a in acts]
 
 # Global-tier resources → actions. Instance-wide management (Home / Settings).
@@ -93,19 +92,9 @@ GLOBAL_CATALOGUE: dict[str, list[str]] = {
     "all-workspaces": RWD,
     "all-projects": RWD,
 }
-GLOBAL_RESOURCES = list(GLOBAL_CATALOGUE.keys())
 GLOBAL_PERMISSIONS = [f"{r}:{a}" for r, acts in GLOBAL_CATALOGUE.items() for a in acts]
 
 ALL_PERMISSIONS = PERMISSIONS + GLOBAL_PERMISSIONS
-
-# Backwards-compatible action list (uniform triple). Some callers still import it;
-# the catalogue itself is now per-resource via WORKSPACE_CATALOGUE/GLOBAL_CATALOGUE.
-ACTIONS = RWD
-
-
-def _perms_for(actions_by_resource: dict[str, list[str]]) -> list[str]:
-    return [f"{r}:{a}" for r, acts in actions_by_resource.items() for a in acts]
-
 
 _LADDER = {
     "read": {"read"},
@@ -223,28 +212,6 @@ async def effective_workspace_role(
     return next(name for name, rank in ROLE_ORDER.items() if rank == best)
 
 
-async def check_workspace_role(
-    db: AsyncSession, workspace_id: str, user: User, min_role: str
-) -> WorkspaceMember | None:
-    """Enforce at least `min_role` on `workspace_id`; raise 403 otherwise.
-
-    Callable from routes/services outside the dependency system. Global admins
-    bypass the membership check.
-    """
-    if user.role == "admin":
-        return await db.get(WorkspaceMember, (workspace_id, user.id))
-    member = await db.get(WorkspaceMember, (workspace_id, user.id))
-    member_rank = ROLE_ORDER.get(member.role, -1) if member is not None else -1
-    granted = await global_grant_role(db, user, "all-workspaces")
-    effective_rank = max(member_rank, ROLE_ORDER.get(granted, -1) if granted else -1)
-    if effective_rank < ROLE_ORDER.get(min_role, 99):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient workspace permissions",
-        )
-    return member
-
-
 async def has_permission(
     db: AsyncSession, workspace_id: str, user: User, permission: str
 ) -> bool:
@@ -305,20 +272,6 @@ async def effective_project_role(
         return "owner"
     member = await db.get(WorkspaceMember, (project.workspace_id, user.id))
     return _widen(member.role if member is not None else None)
-
-
-async def check_project_role(
-    db: AsyncSession, project: Project, user: User, min_role: str
-) -> str:
-    """Enforce at least `min_role` on `project` (3-dimension resolution); raise
-    403 otherwise. Returns the effective role."""
-    role = await effective_project_role(db, project, user)
-    if role is None or ROLE_ORDER.get(role, -1) < ROLE_ORDER.get(min_role, 99):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient project permissions",
-        )
-    return role
 
 
 async def _role_grants(db: AsyncSession, role_name: str, permission: str) -> bool:
@@ -408,8 +361,8 @@ async def check_project_permission(
     db: AsyncSession, project: Project, user: User, permission: str
 ) -> None:
     """Enforce that the user's effective role on `project` grants `permission`;
-    raise 403 otherwise. Callable inline from routes/services (mirrors
-    check_project_role but permission-based, i.e. honours custom roles)."""
+    raise 403 otherwise. Callable inline from routes/services (honours custom
+    roles)."""
     if not await has_project_permission(db, project, user, permission):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -421,8 +374,8 @@ async def check_workspace_permission(
     db: AsyncSession, workspace_id: str, user: User, permission: str
 ) -> None:
     """Enforce that the user's role on `workspace_id` grants `permission`; raise
-    403 otherwise. Callable inline (mirrors check_workspace_role, permission-based).
-    Admins and matching all-workspaces grants pass via has_permission."""
+    403 otherwise. Callable inline. Admins and matching all-workspaces grants
+    pass via has_permission."""
     if not await has_permission(db, workspace_id, user, permission):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -432,8 +385,7 @@ async def check_workspace_permission(
 
 def require_project_permission(permission: str):
     """Dependency factory: require `permission` on the path project (3-dimension
-    resolution, custom-role aware). Returns the loaded Project (drop-in for
-    require_project_role)."""
+    resolution, custom-role aware). Returns the loaded Project."""
 
     async def _dep(
         project_uid: str,
@@ -469,23 +421,6 @@ def require_global_permission(permission: str):
     return _dep
 
 
-def require_workspace_role(min_role: str):
-    """Dependency factory: require at least `min_role` on the path workspace.
-
-    Global admins bypass the membership check. Returns the WorkspaceMember
-    (None for admins who aren't members).
-    """
-
-    async def _dep(
-        workspace_id: str,
-        user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db),
-    ) -> WorkspaceMember | None:
-        return await check_workspace_role(db, workspace_id, user, min_role)
-
-    return _dep
-
-
 def require_permission(permission: str):
     """Dependency factory: require `permission` on the path workspace."""
 
@@ -500,29 +435,5 @@ def require_permission(permission: str):
                 detail="Insufficient permissions",
             )
         return user
-
-    return _dep
-
-
-def require_project_role(min_role: str):
-    """Require `min_role` on the path project (3-dimension resolution).
-
-    Access resolves as: global admin → owner; else a per-project override
-    (project_members) if present; else the inherited workspace role; else, for a
-    project with no workspace, open to any authenticated user (legacy/unassigned).
-    """
-
-    async def _dep(
-        project_uid: str,
-        user: User = Depends(get_current_user),
-        db: AsyncSession = Depends(get_db),
-    ) -> Project:
-        project = await db.get(Project, project_uid)
-        if project is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
-            )
-        await check_project_role(db, project, user, min_role)
-        return project
 
     return _dep

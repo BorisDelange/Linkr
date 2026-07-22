@@ -182,9 +182,7 @@
     "delete_phase_finalizing": "Finalizing…",
     "import_git_linked_title": "Git-linked items need their content",
     "import_git_linked_body": "{{count}} item(s) are linked to a Git repository and their content couldn't be loaded automatically — usually a private repository needs an access token. Enter one below and load each item to pull its full content.",
-    "import_git_cors_proxy": "Git CORS proxy (optional)",
     "import_git_token_optional": "Access token (for private repos)",
-    "import_git_cors_hint": "Browsers cannot clone Git repos directly; a CORS proxy is required. Leave empty to keep metadata only.",
     "import_git_clone": "Clone",
     "import_git_cloned": "Cloned",
     "import_git_clone_retry": "Retry",
@@ -1179,12 +1177,6 @@
     "remove_confirm_title": "Delete subset",
     "remove_confirm_description": "Are you sure you want to delete this subset? This action cannot be undone."
   },
-  "transforms": {
-    "title": "Transforms",
-    "description": "Transform warehouse data into wide-format datasets.",
-    "coming_soon": "Transforms coming soon.",
-    "coming_soon_description": "This page will allow you to write scripts that transform OMOP/FHIR data into wide-format tables for analysis."
-  },
   "patient_data": {
     "title": "Patient Data",
     "no_data_source": "No data source configured.",
@@ -1890,8 +1882,6 @@
     "detail_updated_at": "Last updated",
     "detail_tables": "Tables",
     "detail_patients": "Patients",
-    "detail_visits": "Hospitalizations",
-    "detail_visit_units": "Unit stays",
     "stats_last_refreshed": "Last refreshed: {{date}}",
     "stats_refresh": "Refresh",
     "stats_section_patients": "Patients",
@@ -3975,17 +3965,12 @@
     "git_branch": "Branch",
     "git_token": "Token",
     "git_token_ph": "For private repos",
-    "cors_proxy": "CORS proxy",
-    "cors_hint": "Browsers cannot clone Git repos directly; a CORS proxy is required. Cloning works from a local Linkr instance — see \"Run a local proxy\".",
     "clone_import": "Clone & import",
-    "error_proxy": "The CORS proxy is unreachable (it may be down or blocked). Try again, or run your own with \"npm run dev:proxy\" and set the field below to http://localhost:9999.",
     "error_auth": "Authentication failed. For a private repository, provide a valid access token.",
     "error_not_found": "Repository not found. Check the URL.",
     "error_ref": "Branch not found. Check the branch name.",
     "error_network": "Network error while cloning. Check your connection and the proxy.",
     "error_unknown": "Clone failed. Check the URL, branch, token and CORS proxy.",
-    "run_local_proxy": "Run a local proxy",
-    "run_local_proxy_hint": "Runs a dependency-free CORS proxy on http://localhost:9999 — paste that into the field above. This only works with a local Linkr instance (npm run dev). A Linkr deployed over HTTPS needs a proxy hosted over HTTPS.",
     "private_repo_hint": "For a private repository, provide a personal access token."
   },
   "setup": {

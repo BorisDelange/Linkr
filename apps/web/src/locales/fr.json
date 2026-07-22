@@ -182,9 +182,7 @@
     "delete_phase_finalizing": "Finalisation…",
     "import_git_linked_title": "Éléments liés à Git : contenu à charger",
     "import_git_linked_body": "{{count}} élément(s) sont liés à un dépôt Git et leur contenu n'a pas pu être chargé automatiquement — le plus souvent, un dépôt privé nécessite un jeton d'accès. Saisissez-en un ci-dessous puis chargez chaque élément pour récupérer son contenu complet.",
-    "import_git_cors_proxy": "Proxy CORS Git (optionnel)",
     "import_git_token_optional": "Jeton d'accès (dépôts privés)",
-    "import_git_cors_hint": "Les navigateurs ne peuvent pas cloner un dépôt Git directement ; un proxy CORS est requis. Laissez vide pour ne garder que les métadonnées.",
     "import_git_clone": "Cloner",
     "import_git_cloned": "Cloné",
     "import_git_clone_retry": "Réessayer",
@@ -1179,12 +1177,6 @@
     "remove_confirm_title": "Supprimer le sous-ensemble",
     "remove_confirm_description": "Êtes-vous sûr de vouloir supprimer ce sous-ensemble ? Cette action est irréversible."
   },
-  "transforms": {
-    "title": "Transformations",
-    "description": "Transformer les données d'entrepôt en tables au format large.",
-    "coming_soon": "Transformations bientôt disponibles.",
-    "coming_soon_description": "Cette page permettra d'écrire des scripts pour transformer les données OMOP/FHIR en tables au format large pour l'analyse."
-  },
   "patient_data": {
     "title": "Données patients",
     "no_data_source": "Aucune source de données configurée.",
@@ -1890,8 +1882,6 @@
     "detail_updated_at": "Dernière modification",
     "detail_tables": "Tables",
     "detail_patients": "Patients",
-    "detail_visit_occurrences": "Hospitalisations",
-    "detail_visit_details": "Séjours en unité",
     "stats_last_refreshed": "Dernière mise à jour : {{date}}",
     "stats_refresh": "Actualiser",
     "stats_section_patients": "Patients",
@@ -3975,17 +3965,12 @@
     "git_branch": "Branche",
     "git_token": "Jeton",
     "git_token_ph": "Pour dépôts privés",
-    "cors_proxy": "Proxy CORS",
-    "cors_hint": "Les navigateurs ne peuvent pas cloner un dépôt Git directement ; un proxy CORS est requis. Le clonage fonctionne depuis une instance locale de Linkr — voir « Lancer un proxy local ».",
     "clone_import": "Cloner et importer",
-    "error_proxy": "Le proxy CORS est injoignable (en panne ou bloqué). Réessayez, ou lancez le vôtre avec « npm run dev:proxy » et renseignez http://localhost:9999 dans le champ ci-dessous.",
     "error_auth": "Échec d'authentification. Pour un dépôt privé, fournissez un jeton d'accès valide.",
     "error_not_found": "Dépôt introuvable. Vérifiez l'URL.",
     "error_ref": "Branche introuvable. Vérifiez le nom de la branche.",
     "error_network": "Erreur réseau pendant le clonage. Vérifiez votre connexion et le proxy.",
     "error_unknown": "Échec du clonage. Vérifiez l'URL, la branche, le jeton et le proxy CORS.",
-    "run_local_proxy": "Lancer un proxy local",
-    "run_local_proxy_hint": "Lance un proxy CORS sans dépendance sur http://localhost:9999 — collez cette adresse dans le champ ci-dessus. Ne fonctionne qu'avec une instance locale de Linkr (npm run dev). Un Linkr déployé en HTTPS nécessite un proxy hébergé en HTTPS.",
     "private_repo_hint": "Pour un dépôt privé, fournissez un jeton d'accès personnel."
   },
   "setup": {

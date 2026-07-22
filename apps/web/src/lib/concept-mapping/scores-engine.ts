@@ -48,10 +48,6 @@ async function ensureRegisteredInternal(projectId: string): Promise<string | nul
   return name
 }
 
-export async function ensureRegistered(projectId: string): Promise<string | null> {
-  return ensureRegisteredInternal(projectId)
-}
-
 export function resetEngine(): void {
   registered.clear()
   cache.clear()

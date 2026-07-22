@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import type { DataCatalog, CatalogResultCache, CatalogConceptRow } from '@/types'
 
 interface Props {
@@ -34,15 +35,6 @@ function fuzzyMatch(target: string, query: string): boolean {
   return tokens.every((tok) => lower.includes(tok))
 }
 
-/** Debounce hook: returns debounced value after `delay` ms of inactivity. */
-function useDebouncedValue<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value)
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay)
-    return () => clearTimeout(timer)
-  }, [value, delay])
-  return debounced
-}
 
 // ── Multi-select filter dropdown ─────────────────────────────────
 

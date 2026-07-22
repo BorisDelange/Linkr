@@ -31,10 +31,6 @@ export function onSharedFilesChanged(cb: ((files: Map<string, Uint8Array>) => vo
   _onFilesChanged = cb
 }
 
-export function getSharedFiles(): Map<string, Uint8Array> {
-  return _sharedFiles
-}
-
 // ---------------------------------------------------------------------------
 // Pyodide ↔ shared store
 // ---------------------------------------------------------------------------

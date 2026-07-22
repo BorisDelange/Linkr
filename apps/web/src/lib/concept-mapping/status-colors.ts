@@ -19,7 +19,3 @@ export const UNMAPPED_COLOR = '#e2e8f0'
 
 /** Fallback color for an unknown status key. */
 export const STATUS_FALLBACK_COLOR = '#9ca3af'
-
-export function statusColor(status: string): string {
-  return STATUS_COLORS[status as EffectiveMappingStatus] ?? STATUS_FALLBACK_COLOR
-}

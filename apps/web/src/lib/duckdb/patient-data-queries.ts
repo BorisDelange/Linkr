@@ -125,32 +125,6 @@ WHERE vd."${vdt.visitIdColumn}" = '${escSql(visitId)}'
 ORDER BY vd."${vdt.startDateColumn}"`
 }
 
-/**
- * Build query to get distinct units for a given visit (from visit_detail).
- * Returns: unit.
- */
-export function buildVisitUnitsQuery(
-  mapping: SchemaMapping,
-  visitId: string,
-): string | null {
-  const vdt = mapping.visitDetailTable
-  if (!vdt || !vdt.unitColumn) return null
-
-  const hasUnitJoin = vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn
-  if (hasUnitJoin) {
-    return `SELECT DISTINCT un."${vdt.unitNameColumn}" AS unit
-FROM "${vdt.table}" vd
-LEFT JOIN "${vdt.unitNameTable}" un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"
-WHERE vd."${vdt.visitIdColumn}" = '${escSql(visitId)}'
-ORDER BY unit`
-  }
-
-  return `SELECT DISTINCT "${vdt.unitColumn}" AS unit
-FROM "${vdt.table}"
-WHERE "${vdt.visitIdColumn}" = '${escSql(visitId)}'
-ORDER BY "${vdt.unitColumn}"`
-}
-
 // ---------------------------------------------------------------------------
 // Patient demographics
 // ---------------------------------------------------------------------------

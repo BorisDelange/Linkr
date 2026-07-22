@@ -38,15 +38,6 @@ export function formatDateShort(d: string | undefined, lang: string): string {
   }
 }
 
-/** Simple date for list items (uses toLocaleDateString). */
-export function formatDateSimple(d: string): string {
-  try {
-    return new Date(d).toLocaleDateString()
-  } catch {
-    return d
-  }
-}
-
 /** Short date+time for clinical tables. */
 export function formatDateTime(d: string): string {
   try {

@@ -90,7 +90,3 @@ export async function deleteScoresFile(projectId: string): Promise<void> {
 
   await getStorage().scoresBlob.delete(projectId)
 }
-
-export async function hasScoresFile(projectId: string): Promise<boolean> {
-  return (await getScoresFile(projectId)) !== null
-}

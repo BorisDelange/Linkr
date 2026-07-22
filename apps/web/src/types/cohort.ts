@@ -205,13 +205,3 @@ export interface CohortExecutionResult {
   executedAt: string
   durationMs: number
 }
-
-// --- Legacy types (for migration) ---
-
-/** @deprecated v1 flat criteria — used only for migration */
-export interface LegacyCohortCriteria {
-  id: string
-  type: 'age' | 'sex' | 'period' | 'duration' | 'concept'
-  config: Record<string, unknown>
-  exclude: boolean
-}

@@ -216,7 +216,7 @@ Clinical tables: `measurement`, `condition_occurrence`, `drug_exposure`, `proced
 
 - Always query both `<table>_concept_id` AND `<table>_source_concept_id` (OR condition).
 - Domain mapping: `domainTableMap` in `concept-queries.ts` → `{ table, column, sourceColumn }`.
-- Batch concept counting: `buildBatchCountQuery(domainId, conceptIds[])` — groups by domain, UNION ALL.
+- Concept counts: precomputed stats cache queried via `queryConceptCache()` (`lib/api/concept-cache.ts`); single-concept detail via `buildDomainCountQuery()` in `concept-queries.ts`.
 - Measurement extras: distribution (min/max/mean/median/std) + histogram (DuckDB binning).
 
 ## Data / Caching Patterns

@@ -160,27 +160,6 @@ def scan_datasets(project_uid: str) -> list[dict]:
     return _scan_tree(root, "ds", parent_id=None)
 
 
-def _safe_filename(name: str) -> str:
-    cleaned = name.strip().replace("/", "_").replace("\\", "_")
-    return cleaned or "dataset"
-
-
-def materialize_dataset(project_uid: str, name: str, blob_path: Path) -> Path:
-    """Copy a dataset's Parquet blob into ``datasets/<name>.parquet`` (readable
-    name), so the kernel — running in the project dir — reads it by relative path.
-    Idempotent: re-copies only when missing or size-changed."""
-    import shutil
-
-    fname = _safe_filename(name)
-    if not fname.lower().endswith(".parquet"):
-        fname += ".parquet"
-    dst = datasets_dir(project_uid) / fname
-    if not blob_path.is_file():
-        return dst
-    if not dst.is_file() or dst.stat().st_size != blob_path.stat().st_size:
-        shutil.copyfile(blob_path, dst)
-    return dst
-
 
 # --- shared scan ----------------------------------------------------------
 

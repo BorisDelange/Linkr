@@ -11,7 +11,6 @@ import type { DqCategory, DqSeverity, DqCheckStatus } from '@/lib/duckdb/data-qu
 
 export const CATEGORIES: DqCategory[] = ['completeness', 'validity', 'uniqueness', 'consistency', 'plausibility']
 export const SEVERITIES: DqSeverity[] = ['error', 'warning', 'notice']
-export const STATUSES: DqCheckStatus[] = ['pass', 'fail', 'error', 'not_applicable']
 
 export const CATEGORY_COLORS: Record<DqCategory, string> = {
   completeness: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',

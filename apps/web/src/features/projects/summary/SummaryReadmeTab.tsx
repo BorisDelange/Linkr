@@ -9,8 +9,6 @@ import { useMyProjectRole } from '@/hooks/use-context-role'
 import { ReadmeAttachmentsDialog } from './ReadmeAttachmentsDialog'
 import { ReadmeEditor } from '@/components/editor/ReadmeEditor'
 
-// Re-export for backwards compatibility (used by other files)
-export { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 
 interface SummaryReadmeTabProps {
   uid: string

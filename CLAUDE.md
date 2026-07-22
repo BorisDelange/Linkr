@@ -28,7 +28,6 @@ alembic upgrade head
 
 # Monorepo root
 npm run dev:web / dev:api / dev:all / build
-npm run dev:proxy  # local CORS proxy (port 9999) for in-browser git clone on import
 
 # Docker
 docker compose -f docker/docker-compose.yml up

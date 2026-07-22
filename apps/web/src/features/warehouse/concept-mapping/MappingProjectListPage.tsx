@@ -260,8 +260,8 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
           const { parseSourceConceptIdEntries } = await import('@/lib/concept-mapping/source-concept-ids-io')
           const ws = entity.workspaceId
           const ranges = (children.sourceIdRanges as Array<Partial<import('@/types').SourceConceptIdRange>> | undefined) ?? []
-          // Portable ranges drop timestamps (instance bookkeeping) — re-stamp them,
-          // same as importProjectSourceConceptIds, so the persisted row is valid.
+          // Portable ranges drop timestamps (instance bookkeeping) — re-stamp them
+          // so the persisted row is valid.
           for (const r of ranges) await getStorage().sourceConceptIdRanges.save({ ...r, workspaceId: ws, createdAt: r.createdAt ?? now, updatedAt: now } as import('@/types').SourceConceptIdRange)
           if (children.sourceIdEntries) {
             const entries = parseSourceConceptIdEntries(

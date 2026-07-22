@@ -25,7 +25,6 @@ from app.api.v1.routes.source_concept_ids import router as source_concept_ids_ro
 from app.api.v1.routes.data_catalogs import router as data_catalogs_router
 from app.api.v1.routes.data_sources import router as data_sources_router
 from app.api.v1.routes.database import router as database_router
-from app.api.v1.routes.datasets import router as datasets_router
 from app.api.v1.routes.dq_rule_sets import router as dq_rule_sets_router
 from app.api.v1.routes.etl_pipelines import router as etl_pipelines_router
 from app.api.v1.routes.execution import router as execution_router
@@ -55,7 +54,6 @@ _INSECURE_SECRET = "dev-secret-change-in-production"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application startup and shutdown events."""
     setup_logging(debug=settings.debug)
     # The secret_key signs every JWT AND derives the Fernet key that encrypts
     # external-DB passwords at rest. Booting with the shipped default in a real
@@ -153,7 +151,6 @@ app.include_router(wiki_pages_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(roles_router, prefix="/api/v1")
 app.include_router(uploads_router, prefix="/api/v1")
-app.include_router(datasets_router, prefix="/api/v1")
 app.include_router(cohorts_router, prefix="/api/v1")
 app.include_router(dashboards_router, prefix="/api/v1")
 app.include_router(readme_router, prefix="/api/v1")

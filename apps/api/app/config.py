@@ -42,15 +42,6 @@ class Settings(BaseSettings):
     # Hard wall-clock limit for a single server-side R/Python run (subprocess).
     execution_timeout_seconds: int = 120
 
-    # Features
-    enable_git: bool = True
-    enable_mlops: bool = False
-    enable_ai_assistant: bool = False
-
-    # Languages
-    available_languages: list[str] = ["en", "fr"]
-    default_language: str = "en"
-
     # Data
     data_dir: str = "~/.linkr"
 

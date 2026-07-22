@@ -161,7 +161,7 @@ function makeStore() {
 }
 
 const emptyParsed = (over: Partial<ParsedProjectZip> = {}): ParsedProjectZip => ({
-  project: { uid: 'remote-uid', name: { en: 'Remote' } } as ParsedProjectZip['project'],
+  project: { uid: 'remote-uid', name: { en: 'Remote' } } as unknown as ParsedProjectZip['project'],
   ideFiles: [], pipelines: [], cohorts: [], connections: [],
   dashboards: [], dashboardTabs: [], dashboardWidgets: [],
   datasetFiles: [], datasetAnalyses: [], datasetData: [], datasetRawFiles: [],

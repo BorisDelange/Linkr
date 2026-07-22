@@ -44,11 +44,6 @@ function nextId(): string {
   return `rmd-cell-${_idCounter++}`
 }
 
-/** Reset ID counter (useful for tests). */
-export function resetIdCounter(): void {
-  _idCounter = 0
-}
-
 /**
  * Parse an Rmd/Qmd file into a list of cells.
  *

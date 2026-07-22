@@ -485,61 +485,6 @@ export function buildConceptFullQuery(
 }
 
 // ---------------------------------------------------------------------------
-// Batch counts: records + patients per concept
-// ---------------------------------------------------------------------------
-
-/**
- * Build a batch count query for multiple concepts, returning record_count and patient_count.
- * Uses the event tables linked to the given dictionary.
- */
-export function buildBatchCountQuery(
-  mapping: SchemaMapping,
-  dictKey: string,
-  conceptIds: number[],
-): string | null {
-  if (conceptIds.length === 0) return null
-
-  const eventEntries = getEventTablesForDictionary(mapping, dictKey)
-  if (eventEntries.length === 0) return null
-
-  const idList = conceptIds.join(',')
-
-  // Collect UNION ALL parts across all event tables for this dict
-  const parts: string[] = []
-  for (const { eventTable: et } of eventEntries) {
-    const patientCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
-    const patientSelect = patientCol ? `"${patientCol}"` : 'NULL'
-
-    parts.push(
-      `SELECT "${et.conceptIdColumn}" AS cid, ${patientSelect} AS pid FROM "${et.table}" WHERE "${et.conceptIdColumn}" IN (${idList})`,
-    )
-    if (et.sourceConceptIdColumn) {
-      parts.push(
-        `SELECT "${et.sourceConceptIdColumn}" AS cid, ${patientSelect} AS pid FROM "${et.table}" WHERE "${et.sourceConceptIdColumn}" IN (${idList})`,
-      )
-    }
-  }
-
-  if (parts.length === 0) return null
-
-  return `SELECT cid AS concept_id, COUNT(*)::INTEGER AS record_count, COUNT(DISTINCT pid)::INTEGER AS patient_count
-FROM (
-  ${parts.join('\n  UNION ALL\n  ')}
-) sub
-GROUP BY cid`
-}
-
-/** All concept ids of a dictionary (the id list to compute counts for on refresh). */
-export function buildAllConceptIdsQuery(
-  mapping: SchemaMapping,
-  dictKey: string,
-): string | null {
-  const dict = mapping.conceptTables?.find((d) => d.key === dictKey)
-  if (!dict) return null
-  return `SELECT "${dict.idColumn}" AS concept_id FROM "${dict.table}"`
-}
-
-// ---------------------------------------------------------------------------
 // Single concept count (for detail panel)
 // ---------------------------------------------------------------------------
 

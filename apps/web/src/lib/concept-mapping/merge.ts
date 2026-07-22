@@ -17,7 +17,6 @@
  * similarity scores are merged whole-list (block choice), and metadata per field.
  */
 import type { ConceptMapping, MappingProject } from '@/types'
-import type { LocalizedString } from '@/types'
 
 // --- Mapping identity + comparison ----------------------------------------
 
@@ -214,10 +213,4 @@ export function listDiffStat(
   extra?: { remoteByteSize?: number; remoteLfs?: boolean },
 ): ListDiffStat {
   return { changed, localCount, remoteCount, ...extra }
-}
-
-/** Localized-string display helper reused by the UI layer (kept here so the
- *  merge module is the single source of truth for what "changed" means). */
-export function localizedChanged(a: LocalizedString | string | undefined, b: LocalizedString | string | undefined): boolean {
-  return JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)
 }

@@ -71,9 +71,8 @@ import { buildStandardConceptSearchQuery, buildStandardConceptSearchCountQuery }
 
 // Only `concept` is required (target search uses it). The others are optional and
 // imported only if present in the selected folder: `concept_ancestor` /
-// `concept_relationship` enable concept-set descendant/mapped expansion (see
-// lib/concept-mapping/mapping-queries.ts buildResolveDescendantsQuery /
-// buildResolveMappedQuery), and `concept_synonym` powers the Synonyms tab in the
+// `concept_relationship` enable concept-set descendant/mapped expansion, and
+// `concept_synonym` powers the Synonyms tab in the
 // concept detail sheet. The remaining Athena tables (concept_class, domain,
 // drug_strength, relationship, vocabulary) are not read by the mapping UI and stay
 // out of the accepted list to keep the IDB footprint down.

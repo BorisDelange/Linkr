@@ -67,10 +67,8 @@ export function hasGlobalPermission(permission: string): boolean {
 
 /** Reactive variant of hasGlobalPermission for use inside components. */
 export function useHasGlobalPermission(permission: string): boolean {
-  const user = useAuthStore((s) => s.user)
-  if (!isServerMode()) return true
-  if (user?.role === 'admin') return true // hard super-admin, mirrors the backend
-  return !!user?.permissions?.includes(permission)
+  useAuthStore((s) => s.user) // subscribe so the result re-evaluates on user change
+  return hasGlobalPermission(permission)
 }
 
 export const useAuthStore = create<AuthState>()((set, get) => {

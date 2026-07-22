@@ -20,7 +20,7 @@ import { WorkspaceGuard } from '@/app/WorkspaceGuard'
 import { ProjectGuard } from '@/app/ProjectGuard'
 import { VersionCheckDialog } from '@/components/layout/VersionCheckDialog'
 // Pages are lazy-loaded so each route's heavy libs (vis-network, leaflet, xterm,
-// xyflow, xlsx, recharts, katex, isomorphic-git…) ship in a per-route chunk and
+// xyflow, xlsx, recharts, katex…) ship in a per-route chunk and
 // are fetched only when that page is opened — not in the initial bundle.
 const HomePage = lazy(() => import('@/features/home/HomePage').then(m => ({ default: m.HomePage })))
 const ProjectsPage = lazy(() => import('@/features/projects/ProjectsPage').then(m => ({ default: m.ProjectsPage })))

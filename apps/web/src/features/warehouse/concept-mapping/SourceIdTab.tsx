@@ -195,7 +195,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       )
 
       if (projectsWithBadge.length === 0) {
-        setAssignResult({ badge: badgeLabel, newlyAssigned: 0, total: 0 })
+        setAssignResult({ badge: badgeLabel, newlyAssigned: 0, total: 0, exhausted: false })
         return
       }
 

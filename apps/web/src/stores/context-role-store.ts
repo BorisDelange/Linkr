@@ -20,7 +20,6 @@ interface ContextRoleState {
 
   loadWorkspaceRole: (workspaceId: string) => Promise<void>
   loadProjectRole: (projectUid: string) => Promise<void>
-  clearProjectRole: () => void
 }
 
 export const useContextRoleStore = create<ContextRoleState>((set, get) => ({
@@ -67,6 +66,4 @@ export const useContextRoleStore = create<ContextRoleState>((set, get) => ({
       set({ projectUid, projectRole: null, projectPermissions: [] })
     }
   },
-
-  clearProjectRole: () => set({ projectUid: null, projectRole: null, projectPermissions: [] }),
 }))

@@ -507,11 +507,3 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
 export function getFieldsByClass(dcatClass: DcatClass): DcatFieldDef[] {
   return DCAT_FIELDS.filter((f) => f.dcatClass === dcatClass)
 }
-
-export function getFieldsByObligation(obligation: DcatObligation): DcatFieldDef[] {
-  return DCAT_FIELDS.filter((f) => f.obligation === obligation)
-}
-
-export function getAutoFillableFields(): DcatFieldDef[] {
-  return DCAT_FIELDS.filter((f) => f.autoFillable)
-}

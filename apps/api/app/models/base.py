@@ -2,9 +2,9 @@ import json
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, MetaData, String, Text, func
+from sqlalchemy import JSON, DateTime, MetaData, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
 # Deterministic constraint names so Alembic autogenerate and SQLite batch
@@ -74,13 +74,3 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-
-
-class OwnershipMixin:
-    @declared_attr
-    def owner_id(cls) -> Mapped[int | None]:
-        return mapped_column(ForeignKey("users.id"))
-
-    @declared_attr
-    def created_by(cls) -> Mapped[int | None]:
-        return mapped_column(ForeignKey("users.id"))

@@ -9,8 +9,8 @@ import { fetchColumnStats } from '@/lib/api/datasets'
 import { BarChart3 } from 'lucide-react'
 import { TypeBadge } from './TypeBadge'
 import { BoxPlot } from '@/components/charts/box-plot'
-import { niceTicks } from '@/lib/chart-ticks'
-import { computeNumericStats, buildHistogram } from '@/lib/column-stats'
+import { niceStep, niceTicks } from '@/lib/chart-ticks'
+import { computeNumericStats, buildHistogram, roundBinLabel, type HistBin } from '@/lib/column-stats'
 
 interface ColumnStatsPanelProps {
   fileId: string | null

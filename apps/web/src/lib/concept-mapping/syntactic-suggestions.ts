@@ -71,13 +71,6 @@ export function pickFirstConceptSet(scores: MethodScore[]): { uid: string | null
   return { uid: null, sourceRepo: null }
 }
 
-export const METHOD_COLORS: Record<string, string> = {
-  Syntaxique:  'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
-  Statistique: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
-  Sémantique:  'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-400',
-  IA:          'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-400',
-}
-
 export const METHOD_DOT_COLORS: Record<string, string> = {
   Syntaxique:  'bg-amber-500',
   Statistique: 'bg-emerald-500',
