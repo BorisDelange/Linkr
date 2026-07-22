@@ -49,7 +49,11 @@ export function GitContentStatusBadge({ workspaceId, scope, type, id, name, gitR
             {t('versioning.content_not_imported')}
           </Badge>
         </TooltipTrigger>
-        <TooltipContent>{t('versioning.content_not_imported_hint')}</TooltipContent>
+        <TooltipContent>
+          {isServerMode()
+            ? t('versioning.content_not_imported_hint')
+            : t('versioning.content_not_imported_hint_clientonly')}
+        </TooltipContent>
       </Tooltip>
       {isServerMode() && gitRemote?.url && (
         <Button size="sm" variant="ghost" className="h-6 gap-1 px-2 text-xs" disabled={retrying} onClick={retry}>

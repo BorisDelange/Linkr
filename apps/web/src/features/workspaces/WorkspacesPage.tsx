@@ -150,15 +150,22 @@ export function WorkspacesPage() {
   const [cloneState, setCloneState] = useState<Record<string, 'pending' | 'done' | 'error'>>({})
 
   /** Record (or clear) the git-linked content reconstitution status so the entity
-   *  card can badge "not imported" + offer a retry. Best-effort, server mode only. */
+   *  card can badge "not imported" + offer a retry. Best-effort. Server rows in
+   *  server mode, localStorage in front-only (where cloning isn't possible — the
+   *  badge then explains that instead of offering a retry). */
   const syncContentStatus = useCallback(async (
     e: GitLinkedEntity, workspaceId: string | undefined, status: 'pending' | 'failed' | null,
   ): Promise<void> => {
     const wsId = workspaceId ?? gitLinkedWsId
-    if (!wsId || !isServerMode()) return
+    if (!wsId) return
     const { scopeForLinkedType, gitSetContentStatus, gitClearContentStatus } = await import('@/lib/api/git')
     const scope = scopeForLinkedType[e.type]
     if (!scope) return
+    if (!isServerMode()) {
+      const { setLocalGitContentStatus } = await import('@/components/versioning/use-git-content-statuses')
+      setLocalGitContentStatus(wsId, scope, e.id, status)
+      return
+    }
     try {
       if (status === null) await gitClearContentStatus(wsId, scope, e.id)
       else await gitSetContentStatus(wsId, scope, e.id, status)
@@ -815,6 +822,10 @@ export function WorkspacesPage() {
           await loadProjects()
           await useCatalogStore.getState().loadCatalogs()
         } else {
+          // Client-only: cloning is impossible — badge every linked entity so its
+          // card explains the content wasn't downloaded (and why), like the
+          // failed-clone badge in server mode.
+          for (const e of linked) await syncContentStatus(e, targetWsId, 'failed')
           anyFailed = true
         }
         setImportProgress(null)

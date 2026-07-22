@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Info, Pencil, Plus, Power, PowerOff, Trash2, Users } from 'lucide-react'
+import { Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
+import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { useAuthStore } from '@/stores/auth-store'
 import { isValidOrcid, normalizeOrcid } from '@/lib/user-identity'
 import { localized, localizedRaw, setLocalized, seedLocalizedForEditing, hasLocalizedContent } from '@/lib/localized'
@@ -298,16 +299,7 @@ export function UsersTab() {
   // versioning tabs: show a "requires backend" notice in client-only mode. Placed
   // after all hooks so hook order stays stable.
   if (!isServerMode()) {
-    return (
-      <div className="flex flex-col items-center py-10">
-        <Users size={32} className="text-muted-foreground/50" />
-        <p className="mt-3 text-sm font-medium text-foreground">{t('settings.users_requires_backend')}</p>
-        <div className="mt-3 flex max-w-md items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
-          <Info size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-xs text-amber-700 dark:text-amber-300">{t('settings.users_requires_backend_description')}</p>
-        </div>
-      </div>
-    )
+    return <ServerModeNotice />
   }
 
   return (

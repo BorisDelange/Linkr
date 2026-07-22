@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Database, CheckCircle2, XCircle, Loader2, FolderOpen, ChevronRight, Folder, File, ArrowLeft, Info } from 'lucide-react'
+import { Database, CheckCircle2, XCircle, Loader2, FolderOpen, ChevronRight, Folder, File, ArrowLeft } from 'lucide-react'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { useHasGlobalPermission } from '@/stores/auth-store'
 import { AppDatabaseDialog } from '@/features/settings/AppDatabaseDialog'
+import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -280,31 +281,7 @@ export function GeneralTab() {
   if (isServerMode && !canQueryAppDb) return null
 
   if (!isServerMode) {
-    return (
-      <div className="mt-6">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">
-            {t('settings.general_db_title')}
-          </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {t('settings.general_db_description')}
-          </p>
-        </div>
-
-        <div className="flex flex-col items-center py-12">
-          <Database size={36} className="text-muted-foreground/50" />
-          <p className="mt-3 text-sm font-medium text-foreground">
-            {t('settings.general_db_requires_backend')}
-          </p>
-          <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950 max-w-md">
-            <Info size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              {t('settings.general_db_requires_backend_description')}
-            </p>
-          </div>
-        </div>
-      </div>
-    )
+    return <ServerModeNotice />
   }
 
   return (
