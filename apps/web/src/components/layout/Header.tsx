@@ -164,7 +164,11 @@ export function Header() {
     const detailId = dashboardId ?? cohortId ?? etlId ?? sqlId ?? catalogId ?? cmId ?? dqId ?? schemaId
     if (!detailId) return null
     const idx = pathname.lastIndexOf(`/${detailId}`)
-    return idx > 0 ? pathname.slice(0, idx) : null
+    if (idx <= 0) return null
+    const base = pathname.slice(0, idx)
+    // A mapping project's list view is /concept-mapping/projects, not the bare
+    // /concept-mapping base (which is the overview landing) — so append it.
+    return cmId ? `${base}/projects` : base
   })()
 
   // Only subscribe to the store whose entity is currently displayed. URLs carry a short id
