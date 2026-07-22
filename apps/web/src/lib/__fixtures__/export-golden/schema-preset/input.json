@@ -1,0 +1,34 @@
+{
+  "preset": {
+    "presetId": "preset-1",
+    "workspaceId": "ws1",
+    "mapping": {
+      "tables": {
+        "person": { "columns": { "person_id": "id", "year_of_birth": "birth_year" } },
+        "visit_occurrence": { "columns": { "visit_occurrence_id": "visit_id" } }
+      }
+    },
+    "gitRemoteConfig": { "url": "https://git.example.org/preset.git", "branch": "main" },
+    "createdById": 7,
+    "createdBy": "Boris Delange",
+    "createdByDetails": { "firstName": "Boris", "lastName": "Delange", "orcid": "0000-0002-1825-0097" },
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "updatedAt": "2026-06-01T00:00:00.000Z",
+    "version": "0.1.0"
+  },
+  "workspace": { "id": "ws1", "organizationId": "org1" },
+  "organization": {
+    "id": "org1",
+    "name": { "en": "University Hospital of Rennes", "fr": "" },
+    "type": "hospital",
+    "location": { "en": "Rennes", "fr": "" },
+    "country": { "en": "France", "fr": "" },
+    "website": "",
+    "email": "",
+    "customType": null,
+    "referenceId": "",
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+}

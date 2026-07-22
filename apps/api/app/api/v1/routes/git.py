@@ -84,6 +84,16 @@ async def _workspace_zip_bytes(db, ws, file: UploadFile | None) -> bytes:
     return await assemble_workspace_zip(db, ws, WorkspaceExportOptions())
 
 
+async def _sql_collection_zip_bytes(db, collection, file: UploadFile | None) -> bytes:
+    """The SQL collection's export ZIP: server-built when the client sends no file
+    (fullstack path), else the uploaded bytes (front-only / transition)."""
+    if file is not None:
+        return await file.read()
+    from app.services.workspace_export_assemble import assemble_sql_collection_zip
+
+    return await assemble_sql_collection_zip(db, collection)
+
+
 async def _project_zip_bytes(
     db, project, file: UploadFile | None, include_data: bool
 ) -> bytes:
@@ -651,7 +661,7 @@ async def _load_sql_collection(
 )
 async def sql_collection_status(
     collection_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     branch: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -661,7 +671,7 @@ async def sql_collection_status(
         git_service.status(
             git_service.sql_collection_repo_getter,
             c.id,
-            await file.read(),
+            await _sql_collection_zip_bytes(db, c, file),
             _default_branch(c, branch),
             _remote_url(c),
             await _token(db, user, c),
@@ -675,7 +685,7 @@ async def sql_collection_status(
 )
 async def sql_collection_diff(
     collection_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
@@ -686,7 +696,7 @@ async def sql_collection_diff(
         git_service.diff(
             git_service.sql_collection_repo_getter,
             c.id,
-            await file.read(),
+            await _sql_collection_zip_bytes(db, c, file),
             _default_branch(c, branch),
             path,
             _remote_url(c),
@@ -719,7 +729,7 @@ async def sql_collection_branches(
 )
 async def sql_collection_commit_push(
     collection_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
     message: str = Form(...),
     branch: str | None = Form(None),
     paths: list[str] | None = Form(None),
@@ -736,7 +746,7 @@ async def sql_collection_commit_push(
         git_service.commit_push(
             git_service.sql_collection_repo_getter,
             c.id,
-            await file.read(),
+            await _sql_collection_zip_bytes(db, c, file),
             _default_branch(c, branch),
             message,
             _remote_url(c),
@@ -769,9 +779,22 @@ async def _load_workspace_entity(get_fn, entity_id, db, user, permission, not_fo
 
 
 def _register_entity_git_routes(
-    *, prefix, get_fn, repo_getter, read_perm, write_perm, not_found
+    *, prefix, get_fn, repo_getter, read_perm, write_perm, not_found, assemble_fn=None
 ):
-    """Add status/diff/branches/commit-push for a workspace-scoped entity."""
+    """Add status/diff/branches/commit-push for a workspace-scoped entity.
+
+    ``assemble_fn(db, entity) -> bytes`` builds the export ZIP server-side when the
+    client sends no file (the fullstack path that offloads the browser), mirroring
+    project/mapping/workspace. When absent, a file upload is required (front-only)."""
+
+    async def _zip_bytes(db, e, file: UploadFile | None) -> bytes:
+        if file is not None:
+            return await file.read()
+        if assemble_fn is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "no export file provided"
+            )
+        return await assemble_fn(db, e)
 
     @router.post(
         f"/{prefix}/{{entity_id}}/status",
@@ -780,7 +803,7 @@ def _register_entity_git_routes(
     )
     async def _status(
         entity_id: str,
-        file: UploadFile = File(...),
+        file: UploadFile | None = File(None),
         branch: str | None = Form(None),
         db: AsyncSession = Depends(get_db),
         user: User = Depends(get_current_user),
@@ -792,7 +815,7 @@ def _register_entity_git_routes(
             git_service.status(
                 repo_getter,
                 _entity_id(e),
-                await file.read(),
+                await _zip_bytes(db, e, file),
                 _default_branch(e, branch),
                 _remote_url(e),
                 await _token(db, user, e),
@@ -807,7 +830,7 @@ def _register_entity_git_routes(
     )
     async def _diff(
         entity_id: str,
-        file: UploadFile = File(...),
+        file: UploadFile | None = File(None),
         path: str = Form(...),
         branch: str | None = Form(None),
         db: AsyncSession = Depends(get_db),
@@ -820,7 +843,7 @@ def _register_entity_git_routes(
             git_service.diff(
                 repo_getter,
                 _entity_id(e),
-                await file.read(),
+                await _zip_bytes(db, e, file),
                 _default_branch(e, branch),
                 path,
                 _remote_url(e),
@@ -852,7 +875,7 @@ def _register_entity_git_routes(
     )
     async def _commit_push(
         entity_id: str,
-        file: UploadFile = File(...),
+        file: UploadFile | None = File(None),
         message: str = Form(...),
         branch: str | None = Form(None),
         paths: list[str] | None = Form(None),
@@ -871,7 +894,7 @@ def _register_entity_git_routes(
             git_service.commit_push(
                 repo_getter,
                 _entity_id(e),
-                await file.read(),
+                await _zip_bytes(db, e, file),
                 _default_branch(e, branch),
                 message,
                 _remote_url(e),
@@ -894,6 +917,13 @@ def _register_all_entity_git_routes() -> None:
         schema_preset_service,
         user_plugin_service,
     )
+    from app.services.workspace_export_assemble import (
+        assemble_data_catalog_zip,
+        assemble_dq_rule_set_zip,
+        assemble_etl_pipeline_zip,
+        assemble_schema_preset_zip,
+        assemble_user_plugin_zip,
+    )
 
     _register_entity_git_routes(
         prefix="etl-pipelines",
@@ -902,6 +932,7 @@ def _register_all_entity_git_routes() -> None:
         read_perm="etl:read",
         write_perm="etl:write",
         not_found="ETL pipeline not found",
+        assemble_fn=assemble_etl_pipeline_zip,
     )
     _register_entity_git_routes(
         prefix="data-catalogs",
@@ -910,6 +941,7 @@ def _register_all_entity_git_routes() -> None:
         read_perm="catalog:read",
         write_perm="catalog:write",
         not_found="Data catalog not found",
+        assemble_fn=assemble_data_catalog_zip,
     )
     _register_entity_git_routes(
         prefix="dq-rule-sets",
@@ -918,6 +950,7 @@ def _register_all_entity_git_routes() -> None:
         read_perm="data-quality:read",
         write_perm="data-quality:write",
         not_found="DQ rule set not found",
+        assemble_fn=assemble_dq_rule_set_zip,
     )
     _register_entity_git_routes(
         prefix="user-plugins",
@@ -926,6 +959,7 @@ def _register_all_entity_git_routes() -> None:
         read_perm="plugins:read",
         write_perm="plugins:write",
         not_found="Plugin not found",
+        assemble_fn=assemble_user_plugin_zip,
     )
     _register_entity_git_routes(
         prefix="schema-presets",
@@ -934,6 +968,7 @@ def _register_all_entity_git_routes() -> None:
         read_perm="schemas:read",
         write_perm="schemas:write",
         not_found="Schema preset not found",
+        assemble_fn=assemble_schema_preset_zip,
     )
 
 

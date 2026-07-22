@@ -1,0 +1,45 @@
+{
+  "id": "col-1",
+  "entityId": "icu-scripts",
+  "name": {
+    "en": "ICU scripts",
+    "fr": "Scripts réa"
+  },
+  "description": {
+    "en": "Reusable SQL",
+    "fr": "SQL réutilisable"
+  },
+  "defaultDataSourceId": null,
+  "createdBy": "Boris Delange",
+  "createdByDetails": {
+    "firstName": "Boris",
+    "lastName": "Delange",
+    "orcid": "0000-0002-1825-0097"
+  },
+  "lineageId": "lin-1",
+  "parentLineageId": null,
+  "createdAt": "2026-01-02T03:04:05.000Z",
+  "version": "0.1.0",
+  "organization": {
+    "id": "org1",
+    "name": {
+      "en": "University Hospital of Rennes",
+      "fr": ""
+    },
+    "type": "hospital",
+    "location": {
+      "en": "Rennes",
+      "fr": ""
+    },
+    "country": {
+      "en": "France",
+      "fr": ""
+    },
+    "website": "",
+    "email": "",
+    "customType": null,
+    "referenceId": "",
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  }
+}

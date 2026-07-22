@@ -254,6 +254,25 @@ stable.
    sql/etl/catalogs/dq/presets/plugins).
 9. (Later) **Server-side import** (§7), separate document.
 
+### [FAIT] Standalone builders for the remaining workspace children
+
+sql-script-collection, etl-pipeline, dq-rule-set, data-catalog, schema-preset and
+user-plugin now have a server-side standalone export builder
+(`workspace_export_assemble.build_<type>_tree` / `assemble_<type>_zip`), so their git
+commit-push no longer depends on the client-built ZIP — same as project/mapping/workspace.
+Each inlines the inherited organization as the last key of its metadata JSON (via
+`resolve_entity_org_snapshot`), except schema-preset which inlines none (matching the
+front `buildSchemaPresetZip`). The git routes (factory `_register_entity_git_routes` +
+the manual sql-collection routes) take the file upload as optional and fall back to the
+server builder when absent. Byte parity is pinned by golden fixtures + twin tests on both
+sides (`<kind>-export-golden.test.ts` + `test_entity_export_assemble.py`).
+
+> **Known parity edge case — round floats.** JS `JSON.stringify` writes an integer-valued
+> float as `0`, while Python (a `Float` column) serializes it as `0.0`. This only bites a
+> numeric field that can legitimately hold a round value (e.g. a DQ check `threshold` of 0).
+> Not resolved globally — the golden fixtures avoid round floats. If it surfaces in real
+> data, normalize at the serializer (round floats → int when whole) or accept the diff.
+
 ---
 
 ## 9 — Risks / open points

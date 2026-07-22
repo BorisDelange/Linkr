@@ -1,0 +1,28 @@
+[
+  {
+    "id": "chk-1",
+    "ruleSetId": "rs-1",
+    "name": "Non-null person id",
+    "description": "person_id must be present",
+    "category": "completeness",
+    "severity": "error",
+    "threshold": 0.02,
+    "sql": "SELECT COUNT(*) FROM person WHERE person_id IS NULL;",
+    "order": 0,
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "updatedAt": "2026-01-02T03:04:05.000Z"
+  },
+  {
+    "id": "chk-2",
+    "ruleSetId": "rs-1",
+    "name": "Valid birth year",
+    "description": "year_of_birth in range",
+    "category": "plausibility",
+    "severity": "warning",
+    "threshold": 0.05,
+    "sql": "SELECT COUNT(*) FROM person WHERE year_of_birth < 1900;",
+    "order": 1,
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "updatedAt": "2026-01-02T03:04:05.000Z"
+  }
+]

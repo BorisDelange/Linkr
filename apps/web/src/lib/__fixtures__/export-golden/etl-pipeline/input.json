@@ -1,0 +1,45 @@
+{
+  "pipeline": {
+    "id": "pipe-1",
+    "workspaceId": "ws1",
+    "entityId": "icu-etl",
+    "name": { "en": "ICU ETL", "fr": "ETL réa" },
+    "description": { "en": "Source to OMOP", "fr": "Source vers OMOP" },
+    "sourceDataSourceId": null,
+    "targetDataSourceId": null,
+    "mappingProjectId": null,
+    "status": "draft",
+    "lastRunAt": null,
+    "lastRunDurationMs": null,
+    "gitRemoteConfig": { "url": "https://git.example.org/etl.git", "branch": "main" },
+    "origin": "user",
+    "createdById": 7,
+    "createdBy": "Boris Delange",
+    "createdByDetails": { "firstName": "Boris", "lastName": "Delange", "orcid": "0000-0002-1825-0097" },
+    "lineageId": "lin-1",
+    "parentLineageId": null,
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "updatedAt": "2026-06-01T00:00:00.000Z",
+    "version": "0.1.0"
+  },
+  "files": [
+    { "id": "f-root", "pipelineId": "pipe-1", "name": "steps", "type": "folder", "parentId": null, "content": null, "language": null, "order": 0, "dataSourceId": null, "disabled": null, "createdAt": "2026-01-02T03:04:05.000Z" },
+    { "id": "f-extract", "pipelineId": "pipe-1", "name": "extract.sql", "type": "file", "parentId": "f-root", "content": "SELECT * FROM source_visits;", "language": "sql", "order": 0, "dataSourceId": null, "disabled": null, "createdAt": "2026-01-02T03:04:05.000Z" },
+    { "id": "f-load", "pipelineId": "pipe-1", "name": "load.py", "type": "file", "parentId": null, "content": "print('load')\n", "language": "python", "order": 1, "dataSourceId": null, "disabled": false, "createdAt": "2026-01-02T03:04:05.000Z" }
+  ],
+  "workspace": { "id": "ws1", "organizationId": "org1" },
+  "organization": {
+    "id": "org1",
+    "name": { "en": "University Hospital of Rennes", "fr": "" },
+    "type": "hospital",
+    "location": { "en": "Rennes", "fr": "" },
+    "country": { "en": "France", "fr": "" },
+    "website": "",
+    "email": "",
+    "customType": null,
+    "referenceId": "",
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+}

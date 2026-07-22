@@ -28,6 +28,15 @@ async def list_for_user(db: AsyncSession, user: User) -> list[SchemaPreset]:
     return list(result.scalars().all())
 
 
+async def list_for_workspace(
+    db: AsyncSession, workspace_id: str
+) -> list[SchemaPreset]:
+    result = await db.execute(
+        select(SchemaPreset).where(SchemaPreset.workspace_id == workspace_id)
+    )
+    return list(result.scalars().all())
+
+
 async def get(db: AsyncSession, preset_id: str) -> SchemaPreset | None:
     return await db.get(SchemaPreset, preset_id)
 

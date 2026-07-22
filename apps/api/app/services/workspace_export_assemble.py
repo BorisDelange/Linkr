@@ -60,6 +60,7 @@ from app.services import (
     wiki_page_service,
 )
 from app.services.mapping_project_export import build_mapping_project_tree
+from app.services.org_snapshot import resolve_entity_org_snapshot
 from app.services.mapping_project_export_assemble import (
     _entry_dict,
     _mapping_dict,
@@ -526,3 +527,102 @@ async def assemble_workspace_zip(
     client-built ZIP."""
     tree = await build_workspace_tree_from_db(db, workspace, options)
     return await asyncio.to_thread(_zip_tree, tree)
+
+
+# ---------------------------------------------------------------------------
+# Standalone single-entity export trees (git push of one collection/pipeline/
+# rule-set/catalog/preset/plugin). These mirror the frontend's build*Zip
+# builders (entity-io.ts) — unlike the workspace sub-trees they INLINE the
+# inherited organization as the last key of the metadata JSON (the workspace
+# factors org into one root organization.json instead). No .gitattributes is
+# written (the front's finalizeEntityZip only adds one when LFS overrides are
+# present, which this server path doesn't take — matching the default export).
+# ---------------------------------------------------------------------------
+
+
+async def _attach_org(db: AsyncSession, tree: dict[str, bytes], meta_path: str, entity) -> None:
+    """Port of attachEntityOrganization (entity-io.ts:1487): re-serialize the
+    already-written metadata JSON with the resolved org snapshot appended as the
+    last key. No-op when the entity resolves no org."""
+    org = await resolve_entity_org_snapshot(db, entity)
+    if org is None or meta_path not in tree:
+        return
+    meta = json.loads(tree[meta_path].decode("utf-8"))
+    meta["organization"] = org
+    tree[meta_path] = _json(meta)
+
+
+async def build_sql_collection_tree(db: AsyncSession, collection) -> dict[str, bytes]:
+    tree = await _sql_collection_sub_tree(db, collection)
+    await _attach_org(db, tree, "_collection.json", collection)
+    return tree
+
+
+async def build_etl_pipeline_tree(db: AsyncSession, pipeline) -> dict[str, bytes]:
+    tree = await _etl_pipeline_sub_tree(db, pipeline)
+    await _attach_org(db, tree, "_pipeline.json", pipeline)
+    return tree
+
+
+async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]:
+    # Standalone layout (buildDqRuleSetFolder, entity-io.ts:1572): rule-set.json
+    # (stripped) + checks.json (verbatim, only when non-empty). Note this differs
+    # from the workspace layout, which bundles {ruleSet, checks} in _ruleset.json.
+    tree: dict[str, bytes] = {}
+    tree["rule-set.json"] = _json(_strip_instance_fields(_dump(DqRuleSetResponse, rule_set)))
+    checks = [_dump(DqCustomCheckResponse, c) for c in await dq_rule_set_service.list_checks(db, rule_set.id)]
+    if checks:
+        tree["checks.json"] = _json(checks)
+    await _attach_org(db, tree, "rule-set.json", rule_set)
+    return tree
+
+
+async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]:
+    tree: dict[str, bytes] = {}
+    tree["catalog.json"] = _json(_strip_instance_fields(_dump(DataCatalogResponse, catalog)))
+    await _attach_org(db, tree, "catalog.json", catalog)
+    return tree
+
+
+async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]:
+    # Distinctive: the schema preset standalone builder does NOT inline an org
+    # (entity-io.ts:1607 has no attachEntityOrganization), so no _attach_org here.
+    return {"preset.json": _json(_strip_instance_fields(_dump(SchemaPresetResponse, preset)))}
+
+
+async def build_user_plugin_tree(db: AsyncSession, plugin) -> dict[str, bytes]:
+    # _plugin.json is a hand-built 4-key object (id/entityId/createdBy/
+    # createdByDetails) + org last, mirroring buildUserPluginFolder (entity-io.ts:1622);
+    # each source file is written at its raw filename. None-valued keys are dropped
+    # to match JSON.stringify omitting undefined.
+    p = _dump(UserPluginResponse, plugin)
+    meta = {k: p[k] for k in ("id", "entityId", "createdBy", "createdByDetails") if p.get(k) is not None}
+    tree: dict[str, bytes] = {"_plugin.json": _json(meta)}
+    for filename, content in (plugin.files or {}).items():
+        tree[filename] = str(content).encode("utf-8")
+    await _attach_org(db, tree, "_plugin.json", plugin)
+    return tree
+
+
+async def assemble_sql_collection_zip(db: AsyncSession, collection) -> bytes:
+    return await asyncio.to_thread(_zip_tree, await build_sql_collection_tree(db, collection))
+
+
+async def assemble_etl_pipeline_zip(db: AsyncSession, pipeline) -> bytes:
+    return await asyncio.to_thread(_zip_tree, await build_etl_pipeline_tree(db, pipeline))
+
+
+async def assemble_dq_rule_set_zip(db: AsyncSession, rule_set) -> bytes:
+    return await asyncio.to_thread(_zip_tree, await build_dq_rule_set_tree(db, rule_set))
+
+
+async def assemble_data_catalog_zip(db: AsyncSession, catalog) -> bytes:
+    return await asyncio.to_thread(_zip_tree, await build_data_catalog_tree(db, catalog))
+
+
+async def assemble_schema_preset_zip(db: AsyncSession, preset) -> bytes:
+    return await asyncio.to_thread(_zip_tree, await build_schema_preset_tree(db, preset))
+
+
+async def assemble_user_plugin_zip(db: AsyncSession, plugin) -> bytes:
+    return await asyncio.to_thread(_zip_tree, await build_user_plugin_tree(db, plugin))

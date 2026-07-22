@@ -1,0 +1,38 @@
+[
+  {
+    "id": "f-root",
+    "pipelineId": "pipe-1",
+    "name": "steps",
+    "type": "folder",
+    "parentId": null,
+    "language": null,
+    "order": 0,
+    "dataSourceId": null,
+    "disabled": null,
+    "createdAt": "2026-01-02T03:04:05.000Z"
+  },
+  {
+    "id": "f-extract",
+    "pipelineId": "pipe-1",
+    "name": "extract.sql",
+    "type": "file",
+    "parentId": "f-root",
+    "language": "sql",
+    "order": 0,
+    "dataSourceId": null,
+    "disabled": null,
+    "createdAt": "2026-01-02T03:04:05.000Z"
+  },
+  {
+    "id": "f-load",
+    "pipelineId": "pipe-1",
+    "name": "load.py",
+    "type": "file",
+    "parentId": null,
+    "language": "python",
+    "order": 1,
+    "dataSourceId": null,
+    "disabled": false,
+    "createdAt": "2026-01-02T03:04:05.000Z"
+  }
+]
