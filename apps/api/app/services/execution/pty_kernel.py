@@ -37,8 +37,9 @@ class PtyShell:
     (terminal output). Unlike Kernel there is no per-command lock or framing: the
     shell owns the interaction, we just pump bytes."""
 
-    def __init__(self, cwd: str):
+    def __init__(self, cwd: str, extra_env: dict[str, str] | None = None):
         self._cwd = cwd
+        self._extra_env = extra_env or {}
         self._proc: asyncio.subprocess.Process | None = None
         self._master_fd: int | None = None
 
@@ -50,7 +51,7 @@ class PtyShell:
         if self._proc is not None:
             return
         master_fd, slave_fd = pty.openpty()
-        env = dict(os.environ, TERM="xterm-256color")
+        env = dict(os.environ, TERM="xterm-256color", **self._extra_env)
         try:
             # Only bash is fork/exec'd (by asyncio); the server process is never
             # forked. The slave end becomes bash's controlling terminal via
@@ -156,8 +157,8 @@ class PtyManager:
             raise SessionLimitReached(
                 f"Terminal session limit reached ({settings.max_sessions_per_user})."
             )
-        cwd = str(project_fs.project_dir(project_uid))
-        shell = PtyShell(cwd)
+        cwd = str(project_fs.scripts_dir(project_uid))
+        shell = PtyShell(cwd, extra_env=project_fs.runtime_env(project_uid))
         await shell.start()
         key = (project_uid, session_id)
         self._shells[key] = shell

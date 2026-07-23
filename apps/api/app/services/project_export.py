@@ -353,9 +353,10 @@ def build_project_tree(
     if todos or has_notes:
         tree["tasks.json"] = _json({"todos": todos, "notes": notes})
 
-    # IDE files: drop the synthetic "scripts" root folder (a UI convenience, not
-    # repo content) and reparent its direct children to null, so scripts/_tree.json
-    # matches a git-authored tree.
+    # The disk scan no longer emits a synthetic "scripts" root (files sit at the
+    # root of the IDE working dir). This stays defensive for any legacy/imported
+    # tree that still carries one: drop it and reparent its children to null so
+    # scripts/_tree.json always matches a git-authored, root-less tree.
     synthetic_root = next(
         (
             f

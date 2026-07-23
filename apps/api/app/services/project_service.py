@@ -76,6 +76,10 @@ async def update(
         setattr(project, key, value)
     await db.commit()
     await db.refresh(project)
+    # A re-pointed ide_path/datasets_path must invalidate the cached binding so the
+    # next scan/kernel resolves the new server dir.
+    if "ide_path" in changes or "datasets_path" in changes:
+        project_fs.invalidate_binding(project.uid)
     return project
 
 

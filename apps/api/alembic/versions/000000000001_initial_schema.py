@@ -360,6 +360,8 @@ def upgrade() -> None:
     sa.Column('short_description', sa.JSON(), nullable=False),
     sa.Column('config', sa.JSON(), nullable=False),
     sa.Column('git_remote_config', sa.JSON(), nullable=True),
+    sa.Column('ide_path', sa.Text(), nullable=True),
+    sa.Column('datasets_path', sa.Text(), nullable=True),
     sa.Column('status', sa.String(length=20), nullable=True),
     sa.Column('badges', sa.JSON(), nullable=True),
     sa.Column('todos', sa.JSON(), nullable=True),

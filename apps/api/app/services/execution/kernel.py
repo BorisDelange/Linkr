@@ -271,9 +271,18 @@ async def _resolve_query(query_resolver, sql: str) -> dict:
 class Kernel:
     """One persistent interpreter process. Serialises requests (one at a time)."""
 
-    def __init__(self, cmd: list[str], cwd: str | None = None, owns_cwd: bool = False):
+    def __init__(
+        self,
+        cmd: list[str],
+        cwd: str | None = None,
+        owns_cwd: bool = False,
+        env: dict[str, str] | None = None,
+    ):
         self._cmd = cmd
         self._cwd = cwd
+        # Extra env layered over the server's own (LINKR_IDE/DATASETS/PROJECT), so a
+        # script reaches the datasets dir without hard-coding its absolute path.
+        self._env = env
         # Only remove cwd on shutdown when we created it (a throwaway temp dir).
         # A per-project working dir is persistent and must never be deleted here.
         self._owns_cwd = owns_cwd
@@ -303,9 +312,15 @@ class Kernel:
         # One result line carries the whole JSON output (stdout + base64 figures +
         # table), which easily exceeds asyncio's default 64 KB StreamReader limit
         # and would raise LimitOverrunError on readline(). Raise it to 64 MB.
+        proc_env = None
+        if self._env:
+            import os
+
+            proc_env = {**os.environ, **self._env}
         self._proc = await asyncio.create_subprocess_exec(
             *self._cmd,
             cwd=self._cwd,
+            env=proc_env,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
@@ -546,17 +561,19 @@ class KernelManager:
         ]
 
     def _make(self, language: str, project_uid: str) -> Kernel:
-        # The kernel runs in the project's real working directory (RStudio/Jupyter
-        # model): scripts/ and datasets/ are reachable by readable relative paths.
+        # The kernel runs in the IDE working dir (RStudio/Jupyter model), so what the
+        # terminal sees matches the IDE sidebar. The datasets dir is reachable via
+        # $LINKR_DATASETS (it may be a different, re-pointable server folder).
         from app.services import project_fs
 
-        cwd = str(project_fs.project_dir(project_uid))
+        cwd = str(project_fs.scripts_dir(project_uid))
+        env = project_fs.runtime_env(project_uid)
         if language == "python":
             import sys
 
-            return Kernel([sys.executable, "-c", _PY_KERNEL_LOOP], cwd=cwd)
+            return Kernel([sys.executable, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env)
         if language == "r":
-            return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=cwd)
+            return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=cwd, env=env)
         raise ExecutionError(f"No persistent kernel for language: {language}")
 
 

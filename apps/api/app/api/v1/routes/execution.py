@@ -32,6 +32,7 @@ from app.services import (
     data_source_service,
     dataset_service,
     execution_session_service,
+    project_fs,
 )
 from app.services.data import dataset_fs
 from app.services.execution import injection, kernel, pty_kernel, render, runtime
@@ -65,6 +66,7 @@ async def _require_code_execution(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Code execution not permitted on this project"
         )
+    project_fs.prime_binding(project_uid, project.ide_path, project.datasets_path)
 
 
 # The "purpose" of an /execute call → the permission it needs.
@@ -102,6 +104,7 @@ async def _require_execute(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Code execution not permitted on this project"
         )
+    project_fs.prime_binding(project_uid, project.ide_path, project.datasets_path)
 
 
 async def _require_connection_access(

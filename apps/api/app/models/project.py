@@ -23,6 +23,11 @@ class Project(Base, TimestampMixin):
     short_description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Absolute server paths the IDE working dir and datasets/ resolve to. NULL = the
+    # default projects/<uid>/scripts|datasets. Deliberately machine-local: never
+    # exported/versioned/serialized (see project_export) — reconfigured after import.
+    ide_path: Mapped[str | None] = mapped_column(Text)
+    datasets_path: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(String(20))
     badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     todos: Mapped[list | None] = mapped_column(JSONB_or_JSON)

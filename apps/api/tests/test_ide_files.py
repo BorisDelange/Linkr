@@ -82,17 +82,20 @@ async def test_delete_removes_file_and_disappears_from_scan(client, seed_roles):
     assert all(f["path"] != "gone.py" for f in files)
 
 
-async def test_synthetic_scripts_root_no_double_nesting(client, seed_roles):
-    """The tree shows one 'scripts' root (the scripts/ dir itself); a file created
-    at the root lands directly in scripts/, never scripts/scripts/."""
+async def test_no_synthetic_root_files_at_working_dir_root(client, seed_roles):
+    """The tree has no synthetic 'scripts' root: the IDE working dir IS the root, so
+    a fresh project is empty and a file created at the root lands directly in it,
+    never under scripts/scripts/ (matching what a terminal opened there sees)."""
     h = await _admin_headers(client)
     uid = await _project(client, h)
-    # Fresh project: exactly the synthetic root, nothing nested.
+    # Fresh project: no synthetic root, empty tree.
     files = (await client.get(f"{API}/ide-files", headers=h, params={"projectUid": uid})).json()
-    roots = [f for f in files if f["parentId"] is None]
-    assert len(roots) == 1 and roots[0]["name"] == "scripts" and roots[0]["path"] == ""
+    assert files == []
 
     await client.post(f"{API}/ide-files", headers=h, json={"projectUid": uid, "path": "a.py", "type": "file", "content": "x"})
+    files = (await client.get(f"{API}/ide-files", headers=h, params={"projectUid": uid})).json()
+    roots = [f for f in files if f["parentId"] is None]
+    assert [f["path"] for f in roots] == ["a.py"]
     assert (_scripts(uid) / "a.py").is_file()
     assert not (_scripts(uid) / "scripts").exists()
 

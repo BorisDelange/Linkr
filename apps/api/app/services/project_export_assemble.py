@@ -162,6 +162,8 @@ async def build_project_tree_from_db(
 
     # Datasets: disk-derived tree (id === relative path), the shape the frontend
     # consumes in server mode. Analyses are keyed in the DB by dataset_path.
+    # Resolve ide_path/datasets_path so the scan reads the bound server dirs.
+    project_fs.prime_binding(project.uid, project.ide_path, project.datasets_path)
     ide_files = [
         _ide_node(project.uid, n)
         for n in await asyncio.to_thread(project_fs.scan_scripts, project.uid)
