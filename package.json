@@ -11,6 +11,7 @@
     "lint": "turbo lint",
     "test": "cd apps/web && npm run test",
     "dev:web": "cd apps/web && npm run dev",
+    "dev:client": "cd apps/web && npm run dev:client",
     "dev:api": "cd apps/api && uvicorn app.main:app --reload --port 8000",
     "dev:all": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
     "hooks:install": "node scripts/install-git-hooks.mjs",
