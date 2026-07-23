@@ -19,6 +19,8 @@ import {
   Download,
   Check,
   SlidersHorizontal,
+  Plus,
+  List,
 } from 'lucide-react'
 import {
   Dialog,
@@ -91,6 +93,15 @@ interface SourceConceptTableProps {
   isFileSourceWithoutConceptId?: boolean
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
+  /** Multi-selection set (Ctrl/Cmd/Shift click) — feeds the "add to copy list" button. */
+  selectedConceptIds: Set<number>
+  onSelectedConceptIdsChange: (ids: Set<number>) => void
+  /** Add the current multi-selection to the copy list. */
+  onAddSelectionToList: () => void
+  /** Open the copy-list modal. */
+  onOpenList: () => void
+  /** Number of concepts currently in the copy list (shown as a badge). */
+  listCount: number
   /** True when source is a file import. */
   isFileSource?: boolean
   /** True when file source has record count column mapped. */
@@ -212,6 +223,11 @@ export function SourceConceptTable({
   isFileSourceWithoutConceptId,
   mappingStatusFilter,
   selectedConceptId,
+  selectedConceptIds,
+  onSelectedConceptIdsChange,
+  onAddSelectionToList,
+  onOpenList,
+  listCount,
   isFileSource,
   hasRecordCount,
   hasPatientCount,
@@ -308,6 +324,43 @@ export function SourceConceptTable({
     } else {
       onSortingChange({ columnId, desc: true })
     }
+  }
+
+  // Anchor for shift-range selection — the last row clicked without Shift.
+  const selectionAnchorRef = useRef<number | null>(null)
+
+  /** File-explorer-style selection: plain / Ctrl-Cmd (toggle) / Shift (range). */
+  const handleRowClick = (conceptId: number, e: React.MouseEvent) => {
+    const isToggle = e.metaKey || e.ctrlKey
+    const isRange = e.shiftKey
+
+    if (isRange && selectionAnchorRef.current != null) {
+      const order = rows.map((r) => r.concept_id)
+      const from = order.indexOf(selectionAnchorRef.current)
+      const to = order.indexOf(conceptId)
+      if (from !== -1 && to !== -1) {
+        const [lo, hi] = from <= to ? [from, to] : [to, from]
+        const range = order.slice(lo, hi + 1)
+        const next = isToggle ? new Set(selectedConceptIds) : new Set<number>()
+        for (const id of range) next.add(id)
+        onSelectedConceptIdsChange(next)
+        return
+      }
+    }
+
+    if (isToggle) {
+      const next = new Set(selectedConceptIds)
+      if (next.has(conceptId)) next.delete(conceptId)
+      else next.add(conceptId)
+      selectionAnchorRef.current = conceptId
+      onSelectedConceptIdsChange(next)
+      return
+    }
+
+    // Plain click → single selection (drives the right mapping panel).
+    selectionAnchorRef.current = conceptId
+    onSelectedConceptIdsChange(new Set([conceptId]))
+    onSelectConcept(conceptId)
   }
 
   const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'mapped_elsewhere']
@@ -910,6 +963,46 @@ export function SourceConceptTable({
         <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={commitSearch}>
           {t('common.search')}
         </Button>
+        {/* Add selection to copy list */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              className="h-8 w-8 shrink-0"
+              disabled={selectedConceptIds.size === 0}
+              onClick={onAddSelectionToList}
+              aria-label={t('concept_mapping.add_to_list')}
+            >
+              <Plus size={14} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            {selectedConceptIds.size > 0
+              ? t('concept_mapping.add_to_list_count', { count: selectedConceptIds.size })
+              : t('concept_mapping.add_to_list')}
+          </TooltipContent>
+        </Tooltip>
+        {/* Open copy list modal */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              className="relative h-8 w-8 shrink-0"
+              onClick={onOpenList}
+              aria-label={t('concept_mapping.view_list')}
+            >
+              <List size={14} />
+              {listCount > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-primary-foreground">
+                  {listCount}
+                </span>
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.view_list')}</TooltipContent>
+        </Tooltip>
         {filters.searchTextFuzzy && !sorting && (
           <span className="shrink-0 text-[10px] text-muted-foreground italic">
             {t('concept_mapping.sorted_by_relevance')}
@@ -999,13 +1092,16 @@ export function SourceConceptTable({
               </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => {
-                const isSelected = row.original.concept_id === selectedConceptId
+                const cid = row.original.concept_id
+                const isSelected = selectedConceptIds.size > 0
+                  ? selectedConceptIds.has(cid)
+                  : cid === selectedConceptId
                 return (
                   <TableRow
-                    key={row.original.concept_id}
-                    className="cursor-pointer"
+                    key={cid}
+                    className="cursor-pointer select-none"
                     data-state={isSelected ? 'selected' : undefined}
-                    onClick={() => onSelectConcept(row.original.concept_id)}
+                    onClick={(e) => handleRowClick(cid, e)}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const raw = cell.getValue()
