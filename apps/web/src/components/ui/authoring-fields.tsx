@@ -118,6 +118,8 @@ export function AuthoringFields({ value, onChange, hideOrganization }: Authoring
     ? (value.organization as Organization).id
     : undefined
 
+  const authorSelectedId = value.createdById ?? currentUserId
+
   const pickAuthor = (idStr: string) => {
     const id = Number(idStr)
     const u = directory[id]
@@ -132,16 +134,33 @@ export function AuthoringFields({ value, onChange, hideOrganization }: Authoring
     if (org) onChange({ organization: org })
   }
 
+  // Unlocking commits whatever the dropdown already shows, so that simply
+  // unlocking (without re-picking the same, pre-selected value — which Radix
+  // Select won't fire onValueChange for) counts as a re-attribution.
+  const toggleAuthor = () => {
+    setAuthorUnlocked((u) => {
+      if (!u && authorSelectedId != null) pickAuthor(String(authorSelectedId))
+      return !u
+    })
+  }
+
+  const toggleOrg = () => {
+    setOrgUnlocked((u) => {
+      if (!u && orgSelectedId != null) pickOrg(orgSelectedId)
+      return !u
+    })
+  }
+
   return (
     <div className="space-y-4">
       <LockableField
         label={t('authoring.author')}
         locked={!authorUnlocked}
-        onToggle={() => setAuthorUnlocked((u) => !u)}
+        onToggle={toggleAuthor}
         current={authorCurrent}
         t={t}
       >
-        <Select value={value.createdById != null ? String(value.createdById) : (currentUserId != null ? String(currentUserId) : undefined)} onValueChange={pickAuthor}>
+        <Select value={authorSelectedId != null ? String(authorSelectedId) : undefined} onValueChange={pickAuthor}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder={t('authoring.select_author')} />
           </SelectTrigger>
@@ -157,7 +176,7 @@ export function AuthoringFields({ value, onChange, hideOrganization }: Authoring
       <LockableField
         label={t('common.organization')}
         locked={!orgUnlocked}
-        onToggle={() => setOrgUnlocked((u) => !u)}
+        onToggle={toggleOrg}
         current={orgCurrent}
         t={t}
       >

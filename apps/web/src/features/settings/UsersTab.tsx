@@ -295,7 +295,7 @@ export function UsersTab() {
               disabled={isSelf || cannotEnable || (!disabledAccount && u.role === 'admin' && activeAdminCount === 1)}
               title={isSelf ? t('settings.user_cannot_self') : enableTitle}
             >
-              {disabledAccount ? <Power size={14} /> : <PowerOff size={14} />}
+              {disabledAccount ? <PowerOff size={14} /> : <Power size={14} />}
             </Button>
             <Button
               variant="ghost"
