@@ -392,7 +392,7 @@ const DEMO_IPYNB_STUB = JSON.stringify({
 /** Fetch a demo file from public/data/demo-scripts/. Returns null on failure. */
 async function fetchDemoFile(filename: string): Promise<string | null> {
   try {
-    const resp = await fetch(`/data/demo-scripts/${filename}`)
+    const resp = await fetch(`${import.meta.env.BASE_URL}data/demo-scripts/${filename}`)
     if (!resp.ok) return null
     return await resp.text()
   } catch {
@@ -546,7 +546,7 @@ async function hydrateActivityDashboardFiles(files: FileNode[]): Promise<void> {
     .filter((f) => f.type === 'file' && hydrateMap[f.name])
     .map(async (f) => {
       try {
-        const resp = await fetch(`/data/demo-scripts-activity/${hydrateMap[f.name]}`)
+        const resp = await fetch(`${import.meta.env.BASE_URL}data/demo-scripts-activity/${hydrateMap[f.name]}`)
         if (resp.ok) {
           f.content = await resp.text()
         }

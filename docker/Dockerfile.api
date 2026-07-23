@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+# ^ heredoc (RUN <<EOF) support on older Docker engines via BuildKit frontend.
 # Build context is the repo root (see docker-compose.yml).
 #
 # Base on rocker/r-ver (R + Posit Package Manager binary repo, incl. arm64) so

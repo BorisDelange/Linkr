@@ -42,7 +42,7 @@ async function boot() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <AppErrorBoundary>
-        <BrowserRouter>
+        <BrowserRouter basename={import.meta.env.BASE_URL}>
           <AuthGate>
             <App />
           </AuthGate>

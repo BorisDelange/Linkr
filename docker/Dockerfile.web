@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+# ^ modern BuildKit frontend on older Docker engines (ARG-in-ARG defaults).
 # Build context is the repo root (see docker-compose.yml).
 # Build stage
 FROM node:22-alpine AS build
@@ -21,7 +23,14 @@ WORKDIR /app/apps/web
 # Server mode: a truthy VITE_API_URL makes isServerMode() true at build time.
 # "/" keeps API calls relative (/api/v1/...), so nginx proxies them to the api
 # service — the backend URL is never baked into the bundle. Empty = front-only.
-ARG VITE_API_URL=/
+#
+# Sub-path deployment (reverse proxy that does NOT strip the prefix): set
+# BASE_PATH=/my-prefix/ — it prefixes assets + router basename, and becomes the
+# VITE_API_URL default so API/WS calls carry the prefix too. A proxy that DOES
+# strip the prefix needs neither (keep both at "/").
+ARG BASE_PATH=/
+ENV BASE_PATH=$BASE_PATH
+ARG VITE_API_URL=$BASE_PATH
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 

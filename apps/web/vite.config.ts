@@ -32,20 +32,36 @@ const appVersion = (() => {
 // on its error path, retries a fetch whose body was already consumed —
 // breaking uploads (chunk POSTs). Strip its <script> from index.html at build
 // time when VITE_API_URL is set.
+// Also stripped in dev: the dev server already sends real COOP/COEP headers
+// (see server.headers below), and the SW's install-time page reload + module
+// interception floods the console with "failed to load module" noise whenever
+// the dev server restarts.
 function stripCoiInServerMode() {
   const serverMode = !!process.env.VITE_API_URL
   return {
     name: 'strip-coi-in-server-mode',
-    transformIndexHtml(html: string) {
-      if (!serverMode) return html
+    transformIndexHtml(html: string, ctx: { server?: unknown }) {
+      if (!serverMode && !ctx.server) return html
+      // The src may carry the BASE_PATH prefix (Vite rewrites public URLs
+      // before/around this hook), so match any path ending in the filename.
       return html
         .replace(/<script>window\.coi[\s\S]*?<\/script>\s*/, '')
-        .replace(/<script src="\/coi-serviceworker\.js"><\/script>\s*/, '')
+        .replace(/<script src="[^"]*coi-serviceworker\.js"><\/script>\s*/, '')
     },
   }
 }
 
+// Sub-path deployments (e.g. reverse proxy exposing the app under
+// /docker-9250/): BASE_PATH prefixes all asset URLs and, via Vite's BASE_URL,
+// the router basename in main.tsx. Normalized to /…/ as Vite requires.
+const basePath = (() => {
+  const raw = (process.env.BASE_PATH || '/').trim()
+  if (raw === '' || raw === '/') return '/'
+  return `/${raw.replace(/^\/+|\/+$/g, '')}/`
+})()
+
 export default defineConfig({
+  base: basePath,
   plugins: [react(), tailwindcss(), seedHashesPlugin(), stripCoiInServerMode()],
   define: {
     __APP_BUILD_HASH__: JSON.stringify(gitHash),

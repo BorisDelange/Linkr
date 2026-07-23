@@ -13,6 +13,10 @@ services:
         # Truthy => isServerMode() true; "/" keeps API calls relative so nginx
         # proxies them to the api service (backend URL never baked in).
         VITE_API_URL: /
+        # Serving under a sub-path behind a reverse proxy that does NOT strip
+        # the prefix: set BASE_PATH (e.g. /linkr/) — it also becomes the
+        # VITE_API_URL default, so drop the line above to inherit it.
+        # BASE_PATH: /
     ports:
       - "3000:80"
     depends_on:

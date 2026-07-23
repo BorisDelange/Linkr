@@ -16,10 +16,15 @@ export function registerResetHook(fn: () => void): void {
 
 // DuckDB WASM assets are served from public/duckdb/ to avoid Vite @fs blocking.
 // After `npm install`, run: cp node_modules/@duckdb/duckdb-wasm/dist/{duckdb-mvp.wasm,duckdb-eh.wasm,duckdb-browser-mvp.worker.js,duckdb-browser-eh.worker.js} public/duckdb/
-const duckdb_mvp_wasm = new URL('/duckdb/duckdb-mvp.wasm', import.meta.url).href
-const duckdb_mvp_worker = new URL('/duckdb/duckdb-browser-mvp.worker.js', import.meta.url).href
-const duckdb_eh_wasm = new URL('/duckdb/duckdb-eh.wasm', import.meta.url).href
-const duckdb_eh_worker = new URL('/duckdb/duckdb-browser-eh.worker.js', import.meta.url).href
+// BASE_URL prefix keeps these resolvable under a sub-path deployment. Resolved
+// lazily against globalThis.location so importing this module stays safe in
+// Node (unit tests import it transitively).
+const duckdbAsset = (f: string) =>
+  new URL(`${import.meta.env.BASE_URL ?? '/'}duckdb/${f}`, globalThis.location?.href ?? 'http://localhost/').href
+const duckdb_mvp_wasm = duckdbAsset('duckdb-mvp.wasm')
+const duckdb_mvp_worker = duckdbAsset('duckdb-browser-mvp.worker.js')
+const duckdb_eh_wasm = duckdbAsset('duckdb-eh.wasm')
+const duckdb_eh_worker = duckdbAsset('duckdb-browser-eh.worker.js')
 
 /**
  * Split a SQL script into individual statements, respecting single-quoted
