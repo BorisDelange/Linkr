@@ -277,10 +277,21 @@ export interface BuildProjectZipOptions {
   _reserved?: never
 }
 
-/** The set of dataset-relative paths (dsPath, e.g. "cohort.csv") the user marked
- * "to version" for this project. Lives in project.config.versionedDataFiles so it
- * persists and travels with the export. A data file is written to the export tree
- * (and allowed past .gitignore) iff its dsPath is in this set. */
+// Data-file extensions gitignored by default (anywhere in the tree, scripts/ and
+// datasets/ alike). A file with one of these extensions is committed only when
+// its EXPORT TREE PATH is marked in project.config.versionedDataFiles.
+export const DATA_FILE_EXTENSIONS = ['.csv', '.parquet', '.pq', '.xlsx', '.xls']
+
+export function isDataExtension(path: string): boolean {
+  const p = path.toLowerCase()
+  return DATA_FILE_EXTENSIONS.some((ext) => p.endsWith(ext))
+}
+
+/** The set of EXPORT TREE PATHS the user marked "to version" — e.g.
+ * "datasets/cohort/cohort.csv" or "scripts/reference/concepts.csv". A single
+ * namespace across both sidebars: the key is always the file's path in the export
+ * tree, which is exactly what the .gitignore `!path` exception matches. Lives in
+ * project.config.versionedDataFiles so it persists and travels with the export. */
 export function markedDataFiles(project: { config?: Record<string, unknown> } | null | undefined): Set<string> {
   const raw = project?.config?.versionedDataFiles
   return new Set(Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : [])
@@ -505,12 +516,19 @@ export async function buildProjectZip(
   const ideFiles = rawIdeFiles
     .filter((f) => f !== syntheticRoot)
     .map((f) => (syntheticRoot && f.parentId === syntheticRoot.id ? { ...f, parentId: null } : f))
+  // Data files under scripts/ (e.g. a reference CSV) are gitignored like any other
+  // data file; a marked one is re-included via a !path exception (key scripts/<path>).
+  const includedScriptDataPaths: string[] = []
   if (ideFiles.length > 0) {
     const byId = new Map(ideFiles.map(f => [f.id, f]))
     zip.file('scripts/_tree.json', json(ideFiles.map(({ content: _, projectUid: _p, ...meta }) => meta)))
     for (const f of ideFiles) {
       if (f.type === 'file' && f.content != null) {
-        zip.file(buildIdePath(f, byId), f.content)
+        const treePath = buildIdePath(f, byId)
+        zip.file(treePath, f.content)
+        if (isDataExtension(treePath) && marked.has(treePath)) {
+          includedScriptDataPaths.push(treePath)
+        }
       }
     }
   }
@@ -621,7 +639,9 @@ export async function buildProjectZip(
       }
 
       // A data file leaves the machine only when explicitly marked for versioning.
-      if (marked.has(dsPath)) {
+      // Marking key is the logical `datasets/<dsPath>`; the tree path is computed
+      // here (datasets/<folder>/<file>) for the file write + the .gitignore exception.
+      if (marked.has(`datasets/${dsPath}`)) {
         const data = await storage.datasetData.get(df.id)
         const raw = await storage.datasetRawFiles.get(df.id)
 
@@ -655,12 +675,13 @@ export async function buildProjectZip(
   }
 
   // --- .gitignore ---
-  // Data files are ignored by default (health data never committed by accident);
-  // each file the user marked for versioning is re-included via a `!path` exception
-  // AFTER the ignore rules (git honours the last match). Extension patterns (not
-  // `datasets/**`) keep the parent dirs un-ignored so the exceptions resolve.
-  const gitignoreLines = ['datasets/**/*.csv', 'datasets/**/*.parquet', 'datasets/**/*.xlsx', 'datasets/**/*.xls', '.cache/']
-  for (const p of includedDataPaths) {
+  // Data files are ignored by default EVERYWHERE — under datasets/ AND scripts/
+  // (e.g. a reference CSV) — so health data is never committed by accident. Each
+  // file the user marked for versioning is re-included via a `!path` exception
+  // AFTER the ignore rules (git honours the last match). Glob patterns match at any
+  // depth and leave parent dirs un-ignored, so the exceptions resolve.
+  const gitignoreLines = ['**/*.csv', '**/*.parquet', '**/*.pq', '**/*.xlsx', '**/*.xls', '.cache/']
+  for (const p of [...includedDataPaths, ...includedScriptDataPaths]) {
     gitignoreLines.push(`!${p}`)
   }
   zip.file('.gitignore', gitignoreLines.join('\n') + '\n')

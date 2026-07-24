@@ -267,6 +267,13 @@ def _readme_files(readme: Any) -> dict[str, bytes]:
     return out
 
 
+_DATA_EXTENSIONS = (".csv", ".parquet", ".pq", ".xlsx", ".xls")
+
+
+def _is_data_ext(path: str) -> bool:
+    return path.lower().endswith(_DATA_EXTENSIONS)
+
+
 def _ide_path(file: dict, by_id: dict[str, dict]) -> str:
     """Port of ``buildIdePath`` (entity-io.ts:289): reconstruct the path from the
     parent-name chain, prefixing ``scripts/`` when not already under it."""
@@ -346,6 +353,9 @@ def build_project_tree(
     attachment id.
     """
     tree: dict[str, bytes] = {}
+    # Tree paths of data files written into the export — each becomes a `!path`
+    # exception in .gitignore. Collected across scripts/ (reference data) + datasets/.
+    included_data_paths: list[str] = []
 
     tree["project.json"] = _build_project_json(project, organization)
 
@@ -389,7 +399,12 @@ def build_project_tree(
         )
         for f in ide:
             if f.get("type") == "file" and f.get("content") is not None:
-                tree[_ide_path(f, by_id)] = str(f["content"]).encode("utf-8")
+                tree_path = _ide_path(f, by_id)
+                tree[tree_path] = str(f["content"]).encode("utf-8")
+                # A data file under scripts/ (e.g. a reference CSV) is gitignored like
+                # any data file; re-include it when marked (key = its scripts/ path).
+                if _is_data_ext(tree_path) and tree_path in versioned_data_files:
+                    included_data_paths.append(tree_path)
 
     if pipelines:
         tree["pipeline/pipeline.json"] = _json(
@@ -414,9 +429,6 @@ def build_project_tree(
         name = _slugify(_localized_en(d.get("name")) or dash_key or d["id"])
         tree[f"dashboards/{name}.json"] = _build_dashboard_json(d, tabs, widgets)
 
-    # Tree paths of data files actually written — each becomes a `!path` exception
-    # in .gitignore so git tracks exactly the marked files and nothing else.
-    included_data_paths: list[str] = []
     if dataset_files:
         by_id = {f["id"]: f for f in dataset_files}
         tree["datasets/_tree.json"] = _json(
@@ -438,9 +450,9 @@ def build_project_tree(
                 ] = _json(_strip_instance_fields(a))
 
             # A data file leaves the machine only when the user marked it for
-            # versioning (project.config.versionedDataFiles). Its tree path is then
-            # re-included via a !path exception in .gitignore below.
-            if ds_path in versioned_data_files:
+            # versioning. Marking key is the logical `datasets/<ds_path>`; the tree
+            # path (datasets/<folder>/<file>) is recorded for the .gitignore exception.
+            if f"datasets/{ds_path}" in versioned_data_files:
                 rows = dataset_data.get(df["id"])
                 raw = dataset_raw_files.get(df["id"])
                 if raw and raw.get("blob") is not None:
@@ -468,14 +480,15 @@ def build_project_tree(
             if blob is not None:
                 tree[f"attachments/{att['id']}-{att['fileName']}"] = blob
 
-    # Data files ignored by default; each file marked for versioning is re-included
-    # via a `!path` exception AFTER the ignore rules (git honours the last match).
-    # Byte-faithful to buildProjectZip's .gitignore block.
+    # Data files ignored by default EVERYWHERE (datasets/ AND scripts/); each marked
+    # file is re-included via a `!path` exception AFTER the ignore rules (git honours
+    # the last match). Byte-faithful to buildProjectZip's .gitignore block.
     gitignore_lines = [
-        "datasets/**/*.csv",
-        "datasets/**/*.parquet",
-        "datasets/**/*.xlsx",
-        "datasets/**/*.xls",
+        "**/*.csv",
+        "**/*.parquet",
+        "**/*.pq",
+        "**/*.xlsx",
+        "**/*.xls",
         ".cache/",
     ]
     gitignore_lines.extend(f"!{p}" for p in included_data_paths)

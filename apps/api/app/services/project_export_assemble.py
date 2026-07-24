@@ -198,7 +198,8 @@ async def build_project_tree_from_db(
         if node["type"] != "file":
             continue
         path = node["path"]
-        if path not in versioned_data_files:
+        # Marking key is the logical datasets/<path> (single namespace with scripts/).
+        if f"datasets/{path}" not in versioned_data_files:
             continue
         file_path = await asyncio.to_thread(project_fs.dataset_path, project.uid, path)
         if file_path.is_file():

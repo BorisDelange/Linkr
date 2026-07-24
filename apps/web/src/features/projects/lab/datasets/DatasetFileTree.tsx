@@ -124,9 +124,11 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
 
   const versioning = useContext(VersioningContext)
   const nodeDsPath = getNodePath(files, node.id)
-  // Data files are gitignored by default; a marked one is versioned (committed +
-  // exported). Marking is only meaningful for real files, not folders.
-  const isMarkedVersioned = versioning?.marked.has(nodeDsPath) ?? false
+  // Marking key is the logical export path `datasets/<dsPath>` (a single namespace
+  // shared with the IDE sidebar's scripts/<path>). Data files are gitignored by
+  // default; a marked one is versioned (committed + exported).
+  const markKey = `datasets/${nodeDsPath}`
+  const isMarkedVersioned = versioning?.marked.has(markKey) ?? false
 
   const isFolder = node.type === 'folder'
   const isExpanded = expandedFolders.includes(node.id)
@@ -351,7 +353,7 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
           )}
           <ContextMenuSeparator />
           {!isFolder && versioning && (
-            <ContextMenuItem onClick={() => versioning.toggle(nodeDsPath)}>
+            <ContextMenuItem onClick={() => versioning.toggle(markKey)}>
               <GitCommitVertical size={14} />
               {isMarkedVersioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned')}
             </ContextMenuItem>

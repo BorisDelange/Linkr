@@ -1,8 +1,10 @@
 import { useTranslation } from 'react-i18next'
 import { useState, useRef, useEffect } from 'react'
 import { useFileStore } from '@/stores/file-store'
+import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { isDataExtension } from '@/lib/entity-io'
 import type { TreeNode, DatasetBridgeNode } from '@/hooks/use-project-tree'
 import {
   File,
@@ -14,6 +16,7 @@ import {
   FolderOpen,
   ChevronRight,
   ChevronDown,
+  GitCommitVertical,
   Pencil,
   Trash2,
   Download,
@@ -134,6 +137,15 @@ export function FileTreeItem({
   const canDelete = useMyProjectRole().can('ide:delete')
   const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode, renameNode } = useFileStore()
   const datasetStore = useDatasetStore()
+  // Per-file "mark for versioning" for data files under scripts/ (e.g. a reference
+  // CSV). Key = the export tree path `scripts/<idePath>` — the same namespace the
+  // Datasets sidebar uses (datasets/<dsPath>) and the .gitignore exception matches.
+  const activeProjectUid = useAppStore((s) => s.activeProjectUid)
+  const toggleVersionedDataFile = useAppStore((s) => s.toggleVersionedDataFile)
+  const versionedRaw = useAppStore((s) => {
+    const cfg = s._projectsRaw.find((p) => p.uid === activeProjectUid)?.config as Record<string, unknown> | undefined
+    return cfg?.versionedDataFiles
+  })
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   // Inline rename (in the sidebar) — replaces the old modal.
@@ -151,6 +163,16 @@ export function FileTreeItem({
   const isExpanded = expandedFolders.includes(node.id)
   const isSelected = selectedFileId === node.id
   const children = isFolder ? getChildren(node.id) : []
+
+  // A data file under scripts/ is gitignored by default and marked per-file. The
+  // key is its export tree path `scripts/<idePath>`. Only real (non-virtual) data
+  // files qualify; regular code files are versioned normally (no data extension).
+  const isDataFile = !isFolder && !isVirtual && isDataExtension(node.name)
+  const markKey = isDataFile ? `scripts/${getNodePath(files as TreeNode[], node.id)}` : ''
+  const markedSet = new Set(
+    Array.isArray(versionedRaw) ? (versionedRaw as unknown[]).filter((p): p is string => typeof p === 'string') : [],
+  )
+  const isMarkedVersioned = isDataFile && markedSet.has(markKey)
 
   const handleClick = () => {
     if (isFolder) {
@@ -367,6 +389,9 @@ export function FileTreeItem({
           >
             {rowIcon}
             <span className="truncate">{node.name}</span>
+            {isMarkedVersioned && (
+              <GitCommitVertical size={11} className="shrink-0 text-primary" aria-label={t('datasets.versioned_badge')} />
+            )}
             {isVirtual && !isBridge && !isFolder && (
               <Lock size={10} className="ml-auto shrink-0 text-muted-foreground/50" />
             )}
@@ -455,6 +480,15 @@ export function FileTreeItem({
                 <Clipboard size={14} />
                 {t('files.copy_relative_path')}
               </ContextMenuItem>
+              {isDataFile && activeProjectUid && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => void toggleVersionedDataFile(activeProjectUid, markKey)}>
+                    <GitCommitVertical size={14} />
+                    {isMarkedVersioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned')}
+                  </ContextMenuItem>
+                </>
+              )}
               <ContextMenuSeparator />
               <ContextMenuItem
                 variant="destructive"

@@ -202,15 +202,16 @@ async def test_assembler_includes_marked_raw_files(db):
     project = await _seed(db)
     # Mark the data file for versioning (project.config.versionedDataFiles) — only
     # then does the assembler write it into the tree and except it in .gitignore.
-    project.config = {**(project.config or {}), "versionedDataFiles": ["cohort.csv"]}
+    project.config = {**(project.config or {}), "versionedDataFiles": ["datasets/cohort.csv"]}
     tree = await build_project_tree_from_db(db, project)
     # Raw dataset files land verbatim under their folder; no _data.json sidecar in
     # server mode (rows are never bulk-shipped).
     assert tree["datasets/cohort/cohort.csv"] == b"age,sex\n30,M\n41,F\n52,M\n"
     assert "datasets/cohort/_data.json" not in tree
-    # The .gitignore ignores data but re-includes the marked file via a !path exception.
+    # The .gitignore ignores data everywhere but re-includes the marked file via a
+    # !path exception.
     gitignore = tree[".gitignore"].decode()
-    assert gitignore.startswith("datasets/**/*.csv")
+    assert gitignore.startswith("**/*.csv")
     assert "!datasets/cohort/cohort.csv" in gitignore
 
 

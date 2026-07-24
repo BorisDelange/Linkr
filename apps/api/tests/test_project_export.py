@@ -28,13 +28,13 @@ _EXPECTED = _GOLDEN / "expected"
 
 
 def _all_dataset_paths(data: dict) -> set[str]:
-    """Every dataset file's dsPath — the marked set that reproduces the old
-    "include all data" behavior for tests that previously passed include_data=True."""
+    """Every dataset file's logical mark key (datasets/<dsPath>) — reproduces the
+    old "include all data" behavior for tests that previously passed include_data=True."""
     from app.services.project_export import _dataset_path
 
     by_id = {f["id"]: f for f in data["datasetFiles"]}
     return {
-        _dataset_path(f, by_id)
+        f"datasets/{_dataset_path(f, by_id)}"
         for f in data["datasetFiles"]
         if f.get("type") == "file"
     }
@@ -123,13 +123,13 @@ def test_slugify_matches_ts():
 
 
 def test_gitignore_ignores_data_by_default():
-    # Nothing marked (and the golden ships no dataset blobs) → data files ignored,
-    # no !path exceptions. The marked case (exceptions emitted, ordered after the
-    # ignore rules) is covered by test_include_data_writes_raw_file_verbatim.
+    # Nothing marked (and the golden ships no dataset blobs) → data files ignored
+    # everywhere (datasets/ AND scripts/), no !path exceptions. The marked case
+    # (exceptions after the ignore rules) is covered by the raw-file test below.
     unmarked = _build_tree(include_data=False)[".gitignore"].decode()
-    assert unmarked.startswith("datasets/**/*.csv")
+    assert unmarked.startswith("**/*.csv")
     assert unmarked.endswith(".cache/\n")
-    assert "!datasets/" not in unmarked
+    assert "!" not in unmarked
 
 
 def test_include_data_writes_raw_file_verbatim_without_sidecar():
@@ -152,7 +152,7 @@ def test_include_data_writes_raw_file_verbatim_without_sidecar():
         dataset_raw_files={df["id"]: raw},
         attachments=[],
         attachment_blobs={},
-        versioned_data_files={"cohort.csv"},
+        versioned_data_files={"datasets/cohort.csv"},
     )
     assert tree["datasets/cohort/cohort.csv"] == b"age,sex\n30,M\n"
     assert "datasets/cohort/_data.json" not in tree
@@ -188,6 +188,31 @@ def test_computed_dataset_reconstructs_csv_when_no_raw_file():
         dataset_raw_files={},
         attachments=[],
         attachment_blobs={},
-        versioned_data_files={"computed.csv"},
+        versioned_data_files={"datasets/computed.csv"},
     )
     assert tree["datasets/computed/computed.csv"] == b'a,b\n1,"x,y"\n2,z'
+
+
+def test_reference_csv_under_scripts_ignored_unless_marked():
+    # A data file living under scripts/ (e.g. a reference CSV) is gitignored by
+    # default like any data file; marking its scripts/ tree path re-includes it.
+    ref = {"id": "r1", "name": "concepts.csv", "type": "file", "parentId": "fold", "path": "reference/concepts.csv"}
+    fold = {"id": "fold", "name": "reference", "type": "folder", "parentId": None, "path": "reference"}
+    common = dict(
+        project={"uid": "p", "name": {"en": "P"}},
+        organization=None,
+        pipelines=[], cohorts=[], connections=[], dashboards=[],
+        dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+        attachments=[], attachment_blobs={},
+    )
+    # Unmarked: the file is still written (it's IDE content) but ignored, no exception.
+    unmarked = build_project_tree(ide_files=[fold, {**ref, "content": "a,b"}], versioned_data_files=set(), **common)
+    assert unmarked["scripts/reference/concepts.csv"] == b"a,b"
+    assert "!scripts/reference/concepts.csv" not in unmarked[".gitignore"].decode()
+    # Marked (key = scripts/ tree path): the !path exception is emitted.
+    marked = build_project_tree(
+        ide_files=[fold, {**ref, "content": "a,b"}],
+        versioned_data_files={"scripts/reference/concepts.csv"},
+        **common,
+    )
+    assert "!scripts/reference/concepts.csv" in marked[".gitignore"].decode()
