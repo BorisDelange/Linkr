@@ -125,7 +125,6 @@ def _analysis_dict(row: DatasetAnalysis) -> dict:
 async def build_project_tree_from_db(
     db: AsyncSession,
     project: Project,
-    include_data: bool,
     organization: dict | None = None,
 ) -> dict[str, bytes]:
     """Assemble the export file tree for a project from DB + disk + blob store.
@@ -184,24 +183,30 @@ async def build_project_tree_from_db(
     for row in analyses_res.scalars().all():
         dataset_analyses.setdefault(row.dataset_path, []).append(_analysis_dict(row))
 
-    # Row data is never shipped by the server-mode datasetData adapter (rows are
-    # paginated on demand), so it stays empty — the export writes the raw file
-    # verbatim when include_data is on, without a _data.json sidecar (matches the
-    # front's server-mode behavior). Raw files are read from disk per dataset.
+    # A data file leaves the machine only when marked for versioning
+    # (project.config.versionedDataFiles). Row data is never shipped by the
+    # server-mode datasetData adapter (rows are paginated on demand), so it stays
+    # empty — the export writes the raw file verbatim, without a _data.json sidecar
+    # (matches the front's server-mode behavior). Raw files are read from disk.
+    raw_cfg = (project.config or {}).get("versionedDataFiles")
+    versioned_data_files: set[str] = set(
+        p for p in raw_cfg if isinstance(p, str)
+    ) if isinstance(raw_cfg, list) else set()
     dataset_data: dict[str, list[dict]] = {}
     dataset_raw_files: dict[str, dict] = {}
-    if include_data:
-        for node in ds_nodes:
-            if node["type"] != "file":
-                continue
-            path = node["path"]
-            file_path = await asyncio.to_thread(project_fs.dataset_path, project.uid, path)
-            if file_path.is_file():
-                blob = await asyncio.to_thread(file_path.read_bytes)
-                dataset_raw_files[path] = {
-                    "blob": blob,
-                    "fileName": path.rsplit("/", 1)[-1],
-                }
+    for node in ds_nodes:
+        if node["type"] != "file":
+            continue
+        path = node["path"]
+        if path not in versioned_data_files:
+            continue
+        file_path = await asyncio.to_thread(project_fs.dataset_path, project.uid, path)
+        if file_path.is_file():
+            blob = await asyncio.to_thread(file_path.read_bytes)
+            dataset_raw_files[path] = {
+                "blob": blob,
+                "fileName": path.rsplit("/", 1)[-1],
+            }
 
     attachments = []
     attachment_blobs: dict[str, bytes] = {}
@@ -243,7 +248,7 @@ async def build_project_tree_from_db(
         dataset_raw_files=dataset_raw_files,
         attachments=attachments,
         attachment_blobs=attachment_blobs,
-        include_data_files=include_data,
+        versioned_data_files=versioned_data_files,
     )
 
 
@@ -255,11 +260,9 @@ def _zip_tree(tree: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-async def assemble_project_zip(
-    db: AsyncSession, project: Project, include_data: bool
-) -> bytes:
+async def assemble_project_zip(db: AsyncSession, project: Project) -> bytes:
     """Build the project's export ZIP bytes server-side (no client upload). Feeds
     the same git flow (status/diff/commit-push) that used to receive the
-    client-built ZIP."""
-    tree = await build_project_tree_from_db(db, project, include_data)
+    client-built ZIP. Data-file inclusion follows project.config.versionedDataFiles."""
+    tree = await build_project_tree_from_db(db, project)
     return await asyncio.to_thread(_zip_tree, tree)

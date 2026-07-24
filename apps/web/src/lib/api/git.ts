@@ -103,19 +103,12 @@ function zipForm(zip: Blob | null, extra: Record<string, string> = {}): FormData
   return form
 }
 
-// When the server builds the ZIP (zip === null), the include-data toggle is baked
-// into the client build for other scopes but must be sent explicitly for projects,
-// whose server builder honors it (raw dataset files gitignored unless included).
-function includeDataField(zip: Blob | null, includeData?: boolean): Record<string, string> {
-  return zip === null && includeData !== undefined ? { include_data: String(includeData) } : {}
+export async function gitStatus(scope: GitScope, id: string, zip: Blob | null, branch?: string): Promise<GitStatus> {
+  return postForm<GitStatus>(`${base(scope, id)}/status`, zipForm(zip, { ...(branch ? { branch } : {}) }))
 }
 
-export async function gitStatus(scope: GitScope, id: string, zip: Blob | null, branch?: string, includeData?: boolean): Promise<GitStatus> {
-  return postForm<GitStatus>(`${base(scope, id)}/status`, zipForm(zip, { ...(branch ? { branch } : {}), ...includeDataField(zip, includeData) }))
-}
-
-export async function gitDiff(scope: GitScope, id: string, zip: Blob | null, path: string, branch?: string, includeData?: boolean): Promise<GitDiff> {
-  return postForm<GitDiff>(`${base(scope, id)}/diff`, zipForm(zip, { path, ...(branch ? { branch } : {}), ...includeDataField(zip, includeData) }))
+export async function gitDiff(scope: GitScope, id: string, zip: Blob | null, path: string, branch?: string): Promise<GitDiff> {
+  return postForm<GitDiff>(`${base(scope, id)}/diff`, zipForm(zip, { path, ...(branch ? { branch } : {}) }))
 }
 
 export async function gitCommitPush(
@@ -125,9 +118,8 @@ export async function gitCommitPush(
   message: string,
   branch?: string,
   paths?: string[],
-  includeData?: boolean,
 ): Promise<GitCommitResult> {
-  const form = zipForm(zip, { message, ...(branch ? { branch } : {}), ...includeDataField(zip, includeData) })
+  const form = zipForm(zip, { message, ...(branch ? { branch } : {}) })
   // Omitting `paths` entirely means "commit everything"; a subset stages only those.
   if (paths) for (const p of paths) form.append('paths', p)
   return postForm<GitCommitResult>(`${base(scope, id)}/commit-push`, form)

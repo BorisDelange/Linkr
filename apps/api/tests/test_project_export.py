@@ -27,6 +27,19 @@ _GOLDEN = (
 _EXPECTED = _GOLDEN / "expected"
 
 
+def _all_dataset_paths(data: dict) -> set[str]:
+    """Every dataset file's dsPath — the marked set that reproduces the old
+    "include all data" behavior for tests that previously passed include_data=True."""
+    from app.services.project_export import _dataset_path
+
+    by_id = {f["id"]: f for f in data["datasetFiles"]}
+    return {
+        _dataset_path(f, by_id)
+        for f in data["datasetFiles"]
+        if f.get("type") == "file"
+    }
+
+
 def _build_tree(include_data: bool = False) -> dict[str, bytes]:
     data = json.loads((_GOLDEN / "input.json").read_text())
     atts = [{k: v for k, v in a.items() if k != "dataBase64"} for a in data["attachments"]]
@@ -45,7 +58,7 @@ def _build_tree(include_data: bool = False) -> dict[str, bytes]:
         dataset_raw_files=data["datasetRawFiles"],
         attachments=atts,
         attachment_blobs=blobs,
-        include_data_files=include_data,
+        versioned_data_files=_all_dataset_paths(data) if include_data else set(),
     )
 
 
@@ -93,7 +106,7 @@ def test_machine_local_bindings_stripped_from_project_json():
         dataset_raw_files=data["datasetRawFiles"],
         attachments=[],
         attachment_blobs={},
-        include_data_files=False,
+        versioned_data_files=set(),
     )
     project_json = json.loads(tree["project.json"].decode())
     assert "idePath" not in project_json
@@ -109,13 +122,14 @@ def test_slugify_matches_ts():
     assert _slugify("A/B — C") == "a-b-c"
 
 
-def test_gitignore_toggles_on_include_data():
-    without = _build_tree(include_data=False)[".gitignore"].decode()
-    assert without.startswith("datasets/**/*.csv")
-    assert without.endswith(".cache/\n")
-
-    with_data = _build_tree(include_data=True)[".gitignore"].decode()
-    assert with_data == ".cache/\n"
+def test_gitignore_ignores_data_by_default():
+    # Nothing marked (and the golden ships no dataset blobs) → data files ignored,
+    # no !path exceptions. The marked case (exceptions emitted, ordered after the
+    # ignore rules) is covered by test_include_data_writes_raw_file_verbatim.
+    unmarked = _build_tree(include_data=False)[".gitignore"].decode()
+    assert unmarked.startswith("datasets/**/*.csv")
+    assert unmarked.endswith(".cache/\n")
+    assert "!datasets/" not in unmarked
 
 
 def test_include_data_writes_raw_file_verbatim_without_sidecar():
@@ -138,10 +152,11 @@ def test_include_data_writes_raw_file_verbatim_without_sidecar():
         dataset_raw_files={df["id"]: raw},
         attachments=[],
         attachment_blobs={},
-        include_data_files=True,
+        versioned_data_files={"cohort.csv"},
     )
     assert tree["datasets/cohort/cohort.csv"] == b"age,sex\n30,M\n"
     assert "datasets/cohort/_data.json" not in tree
+    assert "!datasets/cohort/cohort.csv" in tree[".gitignore"].decode()
 
 
 def test_computed_dataset_reconstructs_csv_when_no_raw_file():
@@ -173,6 +188,6 @@ def test_computed_dataset_reconstructs_csv_when_no_raw_file():
         dataset_raw_files={},
         attachments=[],
         attachment_blobs={},
-        include_data_files=True,
+        versioned_data_files={"computed.csv"},
     )
     assert tree["datasets/computed/computed.csv"] == b'a,b\n1,"x,y"\n2,z'

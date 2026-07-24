@@ -66,9 +66,11 @@ export const useVersioningStore = create<VersioningState>((set) => ({
     const projectUid = useAppStore.getState().activeProjectUid
     if (!projectUid) return
     // In server mode the backend builds the ZIP (offloads the browser); the front
-    // only triggers + downloads. Front-only keeps the client builder.
+    // only triggers + downloads. Front-only keeps the client builder. Data files
+    // are included per the project's versionedDataFiles marking (read by the
+    // builder from project.config) — no include flag to pass.
     if (isServerMode()) {
-      const blob = await fetchProjectExportZipFromServer(projectUid, options?.includeDataFiles ?? false)
+      const blob = await fetchProjectExportZipFromServer(projectUid)
       if (!blob) return
       const project = await getStorage().projects.getById(projectUid)
       const name = project ? localized(project.name, 'en') || projectUid : projectUid

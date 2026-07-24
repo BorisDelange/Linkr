@@ -8,9 +8,8 @@ import type { Project } from '@/types'
  * so the caller can fall back to the client builder. */
 export async function fetchProjectExportZipFromServer(
   uid: string,
-  includeData: boolean,
 ): Promise<Blob | null> {
-  const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(uid)}/export-zip?include_data=${includeData}`)
+  const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(uid)}/export-zip`)
   if (!res.ok) return null
   return await res.blob()
 }

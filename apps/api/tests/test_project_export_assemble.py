@@ -182,7 +182,7 @@ def _normalize_utc(content: bytes) -> bytes:
 
 async def test_assembler_reproduces_golden_tree(db):
     project = await _seed(db)
-    tree = await build_project_tree_from_db(db, project, include_data=False)
+    tree = await build_project_tree_from_db(db, project)
 
     if os.environ.get("GOLDEN_UPDATE") == "1":
         for path, content in tree.items():
@@ -198,15 +198,20 @@ async def test_assembler_reproduces_golden_tree(db):
         )
 
 
-async def test_assembler_includes_raw_files_when_requested(db):
+async def test_assembler_includes_marked_raw_files(db):
     project = await _seed(db)
-    tree = await build_project_tree_from_db(db, project, include_data=True)
+    # Mark the data file for versioning (project.config.versionedDataFiles) — only
+    # then does the assembler write it into the tree and except it in .gitignore.
+    project.config = {**(project.config or {}), "versionedDataFiles": ["cohort.csv"]}
+    tree = await build_project_tree_from_db(db, project)
     # Raw dataset files land verbatim under their folder; no _data.json sidecar in
-    # server mode (rows are never bulk-shipped), and the .gitignore no longer
-    # excludes data.
+    # server mode (rows are never bulk-shipped).
     assert tree["datasets/cohort/cohort.csv"] == b"age,sex\n30,M\n41,F\n52,M\n"
     assert "datasets/cohort/_data.json" not in tree
-    assert tree[".gitignore"] == b".cache/\n"
+    # The .gitignore ignores data but re-includes the marked file via a !path exception.
+    gitignore = tree[".gitignore"].decode()
+    assert gitignore.startswith("datasets/**/*.csv")
+    assert "!datasets/cohort/cohort.csv" in gitignore
 
 
 def test_data_dir_is_isolated():

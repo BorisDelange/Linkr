@@ -171,9 +171,10 @@ async def _projects_section(
         if not git and opts.include_entity_data.get(project.uid):
             # The full nested tree inlines the inherited org into project.json, like
             # buildProjectZip's attachEntityOrganization fallback (project's own org,
-            # else the parent workspace's).
+            # else the parent workspace's). Data files follow each project's own
+            # versionedDataFiles marking (read inside build_project_tree_from_db).
             entry["sub_tree"] = await build_project_tree_from_db(
-                db, project, include_data=True, organization=workspace_org
+                db, project, organization=workspace_org
             )
         entries.append(entry)
     return entries

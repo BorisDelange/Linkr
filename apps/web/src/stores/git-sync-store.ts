@@ -12,7 +12,7 @@ import { create } from 'zustand'
 import { buildProjectZip, buildWorkspaceZip } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { defaultSelectedPaths, isUnownedConfigModification } from '@/lib/git-file-classify'
+import { defaultSelectedPaths } from '@/lib/git-file-classify'
 import { resolveLfsPaths } from '@/lib/git-lfs'
 import { toGitError } from '@/lib/git-error-message'
 import {
@@ -50,15 +50,16 @@ function serverBuildsZip(): boolean {
 async function buildZipUncached(
   scope: GitScope,
   id: string,
-  includeData: boolean,
   lfsOverrides?: Map<string, boolean>,
 ): Promise<Blob> {
   const storage = getStorage()
   let result: { blob: Blob } | null
   if (scope === 'projects') {
-    result = await buildProjectZip(id, storage, { includeDataFiles: includeData })
+    // Data-file versioning is per-file (project.config.versionedDataFiles), read
+    // by buildProjectZip — no blanket include flag.
+    result = await buildProjectZip(id, storage, {})
   } else if (scope === 'workspaces') {
-    result = await buildWorkspaceZip(id, storage, { includeDataFiles: includeData })
+    result = await buildWorkspaceZip(id, storage, {})
   } else if (scope === 'sql-script-collections') {
     const { buildSqlCollectionZip } = await import('@/lib/entity-io')
     result = await buildSqlCollectionZip(id, storage, { lfsOverrides })
@@ -99,22 +100,21 @@ let _zipCache: { key: string; blob: Blob } | null = null
 // cleared on entity switch (reset), so a stale diff is never shown after an edit.
 let _diffCache: Map<string, GitDiff | null> = new Map()
 
-function _zipKey(scope: GitScope, id: string, includeData: boolean, lfsOverrides?: Map<string, boolean>): string {
+function _zipKey(scope: GitScope, id: string, lfsOverrides?: Map<string, boolean>): string {
   const ov = lfsOverrides ? [...lfsOverrides.entries()].sort().map(([k, v]) => `${k}=${v}`).join(',') : ''
-  return `${scope}|${id}|${includeData}|${ov}`
+  return `${scope}|${id}|${ov}`
 }
 
 async function buildZip(
   scope: GitScope,
   id: string,
-  includeData: boolean,
   lfsOverrides?: Map<string, boolean>,
 ): Promise<Blob | null> {
   // null → the server builds the ZIP; the client uploads nothing.
   if (serverBuildsZip()) return null
-  const key = _zipKey(scope, id, includeData, lfsOverrides)
+  const key = _zipKey(scope, id, lfsOverrides)
   if (_zipCache && _zipCache.key === key) return _zipCache.blob
-  const blob = await buildZipUncached(scope, id, includeData, lfsOverrides)
+  const blob = await buildZipUncached(scope, id, lfsOverrides)
   _zipCache = { key, blob }
   return blob
 }
@@ -133,19 +133,17 @@ interface GitSyncState {
   /** Standing vs the remote branch (behind / diverged); null until loaded. Drives
    *  the "N commits upstream" banner. Only computed for scopes that support it. */
   syncState: GitSyncStateResult | null
-  /** Paths checked for the next commit; data files are unchecked by default. */
+  /** Paths checked for the next commit. Data files are unchecked by default unless
+   *  marked for versioning (project.config.versionedDataFiles) — see defaultSelectedPaths. */
   selected: Set<string>
-  /** Include dataset data files (CSV/parquet/…) in the export — mirrors the export
-   *  tab's toggle. Off by default; off adds .gitignore rules that exclude them. */
-  includeData: boolean
   /** Per-file opt-in LFS decisions (true = track via LFS, false/absent = normal
    *  blob). LFS is opt-in only — there's no automatic size/extension rule. */
   lfsOverrides: Map<string, boolean>
   loadingStatus: boolean
   committing: boolean
   error: GitSyncError | null
-  /** Identity (scope|id|branch|includeData) the current status was computed for,
-   *  so remounting the panel on the same entity doesn't recompute from scratch. */
+  /** Identity (scope|id|branch) the current status was computed for, so remounting
+   *  the panel on the same entity doesn't recompute from scratch. */
   statusKey: string | null
 
   refreshStatus: (scope: GitScope, id: string, branch?: string) => Promise<void>
@@ -163,7 +161,6 @@ interface GitSyncState {
   _commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch?: string) => Promise<GitCommitResult | null>
   togglePath: (path: string) => void
   setAllSelected: (checked: boolean) => void
-  setIncludeData: (scope: GitScope, id: string, value: boolean, branch?: string) => Promise<void>
   /** Set of paths that will be tracked via LFS (opt-in overrides only). */
   lfsPaths: () => Set<string>
   /** Force a file's LFS state on/off (used by the badge + context menu). */
@@ -171,7 +168,7 @@ interface GitSyncState {
   /** Drop the cached export ZIP without changing entity — call after something
    *  mutated the entity's DB content out-of-band (e.g. a pull applied changes) so
    *  the next refreshStatus rebuilds the ZIP from the fresh state, not the stale
-   *  cache (same scope|id|includeData key would otherwise be reused). */
+   *  cache (same scope|id key would otherwise be reused). */
   invalidateZip: () => void
   reset: () => void
 }
@@ -181,7 +178,6 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   branches: null,
   syncState: null,
   selected: new Set(),
-  includeData: false,
   lfsOverrides: new Map(),
   loadingStatus: false,
   committing: false,
@@ -194,7 +190,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     const prevKey = get().statusKey
     const sameEntity = prevKey?.startsWith(`${scope}|${id}|`)
     if (prevKey && !sameEntity) get().reset()
-    const key = `${scope}|${id}|${branch ?? ''}|${get().includeData}`
+    const key = `${scope}|${id}|${branch ?? ''}`
     // Already computed (or computing) for this exact entity+branch → keep it,
     // so switching tabs and coming back doesn't recompute from scratch.
     if (get().statusKey === key && (get().status !== null || get().loadingStatus)) return
@@ -203,36 +199,29 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
 
   refreshStatus: async (scope, id, branch) => {
     const gen = ++statusGen
-    const includeData = get().includeData
-    const key = `${scope}|${id}|${branch ?? ''}|${includeData}`
+    const key = `${scope}|${id}|${branch ?? ''}`
     set({ loadingStatus: true, error: null, statusKey: key })
     try {
       // A refresh means "the state may have changed, rebuild": the ZIP cache key
-      // (scope|id|includeData|overrides) can't see DB edits, so a mapping added
-      // since the last build would otherwise be exported from the stale cached ZIP
-      // and show no diff. Drop the cache first so the export reflects current DB
-      // content; getDiff/commitPush then reuse the blob this refresh just built.
+      // (scope|id|overrides) can't see DB edits, so a mapping added since the last
+      // build would otherwise be exported from the stale cached ZIP and show no
+      // diff. Drop the cache first so the export reflects current DB content;
+      // getDiff/commitPush then reuse the blob this refresh just built.
       get().invalidateZip()
       // Include the LFS overrides so the status reflects the .gitattributes the
       // user actually chose — otherwise unchecking LFS for a big file has no effect
       // until commit, and it keeps showing as changed (its blob vs an LFS pointer).
-      const zip = await buildZip(scope, id, includeData, get().lfsOverrides)
-      const status = await gitStatus(scope, id, zip, branch, includeData)
+      const zip = await buildZip(scope, id, get().lfsOverrides)
+      const status = await gitStatus(scope, id, zip, branch)
       if (gen !== statusGen) return // superseded by a newer refresh — drop this result
-      // Re-seed the selection: keep the user's choices for paths that still
-      // change, default-select new paths. Deletions are never checked by default
-      // (see defaultSelectedPaths); data files only when includeData is on.
+      // Re-seed the selection: keep the user's choices for paths that still change,
+      // default-select new paths. Deletions and unmarked data files are never
+      // checked by default (see defaultSelectedPaths); a data file marked for
+      // versioning is emitted into the export, so it shows up and is default-checked.
       const prev = get().selected
       const hadStatus = get().status !== null
       const changed = status.files.map((f) => f.path)
-      const defaultList = includeData
-        // includeData adds data files back in, but must still leave hand-enriched
-        // repo config (.gitignore/.gitattributes) unchecked — same as the default.
-        ? status.files
-            .filter((f) => f.changeType !== 'deleted' && !isUnownedConfigModification(f))
-            .map((f) => f.path)
-        : defaultSelectedPaths(scope, status.files)
-      const defaults = new Set(defaultList)
+      const defaults = new Set(defaultSelectedPaths(scope, status.files))
       const selected = new Set(
         changed.filter((p) => (hadStatus ? prev.has(p) : defaults.has(p))),
       )
@@ -276,8 +265,8 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     try {
       // Same .gitattributes as the status/commit build, so the diff of a big file
       // matches its chosen LFS state (pointer vs blob) rather than the default rule.
-      const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
-      const diff = await gitDiff(scope, id, zip, path, branch, get().includeData)
+      const zip = await buildZip(scope, id, get().lfsOverrides)
+      const diff = await gitDiff(scope, id, zip, path, branch)
       _diffCache.set(cacheKey, diff)
       return diff
     } catch (err) {
@@ -299,8 +288,8 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     if (paths.length === 0) return null
     set({ committing: true, error: null })
     try {
-      const zip = await buildZip(scope, id, get().includeData, get().lfsOverrides)
-      const result = await gitCommitPush(scope, id, zip, message, branch, paths, get().includeData)
+      const zip = await buildZip(scope, id, get().lfsOverrides)
+      const result = await gitCommitPush(scope, id, zip, message, branch, paths)
       // After a commit the pushed files are clean; refresh so the UI updates and
       // the local anchor is level with the remote again (otherwise the pushed
       // files keep showing as "to commit"). refreshStatus flips loadingStatus, so
@@ -315,13 +304,6 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     } finally {
       set({ committing: false })
     }
-  },
-
-  setIncludeData: async (scope, id, value, branch) => {
-    // Changing data inclusion changes the export (files + .gitignore), so the
-    // pending changes must be recomputed against the new ZIP.
-    set({ includeData: value })
-    await get().refreshStatus(scope, id, branch)
   },
 
   togglePath: (path) =>
@@ -366,6 +348,6 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     statusGen++ // invalidate any in-flight refresh from the closing panel
     _zipCache = null // drop the cached export ZIP so the next entity rebuilds fresh
     _diffCache = new Map() // and the per-file diffs computed against it
-    set({ status: null, branches: null, syncState: null, selected: new Set(), includeData: false, lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false, statusKey: null })
+    set({ status: null, branches: null, syncState: null, selected: new Set(), lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false, statusKey: null })
   },
 }))

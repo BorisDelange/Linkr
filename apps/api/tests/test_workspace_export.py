@@ -72,7 +72,7 @@ def _full_project_sub_tree(data: dict, project: dict, org: dict) -> dict[str, by
         dataset_raw_files={},
         attachments=[],
         attachment_blobs={},
-        include_data_files=True,
+        versioned_data_files=set(),
     )
 
 

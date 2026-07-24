@@ -334,7 +334,7 @@ def build_project_tree(
     dataset_raw_files: dict[str, dict],
     attachments: list[dict],
     attachment_blobs: dict[str, bytes],
-    include_data_files: bool,
+    versioned_data_files: set[str],
 ) -> dict[str, bytes]:
     """Build the git-variant project export tree as ``{path: bytes}``.
 
@@ -414,6 +414,9 @@ def build_project_tree(
         name = _slugify(_localized_en(d.get("name")) or dash_key or d["id"])
         tree[f"dashboards/{name}.json"] = _build_dashboard_json(d, tabs, widgets)
 
+    # Tree paths of data files actually written — each becomes a `!path` exception
+    # in .gitignore so git tracks exactly the marked files and nothing else.
+    included_data_paths: list[str] = []
     if dataset_files:
         by_id = {f["id"]: f for f in dataset_files}
         tree["datasets/_tree.json"] = _json(
@@ -434,21 +437,27 @@ def build_project_tree(
                     f"datasets/{folder_name}/{_slugify(a.get('name') or a['id'])}.json"
                 ] = _json(_strip_instance_fields(a))
 
-            if include_data_files:
+            # A data file leaves the machine only when the user marked it for
+            # versioning (project.config.versionedDataFiles). Its tree path is then
+            # re-included via a !path exception in .gitignore below.
+            if ds_path in versioned_data_files:
                 rows = dataset_data.get(df["id"])
                 raw = dataset_raw_files.get(df["id"])
                 if raw and raw.get("blob") is not None:
                     tree[f"datasets/{folder_name}/{raw['fileName']}"] = raw["blob"]
+                    included_data_paths.append(f"datasets/{folder_name}/{raw['fileName']}")
                     if rows:
                         tree[f"datasets/{folder_name}/_data.json"] = _json(
                             {"rows": rows}
                         )
+                        included_data_paths.append(f"datasets/{folder_name}/_data.json")
                 elif rows:
                     leaf = ds_path.rsplit("/", 1)[-1] or df["name"]
                     base_name = leaf.rsplit(".", 1)[0] if "." in leaf else leaf
                     tree[f"datasets/{folder_name}/{base_name}.csv"] = _dataset_to_csv(
                         df, rows
                     )
+                    included_data_paths.append(f"datasets/{folder_name}/{base_name}.csv")
 
     if attachments:
         tree["attachments/_meta.json"] = _json(
@@ -459,15 +468,17 @@ def build_project_tree(
             if blob is not None:
                 tree[f"attachments/{att['id']}-{att['fileName']}"] = blob
 
-    gitignore_lines = [".cache/"]
-    if not include_data_files:
-        gitignore_lines = [
-            "datasets/**/*.csv",
-            "datasets/**/*.parquet",
-            "datasets/**/*.xlsx",
-            "datasets/**/*.xls",
-            *gitignore_lines,
-        ]
+    # Data files ignored by default; each file marked for versioning is re-included
+    # via a `!path` exception AFTER the ignore rules (git honours the last match).
+    # Byte-faithful to buildProjectZip's .gitignore block.
+    gitignore_lines = [
+        "datasets/**/*.csv",
+        "datasets/**/*.parquet",
+        "datasets/**/*.xlsx",
+        "datasets/**/*.xls",
+        ".cache/",
+    ]
+    gitignore_lines.extend(f"!{p}" for p in included_data_paths)
     tree[".gitignore"] = ("\n".join(gitignore_lines) + "\n").encode("utf-8")
 
     return tree

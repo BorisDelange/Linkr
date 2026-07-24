@@ -36,9 +36,9 @@ describe('isDataFile', () => {
 describe('defaultSelectedPaths', () => {
   const f = (path: string, changeType = 'modified') => ({ path, changeType })
 
-  it('selects everything except data files', () => {
+  it('selects data files too — a data file only reaches the status when marked for versioning, so its presence is consent', () => {
     const files = [f('project.json'), f('datasets/c/data.csv'), f('dashboards/d.json'), f('datasets/_tree.json')]
-    expect(defaultSelectedPaths('projects', files)).toEqual(['project.json', 'dashboards/d.json', 'datasets/_tree.json'])
+    expect(defaultSelectedPaths('projects', files)).toEqual(['project.json', 'datasets/c/data.csv', 'dashboards/d.json', 'datasets/_tree.json'])
   })
 
   it('selects a deletion of a Linkr-OWNED file (its removal is a genuine deletion to push)', () => {

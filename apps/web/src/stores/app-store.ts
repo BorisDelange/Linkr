@@ -161,6 +161,9 @@ interface AppState {
   updateProjectAuthoring: (uid: string, patch: Partial<Pick<Project, 'createdById' | 'createdBy' | 'createdByDetails' | 'organization'>>) => Promise<void>
   updateProjectCatalogVisibility: (uid: string, visibility: CatalogVisibility) => void
   updateProjectPaths: (uid: string, patch: Partial<Pick<Project, 'idePath' | 'scriptsPath' | 'datasetsPath'>>) => Promise<void>
+  /** Toggle a dataset-relative path in project.config.versionedDataFiles (mark /
+   *  unmark a data file "to version"). Persists + travels with the export. */
+  toggleVersionedDataFile: (uid: string, path: string) => Promise<void>
   getWorkspaceProjects: (workspaceId: string) => ProjectItem[]
   deleteProject: (uid: string) => Promise<void>
 
@@ -488,6 +491,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }))
     await getStorage().projects.update(uid, patch)
+  },
+
+  toggleVersionedDataFile: async (uid, path) => {
+    // The set of data files marked "to version" lives in project.config
+    // (versionedDataFiles) so it persists and travels with the export. Toggling
+    // adds/removes the dataset-relative path; the export then re-includes exactly
+    // these via .gitignore !path exceptions.
+    const project = get()._projectsRaw.find((p) => p.uid === uid)
+    if (!project) return
+    const config = (project.config ?? {}) as Record<string, unknown>
+    const current = Array.isArray(config.versionedDataFiles)
+      ? (config.versionedDataFiles as string[]).filter((p) => typeof p === 'string')
+      : []
+    const next = current.includes(path)
+      ? current.filter((p) => p !== path)
+      : [...current, path]
+    const newConfig = { ...config, versionedDataFiles: next }
+    set((s) => ({
+      _projectsRaw: s._projectsRaw.map((p) =>
+        p.uid === uid ? { ...p, config: newConfig } : p
+      ),
+    }))
+    await getStorage().projects.update(uid, { config: newConfig })
   },
 
   deleteProject: async (uid) => {

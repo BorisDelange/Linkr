@@ -40,8 +40,14 @@ function isConfigFile(path: string): boolean {
 }
 
 /**
- * Paths checked by default in the commit list. Excludes data files (health data
- * isn't pushed by accident) and modifications to hand-enriched repo config.
+ * Paths checked by default in the commit list, and modifications to hand-enriched
+ * repo config are left unchecked.
+ *
+ * Data files are NO LONGER excluded here: a data file only reaches the export tree
+ * (and thus this status list) when the user explicitly marked it for versioning
+ * (project.config.versionedDataFiles). So its presence IS the consent — check it by
+ * default like any other file. Unmarked data never enters the export, so it can't
+ * appear here. (isDataFile stays exported for callers that still classify paths.)
  *
  * A "deleted" file is one present on the remote but absent from Linkr's export.
  * When it maps to a KNOWN category (a mapping, dashboard, script, … that Linkr
@@ -57,7 +63,7 @@ export function defaultSelectedPaths(
 ): string[] {
   return files
     .filter((f) => {
-      if (isDataFile(f.path) || isUnownedConfigModification(f)) return false
+      if (isUnownedConfigModification(f)) return false
       // A deleted .gitignore/.gitattributes is category 'config' (not 'other'), so
       // don't let the deletion branch below propose to erase a hand-enriched remote
       // copy by default — same reasoning as isUnownedConfigModification.

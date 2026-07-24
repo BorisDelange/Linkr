@@ -941,6 +941,9 @@
   "datasets": {
     "title": "Datasets",
     "description": "Manage analysis-ready datasets.",
+    "mark_versioned": "Mark for versioning",
+    "unmark_versioned": "Remove from versioning",
+    "versioned_badge": "Marked for versioning (committed with the project)",
     "component_server_unavailable": "This visualization isn't available in server mode yet — it will run server-side in a future update.",
     "new_dataset": "New dataset",
     "new_dataset_description": "Create an empty dataset file.",
@@ -1507,6 +1510,7 @@
     "export_download": "Download ZIP",
     "export_include_data": "Include data files (CSV datasets)",
     "export_include_data_hint": "Data files are excluded by default for security. Enable this only if you need to share the actual dataset contents.",
+    "export_data_hint": "Data files are excluded by default for security. To include a specific dataset, mark it “for versioning” in the Datasets sidebar (right-click).",
     "import_title": "Import",
     "import_description": "Restore a project from a ZIP archive.",
     "import_warning": "This will overwrite the current project files.",

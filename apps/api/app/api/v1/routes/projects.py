@@ -46,20 +46,19 @@ async def get_project(project=Depends(require_project_permission("project-summar
 
 @router.get("/{project_uid}/export-zip")
 async def export_zip(
-    include_data: bool = False,
     project=Depends(require_project_permission("project-settings:read")),
     db: AsyncSession = Depends(get_db),
 ):
     """Build the project's export ZIP server-side and return it for download — the
     same git-variant tree the versioning flow commits. Offloads the browser: no
-    dataset data comes down just to be re-zipped. ``include_data`` mirrors the
-    export dialog's toggle. See docs/architecture.md ("Fullstack Storage & Compute")."""
+    dataset data comes down just to be re-zipped. Data-file inclusion follows the
+    project's versionedDataFiles marking. See docs/architecture.md."""
     from fastapi.responses import Response
 
     from app.services.project_export import _slugify
     from app.services.project_export_assemble import assemble_project_zip
 
-    zip_bytes = await assemble_project_zip(db, project, include_data)
+    zip_bytes = await assemble_project_zip(db, project)
     name = project.name.get("en") if isinstance(project.name, dict) else project.name
     slug = _slugify(name or project.uid)
     return Response(

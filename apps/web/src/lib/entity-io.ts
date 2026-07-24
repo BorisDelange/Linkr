@@ -254,7 +254,7 @@ export async function readBinaryFromImportZip(
 //   project.json                      — project metadata (without readme/todos/notes)
 //   README.md                         — readme content
 //   tasks.json                        — { todos, notes }
-//   .gitignore                        — dynamic (datasets/**/*.csv excluded unless includeDataFiles)
+//   .gitignore                        — data files ignored; each versionedDataFiles entry re-included via !path
 //   scripts/_tree.json                — IDE file tree metadata (for round-trip import)
 //   scripts/{path}                    — IDE files under scripts/ folder
 //   pipeline/pipeline.json            — array of pipelines
@@ -271,7 +271,19 @@ export async function readBinaryFromImportZip(
 // ---------------------------------------------------------------------------
 
 export interface BuildProjectZipOptions {
-  includeDataFiles?: boolean // default false
+  // Reserved for future build options. Data-file inclusion is no longer a blanket
+  // toggle: a data file is versioned iff its path is in project.config
+  // versionedDataFiles (marked per-file in the sidebar) — see markedDataFiles().
+  _reserved?: never
+}
+
+/** The set of dataset-relative paths (dsPath, e.g. "cohort.csv") the user marked
+ * "to version" for this project. Lives in project.config.versionedDataFiles so it
+ * persists and travels with the export. A data file is written to the export tree
+ * (and allowed past .gitignore) iff its dsPath is in this set. */
+export function markedDataFiles(project: { config?: Record<string, unknown> } | null | undefined): Set<string> {
+  const raw = project?.config?.versionedDataFiles
+  return new Set(Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : [])
 }
 
 function resolveProjectName(project: Project): string {
@@ -458,9 +470,10 @@ export async function buildProjectZip(
   storage: Storage,
   options: BuildProjectZipOptions = {},
 ): Promise<{ blob: Blob; projectName: string } | null> {
-  const { includeDataFiles = false } = options
+  void options
   const project = await storage.projects.getById(projectUid)
   if (!project) return null
+  const marked = markedDataFiles(project)
 
   const zip = new JSZip()
 
@@ -585,6 +598,9 @@ export async function buildProjectZip(
   }
 
   // --- datasets/ (tree + analyses + optional data CSV) ---
+  // Tree paths of data files actually written — each becomes a `!path` exception
+  // in .gitignore so git tracks exactly the marked files and nothing else.
+  const includedDataPaths: string[] = []
   const datasetFiles = await storage.datasetFiles.getByProject(projectUid)
   if (datasetFiles.length > 0) {
     const byId = new Map(datasetFiles.map(f => [f.id, f]))
@@ -604,21 +620,25 @@ export async function buildProjectZip(
         zip.file(`datasets/${folderName}/${slugify(a.name || a.id)}.json`, json(stripInstanceFields(a)))
       }
 
-      if (includeDataFiles) {
+      // A data file leaves the machine only when explicitly marked for versioning.
+      if (marked.has(dsPath)) {
         const data = await storage.datasetData.get(df.id)
         const raw = await storage.datasetRawFiles.get(df.id)
 
         if (raw?.blob) {
           // Original uploaded file (CSV/XLSX/parquet) kept verbatim for the user.
           zip.file(`datasets/${folderName}/${raw.fileName}`, raw.blob, { compression: 'STORE' })
+          includedDataPaths.push(`datasets/${folderName}/${raw.fileName}`)
           // Parsed rows sidecar so import restores the table without re-parsing XLSX/parquet.
           if (data && data.rows.length > 0) {
             zip.file(`datasets/${folderName}/_data.json`, json({ rows: data.rows }))
+            includedDataPaths.push(`datasets/${folderName}/_data.json`)
           }
         } else if (data && data.rows.length > 0) {
           // Computed dataset (no source file): reconstructed CSV, always named .csv.
           const baseName = (dsPath.split('/').pop() ?? df.name).replace(/\.[^.]+$/, '')
           zip.file(`datasets/${folderName}/${baseName}.csv`, datasetToCsv(df, data.rows))
+          includedDataPaths.push(`datasets/${folderName}/${baseName}.csv`)
         }
       }
     }
@@ -634,10 +654,14 @@ export async function buildProjectZip(
     }
   }
 
-  // --- .gitignore (dynamic based on includeDataFiles option) ---
-  const gitignoreLines = ['.cache/']
-  if (!includeDataFiles) {
-    gitignoreLines.unshift('datasets/**/*.csv', 'datasets/**/*.parquet', 'datasets/**/*.xlsx', 'datasets/**/*.xls')
+  // --- .gitignore ---
+  // Data files are ignored by default (health data never committed by accident);
+  // each file the user marked for versioning is re-included via a `!path` exception
+  // AFTER the ignore rules (git honours the last match). Extension patterns (not
+  // `datasets/**`) keep the parent dirs un-ignored so the exceptions resolve.
+  const gitignoreLines = ['datasets/**/*.csv', 'datasets/**/*.parquet', 'datasets/**/*.xlsx', 'datasets/**/*.xls', '.cache/']
+  for (const p of includedDataPaths) {
+    gitignoreLines.push(`!${p}`)
   }
   zip.file('.gitignore', gitignoreLines.join('\n') + '\n')
 
@@ -1272,7 +1296,6 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
 // ---------------------------------------------------------------------------
 
 export interface BuildWorkspaceZipOptions {
-  includeDataFiles?: boolean
   /** Per-section toggles (all true by default for backwards compat) */
   sections?: {
     projects?: boolean
@@ -1886,8 +1909,9 @@ export async function buildWorkspaceZip(
         gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
       } else if (includeData[project.uid]) {
         // Full project content nested under projects/<folder>/ (reuses buildProjectZip layout).
-        // The per-project "include data" checkbox is the request to bundle data files too.
-        const sub = await buildProjectZip(project.uid, storage, { includeDataFiles: true })
+        // Data files are bundled per the project's own versionedDataFiles marking
+        // (buildProjectZip reads project.config) — no blanket include flag anymore.
+        const sub = await buildProjectZip(project.uid, storage, {})
         if (sub) {
           const subZip = await JSZip.loadAsync(sub.blob)
           await Promise.all(Object.keys(subZip.files).map(async (path) => {

@@ -1,9 +1,10 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Folder,
   FolderOpen,
   FileSpreadsheet,
+  GitCommitVertical,
   Pencil,
   Trash2,
   Copy,
@@ -51,6 +52,13 @@ import type { DatasetFile } from '@/types'
  * menu can build an absolute "Copy path" and decide whether a relative path is
  * meaningful (only when the datasets dir sits under the IDE working dir). */
 const ResolvedDirsContext = createContext<{ ideDir: string; datasetsDir: string } | null>(null)
+
+/** Per-project versioning marks shared with every tree item: which dataset paths
+ * are marked "to version" (badge + default menu state) and how to toggle one. */
+const VersioningContext = createContext<{
+  marked: Set<string>
+  toggle: (path: string) => void
+} | null>(null)
 
 function sortNodes(a: DatasetFile, b: DatasetFile): number {
   if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
@@ -113,6 +121,12 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
     !resolvedDirs ||
     resolvedDirs.datasetsDir === resolvedDirs.ideDir ||
     resolvedDirs.datasetsDir.startsWith(`${resolvedDirs.ideDir}/`)
+
+  const versioning = useContext(VersioningContext)
+  const nodeDsPath = getNodePath(files, node.id)
+  // Data files are gitignored by default; a marked one is versioned (committed +
+  // exported). Marking is only meaningful for real files, not folders.
+  const isMarkedVersioned = versioning?.marked.has(nodeDsPath) ?? false
 
   const isFolder = node.type === 'folder'
   const isExpanded = expandedFolders.includes(node.id)
@@ -297,7 +311,18 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
                 className="ml-1"
               />
             ) : (
-              <span className="ml-1 truncate">{node.name}</span>
+              <span className="ml-1 flex min-w-0 items-center gap-1 truncate">
+                <span className="truncate">{node.name}</span>
+                {isMarkedVersioned && (
+                  <GitCommitVertical
+                    size={12}
+                    className="shrink-0 text-primary"
+                    aria-label={t('datasets.versioned_badge')}
+                  >
+                    <title>{t('datasets.versioned_badge')}</title>
+                  </GitCommitVertical>
+                )}
+              </span>
             )}
           </div>
         </ContextMenuTrigger>
@@ -325,11 +350,16 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />
+          {!isFolder && versioning && (
+            <ContextMenuItem onClick={() => versioning.toggle(nodeDsPath)}>
+              <GitCommitVertical size={14} />
+              {isMarkedVersioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned')}
+            </ContextMenuItem>
+          )}
           {resolvedDirs && (
             <ContextMenuItem
               onClick={() => {
-                const rel = getNodePath(files, node.id)
-                navigator.clipboard.writeText(`${resolvedDirs.datasetsDir}/${rel}`)
+                navigator.clipboard.writeText(`${resolvedDirs.datasetsDir}/${nodeDsPath}`)
               }}
             >
               <Clipboard size={14} />
@@ -401,6 +431,15 @@ export function DatasetFileTree() {
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const idePath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.idePath)
   const datasetsPath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.datasetsPath)
+  const toggleVersionedDataFile = useAppStore((s) => s.toggleVersionedDataFile)
+  const versionedRaw = useAppStore((s) => {
+    const cfg = s._projectsRaw.find((p) => p.uid === activeProjectUid)?.config as Record<string, unknown> | undefined
+    return cfg?.versionedDataFiles
+  })
+  const markedPaths = useMemo(
+    () => new Set(Array.isArray(versionedRaw) ? (versionedRaw as unknown[]).filter((p): p is string => typeof p === 'string') : []),
+    [versionedRaw],
+  )
   // Re-resolve when a binding changes (the settings tab may have re-pointed it).
   const resolved = useResolvedDirs(activeProjectUid, `${idePath ?? ''}|${datasetsPath ?? ''}`)
   const [rootDragOver, setRootDragOver] = useState(false)
@@ -452,6 +491,9 @@ export function DatasetFileTree() {
     <ResolvedDirsContext.Provider
       value={resolved ? { ideDir: resolved.ide, datasetsDir: resolved.datasets } : null}
     >
+     <VersioningContext.Provider
+      value={activeProjectUid ? { marked: markedPaths, toggle: (p) => void toggleVersionedDataFile(activeProjectUid, p) } : null}
+     >
       <ScrollArea className="flex-1">
         <div
           className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
@@ -498,6 +540,7 @@ export function DatasetFileTree() {
           file={importSettingsTarget}
         />
       )}
+     </VersioningContext.Provider>
     </ResolvedDirsContext.Provider>
   )
 }

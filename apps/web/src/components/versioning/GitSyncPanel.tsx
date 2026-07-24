@@ -50,7 +50,7 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, syncState, selected, includeData, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, setIncludeData, lfsPaths, toggleLfs } =
+  const { status, branches, syncState, selected, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
     useGitSyncStore()
   const authorName = useAppStore((s) => s.getUserDisplayName())
   // Behind/diverged detection is only wired for mapping projects in v1.
@@ -197,22 +197,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
     </div>
   )
 
-  // Mapping projects have no optional data files (source-concepts always tracked,
-  // scores always gitignored), so the toggle is a no-op there and stays hidden.
-  const supportsDataFiles = scope !== 'mapping-projects'
-  const includeDataToggle = supportsDataFiles ? (
-    <label htmlFor="git-include-data" className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-      <Checkbox
-        id="git-include-data"
-        checked={includeData}
-        onCheckedChange={(v) => setIncludeData(scope, id, !!v, branch)}
-        // Not disabled during loading: toggling supersedes the in-flight
-        // compute (statusGen) and recomputes immediately — no waiting.
-        disabled={committing}
-      />
-      {t('versioning.sync_include_data')}
-    </label>
-  ) : null
+  // Data-file versioning is per-file: a data file is committed only when marked in
+  // its sidebar (project.config.versionedDataFiles), which re-includes it via a
+  // .gitignore exception. No blanket "include data" toggle anymore.
 
   // Quick mode only exists for scopes that define quick actions (mapping
   // projects today). Elsewhere the panel is the Details UI alone, no tab bar.
@@ -233,12 +220,6 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
             refresh like Details, but no file selection or commit message. */}
         <TabsContent value="quick" className="flex min-h-0 flex-1 flex-col gap-3">
           {branchRow}
-
-          {/* Kept above the loading/empty states so it can be (un)ticked WHILE the
-              status is still computing — toggling supersedes the in-flight compute
-              and recomputes, so the user needn't wait for the first result. Hidden
-              only when the remote can't be read (auth blocked). */}
-          {!authBlocked && includeDataToggle}
 
           {loadingStatus ? (
             <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
@@ -261,8 +242,6 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
                     // While one action commits, the others disable (but don't spin);
                     // a pull-first requirement disables all.
                     disabled={mustPullFirst || (runningQuickAction != null && runningQuickAction !== qa.messageKey)}
-                    includeData={includeData}
-                    supportsDataFiles={supportsDataFiles}
                     onRun={() => runQuickAction(qa)}
                     onOpenDiff={setDiffPath}
                     t={t}
@@ -300,8 +279,6 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
       {authBlocked && authBlock}
 
       {!authBlocked && <>
-      {includeDataToggle}
-
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
           <div className="flex items-center gap-2">
@@ -467,7 +444,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
  * Disabled when there's nothing to push or a pull is required.
  */
 function QuickActionCard({
-  action, primary, running, disabled, includeData, supportsDataFiles, onRun, onOpenDiff, t,
+  action, primary, running, disabled, onRun, onOpenDiff, t,
 }: {
   action: QuickAction
   primary: boolean
@@ -475,8 +452,6 @@ function QuickActionCard({
   running: boolean
   /** Disabled (another action is running, or a pull is required) — no spinner. */
   disabled: boolean
-  includeData: boolean
-  supportsDataFiles: boolean
   onRun: () => void
   /** Open the full-size diff viewer on a file — same as clicking a row in Details. */
   onOpenDiff: (path: string) => void
@@ -484,12 +459,11 @@ function QuickActionCard({
 }) {
   const nothing = action.files.length === 0
   const accent = action.isSyncAll
-  // "Sync all" without data files pushes the DELETION of any data files the remote
-  // still has — surface that so the user doesn't wipe them by accident.
+  // "Sync all" that pushes a data-file DELETION: only reachable for a file the user
+  // had marked for versioning and then removed — surface it so a marked file isn't
+  // wiped from the remote unnoticed.
   const deletesData =
     action.isSyncAll &&
-    supportsDataFiles &&
-    !includeData &&
     action.files.some((f) => f.changeType === 'deleted' && isDataFilePath(f.path))
   return (
     <div className={cn('flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm', accent && SYNC_ALL_ACCENT.border)}>
