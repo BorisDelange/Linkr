@@ -525,8 +525,10 @@ def build_workspace_tree(
         _build_plugins_section(tree, plugins)
 
     if git_links.links:
-        tree["git-links.json"] = _json(
-            {"appVersion": APP_VERSION, "links": git_links.links}
-        )
+        # Sort deterministically so adding/removing an unrelated link never reorders
+        # the rest and churns the versioning diff. Key is (type, id) — id is an
+        # immutable UUID. Must match the TS export (entity-io.ts).
+        links = sorted(git_links.links, key=lambda l: (l["type"], l["id"]))
+        tree["git-links.json"] = _json({"appVersion": APP_VERSION, "links": links})
 
     return tree

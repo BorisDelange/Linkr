@@ -2,17 +2,17 @@
   "appVersion": "2.2.1",
   "links": [
     {
-      "type": "project",
-      "id": "proj-linked",
-      "folder": "linked-proj",
-      "url": "https://git.example.org/linked.git",
-      "branch": "main"
-    },
-    {
       "type": "mapping-project",
       "id": "mp-linked",
       "folder": "linked-mapping",
       "url": "https://git.example.org/mapping.git",
+      "branch": "main"
+    },
+    {
+      "type": "project",
+      "id": "proj-linked",
+      "folder": "linked-proj",
+      "url": "https://git.example.org/linked.git",
       "branch": "main"
     }
   ]

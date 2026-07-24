@@ -2185,7 +2185,12 @@ export async function buildWorkspaceZip(
 
   // --- git-links.json (manifest of git-linked entities; portal build derives .gitmodules from it) ---
   if (gitLinks.length > 0) {
-    zip.file('git-links.json', json({ appVersion: APP_VERSION, links: gitLinks }))
+    // Sort deterministically so adding/removing an unrelated link never reorders the rest
+    // and churns the versioning diff. Key is (type, id) — id is an immutable UUID.
+    const links = [...gitLinks].sort(
+      (a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id),
+    )
+    zip.file('git-links.json', json({ appVersion: APP_VERSION, links }))
   }
 
   const blob = await zip.generateAsync({ type: 'blob' })
