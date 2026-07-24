@@ -209,8 +209,16 @@ def export_script_path(project_uid: str, rel: str) -> Path:
 
 
 def read_script(project_uid: str, rel: str) -> str:
+    # A bound ide_path can hold binary files (xlsx, docx, parquet…). The IDE only
+    # edits text, so a non-decodable file reads as empty rather than 500-ing the
+    # whole tree scan (list_files reads every file's content in one pass).
     p = script_path(project_uid, rel)
-    return p.read_text(encoding="utf-8") if p.is_file() else ""
+    if not p.is_file():
+        return ""
+    try:
+        return p.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, ValueError):
+        return ""
 
 
 def write_script(project_uid: str, rel: str, content: str) -> None:

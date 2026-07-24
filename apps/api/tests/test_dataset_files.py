@@ -21,17 +21,37 @@ def _datasets(uid):
     return project_fs.datasets_dir(uid)  # ensures the dir exists
 
 
-async def test_scan_lists_external_csv_with_columns(client, seed_roles):
-    """A CSV dropped straight into datasets/ shows up with inferred columns."""
+async def _meta(client, headers, uid, path) -> dict:
+    """Resolve one file's columns/rowCount via the lazy /meta endpoint (the list
+    itself carries no meta — see test_scan_lists_names_only)."""
+    return (await client.get(
+        f"{API}/dataset-files/meta", headers=headers, params={"projectUid": uid, "path": path}
+    )).json()
+
+
+async def test_scan_lists_names_only(client, seed_roles):
+    """The listing is lazy: files show up (names + tree) but WITHOUT columns/
+    rowCount — those are resolved per file via /meta on open, so a big/CSV folder
+    lists instantly."""
     h = await _admin_headers(client)
     uid = await _project(client, h)
     (_datasets(uid) / "mortality.csv").write_text("age,sex\n70,M\n80,F\n,M\n")
 
     files = (await client.get(f"{API}/dataset-files", headers=h, params={"projectUid": uid})).json()
-    by_path = {f["path"]: f for f in files}
-    node = by_path["mortality.csv"]
-    assert node["type"] == "file" and node["rowCount"] == 3
-    names = [(c["name"], c["type"]) for c in node["columns"]]
+    node = {f["path"]: f for f in files}["mortality.csv"]
+    assert node["type"] == "file"
+    assert node["columns"] is None and node["rowCount"] is None
+
+
+async def test_meta_resolves_columns_on_demand(client, seed_roles):
+    """A CSV dropped straight into datasets/ gets inferred columns via /meta."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "mortality.csv").write_text("age,sex\n70,M\n80,F\n,M\n")
+
+    meta = await _meta(client, h, uid, "mortality.csv")
+    assert meta["rowCount"] == 3
+    names = [(c["name"], c["type"]) for c in meta["columns"]]
     assert ("age", "number") in names and ("sex", "string") in names
 
 
@@ -56,8 +76,7 @@ async def test_rows_query_column_filter_applies(client, seed_roles):
     h = await _admin_headers(client)
     uid = await _project(client, h)
     (_datasets(uid) / "w.csv").write_text("ward\nICU\nER\nICU\nWard\n")
-    files = (await client.get(f"{API}/dataset-files", headers=h, params={"projectUid": uid})).json()
-    col_id = files[0]["columns"][0]["id"]
+    col_id = (await _meta(client, h, uid, "w.csv"))["columns"][0]["id"]
     # Substring text filter → only the two ICU rows.
     r = await client.post(
         f"{API}/dataset-files/rows/query",
@@ -78,8 +97,7 @@ async def test_column_stats_over_cache(client, seed_roles):
     h = await _admin_headers(client)
     uid = await _project(client, h)
     (_datasets(uid) / "d.csv").write_text("age\n10\n20\n30\n")
-    files = (await client.get(f"{API}/dataset-files", headers=h, params={"projectUid": uid})).json()
-    col_id = files[0]["columns"][0]["id"]
+    col_id = (await _meta(client, h, uid, "d.csv"))["columns"][0]["id"]
     r = await client.get(
         f"{API}/dataset-files/columns/{col_id}/stats",
         headers=h, params={"projectUid": uid, "path": "d.csv"},
@@ -92,8 +110,7 @@ async def test_column_distinct_over_cache(client, seed_roles):
     h = await _admin_headers(client)
     uid = await _project(client, h)
     (_datasets(uid) / "wards.csv").write_text("ward\nICU\nER\nICU\nWard\n")
-    files = (await client.get(f"{API}/dataset-files", headers=h, params={"projectUid": uid})).json()
-    col_id = files[0]["columns"][0]["id"]
+    col_id = (await _meta(client, h, uid, "wards.csv"))["columns"][0]["id"]
     r = await client.get(
         f"{API}/dataset-files/columns/{col_id}/distinct",
         headers=h, params={"projectUid": uid, "path": "wards.csv"},
@@ -107,6 +124,43 @@ async def test_column_distinct_over_cache(client, seed_roles):
         headers=h, params={"projectUid": uid, "path": "wards.csv", "search": "er"},
     )
     assert r2.json()["values"] == ["ER"]
+
+
+async def test_native_parquet_rows_keyed_by_col_id(client, seed_roles):
+    """A native parquet (real column names) resolves via /meta and its rows come
+    back keyed by col_<slug> ids — not the raw parquet names — so the client table
+    finds each cell (guards the native-column aliasing)."""
+    import duckdb
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    p = _datasets(uid) / "person.parquet"
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t(person_id INTEGER, gender VARCHAR)")
+    con.execute("INSERT INTO t VALUES (1,'M'),(2,'F')")
+    con.execute(f"COPY t TO '{p.as_posix()}' (FORMAT PARQUET)")
+    con.close()
+
+    meta = await _meta(client, h, uid, "person.parquet")
+    ids = {c["name"]: c["id"] for c in meta["columns"]}
+    assert set(ids) == {"person_id", "gender"} and meta["rowCount"] == 2
+
+    r = await client.post(
+        f"{API}/dataset-files/rows/query",
+        headers=h, params={"projectUid": uid, "path": "person.parquet"},
+        json={"offset": 0, "limit": 10},
+    )
+    body = r.json()
+    assert body["total"] == 2
+    assert set(body["rows"][0].keys()) == set(ids.values())
+
+    # A filter by col id resolves against the aliased native column.
+    r2 = await client.post(
+        f"{API}/dataset-files/rows/query",
+        headers=h, params={"projectUid": uid, "path": "person.parquet"},
+        json={"offset": 0, "limit": 10, "filters": [{"colId": ids["gender"], "values": ["M"]}]},
+    )
+    assert r2.json()["total"] == 1
 
 
 async def test_delete_purges_cache(client, seed_roles):

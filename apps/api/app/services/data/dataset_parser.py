@@ -128,6 +128,50 @@ def parse_blob(path: Path, file_name: str, parse_options: dict | None):
     return columns, _rows_from(raw_rows, columns), len(raw_rows)
 
 
+def _our_type_for_duckdb(duckdb_type: str) -> str:
+    """Map a DuckDB column type (from DESCRIBE) to our 4 canonical types. Used only
+    for native-parquet listing, where the file already carries real types — so we
+    trust them instead of scanning every value in Python."""
+    t = duckdb_type.upper()
+    if t.startswith(("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT",
+                     "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT",
+                     "DECIMAL", "NUMERIC", "REAL", "FLOAT", "DOUBLE")):
+        return "number"
+    if t.startswith("BOOLEAN"):
+        return "boolean"
+    if t.startswith(("DATE", "TIMESTAMP", "TIME")):
+        return "date"
+    return "string"
+
+
+def parquet_schema(path: Path) -> tuple[list[dict], int]:
+    """Columns + row count of a native .parquet WITHOUT materializing any rows.
+
+    DuckDB reads the schema and the footer's row count from metadata, so this is
+    near-instant even on multi-GB files — unlike parse_blob, which fetchall()s
+    every row. Column ids/types match parse_blob's shape (id = col_<slug>, one of
+    the 4 canonical types). Used by the dataset listing / cache-meta path."""
+    con = duckdb.connect()
+    try:
+        expr = f"read_parquet({_sql_str(str(path))})"
+        described = con.execute(f"DESCRIBE SELECT * FROM {expr}").fetchall()
+        row_count = con.execute(f"SELECT COUNT(*) FROM {expr}").fetchone()[0]
+    finally:
+        con.close()
+    headers = [d[0] for d in described]
+    ids = build_column_ids(headers)
+    columns = [
+        {"id": ids[idx], "name": name, "type": _our_type_for_duckdb(described[idx][1]), "order": idx}
+        for idx, name in enumerate(headers)
+    ]
+    return columns, int(row_count)
+
+
+def _sql_str(value: str) -> str:
+    """Single-quote a string literal for DuckDB (doubling embedded quotes)."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 def excel_sheet_names(path: Path) -> list[str]:
     """Sheet names of an .xlsx, read from the zip's workbook.xml without loading
     the whole workbook. Returns [] if the file isn't a readable xlsx zip."""

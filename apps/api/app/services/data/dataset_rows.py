@@ -157,6 +157,22 @@ def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def _source_expr(path: Path, columns: list[dict] | None) -> str:
+    """The FROM-clause source. A rewritten CSV/XLSX cache already has its columns
+    named ``col_<slug>``, so a raw ``read_parquet`` is enough. A NATIVE parquet is
+    read in place (no rewrite), so its columns keep their real names — alias them
+    to the ``col_<slug>`` ids the rest of the query (filters, sort, stats) speaks,
+    via a projection subquery. ``columns`` is [{id, name}, ...] from resolve_cache;
+    None (the blob-store path) → raw read."""
+    raw = f"read_parquet('{path.as_posix()}')"
+    if not columns:
+        return raw
+    proj = ", ".join(
+        f"{_quote_ident(c['name'])} AS {_quote_ident(c['id'])}" for c in columns
+    )
+    return f"(SELECT {proj} FROM {raw}) t"
+
+
 def _build_where(
     filters: list[dict], na: list[dict], col_types: dict[str, str]
 ) -> tuple[str, list[Any]]:
@@ -230,13 +246,15 @@ def query_page(
     sort: dict | None = None,
     filters: list[dict] | None = None,
     na: list[dict] | None = None,
+    columns: list[dict] | None = None,
 ) -> tuple[list[dict], int]:
     """Return (page_rows, total_count_after_filters) via DuckDB on the Parquet.
 
     This is the server counterpart to DatasetTable's client-side filter/sort/
-    paginate — the page never materialises the whole dataset in the browser."""
+    paginate — the page never materialises the whole dataset in the browser.
+    ``columns`` (id+name) aliases a native parquet's real names to the col ids."""
     where, params = _build_where(filters or [], na or [], col_types)
-    src = f"read_parquet('{path.as_posix()}')"
+    src = _source_expr(path, columns)
     con = duckdb.connect()
     try:
         total = con.execute(f"SELECT count(*) FROM {src}{where}", params).fetchone()[0]
@@ -354,7 +372,8 @@ _DISTINCT_LIMIT = 1000
 
 
 def distinct_values(
-    path: Path, col_id: str, limit: int = _DISTINCT_LIMIT, search: str | None = None
+    path: Path, col_id: str, limit: int = _DISTINCT_LIMIT, search: str | None = None,
+    columns: list[dict] | None = None,
 ) -> dict:
     """Distinct non-null values of one column, sorted, for a filter dropdown.
 
@@ -367,7 +386,7 @@ def distinct_values(
         return {"values": [], "truncated": False}
     limit = max(1, min(int(limit), _DISTINCT_LIMIT))
     ident = _quote_ident(col_id)
-    src = f"read_parquet('{path.as_posix()}')"
+    src = _source_expr(path, columns)
     v = f"CAST({ident} AS VARCHAR)"
     con = duckdb.connect()
     try:
@@ -389,7 +408,9 @@ def distinct_values(
         con.close()
 
 
-def column_stats(path: Path, col_id: str, col_type: str) -> dict:
+def column_stats(
+    path: Path, col_id: str, col_type: str, columns: list[dict] | None = None
+) -> dict:
     """Aggregate stats for one column (server counterpart to ColumnStatsPanel).
 
     All binning/quantiles happen in DuckDB so the browser receives only summary
@@ -397,7 +418,7 @@ def column_stats(path: Path, col_id: str, col_type: str) -> dict:
     if not col_id:
         return {}
     ident = _quote_ident(col_id)
-    src = f"read_parquet('{path.as_posix()}')"
+    src = _source_expr(path, columns)
     con = duckdb.connect()
     try:
         total, non_null, distinct = con.execute(

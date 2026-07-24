@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.services.data.dataset_parser import parse_blob, preview_blob
+from app.services.data.dataset_parser import parquet_schema, parse_blob, preview_blob
 from app.services.data.type_inference import infer_column_type
 
 
@@ -158,3 +158,28 @@ def test_invalid_type_override_ignored(tmp_path):
     columns, _, _ = parse_blob(p, "d.csv", {"columnTypes": {"col_id": "bogus"}})
     # Falls back to inference (number), never trusts an unknown type string.
     assert columns[0]["type"] == "number"
+
+
+def test_parquet_schema_no_row_materialization(tmp_path):
+    # parquet_schema must return columns + count from metadata WITHOUT reading
+    # rows (so a multi-GB parquet lists instantly). Types map from the parquet's
+    # own schema, ids stay col_<slug>, and the count matches the real row count.
+    import duckdb
+
+    path = tmp_path / "d.parquet"
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t(person_id INTEGER, label VARCHAR, ok BOOLEAN, d DATE)")
+    con.execute("INSERT INTO t VALUES (1, 'a', true, DATE '2020-01-01'), (2, 'b', false, DATE '2020-02-01')")
+    con.execute(f"COPY t TO '{path.as_posix()}' (FORMAT PARQUET)")
+    con.close()
+
+    columns, row_count = parquet_schema(path)
+    assert row_count == 2
+    by_id = {c["id"]: c["type"] for c in columns}
+    assert by_id == {
+        "col_person_id": "number",
+        "col_label": "string",
+        "col_ok": "boolean",
+        "col_d": "date",
+    }
+    assert [c["order"] for c in columns] == [0, 1, 2, 3]

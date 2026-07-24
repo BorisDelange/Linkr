@@ -1,6 +1,7 @@
 """Round-trip + paging parity for the Parquet row store (dataset_rows)."""
 
 from app.services.data.dataset_rows import (
+    column_stats,
     distinct_values,
     query_page,
     read_parquet,
@@ -165,3 +166,47 @@ def test_query_page_empty_values_is_noop():
     path = _parquet([{"c0": "a"}, {"c0": "b"}], cols)
     _, total = query_page(path, {"c0": "string"}, filters=[{"colId": "c0", "values": []}])
     assert total == 2
+
+
+def _native_parquet(tmp_path):
+    """A parquet whose columns keep their REAL names (person_id, gender) — i.e. a
+    native file read in place, not a rewritten col_<slug> cache."""
+    import duckdb
+
+    path = tmp_path / "person.parquet"
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE t(person_id INTEGER, gender VARCHAR)"
+    )
+    con.execute("INSERT INTO t VALUES (1, 'M'), (2, 'F'), (3, 'M')")
+    con.execute(f"COPY t TO '{path.as_posix()}' (FORMAT PARQUET)")
+    con.close()
+    # The id↔name mapping resolve_cache would return for this native parquet.
+    columns = [
+        {"id": "col_person_id", "name": "person_id", "type": "number"},
+        {"id": "col_gender", "name": "gender", "type": "string"},
+    ]
+    return path, columns
+
+
+def test_native_parquet_columns_aliased_to_ids(tmp_path):
+    # A native parquet's real names are aliased to col_<slug> ids so the whole
+    # query layer (rows/filter/sort/stats/distinct) speaks ids uniformly.
+    path, columns = _native_parquet(tmp_path)
+    col_types = {c["id"]: c["type"] for c in columns}
+
+    rows, total = query_page(path, col_types, columns=columns)
+    assert total == 3
+    assert set(rows[0].keys()) == {"col_person_id", "col_gender"}
+
+    # A filter by col id resolves against the aliased real column.
+    _, filtered = query_page(
+        path, col_types, filters=[{"colId": "col_gender", "values": ["M"]}], columns=columns
+    )
+    assert filtered == 2
+
+    stats = column_stats(path, "col_person_id", "number", columns=columns)
+    assert stats["count"] == 3 and stats["distinct"] == 3
+
+    distinct = distinct_values(path, "col_gender", columns=columns)
+    assert distinct["values"] == ["F", "M"]

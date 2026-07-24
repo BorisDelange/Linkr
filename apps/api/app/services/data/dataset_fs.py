@@ -62,10 +62,13 @@ def resolve_cache(
     if suffix in _NATIVE_PARQUET:
         meta = _read_meta(meta_path)
         if force or meta is None or meta.get("sig") != sig:
-            columns, _, row_count = _parse(raw, rel, parse_options)
+            # Schema + COUNT from parquet metadata — no row materialization, so a
+            # multi-GB parquet lists in milliseconds (parse_blob would fetchall()
+            # every row and hang the whole event loop).
+            columns, row_count = dataset_parser.parquet_schema(raw)
             meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": True}
             _write_meta(meta_path, meta)
-        return {"parquet": raw, "columns": meta["columns"], "rowCount": meta["rowCount"]}
+        return {"parquet": raw, "columns": meta["columns"], "rowCount": meta["rowCount"], "native": True}
 
     # CSV/XLSX/etc: parse to a Parquet cache when missing/stale.
     parquet = _cache_parquet(project_uid, rel)
@@ -79,7 +82,7 @@ def resolve_cache(
         Path(tmp).replace(parquet)
         meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": False}
         _write_meta(meta_path, meta)
-    return {"parquet": parquet, "columns": meta["columns"], "rowCount": meta["rowCount"]}
+    return {"parquet": parquet, "columns": meta["columns"], "rowCount": meta["rowCount"], "native": False}
 
 
 def _parse(raw: Path, rel: str, parse_options: dict | None):

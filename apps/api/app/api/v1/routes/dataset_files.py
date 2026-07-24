@@ -47,43 +47,64 @@ async def _check_project(db: AsyncSession, project_uid: str, user: User, permiss
     project_fs.prime_binding(project_uid, project.ide_path, project.scripts_path, project.datasets_path)
 
 
-def _resolve_meta(project_uid: str, node: dict) -> tuple[list[dict] | None, int | None]:
-    """Parse (or reuse cache) to expose columns + rowCount for a file node."""
-    if node["type"] != "file":
-        return None, None
-    try:
-        res = dataset_fs.resolve_cache(project_uid, node["path"])
-        return res["columns"], res["rowCount"]
-    except Exception:
-        # Unparseable file (e.g. a non-tabular drop-in) still lists, without meta.
-        return None, None
-
-
 @router.get("", response_model=list[DsNodeResponse])
 async def list_dataset_files(
     project_uid: str = Query(alias="projectUid"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Scan datasets/ from disk. Purges cache entries + reconciles analyses whose
-    raw dataset file disappeared (covers files removed outside the app + Refresh)."""
+    """Scan datasets/ from disk (names + tree only — no columns/rowCount). Those
+    meta are resolved lazily per file via /meta when a file is opened, so the list
+    stays instant regardless of how many/how large the datasets are (parsing a big
+    CSV or a multi-GB parquet on every list would freeze the event loop). Purges
+    cache entries + reconciles analyses whose raw file disappeared."""
     await _check_project(db, project_uid, user, "datasets:read")
     dataset_fs.purge_orphans(project_uid)
     await dataset_service.reconcile_analyses(db, project_uid)
-    out: list[DsNodeResponse] = []
-    for n in project_fs.scan_datasets(project_uid):
-        columns, row_count = _resolve_meta(project_uid, n)
-        out.append(DsNodeResponse(
+    return [
+        DsNodeResponse(
             id=n["id"], name=n["name"], type=n["type"], parent_id=n["parentId"],
-            path=n["path"], columns=columns, row_count=row_count,
-        ))
-    return out
+            path=n["path"], columns=None, row_count=None,
+        )
+        for n in project_fs.scan_datasets(project_uid)
+    ]
+
+
+@router.get("/meta", response_model=DsNodeResponse)
+async def dataset_meta(
+    project_uid: str = Query(alias="projectUid"),
+    path: str = Query(),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Columns + rowCount for one dataset file, resolved on demand (the lazy
+    counterpart to the meta-free listing). Parsing runs in a worker thread so a
+    large file never blocks the event loop. An unparseable file still returns a
+    node, without meta."""
+    await _check_project(db, project_uid, user, "datasets:read")
+    columns: list[dict] | None = None
+    row_count: int | None = None
+    try:
+        res = await asyncio.to_thread(dataset_fs.resolve_cache, project_uid, path)
+        columns, row_count = res["columns"], res["rowCount"]
+    except FileNotFoundError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
+    except Exception:
+        pass
+    return DsNodeResponse(
+        id=project_fs.node_id("ds", path),
+        name=path.rsplit("/", 1)[-1], type="file",
+        parent_id=(project_fs.node_id("ds", path.rsplit("/", 1)[0]) if "/" in path else None),
+        path=path, columns=columns, row_count=row_count,
+    )
 
 
 async def _resolve_file(db: AsyncSession, project_uid: str, path: str, user: User, permission: str) -> dict:
     await _check_project(db, project_uid, user, permission)
     try:
-        return dataset_fs.resolve_cache(project_uid, path)
+        # resolve_cache parses on a cache miss (a big CSV's first open rebuilds the
+        # Parquet cache) — run it off the event loop so it never freezes the server.
+        return await asyncio.to_thread(dataset_fs.resolve_cache, project_uid, path)
     except FileNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
 
@@ -103,9 +124,12 @@ async def query_rows(
     filters = [f.model_dump(by_alias=True) for f in body.filters]
     na = [n.model_dump(by_alias=True) for n in body.na]
     sort = body.sort.model_dump(by_alias=True) if body.sort else None
+    # A native parquet is read in place with its real column names; pass columns
+    # so the query aliases them to the col_<slug> ids the filters/sort speak.
+    native_columns = res["columns"] if res.get("native") else None
     rows, total = dataset_rows.query_page(
         res["parquet"], col_types, offset=body.offset, limit=body.limit,
-        sort=sort, filters=filters, na=na,
+        sort=sort, filters=filters, na=na, columns=native_columns,
     )
     return DatasetRowsPage(rows=rows, total=total)
 
@@ -122,7 +146,8 @@ async def column_stats(
     col = next((c for c in res["columns"] if c["id"] == col_id), None)
     if col is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
-    return dataset_rows.column_stats(res["parquet"], col_id, col["type"])
+    native_columns = res["columns"] if res.get("native") else None
+    return dataset_rows.column_stats(res["parquet"], col_id, col["type"], columns=native_columns)
 
 
 @router.get("/columns/{col_id}/distinct")
@@ -141,7 +166,8 @@ async def column_distinct(
     col = next((c for c in res["columns"] if c["id"] == col_id), None)
     if col is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
-    return dataset_rows.distinct_values(res["parquet"], col_id, limit=limit, search=search)
+    native_columns = res["columns"] if res.get("native") else None
+    return dataset_rows.distinct_values(res["parquet"], col_id, limit=limit, search=search, columns=native_columns)
 
 
 @router.get("/raw")

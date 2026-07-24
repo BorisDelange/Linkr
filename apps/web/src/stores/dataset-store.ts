@@ -4,7 +4,7 @@ import { getStorage } from '@/lib/storage'
 import { uniqueColumnId } from '@/lib/column-id'
 import { coerceValue } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
-import { duplicateDataset, reimportDataset } from '@/lib/api/datasets'
+import { duplicateDataset, fetchDatasetMeta, reimportDataset } from '@/lib/api/datasets'
 import { stampAuthored } from '@/stores/app-store'
 
 export interface UndoAction {
@@ -30,7 +30,7 @@ interface DatasetState {
   isFileDirty: (id: string) => boolean
   isAnalysisDirty: (id: string) => boolean
 
-  loadProjectDatasets: (projectUid: string, force?: boolean) => Promise<void>
+  loadProjectDatasets: (projectUid: string, binding?: string) => Promise<void>
   reloadDatasetsFromDisk: (projectUid: string) => Promise<void>
   createFile: (name: string, parentId: string | null) => void
   createFolder: (name: string, parentId: string | null) => void
@@ -41,6 +41,7 @@ interface DatasetState {
 
   selectFile: (id: string | null) => void
   openFile: (id: string) => void
+  ensureServerMeta: (id: string) => void
   closeFile: (id: string) => void
   reorderOpenFiles: (fromIndex: number, toIndex: number) => void
   toggleFolder: (id: string) => void
@@ -90,6 +91,10 @@ let undoCounter = 0
 let analysisCounter = 0
 
 const _loadedData = new Map<string, Record<string, unknown>[]>()
+// The datasets_path binding the store last scanned per project. Survives component
+// remounts (a mount-local ref does not), so re-pointing the folder in Settings and
+// navigating back re-scans even though the active project is unchanged.
+const _loadedDatasetsBinding = new Map<string, string | undefined>()
 const _dataSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const _savedDataSnapshot = new Map<string, string>()
 const _analysisSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -139,10 +144,13 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     return saved !== undefined && JSON.stringify(analysis.config) !== saved
   },
 
-  loadProjectDatasets: async (projectUid, force = false) => {
-    // Skip the re-scan when the project is already loaded — unless forced (e.g. the
-    // datasets_path binding changed, so the same project now maps to a new folder).
-    if (!force && get().activeProjectUid === projectUid) return
+  loadProjectDatasets: async (projectUid, binding) => {
+    // Re-scan when the project changes OR its datasets_path binding changed since
+    // the last scan (same project now maps to a new server folder). The binding is
+    // tracked in the store, so it survives the page component remounting.
+    const bindingChanged = _loadedDatasetsBinding.get(projectUid) !== binding
+    if (!bindingChanged && get().activeProjectUid === projectUid) return
+    _loadedDatasetsBinding.set(projectUid, binding)
     await get().reloadDatasetsFromDisk(projectUid)
   },
 
@@ -504,13 +512,34 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       selectedFileId: id,
       openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
     }))
+    get().ensureServerMeta(id)
   },
 
-  openFile: (id) =>
+  openFile: (id) => {
     set((s) => ({
       selectedFileId: id,
       openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
-    })),
+    }))
+    get().ensureServerMeta(id)
+  },
+
+  // Server mode: the listing carries no columns/rowCount (lazy) — fetch them the
+  // first time a file is opened and merge into the store. Folders and already-
+  // resolved files are skipped; front-only mode already holds the meta in IDB.
+  ensureServerMeta: (id) => {
+    if (!isServerMode()) return
+    const file = get().files.find((f) => f.id === id)
+    if (!file || file.type !== 'file' || (file.columns && file.columns.length > 0)) return
+    fetchDatasetMeta(id)
+      .then((meta) => {
+        set((s) => ({
+          files: s.files.map((f) =>
+            f.id === id ? { ...f, columns: meta.columns, rowCount: meta.rowCount } : f,
+          ),
+        }))
+      })
+      .catch((e) => console.warn('[dataset-store] meta fetch error:', e))
+  },
 
   closeFile: (id) =>
     set((s) => {

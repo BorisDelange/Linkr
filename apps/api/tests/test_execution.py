@@ -207,8 +207,10 @@ async def test_execute_injects_dataset_python(client):
 async def test_execute_injects_filtered_dataset(client):
     headers = await _admin_headers(client)
     project_uid, path = await _disk_dataset(client, headers)  # age: 30, 40
-    files = (await client.get(f"{API}/dataset-files", headers=headers, params={"projectUid": project_uid})).json()
-    age_col = next(c["id"] for c in files[0]["columns"] if c["name"] == "age")
+    # Columns are resolved lazily via /meta (the listing carries none).
+    meta = (await client.get(f"{API}/dataset-files/meta", headers=headers,
+                             params={"projectUid": project_uid, "path": path})).json()
+    age_col = next(c["id"] for c in meta["columns"] if c["name"] == "age")
     # Keep only age >= 35 -> one row (age 40).
     r = await client.post(f"{API}/execute", headers=headers, json={
         "language": "python",

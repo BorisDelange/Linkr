@@ -230,6 +230,18 @@ export function queryDatasetRows(
   })
 }
 
+/**
+ * Resolve one dataset file's columns + rowCount on demand (the lazy counterpart
+ * to the meta-free listing). Called when a file is opened, so the list itself
+ * stays instant no matter how large the datasets are.
+ */
+export async function fetchDatasetMeta(datasetFileId: string): Promise<DatasetFile> {
+  const projectUid = _dsProject.get(datasetFileId) ?? ''
+  const qs = `projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(datasetFileId)}`
+  const node = await apiRequest<DsNode>(`/dataset-files/meta?${qs}`)
+  return dsNodeToFile(projectUid, node)
+}
+
 /** Re-parse a dataset's raw file with new options (rebuilds the Parquet cache). */
 export async function reimportDataset(
   datasetFileId: string,
