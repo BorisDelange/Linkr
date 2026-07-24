@@ -30,7 +30,7 @@ interface DatasetState {
   isFileDirty: (id: string) => boolean
   isAnalysisDirty: (id: string) => boolean
 
-  loadProjectDatasets: (projectUid: string) => Promise<void>
+  loadProjectDatasets: (projectUid: string, force?: boolean) => Promise<void>
   reloadDatasetsFromDisk: (projectUid: string) => Promise<void>
   createFile: (name: string, parentId: string | null) => void
   createFolder: (name: string, parentId: string | null) => void
@@ -139,8 +139,10 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     return saved !== undefined && JSON.stringify(analysis.config) !== saved
   },
 
-  loadProjectDatasets: async (projectUid) => {
-    if (get().activeProjectUid === projectUid) return
+  loadProjectDatasets: async (projectUid, force = false) => {
+    // Skip the re-scan when the project is already loaded — unless forced (e.g. the
+    // datasets_path binding changed, so the same project now maps to a new folder).
+    if (!force && get().activeProjectUid === projectUid) return
     await get().reloadDatasetsFromDisk(projectUid)
   },
 

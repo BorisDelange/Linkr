@@ -32,6 +32,8 @@ export interface FsResolvedDirs {
   ide: string
   scripts: string
   datasets: string
+  /** Default dirs regardless of the current binding (for a "reset to default" jump). */
+  defaults: { ide: string; scripts: string; datasets: string }
 }
 
 export function fsResolvedDirs(projectUid: string): Promise<FsResolvedDirs> {

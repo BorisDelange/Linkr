@@ -1932,6 +1932,7 @@
     "change": "Change",
     "pick_folder": "Choose a server folder",
     "select_this_folder": "Select this folder",
+    "reset_to_default": "Reset to default",
     "empty_folder": "This folder has no subfolders.",
     "err_not_found": "This folder does not exist. Create it on the server first.",
     "err_not_a_dir": "This path is not a folder.",

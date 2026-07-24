@@ -22,13 +22,22 @@ async def resolved_dirs(
     project: Project = Depends(require_project_permission("ide:read")),
 ):
     """The absolute server dirs the project's IDE working dir, code (scripts), and
-    datasets bind to (resolving the default when unset). Drives the IDE root hover +
-    the Datasets 'Copy path'. Read-only, so gated on ide:read (any project member)."""
+    datasets bind to (resolving the default when unset), plus the DEFAULT dirs
+    regardless of the current binding (so the folder picker can offer a "reset to
+    default" jump). Drives the IDE root hover + the Datasets 'Copy path'. Read-only,
+    so gated on ide:read (any project member)."""
     project_fs.prime_binding(project.uid, project.ide_path, project.scripts_path, project.datasets_path)
+    root = project_fs.project_dir(project.uid)
     return {
         "ide": str(project_fs.ide_dir(project.uid)),
         "scripts": str(project_fs.scripts_dir(project.uid)),
         "datasets": str(project_fs.datasets_dir(project.uid)),
+        # Defaults (binding NULL): ide + scripts → scripts/, datasets → datasets/.
+        "defaults": {
+            "ide": str(root / "scripts"),
+            "scripts": str(root / "scripts"),
+            "datasets": str(root / "datasets"),
+        },
     }
 
 

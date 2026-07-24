@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -262,12 +262,16 @@ export function DatasetsPage() {
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set())
 
-  // Load datasets when the project changes
+  // Load datasets when the project changes, and force a re-scan when the
+  // datasets_path binding changes (the same project now maps to a new server folder).
+  const datasetsPath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.datasetsPath)
+  const datasetsPathRef = useRef(datasetsPath)
   useEffect(() => {
-    if (activeProjectUid) {
-      loadProjectDatasets(activeProjectUid)
-    }
-  }, [activeProjectUid, loadProjectDatasets])
+    if (!activeProjectUid) return
+    const bindingChanged = datasetsPathRef.current !== datasetsPath
+    datasetsPathRef.current = datasetsPath
+    loadProjectDatasets(activeProjectUid, bindingChanged)
+  }, [activeProjectUid, datasetsPath, loadProjectDatasets])
 
   // Load file data and analyses when selected file changes
   useEffect(() => {

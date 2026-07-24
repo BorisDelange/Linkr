@@ -56,7 +56,7 @@ interface FileState {
   activeProjectUid: string | null
   openFileIds: string[]
 
-  loadProjectFiles: (projectUid: string) => Promise<void>
+  loadProjectFiles: (projectUid: string, force?: boolean) => Promise<void>
   /** Server mode: re-scan projects/<uid>/scripts/ from disk (initial load, refresh
    *  button, and after every mutation so external changes and renames settle). */
   reloadFromDisk: (projectUid: string) => Promise<void>
@@ -644,9 +644,10 @@ export const useFileStore = create<FileState>((set, get) => ({
     })
   },
 
-  loadProjectFiles: async (projectUid) => {
-    // Skip if already loaded or currently loading for this project
-    if (get().activeProjectUid === projectUid) return
+  loadProjectFiles: async (projectUid, force = false) => {
+    // Skip if already loaded or currently loading — unless forced (e.g. the
+    // ide_path binding changed, so the same project now maps to a new folder).
+    if (!force && get().activeProjectUid === projectUid) return
     if (_loadingProjectUid === projectUid) return
     _loadingProjectUid = projectUid
 

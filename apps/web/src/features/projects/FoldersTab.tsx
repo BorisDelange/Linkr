@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useAppStore } from '@/stores/app-store'
+import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import { fsValidateDir, fsRebindCopy, type FsConflictStrategy, type FsValidation } from '@/lib/api/fs-browser'
 import { formatApiError } from '@/lib/api-client'
 import { ServerFolderPickerDialog } from './files/ServerFolderPickerDialog'
@@ -60,6 +61,9 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
   const project = useAppStore((s) => s.projects.find((p) => p.uid === projectUid))
   const _projectRaw = useAppStore((s) => s._projectsRaw.find((p) => p.uid === projectUid))
   const updateProjectPaths = useAppStore((s) => s.updateProjectPaths)
+  const resolved = useResolvedDirs(projectUid, `${_projectRaw?.idePath ?? ''}|${_projectRaw?.scriptsPath ?? ''}|${_projectRaw?.datasetsPath ?? ''}`)
+  const defaultFor = (w: Which) =>
+    resolved?.defaults[w === 'idePath' ? 'ide' : w === 'scriptsPath' ? 'scripts' : 'datasets']
 
   const idePath = _projectRaw?.idePath ?? project?.idePath
   const scriptsPath = _projectRaw?.scriptsPath ?? project?.scriptsPath
@@ -161,6 +165,7 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
           projectUid={projectUid}
           open
           initialPath={currentOf(pickerFor)}
+          defaultPath={defaultFor(pickerFor)}
           onClose={() => setPickerFor(null)}
           onPick={(path) => {
             const which = pickerFor

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, Folder, FolderUp, Loader2 } from 'lucide-react'
+import { ChevronRight, Folder, FolderUp, Loader2, RotateCcw } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -18,13 +18,16 @@ interface Props {
   open: boolean
   /** Folder to open on first render (the current binding), else a browse root. */
   initialPath?: string
+  /** The default folder for this binding; a "reset to default" button jumps the
+   *  browser there (the user still confirms with "Select this folder"). */
+  defaultPath?: string
   onClose: () => void
   onPick: (path: string) => void
 }
 
 /** A server-side folder picker: navigates the backend filesystem (dirs only) and
  * returns the chosen absolute path. Server mode only. */
-export function ServerFolderPickerDialog({ projectUid, open, initialPath, onClose, onPick }: Props) {
+export function ServerFolderPickerDialog({ projectUid, open, initialPath, defaultPath, onClose, onPick }: Props) {
   const { t } = useTranslation()
   const [listing, setListing] = useState<FsListing | null>(null)
   const [loading, setLoading] = useState(false)
@@ -103,11 +106,19 @@ export function ServerFolderPickerDialog({ projectUid, open, initialPath, onClos
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button disabled={!current} onClick={() => onPick(current)}>
-            {t('project_folders.select_this_folder')}
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          {defaultPath ? (
+            <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => load(defaultPath)}>
+              <RotateCcw size={13} />
+              {t('project_folders.reset_to_default')}
+            </Button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+            <Button disabled={!current} onClick={() => onPick(current)}>
+              {t('project_folders.select_this_folder')}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

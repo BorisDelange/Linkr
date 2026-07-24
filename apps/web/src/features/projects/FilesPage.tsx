@@ -227,17 +227,21 @@ export function FilesPage() {
     el.scrollBy({ left: dir === 'left' ? -120 : 120, behavior: 'smooth' })
   }, [])
 
-  // Load connections, files, and other stores when the project changes
+  // Load connections, files, and other stores when the project changes. Force a
+  // file re-scan when the ide_path binding changes (same project → new folder).
+  const idePathRef = useRef(idePath)
   useEffect(() => {
     if (activeProjectUid) {
+      const ideBindingChanged = idePathRef.current !== idePath
+      idePathRef.current = idePath
       loadProjectConnections(activeProjectUid)
-      loadProjectFiles(activeProjectUid)
+      loadProjectFiles(activeProjectUid, ideBindingChanged)
       loadDataSources()
       loadCohorts()
       loadPipelines()
       loadProjectDatasets(activeProjectUid)
     }
-  }, [activeProjectUid, loadProjectConnections, loadProjectFiles, loadDataSources, loadCohorts, loadPipelines, loadProjectDatasets])
+  }, [activeProjectUid, idePath, loadProjectConnections, loadProjectFiles, loadDataSources, loadCohorts, loadPipelines, loadProjectDatasets])
 
   // Auto-select first database connection when none is active
   useEffect(() => {
