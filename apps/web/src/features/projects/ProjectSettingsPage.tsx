@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useAppStore } from '@/stores/app-store'
 import { Trash2 } from 'lucide-react'
@@ -61,6 +61,16 @@ export function ProjectSettingsPage() {
 
   const project = projects.find((p) => p.uid === uid)
 
+  // The active tab is URL-driven (?tab=folders) so other pages can deep-link here
+  // — e.g. the IDE/Datasets folder-path bar links straight to the Folders tab.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const activeTab = requestedTab === 'folders' && showFolders
+    ? 'folders'
+    : requestedTab === 'danger' && canDelete
+      ? 'danger'
+      : 'members'
+
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
   const projectDisplayName = project?.name ?? ''
@@ -80,7 +90,11 @@ export function ProjectSettingsPage() {
         </h1>
       </div>
 
-      <Tabs defaultValue="members" className="flex min-h-0 flex-1 flex-col px-6">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setSearchParams((p) => { p.set('tab', v); return p }, { replace: true })}
+        className="flex min-h-0 flex-1 flex-col px-6"
+      >
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           {showFolders && <TabsTrigger value="folders">{t('project_folders.title')}</TabsTrigger>}

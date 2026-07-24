@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, Folder, FolderUp, Loader2, RotateCcw } from 'lucide-react'
+import { ChevronRight, Folder, FolderUp, Loader2, RotateCcw, Search } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { fsListDir, type FsListing } from '@/lib/api/fs-browser'
 import { formatApiError } from '@/lib/api-client'
@@ -32,11 +33,13 @@ export function ServerFolderPickerDialog({ projectUid, open, initialPath, defaul
   const [listing, setListing] = useState<FsListing | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const load = useCallback(
     async (path: string) => {
       setLoading(true)
       setError(null)
+      setSearch('')  // a fresh folder starts unfiltered
       try {
         setListing(await fsListDir(projectUid, path))
       } catch (e) {
@@ -53,32 +56,47 @@ export function ServerFolderPickerDialog({ projectUid, open, initialPath, defaul
   }, [open, initialPath, load])
 
   const current = listing?.path ?? ''
+  const filteredEntries = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const entries = listing?.entries ?? []
+    return q ? entries.filter((e) => e.name.toLowerCase().includes(q)) : entries
+  }, [listing, search])
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('project_folders.pick_folder')}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono text-muted-foreground">
           <Folder size={14} className="shrink-0" />
-          <span className="truncate" title={current}>{current || '—'}</span>
+          <span className="min-w-0 flex-1 truncate" title={current}>{current || '—'}</span>
         </div>
 
-        <div className="min-h-[16rem]">
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('project_folders.search_folders')}
+            className="h-8 pl-8 text-sm"
+          />
+        </div>
+
+        <div className="min-h-[24rem]">
           {loading ? (
-            <div className="flex h-64 items-center justify-center text-muted-foreground">
+            <div className="flex h-96 items-center justify-center text-muted-foreground">
               <Loader2 className="animate-spin" size={20} />
             </div>
           ) : error ? (
-            <div className="flex h-64 items-center justify-center px-4 text-center text-sm text-destructive">
+            <div className="flex h-96 items-center justify-center px-4 text-center text-sm text-destructive">
               {error}
             </div>
           ) : (
-            <ScrollArea className="h-64">
+            <ScrollArea className="h-96">
               <div className="py-1">
-                {listing?.parent != null && (
+                {listing?.parent != null && !search && (
                   <button
                     className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
                     onClick={() => load(listing.parent as string)}
@@ -87,18 +105,20 @@ export function ServerFolderPickerDialog({ projectUid, open, initialPath, defaul
                     <span>..</span>
                   </button>
                 )}
-                {listing?.entries.length === 0 && listing.parent == null && (
-                  <p className="px-2 py-3 text-xs text-muted-foreground">{t('project_folders.empty_folder')}</p>
+                {filteredEntries.length === 0 && (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">
+                    {search ? t('project_folders.no_matching_folder') : t('project_folders.empty_folder')}
+                  </p>
                 )}
-                {listing?.entries.map((e) => (
+                {filteredEntries.map((e) => (
                   <button
                     key={e.path}
                     className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
                     onClick={() => load(e.path)}
                   >
-                    <Folder size={15} className="text-muted-foreground" />
-                    <span className="flex-1 truncate">{e.name}</span>
-                    <ChevronRight size={14} className="text-muted-foreground/60" />
+                    <Folder size={15} className="shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{e.name}</span>
+                    <ChevronRight size={14} className="shrink-0 text-muted-foreground/60" />
                   </button>
                 ))}
               </div>

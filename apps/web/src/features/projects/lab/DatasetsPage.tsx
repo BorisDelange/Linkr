@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -262,15 +262,13 @@ export function DatasetsPage() {
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set())
 
-  // Load datasets when the project changes, and force a re-scan when the
-  // datasets_path binding changes (the same project now maps to a new server folder).
+  // Load datasets when the project changes, and re-scan when the datasets_path
+  // binding changes (the same project now maps to a new server folder). The store
+  // compares the binding against its last scan, so this survives remounts too.
   const datasetsPath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.datasetsPath)
-  const datasetsPathRef = useRef(datasetsPath)
   useEffect(() => {
     if (!activeProjectUid) return
-    const bindingChanged = datasetsPathRef.current !== datasetsPath
-    datasetsPathRef.current = datasetsPath
-    loadProjectDatasets(activeProjectUid, bindingChanged)
+    loadProjectDatasets(activeProjectUid, datasetsPath ?? undefined)
   }, [activeProjectUid, datasetsPath, loadProjectDatasets])
 
   // Load file data and analyses when selected file changes
@@ -486,36 +484,45 @@ export function DatasetsPage() {
                 </div>
               </div>
 
-              {/* Top half: dataset file tree */}
+              {/* Resizable split: dataset file tree (top) / analyses (bottom). A
+                  vertical Allotment gives each pane a bounded height, so both
+                  scroll internally, and the divider lets the user rebalance them. */}
               <div className="min-h-0 flex-1 overflow-hidden">
-                <DatasetFileTree />
-              </div>
+                <Allotment vertical>
+                  <Allotment.Pane minSize={100}>
+                    <div className="flex h-full flex-col overflow-hidden">
+                      <DatasetFileTree />
+                    </div>
+                  </Allotment.Pane>
 
-              {/* Bottom half: analyses for selected dataset */}
-              <div className="flex min-h-[120px] flex-col border-t" style={{ flexBasis: '40%', flexShrink: 0 }}>
-                {/* Analyses header bar */}
-                <div className="flex items-center justify-between border-b px-2 py-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {t('datasets.analyses')}
-                  </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => setCreateAnalysisOpen(true)}
-                        disabled={!selectedFileId || !canEdit}
-                      >
-                        <Plus size={14} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('datasets.new_analysis')}</TooltipContent>
-                  </Tooltip>
-                </div>
+                  <Allotment.Pane minSize={100} preferredSize="40%">
+                    <div className="flex h-full flex-col border-t overflow-hidden">
+                      {/* Analyses header bar */}
+                      <div className="flex items-center justify-between border-b px-2 py-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {t('datasets.analyses')}
+                        </span>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => setCreateAnalysisOpen(true)}
+                              disabled={!selectedFileId || !canEdit}
+                            >
+                              <Plus size={14} />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{t('datasets.new_analysis')}</TooltipContent>
+                        </Tooltip>
+                      </div>
 
-                {/* Analyses list (self-contained: owns its rename/delete state so
-                    interacting with it doesn't re-render the dataset table). */}
-                <AnalysisList selectedFileId={selectedFileId} />
+                      {/* Analyses list (self-contained: owns its rename/delete state so
+                          interacting with it doesn't re-render the dataset table). */}
+                      <AnalysisList selectedFileId={selectedFileId} />
+                    </div>
+                  </Allotment.Pane>
+                </Allotment>
               </div>
             </div>
           </Allotment.Pane>

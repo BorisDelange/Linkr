@@ -123,7 +123,7 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
       <Label className="text-xs">{t(meta.label)}</Label>
       <p className="text-xs text-muted-foreground">{t(meta.desc)}</p>
       <div className="flex items-center gap-2">
-        <div className="flex-1 truncate rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono" title={current || defaultHint}>
+        <div className="min-w-0 flex-1 truncate rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono" title={current || defaultHint}>
           {current || <span className="text-muted-foreground">{defaultHint}</span>}
         </div>
         {canEdit && (
@@ -183,16 +183,16 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
             <DialogDescription>{t('project_folders.copy_description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-xs">
-            <div className="rounded-md border bg-muted/40 px-3 py-2 font-mono">
+            <div className="min-w-0 rounded-md border bg-muted/40 px-3 py-2 font-mono">
               <div className="text-muted-foreground">{t('project_folders.copy_from')}</div>
-              <div className="truncate" title={pending?.oldPath}>{pending?.oldPath}</div>
+              <div className="break-all">{pending?.oldPath}</div>
               <div className="mt-1 text-muted-foreground">{t('project_folders.copy_to')}</div>
-              <div className="truncate" title={pending?.newPath}>{pending?.newPath}</div>
+              <div className="break-all">{pending?.newPath}</div>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">{t('project_folders.on_conflict')}</Label>
               <Select value={conflict} onValueChange={(v) => setConflict(v as FsConflictStrategy)}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs [&>span]:truncate"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="keep_both">{t('project_folders.conflict_keep_both')}</SelectItem>
                   <SelectItem value="ignore">{t('project_folders.conflict_ignore')}</SelectItem>

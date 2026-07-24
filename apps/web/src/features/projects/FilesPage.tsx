@@ -7,7 +7,6 @@ import {
   FileCode,
   FilePlus,
   FolderPlus,
-  FolderCog,
   Upload,
   PanelLeft,
   Terminal,
@@ -83,6 +82,7 @@ import { queryDatasetRows } from '@/lib/api/datasets'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
 import { FileTree } from './files/FileTree'
+import { FolderPathBar } from './files/FolderPathBar'
 import { OutputPanel, getTabIcon } from './files/OutputPanel'
 import { CreateFileDialog } from './files/CreateFileDialog'
 import { CreateFolderDialog } from './files/CreateFolderDialog'
@@ -227,15 +227,13 @@ export function FilesPage() {
     el.scrollBy({ left: dir === 'left' ? -120 : 120, behavior: 'smooth' })
   }, [])
 
-  // Load connections, files, and other stores when the project changes. Force a
-  // file re-scan when the ide_path binding changes (same project → new folder).
-  const idePathRef = useRef(idePath)
+  // Load connections, files, and other stores when the project changes. Re-scan
+  // files when the ide_path binding changes (same project → new folder); the store
+  // compares the binding against its last scan, so this survives remounts too.
   useEffect(() => {
     if (activeProjectUid) {
-      const ideBindingChanged = idePathRef.current !== idePath
-      idePathRef.current = idePath
       loadProjectConnections(activeProjectUid)
-      loadProjectFiles(activeProjectUid, ideBindingChanged)
+      loadProjectFiles(activeProjectUid, idePath ?? undefined)
       loadDataSources()
       loadCohorts()
       loadPipelines()
@@ -896,19 +894,7 @@ export function FilesPage() {
                   </Tooltip>
                 </div>
               </div>
-              {resolvedDirs && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center gap-1.5 border-b px-2 py-1 text-[11px] text-muted-foreground">
-                      <FolderCog size={11} className="shrink-0" />
-                      <span className="truncate font-mono" title={resolvedDirs.ide}>{resolvedDirs.ide}</span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-md break-all font-mono text-xs">
-                    {resolvedDirs.ide}
-                  </TooltipContent>
-                </Tooltip>
-              )}
+              {resolvedDirs && <FolderPathBar path={resolvedDirs.ide} />}
               <FileTree onNewChild={openCreate} />
             </div>
           </Allotment.Pane>

@@ -66,7 +66,7 @@ export function AnalysisList({ selectedFileId }: { selectedFileId: string | null
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
   return (
-    <ScrollArea className="flex-1">
+    <ScrollArea className="h-full min-h-0 flex-1">
       {!selectedFileId ? (
         <div className="flex items-center justify-center p-4 text-center">
           <p className="text-xs text-muted-foreground">{t('datasets.no_analyses_select_dataset')}</p>

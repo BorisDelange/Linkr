@@ -15,6 +15,7 @@ import {
   Settings2,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { FolderPathBar } from '@/features/projects/files/FolderPathBar'
 import { InlineRenameField } from '@/components/InlineRenameField'
 import {
   ContextMenu,
@@ -461,14 +462,6 @@ export function DatasetFileTree() {
     }
   }
 
-  if (rootNodes.length === 0) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
-        <p className="text-xs text-muted-foreground">{t('datasets.no_files')}</p>
-      </div>
-    )
-  }
-
   const handleRootDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
@@ -496,7 +489,14 @@ export function DatasetFileTree() {
      <VersioningContext.Provider
       value={activeProjectUid ? { marked: markedPaths, toggle: (p) => void toggleVersionedDataFile(activeProjectUid, p) } : null}
      >
-      <ScrollArea className="flex-1">
+      <div className="flex h-full min-h-0 flex-col">
+      {resolved && <FolderPathBar path={resolved.datasets} />}
+      {rootNodes.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
+          <p className="text-xs text-muted-foreground">{t('datasets.no_files')}</p>
+        </div>
+      ) : (
+      <ScrollArea className="h-full min-h-0 flex-1">
         <div
           className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
           onDragOver={handleRootDragOver}
@@ -515,6 +515,8 @@ export function DatasetFileTree() {
           ))}
         </div>
       </ScrollArea>
+      )}
+      </div>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <AlertDialogContent>

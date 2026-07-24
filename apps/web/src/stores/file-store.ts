@@ -56,7 +56,7 @@ interface FileState {
   activeProjectUid: string | null
   openFileIds: string[]
 
-  loadProjectFiles: (projectUid: string, force?: boolean) => Promise<void>
+  loadProjectFiles: (projectUid: string, binding?: string) => Promise<void>
   /** Server mode: re-scan projects/<uid>/scripts/ from disk (initial load, refresh
    *  button, and after every mutation so external changes and renames settle). */
   reloadFromDisk: (projectUid: string) => Promise<void>
@@ -604,6 +604,10 @@ const _contentSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const _savedContent = new Map<string, string>()
 // Guard against concurrent loads (React StrictMode can double-mount)
 let _loadingProjectUid: string | null = null
+// The ide_path binding the store last scanned per project. Survives page remounts
+// (a mount-local ref does not), so re-pointing the folder in Settings and coming
+// back re-scans even though the active project is unchanged.
+const _loadedFilesBinding = new Map<string, string | undefined>()
 
 const MAX_UNDO = 50
 
@@ -644,11 +648,14 @@ export const useFileStore = create<FileState>((set, get) => ({
     })
   },
 
-  loadProjectFiles: async (projectUid, force = false) => {
-    // Skip if already loaded or currently loading — unless forced (e.g. the
-    // ide_path binding changed, so the same project now maps to a new folder).
-    if (!force && get().activeProjectUid === projectUid) return
+  loadProjectFiles: async (projectUid, binding) => {
+    // Re-scan when the project changes OR its ide_path binding changed since the
+    // last scan (same project now maps to a new server folder). The binding is
+    // tracked in the store so this survives the page component remounting.
+    const bindingChanged = _loadedFilesBinding.get(projectUid) !== binding
+    if (!bindingChanged && get().activeProjectUid === projectUid) return
     if (_loadingProjectUid === projectUid) return
+    _loadedFilesBinding.set(projectUid, binding)
     _loadingProjectUid = projectUid
 
     // Switching projects: the console/output belongs to the previous project.
