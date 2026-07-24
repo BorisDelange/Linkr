@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
+import { FoldersTab } from './FoldersTab'
+import { isServerMode } from '@/lib/api-client'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import {
   AlertDialog,
@@ -52,6 +54,10 @@ export function ProjectSettingsPage() {
   // Deleting needs owner (enforced server-side too).
   const { can } = useMyProjectRole(uid)
   const canDelete = can('project-settings:delete')
+  // Folder bindings are a server-mode, project-settings:write concern. Non-writers
+  // still see the tab (read-only current paths) so it renders whenever server mode.
+  const canEditFolders = can('project-settings:write')
+  const showFolders = isServerMode()
 
   const project = projects.find((p) => p.uid === uid)
 
@@ -77,6 +83,7 @@ export function ProjectSettingsPage() {
       <Tabs defaultValue="members" className="flex min-h-0 flex-1 flex-col px-6">
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
+          {showFolders && <TabsTrigger value="folders">{t('project_folders.title')}</TabsTrigger>}
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('project_settings.danger_zone')}</TabsTrigger>}
         </TabsList>
 
@@ -84,6 +91,13 @@ export function ProjectSettingsPage() {
         <TabsContent value="members" className="min-h-0 flex-1 overflow-auto pb-6">
           {uid && <MembersTab scope="project" targetId={uid} />}
         </TabsContent>
+
+        {/* Folders — server mode only */}
+        {showFolders && uid && (
+          <TabsContent value="folders" className="min-h-0 flex-1 overflow-auto pb-6">
+            <FoldersTab projectUid={uid} canEdit={canEditFolders} />
+          </TabsContent>
+        )}
 
         {/* Danger zone — owner only */}
         {canDelete && (

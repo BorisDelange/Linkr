@@ -69,6 +69,38 @@ def test_each_file_matches_golden_byte_for_byte():
         assert tree[path] == expected, f"content mismatch for {path}"
 
 
+def test_machine_local_bindings_stripped_from_project_json():
+    """ide_path/datasets_path are machine-local server bindings and must never
+    travel with an export (project.json), so an import reconfigures them."""
+    data = json.loads((_GOLDEN / "input.json").read_text())
+    project = {
+        **data["project"],
+        "idePath": "/home/x",
+        "scriptsPath": "/home/x/my_study",
+        "datasetsPath": "/home/x/content/data",
+    }
+    tree = build_project_tree(
+        project=project,
+        organization=data["organization"],
+        ide_files=data["ideFiles"],
+        pipelines=data["pipelines"],
+        cohorts=data["cohorts"],
+        connections=data["connections"],
+        dashboards=data["dashboards"],
+        dataset_files=data["datasetFiles"],
+        dataset_analyses=data["datasetAnalyses"],
+        dataset_data=data["datasetData"],
+        dataset_raw_files=data["datasetRawFiles"],
+        attachments=[],
+        attachment_blobs={},
+        include_data_files=False,
+    )
+    project_json = json.loads(tree["project.json"].decode())
+    assert "idePath" not in project_json
+    assert "scriptsPath" not in project_json
+    assert "datasetsPath" not in project_json
+
+
 def test_slugify_matches_ts():
     # Same rules as the TS slugify: NFD strip, lowercase, non-alnum → '-', trim.
     assert _slugify("Projet démo") == "projet-demo"

@@ -7,6 +7,7 @@ import {
   FileCode,
   FilePlus,
   FolderPlus,
+  FolderCog,
   Upload,
   PanelLeft,
   Terminal,
@@ -74,6 +75,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useProjectTree } from '@/hooks/use-project-tree'
+import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
@@ -148,6 +150,8 @@ export function FilesPage() {
   const loadPipelines = usePipelineStore((s) => s.loadPipelines)
   const { loadProjectDatasets, loadFileData, getFileRows, files: datasetFiles, _dirtyVersion: _datasetDirtyVersion } = useDatasetStore()
   const { nodes } = useProjectTree(activeProjectUid)
+  const idePath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.idePath)
+  const resolvedDirs = useResolvedDirs(activeProjectUid, idePath ?? '')
 
   const [createFileOpen, setCreateFileOpen] = useState(false)
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
@@ -888,6 +892,19 @@ export function FilesPage() {
                   </Tooltip>
                 </div>
               </div>
+              {resolvedDirs && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1.5 border-b px-2 py-1 text-[11px] text-muted-foreground">
+                      <FolderCog size={11} className="shrink-0" />
+                      <span className="truncate font-mono" title={resolvedDirs.ide}>{resolvedDirs.ide}</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-md break-all font-mono text-xs">
+                    {resolvedDirs.ide}
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <FileTree onNewChild={openCreate} />
             </div>
           </Allotment.Pane>

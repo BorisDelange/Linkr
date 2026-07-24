@@ -31,7 +31,7 @@ async def _check_project(db: AsyncSession, project_uid: str, user: User, permiss
         # project overrides), not just the raw workspace role.
         await check_project_permission(db, project, user, permission)
     # Cache the path bindings so the sync scan/dir helpers resolve ide_path.
-    project_fs.prime_binding(project_uid, project.ide_path, project.datasets_path)
+    project_fs.prime_binding(project_uid, project.ide_path, project.scripts_path, project.datasets_path)
 
 
 def _node(project_uid: str, n: dict, with_content: bool) -> IdeFileResponse:

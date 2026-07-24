@@ -61,19 +61,23 @@ def _dump(schema, row) -> dict:
 
 
 def _ide_node(project_uid: str, node: dict) -> dict:
-    """One IDE scripts node as the frontend sees it in server mode (api/ide-files
+    """One code node as the frontend sees it in server mode (api/ide-files
     ``toIdeFile``): {id, projectUid, name, type, parentId, content, language,
-    createdAt:''}. Content is read from disk for files; ``createdAt`` is empty
-    (disk-derived, no timestamp) — the builder drops it. Key order matches the
-    adapter so scripts/_tree.json is byte-identical."""
+    createdAt:''}. Content is read from the export CODE dir (scripts_dir, NOT the
+    broad IDE working dir) so a broad ide_path never leaks datasets into scripts/.
+    ``createdAt`` is empty (disk-derived); the builder drops it. Key order matches
+    the adapter so scripts/_tree.json is byte-identical."""
     is_file = node["type"] == "file"
+    content = None
+    if is_file:
+        content = project_fs.export_script_path(project_uid, node["path"]).read_text(encoding="utf-8")
     return {
         "id": node["id"],
         "projectUid": project_uid,
         "name": node["name"],
         "type": node["type"],
         "parentId": node["parentId"],
-        "content": project_fs.read_script(project_uid, node["path"]) if is_file else None,
+        "content": content,
         "language": node["language"],
         "createdAt": "",
     }
@@ -160,13 +164,15 @@ async def build_project_tree_from_db(
             }
         )
 
-    # Datasets: disk-derived tree (id === relative path), the shape the frontend
-    # consumes in server mode. Analyses are keyed in the DB by dataset_path.
-    # Resolve ide_path/datasets_path so the scan reads the bound server dirs.
-    project_fs.prime_binding(project.uid, project.ide_path, project.datasets_path)
+    # Disk-derived trees (id === relative path), the shape the frontend consumes in
+    # server mode. Resolve the bindings so the scans read the right server dirs. The
+    # scripts export uses the CODE dir (scripts_dir), NOT the broad IDE working dir.
+    project_fs.prime_binding(
+        project.uid, project.ide_path, project.scripts_path, project.datasets_path
+    )
     ide_files = [
         _ide_node(project.uid, n)
-        for n in await asyncio.to_thread(project_fs.scan_scripts, project.uid)
+        for n in await asyncio.to_thread(project_fs.scan_scripts_for_export, project.uid)
     ]
     ds_nodes = await asyncio.to_thread(project_fs.scan_datasets, project.uid)
     dataset_files = [_dataset_node(project.uid, n) for n in ds_nodes]

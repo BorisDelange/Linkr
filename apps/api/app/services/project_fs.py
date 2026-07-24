@@ -46,20 +46,29 @@ def project_dir(project_uid: str) -> Path:
 
 
 # --- path bindings --------------------------------------------------------
-# A project's IDE working dir and datasets/ can be re-bound to any server path
-# (Project.ide_path / datasets_path). These are machine-local (never exported):
-# the async layer loads them from the DB and primes this cache; sync callers here
-# (kernel cwd, file scans) read it without touching the DB. None = the default
-# projects/<uid>/scripts|datasets.
-_BINDINGS: dict[str, tuple[str | None, str | None]] = {}
+# A project has three independent, re-bindable server dirs (Project.ide_path /
+# scripts_path / datasets_path), each with a distinct role and its own default:
+#   - ide_path      → the working dir the IDE shows and the terminal/kernel start
+#                     in (default projects/<uid>). Can be broad (a whole home).
+#   - scripts_path  → the code sub-tree packaged as scripts/ on export (default
+#                     projects/<uid>/scripts). Chosen separately so an export never
+#                     drags in datasets living elsewhere under a broad ide_path.
+#   - datasets_path → where datasets live (default projects/<uid>/datasets).
+# All machine-local (never exported): the async layer loads them from the DB and
+# primes this cache; sync callers here (kernel cwd, file scans, export) read it
+# without touching the DB. None in a slot = that dir's default.
+_BINDINGS: dict[str, tuple[str | None, str | None, str | None]] = {}
 
 
 def prime_binding(
-    project_uid: str, ide_path: str | None, datasets_path: str | None
+    project_uid: str,
+    ide_path: str | None,
+    scripts_path: str | None,
+    datasets_path: str | None,
 ) -> None:
     """Record a project's resolved path bindings for the sync scan/dir helpers.
     Called by the async layer (routes/services) after loading the Project row."""
-    _BINDINGS[project_uid] = (ide_path or None, datasets_path or None)
+    _BINDINGS[project_uid] = (ide_path or None, scripts_path or None, datasets_path or None)
 
 
 def invalidate_binding(project_uid: str) -> None:
@@ -67,10 +76,10 @@ def invalidate_binding(project_uid: str) -> None:
 
 
 async def ensure_binding(db, project_uid: str) -> None:
-    """Load the project's ide_path/datasets_path from the DB and cache them, so the
-    sync scan/dir helpers resolve to the right server dirs. Idempotent per request;
-    call from the async entry points (routes/services) before any project_fs scan.
-    A missing project caches the defaults (both None)."""
+    """Load the project's path bindings from the DB and cache them, so the sync
+    scan/dir helpers resolve to the right server dirs. Idempotent per request; call
+    from the async entry points (routes/services) before any project_fs scan. A
+    missing project caches the defaults (all None)."""
     if project_uid in _BINDINGS:
         return
     from app.models.project import Project
@@ -79,21 +88,38 @@ async def ensure_binding(db, project_uid: str) -> None:
     prime_binding(
         project_uid,
         getattr(project, "ide_path", None) if project else None,
+        getattr(project, "scripts_path", None) if project else None,
         getattr(project, "datasets_path", None) if project else None,
     )
 
 
 def ide_binding(project_uid: str) -> str | None:
-    return _BINDINGS.get(project_uid, (None, None))[0]
+    return _BINDINGS.get(project_uid, (None, None, None))[0]
+
+
+def scripts_binding(project_uid: str) -> str | None:
+    return _BINDINGS.get(project_uid, (None, None, None))[1]
 
 
 def datasets_binding(project_uid: str) -> str | None:
-    return _BINDINGS.get(project_uid, (None, None))[1]
+    return _BINDINGS.get(project_uid, (None, None, None))[2]
+
+
+def ide_dir(project_uid: str) -> Path:
+    """The IDE working dir the IDE tree shows and the terminal/kernel start in: the
+    bound ide_path, else projects/<uid>/scripts. The default equals the default
+    scripts_dir so out of the box the IDE shows exactly the code that gets exported;
+    binding ide_path to a broader folder (a home containing code + data) is opt-in."""
+    bound = ide_binding(project_uid)
+    d = Path(bound) if bound else project_dir(project_uid) / "scripts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def scripts_dir(project_uid: str) -> Path:
-    """The IDE working directory: the bound ide_path, else projects/<uid>/scripts."""
-    bound = ide_binding(project_uid)
+    """The code sub-tree packaged as scripts/ on export: the bound scripts_path,
+    else projects/<uid>/scripts. NOT the IDE working dir (that is ide_dir)."""
+    bound = scripts_binding(project_uid)
     d = Path(bound) if bound else project_dir(project_uid) / "scripts"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -121,11 +147,11 @@ def dataset_path(project_uid: str, rel: str) -> Path:
 
 def runtime_env(project_uid: str) -> dict[str, str]:
     """The LINKR_* variables injected into every kernel/terminal so scripts reach
-    the IDE working dir, the datasets dir, and the project root by name rather than
-    a hard-coded absolute path (the binding can be re-pointed without editing code).
-    Bindings must be primed first (prime_binding)."""
+    the project's dirs by name rather than a hard-coded absolute path (a binding can
+    be re-pointed without editing code). Bindings must be primed first."""
     return {
-        "LINKR_IDE": str(scripts_dir(project_uid)),
+        "LINKR_IDE": str(ide_dir(project_uid)),
+        "LINKR_SCRIPTS": str(scripts_dir(project_uid)),
         "LINKR_DATASETS": str(datasets_dir(project_uid)),
         "LINKR_PROJECT": str(project_dir(project_uid)),
     }
@@ -150,10 +176,13 @@ def language_for(name: str) -> str | None:
     return _LANG_BY_EXT.get(Path(name).suffix.lower())
 
 
-# --- scripts/ -------------------------------------------------------------
+# --- IDE working dir ------------------------------------------------------
+# The IDE reads/writes files in ide_dir (the working dir), which may be broader
+# than the exported scripts_dir. Historically these functions kept the "script"
+# name; they operate on ide_dir.
 
 def script_path(project_uid: str, rel: str) -> Path:
-    return _safe_join(scripts_dir(project_uid), rel)
+    return _safe_join(ide_dir(project_uid), rel)
 
 
 def scan_scripts(project_uid: str) -> list[dict]:
@@ -161,8 +190,22 @@ def scan_scripts(project_uid: str) -> list[dict]:
     top-level nodes (no synthetic root: the working dir IS the root, matching what
     a terminal opened in it sees). Node fields: id, name, type, parentId, path,
     language, order. Content is read separately (read_script)."""
+    root = ide_dir(project_uid)
+    return _scan_tree(root, "ide", parent_id=None)
+
+
+def scan_scripts_for_export(project_uid: str) -> list[dict]:
+    """Walk the CODE dir (scripts_dir) — the sub-tree packaged as scripts/ on
+    export. Distinct from scan_scripts (the whole IDE working dir): only the code
+    is versioned/exported, so a broad ide_path never drags datasets into scripts/."""
     root = scripts_dir(project_uid)
     return _scan_tree(root, "ide", parent_id=None)
+
+
+def export_script_path(project_uid: str, rel: str) -> Path:
+    """Absolute path of a code file under scripts_dir (used to read content during
+    export, since read_script targets the IDE working dir)."""
+    return _safe_join(scripts_dir(project_uid), rel)
 
 
 def read_script(project_uid: str, rel: str) -> str:

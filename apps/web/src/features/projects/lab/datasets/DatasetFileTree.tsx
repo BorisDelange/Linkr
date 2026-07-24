@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Folder,
@@ -32,13 +32,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { useAppStore } from '@/stores/app-store'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { queryDatasetRows } from '@/lib/api/datasets'
+import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import { ImportSettingsDialog } from './ImportSettingsDialog'
 import type { DatasetFile } from '@/types'
+
+/** Resolved server dirs (server mode) shared with every tree item so the context
+ * menu can build an absolute "Copy path" and decide whether a relative path is
+ * meaningful (only when the datasets dir sits under the IDE working dir). */
+const ResolvedDirsContext = createContext<{ ideDir: string; datasetsDir: string } | null>(null)
 
 function sortNodes(a: DatasetFile, b: DatasetFile): number {
   if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
@@ -93,6 +105,14 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
 
   const [editing, setEditing] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+
+  const resolvedDirs = useContext(ResolvedDirsContext)
+  // A relative path only resolves from a script when datasets sits under the IDE
+  // working dir; otherwise the absolute path is the only usable one.
+  const relativeMeaningful =
+    !resolvedDirs ||
+    resolvedDirs.datasetsDir === resolvedDirs.ideDir ||
+    resolvedDirs.datasetsDir.startsWith(`${resolvedDirs.ideDir}/`)
 
   const isFolder = node.type === 'folder'
   const isExpanded = expandedFolders.includes(node.id)
@@ -305,15 +325,44 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() => {
-              const path = getNodePath(files, node.id)
-              navigator.clipboard.writeText(path)
-            }}
-          >
-            <Clipboard size={14} />
-            {t('files.copy_relative_path')}
-          </ContextMenuItem>
+          {resolvedDirs && (
+            <ContextMenuItem
+              onClick={() => {
+                const rel = getNodePath(files, node.id)
+                navigator.clipboard.writeText(`${resolvedDirs.datasetsDir}/${rel}`)
+              }}
+            >
+              <Clipboard size={14} />
+              {t('files.copy_path')}
+            </ContextMenuItem>
+          )}
+          {relativeMeaningful ? (
+            <ContextMenuItem
+              onClick={() => {
+                const path = getNodePath(files, node.id)
+                navigator.clipboard.writeText(path)
+              }}
+            >
+              <Clipboard size={14} />
+              {t('files.copy_relative_path')}
+            </ContextMenuItem>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* A disabled menu item swallows pointer events, so wrap it to keep
+                    the tooltip reachable on hover. */}
+                <div>
+                  <ContextMenuItem disabled onSelect={(e) => e.preventDefault()}>
+                    <Clipboard size={14} />
+                    {t('files.copy_relative_path')}
+                  </ContextMenuItem>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs">
+                {t('files.copy_relative_path_disabled')}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"
@@ -349,6 +398,11 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
 export function DatasetFileTree() {
   const { t } = useTranslation()
   const { files, moveNode, deleteNode } = useDatasetStore()
+  const activeProjectUid = useAppStore((s) => s.activeProjectUid)
+  const idePath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.idePath)
+  const datasetsPath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.datasetsPath)
+  // Re-resolve when a binding changes (the settings tab may have re-pointed it).
+  const resolved = useResolvedDirs(activeProjectUid, `${idePath ?? ''}|${datasetsPath ?? ''}`)
   const [rootDragOver, setRootDragOver] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DatasetFile | null>(null)
   const [importSettingsTarget, setImportSettingsTarget] = useState<DatasetFile | null>(null)
@@ -395,7 +449,9 @@ export function DatasetFileTree() {
   }
 
   return (
-    <>
+    <ResolvedDirsContext.Provider
+      value={resolved ? { ideDir: resolved.ide, datasetsDir: resolved.datasets } : null}
+    >
       <ScrollArea className="flex-1">
         <div
           className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
@@ -442,6 +498,6 @@ export function DatasetFileTree() {
           file={importSettingsTarget}
         />
       )}
-    </>
+    </ResolvedDirsContext.Provider>
   )
 }

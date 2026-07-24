@@ -483,10 +483,10 @@ export async function buildProjectZip(
   }
 
   // --- IDE files (under scripts/ in ZIP) ---
-  // In server mode the disk-backed tree exposes a synthetic "scripts" root folder
-  // (parentId null, id = hash of ""), a UI convenience that isn't repo content.
-  // Drop it, and reparent its direct children to null, so scripts/_tree.json
-  // matches a git-authored tree (no phantom root node / dangling parentId).
+  // Front-only keeps a "scripts" container folder in IndexedDB (server mode's
+  // disk tree is already root-less). Drop that container and reparent its direct
+  // children to null, so scripts/_tree.json is a flat, git-authored tree either
+  // way (no phantom root node / dangling parentId). No-op when absent.
   const rawIdeFiles = await storage.ideFiles.getByProject(projectUid)
   const syntheticRoot = rawIdeFiles.find((f) => f.parentId == null && f.type === 'folder' && f.name === 'scripts')
   const ideFiles = rawIdeFiles

@@ -160,6 +160,7 @@ interface AppState {
   /** Persist an author/organization provenance re-attribution and reflect it in memory. */
   updateProjectAuthoring: (uid: string, patch: Partial<Pick<Project, 'createdById' | 'createdBy' | 'createdByDetails' | 'organization'>>) => Promise<void>
   updateProjectCatalogVisibility: (uid: string, visibility: CatalogVisibility) => void
+  updateProjectPaths: (uid: string, patch: Partial<Pick<Project, 'idePath' | 'scriptsPath' | 'datasetsPath'>>) => Promise<void>
   getWorkspaceProjects: (workspaceId: string) => ProjectItem[]
   deleteProject: (uid: string) => Promise<void>
 
@@ -478,6 +479,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }))
     getStorage().projects.update(uid, { catalogVisibility })
+  },
+
+  updateProjectPaths: async (uid, patch) => {
+    set((s) => ({
+      _projectsRaw: s._projectsRaw.map((p) =>
+        p.uid === uid ? { ...p, ...patch } : p
+      ),
+    }))
+    await getStorage().projects.update(uid, patch)
   },
 
   deleteProject: async (uid) => {

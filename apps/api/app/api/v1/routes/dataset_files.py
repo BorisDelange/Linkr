@@ -44,7 +44,7 @@ async def _check_project(db: AsyncSession, project_uid: str, user: User, permiss
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     await check_project_permission(db, project, user, permission)
     # Cache the path bindings so the sync scan/dir helpers resolve datasets_path.
-    project_fs.prime_binding(project_uid, project.ide_path, project.datasets_path)
+    project_fs.prime_binding(project_uid, project.ide_path, project.scripts_path, project.datasets_path)
 
 
 def _resolve_meta(project_uid: str, node: dict) -> tuple[list[dict] | None, int | None]:

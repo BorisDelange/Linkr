@@ -53,6 +53,11 @@ class ProjectUpdate(CamelModel):
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
     catalog_visibility: str | None = None
+    # Absolute server paths the IDE working dir / code / datasets dirs resolve to
+    # (server mode). Machine-local: stripped from exports (see _INSTANCE_FIELDS).
+    ide_path: str | None = None
+    scripts_path: str | None = None
+    datasets_path: str | None = None
     # Editable authoring provenance (author re-attribution + org snapshot).
     created_by_id: int | None = None
     created_by: str | None = None
@@ -79,6 +84,10 @@ class ProjectResponse(CamelModel):
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
     catalog_visibility: str | None = None
+    # Machine-local server-path bindings (stripped from exports).
+    ide_path: str | None = None
+    scripts_path: str | None = None
+    datasets_path: str | None = None
     origin: str
     owner_id: int | None = None
     created_by_id: int | None = None

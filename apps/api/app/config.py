@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # Data
     data_dir: str = "~/.linkr"
 
+    # Server file-browser (project Folders settings): comma-separated absolute
+    # roots the browser may traverse when picking an ide_path/datasets_path. Empty
+    # = the whole filesystem (confinement is the deployment's job — mount only what
+    # the server should reach, like RStudio Server). Set e.g.
+    # LINKR_FS_BROWSE_ROOTS="/home,/data" to restrict.
+    fs_browse_roots: str = ""
+
     # Server-side query engine: how long a warm DuckDB connection to a data
     # source is kept alive between queries before it is closed for inactivity.
     pool_ttl_seconds: int = 300

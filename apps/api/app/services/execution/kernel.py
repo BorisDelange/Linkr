@@ -566,7 +566,7 @@ class KernelManager:
         # $LINKR_DATASETS (it may be a different, re-pointable server folder).
         from app.services import project_fs
 
-        cwd = str(project_fs.scripts_dir(project_uid))
+        cwd = str(project_fs.ide_dir(project_uid))
         env = project_fs.runtime_env(project_uid)
         if language == "python":
             import sys

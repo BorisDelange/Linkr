@@ -48,6 +48,10 @@ _INSTANCE_FIELDS = (
     "updatedAt",
     "projectUid",
     "linkedDataSourceIds",
+    # Machine-local server-path bindings — never travel with an export.
+    "idePath",
+    "scriptsPath",
+    "datasetsPath",
 )
 
 

@@ -191,6 +191,12 @@ export interface Project extends Seedable, Authored, Lineaged {
   organization?: OrganizationInfo
   /** Whether this project appears in the community catalog. Defaults to 'unlisted'. */
   catalogVisibility?: CatalogVisibility
+  /** Absolute server path the IDE working dir binds to (server mode). Undefined = default projects/<uid>/scripts. Machine-local: never exported. */
+  idePath?: string
+  /** Absolute server path the code dir (packaged as scripts/ on export) binds to. Undefined = default projects/<uid>/scripts. Machine-local: never exported. */
+  scriptsPath?: string
+  /** Absolute server path the datasets dir binds to (server mode). Undefined = default projects/<uid>/datasets. Machine-local: never exported. */
+  datasetsPath?: string
   /** User-facing semver, bumped by hand in the edit dialog (default '0.1.0'). Portable. */
   version?: string
   createdAt: string

@@ -157,7 +157,7 @@ class PtyManager:
             raise SessionLimitReached(
                 f"Terminal session limit reached ({settings.max_sessions_per_user})."
             )
-        cwd = str(project_fs.scripts_dir(project_uid))
+        cwd = str(project_fs.ide_dir(project_uid))
         shell = PtyShell(cwd, extra_env=project_fs.runtime_env(project_uid))
         await shell.start()
         key = (project_uid, session_id)
