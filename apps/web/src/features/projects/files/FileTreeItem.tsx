@@ -137,14 +137,21 @@ export function FileTreeItem({
   const canDelete = useMyProjectRole().can('ide:delete')
   const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode, renameNode } = useFileStore()
   const datasetStore = useDatasetStore()
-  // Per-file "mark for versioning" for data files under scripts/ (e.g. a reference
-  // CSV). Key = the export tree path `scripts/<idePath>` — the same namespace the
-  // Datasets sidebar uses (datasets/<dsPath>) and the .gitignore exception matches.
+  // Per-file versioning. Key = the export tree path `scripts/<idePath>` (same
+  // namespace the Datasets sidebar uses and the .gitignore exception matches).
+  // Two lists in project.config:
+  //   - versionedDataFiles: data files (gitignored by default) explicitly INCLUDED
+  //   - excludedFiles:      code files (versioned by default) explicitly EXCLUDED
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const toggleVersionedDataFile = useAppStore((s) => s.toggleVersionedDataFile)
+  const toggleExcludedFile = useAppStore((s) => s.toggleExcludedFile)
   const versionedRaw = useAppStore((s) => {
     const cfg = s._projectsRaw.find((p) => p.uid === activeProjectUid)?.config as Record<string, unknown> | undefined
     return cfg?.versionedDataFiles
+  })
+  const excludedRaw = useAppStore((s) => {
+    const cfg = s._projectsRaw.find((p) => p.uid === activeProjectUid)?.config as Record<string, unknown> | undefined
+    return cfg?.excludedFiles
   })
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -164,15 +171,25 @@ export function FileTreeItem({
   const isSelected = selectedFileId === node.id
   const children = isFolder ? getChildren(node.id) : []
 
-  // A data file under scripts/ is gitignored by default and marked per-file. The
-  // key is its export tree path `scripts/<idePath>`. Only real (non-virtual) data
-  // files qualify; regular code files are versioned normally (no data extension).
-  const isDataFile = !isFolder && !isVirtual && isDataExtension(node.name)
-  const markKey = isDataFile ? `scripts/${getNodePath(files as TreeNode[], node.id)}` : ''
-  const markedSet = new Set(
+  // Every real file has a versioning state. A data file is gitignored by default
+  // (included only if marked); a code file is versioned by default (excluded only
+  // if marked). The key is its export tree path `scripts/<idePath>`.
+  const isRealFile = !isFolder && !isVirtual
+  const isDataFile = isRealFile && isDataExtension(node.name)
+  const markKey = isRealFile ? `scripts/${getNodePath(files as TreeNode[], node.id)}` : ''
+  const includedSet = new Set(
     Array.isArray(versionedRaw) ? (versionedRaw as unknown[]).filter((p): p is string => typeof p === 'string') : [],
   )
-  const isMarkedVersioned = isDataFile && markedSet.has(markKey)
+  const excludedSet = new Set(
+    Array.isArray(excludedRaw) ? (excludedRaw as unknown[]).filter((p): p is string => typeof p === 'string') : [],
+  )
+  // Will this file be versioned? data → only if included; code → unless excluded.
+  const willBeVersioned = isDataFile ? includedSet.has(markKey) : isRealFile && !excludedSet.has(markKey)
+  const toggleVersioning = () => {
+    if (!activeProjectUid) return
+    if (isDataFile) void toggleVersionedDataFile(activeProjectUid, markKey)
+    else void toggleExcludedFile(activeProjectUid, markKey)
+  }
 
   const handleClick = () => {
     if (isFolder) {
@@ -389,7 +406,7 @@ export function FileTreeItem({
           >
             {rowIcon}
             <span className="truncate">{node.name}</span>
-            {isMarkedVersioned && (
+            {isRealFile && willBeVersioned && (
               <GitCommitVertical size={11} className="shrink-0 text-primary" aria-label={t('datasets.versioned_badge')} />
             )}
             {isVirtual && !isBridge && !isFolder && (
@@ -480,12 +497,12 @@ export function FileTreeItem({
                 <Clipboard size={14} />
                 {t('files.copy_relative_path')}
               </ContextMenuItem>
-              {isDataFile && activeProjectUid && (
+              {isRealFile && activeProjectUid && (
                 <>
                   <ContextMenuSeparator />
-                  <ContextMenuItem onClick={() => void toggleVersionedDataFile(activeProjectUid, markKey)}>
+                  <ContextMenuItem onClick={toggleVersioning}>
                     <GitCommitVertical size={14} />
-                    {isMarkedVersioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned')}
+                    {willBeVersioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned')}
                   </ContextMenuItem>
                 </>
               )}

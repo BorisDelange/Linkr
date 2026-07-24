@@ -164,6 +164,7 @@ interface AppState {
   /** Toggle a dataset-relative path in project.config.versionedDataFiles (mark /
    *  unmark a data file "to version"). Persists + travels with the export. */
   toggleVersionedDataFile: (uid: string, path: string) => Promise<void>
+  toggleExcludedFile: (uid: string, path: string) => Promise<void>
   getWorkspaceProjects: (workspaceId: string) => ProjectItem[]
   deleteProject: (uid: string) => Promise<void>
 
@@ -508,6 +509,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? current.filter((p) => p !== path)
       : [...current, path]
     const newConfig = { ...config, versionedDataFiles: next }
+    set((s) => ({
+      _projectsRaw: s._projectsRaw.map((p) =>
+        p.uid === uid ? { ...p, config: newConfig } : p
+      ),
+    }))
+    await getStorage().projects.update(uid, { config: newConfig })
+  },
+
+  toggleExcludedFile: async (uid, path) => {
+    // The mirror of versionedDataFiles for NON-data files: a code file is
+    // versioned by default; listing its export tree path here excludes it (the
+    // export gitignores it and omits it from the tree). Toggling adds/removes it.
+    const project = get()._projectsRaw.find((p) => p.uid === uid)
+    if (!project) return
+    const config = (project.config ?? {}) as Record<string, unknown>
+    const current = Array.isArray(config.excludedFiles)
+      ? (config.excludedFiles as string[]).filter((p) => typeof p === 'string')
+      : []
+    const next = current.includes(path)
+      ? current.filter((p) => p !== path)
+      : [...current, path]
+    const newConfig = { ...config, excludedFiles: next }
     set((s) => ({
       _projectsRaw: s._projectsRaw.map((p) =>
         p.uid === uid ? { ...p, config: newConfig } : p
