@@ -1654,7 +1654,6 @@
     "token_help_gitlab_3": "Copy it and paste it here",
     "git_error_generic": "Something went wrong with the git operation.",
     "git_error_details": "Show the full error",
-    "sync_include_data": "Include data files (CSV, parquet…)",
     "lfs_add": "Track with Git LFS",
     "lfs_remove": "Remove from Git LFS",
     "diff_truncated": "Large file — preview limited to the first 1000 lines.",

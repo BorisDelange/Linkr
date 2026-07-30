@@ -1654,7 +1654,6 @@
     "token_help_gitlab_3": "Copiez-le et collez-le ici",
     "git_error_generic": "Une erreur est survenue lors de l'opération git.",
     "git_error_details": "Afficher l'erreur complète",
-    "sync_include_data": "Inclure les fichiers de données (CSV, parquet…)",
     "lfs_add": "Suivre avec Git LFS",
     "lfs_remove": "Retirer de Git LFS",
     "diff_truncated": "Fichier volumineux — aperçu limité aux 1000 premières lignes.",

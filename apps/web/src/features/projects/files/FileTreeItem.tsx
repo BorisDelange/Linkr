@@ -112,10 +112,19 @@ function getAllDescendantIds(files: TreeNode[], parentId: string): string[] {
   return ids
 }
 
+// Path relative to the IDE root, matching the EXPORT tree (`buildIdePath` over the
+// re-rooted tree). Front-only keeps a synthetic `scripts` container folder at the
+// store root; the export drops it and reparents its children to null. So we must
+// stop the walk AT that container (not include its name) — otherwise the key comes
+// out `scripts/foo` here while the export writes `foo`, and a marked file's
+// `!scripts/foo` .gitignore exception never matches (silent non-versioning).
 function getNodePath(files: TreeNode[], nodeId: string): string {
   const parts: string[] = []
   let current = files.find((f) => f.id === nodeId)
   while (current) {
+    const isSyntheticRoot =
+      current.parentId == null && current.type === 'folder' && current.name === 'scripts'
+    if (isSyntheticRoot) break
     parts.unshift(current.name)
     current = current.parentId
       ? files.find((f) => f.id === current!.parentId)

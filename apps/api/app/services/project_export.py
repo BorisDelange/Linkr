@@ -20,6 +20,7 @@ mode) and returns the file tree — the DB/disk/blob reads live in the caller
 (project_export_assemble).
 """
 
+import re
 import unicodedata
 from typing import Any
 
@@ -274,6 +275,15 @@ def _is_data_ext(path: str) -> bool:
     return path.lower().endswith(_DATA_EXTENSIONS)
 
 
+def _gitignore_escape(p: str) -> str:
+    """Port of ``gitignoreEscapePath`` (entity-io.ts): escape gitignore
+    metacharacters (`\\ [ ] * ? # !`) and trailing spaces so a `!path` exception
+    is read as a literal, not a pattern. MUST byte-match the TS for mixed-mode
+    remote parity."""
+    out = re.sub(r"([\\\[\]*?#!])", r"\\\1", p)
+    return re.sub(r" +$", lambda m: m.group(0).replace(" ", "\\ "), out)
+
+
 def _ide_path(file: dict, by_id: dict[str, dict]) -> str:
     """Port of ``buildIdePath`` (entity-io.ts:289): reconstruct the path from the
     parent-name chain, prefixing ``scripts/`` when not already under it."""
@@ -342,6 +352,7 @@ def build_project_tree(
     attachments: list[dict],
     attachment_blobs: dict[str, bytes],
     versioned_data_files: set[str],
+    excluded_files: set[str] | None = None,
 ) -> dict[str, bytes]:
     """Build the git-variant project export tree as ``{path: bytes}``.
 
@@ -389,16 +400,29 @@ def build_project_tree(
             ide.append({**f, "parentId": None})
         else:
             ide.append(f)
+    excluded = excluded_files or set()
     if ide:
         by_id = {f["id"]: f for f in ide}
+
+        def _is_excluded_code(f: dict) -> bool:
+            # Code files are versioned by default; an excludedFiles entry omits the
+            # file from the tree entirely (data files opt IN via versioned_data_files).
+            if f.get("type") != "file":
+                return False
+            tp = _ide_path(f, by_id)
+            return not _is_data_ext(tp) and tp in excluded
+
         tree["scripts/_tree.json"] = _json(
             [
                 {k: v for k, v in f.items() if k not in ("content", "projectUid")}
                 for f in ide
+                if not _is_excluded_code(f)
             ]
         )
         for f in ide:
             if f.get("type") == "file" and f.get("content") is not None:
+                if _is_excluded_code(f):
+                    continue
                 tree_path = _ide_path(f, by_id)
                 tree[tree_path] = str(f["content"]).encode("utf-8")
                 # A data file under scripts/ (e.g. a reference CSV) is gitignored like
@@ -491,7 +515,7 @@ def build_project_tree(
         "**/*.xls",
         ".cache/",
     ]
-    gitignore_lines.extend(f"!{p}" for p in included_data_paths)
+    gitignore_lines.extend(f"!{_gitignore_escape(p)}" for p in included_data_paths)
     tree[".gitignore"] = ("\n".join(gitignore_lines) + "\n").encode("utf-8")
 
     return tree

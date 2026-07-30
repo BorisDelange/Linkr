@@ -192,6 +192,12 @@ async def build_project_tree_from_db(
     versioned_data_files: set[str] = set(
         p for p in raw_cfg if isinstance(p, str)
     ) if isinstance(raw_cfg, list) else set()
+    # Code files are versioned by default; excludedFiles opts a script OUT so it's
+    # omitted from the tree entirely (mirrors buildProjectZip / the sidebar badge).
+    raw_excl = (project.config or {}).get("excludedFiles")
+    excluded_files: set[str] = set(
+        p for p in raw_excl if isinstance(p, str)
+    ) if isinstance(raw_excl, list) else set()
     dataset_data: dict[str, list[dict]] = {}
     dataset_raw_files: dict[str, dict] = {}
     for node in ds_nodes:
@@ -250,6 +256,7 @@ async def build_project_tree_from_db(
         attachments=attachments,
         attachment_blobs=attachment_blobs,
         versioned_data_files=versioned_data_files,
+        excluded_files=excluded_files,
     )
 
 

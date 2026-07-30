@@ -10,6 +10,11 @@ WORKDIR /app
 # postinstall (copies DuckDB .wasm into apps/web/public/) needs the workspace
 # source present, so we copy it before installing.
 COPY package.json package-lock.json ./
+# The build stamps the export-format version into project.json (appVersion) from
+# the repo-root VERSION file (vite.config.ts reads ../../VERSION → /app/VERSION).
+# It MUST be present or vite falls back to "0.0.0" and diverges from the API's
+# stamp — a mixed front/back diff. Keep this in sync with Dockerfile.api.
+COPY VERSION ./VERSION
 COPY apps/web/ apps/web/
 # The web build resolves the `@default-plugins` path alias to this workspace
 # (vite + tsconfig), so it must be present at the same relative location.

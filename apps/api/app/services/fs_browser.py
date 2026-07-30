@@ -32,6 +32,26 @@ class FsBrowseError(ValueError):
     """A browse/validate request that must surface as a 4xx (not a 500)."""
 
 
+def validate_binding_path(path: str) -> None:
+    """Enforce the SAME boundary the browse routes enforce, at the point a path
+    is actually PERSISTED as a project's ide/scripts/datasets binding. The picker
+    validates client-side, but the bind is a plain project PATCH — so without this
+    an authorized user could set an arbitrary absolute path (e.g. /root, ~/.ssh)
+    that the browse-root confinement never sees, yielding arbitrary server file
+    read/write via the IDE/dataset file routes. Empty/None clears the binding
+    (falls back to the default dir) and is always allowed. Raises FsBrowseError
+    (surfaced as 400) on rejection."""
+    if not path:
+        return
+    if not settings.enable_code_execution:
+        raise FsBrowseError("File-system bindings are disabled on this deployment")
+    target = Path(path).expanduser().resolve()
+    if not _within_roots(target):
+        raise FsBrowseError("Path is outside the allowed browse roots")
+    if not target.is_dir():
+        raise FsBrowseError("Bound path is not an existing folder")
+
+
 def _resolve(path: str) -> Path:
     """Resolve a user-supplied absolute path, rejecting anything outside the
     configured browse roots. Symlinks are resolved so they can't escape a root."""

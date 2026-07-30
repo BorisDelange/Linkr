@@ -287,6 +287,17 @@ export function isDataExtension(path: string): boolean {
   return DATA_FILE_EXTENSIONS.some((ext) => p.endsWith(ext))
 }
 
+/** Escape a path for use as a literal `.gitignore` pattern (after the `!`). Git
+ * treats `[ ] * ? \` as glob metacharacters and `#`/`!` as line prefixes, so a
+ * filename containing them would be read as a pattern and the `!path` re-inclusion
+ * would silently miss the marked file. Trailing spaces are backslash-escaped so
+ * git doesn't strip them. Client + server MUST escape identically (byte-parity). */
+export function gitignoreEscapePath(p: string): string {
+  return p
+    .replace(/([\\[\]*?#!])/g, '\\$1')
+    .replace(/ +$/, (m) => m.replace(/ /g, '\\ '))
+}
+
 /** The set of EXPORT TREE PATHS the user marked "to version" — e.g.
  * "datasets/cohort/cohort.csv" or "scripts/reference/concepts.csv". A single
  * namespace across both sidebars: the key is always the file's path in the export
@@ -294,6 +305,16 @@ export function isDataExtension(path: string): boolean {
  * project.config.versionedDataFiles so it persists and travels with the export. */
 export function markedDataFiles(project: { config?: Record<string, unknown> } | null | undefined): Set<string> {
   const raw = project?.config?.versionedDataFiles
+  return new Set(Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : [])
+}
+
+/** The set of EXPORT TREE PATHS the user marked "do NOT version" — the inverse of
+ * markedDataFiles for CODE files, which are versioned by default. Same namespace
+ * (export tree path). Lives in project.config.excludedFiles. An excluded code file
+ * is omitted from the export tree entirely (and from scripts/_tree.json), so the
+ * sidebar's "unmarked" badge reflects what actually leaves the machine. */
+export function excludedCodeFiles(project: { config?: Record<string, unknown> } | null | undefined): Set<string> {
+  const raw = project?.config?.excludedFiles
   return new Set(Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : [])
 }
 
@@ -518,13 +539,21 @@ export async function buildProjectZip(
     .map((f) => (syntheticRoot && f.parentId === syntheticRoot.id ? { ...f, parentId: null } : f))
   // Data files under scripts/ (e.g. a reference CSV) are gitignored like any other
   // data file; a marked one is re-included via a !path exception (key scripts/<path>).
+  // Code files (non-data) are versioned by default; a file whose tree path is in
+  // project.config.excludedFiles is omitted from the tree entirely (and _tree.json),
+  // so an "unmarked" script never leaves the machine. Data files use the opposite
+  // opt-in rule via `marked` (versionedDataFiles), so they're not excluded here.
+  const excluded = excludedCodeFiles(project)
+  const isExcludedCode = (treePath: string) => !isDataExtension(treePath) && excluded.has(treePath)
   const includedScriptDataPaths: string[] = []
   if (ideFiles.length > 0) {
     const byId = new Map(ideFiles.map(f => [f.id, f]))
-    zip.file('scripts/_tree.json', json(ideFiles.map(({ content: _, projectUid: _p, ...meta }) => meta)))
+    const treeFiles = ideFiles.filter((f) => !(f.type === 'file' && isExcludedCode(buildIdePath(f, byId))))
+    zip.file('scripts/_tree.json', json(treeFiles.map(({ content: _, projectUid: _p, ...meta }) => meta)))
     for (const f of ideFiles) {
       if (f.type === 'file' && f.content != null) {
         const treePath = buildIdePath(f, byId)
+        if (isExcludedCode(treePath)) continue
         zip.file(treePath, f.content)
         if (isDataExtension(treePath) && marked.has(treePath)) {
           includedScriptDataPaths.push(treePath)
@@ -682,7 +711,7 @@ export async function buildProjectZip(
   // depth and leave parent dirs un-ignored, so the exceptions resolve.
   const gitignoreLines = ['**/*.csv', '**/*.parquet', '**/*.pq', '**/*.xlsx', '**/*.xls', '.cache/']
   for (const p of [...includedDataPaths, ...includedScriptDataPaths]) {
-    gitignoreLines.push(`!${p}`)
+    gitignoreLines.push(`!${gitignoreEscapePath(p)}`)
   }
   zip.file('.gitignore', gitignoreLines.join('\n') + '\n')
 

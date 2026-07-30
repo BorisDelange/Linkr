@@ -12,6 +12,9 @@ export function percentile(sorted: number[], p: number): number {
 export function computeNumericStats(values: number[]) {
   const sorted = [...values].sort((a, b) => a - b)
   const n = sorted.length
+  if (n === 0) {
+    return { min: 0, max: 0, mean: 0, median: 0, std: 0, q1: 0, q3: 0, iqr: 0, n: 0, sorted }
+  }
   const sum = sorted.reduce((a, b) => a + b, 0)
   const mean = sum / n
   const variance = sorted.reduce((acc, v) => acc + (v - mean) ** 2, 0) / n
@@ -39,6 +42,9 @@ export function buildHistogram(sorted: number[], bins: number): HistBin[] {
   if (sorted.length === 0) return []
   const dataMin = sorted[0]
   const dataMax = sorted[sorted.length - 1]
+  // A non-finite bound (±Infinity slipped past the caller's filter) makes the
+  // step 1 and `lo < Infinity` never terminate — bail rather than freeze the tab.
+  if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax)) return []
   if (dataMin === dataMax) return [{ x: dataMin, label: String(dataMin), count: sorted.length, pct: 100 }]
 
   // "Nice bins": round the start and step to readable values so bars land on round ticks.

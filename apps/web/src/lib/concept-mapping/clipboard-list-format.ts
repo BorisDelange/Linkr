@@ -17,11 +17,33 @@ const COMMENT_MARKER: Record<ClipboardCopyFormat, string> = {
   python: '#',
 }
 
-/** "Vocabulary - Concept name" trailing comment for one item. */
+/** "Vocabulary - Concept name" trailing comment for one item. Newlines are
+ * collapsed to spaces — a raw `\n` in an imported concept_name would otherwise
+ * split the comment across lines, turning the continuation into live code. */
 function labelComment(item: ClipboardListItem): string {
   const vocab = item.terminology_name || item.vocabulary_id || ''
   const name = item.concept_name || ''
-  return [vocab, name].filter(Boolean).join(' - ')
+  return [vocab, name]
+    .filter(Boolean)
+    .join(' - ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** A code is bare-emittable (unquoted) only if it's a plain integer — the OMOP
+ * concept_id case, where an unquoted IN-list is the clean, intended output. */
+function isNumericCode(code: string): boolean {
+  return /^-?\d+$/.test(code)
+}
+
+/** Render one code for the target language: bare when the whole list is numeric,
+ * otherwise a properly-escaped string literal so the pasted snippet is valid. */
+function renderCode(code: string, format: ClipboardCopyFormat, allNumeric: boolean): string {
+  if (allNumeric) return code
+  if (format === 'sql') return `'${code.replace(/'/g, "''")}'`
+  // R and Python: double-quoted with backslash + quote + newline escaping.
+  const esc = code.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, '\\n')
+  return `"${esc}"`
 }
 
 /**
@@ -39,7 +61,14 @@ export function formatClipboardList(items: ClipboardListItem[], format: Clipboar
   const open = format === 'sql' ? 'IN (' : format === 'r' ? 'c(' : '['
   const close = format === 'sql' ? ')' : format === 'r' ? ')' : ']'
 
-  const entries = items.map((it) => ({ code: (it.concept_code ?? '').trim(), item: it }))
+  // Bare (unquoted) only when EVERY code is a plain integer; otherwise every code
+  // is quoted+escaped, so the pasted SQL/R/Python is valid rather than a syntax
+  // error (`IN (E11.9)`) or a silent wrong value (`718-7` → subtraction).
+  const allNumeric = items.every((it) => isNumericCode((it.concept_code ?? '').trim()))
+  const entries = items.map((it) => {
+    const raw = (it.concept_code ?? '').trim()
+    return { code: renderCode(raw, format, allNumeric), item: it }
+  })
 
   if (entries.length === 0) return `${open}${close}`
 

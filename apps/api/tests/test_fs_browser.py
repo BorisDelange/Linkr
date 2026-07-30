@@ -118,3 +118,44 @@ def test_copy_tree_invalid_strategy(tmp_path):
     dst.mkdir()
     with pytest.raises(fs_browser.FsBrowseError):
         fs_browser.copy_tree(str(src), str(dst), "bogus")
+
+
+def test_validate_binding_path_enforces_browse_roots(monkeypatch, tmp_path):
+    # The bind is persisted via a plain project PATCH, so the browse-root boundary
+    # must be re-enforced at persistence time — client-side picker validation is
+    # not a security control.
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    _set_roots(monkeypatch, str(allowed))
+    # Inside the root, existing dir: accepted (no raise).
+    fs_browser.validate_binding_path(str(allowed))
+    # Outside the configured roots: rejected.
+    with pytest.raises(fs_browser.FsBrowseError):
+        fs_browser.validate_binding_path(str(outside))
+    # A path inside the root that doesn't exist as a dir: rejected.
+    with pytest.raises(fs_browser.FsBrowseError):
+        fs_browser.validate_binding_path(str(allowed / "absent"))
+    f = allowed / "f.txt"
+    f.write_text("x")
+    with pytest.raises(fs_browser.FsBrowseError):
+        fs_browser.validate_binding_path(str(f))
+
+
+def test_validate_binding_path_empty_clears_binding(monkeypatch, tmp_path):
+    # An empty path clears the binding (falls back to the default dir) and is always
+    # allowed, even outside any configured root.
+    _set_roots(monkeypatch, str(tmp_path / "root"))
+    fs_browser.validate_binding_path("")
+
+
+def test_validate_binding_path_blocked_when_code_execution_disabled(monkeypatch, tmp_path):
+    from app.config import settings
+
+    d = tmp_path / "d"
+    d.mkdir()
+    _set_roots(monkeypatch, str(tmp_path))
+    monkeypatch.setattr(settings, "enable_code_execution", False)
+    with pytest.raises(fs_browser.FsBrowseError):
+        fs_browser.validate_binding_path(str(d))

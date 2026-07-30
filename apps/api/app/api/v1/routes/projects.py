@@ -7,7 +7,7 @@ from app.core.permissions import check_workspace_permission, require_project_per
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
-from app.services import project_service
+from app.services import fs_browser, project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -74,6 +74,19 @@ async def update_project(
     project=Depends(require_project_permission("project-settings:write")),
     db: AsyncSession = Depends(get_db),
 ):
+    # A path binding is persisted here via a plain PATCH — enforce the browse-root
+    # boundary at the point of persistence, not just in the picker (client-side
+    # validation is not a security control). Rejects an out-of-roots / non-existent
+    # bind before it reaches the IDE/dataset file routes.
+    fields = body.model_dump(exclude_unset=True)
+    for key in ("ide_path", "scripts_path", "datasets_path"):
+        if key in fields and fields[key]:
+            try:
+                fs_browser.validate_binding_path(fields[key])
+            except fs_browser.FsBrowseError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from exc
     return await project_service.update(db, project, body)
 
 

@@ -42,6 +42,14 @@ describe('computeNumericStats', () => {
     computeNumericStats(values)
     expect(values).toEqual([3, 1, 2])
   })
+
+  it('returns zeroed stats (no NaN) for an empty array', () => {
+    const s = computeNumericStats([])
+    expect(s.n).toBe(0)
+    expect(s.mean).toBe(0)
+    expect(s.min).toBe(0)
+    expect(Number.isNaN(s.std)).toBe(false)
+  })
 })
 
 describe('buildHistogram', () => {
@@ -72,5 +80,10 @@ describe('buildHistogram', () => {
     const bins = buildHistogram([1, 2, 5, 8, 13, 21], 4)
     const xs = bins.map((b) => b.x)
     expect([...xs].sort((a, b) => a - b)).toEqual(xs)
+  })
+
+  it('returns [] instead of looping forever on a non-finite bound', () => {
+    expect(buildHistogram([0, 1, Infinity], 10)).toEqual([])
+    expect(buildHistogram([-Infinity, 0, 1], 10)).toEqual([])
   })
 })

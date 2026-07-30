@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, collectGitLinkedEntities, applyClonedEntity } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset } from '@/types'
 import type { Storage } from '@/lib/storage'
@@ -106,6 +106,39 @@ describe('slugify', () => {
 
   it('keeps digits', () => {
     expect(slugify('Cohort 2024')).toBe('cohort-2024')
+  })
+})
+
+// Byte-parity with the Python _gitignore_escape (test_project_export.py). A marked
+// filename with a gitignore metachar must escape so the !path exception matches the
+// literal file rather than being read as a pattern.
+describe('gitignoreEscapePath', () => {
+  it('escapes glob metacharacters and prefixes', () => {
+    expect(gitignoreEscapePath('scripts/a[1]*.csv')).toBe('scripts/a\\[1\\]\\*.csv')
+    expect(gitignoreEscapePath('#weird!.csv')).toBe('\\#weird\\!.csv')
+    expect(gitignoreEscapePath('q?.csv')).toBe('q\\?.csv')
+    expect(gitignoreEscapePath('a\\b.csv')).toBe('a\\\\b.csv')
+  })
+
+  it('escapes trailing spaces so git does not strip them', () => {
+    expect(gitignoreEscapePath('name .csv ')).toBe('name .csv\\ ')
+  })
+
+  it('leaves a plain path unchanged', () => {
+    expect(gitignoreEscapePath('datasets/cohort/cohort.csv')).toBe('datasets/cohort/cohort.csv')
+  })
+})
+
+describe('excludedCodeFiles', () => {
+  it('reads the string list from project.config.excludedFiles', () => {
+    const s = excludedCodeFiles({ config: { excludedFiles: ['scripts/a.py', 'scripts/b.sql', 42] } })
+    expect(s).toEqual(new Set(['scripts/a.py', 'scripts/b.sql']))
+  })
+
+  it('returns an empty set when absent or malformed', () => {
+    expect(excludedCodeFiles(null).size).toBe(0)
+    expect(excludedCodeFiles({ config: {} }).size).toBe(0)
+    expect(excludedCodeFiles({ config: { excludedFiles: 'nope' } }).size).toBe(0)
   })
 })
 

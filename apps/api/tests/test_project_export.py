@@ -216,3 +216,47 @@ def test_reference_csv_under_scripts_ignored_unless_marked():
         **common,
     )
     assert "!scripts/reference/concepts.csv" in marked[".gitignore"].decode()
+
+
+def test_excluded_code_file_omitted_from_tree():
+    # Code files are versioned by default; an excludedFiles entry (its scripts/ tree
+    # path) omits the file from the tree AND from scripts/_tree.json entirely — must
+    # match buildProjectZip / the sidebar "unmarked" badge so it never leaves the box.
+    kept = {"id": "k1", "name": "keep.sql", "type": "file", "parentId": None, "content": "SELECT 1", "path": "keep.sql"}
+    dropped = {"id": "d1", "name": "secret.py", "type": "file", "parentId": None, "content": "TOKEN = 1", "path": "secret.py"}
+    common = dict(
+        project={"uid": "p", "name": {"en": "P"}},
+        organization=None,
+        pipelines=[], cohorts=[], connections=[], dashboards=[],
+        dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+        attachments=[], attachment_blobs={},
+        versioned_data_files=set(),
+    )
+    tree = build_project_tree(
+        ide_files=[kept, dropped],
+        excluded_files={"scripts/secret.py"},
+        **common,
+    )
+    assert tree["scripts/keep.sql"] == b"SELECT 1"
+    assert "scripts/secret.py" not in tree
+    meta_names = [m["name"] for m in json.loads(tree["scripts/_tree.json"])]
+    assert "keep.sql" in meta_names
+    assert "secret.py" not in meta_names
+
+
+def test_gitignore_exception_escapes_metacharacters():
+    # A marked filename containing gitignore metachars ([ ] * ? # !) must be escaped
+    # in the !path exception, else git reads it as a pattern and the re-inclusion
+    # silently misses the file (the failure mode the feature prevents). Byte-parity
+    # with the TS gitignoreEscapePath.
+    ref = {"id": "r1", "name": "a[1]*.csv", "type": "file", "parentId": None, "content": "x", "path": "a[1]*.csv"}
+    tree = build_project_tree(
+        project={"uid": "p", "name": {"en": "P"}},
+        organization=None,
+        ide_files=[ref],
+        pipelines=[], cohorts=[], connections=[], dashboards=[],
+        dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+        attachments=[], attachment_blobs={},
+        versioned_data_files={"scripts/a[1]*.csv"},
+    )
+    assert r"!scripts/a\[1\]\*.csv" in tree[".gitignore"].decode()

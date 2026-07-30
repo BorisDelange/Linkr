@@ -236,7 +236,7 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
       }
     }
 
-    const numericValues = nonNullValues.map(Number).filter((n) => !isNaN(n))
+    const numericValues = nonNullValues.map(Number).filter((n) => Number.isFinite(n))
     const isNumeric = !isDate && (column.type === 'number' || (numericValues.length > 0 && numericValues.length === nonNullValues.length))
 
     let numeric = null
