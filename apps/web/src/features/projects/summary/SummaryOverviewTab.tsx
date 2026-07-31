@@ -141,28 +141,28 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
             icon={<Database size={18} />}
             iconBg="bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300"
             value={dataSources.length}
-            label={t('summary.databases')}
+            label={t('summary.stat_databases', { count: dataSources.length })}
             to={paths.databases(wsUid ?? '', uid)}
           />
           <StatCard
             icon={<Users size={18} />}
             iconBg="bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300"
             value={cohorts.length}
-            label={t('summary.cohorts')}
+            label={t('summary.stat_cohorts', { count: cohorts.length })}
             to={paths.cohorts(wsUid ?? '', uid)}
           />
           <StatCard
             icon={<Boxes size={18} />}
             iconBg="bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
             value={stats.datasetNodes}
-            label={t('summary.datasets')}
+            label={t('summary.stat_datasets', { count: stats.datasetNodes })}
             to={paths.datasets(wsUid ?? '', uid)}
           />
           <StatCard
             icon={<LayoutDashboard size={18} />}
             iconBg="bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
             value={dashboards.length}
-            label={t('summary.dashboards')}
+            label={t('summary.stat_dashboards', { count: dashboards.length })}
             to={paths.dashboards(wsUid ?? '', uid)}
           />
         </div>

@@ -312,28 +312,28 @@ function OverviewTab({
             icon={<FolderOpen size={18} />}
             iconBg="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
             value={counts.projects}
-            label={t('workspaces.stat_projects')}
+            label={t('workspaces.stat_projects', { count: counts.projects })}
             to={projectsPath}
           />
           <StatCard
             icon={<Database size={18} />}
             iconBg="bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300"
             value={counts.databases}
-            label={t('workspaces.stat_databases')}
+            label={t('workspaces.stat_databases', { count: counts.databases })}
             to={databasesPath}
           />
           <StatCard
             icon={<ArrowRightLeft size={18} />}
             iconBg="bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
             value={counts.mappingProjects}
-            label={t('workspaces.stat_mapping_projects')}
+            label={t('workspaces.stat_mapping_projects', { count: counts.mappingProjects })}
             to={mappingPath}
           />
           <StatCard
             icon={<BookOpen size={18} />}
             iconBg="bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
             value={counts.wikiPages}
-            label={t('workspaces.stat_wiki_pages')}
+            label={t('workspaces.stat_wiki_pages', { count: counts.wikiPages })}
             to={wikiPath}
           />
       </div>
