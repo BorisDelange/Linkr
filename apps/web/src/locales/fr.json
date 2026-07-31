@@ -2499,7 +2499,17 @@
     "title": "Environnements",
     "description": "Installer et gérer les packages Python et R pour les runtimes WASM.",
     "description_server": "Python et R s'exécutent sur le serveur en mode full-stack.",
-    "server_package_mgmt_soon": "La gestion des packages pour les environnements serveur n'est pas encore disponible — elle sera ajoutée dans une prochaine mise à jour. Les kernels serveur utilisent actuellement les packages installés sur le serveur.",
+    "open_project_first": "Ouvrez un projet pour gérer son environnement.",
+    "add_placeholder": "Nom du package (ex. pandas, numpy==1.26)…",
+    "build": "Construire",
+    "build_hint": "Ajouter ou retirer un package met à jour le fichier de verrouillage. Cliquez sur Construire pour l'installer dans l'environnement — cela peut prendre un moment et ne se lance jamais automatiquement.",
+    "remove": "Retirer",
+    "status": {
+      "draft": "Non construit",
+      "building": "Construction…",
+      "ready": "Prêt",
+      "error": "Échec de construction"
+    },
     "package_placeholder": "Nom du package...",
     "install": "Installer",
     "installing": "Installation...",

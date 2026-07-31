@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     # Hard wall-clock limit for a single server-side R/Python run (subprocess).
     execution_timeout_seconds: int = 120
 
+    # Managed environments (uv for Python; renv for R lands with step 5). The uv
+    # binary and PyPI index stay configurable so a future internal mirror is a
+    # config change, not a re-architecture (see ide-environments-plan §1). The
+    # package cache is Linkr-wide: one copy of each (package, version) shared by
+    # every project's venv, under data_dir/.cache/uv (uv hardlinks from it).
+    uv_bin: str = "uv"
+    pip_index_url: str = "https://pypi.org/simple"
+
     # Data
     data_dir: str = "~/.linkr"
 

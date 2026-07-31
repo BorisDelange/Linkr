@@ -48,3 +48,73 @@ async def _find(
         .where(Environment.language == language)
     )
     return result.scalar_one_or_none()
+
+
+async def list_for_project(db: AsyncSession, project_uid: str) -> list[Environment]:
+    """Both languages' environments, seeding any missing one as `system` so the UI
+    always shows a Python and an R entry."""
+    return [
+        await resolve(db, project_uid, "python"),
+        await resolve(db, project_uid, "r"),
+    ]
+
+
+async def add_packages(
+    db: AsyncSession, project_uid: str, language: str, packages: list[str]
+) -> Environment:
+    """Add packages to a project's environment (declarative: manifest + re-lock).
+    Adding a package promotes a `system` env to `managed` — it now has a spec to
+    build. The venv itself is (re)built separately via ``build`` (manual)."""
+    env = await resolve(db, project_uid, language)
+    _provisioner(language).add_packages(project_uid, packages)
+    return await _mark_managed(db, env)
+
+
+async def remove_package(
+    db: AsyncSession, project_uid: str, language: str, package: str
+) -> Environment:
+    env = await resolve(db, project_uid, language)
+    _provisioner(language).remove_package(project_uid, package)
+    return await _mark_managed(db, env)
+
+
+def list_packages(project_uid: str, language: str) -> list[dict]:
+    return _provisioner(language).list_packages(project_uid)
+
+
+async def build(db: AsyncSession, project_uid: str, language: str) -> Environment:
+    """Materialise the env's venv/library from its lockfile (manual, explicit).
+    Flips status building → ready/error and records the resolved interpreter."""
+    env = await resolve(db, project_uid, language)
+    env.status = "building"
+    await db.commit()
+    result = await _provisioner(language).build(project_uid)
+    env = await resolve(db, project_uid, language)
+    if result.ok:
+        env.status = "ready"
+        env.kind = "managed"
+        env.interpreter_path = str(_provisioner(language).venv_python(project_uid))
+    else:
+        env.status = "error"
+    await db.commit()
+    await db.refresh(env)
+    return env
+
+
+async def _mark_managed(db: AsyncSession, env: Environment) -> Environment:
+    if env.kind != "managed":
+        env.kind = "managed"
+    # A spec change invalidates a previously-built venv until the next build.
+    env.status = "draft"
+    await db.commit()
+    await db.refresh(env)
+    return env
+
+
+def _provisioner(language: str):
+    if language == "python":
+        from app.services.execution import uv_provisioner
+
+        return uv_provisioner
+    # renv provisioner lands in step 5; until then R stays system-only.
+    raise ValueError(f"No managed-environment provisioner for language: {language}")

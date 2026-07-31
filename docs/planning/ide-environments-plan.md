@@ -325,9 +325,12 @@ SessionDropdown.
    cap `max_sessions_per_user` → `max_kernels_per_user` (config alias keeps the old env var
    working) since a "session" is no longer the interpreter. The footer selector stays as-is
    until step 3 makes env≠session user-visible (then it gains the env name per kernel line).
-3. **Python env (uv)** — shared uv cache under `LINKR_DATA_DIR/.cache/uv`, provision the
-   project venv under `.cache/envs/python/`, `/environments/python/packages` + `/build`
-   endpoints, build-as-job, un-stub the dialog for Python.
+3. **Python env (uv)** — ✅ *done.* Shared uv cache under `data_dir/.cache/uv`, project venv
+   under `.cache/envs/python/`, `uv_provisioner` (manifest + `uv add/remove --no-sync` +
+   `uv sync` off the event loop), `/projects/{uid}/environments…/{packages,build}` routes
+   gated on `ide:read|write`, and a `ServerEnvironmentsPanel` replacing the dialog stub.
+   Build stays **manual**. Build-as-tracked-job is step 4 (today `/build` runs in a thread
+   and returns ready/error synchronously).
 4. **Job management** — jobs table + bounded executor + StatusBar jobs panel + cancel
    (needed by build; reused by Run).
 5. **R env (renv)** — same endpoints for R, shared renv cache, p3m repos default.

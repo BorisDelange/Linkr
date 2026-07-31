@@ -65,3 +65,21 @@ class ExecuteResponse(CamelModel):
     figures: list[RuntimeFigureResponse]
     table: RuntimeTableResponse | None
     html: str | None
+
+
+class EnvironmentResponse(CamelModel):
+    id: str
+    project_uid: str
+    language: str  # 'python' | 'r'
+    kind: str  # 'system' | 'managed'
+    status: str  # draft | building | ready | error
+    interpreter_path: str | None
+
+
+class PackageResponse(CamelModel):
+    name: str
+    spec: str  # version constraint as declared ("==2.1.4", ">=1", or "")
+
+
+class AddPackagesRequest(CamelModel):
+    packages: list[str]  # requirement strings, e.g. ["pandas", "numpy==1.26"]

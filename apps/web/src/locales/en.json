@@ -2499,7 +2499,17 @@
     "title": "Environments",
     "description": "Install and manage Python and R packages for your WASM runtimes.",
     "description_server": "Python and R run on the server in full-stack mode.",
-    "server_package_mgmt_soon": "Package management for server-side environments isn't available yet — it will be added in a future update. Server kernels currently use the packages installed on the server.",
+    "open_project_first": "Open a project to manage its environment.",
+    "add_placeholder": "Package name (e.g. pandas, numpy==1.26)…",
+    "build": "Build",
+    "build_hint": "Adding or removing a package updates the lockfile. Click Build to install it into the environment — this can take a moment and never runs automatically.",
+    "remove": "Remove",
+    "status": {
+      "draft": "Not built",
+      "building": "Building…",
+      "ready": "Ready",
+      "error": "Build failed"
+    },
     "package_placeholder": "Package name...",
     "install": "Install",
     "installing": "Installing...",

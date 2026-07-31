@@ -140,6 +140,34 @@ def cache_dir(project_uid: str) -> Path:
     return d
 
 
+def env_spec_dir(project_uid: str, language: str) -> Path:
+    """The committed declarative spec of a managed environment
+    (``environments/<language>/`` — manifest + lockfile). Versioned in the project
+    git and exported. Lives under the project dir, NOT the (re-bindable) scripts
+    dir, so it travels with the project regardless of the IDE binding."""
+    d = project_dir(project_uid) / "environments" / language
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def env_cache_dir(project_uid: str, language: str) -> Path:
+    """The materialised venv / renv library of a managed environment — machine-local,
+    git-ignored (under .cache, which is in _IGNORE), rebuilt from the spec. Made of
+    links into the Linkr-wide package cache (env_package_cache)."""
+    d = cache_dir(project_uid) / "envs" / language
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def env_package_cache(tool: str) -> Path:
+    """The Linkr-wide shared package cache for a tool (``uv`` / ``renv``): one copy
+    of each (package, version) for ALL projects, so a version installed for one
+    project is reused by the next. Under data_dir/.cache/<tool>."""
+    d = settings.data_path / ".cache" / tool
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def dataset_path(project_uid: str, rel: str) -> Path:
     """Absolute on-disk path of a raw dataset file, validated against traversal."""
     return _safe_join(datasets_dir(project_uid), rel)

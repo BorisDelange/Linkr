@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Plus,
-  Package,
   Loader2,
   Search,
   ExternalLink,
@@ -32,6 +31,7 @@ import {
 } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { useMyProjectRole } from '@/hooks/use-context-role'
+import { ServerEnvironmentsPanel } from './ServerEnvironmentsPanel'
 import { getPyodideStatus } from '@/lib/runtimes/pyodide-engine'
 import { getWebRStatus } from '@/lib/runtimes/webr-engine'
 import {
@@ -430,12 +430,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
         </DialogHeader>
 
         {server ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-            <Package size={24} className="text-muted-foreground/50" />
-            <p className="text-xs text-muted-foreground max-w-sm">
-              {t('environments.server_package_mgmt_soon')}
-            </p>
-          </div>
+          <ServerEnvironmentsPanel />
         ) : (
         <Tabs value={langTab} onValueChange={(v) => {
           setLangTab(v as 'python' | 'r')
