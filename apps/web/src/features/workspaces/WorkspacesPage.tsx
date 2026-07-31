@@ -934,7 +934,7 @@ export function WorkspacesPage() {
               return (
                 <Card
                   key={ws.id}
-                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
+                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
                   onClick={() => handleOpenWorkspace(ws.id, ws.name)}
                 >
                   <div className="flex flex-1 flex-col px-4 pt-5">

@@ -86,7 +86,7 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
       key={plugin.id}
       className={cn(
         'relative flex min-h-44 flex-col gap-0 py-0 transition-colors',
-        readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-accent/50',
+        readOnly ? 'cursor-default' : 'cursor-pointer hover:bg-accent',
       )}
       onClick={readOnly ? undefined : () => onOpen(plugin.id)}
     >

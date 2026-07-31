@@ -89,13 +89,15 @@ interface ReadmeEditorProps {
   headerActions?: React.ReactNode
   /** When false, the Edit button is hidden (view-only). Default true. */
   canEdit?: boolean
+  /** Overrides the root wrapper classes (defaults to `flex h-full flex-col pt-2`). */
+  className?: string
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEdit = true }: ReadmeEditorProps) {
+export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEdit = true, className = 'flex h-full flex-col pt-2' }: ReadmeEditorProps) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [localReadme, setLocalReadme] = useState(readme)
@@ -229,7 +231,7 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions, canEd
   const resolvedContent = resolveUrls ? resolveUrls(mode === 'edit' ? localReadme : readme) : (mode === 'edit' ? localReadme : readme)
 
   return (
-    <div className="flex h-full flex-col pt-2">
+    <div className={className}>
       {/* Header bar */}
       <div className="flex shrink-0 items-center justify-between">
         <h2 className="text-xs font-semibold uppercase text-muted-foreground">

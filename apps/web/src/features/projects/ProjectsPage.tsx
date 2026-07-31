@@ -399,7 +399,7 @@ export function ProjectsPage() {
               return (
                 <Card
                   key={project.uid}
-                  className="relative flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
+                  className="relative flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
                   onClick={() => handleOpenProject(project.uid, project.name)}
                 >
                   <div className="flex flex-1 flex-col px-4 pt-5">

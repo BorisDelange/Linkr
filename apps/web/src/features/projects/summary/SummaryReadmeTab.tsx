@@ -32,6 +32,7 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
   return (
     <>
       <ReadmeEditor
+        className="flex h-full flex-col pt-4 pb-1.5"
         readme={readme}
         onSave={(content) => updateProjectReadme(uid, content)}
         resolveUrls={resolveAttachmentUrls}

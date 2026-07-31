@@ -450,7 +450,7 @@ function StatCard({
   const className = 'rounded-xl border bg-card p-4 shadow-sm'
   if (to) {
     return (
-      <Link to={to} className={`${className} block transition-colors hover:bg-accent/50`}>
+      <Link to={to} className={`${className} block transition-colors hover:bg-accent`}>
         {content}
       </Link>
     )

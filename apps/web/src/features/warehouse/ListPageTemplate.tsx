@@ -213,7 +213,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
             {items.map((item) => (
               <Card
                 key={item.id}
-                className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
+                className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
                 onClick={() => onNavigate(shortenIdAmong(item.id, items.map((i) => i.id)))}
               >
                 <div className="flex flex-1 flex-col px-4 pt-5">

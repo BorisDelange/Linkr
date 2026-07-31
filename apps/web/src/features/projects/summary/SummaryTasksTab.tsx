@@ -128,7 +128,7 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
   )
 
   return (
-    <div className="flex h-full min-h-0 gap-6 pt-2">
+    <div className="flex h-full min-h-0 gap-6 pt-4 pb-1.5">
       {/* Todo — left half */}
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <h2 className="shrink-0 text-xs font-semibold uppercase text-muted-foreground">

@@ -80,7 +80,7 @@ export const DatabaseCard = memo(function DatabaseCard({
 
   const cardClassName = [
     'flex min-h-44 min-w-0 flex-col gap-0 py-0 transition-colors',
-    onClick ? 'cursor-pointer hover:bg-accent/50' : '',
+    onClick ? 'cursor-pointer hover:bg-accent' : '',
     isActive ? 'border-green-500/50 bg-green-50 dark:bg-green-950/20' : '',
   ].filter(Boolean).join(' ')
 

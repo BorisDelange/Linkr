@@ -165,7 +165,7 @@ export function LabDashboardsPage() {
               return (
                 <Card
                   key={dash.id}
-                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent/50"
+                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
                   onClick={() => navigate(paths.dashboard(wsUid ?? '', projectUid, dash.id))}
                 >
                   <div className="flex flex-1 flex-col px-4 pt-5">
