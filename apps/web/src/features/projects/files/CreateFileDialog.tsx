@@ -40,7 +40,9 @@ const fileTypes = [
     ext: '.py',
     lang: 'python',
     icon: FileCode,
-    iconColor: 'text-blue-500',
+    // Icon colors mirror the IDE sidebar (FileTreeItem) so the picker reads the
+    // same as the tree: Python yellow, R blue, SQL orange, etc.
+    iconColor: 'text-yellow-500',
   },
   {
     id: 'r',
@@ -48,7 +50,7 @@ const fileTypes = [
     ext: '.R',
     lang: 'r',
     icon: FileCode,
-    iconColor: 'text-sky-500',
+    iconColor: 'text-blue-500',
   },
   {
     id: 'sql',
@@ -56,7 +58,7 @@ const fileTypes = [
     ext: '.sql',
     lang: 'sql',
     icon: Database,
-    iconColor: 'text-amber-500',
+    iconColor: 'text-orange-400',
   },
   {
     id: 'rmd',
@@ -96,7 +98,7 @@ const fileTypes = [
     ext: '.csv',
     lang: 'plaintext',
     icon: FileText,
-    iconColor: 'text-green-500',
+    iconColor: 'text-emerald-500',
   },
   {
     id: 'txt',

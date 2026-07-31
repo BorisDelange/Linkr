@@ -241,6 +241,12 @@
   "workspace_settings": {
     "delete_workspace": "Supprimer le workspace"
   },
+  "workspace_env": {
+    "title": "Environnements par défaut",
+    "description": "Packages avec lesquels démarre un nouveau projet de ce workspace. Un package par ligne ; épinglez une version avec « == » (ex. pandas==2.1.4). Laissez vide pour utiliser les valeurs par défaut de data science.",
+    "python_hint": "Packages Python (installés avec uv)",
+    "r_hint": "Packages R (installés avec renv)"
+  },
   "projects": {
     "title": "Projets",
     "description": "Les projets organisent vos bases de données, analyses et tableaux de bord autour d'une question de recherche.",
@@ -2501,8 +2507,14 @@
     "description_server": "Python et R s'exécutent sur le serveur en mode full-stack.",
     "open_project_first": "Ouvrez un projet pour gérer son environnement.",
     "add_placeholder": "Nom du package (ex. pandas, numpy==1.26)…",
-    "build": "Construire",
-    "build_hint": "Ajouter ou retirer un package met à jour le fichier de verrouillage. Cliquez sur Construire pour l'installer dans l'environnement — cela peut prendre un moment et ne se lance jamais automatiquement.",
+    "build": "Reconstruire",
+    "build_hint": "Les packages s'installent automatiquement au premier lancement du code. Épinglez une version avec « == », ex. pandas==2.1.4.",
+    "version_help_label": "Comment épingler une version",
+    "version_help": "Saisissez un nom de package pour la dernière version, ou épinglez-en une avec « == », ex. pandas==2.1.4 (Python) ou dplyr==1.1.4 (R). Utilisez le bouton de mise à jour pour passer un package à une version plus récente.",
+    "install_preset": "Installer les packages usuels de data science",
+    "update": "Mettre à jour",
+    "update_all": "Tout mettre à jour",
+    "update_all_hint": "Re-verrouiller tous les packages à leur dernière version, puis reconstruire.",
     "remove": "Retirer",
     "status": {
       "draft": "Non construit",

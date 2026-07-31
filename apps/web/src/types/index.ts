@@ -158,6 +158,9 @@ export interface Workspace extends Seedable, Authored, Lineaged {
   badges?: ProjectBadge[]
   readme?: LocalizedString
   gitRemoteConfig?: GitRemoteConfig
+  /** Default package lists for new projects' environments, per language:
+   *  { python: ["pandas", …], r: ["dplyr", …] }. Undefined = built-in defaults. */
+  defaultEnvPackages?: { python?: string[]; r?: string[] }
   createdAt: string
   updatedAt: string
 }

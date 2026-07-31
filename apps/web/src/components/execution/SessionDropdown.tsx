@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Boxes, ChevronDown, Plus, Trash2, Check } from 'lucide-react'
+import { Boxes, ChevronDown, Plus, Trash2, Check, CornerDownLeft } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
 import { useSessionStore } from '@/stores/session-store'
 import { Button } from '@/components/ui/button'
@@ -88,7 +88,7 @@ export function SessionDropdown({ projectUid }: { projectUid: string }) {
                 }}
                 aria-label={t('sessions.delete')}
               >
-                <Trash2 size={12} className="group-hover/trash:text-destructive" />
+                <Trash2 size={10} className="group-hover/trash:text-destructive" />
               </button>
             )}
           </DropdownMenuItem>
@@ -110,11 +110,12 @@ export function SessionDropdown({ projectUid }: { projectUid: string }) {
           </div>
         ) : (
           <DropdownMenuItem
-            className="flex items-center gap-2 text-xs"
+            className="group/new flex items-center gap-2 text-xs"
             onSelect={(e) => { e.preventDefault(); setAdding(true) }}
           >
             <Plus size={12} />
-            {t('sessions.new')}
+            <span className="flex-1">{t('sessions.new')}</span>
+            <CornerDownLeft size={11} className="opacity-0 transition-opacity group-hover/new:opacity-60" />
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

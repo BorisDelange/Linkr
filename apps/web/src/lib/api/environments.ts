@@ -69,6 +69,28 @@ export function buildEnvironment(
   })
 }
 
+/** Record the workspace's default data-science package set into this env. */
+export function installPreset(
+  projectUid: string,
+  language: 'python' | 'r',
+): Promise<ProjectEnvironment> {
+  return apiRequest(`/projects/${projectUid}/environments/${language}/preset`, {
+    method: 'POST',
+  })
+}
+
+/** Re-lock one package (or all, if pkg omitted) to a newer version; env → draft. */
+export function upgradeEnvPackages(
+  projectUid: string,
+  language: 'python' | 'r',
+  pkg?: string,
+): Promise<ProjectEnvironment> {
+  const q = pkg ? `?package=${encodeURIComponent(pkg)}` : ''
+  return apiRequest(`/projects/${projectUid}/environments/${language}/upgrade${q}`, {
+    method: 'POST',
+  })
+}
+
 export function listJobs(projectUid: string): Promise<Job[]> {
   return apiRequest(`/projects/${projectUid}/jobs`)
 }

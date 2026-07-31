@@ -241,6 +241,12 @@
   "workspace_settings": {
     "delete_workspace": "Delete workspace"
   },
+  "workspace_env": {
+    "title": "Default environments",
+    "description": "Packages a new project in this workspace starts with. One package per line; pin a version with '==' (e.g. pandas==2.1.4). Leave empty to use the built-in data-science defaults.",
+    "python_hint": "Python packages (installed with uv)",
+    "r_hint": "R packages (installed with renv)"
+  },
   "projects": {
     "title": "Projects",
     "description": "Projects organize your databases, analyses and dashboards around a research question.",
@@ -2501,8 +2507,14 @@
     "description_server": "Python and R run on the server in full-stack mode.",
     "open_project_first": "Open a project to manage its environment.",
     "add_placeholder": "Package name (e.g. pandas, numpy==1.26)…",
-    "build": "Build",
-    "build_hint": "Adding or removing a package updates the lockfile. Click Build to install it into the environment — this can take a moment and never runs automatically.",
+    "build": "Rebuild",
+    "build_hint": "Packages install automatically the first time you run code. Pin a version with '==', e.g. pandas==2.1.4.",
+    "version_help_label": "How to pin a version",
+    "version_help": "Type a package name to get the latest version, or pin one with '==', e.g. pandas==2.1.4 (Python) or dplyr==1.1.4 (R). Use the update button to move a package to a newer version.",
+    "install_preset": "Install common data-science packages",
+    "update": "Update to latest",
+    "update_all": "Update all",
+    "update_all_hint": "Re-lock every package to its latest version, then rebuild.",
     "remove": "Remove",
     "status": {
       "draft": "Not built",

@@ -11,6 +11,8 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
+import { DefaultEnvironmentsTab } from '@/features/workspaces/DefaultEnvironmentsTab'
+import { isServerMode } from '@/lib/api-client'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
   AlertDialog,
@@ -72,6 +74,7 @@ export function WorkspaceSettingsPage() {
       <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-1 flex-col px-6">
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
+          {isServerMode() && <TabsTrigger value="environments">{t('workspace_env.title')}</TabsTrigger>}
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
 
@@ -79,6 +82,13 @@ export function WorkspaceSettingsPage() {
         <TabsContent value="members" className="min-h-0 flex-1 overflow-auto pb-6">
           <MembersTab scope="workspace" targetId={wsUid} />
         </TabsContent>
+
+        {/* Default environments (server mode) */}
+        {isServerMode() && (
+          <TabsContent value="environments" className="min-h-0 flex-1 overflow-auto pb-6">
+            <DefaultEnvironmentsTab workspace={workspace} />
+          </TabsContent>
+        )}
 
         {/* Danger zone — owner only */}
         {canDelete && (
