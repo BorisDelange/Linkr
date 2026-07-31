@@ -214,10 +214,14 @@ language, seeded); endpoints act on **the** environment of a language.
   `uv lock` / `renv::snapshot()`, then `uv sync` / `renv::restore()` into the project env
   cache — pulling from the **shared instance cache** (§1), so a version already present for
   another project isn't re-downloaded. The lockfile is the artefact; the venv is derived.
-- **[DECIDED 2026-07-30] Build is always MANUAL, never automatic** — including after a git
-  clone. `POST …/build` is the only thing that materialises a venv/renv library; the user
-  clicks "Build". Running code against an unbuilt managed env refuses with a clear message
-  (§3). Moving a project to `system` needs no build.
+- **[REVISED 2026-07-31] Build runs AUTOMATICALLY on first run** (was "always manual").
+  Reversed after the PO found the manual-only flow confusing: executing code against a
+  managed env that isn't materialised triggers the build first (as a visible job), then
+  runs — `environments.ensure_ready`. `POST …/build` still exists for an **explicit
+  rebuild** (after a package change, or a failed build); the UI only shows the Build button
+  when the env needs one. An empty env (no packages) resolves to the shared interpreter and
+  never builds. The user-visible `system`/`managed` distinction is **dropped** — the UI just
+  shows packages + a build/ready state.
 - **Building is a JOB** (§6): `uv sync` / `renv::restore()` can take minutes → tracked
   background job, `/build-status` polls it.
 - **[DECIDED] repos config**: Python index-url and R repos from server config (PyPI + p3m),
@@ -356,6 +360,9 @@ SessionDropdown.
      substantial change to how an `ExecutionResult` is modelled (single object → stream).
    - **True real-time R streaming**: needs an R-side incremental flush in `_R_KERNEL_LOOP`
      (today buffered by `capture.output`, emitted at end).
+   - **Code runs as jobs**: a long script run (e.g. `Sys.sleep(5)`) does NOT appear in the
+     jobs panel today — only **builds** create a `Job` (`kind="build"`). Surfacing runs as
+     `kind="run"` jobs (visible + cancellable) folds in with the streaming Run work here.
    Neither blocks the feature — batch Run works; builds/long jobs already stream status via
    the jobs panel (step 4). The `render` purpose guard in `_require_execute` is load-bearing
    security (refuses a viewer-gate downgrade), **not** a cosmetic enum — it stays; the
@@ -373,7 +380,9 @@ Settled:
   per-artefact selection, no derivation).
 - **[DECIDED 2026-07-30]** Session ≠ env; multiple sessions per env, local, never exported.
 - **[DECIDED 2026-07-30]** Package cache shared instance-wide (uv + renv).
-- **[DECIDED 2026-07-30]** Build always manual, never automatic (incl. on import).
+- **[REVISED 2026-07-31]** Build runs auto on first run (was "always manual"); explicit
+  rebuild still available. No user-visible system/managed tier. Workspace-level default
+  package preset (Workspace Settings → Default environments) + per-package update/update-all.
 - **[DECIDED 2026-07-30]** Job executor = bounded in-process (no external broker); DB-backed
   model keeps a future queue swap cheap.
 - **[DECIDED 2026-07-30]** `max_sessions_per_user` → `max_kernels_per_user` (cap on live
