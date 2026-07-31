@@ -457,7 +457,7 @@ class Kernel:
 
 
 class KernelLimitReached(Exception):
-    """A user has hit max_sessions_per_user concurrent R/Python kernels."""
+    """A user has hit max_kernels_per_user concurrent R/Python kernels."""
 
 
 class KernelManager:
@@ -465,7 +465,7 @@ class KernelManager:
 
     Idle kernels are evicted after ``session_timeout_minutes`` (their process is
     a long-lived interpreter holding memory), and the number of concurrent
-    kernels per user is capped at ``max_sessions_per_user`` — the same limits the
+    kernels per user is capped at ``max_kernels_per_user`` — the same limits the
     PTY shells enforce, so a user cannot pin unbounded server processes."""
 
     def __init__(self):
@@ -514,11 +514,11 @@ class KernelManager:
             to_shutdown = self._sweep_idle_locked()
             kernel = self._kernels.get(key)
             if kernel is None:
-                if self._count_for_user(user_id) >= settings.max_sessions_per_user:
+                if self._count_for_user(user_id) >= settings.max_kernels_per_user:
                     for k in to_shutdown:
                         await k.shutdown()
                     raise KernelLimitReached(
-                        f"Kernel session limit reached ({settings.max_sessions_per_user})."
+                        f"Kernel session limit reached ({settings.max_kernels_per_user})."
                     )
                 kernel = self._make(language, project_uid, environment)
                 self._kernels[key] = kernel

@@ -709,12 +709,12 @@ async def test_ws_auth_rejects_garbage_token(client):
 
 async def test_pty_manager_caps_sessions_per_user(monkeypatch):
     """Each terminal shell is an OS process; a user can't exceed
-    max_sessions_per_user concurrent shells, but the cap is per-user and a
+    max_kernels_per_user concurrent shells, but the cap is per-user and a
     closed session frees a slot."""
     from app.config import settings
     from app.services.execution.pty_kernel import PtyManager, SessionLimitReached
 
-    monkeypatch.setattr(settings, "max_sessions_per_user", 2)
+    monkeypatch.setattr(settings, "max_kernels_per_user", 2)
     m = PtyManager()
     try:
         await m.create("p", "s1", user_id=1)

@@ -1,6 +1,7 @@
 from functools import cached_property
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 # apps/api/.env — resolved absolutely so it loads regardless of the working
@@ -37,7 +38,14 @@ class Settings(BaseSettings):
 
     # Code execution
     enable_code_execution: bool = True
-    max_sessions_per_user: int = 5
+    # Cap on a user's concurrent live server processes (R/Python kernels + PTY
+    # shells). Renamed from MAX_SESSIONS_PER_USER (still read as a fallback so
+    # existing deployments' env vars keep working) once "session" stopped meaning
+    # the interpreter — a session is now a namespace over an environment.
+    max_kernels_per_user: int = Field(
+        default=5,
+        validation_alias=AliasChoices("max_kernels_per_user", "max_sessions_per_user"),
+    )
     session_timeout_minutes: int = 60
     # Hard wall-clock limit for a single server-side R/Python run (subprocess).
     execution_timeout_seconds: int = 120

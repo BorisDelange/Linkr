@@ -42,7 +42,7 @@ def mgr(monkeypatch):
 
 
 async def test_per_user_cap(mgr, monkeypatch):
-    monkeypatch.setattr(settings, "max_sessions_per_user", 2, raising=False)
+    monkeypatch.setattr(settings, "max_kernels_per_user", 2)
     await mgr.get("p", 7, "python", "e1")
     await mgr.get("p", 7, "python", "e2")
     with pytest.raises(KernelLimitReached):
@@ -72,7 +72,7 @@ async def test_busy_kernel_not_evicted(mgr, monkeypatch):
 
 
 async def test_restart_frees_user_slot(mgr, monkeypatch):
-    monkeypatch.setattr(settings, "max_sessions_per_user", 1, raising=False)
+    monkeypatch.setattr(settings, "max_kernels_per_user", 1)
     await mgr.get("p", 1, "python", "e1")
     await mgr.restart("p", 1, "python", "e1")
     # Slot freed → can create again without hitting the cap.

@@ -132,7 +132,7 @@ class PtyShell:
 
 
 class SessionLimitReached(Exception):
-    """A user has hit max_sessions_per_user concurrent terminal shells."""
+    """A user has hit max_kernels_per_user concurrent terminal shells."""
 
 
 class PtyManager:
@@ -153,9 +153,9 @@ class PtyManager:
     async def create(self, project_uid: str, session_id: str, user_id: int) -> PtyShell:
         from app.config import settings
 
-        if self._count_for_user(user_id) >= settings.max_sessions_per_user:
+        if self._count_for_user(user_id) >= settings.max_kernels_per_user:
             raise SessionLimitReached(
-                f"Terminal session limit reached ({settings.max_sessions_per_user})."
+                f"Terminal session limit reached ({settings.max_kernels_per_user})."
             )
         cwd = str(project_fs.ide_dir(project_uid))
         shell = PtyShell(cwd, extra_env=project_fs.runtime_env(project_uid))

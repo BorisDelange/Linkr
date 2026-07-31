@@ -320,9 +320,11 @@ SessionDropdown.
    `system` env per language resolving to today's interpreter (zero behaviour change);
    repurpose `execution_sessions` as sessions; add `session_id` to the kernel key; thread it
    through `_make`. **Behaviour-preserving.**
-2. **Sessions UI** — session selector in the footer (replaces SessionDropdown), multiple
-   live sessions per project+language, `max_kernels_per_user` rename. (Gives the PO's
-   "several VSCode-like terminals" early, on the system env, before any managed env exists.)
+2. **Sessions + cap rename** — ✅ *done.* Multi-session already worked end-to-end
+   (`SessionDropdown`, `execution_sessions`, `/execute/sessions*`); this step renamed the
+   cap `max_sessions_per_user` → `max_kernels_per_user` (config alias keeps the old env var
+   working) since a "session" is no longer the interpreter. The footer selector stays as-is
+   until step 3 makes env≠session user-visible (then it gains the env name per kernel line).
 3. **Python env (uv)** — shared uv cache under `LINKR_DATA_DIR/.cache/uv`, provision the
    project venv under `.cache/envs/python/`, `/environments/python/packages` + `/build`
    endpoints, build-as-job, un-stub the dialog for Python.
