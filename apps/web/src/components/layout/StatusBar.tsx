@@ -12,7 +12,7 @@ import { useBrowserMetrics } from '@/hooks/use-browser-metrics'
 import { useServerKernels } from '@/hooks/use-server-kernels'
 import { isServerMode } from '@/lib/api-client'
 import { restartServerKernel } from '@/lib/api/execution'
-import { useAppStore } from '@/stores/app-store'
+import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { APP_VERSION } from '@/lib/version'
 import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
 import { JobsIndicator } from '@/components/layout/JobsIndicator'
@@ -65,7 +65,10 @@ export function StatusBar() {
   const metrics = useBrowserMetrics()
   const [environmentsOpen, setEnvironmentsOpen] = useState(false)
   const server = isServerMode()
-  const activeProjectUid = useAppStore((s) => s.activeProjectUid)
+  // Only treat a project as active on an actual project route — the app-store's
+  // activeProjectUid lingers after you leave a project into a workspace view, which
+  // would otherwise keep the last project's kernels/env showing in the footer.
+  const activeProjectUid = useProjectRouteUid()
   const { kernels, refresh } = useServerKernels(activeProjectUid)
 
   const handleRestartKernel = async (language: 'python' | 'r', envId: string) => {

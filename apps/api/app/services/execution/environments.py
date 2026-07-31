@@ -66,6 +66,11 @@ async def _find(
 # Built-in data-science defaults used when a workspace hasn't customised its
 # preset (Workspace Settings → Default environments). Kept deliberately small so
 # a first build is quick; the user adds more per project.
+def language_label(language: str) -> str:
+    """Display name for a language ('Python' / 'R'), for job labels etc."""
+    return {"python": "Python", "r": "R"}.get(language, language)
+
+
 DEFAULT_PACKAGES: dict[str, list[str]] = {
     "python": ["pandas", "numpy", "matplotlib", "plotly", "scikit-learn", "duckdb"],
     "r": ["dplyr", "ggplot2", "tidyr", "readr", "data.table"],
@@ -183,7 +188,7 @@ async def ensure_ready(
 
     job = await jobs.create(
         db, project_uid, user_id, kind="build",
-        label=f"Build {language.upper()} environment",
+        label=f"Build {language_label(language)} environment",
     )
 
     async def body(handle) -> None:

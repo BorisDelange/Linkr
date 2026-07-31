@@ -535,6 +535,14 @@ class KernelManager:
         if kernel is not None:
             await kernel.shutdown()
 
+    def interrupt(
+        self, project_uid: str, user_id: int, language: str, env_id: str
+    ) -> bool:
+        """SIGINT the caller's live kernel for (project, language, session) — the
+        Stop button. Returns False if there's no live kernel to interrupt."""
+        kernel = self._kernels.get((project_uid, user_id, language, env_id))
+        return kernel.interrupt() if kernel is not None else False
+
     async def shutdown_env(
         self, project_uid: str, user_id: int, env_id: str
     ) -> None:

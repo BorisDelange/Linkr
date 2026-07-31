@@ -18,9 +18,14 @@ class _FakeKernel:
         self.rss_kb = 5000
         self.last_activity = time.monotonic()
         self.shut = False
+        self.interrupted = False
 
     def idle_seconds(self):
         return time.monotonic() - self.last_activity
+
+    def interrupt(self):
+        self.interrupted = True
+        return True
 
     async def shutdown(self):
         self.shut = True
@@ -99,3 +104,13 @@ def test_read_rss_kb_of_current_process():
 
     rss = kernel_mod._read_rss_kb(os.getpid())
     assert rss is None or rss > 0
+
+
+async def test_interrupt_signals_the_live_kernel(mgr):
+    k = await mgr.get("p", 1, "python", "e1")
+    assert mgr.interrupt("p", 1, "python", "e1") is True
+    assert k.interrupted is True
+
+
+async def test_interrupt_is_a_noop_without_a_live_kernel(mgr):
+    assert mgr.interrupt("p", 1, "python", "missing") is False

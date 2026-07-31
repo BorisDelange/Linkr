@@ -184,7 +184,7 @@ async def build_environment(
     env's status. The build runs behind the bounded executor (won't block others)."""
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
-    label = f"Build {language.upper()} environment"
+    label = f"Build {environments.language_label(language)} environment"
     job = await jobs.create(db, project_uid, user.id, kind="build", label=label)
 
     async def body(handle: jobs.JobHandle) -> None:

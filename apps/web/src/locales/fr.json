@@ -2522,7 +2522,8 @@
     "build": "Reconstruire",
     "build_hint": "Les packages s'installent automatiquement au premier lancement du code. Épinglez une version avec « == », ex. pandas==2.1.4.",
     "version_help_label": "Comment épingler une version",
-    "version_help": "Saisissez un nom de package pour la dernière version, ou épinglez-en une avec « == », ex. pandas==2.1.4 (Python) ou dplyr==1.1.4 (R). Utilisez le bouton de mise à jour pour passer un package à une version plus récente.",
+    "version_help_python": "Saisissez un nom de package pour sa dernière version (ex. pandas), ou épinglez-en une avec « == », ex. pandas==2.1.4. Installé avec uv. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
+    "version_help_r": "Saisissez un nom de package pour sa dernière version (ex. dplyr), ou épinglez-en une avec « == », ex. dplyr==1.1.4. Installé avec renv depuis Posit Package Manager. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
     "install_preset": "Installer les packages usuels de data science",
     "update": "Mettre à jour",
     "update_all": "Tout mettre à jour",
@@ -2561,6 +2562,8 @@
     "title_other": "{{count}} tâches",
     "recent": "Tâches récentes",
     "cancel": "Annuler",
+    "show_log": "Voir la sortie",
+    "no_log": "Aucune sortie.",
     "status": {
       "queued": "En attente",
       "running": "En cours",

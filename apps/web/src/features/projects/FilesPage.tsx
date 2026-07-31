@@ -77,7 +77,7 @@ import { useProjectTree } from '@/hooks/use-project-tree'
 import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer } from '@/lib/api/execution'
+import { executeOnServer, interruptServerKernel } from '@/lib/api/execution'
 import { queryDatasetRows } from '@/lib/api/datasets'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
@@ -625,6 +625,16 @@ export function FilesPage() {
     [activeConnectionId, activeProjectUid, t, startExecution, finishExecution, addExecutionResult, updateExecutionResult, addOutputTab, setActiveOutputTab]
   )
 
+  // Stop: abort the WASM run (front-only) AND, in server mode, SIGINT the kernel
+  // so a long server-side run (e.g. Sys.sleep) actually interrupts — an aborted
+  // HTTP request alone would not stop the kernel process.
+  const handleStop = useCallback(() => {
+    stopExecution()
+    if (isServerMode() && activeProjectUid && (selectedLanguage === 'python' || selectedLanguage === 'r')) {
+      void interruptServerKernel(selectedLanguage, activeProjectUid, activeSessionId).catch(() => {})
+    }
+  }, [stopExecution, activeProjectUid, selectedLanguage, activeSessionId])
+
   const isMarkdown = selectedLanguage === 'markdown' || selectedNode?.name.endsWith('.md')
 
   const runCode = useCallback(
@@ -948,7 +958,7 @@ export function FilesPage() {
                       onRunFile={handleRunFile}
                       onRunSelection={handleRunSelection}
                       onRunLine={handleRunLine}
-                      onStop={stopExecution}
+                      onStop={handleStop}
                       isSql={isSql}
                       isExecuting={isExecuting}
                       language={selectedLanguage as 'python' | 'r' | undefined}

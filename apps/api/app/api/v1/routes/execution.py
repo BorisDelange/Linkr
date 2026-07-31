@@ -289,6 +289,19 @@ async def restart_kernel(
     await kernel.manager.restart(body.project_uid, user.id, body.language, body.env_id)
 
 
+@router.post("/interrupt", status_code=status.HTTP_204_NO_CONTENT)
+async def interrupt_kernel(
+    body: RestartKernelRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """SIGINT the caller's running kernel for (project, language, env) — the Stop
+    button. Unlike restart it keeps the namespace; it just interrupts the current
+    run (e.g. a long Sys.sleep). A no-op if nothing is running."""
+    await _require_code_execution(db, body.project_uid, user)
+    kernel.manager.interrupt(body.project_uid, user.id, body.language, body.env_id)
+
+
 @router.get("/sessions", response_model=list[ExecutionSessionResponse])
 async def list_sessions(
     project_uid: str = Query(alias="projectUid"),

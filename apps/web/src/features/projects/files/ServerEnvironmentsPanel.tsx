@@ -11,7 +11,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { useAppStore } from '@/stores/app-store'
+import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import {
   listEnvironments,
@@ -34,7 +34,7 @@ import {
  */
 export function ServerEnvironmentsPanel({ language }: { language: 'python' | 'r' }) {
   const { t } = useTranslation()
-  const projectUid = useAppStore((s) => s.activeProjectUid)
+  const projectUid = useProjectRouteUid()
   const canWrite = useMyProjectRole().can('ide:write')
 
   const [env, setEnv] = useState<ProjectEnvironment | null>(null)
@@ -147,7 +147,7 @@ export function ServerEnvironmentsPanel({ language }: { language: 'python' | 'r'
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right" className="max-w-xs text-xs">
-                {t('environments.version_help')}
+                {t(`environments.version_help_${language}`)}
               </TooltipContent>
             </Tooltip>
           </div>

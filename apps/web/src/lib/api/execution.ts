@@ -90,3 +90,16 @@ export function restartServerKernel(
     body: JSON.stringify({ language, projectUid, envId }),
   })
 }
+
+/** SIGINT the running kernel for (project, language, env) — the Stop button. Keeps
+ *  the namespace; just interrupts the current run. No-op if nothing is running. */
+export function interruptServerKernel(
+  language: RuntimeLanguage,
+  projectUid: string,
+  envId = 'default',
+): Promise<void> {
+  return apiRequest<void>('/execute/interrupt', {
+    method: 'POST',
+    body: JSON.stringify({ language, projectUid, envId }),
+  })
+}
