@@ -204,7 +204,9 @@ async def _run_in_kernel(
 ) -> ExecuteResponse:
     """Run `code` in the caller's persistent kernel for (project, language, env)
     and shape the captured output. Shared by /execute and /execute/render."""
-    environment = await environments.resolve(db, project_uid, language)
+    # Auto-build the project env on first run if it declares packages but isn't
+    # materialised yet (build is visible as a job); an empty/ready env is instant.
+    environment = await environments.ensure_ready(db, project_uid, language, user.id)
     try:
         try:
             k = await kernel.manager.get(project_uid, user.id, language, env_id, environment)

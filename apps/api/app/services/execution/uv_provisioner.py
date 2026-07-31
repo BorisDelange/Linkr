@@ -138,6 +138,14 @@ def remove_package(project_uid: str, package: str) -> None:
     _run(project_uid, ["remove", "--no-sync", package])
 
 
+def upgrade(project_uid: str, package: str | None = None) -> None:
+    """Re-lock to newer versions: one package (``uv lock --upgrade-package X``) or
+    all (``uv lock --upgrade``). Re-lock only — the user builds to materialise."""
+    ensure_manifest(project_uid)
+    args = ["lock", "--upgrade-package", package] if package else ["lock", "--upgrade"]
+    _run(project_uid, args)
+
+
 async def build(project_uid: str, on_log=None) -> BuildResult:
     """Materialise the venv from the lockfile as an async subprocess (`uv sync`),
     so it doesn't block the event loop (uvicorn is 1 worker) AND can be killed on

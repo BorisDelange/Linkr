@@ -135,6 +135,19 @@ def remove_package(project_uid: str, package: str) -> None:
     )
 
 
+def upgrade(project_uid: str, package: str | None = None) -> None:
+    """Re-record newer versions into the lockfile: one package or all. Uses
+    ``renv::record`` with the latest available version resolved from the repos."""
+    ensure_manifest(project_uid)
+    if package:
+        _run_r(project_uid, f"renv::record('{package}', lockfile='renv.lock')")
+    else:
+        names = [p["name"] for p in list_packages(project_uid)]
+        if names:
+            specs = ", ".join(f'"{n}"' for n in names)
+            _run_r(project_uid, f"renv::record(c({specs}), lockfile='renv.lock')")
+
+
 def _to_renv_ref(requirement: str) -> str:
     """Turn a "pkg==1.2.3" requirement into a renv package ref ("pkg@1.2.3")."""
     if "==" in requirement:

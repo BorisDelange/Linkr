@@ -94,3 +94,18 @@ async def test_unknown_language_is_rejected(client):
     uid = await _project(client, headers)
     r = await client.get(f"{API}/projects/{uid}/environments/julia/packages", headers=headers)
     assert r.status_code == 400
+
+
+async def test_install_preset_records_default_packages(client, fake_provisioner):
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.post(
+        f"{API}/projects/{uid}/environments/python/preset", headers=headers
+    )
+    assert r.status_code == 200
+    pkgs = (
+        await client.get(f"{API}/projects/{uid}/environments/python/packages", headers=headers)
+    ).json()
+    # The built-in Python data-science default set landed in the env.
+    assert "pandas" in {p["name"] for p in pkgs}
+    assert "numpy" in {p["name"] for p in pkgs}

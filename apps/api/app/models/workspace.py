@@ -14,6 +14,11 @@ class Workspace(Base, UUIDPKMixin, TimestampMixin):
     # LocalizedString ({"en": ..., "fr": ...}); JSON, not Text.
     readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Default package lists for a new project's environments, per language:
+    # {"python": ["pandas", "numpy==1.26", …], "r": ["dplyr", …]}. Applied when a
+    # project is created in this workspace (see project creation). NULL = built-in
+    # data-science defaults.
+    default_env_packages: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     # Creator provenance. created_by_id is the stable identity (name resolved live

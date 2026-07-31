@@ -1,13 +1,18 @@
 """Project environments — the interpreter + package set a project's code runs in.
 
-One environment per (project, language). This service resolves it, seeding a
-``system`` environment lazily on first access (get-or-create) so existing
-projects — which predate the table — keep resolving to today's shared
-interpreter with zero behaviour change.
+One environment per (project, language), always project-managed (there is no
+user-visible "system" tier). Its declarative spec (manifest + lockfile) lives
+under ``environments/<lang>/`` and is versioned in git.
 
-Managed (uv/renv) provisioning and package endpoints land in later steps; for
-now every resolved environment is ``system`` and carries no interpreter override,
-so ``kernel._make`` falls back to ``sys.executable`` / system ``Rscript``.
+Resolution is lazy (get-or-create). A freshly-seeded env has **no packages**, so
+it resolves to the shared interpreter and needs no build — code runs immediately.
+Adding a package (or importing a project whose lockfile came down from git) marks
+it ``draft`` ("needs build"); the build then materialises an isolated venv/library.
+
+The ``kind`` column is kept for internal state only:
+  - ``system``  → no packages declared → shared interpreter, nothing to build;
+  - ``managed`` → packages declared → isolated venv/library once built.
+The UI never shows this distinction — it shows packages + a build/ready state.
 """
 
 from sqlalchemy import select
@@ -20,11 +25,11 @@ from app.models.environment import Environment
 async def resolve(db: AsyncSession, project_uid: str, language: str) -> Environment:
     """The project's environment for `language`, creating one if none exists yet.
 
-    Seeds `managed`/`draft` when a committed spec (lockfile) is already on disk —
-    the case after cloning/importing a project whose ``environments/<lang>/`` came
-    down from git — so it shows as "needs build" without any import-time wiring.
-    Otherwise seeds a `system` env (today's shared interpreter). Concurrency-safe:
-    a racing insert (unique on project+language) is caught and the row re-read."""
+    Seeds ``managed``/``draft`` when a committed lockfile is already on disk (a
+    cloned/imported project — shows as "needs build" with no import-time wiring),
+    otherwise an empty ``system`` env that resolves to the shared interpreter and
+    needs no build. Concurrency-safe: a racing insert (unique on project+language)
+    is caught and the row re-read."""
     env = await _find(db, project_uid, language)
     if env is not None:
         return env
@@ -56,6 +61,34 @@ async def _find(
         .where(Environment.language == language)
     )
     return result.scalar_one_or_none()
+
+
+# Built-in data-science defaults used when a workspace hasn't customised its
+# preset (Workspace Settings → Default environments). Kept deliberately small so
+# a first build is quick; the user adds more per project.
+DEFAULT_PACKAGES: dict[str, list[str]] = {
+    "python": ["pandas", "numpy", "matplotlib", "plotly", "scikit-learn", "duckdb"],
+    "r": ["dplyr", "ggplot2", "tidyr", "readr", "data.table"],
+}
+
+
+def preset_for(workspace_default: dict | None, language: str) -> list[str]:
+    """The default package list for a language: the workspace's customised list if
+    set, else the built-in data-science defaults."""
+    if workspace_default and isinstance(workspace_default.get(language), list):
+        return [str(p) for p in workspace_default[language]]
+    return DEFAULT_PACKAGES.get(language, [])
+
+
+async def install_preset(
+    db: AsyncSession, project_uid: str, language: str, packages: list[str]
+) -> Environment:
+    """Record a preset package list into the project's env (manifest + re-lock),
+    marking it draft. No build here — the user builds explicitly, or the first run
+    auto-builds. A no-op for an empty preset."""
+    if not packages:
+        return await resolve(db, project_uid, language)
+    return await add_packages(db, project_uid, language, packages)
 
 
 async def list_for_project(db: AsyncSession, project_uid: str) -> list[Environment]:
@@ -90,6 +123,16 @@ def list_packages(project_uid: str, language: str) -> list[dict]:
     return _provisioner(language).list_packages(project_uid)
 
 
+async def upgrade(
+    db: AsyncSession, project_uid: str, language: str, package: str | None = None
+) -> Environment:
+    """Re-lock one package (or all) to a newer version and mark the env draft so the
+    user rebuilds. `package=None` = upgrade all."""
+    env = await resolve(db, project_uid, language)
+    _provisioner(language).upgrade(project_uid, package)
+    return await _mark_managed(db, env)
+
+
 async def build(
     db: AsyncSession, project_uid: str, language: str, on_log=None
 ) -> Environment:
@@ -118,6 +161,42 @@ async def build(
     await db.commit()
     await db.refresh(env)
     return env
+
+
+def needs_build(env: Environment) -> bool:
+    """True when the env declares packages but its venv/library isn't materialised
+    (status draft/error). An empty `system` env never needs a build."""
+    return env.kind == "managed" and env.status in ("draft", "error")
+
+
+async def ensure_ready(
+    db: AsyncSession, project_uid: str, language: str, user_id: int
+) -> Environment:
+    """Make the env runnable before code executes: if it declares packages but
+    isn't built yet, build it now (auto-build on first run) as a tracked job so the
+    user sees it in the jobs panel. An empty/ready env returns immediately."""
+    env = await resolve(db, project_uid, language)
+    if not needs_build(env):
+        return env
+    from app.core.database import async_session
+    from app.services.execution import jobs
+
+    job = await jobs.create(
+        db, project_uid, user_id, kind="build",
+        label=f"Build {language.upper()} environment",
+    )
+
+    async def body(handle) -> None:
+        buffer: list[str] = []
+        async with async_session() as job_db:
+            await build(job_db, project_uid, language, on_log=buffer.append)
+        if buffer:
+            await handle.log("\n".join(buffer[-200:]))
+
+    # Auto-build blocks this first run until the env is ready, but runs through the
+    # job runner so it's visible/cancellable; then re-read the (now built) env.
+    await jobs.run_now(job.id, body)
+    return await resolve(db, project_uid, language)
 
 
 async def _mark_managed(db: AsyncSession, env: Environment) -> Environment:

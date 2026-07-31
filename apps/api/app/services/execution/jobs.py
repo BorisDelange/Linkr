@@ -52,6 +52,15 @@ def launch(job_id: str, body) -> None:
     _tasks[job_id] = asyncio.create_task(_run(job_id, body))
 
 
+async def run_now(job_id: str, body) -> None:
+    """Run a job body and AWAIT it (still tracked + visible + cancellable via the
+    same task registry). Used for auto-build on first run, where the triggering
+    request must block until the env is ready."""
+    task = asyncio.create_task(_run(job_id, body))
+    _tasks[job_id] = task
+    await task
+
+
 async def _run(job_id: str, body) -> None:
     handle = JobHandle(job_id)
     try:

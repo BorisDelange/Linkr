@@ -15,6 +15,7 @@ from app.core.permissions import has_project_permission
 from app.models.job import Job
 from app.models.project import Project
 from app.models.user import User
+from app.models.workspace import Workspace
 from app.schemas.execution import (
     AddPackagesRequest,
     EnvironmentResponse,
@@ -32,14 +33,16 @@ def _env_response(env) -> EnvironmentResponse:
     return EnvironmentResponse.model_validate(env, from_attributes=True)
 
 
-async def _require_ide(db: AsyncSession, project_uid: str, user: User, action: str) -> None:
-    """Gate an environment operation on the matching ide:<action> permission."""
+async def _require_ide(db: AsyncSession, project_uid: str, user: User, action: str) -> Project:
+    """Gate an environment operation on the matching ide:<action> permission.
+    Returns the project so callers can read e.g. its workspace."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     if not await has_project_permission(db, project, user, f"ide:{action}"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted on this project")
     project_fs.prime_binding(project_uid, project.ide_path, project.scripts_path, project.datasets_path)
+    return project
 
 
 def _valid_language(language: str) -> str:
@@ -114,6 +117,53 @@ async def remove_env_package(
     _valid_language(language)
     try:
         env = await environments.remove_package(db, project_uid, language, package)
+    except (ValueError, ProvisionError) as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return _env_response(env)
+
+
+@router.post(
+    "/projects/{project_uid}/environments/{language}/preset",
+    response_model=EnvironmentResponse,
+)
+async def install_preset(
+    project_uid: str,
+    language: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record the workspace's default data-science package list into this env
+    (manifest + re-lock; no build). Build separately or on first run."""
+    project = await _require_ide(db, project_uid, user, "write")
+    _valid_language(language)
+    workspace = await db.get(Workspace, project.workspace_id) if project.workspace_id else None
+    packages = environments.preset_for(
+        workspace.default_env_packages if workspace else None, language
+    )
+    try:
+        env = await environments.install_preset(db, project_uid, language, packages)
+    except (ValueError, ProvisionError) as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return _env_response(env)
+
+
+@router.post(
+    "/projects/{project_uid}/environments/{language}/upgrade",
+    response_model=EnvironmentResponse,
+)
+async def upgrade_env_packages(
+    project_uid: str,
+    language: str,
+    package: str | None = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-lock a package (query `?package=`) or all packages to newer versions, then
+    mark the env for rebuild. No build here."""
+    await _require_ide(db, project_uid, user, "write")
+    _valid_language(language)
+    try:
+        env = await environments.upgrade(db, project_uid, language, package)
     except (ValueError, ProvisionError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return _env_response(env)
