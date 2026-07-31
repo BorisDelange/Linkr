@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Save, Sparkles } from 'lucide-react'
+import { Loader2, Save, Sparkles, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -37,6 +37,10 @@ export function DefaultEnvironmentsTab({ workspace }: { workspace: Workspace }) 
   const [python, setPython] = useState(toText(workspace.defaultEnvPackages?.python))
   const [r, setR] = useState(toText(workspace.defaultEnvPackages?.r))
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current) }, [])
 
   const onSave = async () => {
     setSaving(true)
@@ -44,6 +48,10 @@ export function DefaultEnvironmentsTab({ workspace }: { workspace: Workspace }) 
       await updateWorkspace(workspace.id, {
         defaultEnvPackages: { python: toList(python), r: toList(r) },
       })
+      // Briefly flip the button to a "Saved ✓" confirmation, then back to "Save".
+      setSaved(true)
+      if (savedTimer.current) clearTimeout(savedTimer.current)
+      savedTimer.current = setTimeout(() => setSaved(false), 2000)
     } finally {
       setSaving(false)
     }
@@ -73,9 +81,15 @@ export function DefaultEnvironmentsTab({ workspace }: { workspace: Workspace }) 
         />
       </div>
       <div className="flex justify-end">
-        <Button onClick={() => void onSave()} disabled={saving}>
-          {saving ? <Loader2 size={14} className="mr-1.5 animate-spin" /> : <Save size={14} className="mr-1.5" />}
-          {t('common.save')}
+        <Button onClick={() => void onSave()} disabled={saving} variant={saved ? 'outline' : 'default'}>
+          {saving ? (
+            <Loader2 size={14} className="mr-1.5 animate-spin" />
+          ) : saved ? (
+            <Check size={14} className="mr-1.5 text-emerald-500" />
+          ) : (
+            <Save size={14} className="mr-1.5" />
+          )}
+          {saved ? t('common.saved') : t('common.save')}
         </Button>
       </div>
     </div>
