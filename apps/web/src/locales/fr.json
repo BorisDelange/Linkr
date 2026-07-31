@@ -2525,6 +2525,7 @@
     "version_help_python": "Saisissez un nom de package pour sa dernière version (ex. pandas), ou épinglez-en une avec « == », ex. pandas==2.1.4. Installé avec uv. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
     "version_help_r": "Saisissez un nom de package pour sa dernière version (ex. dplyr), ou épinglez-en une avec « == », ex. dplyr==1.1.4. Installé avec renv depuis Posit Package Manager. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
     "install_preset": "Installer les packages usuels de data science",
+    "refresh": "Rafraîchir la liste des packages",
     "update": "Mettre à jour",
     "update_all": "Tout mettre à jour",
     "update_all_hint": "Re-verrouiller tous les packages à leur dernière version, puis reconstruire.",

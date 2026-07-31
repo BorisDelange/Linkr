@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, ArrowUpCircle, Sparkles } from 'lucide-react'
+import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, ArrowUpCircle, Sparkles, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -32,7 +32,15 @@ import {
  * venv/library. Build is normally automatic on first run — the button is only for
  * an explicit rebuild and is shown only when the env needs one.
  */
-export function ServerEnvironmentsPanel({ language }: { language: 'python' | 'r' }) {
+export function ServerEnvironmentsPanel({
+  language,
+  reloadKey,
+}: {
+  language: 'python' | 'r'
+  /** Toggled by the dialog's `open` — reloads the package list each time the
+   *  dialog is (re)opened, so a package added elsewhere shows up. */
+  reloadKey?: unknown
+}) {
   const { t } = useTranslation()
   const projectUid = useProjectRouteUid()
   const canWrite = useMyProjectRole().can('ide:write')
@@ -58,7 +66,7 @@ export function ServerEnvironmentsPanel({ language }: { language: 'python' | 'r'
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, reloadKey])
 
   const run = async (fn: () => Promise<ProjectEnvironment>) => {
     if (!projectUid) return
@@ -152,6 +160,14 @@ export function ServerEnvironmentsPanel({ language }: { language: 'python' | 'r'
             </Tooltip>
           </div>
           <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={busy || loading} onClick={() => void load()}>
+                  <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="text-xs">{t('environments.refresh')}</TooltipContent>
+            </Tooltip>
             {canWrite && packages.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>

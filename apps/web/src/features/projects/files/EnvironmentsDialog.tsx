@@ -436,10 +436,10 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
               <TabsTrigger value="r" className="flex-1">R</TabsTrigger>
             </TabsList>
             <TabsContent value="python">
-              <ServerEnvironmentsPanel language="python" />
+              <ServerEnvironmentsPanel language="python" reloadKey={open} />
             </TabsContent>
             <TabsContent value="r">
-              <ServerEnvironmentsPanel language="r" />
+              <ServerEnvironmentsPanel language="r" reloadKey={open} />
             </TabsContent>
           </Tabs>
         ) : (
