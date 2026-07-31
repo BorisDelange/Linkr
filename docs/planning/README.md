@@ -19,7 +19,8 @@ The as-built is in `docs/architecture.md`; details for each item live in the lin
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Real environments (1 uv + 1 renv per project, git-versioned) + multi-session + job management — design settled 2026-07-30, 0 code | L |
+| 🧪 | Real environments (1 uv + 1 renv per project, git-versioned) + multi-session + jobs — **steps 1–6 built** (table+resolution, cap rename, uv, jobs, renv, git round-trip); needs manual testing against a live server | L |
+| ⏳ | Env step 7 polish: streaming Run button (+ Stop) & true real-time R streaming — deferred, best built against a live kernel | M |
 
 ## Dataset edit layer — [dataset-edit-layer-plan.md](dataset-edit-layer-plan.md)
 

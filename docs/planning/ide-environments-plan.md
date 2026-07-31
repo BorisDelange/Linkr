@@ -349,11 +349,20 @@ SessionDropdown.
    JSZip wiring: `environments.resolve` detects a committed lockfile on disk and seeds the
    row `managed`/`draft` ("needs build") on first access — **no auto-build**. Portal
    `build.sh` needs no change (it clones committed files; `.cache/` is never committed).
-7. **Finishing touches** — streaming Run button (+ Stop/Ctrl+C via the jobs panel), true
-   real-time R streaming.
+7. **Finishing touches** — ⏳ *deferred (best built + verified against a live kernel, not
+   blind).* Two UX-polish items:
+   - **Streaming Run button**: the IDE Run still batches via HTTP `executeOnServer`
+     (`FilesPage.tsx:576`); routing it through the terminal streaming WS + a real Stop is a
+     substantial change to how an `ExecutionResult` is modelled (single object → stream).
+   - **True real-time R streaming**: needs an R-side incremental flush in `_R_KERNEL_LOOP`
+     (today buffered by `capture.output`, emitted at end).
+   Neither blocks the feature — batch Run works; builds/long jobs already stream status via
+   the jobs panel (step 4). The `render` purpose guard in `_require_execute` is load-bearing
+   security (refuses a viewer-gate downgrade), **not** a cosmetic enum — it stays; the
+   earlier "drop render from the enum" note is withdrawn.
 
-Each step ships independently; step 1 is behaviour-preserving. Steps 1–2 already deliver
-multi-session on the existing shared interpreter — the managed envs (3, 5) layer on top.
+Steps 1–6 ship the feature end to end (behaviour-preserving step 1; managed uv/renv envs;
+jobs; git round-trip). Step 7 is optional polish layered on top.
 
 ---
 
