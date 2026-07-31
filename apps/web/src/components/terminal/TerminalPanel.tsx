@@ -123,6 +123,9 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
   const fitAddonRef = useRef<FitAddon | null>(null)
   const darkMode = useAppStore((s) => s.darkMode)
   const editorTheme = useAppStore((s) => s.editorSettings.theme)
+  // The terminal uses the same font size the user set for the code editor, so the
+  // REPL and the scripts read at one size.
+  const fontSize = useAppStore((s) => s.editorSettings.fontSize)
   const isDark = isEditorThemeDark(editorTheme, darkMode)
   const xtermTheme = isDark ? terminalThemes.dark : terminalThemes.light
 
@@ -132,6 +135,14 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
     // Also update container background
     if (containerRef.current) containerRef.current.style.backgroundColor = xtermTheme.background
   }, [xtermTheme])
+
+  // Track the editor font size live (no terminal recreation): update the option
+  // then refit so the rows/cols recompute for the new cell size.
+  useEffect(() => {
+    if (!terminalRef.current) return
+    terminalRef.current.options.fontSize = fontSize
+    try { fitAddonRef.current?.fit() } catch { /* container not measured yet */ }
+  }, [fontSize])
 
   // Becoming visible again: a hidden xterm measured zero size, so refit + refocus.
   useEffect(() => {
@@ -162,7 +173,9 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
 
     const terminal = new Terminal({
       fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
-      fontSize: 13,
+      // Read fresh from the store so this creation effect need not depend on
+      // fontSize (a live change is applied by the dedicated effect above).
+      fontSize: currentTheme.editorSettings.fontSize,
       theme: initialTheme,
       cursorBlink: true,
       convertEol: true,
