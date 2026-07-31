@@ -170,6 +170,12 @@ interface GitSyncState {
    *  the next refreshStatus rebuilds the ZIP from the fresh state, not the stale
    *  cache (same scope|id key would otherwise be reused). */
   invalidateZip: () => void
+  /** Mark the current status stale so the NEXT ensureStatus recomputes instead of
+   *  returning the cached result. Call after an out-of-band change to what the
+   *  export contains (e.g. toggling a file's versioning mark from the IDE/Datasets
+   *  sidebar) — the Versioning panel is on another route, so it only re-reads on
+   *  remount and would otherwise show the pre-toggle .gitignore/file list. */
+  markStale: () => void
   reset: () => void
 }
 
@@ -342,6 +348,13 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   invalidateZip: () => {
     _zipCache = null
     _diffCache = new Map() // diffs derive from the export ZIP → drop them together
+  },
+
+  markStale: () => {
+    // Drop the built export (server rebuilds from the fresh DB config) AND clear
+    // statusKey so ensureStatus recomputes rather than reusing the cached status.
+    get().invalidateZip()
+    set({ statusKey: null })
   },
 
   reset: () => {

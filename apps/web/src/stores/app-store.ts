@@ -515,6 +515,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }))
     await getStorage().projects.update(uid, { config: newConfig })
+    // The .gitignore exceptions derive from this list, so a stale Versioning panel
+    // would still show the pre-toggle tree — force it to recompute on next view.
+    const { useGitSyncStore } = await import('./git-sync-store')
+    useGitSyncStore.getState().markStale()
   },
 
   toggleExcludedFile: async (uid, path) => {
@@ -537,6 +541,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       ),
     }))
     await getStorage().projects.update(uid, { config: newConfig })
+    // Same as versioned data files: the export tree (and its .gitignore) changes,
+    // so drop the cached Versioning status.
+    const { useGitSyncStore } = await import('./git-sync-store')
+    useGitSyncStore.getState().markStale()
   },
 
   deleteProject: async (uid) => {

@@ -26,8 +26,7 @@ export interface QuickAction {
   messageKey: string
   /** The changed files this action will commit + push, in list order. */
   files: QuickActionFile[]
-  /** The primary "sync everything" preset — carries the shared accent color and,
-   *  when data files aren't included, the deletion warning. */
+  /** The primary "sync everything" preset — carries the shared accent color. */
   isSyncAll: boolean
 }
 
@@ -41,7 +40,7 @@ interface QuickActionDef {
   /** Drop paths whose git-file category is "other" (unrecognised files). Used by
    *  "Sync all" so a stray/unknown file isn't swept into a one-click commit —
    *  the user handles those deliberately from the Details tab. This also marks the
-   *  preset as the "Sync all" one for the shared accent + data-deletion warning. */
+   *  preset as the "Sync all" one for the shared accent. */
   excludeOther?: boolean
 }
 
@@ -116,14 +115,6 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       patterns: [/^roles\.json$/],
     },
   ],
-}
-
-/** Heavy dataset content files (gated by the "include data files" toggle). When the
- *  toggle is OFF these are gitignored and dropped from the export, so a "Sync all"
- *  against a remote that HAS them pushes their DELETION — the UI warns about that. */
-const DATA_FILE_RE = /^datasets\/.*\.(csv|parquet|pq|xlsx|xls)$|^datasets\/.*\/_data\.json$/i
-export function isDataFilePath(path: string): boolean {
-  return DATA_FILE_RE.test(path)
 }
 
 /** Resolve the scope's quick actions against the current changed files. Each

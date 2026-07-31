@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
+import { ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -19,7 +19,7 @@ import { useGitSyncStore } from '@/stores/git-sync-store'
 import { useAppStore } from '@/stores/app-store'
 import { cn } from '@/lib/utils'
 import { gitFileMeta, groupGitFiles } from '@/lib/git-file-meta'
-import { buildQuickActions, isDataFilePath, type QuickAction } from '@/lib/git-quick-actions'
+import { buildQuickActions, type QuickAction } from '@/lib/git-quick-actions'
 import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
 import { changeTypeMeta } from './git-change-meta'
 import type { GitFileChange, GitScope } from '@/lib/api/git'
@@ -439,9 +439,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
  * A half-width "widget" for one quick action: a colored header (the shared accent
  * for the primary "Sync all", so it reads the same on every versioning page), the
  * exact files it will commit — each with an A/M/D change badge so a deletion is
- * unmistakable — and a commit+push button. When the action is "Sync all" and data
- * files aren't included, a warning flags that it will REMOVE the remote data files.
- * Disabled when there's nothing to push or a pull is required.
+ * unmistakable — and a commit+push button. Disabled when there's nothing to push
+ * or a pull is required.
  */
 function QuickActionCard({
   action, primary, running, disabled, onRun, onOpenDiff, t,
@@ -459,12 +458,6 @@ function QuickActionCard({
 }) {
   const nothing = action.files.length === 0
   const accent = action.isSyncAll
-  // "Sync all" that pushes a data-file DELETION: only reachable for a file the user
-  // had marked for versioning and then removed — surface it so a marked file isn't
-  // wiped from the remote unnoticed.
-  const deletesData =
-    action.isSyncAll &&
-    action.files.some((f) => f.changeType === 'deleted' && isDataFilePath(f.path))
   return (
     <div className={cn('flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm', accent && SYNC_ALL_ACCENT.border)}>
       <div className={cn('flex items-center gap-2 px-3 py-2', accent ? SYNC_ALL_ACCENT.headerBg : 'bg-muted/40')}>
@@ -506,12 +499,6 @@ function QuickActionCard({
             </>
           )}
         </div>
-        {deletesData && (
-          <div className="flex items-start gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10px] leading-relaxed text-amber-700 dark:text-amber-400">
-            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-            <span>{t('versioning.quick_deletes_data')}</span>
-          </div>
-        )}
         <Button
           size="sm"
           variant={primary ? 'default' : 'outline'}

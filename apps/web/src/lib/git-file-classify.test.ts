@@ -51,9 +51,14 @@ describe('defaultSelectedPaths', () => {
     expect(defaultSelectedPaths('projects', files)).toEqual(['project.json'])
   })
 
-  it('leaves a MODIFIED .gitignore/.gitattributes unchecked (would clobber a hand-enriched remote copy)', () => {
+  it('leaves a MODIFIED .gitignore/.gitattributes unchecked for a scope Linkr does not fully own (would clobber a hand-enriched remote)', () => {
     const files = [f('project.json'), f('.gitignore', 'modified'), f('.gitattributes', 'modified')]
-    expect(defaultSelectedPaths('projects', files)).toEqual(['project.json'])
+    expect(defaultSelectedPaths('mapping-projects', files)).toEqual(['project.json'])
+  })
+
+  it('selects a MODIFIED project .gitignore/.gitattributes (Linkr owns them — the change IS the mark/LFS toggle to push)', () => {
+    const files = [f('project.json'), f('.gitignore', 'modified'), f('.gitattributes', 'modified')]
+    expect(defaultSelectedPaths('projects', files)).toEqual(['project.json', '.gitignore', '.gitattributes'])
   })
 
   it('selects an ADDED .gitignore (Linkr\'s copy is the only one)', () => {

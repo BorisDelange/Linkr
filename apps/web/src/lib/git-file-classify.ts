@@ -28,8 +28,17 @@ export function isDataFile(path: string): boolean {
  * remote copy. We leave those UNCHECKED by default; the user can still tick them
  * to push Linkr's version. When absent remotely (changeType 'added') Linkr's copy
  * is the only one, so it's checked like any new file.
+ *
+ * The `projects` scope is the exception: a project's .gitignore is regenerated from
+ * the per-file versioning marks (and .gitattributes from the per-file LFS choices),
+ * so Linkr fully owns them — a modification IS the user's mark change and must be
+ * checked by default, else toggling a file's versioning wouldn't reach the remote.
  */
-export function isUnownedConfigModification(f: { path: string; changeType: string }): boolean {
+export function isUnownedConfigModification(
+  f: { path: string; changeType: string },
+  scope?: GitScope,
+): boolean {
+  if (scope === 'projects') return false
   const name = f.path.split('/').pop() ?? f.path
   return (name === '.gitignore' || name === '.gitattributes') && f.changeType === 'modified'
 }
@@ -63,10 +72,12 @@ export function defaultSelectedPaths(
 ): string[] {
   return files
     .filter((f) => {
-      if (isUnownedConfigModification(f)) return false
+      if (isUnownedConfigModification(f, scope)) return false
       // A deleted .gitignore/.gitattributes is category 'config' (not 'other'), so
       // don't let the deletion branch below propose to erase a hand-enriched remote
-      // copy by default — same reasoning as isUnownedConfigModification.
+      // copy by default — same reasoning as isUnownedConfigModification. (Projects
+      // own their config, but a *deletion* still isn't proposed by default: Linkr
+      // never drops these from a project export, so a deleted one came from elsewhere.)
       if (f.changeType === 'deleted') {
         if (isConfigFile(f.path)) return false
         return gitFileMeta(scope, f.path).category !== 'other'

@@ -12,6 +12,12 @@ describe('gitFileMeta', () => {
     expect(gitFileMeta('projects', 'datasets/cohort/data.csv').category).toBe('datasets')
     expect(gitFileMeta('projects', 'dashboards/overview.json').category).toBe('dashboards')
     expect(gitFileMeta('projects', 'cohorts/adults.json').category).toBe('cohorts')
+    expect(gitFileMeta('projects', 'environments/python/pyproject.toml').category).toBe('environments')
+    expect(gitFileMeta('projects', 'environments/r/renv.lock').category).toBe('environments')
+    // The .gitignore is a recognised project-tree file (checked by default,
+    // included in Sync all), not an "other" stray.
+    expect(gitFileMeta('projects', '.gitignore').category).toBe('config')
+    expect(gitFileMeta('projects', '.gitignore').descriptionKey).toBe('versioning.file_desc_gitignore')
   })
 
   it('matches the specific rule before the broad one (tree vs file)', () => {
