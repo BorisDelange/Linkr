@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # every project's venv, under data_dir/.cache/uv (uv hardlinks from it).
     uv_bin: str = "uv"
     pip_index_url: str = "https://pypi.org/simple"
+    # R managed environments (renv). Rscript binary + package repo stay configurable
+    # (default p3m: public, Docker-independent, ships binaries so Linux servers don't
+    # compile from source). renv's cache is pointed at the Linkr-wide store so a
+    # version installed for one project is reused by the next.
+    rscript_bin: str = "Rscript"
+    r_repos: str = "https://packagemanager.posit.co/cran/latest"
     # Bounded in-process executor for long jobs (env builds): how many run at once
     # before the rest queue. Keeps a burst from exhausting the single uvicorn
     # worker. A real queue (celery/RQ) is only needed if load outgrows this.

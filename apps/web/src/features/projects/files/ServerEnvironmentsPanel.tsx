@@ -24,7 +24,7 @@ import {
  * Build materialises the venv (never automatic). R lands in a later step and is
  * shown read-only here.
  */
-export function ServerEnvironmentsPanel() {
+export function ServerEnvironmentsPanel({ language }: { language: 'python' | 'r' }) {
   const { t } = useTranslation()
   const projectUid = useAppStore((s) => s.activeProjectUid)
   const canWrite = useMyProjectRole().can('ide:write')
@@ -41,12 +41,12 @@ export function ServerEnvironmentsPanel() {
     setLoading(true)
     try {
       const envs = await listEnvironments(projectUid)
-      setEnv(envs.find((e) => e.language === 'python') ?? null)
-      setPackages(await listEnvPackages(projectUid, 'python'))
+      setEnv(envs.find((e) => e.language === language) ?? null)
+      setPackages(await listEnvPackages(projectUid, language))
     } finally {
       setLoading(false)
     }
-  }, [projectUid])
+  }, [projectUid, language])
 
   useEffect(() => {
     void load()
@@ -58,7 +58,7 @@ export function ServerEnvironmentsPanel() {
     setError(null)
     try {
       setEnv(await fn())
-      setPackages(await listEnvPackages(projectUid, 'python'))
+      setPackages(await listEnvPackages(projectUid, language))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -70,7 +70,7 @@ export function ServerEnvironmentsPanel() {
     const name = newPkg.trim()
     if (!name) return
     setNewPkg('')
-    await run(() => addEnvPackages(projectUid!, 'python', [name]))
+    await run(() => addEnvPackages(projectUid!, language, [name]))
   }
 
   // A build runs as a background job → poll until it settles, then reload the env
@@ -80,7 +80,7 @@ export function ServerEnvironmentsPanel() {
     setBusy(true)
     setError(null)
     try {
-      await buildEnvironment(projectUid, 'python')
+      await buildEnvironment(projectUid, language)
       setEnv((e) => (e ? { ...e, status: 'building' } : e))
       const poll = async (): Promise<void> => {
         const active = await listJobs(projectUid)
@@ -111,12 +111,17 @@ export function ServerEnvironmentsPanel() {
   const statusVariant =
     env?.status === 'ready' ? 'secondary' : env?.status === 'error' ? 'destructive' : 'outline'
   const needsBuild = env?.status === 'draft' || env?.status === 'error'
+  const label = language === 'python' ? 'Python' : 'R'
+  const packageUrl = (name: string) =>
+    language === 'python'
+      ? `https://pypi.org/project/${encodeURIComponent(name)}`
+      : `https://packagemanager.posit.co/client/#/repos/cran/packages/${encodeURIComponent(name)}`
 
   return (
     <div className="mt-2 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium">
-          Python
+          {label}
           {env && (
             <Badge variant={statusVariant} className="text-[10px]">
               {t(`environments.status.${env.status}`)}
@@ -176,7 +181,7 @@ export function ServerEnvironmentsPanel() {
               >
                 <span className="flex items-center gap-1.5">
                   <a
-                    href={`https://pypi.org/project/${encodeURIComponent(pkg.name)}`}
+                    href={packageUrl(pkg.name)}
                     target="_blank"
                     rel="noreferrer"
                     className="font-medium hover:underline"
@@ -190,7 +195,7 @@ export function ServerEnvironmentsPanel() {
                   <button
                     className="text-muted-foreground hover:text-destructive disabled:opacity-40"
                     disabled={busy}
-                    onClick={() => run(() => removeEnvPackage(projectUid, 'python', pkg.name))}
+                    onClick={() => run(() => removeEnvPackage(projectUid, language, pkg.name))}
                     aria-label={t('environments.remove')}
                   >
                     <Trash2 size={13} />

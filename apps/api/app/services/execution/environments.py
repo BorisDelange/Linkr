@@ -98,7 +98,13 @@ async def build(
     if result.ok:
         env.status = "ready"
         env.kind = "managed"
-        env.interpreter_path = str(prov.venv_python(project_uid))
+        # Python: the venv interpreter to launch. R: the private library root to
+        # put on R_LIBS (the Rscript binary stays shared — renv's model).
+        env.interpreter_path = (
+            str(prov.venv_python(project_uid))
+            if language == "python"
+            else str(prov.library_path(project_uid))
+        )
     else:
         env.status = "error"
     await db.commit()
@@ -121,5 +127,8 @@ def _provisioner(language: str):
         from app.services.execution import uv_provisioner
 
         return uv_provisioner
-    # renv provisioner lands in step 5; until then R stays system-only.
+    if language == "r":
+        from app.services.execution import renv_provisioner
+
+        return renv_provisioner
     raise ValueError(f"No managed-environment provisioner for language: {language}")

@@ -336,7 +336,12 @@ SessionDropdown.
    `/jobs/{id}/cancel` routes, startup reconciliation of orphaned `running` jobs, and a
    footer `JobsIndicator` (poll + cancel). Env build now runs as a cancellable job (uv sync
    as an async subprocess, killed on cancel). Reused by Run in step 7.
-5. **R env (renv)** — same endpoints for R, shared renv cache, p3m repos default.
+5. **R env (renv)** — ✅ *done.* `renv_provisioner` mirroring the uv one (record →
+   `renv::restore(library=…)` as an async subprocess), shared renv cache under
+   `data_dir/.cache/renv`, p3m repos default, `_make` puts the managed R env's private
+   library on `R_LIBS`. Env/jobs routes moved to their own `routes/environments.py` (they
+   live at `/projects/{uid}/…` + `/jobs/…`, not under `/execute`); the panel is now
+   language-parametric with Python + R tabs.
 6. **Git import build flow** — scan `environments/` on import (rows `draft`, **no**
    auto-build); entity-io `buildProjectZip`/parse include `environments/`, exclude `.cache/`;
    portal `build.sh` sync.

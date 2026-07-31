@@ -430,7 +430,18 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
         </DialogHeader>
 
         {server ? (
-          <ServerEnvironmentsPanel />
+          <Tabs defaultValue="python">
+            <TabsList className="w-full">
+              <TabsTrigger value="python" className="flex-1">Python</TabsTrigger>
+              <TabsTrigger value="r" className="flex-1">R</TabsTrigger>
+            </TabsList>
+            <TabsContent value="python">
+              <ServerEnvironmentsPanel language="python" />
+            </TabsContent>
+            <TabsContent value="r">
+              <ServerEnvironmentsPanel language="r" />
+            </TabsContent>
+          </Tabs>
         ) : (
         <Tabs value={langTab} onValueChange={(v) => {
           setLangTab(v as 'python' | 'r')

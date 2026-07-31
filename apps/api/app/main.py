@@ -28,6 +28,7 @@ from app.api.v1.routes.database import router as database_router
 from app.api.v1.routes.dq_rule_sets import router as dq_rule_sets_router
 from app.api.v1.routes.etl_pipelines import router as etl_pipelines_router
 from app.api.v1.routes.execution import router as execution_router
+from app.api.v1.routes.environments import router as environments_router
 from app.api.v1.routes.git import router as git_router
 from app.api.v1.routes.dataset_files import router as dataset_files_router
 from app.api.v1.routes.fs_browser import router as fs_browser_router
@@ -173,6 +174,7 @@ app.include_router(data_sources_router, prefix="/api/v1")
 app.include_router(pipelines_router, prefix="/api/v1")
 app.include_router(etl_pipelines_router, prefix="/api/v1")
 app.include_router(execution_router, prefix="/api/v1")
+app.include_router(environments_router, prefix="/api/v1")
 app.include_router(git_router, prefix="/api/v1")
 app.include_router(ide_files_router, prefix="/api/v1")
 app.include_router(dataset_files_router, prefix="/api/v1")

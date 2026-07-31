@@ -583,21 +583,22 @@ class KernelManager:
 
         cwd = str(project_fs.ide_dir(project_uid))
         env = project_fs.runtime_env(project_uid)
-        # A `managed` environment overrides the interpreter with its provisioned
-        # venv/renv library. A `system` env (or no env passed) keeps today's shared
-        # interpreter — the behaviour-preserving default. Managed resolution lands
-        # in a later step; until then interpreter_path is always None.
-        interpreter_path = (
-            environment.interpreter_path
-            if environment is not None and environment.kind == "managed"
-            else None
-        )
+        # A `managed` environment overrides the interpreter (Python) or the library
+        # path (R) with its provisioned one. A `system` env (or no env passed) keeps
+        # today's shared interpreter — the behaviour-preserving default.
+        managed = environment is not None and environment.kind == "managed"
+        interpreter_path = environment.interpreter_path if managed else None
         if language == "python":
             import sys
 
             python = interpreter_path or sys.executable
             return Kernel([python, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env)
         if language == "r":
+            # renv keeps a shared Rscript; the env is isolated by its private library.
+            # Prepend it to R_LIBS so library() resolves against the project's packages.
+            if interpreter_path:
+                existing = env.get("R_LIBS", "")
+                env = {**env, "R_LIBS": f"{interpreter_path}:{existing}" if existing else interpreter_path}
             return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=cwd, env=env)
         raise ExecutionError(f"No persistent kernel for language: {language}")
 
