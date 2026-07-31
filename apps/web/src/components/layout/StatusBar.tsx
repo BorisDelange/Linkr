@@ -110,28 +110,31 @@ export function StatusBar() {
       </div>
       <div className="flex items-center gap-3">
         <JobsIndicator />
-        {/* Environments are per-project (server mode) → the manager needs an open
-            project; disable it otherwise with an explanatory tooltip. */}
-        <button
-          onClick={() => setEnvironmentsOpen(true)}
-          disabled={server && !activeProjectUid}
-          title={server && !activeProjectUid ? t('environments.open_project_first') : undefined}
-          className="flex items-center gap-1.5 rounded px-1.5 py-0.5 transition-colors hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Box size={11} />
-          <span>{t('environments.title')}</span>
-        </button>
-        <EnvironmentsDialog open={environmentsOpen} onOpenChange={setEnvironmentsOpen} />
-        <span className="opacity-30">|</span>
-        {/* Metrics popover. In server mode the metrics are the project's kernels,
-            so the trigger is disabled off a project (like Environments) — there is
-            nothing project-scoped to show. Browser metrics (front-only) always show. */}
+        {/* Environments + kernels are per-project (server mode). Off a project
+            there's nothing project-scoped to show, so hide them entirely (not just
+            disable). In front-only mode the metric shows browser runtimes, so it
+            always renders. */}
+        {(!server || activeProjectUid) && (
+          <>
+            <button
+              onClick={() => setEnvironmentsOpen(true)}
+              className="flex items-center gap-1.5 rounded px-1.5 py-0.5 transition-colors hover:bg-accent/50"
+            >
+              <Box size={11} />
+              <span>{t('environments.title')}</span>
+            </button>
+            <EnvironmentsDialog open={environmentsOpen} onOpenChange={setEnvironmentsOpen} />
+            <span className="opacity-30">|</span>
+          </>
+        )}
+        {/* Metrics popover. In server mode the metrics ARE the project's kernels,
+            so it's hidden off a project (nothing project-scoped to show). Browser
+            metrics (front-only) always show. */}
+        {(!server || activeProjectUid) && (
         <Popover>
           <PopoverTrigger asChild>
             <button
-              disabled={server && !activeProjectUid}
-              title={server && !activeProjectUid ? t('environments.open_project_first') : undefined}
-              className="flex items-center gap-2 rounded px-1.5 py-0.5 transition-colors hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex items-center gap-2 rounded px-1.5 py-0.5 transition-colors hover:bg-accent/50"
             >
               {server ? (
                 <>
@@ -306,6 +309,7 @@ export function StatusBar() {
             </div>
           </PopoverContent>
         </Popover>
+        )}
 
         {/* Overall status indicator. It summarises whether ANY runtime is busy
             (not a specific kernel). In server mode it reflects the project's

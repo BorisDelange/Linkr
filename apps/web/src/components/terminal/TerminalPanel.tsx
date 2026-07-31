@@ -11,6 +11,14 @@ import { useAppStore, isEditorThemeDark } from '@/stores/app-store'
 
 type TerminalType = 'bash' | 'python' | 'r'
 
+// Commands that install packages imperatively — detected to warn that this
+// bypasses the declarative environment (see executeCommand). Best-effort; a miss
+// only means no warning, never a broken run.
+const INSTALL_RE: Partial<Record<TerminalType, RegExp>> = {
+  python: /\b(pip\s+install|uv\s+(add|pip\s+install)|conda\s+install|!pip\s+install)\b/,
+  r: /\b(install\.packages|renv::install|devtools::install|remotes::install|BiocManager::install)\b/,
+}
+
 const terminalConfig: Record<TerminalType, { prompt: string }> = {
   bash: { prompt: '$ ' },
   python: { prompt: '>>> ' },
@@ -333,6 +341,14 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
       history.push(cmd)
       historyIndex = -1
       executing = true
+
+      // Installing from the terminal bypasses the declarative env (the manifest +
+      // lockfile the Environments manager edits): the package lands in the library
+      // but not the lockfile, so it won't show in the manager, won't travel in git,
+      // and is wiped on the next build. Warn, then still run the command.
+      if (serverMode && INSTALL_RE[terminalType]?.test(cmd)) {
+        terminal.writeln(`\x1b[33m${t('terminal.installWarning')}\x1b[0m`)
+      }
 
       // Server REPL: hand the line to the kernel; chunks stream back via
       // socket.onMessage, which reprints the prompt on the done/error message.

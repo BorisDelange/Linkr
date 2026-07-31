@@ -2567,6 +2567,7 @@
     "cancel": "Annuler",
     "show_log": "Voir la sortie",
     "no_log": "Aucune sortie.",
+    "clear_all": "Tout effacer",
     "status": {
       "queued": "En attente",
       "running": "En cours",
@@ -4099,6 +4100,7 @@
     "error_generic": "La configuration a échoué. Veuillez réessayer."
   },
   "terminal": {
+    "installWarning": "Note : une installation ici ne sera pas conservée — utilisez le gestionnaire d'Environnements (barre du bas) pour que le package soit versionné et survive à une reconstruction.",
     "connecting": "Connexion au shell serveur…",
     "authFailed": "Échec de l’authentification — rouvrez le terminal.",
     "shellExited": "[shell terminé]",

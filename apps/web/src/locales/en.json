@@ -2567,6 +2567,7 @@
     "cancel": "Cancel",
     "show_log": "Show output",
     "no_log": "No output.",
+    "clear_all": "Clear all",
     "status": {
       "queued": "Queued",
       "running": "Running",
@@ -4099,6 +4100,7 @@
     "error_generic": "Setup failed. Please try again."
   },
   "terminal": {
+    "installWarning": "Note: installing here won't persist — use the Environments manager (footer) so the package is versioned and survives a rebuild.",
     "connecting": "Connecting to server shell…",
     "authFailed": "Authentication failed — reopen the terminal.",
     "shellExited": "[shell exited]",

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.schemas.base import CamelModel
 
 
@@ -93,3 +95,4 @@ class JobResponse(CamelModel):
     status: str  # queued | running | done | error | cancelled
     progress: int
     log_tail: str
+    created_at: datetime

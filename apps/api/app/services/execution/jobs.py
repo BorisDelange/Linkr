@@ -127,6 +127,21 @@ async def list_active(db: AsyncSession, project_uid: str, user_id: int) -> list[
     return list(result.scalars().all())
 
 
+async def clear_finished(db: AsyncSession, project_uid: str, user_id: int) -> None:
+    """Remove the user's terminal jobs (done/error/cancelled) for a project — the
+    'clear all' action. Active jobs (queued/running) are kept so a build in flight
+    isn't lost from the panel."""
+    from sqlalchemy import delete
+
+    await db.execute(
+        delete(Job)
+        .where(Job.project_uid == project_uid)
+        .where(Job.user_id == user_id)
+        .where(Job.status.in_(("done", "error", "cancelled")))
+    )
+    await db.commit()
+
+
 async def reconcile_on_startup() -> None:
     """A job left running/queued when the process died has no task anymore → mark
     it error so the panel doesn't show a phantom 'running' forever."""

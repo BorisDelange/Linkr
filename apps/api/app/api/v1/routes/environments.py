@@ -215,6 +215,18 @@ async def list_jobs(
     return [JobResponse.model_validate(j, from_attributes=True) for j in rows]
 
 
+@router.delete("/projects/{project_uid}/jobs", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_finished_jobs(
+    project_uid: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove the caller's finished jobs (done/error/cancelled) for a project — the
+    panel's 'clear all'. Active jobs are kept."""
+    await _require_ide(db, project_uid, user, "read")
+    await jobs.clear_finished(db, project_uid, user.id)
+
+
 @router.post("/jobs/{job_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_job(
     job_id: str,

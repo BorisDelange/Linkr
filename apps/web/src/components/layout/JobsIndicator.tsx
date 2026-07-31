@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, ScrollText } from 'lucide-react'
+import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, ScrollText, Trash2 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { isServerMode } from '@/lib/api-client'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
-import { listJobs, cancelJob, type Job } from '@/lib/api/environments'
+import { listJobs, cancelJob, clearJobs, type Job } from '@/lib/api/environments'
 
 const ACTIVE = new Set(['queued', 'running'])
 
@@ -44,7 +44,14 @@ export function JobsIndicator() {
     setReloadTick((n) => n + 1)
   }
 
+  const onClearAll = async () => {
+    if (!projectUid) return
+    await clearJobs(projectUid)
+    setReloadTick((n) => n + 1)
+  }
+
   const logJob = jobs.find((j) => j.id === logJobId) ?? null
+  const hasFinished = jobs.some((j) => !ACTIVE.has(j.status))
 
   return (
     <>
@@ -59,8 +66,19 @@ export function JobsIndicator() {
           <span>{t('jobs.title', { count: activeCount })}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-2 text-xs">
-        <div className="mb-1 font-medium">{t('jobs.recent')}</div>
+      <PopoverContent align="end" className="w-96 p-2 text-xs">
+        <div className="mb-2.5 flex items-center justify-between">
+          <span className="font-medium">{t('jobs.recent')}</span>
+          {hasFinished && (
+            <button
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+              onClick={() => void onClearAll()}
+            >
+              <Trash2 size={11} />
+              {t('jobs.clear_all')}
+            </button>
+          )}
+        </div>
         <ul className="flex flex-col gap-1">
           {jobs.map((job) => (
             <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
@@ -70,6 +88,7 @@ export function JobsIndicator() {
                 onClick={() => setLogJobId(job.id)}
                 title={t('jobs.show_log')}
               >
+                <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">{formatJobTime(job.createdAt)}</span>
                 <JobStatusIcon status={job.status} />
                 <span className="truncate">{job.label}</span>
                 <ScrollText size={11} className="shrink-0 text-muted-foreground/50" />
@@ -96,7 +115,7 @@ export function JobsIndicator() {
     {/* Full log in a large modal — the complete captured output (commands +
         results) of a build, scrollable, monospace. */}
     <Dialog open={!!logJob} onOpenChange={(o) => { if (!o) setLogJobId(null) }}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">
             {logJob && <JobStatusIcon status={logJob.status} />}
@@ -110,6 +129,14 @@ export function JobsIndicator() {
     </Dialog>
     </>
   )
+}
+
+/** Short local date+time for a job row, e.g. "07/31 14:22". Falsy/bad input → ''. */
+function formatJobTime(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 function JobStatusIcon({ status }: { status: Job['status'] }) {

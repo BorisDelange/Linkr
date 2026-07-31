@@ -57,6 +57,7 @@ export interface Job {
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   progress: number
   logTail: string
+  createdAt: string
 }
 
 /** Kick off a manual build; returns the queued job. Poll listJobs for progress. */
@@ -97,4 +98,9 @@ export function listJobs(projectUid: string): Promise<Job[]> {
 
 export function cancelJob(jobId: string): Promise<void> {
   return apiRequest(`/jobs/${jobId}/cancel`, { method: 'POST' })
+}
+
+/** Remove the project's finished jobs (done/error/cancelled); keeps active ones. */
+export function clearJobs(projectUid: string): Promise<void> {
+  return apiRequest(`/projects/${projectUid}/jobs`, { method: 'DELETE' })
 }
