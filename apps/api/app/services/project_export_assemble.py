@@ -53,6 +53,22 @@ from app.services.data import dataset_fs
 from app.services.project_export import build_project_tree
 
 
+def _read_env_specs(project_uid: str) -> dict[str, bytes]:
+    """Read a project's managed-environment specs (manifest + lockfile) off disk as
+    ``{"environments/<lang>/<file>": bytes}`` for the export tree. Only the spec is
+    versioned — the materialised venv/library under .cache/ is skipped. Empty when
+    no managed env has been created."""
+    specs: dict[str, bytes] = {}
+    for language in ("python", "r"):
+        spec_dir = project_fs.env_spec_dir(project_uid, language)
+        if not spec_dir.exists():
+            continue
+        for entry in sorted(spec_dir.iterdir()):
+            if entry.is_file():
+                specs[f"environments/{language}/{entry.name}"] = entry.read_bytes()
+    return specs
+
+
 def _dump(schema, row) -> dict:
     """ORM row → the exact camelCase dict the API emits (all fields, None → null,
     schema field order). Feeding these to the pure builder reproduces the
@@ -242,6 +258,7 @@ async def build_project_tree_from_db(
     resolved_org = project.organization or organization
 
     return build_project_tree(
+        env_specs=_read_env_specs(project.uid),
         project=project_dict,
         organization=resolved_org,
         ide_files=ide_files,

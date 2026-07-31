@@ -353,6 +353,7 @@ def build_project_tree(
     attachment_blobs: dict[str, bytes],
     versioned_data_files: set[str],
     excluded_files: set[str] | None = None,
+    env_specs: dict[str, bytes] | None = None,
 ) -> dict[str, bytes]:
     """Build the git-variant project export tree as ``{path: bytes}``.
 
@@ -429,6 +430,13 @@ def build_project_tree(
                 # any data file; re-include it when marked (key = its scripts/ path).
                 if _is_data_ext(tree_path) and tree_path in versioned_data_files:
                     included_data_paths.append(tree_path)
+
+    # Managed-environment specs (manifest + lockfile) under environments/<lang>/.
+    # Versioned in the project git so a clone reproduces the packages; the
+    # materialised venv/library (.cache/) is gitignored. Server-mode only — front
+    # -only mode passes none, so parity holds (both emit nothing).
+    for path, content in sorted((env_specs or {}).items()):
+        tree[path] = content
 
     if pipelines:
         tree["pipeline/pipeline.json"] = _json(

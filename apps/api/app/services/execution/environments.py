@@ -18,14 +18,22 @@ from app.models.environment import Environment
 
 
 async def resolve(db: AsyncSession, project_uid: str, language: str) -> Environment:
-    """The project's environment for `language`, creating a `system` one if none
-    exists yet. Concurrency-safe: a racing insert (unique on project+language) is
-    caught and the existing row re-read."""
+    """The project's environment for `language`, creating one if none exists yet.
+
+    Seeds `managed`/`draft` when a committed spec (lockfile) is already on disk —
+    the case after cloning/importing a project whose ``environments/<lang>/`` came
+    down from git — so it shows as "needs build" without any import-time wiring.
+    Otherwise seeds a `system` env (today's shared interpreter). Concurrency-safe:
+    a racing insert (unique on project+language) is caught and the row re-read."""
     env = await _find(db, project_uid, language)
     if env is not None:
         return env
+    imported = _has_disk_spec(project_uid, language)
     env = Environment(
-        project_uid=project_uid, language=language, kind="system", status="ready"
+        project_uid=project_uid,
+        language=language,
+        kind="managed" if imported else "system",
+        status="draft" if imported else "ready",
     )
     db.add(env)
     try:
@@ -120,6 +128,16 @@ async def _mark_managed(db: AsyncSession, env: Environment) -> Environment:
     await db.commit()
     await db.refresh(env)
     return env
+
+
+def _has_disk_spec(project_uid: str, language: str) -> bool:
+    """True if a committed lockfile already exists on disk for this env — the sign
+    of an imported/cloned managed environment awaiting a build."""
+    from app.services import project_fs
+
+    spec_dir = project_fs.env_spec_dir(project_uid, language)
+    lock = "uv.lock" if language == "python" else "renv.lock"
+    return (spec_dir / lock).exists()
 
 
 def _provisioner(language: str):

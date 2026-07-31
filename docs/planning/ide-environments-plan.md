@@ -342,9 +342,13 @@ SessionDropdown.
    library on `R_LIBS`. Env/jobs routes moved to their own `routes/environments.py` (they
    live at `/projects/{uid}/…` + `/jobs/…`, not under `/execute`); the panel is now
    language-parametric with Python + R tabs.
-6. **Git import build flow** — scan `environments/` on import (rows `draft`, **no**
-   auto-build); entity-io `buildProjectZip`/parse include `environments/`, exclude `.cache/`;
-   portal `build.sh` sync.
+6. **Git import/export** — ✅ *done.* The server export (`build_project_tree` +
+   `_read_env_specs` in the assemble layer) writes `environments/<lang>/` spec files into
+   the tree; `.cache/` was already gitignored on both front and server (byte-parity holds —
+   front-only emits no specs, server emits none without a managed env). Import needs **no**
+   JSZip wiring: `environments.resolve` detects a committed lockfile on disk and seeds the
+   row `managed`/`draft` ("needs build") on first access — **no auto-build**. Portal
+   `build.sh` needs no change (it clones committed files; `.cache/` is never committed).
 7. **Finishing touches** — streaming Run button (+ Stop/Ctrl+C via the jobs panel), true
    real-time R streaming.
 

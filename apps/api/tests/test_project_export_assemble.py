@@ -219,3 +219,16 @@ def test_data_dir_is_isolated():
     # Guard: the autouse fixture points data_dir at a tmp path, so these tests never
     # touch a real ~/.linkr project tree.
     assert "/private/" in str(settings.data_path) or "tmp" in str(settings.data_path)
+
+
+async def test_assembler_includes_environment_specs(db):
+    project = await _seed(db)
+    # A managed Python env: its committed spec lives under environments/python/.
+    spec = project_fs.env_spec_dir(project.uid, "python")
+    (spec / "pyproject.toml").write_bytes(b"[project]\nname='x'\n")
+    (spec / "uv.lock").write_bytes(b"version = 1\n")
+    tree = await build_project_tree_from_db(db, project)
+    # The spec is versioned; the materialised venv (.cache/) is never in the tree.
+    assert tree["environments/python/pyproject.toml"] == b"[project]\nname='x'\n"
+    assert tree["environments/python/uv.lock"] == b"version = 1\n"
+    assert not any(p.startswith(".cache") for p in tree)

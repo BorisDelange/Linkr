@@ -45,5 +45,17 @@ async def test_resolve_separates_languages_and_projects(db):
     r = await environments.resolve(db, "proj-1", "r")
     other = await environments.resolve(db, "proj-2", "python")
 
-    assert {py.id, r.id, other.id} == {py.id, r.id, other.id}  # three distinct ids
-    assert len({py.id, r.id, other.id}) == 3
+    assert len({py.id, r.id, other.id}) == 3  # three distinct ids
+
+
+async def test_resolve_seeds_managed_draft_when_lockfile_on_disk(db):
+    # Simulate a cloned/imported project: its committed lockfile is already on
+    # disk before any env row exists.
+    from app.services import project_fs
+
+    spec = project_fs.env_spec_dir("proj-1", "python")
+    (spec / "uv.lock").write_text("version = 1\n")
+
+    env = await environments.resolve(db, "proj-1", "python")
+    assert env.kind == "managed"
+    assert env.status == "draft"  # awaits a manual build
