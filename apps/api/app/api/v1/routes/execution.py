@@ -35,7 +35,7 @@ from app.services import (
     project_fs,
 )
 from app.services.data import dataset_fs
-from app.services.execution import injection, kernel, pty_kernel, render, runtime
+from app.services.execution import environments, injection, kernel, pty_kernel, render, runtime
 
 logger = structlog.get_logger()
 
@@ -196,17 +196,18 @@ async def execute_code(
             status.HTTP_400_BAD_REQUEST,
             f"Unsupported language: {body.language}",
         )
-    return await _run_in_kernel(body.project_uid, user, body.language, body.env_id, code, resolver)
+    return await _run_in_kernel(db, body.project_uid, user, body.language, body.env_id, code, resolver)
 
 
 async def _run_in_kernel(
-    project_uid: str, user: User, language: str, env_id: str, code: str, resolver
+    db: AsyncSession, project_uid: str, user: User, language: str, env_id: str, code: str, resolver
 ) -> ExecuteResponse:
     """Run `code` in the caller's persistent kernel for (project, language, env)
     and shape the captured output. Shared by /execute and /execute/render."""
+    environment = await environments.resolve(db, project_uid, language)
     try:
         try:
-            k = await kernel.manager.get(project_uid, user.id, language, env_id)
+            k = await kernel.manager.get(project_uid, user.id, language, env_id, environment)
         except kernel.KernelLimitReached as e:
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
         out = await k.execute(code, query_resolver=resolver)
@@ -259,7 +260,7 @@ async def render_component(
             db, body.dataset_file_id, "python", body.dataset_filters, body.project_uid
         )
         code = preamble + "\n" + analysis_code
-    return await _run_in_kernel(body.project_uid, user, "python", body.env_id, code, None)
+    return await _run_in_kernel(db, body.project_uid, user, "python", body.env_id, code, None)
 
 
 @router.get("/kernels")
@@ -355,8 +356,10 @@ async def _terminal_kernel_loop(
     A run must not block the receive loop, or the {interrupt} that should stop it
     would sit unread until the run finished. So each {code} runs as its own task
     while the loop keeps reading, letting {interrupt} fire mid-run."""
+    async with async_session() as db:
+        environment = await environments.resolve(db, project_uid, language)
     try:
-        k = await kernel.manager.get(project_uid, user.id, language, env_id)
+        k = await kernel.manager.get(project_uid, user.id, language, env_id, environment)
     except kernel.KernelLimitReached as e:
         await websocket.send_json({"type": "error", "data": str(e)})
         await websocket.close()

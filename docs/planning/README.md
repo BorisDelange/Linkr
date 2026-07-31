@@ -19,7 +19,7 @@ The as-built is in `docs/architecture.md`; details for each item live in the lin
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Real environments (uv/renv, manifest+lockfile, git-versioned) + job management — decisions ratified, 0 code | L |
+| 🔜 | Real environments (1 uv + 1 renv per project, git-versioned) + multi-session + job management — design settled 2026-07-30, 0 code | L |
 
 ## Dataset edit layer — [dataset-edit-layer-plan.md](dataset-edit-layer-plan.md)
 

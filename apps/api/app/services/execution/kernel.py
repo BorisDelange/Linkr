@@ -26,10 +26,13 @@ import signal
 import subprocess
 import time
 
-from typing import Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from app.config import settings
 from app.services.execution.runtime import RuntimeOutput, ExecutionError
+
+if TYPE_CHECKING:
+    from app.models.environment import Environment
 
 
 def _read_rss_kb(pid: int) -> int | None:
@@ -494,8 +497,18 @@ class KernelManager:
         return sum(1 for (_p, uid, _l, _e) in self._kernels if uid == user_id)
 
     async def get(
-        self, project_uid: str, user_id: int, language: str, env_id: str
+        self,
+        project_uid: str,
+        user_id: int,
+        language: str,
+        env_id: str,
+        environment: "Environment | None" = None,
     ) -> Kernel:
+        """Return the caller's live kernel, launching one on a cache miss.
+
+        `environment` is the resolved project environment (interpreter + packages)
+        used only when a new kernel is spawned; on the hot path (kernel already
+        alive) it is ignored, so callers may pass None to keep today's behaviour."""
         key = (project_uid, user_id, language, env_id)
         async with self._lock:
             to_shutdown = self._sweep_idle_locked()
@@ -507,7 +520,7 @@ class KernelManager:
                     raise KernelLimitReached(
                         f"Kernel session limit reached ({settings.max_sessions_per_user})."
                     )
-                kernel = self._make(language, project_uid)
+                kernel = self._make(language, project_uid, environment)
                 self._kernels[key] = kernel
         for k in to_shutdown:
             await k.shutdown()
@@ -560,7 +573,9 @@ class KernelManager:
             if proj == project_uid and uid == user_id
         ]
 
-    def _make(self, language: str, project_uid: str) -> Kernel:
+    def _make(
+        self, language: str, project_uid: str, environment: "Environment | None" = None
+    ) -> Kernel:
         # The kernel runs in the IDE working dir (RStudio/Jupyter model), so what the
         # terminal sees matches the IDE sidebar. The datasets dir is reachable via
         # $LINKR_DATASETS (it may be a different, re-pointable server folder).
@@ -568,10 +583,20 @@ class KernelManager:
 
         cwd = str(project_fs.ide_dir(project_uid))
         env = project_fs.runtime_env(project_uid)
+        # A `managed` environment overrides the interpreter with its provisioned
+        # venv/renv library. A `system` env (or no env passed) keeps today's shared
+        # interpreter — the behaviour-preserving default. Managed resolution lands
+        # in a later step; until then interpreter_path is always None.
+        interpreter_path = (
+            environment.interpreter_path
+            if environment is not None and environment.kind == "managed"
+            else None
+        )
         if language == "python":
             import sys
 
-            return Kernel([sys.executable, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env)
+            python = interpreter_path or sys.executable
+            return Kernel([python, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env)
         if language == "r":
             return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=cwd, env=env)
         raise ExecutionError(f"No persistent kernel for language: {language}")
