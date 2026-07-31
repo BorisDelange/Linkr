@@ -82,18 +82,23 @@ def list_packages(project_uid: str, language: str) -> list[dict]:
     return _provisioner(language).list_packages(project_uid)
 
 
-async def build(db: AsyncSession, project_uid: str, language: str) -> Environment:
+async def build(
+    db: AsyncSession, project_uid: str, language: str, on_log=None
+) -> Environment:
     """Materialise the env's venv/library from its lockfile (manual, explicit).
-    Flips status building → ready/error and records the resolved interpreter."""
+    Flips status building → ready/error and records the resolved interpreter.
+    ``on_log`` (if given) receives each build output line — used by the job runner
+    to stream into the job's log tail."""
+    prov = _provisioner(language)
     env = await resolve(db, project_uid, language)
     env.status = "building"
     await db.commit()
-    result = await _provisioner(language).build(project_uid)
+    result = await prov.build(project_uid, on_log=on_log)
     env = await resolve(db, project_uid, language)
     if result.ok:
         env.status = "ready"
         env.kind = "managed"
-        env.interpreter_path = str(_provisioner(language).venv_python(project_uid))
+        env.interpreter_path = str(prov.venv_python(project_uid))
     else:
         env.status = "error"
     await db.commit()

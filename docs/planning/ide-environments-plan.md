@@ -331,8 +331,11 @@ SessionDropdown.
    gated on `ide:read|write`, and a `ServerEnvironmentsPanel` replacing the dialog stub.
    Build stays **manual**. Build-as-tracked-job is step 4 (today `/build` runs in a thread
    and returns ready/error synchronously).
-4. **Job management** — jobs table + bounded executor + StatusBar jobs panel + cancel
-   (needed by build; reused by Run).
+4. **Job management** — ✅ *done.* `jobs` table (DB-backed), a bounded in-process executor
+   (`asyncio.Semaphore(max_build_concurrency)`, no broker), `/projects/{uid}/jobs` +
+   `/jobs/{id}/cancel` routes, startup reconciliation of orphaned `running` jobs, and a
+   footer `JobsIndicator` (poll + cancel). Env build now runs as a cancellable job (uv sync
+   as an async subprocess, killed on cancel). Reused by Run in step 7.
 5. **R env (renv)** — same endpoints for R, shared renv cache, p3m repos default.
 6. **Git import build flow** — scan `environments/` on import (rows `draft`, **no**
    auto-build); entity-io `buildProjectZip`/parse include `environments/`, exclude `.cache/`;

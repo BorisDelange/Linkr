@@ -15,6 +15,7 @@ import { restartServerKernel } from '@/lib/api/execution'
 import { useAppStore } from '@/stores/app-store'
 import { APP_VERSION } from '@/lib/version'
 import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
+import { JobsIndicator } from '@/components/layout/JobsIndicator'
 import type { RuntimeStatus } from '@/lib/runtimes/types'
 
 function usageColor(pct: number) {
@@ -94,10 +95,14 @@ export function StatusBar() {
         </a>
       </div>
       <div className="flex items-center gap-3">
-        {/* Environments (package manager) — global, accessible from every page */}
+        <JobsIndicator />
+        {/* Environments are per-project (server mode) → the manager needs an open
+            project; disable it otherwise with an explanatory tooltip. */}
         <button
           onClick={() => setEnvironmentsOpen(true)}
-          className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent/50 transition-colors"
+          disabled={server && !activeProjectUid}
+          title={server && !activeProjectUid ? t('environments.open_project_first') : undefined}
+          className="flex items-center gap-1.5 rounded px-1.5 py-0.5 transition-colors hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Box size={11} />
           <span>{t('environments.title')}</span>

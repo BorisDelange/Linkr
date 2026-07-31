@@ -83,3 +83,13 @@ class PackageResponse(CamelModel):
 
 class AddPackagesRequest(CamelModel):
     packages: list[str]  # requirement strings, e.g. ["pandas", "numpy==1.26"]
+
+
+class JobResponse(CamelModel):
+    id: str
+    project_uid: str
+    kind: str  # 'build' | 'run' | …
+    label: str
+    status: str  # queued | running | done | error | cancelled
+    progress: int
+    log_tail: str

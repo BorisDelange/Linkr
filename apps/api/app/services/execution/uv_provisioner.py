@@ -138,18 +138,38 @@ def remove_package(project_uid: str, package: str) -> None:
     _run(project_uid, ["remove", "--no-sync", package])
 
 
-def _build_sync(project_uid: str) -> BuildResult:
-    """Materialise the venv from the lockfile (blocking). Runs `uv sync`, which
-    creates/updates the venv at UV_PROJECT_ENVIRONMENT using the shared cache."""
+async def build(project_uid: str, on_log=None) -> BuildResult:
+    """Materialise the venv from the lockfile as an async subprocess (`uv sync`),
+    so it doesn't block the event loop (uvicorn is 1 worker) AND can be killed on
+    cancel. Streams lines to ``on_log`` if given. Cancelling the awaiting task
+    terminates the uv process (see the CancelledError handler)."""
     ensure_manifest(project_uid)
+    spec_dir = project_fs.env_spec_dir(project_uid, "python")
+    env = {
+        **_base_env(),
+        "UV_CACHE_DIR": str(project_fs.env_package_cache("uv")),
+        "UV_PROJECT_ENVIRONMENT": str(_venv_dir(project_uid)),
+        "UV_INDEX_URL": settings.pip_index_url,
+    }
+    proc = await asyncio.create_subprocess_exec(
+        settings.uv_bin, "sync",
+        cwd=str(spec_dir),
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    lines: list[str] = []
     try:
-        log = _run(project_uid, ["sync"])
-        return BuildResult(ok=True, log=log)
-    except ProvisionError as e:
-        return BuildResult(ok=False, log=str(e))
-
-
-async def build(project_uid: str) -> BuildResult:
-    """Materialise the venv off the event loop. A long `uv sync` must not block
-    other requests (uvicorn is 1 worker); step 4 turns this into a tracked job."""
-    return await asyncio.to_thread(_build_sync, project_uid)
+        assert proc.stdout is not None
+        async for raw in proc.stdout:
+            line = raw.decode("utf-8", "replace").rstrip()
+            lines.append(line)
+            if on_log is not None:
+                on_log(line)
+        code = await proc.wait()
+    except asyncio.CancelledError:
+        proc.kill()
+        await proc.wait()
+        raise
+    log = "\n".join(lines)
+    return BuildResult(ok=(code == 0), log=log)

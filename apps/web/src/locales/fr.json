@@ -2532,6 +2532,19 @@
     "install_pkg": "Installer {{name}}",
     "installed_pkg": "{{name}} installé"
   },
+  "jobs": {
+    "title": "{{count}} tâche",
+    "title_other": "{{count}} tâches",
+    "recent": "Tâches récentes",
+    "cancel": "Annuler",
+    "status": {
+      "queued": "En attente",
+      "running": "En cours",
+      "done": "Terminée",
+      "error": "Échec",
+      "cancelled": "Annulée"
+    }
+  },
   "server": {
     "title": "Moniteur système",
     "memory": "Mémoire",

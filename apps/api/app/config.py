@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     # every project's venv, under data_dir/.cache/uv (uv hardlinks from it).
     uv_bin: str = "uv"
     pip_index_url: str = "https://pypi.org/simple"
+    # Bounded in-process executor for long jobs (env builds): how many run at once
+    # before the rest queue. Keeps a burst from exhausting the single uvicorn
+    # worker. A real queue (celery/RQ) is only needed if load outgrows this.
+    max_build_concurrency: int = 2
 
     # Data
     data_dir: str = "~/.linkr"

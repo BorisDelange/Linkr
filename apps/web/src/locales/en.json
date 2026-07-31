@@ -2532,6 +2532,19 @@
     "install_pkg": "Install {{name}}",
     "installed_pkg": "{{name}} installed"
   },
+  "jobs": {
+    "title": "{{count}} job",
+    "title_other": "{{count}} jobs",
+    "recent": "Recent jobs",
+    "cancel": "Cancel",
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "done": "Done",
+      "error": "Failed",
+      "cancelled": "Cancelled"
+    }
+  },
   "server": {
     "title": "System Monitor",
     "memory": "Memory",

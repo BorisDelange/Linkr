@@ -49,11 +49,30 @@ export function removeEnvPackage(
   )
 }
 
+export interface Job {
+  id: string
+  projectUid: string
+  kind: string
+  label: string
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+  progress: number
+  logTail: string
+}
+
+/** Kick off a manual build; returns the queued job. Poll listJobs for progress. */
 export function buildEnvironment(
   projectUid: string,
   language: 'python' | 'r',
-): Promise<ProjectEnvironment> {
+): Promise<Job> {
   return apiRequest(`/projects/${projectUid}/environments/${language}/build`, {
     method: 'POST',
   })
+}
+
+export function listJobs(projectUid: string): Promise<Job[]> {
+  return apiRequest(`/projects/${projectUid}/jobs`)
+}
+
+export function cancelJob(jobId: string): Promise<void> {
+  return apiRequest(`/jobs/${jobId}/cancel`, { method: 'POST' })
 }

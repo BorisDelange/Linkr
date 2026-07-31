@@ -14,6 +14,7 @@ from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
 from app.models.etl_pipeline import EtlFile, EtlPipeline
 from app.models.execution_session import ExecutionSession
 from app.models.environment import Environment
+from app.models.job import Job
 from app.models.ide_connection import IdeConnection
 from app.models.entity_visit import EntityVisit
 from app.models.user_plugin import UserPlugin
@@ -69,6 +70,7 @@ __all__ = [
     "EtlFile",
     "ExecutionSession",
     "Environment",
+    "Job",
     "Plugin",
     "Workspace",
     "WorkspaceMember",

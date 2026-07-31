@@ -82,6 +82,11 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(run_migrations)
     async with async_session() as db:
         await seed_default_roles(db)
+    # A job left running when the process last died has no live task anymore →
+    # reconcile it to error so the panel doesn't show a phantom 'running'.
+    from app.services.execution.jobs import reconcile_on_startup
+
+    await reconcile_on_startup()
     yield
     from app.services.execution.kernel import manager as kernel_manager
     from app.services.execution.pty_kernel import manager as pty_manager

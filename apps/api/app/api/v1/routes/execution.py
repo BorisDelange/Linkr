@@ -15,6 +15,7 @@ from app.core.permissions import (
     has_project_permission,
 )
 from app.core.ws_auth import authenticate_ws
+from app.models.job import Job
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.execution import (
@@ -22,6 +23,7 @@ from app.schemas.execution import (
     EnvironmentResponse,
     ExecuteRequest,
     ExecuteResponse,
+    JobResponse,
     PackageResponse,
     RenderRequest,
     RestartKernelRequest,
@@ -38,7 +40,7 @@ from app.services import (
     project_fs,
 )
 from app.services.data import dataset_fs
-from app.services.execution import environments, injection, kernel, pty_kernel, render, runtime
+from app.services.execution import environments, injection, jobs, kernel, pty_kernel, render, runtime
 from app.services.execution.uv_provisioner import ProvisionError
 
 logger = structlog.get_logger()
@@ -421,7 +423,7 @@ async def remove_env_package(
 
 @router.post(
     "/projects/{project_uid}/environments/{language}/build",
-    response_model=EnvironmentResponse,
+    response_model=JobResponse,
 )
 async def build_environment(
     project_uid: str,
@@ -429,16 +431,55 @@ async def build_environment(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Materialise the env's venv/library from its lockfile (manual build). Runs off
-    the event loop; returns the env with status ready/error. Step 4 turns this into
-    a tracked, cancellable job."""
+    """Kick off a manual environment build as a tracked, cancellable job. Returns
+    the queued job immediately; poll GET /projects/{uid}/jobs for progress and the
+    env's status. The build runs behind the bounded executor (won't block others)."""
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
-    try:
-        env = await environments.build(db, project_uid, language)
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    return _env_response(env)
+    label = f"Build {language.upper()} environment"
+    job = await jobs.create(db, project_uid, user.id, kind="build", label=label)
+
+    async def body(handle: jobs.JobHandle) -> None:
+        buffer: list[str] = []
+
+        def on_log(line: str) -> None:
+            buffer.append(line)
+
+        async with async_session() as job_db:
+            await environments.build(job_db, project_uid, language, on_log=on_log)
+        if buffer:
+            await handle.log("\n".join(buffer[-200:]))
+
+    jobs.launch(job.id, body)
+    return JobResponse.model_validate(job, from_attributes=True)
+
+
+@router.get("/projects/{project_uid}/jobs", response_model=list[JobResponse])
+async def list_jobs(
+    project_uid: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The caller's recent jobs for a project (queued/running/finished), newest
+    first — feeds the StatusBar jobs panel. Per-user."""
+    await _require_ide(db, project_uid, user, "read")
+    rows = await jobs.list_active(db, project_uid, user.id)
+    return [JobResponse.model_validate(j, from_attributes=True) for j in rows]
+
+
+@router.post("/jobs/{job_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_job(
+    job_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel a live job. Only the owner may cancel it."""
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+    if job.user_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your job")
+    await jobs.cancel(db, job)
 
 
 async def _make_ws_resolver(connection_id: str | None, user: User):

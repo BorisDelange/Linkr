@@ -13,6 +13,7 @@ import {
   addEnvPackages,
   removeEnvPackage,
   buildEnvironment,
+  listJobs,
   type ProjectEnvironment,
   type EnvPackage,
 } from '@/lib/api/environments'
@@ -72,6 +73,33 @@ export function ServerEnvironmentsPanel() {
     await run(() => addEnvPackages(projectUid!, 'python', [name]))
   }
 
+  // A build runs as a background job → poll until it settles, then reload the env
+  // so its status flips draft/building → ready/error in the UI.
+  const onBuild = async () => {
+    if (!projectUid) return
+    setBusy(true)
+    setError(null)
+    try {
+      await buildEnvironment(projectUid, 'python')
+      setEnv((e) => (e ? { ...e, status: 'building' } : e))
+      const poll = async (): Promise<void> => {
+        const active = await listJobs(projectUid)
+        const build = active.find((j) => j.kind === 'build')
+        if (build && (build.status === 'queued' || build.status === 'running')) {
+          await new Promise((r) => setTimeout(r, 1500))
+          return poll()
+        }
+        if (build && build.status === 'error') setError(build.logTail || 'Build failed')
+      }
+      await poll()
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (!projectUid) {
     return (
       <p className="py-8 text-center text-xs text-muted-foreground">
@@ -99,7 +127,7 @@ export function ServerEnvironmentsPanel() {
           size="sm"
           variant={needsBuild ? 'default' : 'outline'}
           disabled={!canWrite || busy || env?.status === 'building'}
-          onClick={() => run(() => buildEnvironment(projectUid, 'python'))}
+          onClick={() => void onBuild()}
         >
           {env?.status === 'building' ? (
             <Loader2 size={13} className="mr-1 animate-spin" />
