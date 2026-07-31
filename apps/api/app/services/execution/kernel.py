@@ -204,6 +204,13 @@ while True:
 # yields SVG figures. R interrupts (SIGINT) surface as a caught condition, so the
 # kernel survives Ctrl+C.
 _R_KERNEL_LOOP = r'''
+# Point install.packages()/renv at the configured repo (default p3m) so a manual
+# install in the R console/terminal has a mirror — otherwise R errors "trying to
+# use CRAN without setting a mirror" and installs nothing.
+local({
+  .repo <- Sys.getenv("LINKR_R_REPOS")
+  if (nzchar(.repo)) options(repos = c(CRAN = .repo))
+})
 suppressMessages({
   .has_svglite <- requireNamespace("svglite", quietly = TRUE)
   library(jsonlite); library(base64enc)
@@ -604,6 +611,9 @@ class KernelManager:
         if language == "r":
             # renv keeps a shared Rscript; the env is isolated by its private library.
             # Prepend it to R_LIBS so library() resolves against the project's packages.
+            # A CRAN mirror is set (LINKR_R_REPOS) so a manual install.packages() works
+            # despite --vanilla skipping the site Rprofile.
+            env = {**env, "LINKR_R_REPOS": settings.r_repos}
             if interpreter_path:
                 existing = env.get("R_LIBS", "")
                 env = {**env, "R_LIBS": f"{interpreter_path}:{existing}" if existing else interpreter_path}

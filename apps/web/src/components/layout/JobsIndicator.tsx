@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Ban, CheckCircle2, XCircle, Hourglass } from 'lucide-react'
+import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, ScrollText } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { isServerMode } from '@/lib/api-client'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { listJobs, cancelJob, type Job } from '@/lib/api/environments'
@@ -18,7 +19,7 @@ export function JobsIndicator() {
   const projectUid = useProjectRouteUid()
   const [jobs, setJobs] = useState<Job[]>([])
   const [reloadTick, setReloadTick] = useState(0)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [logJobId, setLogJobId] = useState<string | null>(null)
   const enabled = isServerMode() && !!projectUid
 
   useEffect(() => {
@@ -43,7 +44,10 @@ export function JobsIndicator() {
     setReloadTick((n) => n + 1)
   }
 
+  const logJob = jobs.find((j) => j.id === logJobId) ?? null
+
   return (
+    <>
     <Popover>
       <PopoverTrigger asChild>
         <button className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent/50 transition-colors">
@@ -58,45 +62,53 @@ export function JobsIndicator() {
       <PopoverContent align="end" className="w-80 p-2 text-xs">
         <div className="mb-1 font-medium">{t('jobs.recent')}</div>
         <ul className="flex flex-col gap-1">
-          {jobs.map((job) => {
-            const expanded = expandedId === job.id
-            return (
-              <li key={job.id} className="rounded">
-                <div className="flex items-center justify-between gap-2 px-1.5 py-1 hover:bg-muted/50">
-                  {/* Click the row to reveal the job's log / error output. */}
-                  <button
-                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                    onClick={() => setExpandedId(expanded ? null : job.id)}
-                    title={t('jobs.show_log')}
-                  >
-                    <JobStatusIcon status={job.status} />
-                    <span className="truncate">{job.label}</span>
-                  </button>
-                  {ACTIVE.has(job.status) ? (
-                    <button
-                      className="shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => void onCancel(job.id)}
-                      aria-label={t('jobs.cancel')}
-                    >
-                      <Ban size={13} />
-                    </button>
-                  ) : (
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {t(`jobs.status.${job.status}`)}
-                    </span>
-                  )}
-                </div>
-                {expanded && (
-                  <pre className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-2 text-[10px] leading-snug text-muted-foreground">
-                    {job.logTail || t('jobs.no_log')}
-                  </pre>
-                )}
-              </li>
-            )
-          })}
+          {jobs.map((job) => (
+            <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
+              {/* Click the row to open the full log in a modal. */}
+              <button
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                onClick={() => setLogJobId(job.id)}
+                title={t('jobs.show_log')}
+              >
+                <JobStatusIcon status={job.status} />
+                <span className="truncate">{job.label}</span>
+                <ScrollText size={11} className="shrink-0 text-muted-foreground/50" />
+              </button>
+              {ACTIVE.has(job.status) ? (
+                <button
+                  className="shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => void onCancel(job.id)}
+                  aria-label={t('jobs.cancel')}
+                >
+                  <Ban size={13} />
+                </button>
+              ) : (
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {t(`jobs.status.${job.status}`)}
+                </span>
+              )}
+            </li>
+          ))}
         </ul>
       </PopoverContent>
     </Popover>
+
+    {/* Full log in a large modal — the complete captured output (commands +
+        results) of a build, scrollable, monospace. */}
+    <Dialog open={!!logJob} onOpenChange={(o) => { if (!o) setLogJobId(null) }}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-sm">
+            {logJob && <JobStatusIcon status={logJob.status} />}
+            {logJob?.label}
+          </DialogTitle>
+        </DialogHeader>
+        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-3 font-mono text-xs leading-relaxed">
+          {logJob?.logTail || t('jobs.no_log')}
+        </pre>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }
 
