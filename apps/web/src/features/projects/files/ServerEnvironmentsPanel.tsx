@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, RefreshCw, Sparkles, CheckCircle2 } from 'lucide-react'
+import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, RefreshCw, Sparkles, CheckCircle2, PackageCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +35,8 @@ import {
   buildEnvironment,
   installPreset,
   upgradeEnvPackages,
+  getEnvDrift,
+  captureEnvDrift,
   listJobs,
   type ProjectEnvironment,
   type EnvPackage,
@@ -75,6 +77,7 @@ export function ServerEnvironmentsPanel({
   // A sentinel '*' means "update all" (every row spins).
   const [pendingPkgs, setPendingPkgs] = useState<Set<string>>(new Set())
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
+  const [drift, setDrift] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const isPkgPending = (name: string) => pendingPkgs.has(name) || pendingPkgs.has('*')
@@ -86,10 +89,15 @@ export function ServerEnvironmentsPanel({
       const envs = await listEnvironments(projectUid)
       setEnv(envs.find((e) => e.language === language) ?? null)
       setPackages(await listEnvPackages(projectUid, language))
+      // Packages installed imperatively (script/terminal) that the lockfile doesn't
+      // record — offer to capture them. Best-effort: a failure just hides the banner.
+      setDrift(await getEnvDrift(projectUid, language).catch(() => []))
     } finally {
       setLoading(false)
     }
   }, [projectUid, language])
+
+  const onCapture = () => run(() => captureEnvDrift(projectUid!, language))
 
   useEffect(() => {
     void load()
@@ -302,6 +310,21 @@ export function ServerEnvironmentsPanel({
             />
             <Button size="sm" onClick={() => void onAdd()} disabled={busy || !newPkg.trim()}>
               {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+            </Button>
+          </div>
+        )}
+
+        {canWrite && drift.length > 0 && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-2 text-xs">
+            <PackageCheck size={14} className="mt-0.5 shrink-0 text-amber-500" />
+            <div className="min-w-0 flex-1">
+              <p className="text-muted-foreground">
+                {t('environments.drift_hint', { count: drift.length })}
+              </p>
+              <p className="mt-0.5 truncate font-medium" title={drift.join(', ')}>{drift.join(', ')}</p>
+            </div>
+            <Button size="xs" variant="outline" className="shrink-0" disabled={busy} onClick={() => void onCapture()}>
+              {t('environments.capture')}
             </Button>
           </div>
         )}

@@ -14,6 +14,19 @@ class _FakeProvisioner:
 
     def __init__(self):
         self._pkgs: dict[str, list[dict]] = {}
+        # Names "installed in the library" for drift tests — set by a test.
+        self._installed: dict[str, list[str]] = {}
+
+    def detect_extra_names(self, project_uid):
+        recorded = {p["name"] for p in self._pkgs.get(project_uid, [])}
+        return [n for n in self._installed.get(project_uid, []) if n not in recorded]
+
+    def capture(self, project_uid, packages=None, on_log=None):
+        extras = packages or self.detect_extra_names(project_uid)
+        if on_log:
+            on_log(f"$ fake capture {' '.join(extras)}")
+        self._pkgs.setdefault(project_uid, [])
+        self._pkgs[project_uid].extend({"name": p, "spec": ""} for p in extras)
 
     def add_packages(self, project_uid, packages, on_log=None):
         if on_log:
@@ -143,6 +156,30 @@ async def test_failed_install_returns_clear_error_not_500(client, monkeypatch):
     jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
     errored = [j for j in jobs if j["status"] == "error"]
     assert errored and "uv add aaa" in errored[0]["logTail"]
+
+
+async def test_drift_detection_and_capture(client, fake_provisioner):
+    """A package installed in the library but not recorded shows up as drift; capture
+    records it into the lockfile (visible as a job) and it stops being drift."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+
+    # Simulate a script's install.packages: present in the library, not recorded.
+    fake_provisioner._installed[uid] = ["ggplot2", "dplyr"]
+
+    drift = (await client.get(f"{API}/projects/{uid}/environments/r/drift", headers=headers)).json()
+    assert sorted(drift) == ["dplyr", "ggplot2"]
+
+    r = await client.post(f"{API}/projects/{uid}/environments/r/capture", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["kind"] == "managed"
+
+    # Captured → recorded → no longer drift.
+    drift2 = (await client.get(f"{API}/projects/{uid}/environments/r/drift", headers=headers)).json()
+    assert drift2 == []
+
+    jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
+    assert any(j["kind"] == "package" and "fake capture" in j["logTail"] for j in jobs)
 
 
 async def test_unknown_language_is_rejected(client):

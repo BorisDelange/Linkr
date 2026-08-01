@@ -2536,6 +2536,9 @@
     "version_help_r": "Saisissez un nom de package pour sa dernière version (ex. dplyr), ou épinglez-en une avec « == », ex. dplyr==1.1.4. Installé avec renv depuis Posit Package Manager. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
     "install_preset": "Installer les packages par défaut du workspace",
     "install_in_env": "Installer {{packages}} dans l'environnement",
+    "drift_hint_one": "1 package a été installé hors du gestionnaire (ex. depuis un script) et n'est pas versionné :",
+    "drift_hint_other": "{{count}} packages ont été installés hors du gestionnaire (ex. depuis un script) et ne sont pas versionnés :",
+    "capture": "Ajouter au lockfile",
     "update": "Mettre à jour",
     "update_all": "Tout mettre à jour",
     "update_all_hint": "Re-verrouiller tous les packages à leur dernière version, puis reconstruire.",
@@ -4111,7 +4114,7 @@
     "error_generic": "La configuration a échoué. Veuillez réessayer."
   },
   "terminal": {
-    "installWarning": "Note : une installation ici ne sera pas conservée — utilisez le gestionnaire d'Environnements (barre du bas) pour que le package soit versionné et survive à une reconstruction.",
+    "installWarning": "Note : ceci installe directement, hors de l'environnement géré — utilisable maintenant et jusqu'à la prochaine reconstruction sur cette machine, mais absent du lockfile (donc du git / de l'export / des autres machines). Ajoutez-le via le gestionnaire d'Environnements pour le versionner.",
     "installOfferBanner": "Installé hors du gestionnaire : {{packages}} ne survivra pas à une reconstruction.",
     "connecting": "Connexion au shell serveur…",
     "authFailed": "Échec de l’authentification — rouvrez le terminal.",

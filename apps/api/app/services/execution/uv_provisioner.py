@@ -91,6 +91,54 @@ def list_packages(project_uid: str) -> list[dict]:
     return [_split_requirement(d) for d in deps]
 
 
+def _locked_names(project_uid: str) -> set[str]:
+    """Every package name in the resolved lockfile (``uv.lock``) — the full tree uv
+    manages (declared deps + their transitive deps). Anything installed in the venv
+    but absent from here was installed outside uv (a `pip install` in a script)."""
+    lock = _lock_path(project_uid)
+    if not lock.exists():
+        return set()
+    data = tomllib.loads(lock.read_text())
+    return {str(p.get("name", "")).lower().replace("_", "-") for p in data.get("package", [])}
+
+
+def installed_names(project_uid: str) -> list[str]:
+    """Distribution names installed in the venv (read from its site-packages
+    ``*.dist-info``). Dependency-free — no subprocess. Used to detect drift vs the
+    lockfile."""
+    import re
+
+    venv = _venv_dir(project_uid)
+    # POSIX and Windows site-packages layouts.
+    candidates = list(venv.glob("lib/python*/site-packages")) + [venv / "Lib" / "site-packages"]
+    names: set[str] = set()
+    for site in candidates:
+        if not site.exists():
+            continue
+        for info in site.glob("*.dist-info"):
+            # "<name>-<version>.dist-info" → normalise the name (PEP 503).
+            m = re.match(r"(.+?)-[^-]+\.dist-info$", info.name)
+            if m:
+                names.add(m.group(1).lower().replace("_", "-"))
+    return sorted(names)
+
+
+def detect_extra_names(project_uid: str) -> list[str]:
+    """Names installed in the venv but not tracked by uv (absent from uv.lock) —
+    the packages a `pip install` added outside the declarative flow."""
+    locked = _locked_names(project_uid)
+    return [n for n in installed_names(project_uid) if n not in locked]
+
+
+def capture(project_uid: str, packages: list[str], on_log=None) -> None:
+    """Add the given (drift-detected) packages to the manifest and re-lock, so an
+    imperative `pip install` becomes a versioned dependency. Names are validated
+    like any add."""
+    if not packages:
+        return
+    add_packages(project_uid, packages, on_log=on_log)
+
+
 def _split_requirement(req: str) -> dict:
     for sep in ("==", ">=", "<=", "~=", ">", "<", "!="):
         if sep in req:

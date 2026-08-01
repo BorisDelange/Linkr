@@ -132,6 +132,27 @@ def list_packages(project_uid: str, language: str) -> list[dict]:
     return _provisioner(language).list_packages(project_uid)
 
 
+def detect_drift(project_uid: str, language: str) -> list[str]:
+    """Packages installed in the materialised library/venv but not recorded in the
+    lockfile — the drift a script's imperative install (install.packages / pip
+    install) leaves behind. Empty when there's nothing to capture."""
+    return _provisioner(language).detect_extra_names(project_uid)
+
+
+async def capture_drift(
+    db: AsyncSession, project_uid: str, language: str, on_log=None
+) -> Environment:
+    """Record the drift-detected packages into the lockfile (renv::snapshot / uv
+    add) so an imperative install becomes versioned, then mark the env draft (the
+    lockfile changed → rebuild to reconcile)."""
+    env = await resolve(db, project_uid, language)
+    extras = _provisioner(language).detect_extra_names(project_uid)
+    if not extras:
+        return env
+    await asyncio.to_thread(_provisioner(language).capture, project_uid, extras, on_log)
+    return await _mark_managed(db, env)
+
+
 async def upgrade(
     db: AsyncSession, project_uid: str, language: str, package: str | None = None, on_log=None
 ) -> Environment:

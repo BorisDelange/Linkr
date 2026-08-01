@@ -2536,6 +2536,9 @@
     "version_help_r": "Type a package name for its latest version (e.g. dplyr), or pin one with '==', e.g. dplyr==1.1.4. Installed with renv from Posit Package Manager. Use the update button to move a package to a newer version.",
     "install_preset": "Install the workspace's default packages",
     "install_in_env": "Install {{packages}} in the environment",
+    "drift_hint_one": "1 package was installed outside the manager (e.g. from a script) and isn't versioned:",
+    "drift_hint_other": "{{count}} packages were installed outside the manager (e.g. from a script) and aren't versioned:",
+    "capture": "Add to lockfile",
     "update": "Update to latest",
     "update_all": "Update all",
     "update_all_hint": "Re-lock every package to its latest version, then rebuild.",
@@ -4111,7 +4114,7 @@
     "error_generic": "Setup failed. Please try again."
   },
   "terminal": {
-    "installWarning": "Note: installing here won't persist — use the Environments manager (footer) so the package is versioned and survives a rebuild.",
+    "installWarning": "Note: this installs directly, outside the managed environment — usable now and until the next rebuild on this machine, but not in the lockfile (so absent from git / export / other machines). Add it via the Environments manager to version it.",
     "installOfferBanner": "Installed outside the manager: {{packages}} won't survive a rebuild.",
     "connecting": "Connecting to server shell…",
     "authFailed": "Authentication failed — reopen the terminal.",
