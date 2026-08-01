@@ -25,9 +25,12 @@ export function TypeBadge({ type, size = 'md', showLabel = false }: TypeBadgePro
     <span
       title={label}
       className={cn(
-        'inline-flex items-center gap-0.5 rounded font-mono font-semibold leading-none shrink-0',
+        // Fixed width so different glyphs (#, Aa, ⊘…) all occupy the same box and
+        // the labels after the badge line up in lists.
+        'inline-flex items-center justify-center rounded font-mono font-semibold leading-none shrink-0',
         config.color,
-        size === 'sm' ? 'px-1 py-0.5 text-[9px]' : 'px-1.5 py-0.5 text-[10px]',
+        size === 'sm' ? 'py-0.5 text-[9px] min-w-[1.15rem]' : 'py-0.5 text-[10px] min-w-[1.4rem]',
+        showLabel && (size === 'sm' ? 'gap-0.5 px-1' : 'gap-0.5 px-1.5'),
       )}
     >
       {config.icon}

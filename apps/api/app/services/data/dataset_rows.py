@@ -350,21 +350,23 @@ def _us_delta(microseconds: float):
     return timedelta(microseconds=microseconds)
 
 
-def _category_stats(con: duckdb.DuckDBPyConnection, src: str, ident: str) -> dict:
+def _category_stats(con: duckdb.DuckDBPyConnection, src: str, ident: str, full: bool = False) -> dict:
     distinct = int(
         con.execute(
             f"SELECT count(DISTINCT {ident}) FROM {src} WHERE {ident} IS NOT NULL"
         ).fetchone()[0]
     )
+    # Top categories by frequency; `full` lifts the cap so the panel can show all.
+    limit_clause = "" if full else f"LIMIT {_MAX_CATEGORIES}"
     rows = con.execute(
         f"SELECT CAST({ident} AS VARCHAR) AS v, count(*) AS n FROM {src} "
-        f"WHERE {ident} IS NOT NULL GROUP BY v ORDER BY n DESC LIMIT {_MAX_CATEGORIES}"
+        f"WHERE {ident} IS NOT NULL GROUP BY v ORDER BY n DESC {limit_clause}"
     ).fetchall()
     return {
         "kind": "category",
         "items": [{"value": v, "count": int(n)} for v, n in rows],
         "totalCategories": distinct,
-        "truncated": distinct > _MAX_CATEGORIES,
+        "truncated": not full and distinct > _MAX_CATEGORIES,
     }
 
 
@@ -409,7 +411,7 @@ def distinct_values(
 
 
 def column_stats(
-    path: Path, col_id: str, col_type: str, columns: list[dict] | None = None
+    path: Path, col_id: str, col_type: str, columns: list[dict] | None = None, full: bool = False
 ) -> dict:
     """Aggregate stats for one column (server counterpart to ColumnStatsPanel).
 
@@ -435,7 +437,7 @@ def column_stats(
         elif col_type == "date":
             stats.update(_date_stats(con, src, ident))
         else:
-            stats.update(_category_stats(con, src, ident))
+            stats.update(_category_stats(con, src, ident, full=full))
         return stats
     finally:
         con.close()

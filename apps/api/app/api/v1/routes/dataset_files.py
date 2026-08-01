@@ -141,6 +141,7 @@ async def column_stats(
     col_id: str,
     project_uid: str = Query(alias="projectUid"),
     path: str = Query(),
+    full: bool = Query(False),  # lift the top-20 category cap (panel "show all")
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -149,7 +150,7 @@ async def column_stats(
     if col is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
     native_columns = res["columns"] if res.get("native") else None
-    return dataset_rows.column_stats(res["parquet"], col_id, col["type"], columns=native_columns)
+    return dataset_rows.column_stats(res["parquet"], col_id, col["type"], columns=native_columns, full=full)
 
 
 @router.get("/columns/{col_id}/distinct")

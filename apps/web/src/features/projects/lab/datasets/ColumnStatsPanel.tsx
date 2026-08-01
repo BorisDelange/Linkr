@@ -11,7 +11,7 @@ import { TypeBadge } from './TypeBadge'
 import { BoxPlot } from '@/components/charts/box-plot'
 import { niceStep, niceTicks } from '@/lib/chart-ticks'
 import { computeNumericStats, buildHistogram, roundBinLabel, type HistBin } from '@/lib/column-stats'
-import { displayColumnName } from '@/lib/dataset-utils'
+import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
 
 interface ColumnStatsPanelProps {
   fileId: string | null
@@ -68,7 +68,7 @@ function buildDateHistogram(sortedTs: number[], bins: number, locale: string) {
   return result
 }
 
-function buildCategoryDistribution(values: unknown[]) {
+function buildCategoryDistribution(values: unknown[], full = false) {
   const counts = new Map<string, number>()
   for (const v of values) {
     const key = String(v)
@@ -77,8 +77,8 @@ function buildCategoryDistribution(values: unknown[]) {
   const total = values.length
   const entries = [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
-  const truncated = entries.length > MAX_CATEGORIES
-  const visible = entries.slice(0, MAX_CATEGORIES)
+  const truncated = !full && entries.length > MAX_CATEGORIES
+  const visible = full ? entries : entries.slice(0, MAX_CATEGORIES)
   return {
     items: visible.map(([value, count]) => ({ value, count, pct: (count / total) * 100 })),
     truncated,
@@ -181,16 +181,21 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
 
   // Server mode: fetch aggregated stats for the selected column. Tag the result
   // with its column so we never render a previous column's stats while loading.
+  // "Show all categories": lifts the top-N cap on the distribution list. Reset when
+  // the selected column changes so a new column starts collapsed.
+  const [showAllCategories, setShowAllCategories] = useState(false)
+  useEffect(() => { setShowAllCategories(false) }, [fileId, columnId])
+
   const [serverStats, setServerStats] = useState<{ key: string; stats: PanelStats | null } | null>(null)
   useEffect(() => {
     if (!server || !fileId || !columnId) return
     let cancelled = false
     const key = `${fileId}:${columnId}`
-    fetchColumnStats(fileId, columnId)
+    fetchColumnStats(fileId, columnId, { full: showAllCategories })
       .then((s) => { if (!cancelled) setServerStats({ key, stats: buildStatsFromServer(s, locale) }) })
       .catch(() => { if (!cancelled) setServerStats({ key, stats: null }) })
     return () => { cancelled = true }
-  }, [server, fileId, columnId, locale])
+  }, [server, fileId, columnId, locale, showAllCategories])
 
   const localStats = useMemo(() => {
     if (server || !column || !columnId) return null
@@ -249,11 +254,11 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
 
     let categories = null
     if (!isNumeric && !isDate && nonNullValues.length > 0) {
-      categories = buildCategoryDistribution(nonNullValues)
+      categories = buildCategoryDistribution(nonNullValues, showAllCategories)
     }
 
     return { total, nonNull, nullCount, uniqueCount, isNumeric, numeric, histogram, isDate, dateStats, dateHistogram, categories }
-  }, [server, column, columnId, rows, _dirtyVersion, locale]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, column, columnId, rows, _dirtyVersion, locale, showAllCategories]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const stats = server
     ? (serverStats?.key === `${fileId}:${columnId}` ? serverStats.stats : null)
@@ -419,7 +424,14 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
               {stats.categories.items.map((item) => (
                 <div key={item.value} className="group">
                   <div className="flex items-center justify-between gap-2 mb-0.5">
-                    <span className="text-[10px] text-muted-foreground truncate flex-1" title={item.value}>{item.value}</span>
+                    <span
+                      className="text-[10px] text-muted-foreground truncate flex-1"
+                      title={column.valueLabels?.[item.value]
+                        ? `${column.valueLabels[item.value]} (${item.value})`
+                        : item.value}
+                    >
+                      {displayCellValue(column, item.value)}
+                    </span>
                     <span className="text-[10px] tabular-nums text-muted-foreground shrink-0">{item.count} ({item.pct.toFixed(1)}%)</span>
                   </div>
                   <div className="h-2 w-full rounded-sm bg-muted overflow-hidden">
@@ -431,11 +443,21 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
                 </div>
               ))}
             </div>
-            {stats.categories.truncated && (
-              <p className="text-[10px] text-muted-foreground italic mt-1">
-                {t('datasets.stats_categories_truncated', { shown: MAX_CATEGORIES, total: stats.categories.totalCategories })}
-              </p>
-            )}
+            {stats.categories.truncated ? (
+              <button
+                onClick={() => setShowAllCategories(true)}
+                className="mt-1 text-[10px] text-primary hover:underline"
+              >
+                {t('datasets.stats_categories_show_all', { total: stats.categories.totalCategories })}
+              </button>
+            ) : showAllCategories && stats.categories.totalCategories > MAX_CATEGORIES ? (
+              <button
+                onClick={() => setShowAllCategories(false)}
+                className="mt-1 text-[10px] text-primary hover:underline"
+              >
+                {t('datasets.stats_categories_show_less')}
+              </button>
+            ) : null}
           </div>
         )}
       </div>

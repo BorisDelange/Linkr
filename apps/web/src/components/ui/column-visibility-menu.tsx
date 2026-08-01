@@ -15,10 +15,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 /** One toggleable column. `id` is generic so callers can key by string id or numeric index. */
 export interface ColumnVisibilityItem<Id> {
   id: Id
-  /** Plain-text label, used for searching and the hover tooltip. */
+  /** Plain-text label, used for searching and (unless `tooltip` is set) the hover tooltip. */
   label: string
   /** Optional rich content (e.g. a type badge before the label); falls back to `label`. */
   content?: ReactNode
+  /** Extra text the search box also matches against (e.g. technical id + description). */
+  searchText?: string
+  /** Optional rich hover tooltip (e.g. id / label / description rows); falls back to `label`. */
+  tooltip?: ReactNode
   visible: boolean
 }
 
@@ -50,7 +54,10 @@ export function ColumnVisibilityMenu<Id extends string | number>({
 
   const matched = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return q ? items.filter((c) => c.label.toLowerCase().includes(q)) : items
+    if (!q) return items
+    return items.filter(
+      (c) => c.label.toLowerCase().includes(q) || (c.searchText?.toLowerCase().includes(q) ?? false),
+    )
   }, [items, search])
 
   return (
@@ -69,7 +76,7 @@ export function ColumnVisibilityMenu<Id extends string | number>({
       </Tooltip>
       <DropdownMenuContent
         align={align}
-        className="max-h-[340px] w-[220px] overflow-y-auto"
+        className="flex max-h-[560px] w-[300px] flex-col overflow-hidden"
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
         <DropdownMenuLabel className="flex items-center justify-between gap-2 text-xs">
@@ -104,27 +111,30 @@ export function ColumnVisibilityMenu<Id extends string | number>({
           </div>
         </div>
         <DropdownMenuSeparator />
-        {matched.length === 0 ? (
-          <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">{t('common.no_results')}</div>
-        ) : (
-          <TooltipProvider delayDuration={400}>
-            {matched.map((col) => (
-              <Tooltip key={String(col.id)}>
-                <TooltipTrigger asChild>
-                  <DropdownMenuCheckboxItem
-                    checked={col.visible}
-                    onCheckedChange={(checked) => onToggle(col.id, !!checked)}
-                    onSelect={(e) => e.preventDefault()}
-                    className="text-xs"
-                  >
-                    {col.content ?? <span className="truncate">{col.label}</span>}
-                  </DropdownMenuCheckboxItem>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-64">{col.label}</TooltipContent>
-              </Tooltip>
-            ))}
-          </TooltipProvider>
-        )}
+        {/* Only the list scrolls; the label + search box above stay pinned. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {matched.length === 0 ? (
+            <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">{t('common.no_results')}</div>
+          ) : (
+            <TooltipProvider delayDuration={400}>
+              {matched.map((col) => (
+                <Tooltip key={String(col.id)}>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuCheckboxItem
+                      checked={col.visible}
+                      onCheckedChange={(checked) => onToggle(col.id, !!checked)}
+                      onSelect={(e) => e.preventDefault()}
+                      className="text-xs"
+                    >
+                      {col.content ?? <span className="truncate">{col.label}</span>}
+                    </DropdownMenuCheckboxItem>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-80">{col.tooltip ?? col.label}</TooltipContent>
+                </Tooltip>
+              ))}
+            </TooltipProvider>
+          )}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   )

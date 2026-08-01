@@ -46,7 +46,7 @@ import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './
 import { useColumnDistinct } from './use-column-distinct'
 import { EditColumnMetaDialog } from './EditColumnMetaDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { hasTimeComponent, columnTint, displayColumnName } from '@/lib/dataset-utils'
+import { hasTimeComponent, columnTint, displayColumnName, displayCellValue } from '@/lib/dataset-utils'
 import type { DatasetColumn, DatasetParseOptions } from '@/types'
 
 const COLUMN_TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 'date']
@@ -566,9 +566,19 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                   </td>
                   {visibleColumns.map((col, colIdx) => {
                     const isPinned = pinnedColumns.includes(col.id)
+                    const raw = row[col.id]
+                    // Native title (cheap on thousands of cells): the mapped label with the
+                    // raw code in parens when a value label applies, else the full value so a
+                    // truncated cell is still readable on hover.
+                    const cellTitle = raw == null
+                      ? undefined
+                      : col.valueLabels?.[String(raw)] != null
+                        ? `${col.valueLabels[String(raw)]} (${String(raw)})`
+                        : String(raw)
                     return (
                     <td
                       key={col.id}
+                      title={cellTitle}
                       style={{ maxWidth: getColWidth(col.id, DEFAULT_COL_WIDTH), ...(isPinned ? { left: pinnedLeft[col.id], width: getColWidth(col.id, DEFAULT_COL_WIDTH) } : {}) }}
                       className={cn(
                         'border-b border-r px-3 py-1 whitespace-nowrap overflow-hidden text-ellipsis',
@@ -577,8 +587,8 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                           : selectedColumnId === col.id ? 'bg-accent/20' : columnTint(colIdx),
                       )}
                     >
-                      {row[col.id] != null
-                        ? String(row[col.id])
+                      {raw != null
+                        ? displayCellValue(col, raw)
                         : <span className="italic text-muted-foreground/50">null</span>}
                     </td>
                     )
@@ -601,12 +611,23 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
             <ColumnVisibilityMenu
               items={columns.map((col) => ({
                 id: col.id,
-                label: col.name,
+                label: displayColumnName(col),
+                searchText: `${col.name} ${col.label ?? ''} ${col.description ?? ''}`,
                 visible: !hiddenColumns.has(col.id),
                 content: (
                   <div className="flex items-center gap-1.5">
                     <TypeBadge type={col.type} size="sm" />
-                    <span className="truncate">{col.name}</span>
+                    <span className="truncate">{displayColumnName(col)}</span>
+                  </div>
+                ),
+                tooltip: (
+                  <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs">
+                    <span className="text-muted-foreground">{t('datasets.col_meta_col_id')}</span>
+                    <span className="font-mono break-all">{col.name}</span>
+                    <span className="text-muted-foreground">{t('datasets.col_meta_label')}</span>
+                    <span className="break-words">{col.label || '—'}</span>
+                    <span className="text-muted-foreground">{t('datasets.col_meta_description')}</span>
+                    <span className="break-words">{col.description || '—'}</span>
                   </div>
                 ),
               }))}
