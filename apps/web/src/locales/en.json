@@ -2598,7 +2598,7 @@
     "no_kernels": "No session running",
     "kernel_count_one": "{{count}} session",
     "kernel_count_other": "{{count}} sessions",
-    "restart_kernel": "Restart session",
+    "close_session": "Close session",
     "kernel_memory": "{{mb}} MB",
     "session": "Session",
     "uptime": "Uptime",

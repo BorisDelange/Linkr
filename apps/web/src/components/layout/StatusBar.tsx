@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Cpu, HardDrive, MemoryStick, Circle, Box, GitBranch, RotateCcw, Server } from 'lucide-react'
+import { Cpu, HardDrive, MemoryStick, Circle, Box, GitBranch, Trash2, Server } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
@@ -82,7 +82,11 @@ export function StatusBar() {
     return named?.find((sn) => sn.id === envId)?.name ?? envId
   }
 
-  const handleRestartKernel = async (language: 'python' | 'r', envId: string) => {
+  // "Close session": shut down the live kernel (it disappears from the list).
+  // The next run in that session lazily recreates it with a fresh namespace — so
+  // this doubles as the "restart with clean variables" path. The backend endpoint
+  // is still /execute/restart (it does a shutdown; no relaunch).
+  const handleCloseSession = async (language: 'python' | 'r', envId: string) => {
     if (!activeProjectUid) return
     await restartServerKernel(language, activeProjectUid, envId)
     refresh()
@@ -256,11 +260,11 @@ export function StatusBar() {
                               {k.busy ? t('server.runtime_executing') : t('server.runtime_ready')}
                             </span>
                             <button
-                              onClick={() => handleRestartKernel(k.language, k.envId)}
-                              className="rounded p-0.5 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                              title={t('server.restart_kernel')}
+                              onClick={() => handleCloseSession(k.language, k.envId)}
+                              className="group/kill rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent"
+                              title={t('server.close_session')}
                             >
-                              <RotateCcw size={11} />
+                              <Trash2 size={11} className="group-hover/kill:text-destructive" />
                             </button>
                           </div>
                         </div>
