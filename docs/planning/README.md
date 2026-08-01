@@ -35,6 +35,12 @@ The as-built is in `docs/architecture.md`; details for each item live in the lin
 | ✅ | **Phase 1**: disk sidecar (`dataset-meta/`) for label/description/valueLabels, merged in `resolve_cache`, travels on export/git. Fixes server-mode label loss on restart | done |
 | ✅ | **Phase 2**: sidecar `parseOptions` (fixes raw-change type loss + filterMode survival); dropped redundant `_columns.json`. Portal verified safe | done |
 
+## Goupile import connector — [goupile-import-plan.md](goupile-import-plan.md)
+
+| St | Item | Effort |
+|----|------|--------|
+| ✅ | Auto-detected Goupile eCRF import: join form sheets on `__tid` into one wide dataset, auto-label from `@definitions`/`@propositions`. Client-side, rides the column-metadata layer | done |
+
 ## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)
 
 | St | Item | Effort |

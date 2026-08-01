@@ -24,7 +24,9 @@ import {
 import { useDatasetStore } from '@/stores/dataset-store'
 import { buildColumns } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
-import { importDatasetBySha, previewDatasetBySha, previewDatasetOnServer } from '@/lib/api/datasets'
+import { importDatasetBySha, previewDatasetBySha, previewDatasetOnServer, importDatasetOnServer, setDatasetColumnMeta } from '@/lib/api/datasets'
+import { isGoupileWorkbook, parseGoupileWorkbook, type GoupileColumnMeta, type SheetMap } from '@/lib/goupile-import'
+import { Checkbox } from '@/components/ui/checkbox'
 import { TypeBadge } from './TypeBadge'
 import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
 
@@ -40,6 +42,9 @@ interface ParsedData {
   rows: Record<string, unknown>[]
   preview: Record<string, unknown>[]
   totalRows: number
+  /** Goupile import only: per-column-id metadata to push after the dataset is
+   *  created (labels/descriptions/valueLabels derived from the export dictionary). */
+  goupileMeta?: Record<string, GoupileColumnMeta>
   // Server mode: the blob was uploaded during preview; reuse this sha at import
   // instead of re-uploading. `rows` stays empty in server mode (the server holds
   // the full data), so only `preview` drives the table.
@@ -95,6 +100,12 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [selectedSheet, setSelectedSheet] = useState<string>('')
 
+  // Goupile eCRF import: detected when the workbook carries @definitions +
+  // @propositions. When on, all form sheets are joined on __tid into one wide
+  // dataset labelled from the dictionary (see lib/goupile-import.ts).
+  const [goupileDetected, setGoupileDetected] = useState(false)
+  const [goupileMode, setGoupileMode] = useState(true)
+
   useEffect(() => {
     if (!open) {
       setFile(null)
@@ -108,18 +119,21 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setHasHeader(true)
       setSheetNames([])
       setSelectedSheet('')
+      setGoupileDetected(false)
+      setGoupileMode(true)
       uploadedShaRef.current = null
       previewSeqRef.current++
     }
   }, [open])
 
-  // Re-parse when options change (if file is set)
+  // Re-parse when options change (if file is set). goupileMode re-routes between the
+  // joined import and the normal single-sheet import.
   useEffect(() => {
     if (file && !loading) {
       parseFile(file)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet])
+  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, goupileMode])
 
   const isCSVLike = useCallback((f: File) => {
     const ext = f.name.toLowerCase()
@@ -198,6 +212,13 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       return
     }
 
+    // A detected Goupile export in Goupile mode is joined client-side (both server
+    // and local modes) into one wide CSV, regardless of the normal parse path.
+    if (isExcel(f) && goupileDetected && goupileMode) {
+      parseGoupile(f)
+      return
+    }
+
     // In server mode every supported format is parsed server-side; the browser
     // parsers (papaparse/xlsx/DuckDB-WASM) exist only for local (WASM) mode.
     if (isServerMode()) {
@@ -209,8 +230,10 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     } else {
       parseParquet(f)
     }
+    // parseGoupile/parseCSV/parseExcel/parseParquet are declared below; the
+    // disable keeps them out of deps (they're stable useCallbacks).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, isCSVLike, isExcel, isParquet, parseServer, t])
+  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, goupileDetected, goupileMode, isCSVLike, isExcel, isParquet, parseServer, t])
 
   const parseCSV = useCallback((f: File) => {
     const papaConfig: Papa.ParseLocalConfig<Record<string, unknown>, File> = {
@@ -264,6 +287,60 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
 
     Papa.parse(f, papaConfig)
   }, [delimiter, skipRows, encoding, hasHeader, t])
+
+  // Goupile eCRF: join all form sheets on __tid into one wide dataset labelled from
+  // the export's dictionary. Produces a flat joined CSV that becomes the dataset's
+  // raw file (so a later re-parse is stable — the join is done once, here).
+  const goupileCsvRef = useRef<File | null>(null)
+  const parseGoupile = useCallback((f: File) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target?.result as ArrayBuffer), { type: 'array' })
+        const sheets: SheetMap = {}
+        for (const sn of wb.SheetNames) {
+          sheets[sn] = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sn], { defval: null })
+        }
+        const { columns: colNames, rows, columnMeta } = parseGoupileWorkbook(sheets, {
+          __tid: t('datasets.goupile_col_tid'),
+          __sequence: t('datasets.goupile_col_sequence'),
+          __hid: t('datasets.goupile_col_hid'),
+        })
+        if (colNames.length === 0 || rows.length === 0) {
+          setError(t('datasets.upload_no_columns'))
+          setLoading(false)
+          return
+        }
+        const columns = buildColumns(colNames, rows)
+        const remapped = remapRows(rows, columns)
+        // Metadata keyed by columnId (the id the dataset stores), from name-keyed meta.
+        const metaById: Record<string, GoupileColumnMeta> = {}
+        for (const col of columns) {
+          const m = columnMeta[col.name]
+          if (m && (m.label || m.description || m.valueLabels)) metaById[col.id] = m
+        }
+        // The joined CSV becomes the raw file (headers = column NAMES, so a re-parse
+        // rebuilds the same column ids).
+        const csv = Papa.unparse({ fields: colNames, data: rows.map((r) => colNames.map((c) => r[c] ?? '')) })
+        const base = f.name.replace(/\.[^.]+$/, '')
+        goupileCsvRef.current = new File([csv], `${base}.csv`, { type: 'text/csv' })
+
+        setParsed({
+          fileName: `${base}.csv`,
+          columns,
+          rows: remapped,
+          preview: remapped.slice(0, 10),
+          totalRows: remapped.length,
+          goupileMeta: metaById,
+        })
+      } catch {
+        setError(t('datasets.upload_parse_error'))
+      }
+      setLoading(false)
+    }
+    reader.onerror = () => { setError(t('datasets.upload_parse_error')); setLoading(false) }
+    reader.readAsArrayBuffer(f)
+  }, [t])
 
   const parseExcel = useCallback((f: File) => {
     const reader = new FileReader()
@@ -368,9 +445,28 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setFile(f)
       setParsed(null)
       setError(null)
+      // Sniff an Excel workbook's sheet names client-side (both modes) to detect a
+      // Goupile export before choosing the parse path; parseGoupile handles it when on.
+      if (isExcel(f)) {
+        setLoading(true)
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          let detected = false
+          try {
+            const wb = XLSX.read(new Uint8Array(e.target?.result as ArrayBuffer), { type: 'array', bookSheets: true })
+            detected = isGoupileWorkbook(wb.SheetNames)
+          } catch { /* fall through to the normal parse */ }
+          setGoupileDetected(detected)
+          if (detected && goupileMode) parseGoupile(f)
+          else parseFile(f)
+        }
+        reader.onerror = () => parseFile(f)
+        reader.readAsArrayBuffer(f)
+        return
+      }
       parseFile(f)
     },
-    [parseFile],
+    [parseFile, parseGoupile, isExcel, goupileMode],
   )
 
   const handleDrop = useCallback(
@@ -395,6 +491,41 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const doImport = useCallback(async (mode: 'new' | 'overwrite' | 'copy') => {
     if (!parsed || !file) return
     const store = useDatasetStore.getState()
+
+    // Goupile import: create the dataset from the joined CSV, then apply the
+    // dictionary-derived labels. Overwrite/copy fall back to a plain 'new' here —
+    // a joined import always creates a fresh dataset.
+    if (parsed.goupileMeta && goupileCsvRef.current) {
+      const projectUid = store.activeProjectUid ?? ''
+      const csvFile = goupileCsvRef.current
+      const name = getUniqueName(parsed.fileName, parentId, store.files)
+      setImporting(true)
+      setError(null)
+      try {
+        let path: string
+        if (isServerMode()) {
+          const created = await importDatasetOnServer({ projectUid, name, parentId, file: csvFile, fileName: name })
+          store.addImportedFile(created)
+          path = created.id
+          await setDatasetColumnMeta({ projectUid, path, columns: parsed.goupileMeta })
+        } else {
+          const fileId = await store.createFileWithData(
+            name, parentId, parsed.columns, parsed.rows, undefined,
+            { blob: csvFile, fileName: name },
+          )
+          // Local mode persists column meta inline via the store.
+          for (const [colId, meta] of Object.entries(parsed.goupileMeta)) {
+            store.updateColumnMeta(fileId, colId, meta)
+          }
+        }
+        onOpenChange(false)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t('datasets.upload_parse_error'))
+      } finally {
+        setImporting(false)
+      }
+      return
+    }
 
     const parseOpts = buildParseOptions()
 
@@ -463,6 +594,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setImporting(false)
     }
   }, [parsed, file, parentId, onOpenChange, existingFile, buildParseOptions, t])
+  // (Goupile branch uses parentId/onOpenChange/t + refs — same closure deps.)
 
   const handleImport = useCallback(() => {
     if (!parsed) return
@@ -537,6 +669,23 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                   <X size={14} />
                 </Button>
               </div>
+
+              {/* Goupile eCRF detected — offer the joined, labelled import. */}
+              {goupileDetected && (
+                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2.5 space-y-1.5">
+                  <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                    {t('datasets.goupile_detected')}
+                  </p>
+                  <label className="flex items-start gap-2 text-xs cursor-pointer">
+                    <Checkbox
+                      checked={goupileMode}
+                      onCheckedChange={(v) => setGoupileMode(v === true)}
+                      className="mt-0.5"
+                    />
+                    <span className="text-muted-foreground">{t('datasets.goupile_join_hint')}</span>
+                  </label>
+                </div>
+              )}
 
               {/* Parse options (CSV/TSV) */}
               {showCSVOptions && (

@@ -176,6 +176,20 @@ export async function importDatasetBySha(params: {
   return dsNodeToFile(params.projectUid, node)
 }
 
+/** Push editorial column metadata (label/description/valueLabels) to the sidecar
+ *  for an already-created dataset — used by the Goupile import to apply dictionary
+ *  labels. `columns` is keyed by columnId. Server mode only (local persists inline). */
+export async function setDatasetColumnMeta(params: {
+  projectUid: string
+  path: string
+  columns: Record<string, { label?: string; description?: string; valueLabels?: Record<string, string> }>
+}): Promise<void> {
+  await apiRequest('/dataset-files/columns/meta', {
+    method: 'POST',
+    body: JSON.stringify({ projectUid: params.projectUid, path: params.path, columns: params.columns }),
+  })
+}
+
 /**
  * Preview an already-imported dataset re-parsed with new options, WITHOUT
  * persisting — the Import Settings dialog's server-mode counterpart. Reads the
