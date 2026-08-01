@@ -4,6 +4,7 @@ import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, ScrollText, Trash2 } fr
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { isServerMode } from '@/lib/api-client'
+import { AnsiText } from '@/components/AnsiText'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { listJobs, cancelJob, clearJobs, type Job } from '@/lib/api/environments'
 
@@ -113,18 +114,25 @@ export function JobsIndicator() {
     </Popover>
 
     {/* Full log in a large modal — the complete captured output (commands +
-        results) of a build, scrollable, monospace. */}
+        results) of a build/package op, scrollable, monospace, with ANSI colour. */}
     <Dialog open={!!logJob} onOpenChange={(o) => { if (!o) setLogJobId(null) }}>
-      <DialogContent className="max-w-5xl">
+      <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col sm:max-w-[1400px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">
             {logJob && <JobStatusIcon status={logJob.status} />}
             {logJob?.label}
           </DialogTitle>
         </DialogHeader>
-        <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-3 font-mono text-xs leading-relaxed">
-          {logJob?.logTail || t('jobs.no_log')}
-        </pre>
+        {logJob?.logTail ? (
+          <AnsiText
+            text={logJob.logTail}
+            className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-3 font-mono text-xs leading-relaxed"
+          />
+        ) : (
+          <p className="flex-1 rounded bg-muted/60 p-3 text-xs text-muted-foreground">
+            {t('jobs.no_log')}
+          </p>
+        )}
       </DialogContent>
     </Dialog>
     </>

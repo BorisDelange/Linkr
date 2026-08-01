@@ -9,6 +9,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { OutputTable } from './OutputTable'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { sanitizeHtml } from '@/lib/sanitize'
+import { AnsiText } from '@/components/AnsiText'
+import { stripAnsi } from '@/lib/ansi'
 
 export function getTabIcon(type: string) {
   switch (type) {
@@ -382,7 +384,8 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
     : displayText
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(displayText).then(() => {
+    // Copy the plain text — strip ANSI colour codes the log may carry.
+    navigator.clipboard.writeText(stripAnsi(displayText)).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -468,10 +471,10 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
               <CodeViewer value={result.code ?? ''} language={result.language} />
             </div>
           ) : (
-            <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
-              {shownText}
+            <div className="text-xs font-mono text-muted-foreground">
+              <AnsiText text={shownText} className="whitespace-pre-wrap break-words" />
               {result.running && <RunningDots label={t('files.running')} />}
-            </pre>
+            </div>
           )
         )}
       </div>
