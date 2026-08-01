@@ -82,6 +82,7 @@ import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { queryDatasetRows } from '@/lib/api/datasets'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
+import { isImperativeInstall } from '@/lib/runtimes/install-detect'
 import { FileTree } from './files/FileTree'
 import { FolderPathBar } from './files/FolderPathBar'
 import { OutputPanel, getTabIcon } from './files/OutputPanel'
@@ -587,6 +588,13 @@ export function FilesPage() {
         // instead of the whole block arriving at once. Front-only keeps the WASM
         // runtimes. The active connection is threaded so sql_query() still works.
         if (isServerMode()) {
+          // Installing packages from a run script bypasses the declarative env
+          // (manifest + lockfile the Environments manager edits): the package
+          // lands in the library but not the lockfile, so it's wiped on the next
+          // build. Prefix the same warning the terminal shows.
+          const warning = isImperativeInstall(language, code)
+            ? `\x1b[31m${t('terminal.installWarning')}\x1b[0m\n\n`
+            : ''
           let streamed = ''
           const result = await streamOnServer(language, code, {
             projectUid: activeProjectUid ?? undefined,
@@ -594,14 +602,14 @@ export function FilesPage() {
             signal: controller.signal,
             onChunk: (text) => {
               streamed += text
-              updateExecutionResult(execId, { output: streamed })
+              updateExecutionResult(execId, { output: warning + streamed })
             },
           })
           const duration = Date.now() - start
           updateExecutionResult(execId, {
             duration,
             success: !result.stderr,
-            output: streamed || `Executed in ${duration}ms`,
+            output: warning + (streamed || `Executed in ${duration}ms`),
           })
           addFiguresAndTable(result)
           return

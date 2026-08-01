@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, ArrowUpCircle, Sparkles, RefreshCw } from 'lucide-react'
+import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, RefreshCw, Sparkles, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Tooltip,
@@ -13,6 +24,8 @@ import {
 } from '@/components/ui/tooltip'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { useMyProjectRole } from '@/hooks/use-context-role'
+import { summarizeInstallError, fullInstallError } from '@/lib/install-error'
+import { cn } from '@/lib/utils'
 import {
   listEnvironments,
   listEnvPackages,
@@ -50,7 +63,15 @@ export function ServerEnvironmentsPanel({
   const [loading, setLoading] = useState(false)
   const [newPkg, setNewPkg] = useState('')
   const [busy, setBusy] = useState(false)
+  const [adding, setAdding] = useState(false)
+  // Packages whose per-row action (update / remove) is in flight — drives a spinner
+  // on that row's button that stays visible even when the pointer leaves the row.
+  // A sentinel '*' means "update all" (every row spins).
+  const [pendingPkgs, setPendingPkgs] = useState<Set<string>>(new Set())
+  const [removeTarget, setRemoveTarget] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const isPkgPending = (name: string) => pendingPkgs.has(name) || pendingPkgs.has('*')
 
   const load = useCallback(async () => {
     if (!projectUid) return
@@ -68,10 +89,13 @@ export function ServerEnvironmentsPanel({
     void load()
   }, [load, reloadKey])
 
-  const run = async (fn: () => Promise<ProjectEnvironment>) => {
+  // `mark` is the package name(s) whose row should spin while the op runs ('*' =
+  // all rows). Omit it for ops that aren't tied to a specific row (add, preset).
+  const run = async (fn: () => Promise<ProjectEnvironment>, mark?: string) => {
     if (!projectUid) return
     setBusy(true)
     setError(null)
+    if (mark) setPendingPkgs((s) => new Set(s).add(mark))
     try {
       setEnv(await fn())
       setPackages(await listEnvPackages(projectUid, language))
@@ -79,6 +103,13 @@ export function ServerEnvironmentsPanel({
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
+      if (mark) {
+        setPendingPkgs((s) => {
+          const next = new Set(s)
+          next.delete(mark)
+          return next
+        })
+      }
     }
   }
 
@@ -86,7 +117,12 @@ export function ServerEnvironmentsPanel({
     const name = newPkg.trim()
     if (!name) return
     setNewPkg('')
-    await run(() => addEnvPackages(projectUid!, language, [name]))
+    setAdding(true)
+    try {
+      await run(() => addEnvPackages(projectUid!, language, [name]))
+    } finally {
+      setAdding(false)
+    }
   }
 
   // A build runs as a background job → poll until it settles, then reload the env
@@ -124,8 +160,9 @@ export function ServerEnvironmentsPanel({
   }
 
   const onPreset = () => run(() => installPreset(projectUid!, language))
-  const onUpgradeAll = () => run(() => upgradeEnvPackages(projectUid!, language))
-  const onUpgrade = (pkg: string) => run(() => upgradeEnvPackages(projectUid!, language, pkg))
+  const onUpgradeAll = () => run(() => upgradeEnvPackages(projectUid!, language), '*')
+  const onUpgrade = (pkg: string) => run(() => upgradeEnvPackages(projectUid!, language, pkg), pkg)
+  const onRemove = (pkg: string) => run(() => removeEnvPackage(projectUid!, language, pkg), pkg)
 
   if (!projectUid) {
     return (
@@ -138,6 +175,9 @@ export function ServerEnvironmentsPanel({
   const statusVariant =
     env?.status === 'ready' ? 'secondary' : env?.status === 'error' ? 'destructive' : 'outline'
   const needsBuild = env?.status === 'draft' || env?.status === 'error' || env?.status === 'building'
+  // Which build-help copy to show: building / needs-a-build / up-to-date.
+  const buildState =
+    env?.status === 'building' ? 'building' : needsBuild ? 'draft' : 'ready'
   const label = language === 'python' ? 'Python' : 'R'
   const packageUrl = (name: string) =>
     language === 'python'
@@ -155,6 +195,12 @@ export function ServerEnvironmentsPanel({
                 {t(`environments.status.${env.status}`)}
               </Badge>
             )}
+            {env?.status === 'ready' && packages.length > 0 && (
+              <Badge variant="secondary" className="gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 size={10} />
+                {t('environments.status_up_to_date')}
+              </Badge>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button className="text-muted-foreground/60 hover:text-muted-foreground" aria-label={t('environments.version_help_label')}>
@@ -167,41 +213,49 @@ export function ServerEnvironmentsPanel({
             </Tooltip>
           </div>
           <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={busy || loading} onClick={() => void load()}>
-                  <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="text-xs">{t('environments.refresh')}</TooltipContent>
-            </Tooltip>
             {canWrite && packages.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button size="sm" variant="ghost" className="h-7 px-2" disabled={busy} onClick={() => void onUpgradeAll()}>
-                    <ArrowUpCircle size={13} className="mr-1" />
+                    {pendingPkgs.has('*') ? (
+                      <Loader2 size={13} className="mr-1 animate-spin" />
+                    ) : (
+                      <RefreshCw size={13} className="mr-1" />
+                    )}
                     {t('environments.update_all')}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent className="text-xs">{t('environments.update_all_hint')}</TooltipContent>
               </Tooltip>
             )}
-            {/* Build normally runs automatically on first execution; the button is
-                only offered for an explicit (re)build when the env isn't ready. */}
-            {canWrite && needsBuild && (
-              <Button
-                size="sm"
-                className="h-7 px-2"
-                disabled={busy || env?.status === 'building'}
-                onClick={() => void onBuild()}
-              >
-                {env?.status === 'building' ? (
-                  <Loader2 size={13} className="mr-1 animate-spin" />
-                ) : (
-                  <Hammer size={13} className="mr-1" />
-                )}
-                {t('environments.build')}
-              </Button>
+            {/* Build is always shown so its role is discoverable. It's only
+                actionable when the declared lockfile is ahead of the built
+                venv/library (draft/error) — up-to-date (ready) it's disabled. The
+                tooltip explains why. */}
+            {canWrite && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size="sm"
+                      variant={needsBuild ? 'default' : 'outline'}
+                      className="h-7 px-2"
+                      disabled={busy || !needsBuild || env?.status === 'building'}
+                      onClick={() => void onBuild()}
+                    >
+                      {env?.status === 'building' ? (
+                        <Loader2 size={13} className="mr-1 animate-spin" />
+                      ) : (
+                        <Hammer size={13} className="mr-1" />
+                      )}
+                      {t('environments.build')}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-xs">
+                  {t(`environments.build_help_${buildState}`)}
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
         </div>
@@ -219,12 +273,28 @@ export function ServerEnvironmentsPanel({
               className="h-8 text-xs"
             />
             <Button size="sm" onClick={() => void onAdd()} disabled={busy || !newPkg.trim()}>
-              <Plus size={14} />
+              {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
             </Button>
           </div>
         )}
 
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        {error && (
+          <div className="flex items-start gap-1.5 text-xs text-destructive">
+            <span className="min-w-0 flex-1 break-words">{summarizeInstallError(error)}</span>
+            {/* Popover (not Tooltip): the full error can be long and must be
+                scrollable with the trackpad — a hover tooltip closes on wheel. */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="mt-0.5 shrink-0 text-destructive/70 hover:text-destructive" aria-label={t('environments.error_details')}>
+                  <Info size={13} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="left" align="start" className="max-h-80 w-[28rem] max-w-[90vw] overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] leading-relaxed">
+                {fullInstallError(error)}
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
 
         <ScrollArea className="max-h-64">
           {loading ? (
@@ -243,21 +313,28 @@ export function ServerEnvironmentsPanel({
             </div>
           ) : (
             <ul className="flex flex-col gap-1">
-              {packages.map((pkg) => (
+              {packages.map((pkg) => {
+                const pending = isPkgPending(pkg.name)
+                return (
                 <li key={pkg.name} className="group flex items-center justify-between rounded text-xs hover:bg-muted/50">
                   {/* Whole row (name + version + external-link icon) is one link. */}
                   <a
                     href={packageUrl(pkg.name)}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex flex-1 items-center gap-1.5 px-2 py-1 hover:underline"
+                    className="flex flex-1 items-center gap-1.5 px-2 py-1"
                   >
                     <span className="font-medium">{pkg.name}</span>
                     {pkg.spec && <span className="text-muted-foreground">{pkg.spec}</span>}
                     <ExternalLink size={10} className="text-muted-foreground/50" />
                   </a>
                   {canWrite && (
-                    <div className="flex items-center gap-0.5 pr-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    // While this row's op is in flight the actions stay visible even
+                    // if the pointer leaves the row (a spinner replaces the update icon).
+                    <div className={cn(
+                      'flex items-center gap-0.5 pr-1.5 transition-opacity',
+                      pending ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    )}>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
@@ -266,7 +343,7 @@ export function ServerEnvironmentsPanel({
                             onClick={() => void onUpgrade(pkg.name)}
                             aria-label={t('environments.update')}
                           >
-                            <ArrowUpCircle size={13} />
+                            {pending ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
                           </button>
                         </TooltipTrigger>
                         <TooltipContent className="text-xs">{t('environments.update')}</TooltipContent>
@@ -274,7 +351,7 @@ export function ServerEnvironmentsPanel({
                       <button
                         className="text-muted-foreground hover:text-destructive disabled:opacity-40"
                         disabled={busy}
-                        onClick={() => run(() => removeEnvPackage(projectUid, language, pkg.name))}
+                        onClick={() => setRemoveTarget(pkg.name)}
                         aria-label={t('environments.remove')}
                       >
                         <Trash2 size={13} />
@@ -282,13 +359,39 @@ export function ServerEnvironmentsPanel({
                     </div>
                   )}
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
         </ScrollArea>
 
         <p className="text-[11px] text-muted-foreground">{t('environments.build_hint')}</p>
       </div>
+
+      <AlertDialog open={!!removeTarget} onOpenChange={(open) => { if (!open) setRemoveTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('environments.remove_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('environments.remove_confirm_body')}{' '}
+              <span className="font-semibold text-foreground">{removeTarget}</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const pkg = removeTarget
+                setRemoveTarget(null)
+                if (pkg) void onRemove(pkg)
+              }}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {t('environments.remove')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </TooltipProvider>
   )
 }

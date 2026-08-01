@@ -5,19 +5,12 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { getPyodide, getPyodideStatus } from '@/lib/runtimes/pyodide-engine'
 import { getWebR, getWebRStatus } from '@/lib/runtimes/webr-engine'
+import { isImperativeInstall } from '@/lib/runtimes/install-detect'
 import { isServerMode } from '@/lib/api-client'
 import { TerminalSocket } from '@/lib/api/terminal-ws'
 import { useAppStore, isEditorThemeDark } from '@/stores/app-store'
 
 type TerminalType = 'bash' | 'python' | 'r'
-
-// Commands that install packages imperatively — detected to warn that this
-// bypasses the declarative environment (see executeCommand). Best-effort; a miss
-// only means no warning, never a broken run.
-const INSTALL_RE: Partial<Record<TerminalType, RegExp>> = {
-  python: /\b(pip\s+install|uv\s+(add|pip\s+install)|conda\s+install|!pip\s+install)\b/,
-  r: /\b(install\.packages|renv::install|devtools::install|remotes::install|BiocManager::install)\b/,
-}
 
 const terminalConfig: Record<TerminalType, { prompt: string }> = {
   bash: { prompt: '$ ' },
@@ -346,7 +339,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
       // lockfile the Environments manager edits): the package lands in the library
       // but not the lockfile, so it won't show in the manager, won't travel in git,
       // and is wiped on the next build. Warn, then still run the command.
-      if (serverMode && INSTALL_RE[terminalType]?.test(cmd)) {
+      if (serverMode && (terminalType === 'python' || terminalType === 'r') && isImperativeInstall(terminalType, cmd)) {
         terminal.writeln(`\x1b[33m${t('terminal.installWarning')}\x1b[0m`)
       }
 

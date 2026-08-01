@@ -2527,15 +2527,20 @@
     "build": "Reconstruire",
     "build_hint": "Les packages s'installent automatiquement au premier lancement du code. Épinglez une version avec « == », ex. pandas==2.1.4.",
     "build_taking_too_long": "La construction prend plus de temps que prévu — consultez le panneau des tâches pour suivre la progression.",
+    "build_help_draft": "Votre liste de packages a changé mais n'est pas encore installée. Reconstruisez pour installer les packages déclarés dans l'environnement isolé du projet. (Cela se fait aussi automatiquement au premier lancement du code.)",
+    "build_help_building": "Construction de l'environnement en cours — installation des packages déclarés. Suivez la progression dans le panneau des tâches (barre du bas).",
+    "build_help_ready": "L'environnement est à jour : tous les packages déclarés sont installés. Ajoutez, mettez à jour ou supprimez un package pour réactiver la reconstruction.",
+    "status_up_to_date": "À jour",
     "version_help_label": "Comment épingler une version",
     "version_help_python": "Saisissez un nom de package pour sa dernière version (ex. pandas), ou épinglez-en une avec « == », ex. pandas==2.1.4. Installé avec uv. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
     "version_help_r": "Saisissez un nom de package pour sa dernière version (ex. dplyr), ou épinglez-en une avec « == », ex. dplyr==1.1.4. Installé avec renv depuis Posit Package Manager. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
     "install_preset": "Installer les packages par défaut du workspace",
-    "refresh": "Rafraîchir la liste des packages",
     "update": "Mettre à jour",
     "update_all": "Tout mettre à jour",
     "update_all_hint": "Re-verrouiller tous les packages à leur dernière version, puis reconstruire.",
     "remove": "Retirer",
+    "remove_confirm_title": "Retirer le package ?",
+    "remove_confirm_body": "Le package sera retiré de l'environnement. Reconstruisez pour appliquer le changement. Package à retirer :",
     "status": {
       "draft": "Non construit",
       "building": "Construction…",
@@ -2562,7 +2567,8 @@
     "error_no_wheel": "Cette version n'est pas disponible : le package contient du code compilé, sa version est fixée par Pyodide. Essayez sans version, ou épinglez un package pur Python.",
     "open_package_page": "Ouvrir la page du package",
     "install_pkg": "Installer {{name}}",
-    "installed_pkg": "{{name}} installé"
+    "installed_pkg": "{{name}} installé",
+    "error_details": "Voir l'erreur complète"
   },
   "jobs": {
     "title_one": "{{count}} tâche",

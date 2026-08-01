@@ -2527,15 +2527,20 @@
     "build": "Rebuild",
     "build_hint": "Packages install automatically the first time you run code. Pin a version with '==', e.g. pandas==2.1.4.",
     "build_taking_too_long": "The build is taking longer than expected — check the jobs panel for progress.",
+    "build_help_draft": "Your package list changed but isn't installed yet. Build to install the declared packages into this project's isolated environment. (This also runs automatically the first time you execute code.)",
+    "build_help_building": "Building the environment — installing the declared packages. Follow progress in the jobs panel (footer).",
+    "build_help_ready": "The environment is up to date: every declared package is installed. Add, update or remove a package to enable a rebuild.",
+    "status_up_to_date": "Up to date",
     "version_help_label": "How to pin a version",
     "version_help_python": "Type a package name for its latest version (e.g. pandas), or pin one with '==', e.g. pandas==2.1.4. Installed with uv. Use the update button to move a package to a newer version.",
     "version_help_r": "Type a package name for its latest version (e.g. dplyr), or pin one with '==', e.g. dplyr==1.1.4. Installed with renv from Posit Package Manager. Use the update button to move a package to a newer version.",
     "install_preset": "Install the workspace's default packages",
-    "refresh": "Refresh the package list",
     "update": "Update to latest",
     "update_all": "Update all",
     "update_all_hint": "Re-lock every package to its latest version, then rebuild.",
     "remove": "Remove",
+    "remove_confirm_title": "Remove package?",
+    "remove_confirm_body": "This removes the package from the environment. Rebuild to apply the change. Package to remove:",
     "status": {
       "draft": "Not built",
       "building": "Building…",
@@ -2562,7 +2567,8 @@
     "error_no_wheel": "This version isn't available: the package contains compiled code, so its version is fixed by Pyodide. Try without a version, or pin a pure-Python package.",
     "open_package_page": "Open package page",
     "install_pkg": "Install {{name}}",
-    "installed_pkg": "{{name}} installed"
+    "installed_pkg": "{{name}} installed",
+    "error_details": "Show full error"
   },
   "jobs": {
     "title_one": "{{count}} job",
