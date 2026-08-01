@@ -8,9 +8,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { OutputTable } from './OutputTable'
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { sanitizeHtml } from '@/lib/sanitize'
 import { AnsiText } from '@/components/AnsiText'
 import { stripAnsi } from '@/lib/ansi'
+import { FigureViewer } from './FigureViewer'
 import { Button } from '@/components/ui/button'
 import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
 
@@ -309,29 +309,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
           </ScrollArea>
         )}
         {!showExecContent && activeTab?.type === 'figure' && (
-          <div className="flex h-full items-center justify-center p-4 bg-white dark:invert dark:hue-rotate-180">
-            {typeof activeTab.content === 'string' &&
-            /^\s*(<\?xml|<svg)/.test(activeTab.content) ? (
-              <div
-                className="max-w-full max-h-full"
-                dangerouslySetInnerHTML={{ __html: sanitizeHtml(activeTab.content) }}
-              />
-            ) : typeof activeTab.content === 'string' &&
-              activeTab.content.startsWith('data:image') ? (
-              <img
-                src={activeTab.content}
-                alt={activeTab.label}
-                className="max-w-full max-h-full object-contain"
-              />
-            ) : (
-              <div className="flex flex-col items-center gap-2 text-muted-foreground dark:invert dark:hue-rotate-180">
-                <ImageIcon size={48} className="opacity-30" />
-                <p className="text-xs">
-                  {String(activeTab.content) || 'Figure'}
-                </p>
-              </div>
-            )}
-          </div>
+          <FigureViewer content={String(activeTab.content ?? '')} label={activeTab.label} />
         )}
         {!showExecContent && activeTab?.type === 'table' && (
           <OutputTable

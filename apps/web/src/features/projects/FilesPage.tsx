@@ -579,6 +579,12 @@ export function FilesPage() {
         if (result.table) {
           addOutputTab({ id: `table-${Date.now()}`, label: `Result — ${fileName}`, type: 'table', content: result.table })
         }
+        // A rich HTML widget (plotly / leaflet / DT…) → its own tab (iframe).
+        if (result.html) {
+          const id = `html-${Date.now()}`
+          addOutputTab({ id, label: `Widget — ${fileName}`, type: 'html', content: result.html })
+          setActiveOutputTab(id)
+        }
       }
 
       const controller = startExecution()

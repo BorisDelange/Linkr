@@ -136,11 +136,59 @@ def _capture_table(obj):
     return None
 
 
+def _capture_html(obj):
+    """A rich HTML widget (plotly figure, folium map, DataFrame styler, anything
+    with _repr_html_) rendered to a standalone HTML string, for display in an
+    iframe. plotly figures include their JS; other objects give an HTML fragment we
+    wrap minimally. Returns None when the object has no HTML representation."""
+    if obj is None:
+        return None
+    # plotly figures: full standalone HTML with the plotly.js bundle inlined.
+    try:
+        import plotly.graph_objs as go  # noqa
+        import plotly.io as pio
+        if isinstance(obj, go.Figure):
+            # Inline plotly.js (not a CDN link) so it renders inside a sandboxed
+            # iframe with no network access.
+            return pio.to_html(obj, full_html=True, include_plotlyjs=True)
+    except Exception:
+        pass
+    # Generic _repr_html_ (folium, DataFrame.style, bokeh, etc.).
+    repr_html = getattr(obj, "_repr_html_", None)
+    if callable(repr_html):
+        try:
+            frag = repr_html()
+        except Exception:
+            return None
+        if isinstance(frag, str) and frag.strip():
+            return f"<!doctype html><html><head><meta charset='utf-8'></head><body>{frag}</body></html>"
+    return None
+
+
+_MISSING = object()
+
+
+def _exec_capture_last(code):
+    """Exec `code`; if its last statement is a bare expression, return that value
+    (so `fig` on the last line is captured like a REPL result), else _MISSING.
+    Raises on user errors so the caller prints the traceback."""
+    import ast
+
+    tree = ast.parse(code, "<analysis>", "exec")  # SyntaxError → caller's except
+    last_expr = None
+    if tree.body and isinstance(tree.body[-1], ast.Expr):
+        last_expr = tree.body.pop()
+    exec(compile(tree, "<analysis>", "exec"), _ns)
+    if last_expr is None:
+        return _MISSING
+    return eval(compile(ast.Expression(last_expr.value), "<analysis>", "eval"), _ns)
+
+
 def _run(code, stream):
     """Execute `code` in the persistent namespace. When `stream`, stdout/stderr
     are pushed to the host live and the returned strings are empty; otherwise
     they are buffered and returned in the done payload."""
-    figures, table = [], None
+    figures, table, html = [], None, None
     if stream:
         out = err = None
         sys.stdout, sys.stderr = _StreamWriter("stdout"), _StreamWriter("stderr")
@@ -151,8 +199,14 @@ def _run(code, stream):
     # THIS run defines one (the namespace persists between runs).
     _ns.pop("result", None)
     try:
-        exec(compile(code, "<analysis>", "exec"), _ns)
-        table = _capture_table(_ns.get("result"))
+        last = _exec_capture_last(code)
+        # A `result` variable OR a trailing expression can carry the payload.
+        # Prefer an explicit `result`; fall back to the last expression's value.
+        candidate = _ns.get("result")
+        if candidate is None and last is not _MISSING:
+            candidate = last
+        table = _capture_table(candidate)
+        html = _capture_html(candidate)
         if plt is not None:
             for num in plt.get_fignums():
                 buf = io.BytesIO()
@@ -171,7 +225,7 @@ def _run(code, stream):
         sys.stdout, sys.stderr = _real_out, _real_err
     return {"stdout": "" if stream else out.getvalue(),
             "stderr": "" if stream else err.getvalue(),
-            "figures": figures, "table": table, "html": None,
+            "figures": figures, "table": table, "html": html,
             "__linkr_done__": True}
 
 
@@ -252,9 +306,12 @@ repeat {
   # shows "a", then the pause, then "b" — instead of both at the end. Batch mode
   # accumulates into .out for the single final payload.
   .interrupted <- FALSE
+  # The value of the last evaluated expression — captured so a trailing htmlwidget
+  # (plotly/leaflet/DT) can be rendered to HTML like a REPL auto-print.
+  .last_value <- NULL
   .eval_one <- function(.e) tryCatch(
     withCallingHandlers(
-      utils::capture.output(eval(.e, envir = globalenv())),
+      utils::capture.output({ .last_value <<- eval(.e, envir = globalenv()); .last_value }),
       warning = function(w) { .err <<- c(.err, conditionMessage(w)); invokeRestart("muffleWarning") },
       message = function(m) { .err <<- c(.err, conditionMessage(m)); invokeRestart("muffleMessage") }
     ),
@@ -292,9 +349,24 @@ repeat {
       .figs[[length(.figs) + 1]] <- list(type = "svg", data = .svg, label = paste("Plot", length(.figs) + 1))
     file.remove(.f)
   }
+  # A trailing htmlwidget (plotly/leaflet/DT/…) → standalone HTML, shown in an
+  # iframe on the client. saveWidget needs pandoc-free self-contained output.
+  .html <- NULL
+  if (!.interrupted && inherits(.last_value, "htmlwidget") &&
+      requireNamespace("htmlwidgets", quietly = TRUE)) {
+    .tmp <- tempfile(fileext = ".html")
+    .ok <- tryCatch({ htmlwidgets::saveWidget(.last_value, .tmp, selfcontained = TRUE); TRUE },
+                    error = function(e) tryCatch({
+                      htmlwidgets::saveWidget(.last_value, .tmp, selfcontained = FALSE); TRUE
+                    }, error = function(e2) { .err <<- c(.err, conditionMessage(e2)); FALSE }))
+    if (isTRUE(.ok) && file.exists(.tmp)) {
+      .html <- paste(readLines(.tmp, warn = FALSE), collapse = "\n")
+      file.remove(.tmp)
+    }
+  }
   .emit(list(stdout = if (.stream) "" else paste(.out, collapse = "\n"),
              stderr = if (.stream) "" else paste(.err, collapse = "\n"),
-             figures = .figs, table = NULL, html = NULL,
+             figures = .figs, table = NULL, html = .html,
              "__linkr_done__" = TRUE))
 }
 '''

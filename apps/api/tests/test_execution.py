@@ -61,6 +61,29 @@ async def test_execute_dataframe_result_becomes_table(client):
     assert body["table"] == {"headers": ["a"], "rows": [["1"], ["2"]]}
 
 
+async def test_execute_trailing_expression_dataframe_becomes_table(client):
+    """A DataFrame as the LAST expression (no `result =`) is captured like a REPL
+    auto-print — so `df` on the final line shows a table."""
+    headers = await _admin_headers(client)
+    r = await _run(client, headers, "import pandas as pd\npd.DataFrame({'a': [1, 2]})")
+    assert r.json()["table"] == {"headers": ["a"], "rows": [["1"], ["2"]]}
+
+
+async def test_execute_repr_html_object_captured_as_html(client):
+    """An object whose last-expression value has _repr_html_ (plotly/leaflet/DT all
+    do) is captured as an HTML widget for the iframe tab."""
+    headers = await _admin_headers(client)
+    code = (
+        "class W:\n"
+        "    def _repr_html_(self):\n"
+        "        return '<div id=widget>hello widget</div>'\n"
+        "W()"
+    )
+    r = await _run(client, headers, code)
+    body = r.json()
+    assert body["html"] and "hello widget" in body["html"]
+
+
 async def test_execute_matplotlib_figure_captured_as_svg(client):
     headers = await _admin_headers(client)
     r = await _run(client, headers, "import matplotlib.pyplot as plt\nplt.plot([1,2],[3,4])")

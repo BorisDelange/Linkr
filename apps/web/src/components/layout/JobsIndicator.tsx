@@ -153,7 +153,8 @@ function JobArtifacts({ result }: { result: NonNullable<Job['result']> }) {
   const { t } = useTranslation()
   const figures = result.figures ?? []
   const table = result.table
-  if (figures.length === 0 && !table) return null
+  const html = result.html
+  if (figures.length === 0 && !table && !html) return null
   return (
     <div className="flex flex-col gap-3">
       {figures.map((fig, i) => (
@@ -166,6 +167,15 @@ function JobArtifacts({ result }: { result: NonNullable<Job['result']> }) {
           )}
         </div>
       ))}
+      {html && (
+        // A widget (plotly/leaflet/DT) — self-contained HTML in a sandboxed iframe.
+        <iframe
+          srcDoc={html}
+          className="h-[60vh] w-full rounded border"
+          sandbox="allow-scripts allow-same-origin"
+          title="widget"
+        />
+      )}
       {table && (
         <div className="overflow-auto rounded border">
           <table className="w-full text-xs">
