@@ -20,6 +20,7 @@ from app.models.user import User
 from app.schemas.execution import (
     ExecuteRequest,
     ExecuteResponse,
+    JobResponse,
     RenderRequest,
     RestartKernelRequest,
     RuntimeFigureResponse,
@@ -197,6 +198,36 @@ async def execute_code(
             f"Unsupported language: {body.language}",
         )
     return await _run_in_kernel(db, body.project_uid, user, body.language, body.env_id, code, resolver)
+
+
+@router.post("/run-as-job", response_model=JobResponse)
+async def run_as_job(
+    body: ExecuteRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run a script server-side as a background job: a FRESH process (batch — no
+    session namespace), streamed into the jobs panel and cancellable there. Figures
+    and a result table are collected at the end and stored on the job. Returns the
+    queued job immediately."""
+    if not body.project_uid:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "project_uid is required to run code")
+    await _require_execute(db, body.project_uid, user, body.purpose)
+    if body.language not in ("python", "r"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unsupported language: {body.language}")
+
+    code = body.code
+    if body.dataset_file_id:
+        preamble = await _dataset_preamble(
+            db, body.dataset_file_id, body.language, body.dataset_filters, body.project_uid
+        )
+        code = preamble + "\n" + code
+
+    from app.services.execution import run_jobs
+
+    label = body.label or f"Run {environments.language_label(body.language)} script"
+    job = await run_jobs.start(db, body.project_uid, user.id, body.language, code, label)
+    return JobResponse.model_validate(job, from_attributes=True)
 
 
 async def _run_in_kernel(

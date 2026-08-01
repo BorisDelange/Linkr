@@ -565,6 +565,15 @@ class KernelManager:
             await k.shutdown()
         return kernel
 
+    def spawn_batch(
+        self, language: str, project_uid: str, environment: "Environment | None" = None
+    ) -> Kernel:
+        """A one-shot kernel in a FRESH process (empty namespace), NOT cached and
+        NOT counted against the per-user session limit — for a background 'run as
+        job'. The caller must ``shutdown()`` it when done. Same interpreter/cwd/env
+        selection as an interactive kernel, so managed envs resolve identically."""
+        return self._make(language, project_uid, environment)
+
     async def restart(
         self, project_uid: str, user_id: int, language: str, env_id: str
     ) -> None:

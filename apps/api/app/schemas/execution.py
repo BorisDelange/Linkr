@@ -34,6 +34,9 @@ class ExecuteRequest(CamelModel):
     # they carry no free-form code and go through POST /execute/render (see
     # RenderRequest). "render" is rejected on this endpoint.
     purpose: str = "ide"
+    # Optional human label for a run-as-job (POST /execute/run-as-job); ignored by
+    # the interactive /execute path. E.g. the file name being run.
+    label: str | None = None
 
 
 class RenderRequest(CamelModel):
@@ -111,4 +114,7 @@ class JobResponse(CamelModel):
     status: str  # queued | running | done | error | cancelled
     progress: int
     log_tail: str
+    # A 'run' job's collected artifacts: {"figures": [...], "table": {...}, "html"}.
+    # None for other kinds / before completion.
+    result: dict | None = None
     created_at: datetime

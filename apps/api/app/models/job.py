@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin, UUIDPKMixin
+from app.models.base import Base, JSONB_or_JSON, TimestampMixin, UUIDPKMixin
 
 
 class Job(Base, UUIDPKMixin, TimestampMixin):
@@ -29,3 +29,6 @@ class Job(Base, UUIDPKMixin, TimestampMixin):
     # queued | running | done | error | cancelled
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0–100, best-effort
     log_tail: Mapped[str] = mapped_column(Text, default="")
+    # For a 'run' job: the batch run's artifacts collected at the end —
+    # {"figures": [...], "table": {...}|None, "html": ...}. NULL for other kinds.
+    result: Mapped[dict | None] = mapped_column(JSONB_or_JSON, nullable=True)

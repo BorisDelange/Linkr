@@ -103,6 +103,56 @@ async def test_persistent_kernel_keeps_variables_between_runs(client):
     assert r.json()["stdout"].strip() == "42"
 
 
+async def _wait_job(client, headers, uid, job_id, timeout=30.0):
+    """Poll a project's jobs until `job_id` leaves queued/running (or times out)."""
+    for _ in range(int(timeout / 0.2)):
+        jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
+        job = next((j for j in jobs if j["id"] == job_id), None)
+        if job and job["status"] not in ("queued", "running"):
+            return job
+        await asyncio.sleep(0.2)
+    raise AssertionError("job did not finish in time")
+
+
+async def test_run_as_job_batch_captures_output_and_result(client):
+    """Run-as-job runs in a fresh process, streams stdout to the job log, and stores
+    a result table on the finished job — surfaced in the jobs panel."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    code = "import pandas as pd\nprint('batch ran')\nresult = pd.DataFrame({'x': [1, 2]})"
+    r = await client.post(
+        f"{API}/execute/run-as-job",
+        headers=headers,
+        json={"language": "python", "code": code, "projectUid": uid, "label": "run.py"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kind"] == "run"
+    assert body["label"] == "run.py"
+
+    job = await _wait_job(client, headers, uid, body["id"])
+    assert job["status"] == "done", job.get("logTail")
+    assert "batch ran" in job["logTail"]
+    # The DataFrame result was collected as a table artifact on the job.
+    assert job["result"]["table"]["headers"] == ["x"]
+
+
+async def test_run_as_job_fresh_process_no_session_namespace(client):
+    """A batch run does NOT see the interactive session's variables (fresh process)."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    # Set a variable in the interactive kernel.
+    await client.post(f"{API}/execute", headers=headers, json={"language": "python", "code": "z = 99", "projectUid": uid})
+    # The batch job runs in a fresh namespace → NameError on z.
+    r = await client.post(
+        f"{API}/execute/run-as-job",
+        headers=headers,
+        json={"language": "python", "code": "print(z)", "projectUid": uid},
+    )
+    job = await _wait_job(client, headers, uid, r.json()["id"])
+    assert "NameError" in job["logTail"] or "not defined" in job["logTail"]
+
+
 async def test_execute_large_output_not_truncated_or_500(client):
     """A result line larger than asyncio's default 64 KB StreamReader limit must
     read fully (raised limit), not raise LimitOverrunError → 500."""
