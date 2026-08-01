@@ -470,7 +470,7 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
           ) : (
             <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
               {shownText}
-              {result.running && <RunningDots />}
+              {result.running && <RunningDots label={t('files.running')} />}
             </pre>
           )
         )}
@@ -482,9 +482,9 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
 /** Animated "…" appended to a running result's output — a live sign the run is
  *  still in progress. Three dots pulse out of phase (built-in animate-pulse +
  *  staggered delay, so no custom keyframe is needed). */
-function RunningDots() {
+function RunningDots({ label }: { label: string }) {
   return (
-    <span className="ml-0.5 inline-flex align-baseline" aria-label="running">
+    <span className="ml-0.5 inline-flex align-baseline" aria-label={label}>
       <span className="animate-pulse">.</span>
       <span className="animate-pulse" style={{ animationDelay: '0.2s' }}>.</span>
       <span className="animate-pulse" style={{ animationDelay: '0.4s' }}>.</span>

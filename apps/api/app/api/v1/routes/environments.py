@@ -9,6 +9,7 @@ in the project git while the materialised venv/library is machine-local."""
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import has_project_permission
@@ -24,6 +25,10 @@ from app.schemas.execution import (
 )
 from app.services import project_fs
 from app.services.execution import environments, jobs
+from app.services.execution.package_spec import (
+    InvalidPackageSpec,
+    validate_package_spec,
+)
 from app.services.execution.uv_provisioner import ProvisionError
 
 router = APIRouter(tags=["environments"])
@@ -35,7 +40,12 @@ def _env_response(env) -> EnvironmentResponse:
 
 async def _require_ide(db: AsyncSession, project_uid: str, user: User, action: str) -> Project:
     """Gate an environment operation on the matching ide:<action> permission.
-    Returns the project so callers can read e.g. its workspace."""
+    Returns the project so callers can read e.g. its workspace.
+
+    Every write op shells out (uv/renv build/install), so — like /execute — it is
+    also refused when the instance has code execution disabled."""
+    if action != "read" and not settings.enable_code_execution:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Code execution is disabled")
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
@@ -43,6 +53,14 @@ async def _require_ide(db: AsyncSession, project_uid: str, user: User, action: s
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted on this project")
     project_fs.prime_binding(project_uid, project.ide_path, project.scripts_path, project.datasets_path)
     return project
+
+
+def _valid_package(package: str) -> str:
+    """Validate a package ref from a path/query param before it reaches uv/renv."""
+    try:
+        return validate_package_spec(package)
+    except InvalidPackageSpec as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
 
 def _valid_language(language: str) -> str:
@@ -115,6 +133,7 @@ async def remove_env_package(
 ):
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
+    package = _valid_package(package)
     try:
         env = await environments.remove_package(db, project_uid, language, package)
     except (ValueError, ProvisionError) as e:
@@ -162,6 +181,8 @@ async def upgrade_env_packages(
     mark the env for rebuild. No build here."""
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
+    if package is not None:
+        package = _valid_package(package)
     try:
         env = await environments.upgrade(db, project_uid, language, package)
     except (ValueError, ProvisionError) as e:
@@ -193,10 +214,14 @@ async def build_environment(
         def on_log(line: str) -> None:
             buffer.append(line)
 
-        async with async_session() as job_db:
-            await environments.build(job_db, project_uid, language, on_log=on_log)
-        if buffer:
-            await handle.log("\n".join(buffer[-200:]))
+        try:
+            async with async_session() as job_db:
+                await environments.build(job_db, project_uid, language, on_log=on_log)
+        finally:
+            # Flush the build log even on failure (build() raises on a bad build so
+            # the job is marked 'error') — otherwise the failure reason is lost.
+            if buffer:
+                await handle.log("\n".join(buffer[-200:]))
 
     jobs.launch(job.id, body)
     return JobResponse.model_validate(job, from_attributes=True)

@@ -40,11 +40,11 @@ const CAT = {
   pipeline: 6,
   environments: 7,
   databases: 8,
-  mappings: 8,
-  concepts: 9,
-  scores: 10,
-  checks: 11,
-  config: 12,
+  mappings: 9,
+  concepts: 10,
+  scores: 11,
+  checks: 12,
+  config: 13,
   // Workspace-level entity groups (one box per entity kind in the workspace's
   // Details list — see the 'workspaces' rules below).
   projects: 20,

@@ -1,6 +1,12 @@
 from datetime import datetime
 
+from pydantic import field_validator
+
 from app.schemas.base import CamelModel
+from app.services.execution.package_spec import (
+    InvalidPackageSpec,
+    validate_package_specs,
+)
 
 
 class ExecuteRequest(CamelModel):
@@ -85,6 +91,16 @@ class PackageResponse(CamelModel):
 
 class AddPackagesRequest(CamelModel):
     packages: list[str]  # requirement strings, e.g. ["pandas", "numpy==1.26"]
+
+    @field_validator("packages")
+    @classmethod
+    def _safe_packages(cls, v: list[str]) -> list[str]:
+        # Package refs are fed to uv/renv (R via `Rscript -e` source — a raw value
+        # is an injection/RCE vector). Reject anything outside the safe allowlist.
+        try:
+            return validate_package_specs(v)
+        except InvalidPackageSpec as e:
+            raise ValueError(str(e)) from e
 
 
 class JobResponse(CamelModel):

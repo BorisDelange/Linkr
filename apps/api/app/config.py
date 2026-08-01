@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     # before the rest queue. Keeps a burst from exhausting the single uvicorn
     # worker. A real queue (celery/RQ) is only needed if load outgrows this.
     max_build_concurrency: int = 2
+    # Hard wall-clock limit for a single env build (uv sync / renv restore). A hung
+    # build otherwise holds a max_build_concurrency slot forever, wedging all builds.
+    build_timeout_seconds: int = 1800
 
     # Data
     data_dir: str = "~/.linkr"

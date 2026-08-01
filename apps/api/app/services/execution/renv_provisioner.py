@@ -19,6 +19,11 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import project_fs
+from app.services.execution.package_spec import validate_package_spec
+
+# A hung `Rscript` (network black-hole resolving a package) must not pin a worker
+# / build slot forever. Package-edit commands are quick metadata writes.
+_R_EDIT_TIMEOUT = 120
 
 
 class ProvisionError(Exception):
@@ -69,13 +74,19 @@ def _renv_env(project_uid: str) -> dict[str, str]:
 
 
 def _run_r(project_uid: str, r_code: str) -> str:
-    proc = __import__("subprocess").run(
-        [settings.rscript_bin, "--vanilla", "-e", r_code],
-        cwd=str(_spec_dir(project_uid)),
-        env=_renv_env(project_uid),
-        capture_output=True,
-        text=True,
-    )
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            [settings.rscript_bin, "--vanilla", "-e", r_code],
+            cwd=str(_spec_dir(project_uid)),
+            env=_renv_env(project_uid),
+            capture_output=True,
+            text=True,
+            timeout=_R_EDIT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise ProvisionError("Rscript command timed out")
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:
         raise ProvisionError(out.strip() or "Rscript command failed")
@@ -116,7 +127,9 @@ def add_packages(project_uid: str, packages: list[str]) -> None:
     """Record packages into the lockfile (no library build yet). renv::record adds
     them to renv.lock; the actual install happens on build (renv::restore)."""
     ensure_manifest(project_uid)
-    specs = ", ".join(f'"{_to_renv_ref(p)}"' for p in packages)
+    # Validated (allowlist) before interpolation — the values reach `Rscript -e`
+    # source, so an unescaped metachar would be R-code injection (RCE).
+    specs = ", ".join(f'"{_to_renv_ref(validate_package_spec(p))}"' for p in packages)
     _run_r(
         project_uid,
         f"renv::record(c({specs}), lockfile='renv.lock')",
@@ -125,7 +138,7 @@ def add_packages(project_uid: str, packages: list[str]) -> None:
 
 def remove_package(project_uid: str, package: str) -> None:
     ensure_manifest(project_uid)
-    name = package.split("==")[0].split(">")[0].split("<")[0].strip()
+    name = validate_package_spec(package).split("==")[0].split(">")[0].split("<")[0].strip()
     _run_r(
         project_uid,
         f"renv::record(list(), lockfile='renv.lock'); "
@@ -140,7 +153,8 @@ def upgrade(project_uid: str, package: str | None = None) -> None:
     ``renv::record`` with the latest available version resolved from the repos."""
     ensure_manifest(project_uid)
     if package:
-        _run_r(project_uid, f"renv::record('{package}', lockfile='renv.lock')")
+        safe = validate_package_spec(package)
+        _run_r(project_uid, f"renv::record('{safe}', lockfile='renv.lock')")
     else:
         names = [p["name"] for p in list_packages(project_uid)]
         if names:
@@ -173,14 +187,23 @@ async def build(project_uid: str, on_log=None) -> BuildResult:
         stderr=asyncio.subprocess.STDOUT,
     )
     lines: list[str] = []
-    try:
+
+    async def _stream() -> int:
         assert proc.stdout is not None
         async for raw in proc.stdout:
             line = raw.decode("utf-8", "replace").rstrip()
             lines.append(line)
             if on_log is not None:
                 on_log(line)
-        code = await proc.wait()
+        return await proc.wait()
+
+    try:
+        code = await asyncio.wait_for(_stream(), timeout=settings.build_timeout_seconds)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        lines.append(f"Build timed out after {settings.build_timeout_seconds}s")
+        return BuildResult(ok=False, log="\n".join(lines))
     except asyncio.CancelledError:
         proc.kill()
         await proc.wait()

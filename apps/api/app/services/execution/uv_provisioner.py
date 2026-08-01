@@ -20,6 +20,11 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import project_fs
+from app.services.execution.package_spec import validate_package_spec
+
+# A hung `uv` (network black-hole resolving against the index) must not pin a
+# worker / build slot forever. Package-edit commands are quick manifest re-locks.
+_UV_EDIT_TIMEOUT = 120
 
 
 class ProvisionError(Exception):
@@ -104,13 +109,17 @@ def _run(project_uid: str, args: list[str]) -> str:
         "UV_PROJECT_ENVIRONMENT": str(_venv_dir(project_uid)),
         "UV_INDEX_URL": settings.pip_index_url,
     }
-    proc = subprocess.run(
-        [settings.uv_bin, *args],
-        cwd=str(spec_dir),
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        proc = subprocess.run(
+            [settings.uv_bin, *args],
+            cwd=str(spec_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=_UV_EDIT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise ProvisionError(f"uv {' '.join(args)} timed out")
     out = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0:
         raise ProvisionError(out.strip() or f"uv {' '.join(args)} failed")
@@ -129,20 +138,26 @@ def _base_env() -> dict[str, str]:
 def add_packages(project_uid: str, packages: list[str]) -> None:
     """Add dependencies: rewrite the manifest and re-lock (no venv build yet)."""
     ensure_manifest(project_uid)
-    _run(project_uid, ["add", "--no-sync", *packages])
+    safe = [validate_package_spec(p) for p in packages]
+    # `--` so a package name is never parsed as a uv flag (allowlist already bans
+    # a leading dash, but keep the argv boundary explicit).
+    _run(project_uid, ["add", "--no-sync", "--", *safe])
 
 
 def remove_package(project_uid: str, package: str) -> None:
     """Remove a dependency: rewrite the manifest and re-lock (no venv build yet)."""
     ensure_manifest(project_uid)
-    _run(project_uid, ["remove", "--no-sync", package])
+    _run(project_uid, ["remove", "--no-sync", "--", validate_package_spec(package)])
 
 
 def upgrade(project_uid: str, package: str | None = None) -> None:
     """Re-lock to newer versions: one package (``uv lock --upgrade-package X``) or
     all (``uv lock --upgrade``). Re-lock only — the user builds to materialise."""
     ensure_manifest(project_uid)
-    args = ["lock", "--upgrade-package", package] if package else ["lock", "--upgrade"]
+    if package:
+        args = ["lock", "--upgrade-package", validate_package_spec(package)]
+    else:
+        args = ["lock", "--upgrade"]
     _run(project_uid, args)
 
 
@@ -167,14 +182,23 @@ async def build(project_uid: str, on_log=None) -> BuildResult:
         stderr=asyncio.subprocess.STDOUT,
     )
     lines: list[str] = []
-    try:
+
+    async def _stream() -> int:
         assert proc.stdout is not None
         async for raw in proc.stdout:
             line = raw.decode("utf-8", "replace").rstrip()
             lines.append(line)
             if on_log is not None:
                 on_log(line)
-        code = await proc.wait()
+        return await proc.wait()
+
+    try:
+        code = await asyncio.wait_for(_stream(), timeout=settings.build_timeout_seconds)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        lines.append(f"Build timed out after {settings.build_timeout_seconds}s")
+        return BuildResult(ok=False, log="\n".join(lines))
     except asyncio.CancelledError:
         proc.kill()
         await proc.wait()

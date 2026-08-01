@@ -15,6 +15,8 @@ The ``kind`` column is kept for internal state only:
 The UI never shows this distinction — it shows packages + a build/ready state.
 """
 
+import asyncio
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -112,7 +114,9 @@ async def add_packages(
     Adding a package promotes a `system` env to `managed` — it now has a spec to
     build. The venv itself is (re)built separately via ``build`` (manual)."""
     env = await resolve(db, project_uid, language)
-    _provisioner(language).add_packages(project_uid, packages)
+    # The provisioner shells out (blocking subprocess) — run it off the event loop
+    # so a slow index resolve can't freeze the single uvicorn worker.
+    await asyncio.to_thread(_provisioner(language).add_packages, project_uid, packages)
     return await _mark_managed(db, env)
 
 
@@ -120,7 +124,7 @@ async def remove_package(
     db: AsyncSession, project_uid: str, language: str, package: str
 ) -> Environment:
     env = await resolve(db, project_uid, language)
-    _provisioner(language).remove_package(project_uid, package)
+    await asyncio.to_thread(_provisioner(language).remove_package, project_uid, package)
     return await _mark_managed(db, env)
 
 
@@ -134,7 +138,7 @@ async def upgrade(
     """Re-lock one package (or all) to a newer version and mark the env draft so the
     user rebuilds. `package=None` = upgrade all."""
     env = await resolve(db, project_uid, language)
-    _provisioner(language).upgrade(project_uid, package)
+    await asyncio.to_thread(_provisioner(language).upgrade, project_uid, package)
     return await _mark_managed(db, env)
 
 
@@ -165,6 +169,13 @@ async def build(
         env.status = "error"
     await db.commit()
     await db.refresh(env)
+    if not result.ok:
+        # Persist the env's error status (above) but signal the failure so the
+        # calling job is marked 'error', not 'done' — otherwise a broken build
+        # shows a green "done" in the jobs panel.
+        from app.services.execution.uv_provisioner import ProvisionError
+
+        raise ProvisionError(result.log.strip() or "Environment build failed")
     return env
 
 
@@ -193,10 +204,13 @@ async def ensure_ready(
 
     async def body(handle) -> None:
         buffer: list[str] = []
-        async with async_session() as job_db:
-            await build(job_db, project_uid, language, on_log=buffer.append)
-        if buffer:
-            await handle.log("\n".join(buffer[-200:]))
+        try:
+            async with async_session() as job_db:
+                await build(job_db, project_uid, language, on_log=buffer.append)
+        finally:
+            # Flush even on failure (build() raises on a bad build → job 'error').
+            if buffer:
+                await handle.log("\n".join(buffer[-200:]))
 
     # Auto-build blocks this first run until the env is ready, but runs through the
     # job runner so it's visible/cancellable; then re-read the (now built) env.

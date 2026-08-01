@@ -1311,6 +1311,7 @@
   },
   "files": {
     "explorer": "Explorateur",
+    "running": "En cours",
     "new_file": "Nouveau fichier",
     "new_folder": "Nouveau dossier",
     "upload": "Importer",
@@ -2523,6 +2524,7 @@
     "add_placeholder": "Nom du package (ex. pandas, numpy==1.26)…",
     "build": "Reconstruire",
     "build_hint": "Les packages s'installent automatiquement au premier lancement du code. Épinglez une version avec « == », ex. pandas==2.1.4.",
+    "build_taking_too_long": "La construction prend plus de temps que prévu — consultez le panneau des tâches pour suivre la progression.",
     "version_help_label": "Comment épingler une version",
     "version_help_python": "Saisissez un nom de package pour sa dernière version (ex. pandas), ou épinglez-en une avec « == », ex. pandas==2.1.4. Installé avec uv. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
     "version_help_r": "Saisissez un nom de package pour sa dernière version (ex. dplyr), ou épinglez-en une avec « == », ex. dplyr==1.1.4. Installé avec renv depuis Posit Package Manager. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
@@ -2561,7 +2563,7 @@
     "installed_pkg": "{{name}} installé"
   },
   "jobs": {
-    "title": "{{count}} tâche",
+    "title_one": "{{count}} tâche",
     "title_other": "{{count}} tâches",
     "recent": "Tâches récentes",
     "cancel": "Annuler",

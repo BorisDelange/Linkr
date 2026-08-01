@@ -59,3 +59,23 @@ async def test_resolve_seeds_managed_draft_when_lockfile_on_disk(db):
     env = await environments.resolve(db, "proj-1", "python")
     assert env.kind == "managed"
     assert env.status == "draft"  # awaits a manual build
+
+
+async def test_build_failure_marks_env_error_and_raises(db, monkeypatch):
+    """A failed build persists env.status='error' AND raises, so the calling job is
+    marked 'error' instead of a misleading 'done'."""
+    from app.services.execution.uv_provisioner import BuildResult, ProvisionError
+
+    class _FailingProv:
+        async def build(self, project_uid, on_log=None):
+            if on_log:
+                on_log("boom")
+            return BuildResult(ok=False, log="boom")
+
+    monkeypatch.setattr(environments, "_provisioner", lambda language: _FailingProv())
+
+    with pytest.raises(ProvisionError):
+        await environments.build(db, "proj-1", "python")
+
+    env = await environments.resolve(db, "proj-1", "python")
+    assert env.status == "error"

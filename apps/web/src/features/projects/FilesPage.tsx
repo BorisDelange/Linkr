@@ -591,6 +591,7 @@ export function FilesPage() {
           const result = await streamOnServer(language, code, {
             projectUid: activeProjectUid ?? undefined,
             connectionId: activeConnectionId ?? undefined,
+            signal: controller.signal,
             onChunk: (text) => {
               streamed += text
               updateExecutionResult(execId, { output: streamed })
@@ -620,12 +621,19 @@ export function FilesPage() {
         addFiguresAndTable(result)
       } catch (err) {
         const duration = Date.now() - start
-        const message = err instanceof Error ? err.message : String(err)
-        updateExecutionResult(execId, {
-          duration,
-          success: false,
-          output: message,
-        })
+        // A user Stop aborts the stream — keep whatever output already arrived
+        // (the kernel is SIGINT'd separately) instead of replacing it with an
+        // error message.
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          updateExecutionResult(execId, { duration })
+        } else {
+          const message = err instanceof Error ? err.message : String(err)
+          updateExecutionResult(execId, {
+            duration,
+            success: false,
+            output: message,
+          })
+        }
       } finally {
         // Clear the activity indicator on every exit path (done / error / stop).
         updateExecutionResult(execId, { running: false })
@@ -664,8 +672,10 @@ export function FilesPage() {
       }
       // One run at a time: while a script is executing, ignore further run
       // triggers (button is already Stop, but the keyboard shortcuts must be
-      // blocked too — otherwise Cmd+Enter would queue overlapping runs).
-      if (isExecuting) return
+      // blocked too — otherwise Cmd+Enter would queue overlapping runs). Read the
+      // LIVE store, not the render-time `isExecuting` closure: two rapid presses
+      // before React commits the state would both see the stale `false`.
+      if (useRuntimeStore.getState().isExecuting) return
       if (isSql && activeConnectionId) {
         executeSql(code, label)
       } else if (selectedLanguage === 'python') {
@@ -674,7 +684,7 @@ export function FilesPage() {
         executeCode(code, label, 'r')
       }
     },
-    [isMarkdown, isExecuting, isSql, activeConnectionId, executeSql, executeCode, selectedLanguage, selectedNode, addOutputTab, setOutputVisible]
+    [isMarkdown, isSql, activeConnectionId, executeSql, executeCode, selectedLanguage, selectedNode, addOutputTab, setOutputVisible]
   )
 
   const handleRunFile = useCallback(() => {

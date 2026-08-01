@@ -178,7 +178,12 @@ def _run(code, stream):
 # Explicit readline (not `for line in sys.stdin`) so sql_query can do its own
 # readline() for RPC responses without fighting the iterator's read-ahead buffer.
 while True:
-    line = sys.stdin.readline()
+    try:
+        line = sys.stdin.readline()
+    except KeyboardInterrupt:
+        # A Stop SIGINT that lands while idle (between runs, in readline) must not
+        # kill the kernel — just resume waiting for the next request.
+        continue
     if not line:
         break
     line = line.strip()
@@ -189,7 +194,9 @@ while True:
     try:
         code = base64.b64decode(payload).decode("utf-8")
         result = _run(code, stream)
-    except Exception as e:
+    # BaseException so a stray KeyboardInterrupt between expressions (outside
+    # _run's own handler) ends the run cleanly instead of killing the interpreter.
+    except BaseException as e:  # noqa: BLE001
         result = {"stdout": "", "stderr": "kernel error: " + str(e),
                   "figures": [], "table": None, "html": None,
                   "__linkr_done__": True}
@@ -255,20 +262,25 @@ repeat {
     error = function(e) { .err <<- c(.err, conditionMessage(e)); character(0) }
   )
   .out <- character(0)
-  .exprs <- tryCatch(parse(text = .code), error = function(e) { .err <<- c(.err, conditionMessage(e)); NULL })
-  for (.e in .exprs) {
-    .e_out <- .eval_one(.e)
-    if (.stream) {
-      .stream_lines("stdout", .e_out)
-      .stream_lines("stderr", .err)
-      .err <- character(0)
-    } else {
-      .out <- c(.out, .e_out)
+  # An interrupt landing BETWEEN expressions (in .stream_lines/parse/etc., outside
+  # .eval_one's own handler) would otherwise be uncaught and kill the interpreter.
+  # Catch it here too so Stop always just ends the run and the kernel survives.
+  tryCatch({
+    .exprs <- tryCatch(parse(text = .code), error = function(e) { .err <<- c(.err, conditionMessage(e)); NULL })
+    for (.e in .exprs) {
+      .e_out <- .eval_one(.e)
+      if (.stream) {
+        .stream_lines("stdout", .e_out)
+        .stream_lines("stderr", .err)
+        .err <- character(0)
+      } else {
+        .out <- c(.out, .e_out)
+      }
+      # Stop (Ctrl+C) interrupts the whole run, not just the current expression —
+      # otherwise a `print` after an interrupted `Sys.sleep` would still fire.
+      if (.interrupted) break
     }
-    # Stop (Ctrl+C) interrupts the whole run, not just the current expression —
-    # otherwise a `print` after an interrupted `Sys.sleep` would still fire.
-    if (.interrupted) break
-  }
+  }, interrupt = function(i) { .interrupted <<- TRUE })
   # A parse error (or any error left over when there were no expressions to run)
   # still needs to reach a streaming client — flush it here.
   if (.stream && length(.err) > 0) { .stream_lines("stderr", .err); .err <- character(0) }

@@ -96,6 +96,51 @@ async def test_unknown_language_is_rejected(client):
     assert r.status_code == 400
 
 
+async def test_injection_package_name_rejected(client, fake_provisioner):
+    """A package name with R/shell metacharacters is refused at the API boundary
+    (422) — it never reaches the provisioner."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.post(
+        f"{API}/projects/{uid}/environments/r/packages",
+        headers=headers,
+        json={"packages": ['x"); system("id"); ("']},
+    )
+    assert r.status_code == 422
+
+
+async def test_remove_package_injection_rejected(client, fake_provisioner):
+    """The {package} path param is validated too (raw R-string interpolation site)."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.request(
+        "DELETE",
+        f"{API}/projects/{uid}/environments/r/packages/x')]]%3C-NULL%3Bsystem('id",
+        headers=headers,
+    )
+    assert r.status_code == 400
+
+
+async def test_code_execution_disabled_blocks_writes(client, fake_provisioner, monkeypatch):
+    """With code execution disabled, package/build ops (which shell out) are 403,
+    but reads still work."""
+    from app.config import settings
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    monkeypatch.setattr(settings, "enable_code_execution", False)
+
+    r = await client.post(
+        f"{API}/projects/{uid}/environments/python/packages",
+        headers=headers,
+        json={"packages": ["pandas"]},
+    )
+    assert r.status_code == 403
+
+    r = await client.get(f"{API}/projects/{uid}/environments", headers=headers)
+    assert r.status_code == 200  # reads unaffected
+
+
 async def test_install_preset_records_default_packages(client, fake_provisioner):
     headers = await _admin_headers(client)
     uid = await _project(client, headers)

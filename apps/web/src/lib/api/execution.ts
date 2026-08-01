@@ -66,6 +66,10 @@ export function streamOnServer(
     envId?: string
     connectionId?: string
     onChunk: (text: string, kind: 'stdout' | 'stderr') => void
+    // Stop: abort closes the socket and rejects the promise promptly. The kernel
+    // is separately SIGINT'd (interruptServerKernel); this ends the client wait so
+    // the run doesn't stay "streaming" until the server's done/timeout.
+    signal?: AbortSignal
   },
 ): Promise<RuntimeOutput> {
   const projectUid = opts.projectUid ?? useAppStore.getState().activeProjectUid ?? null
@@ -74,7 +78,14 @@ export function streamOnServer(
 
   return new Promise<RuntimeOutput>((resolve, reject) => {
     let settled = false
-    const finish = (fn: () => void) => { if (!settled) { settled = true; fn() } socket.close() }
+    const finish = (fn: () => void) => {
+      if (!settled) { settled = true; fn() }
+      opts.signal?.removeEventListener('abort', onAbort)
+      socket.close()
+    }
+    const onAbort = () => finish(() => reject(new DOMException('Aborted', 'AbortError')))
+    if (opts.signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return }
+    opts.signal?.addEventListener('abort', onAbort)
     const socket = new TerminalSocket(
       { projectUid, language, envId, connectionId: opts.connectionId },
       {

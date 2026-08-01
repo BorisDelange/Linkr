@@ -98,12 +98,19 @@ export function ServerEnvironmentsPanel({
     try {
       await buildEnvironment(projectUid, language)
       setEnv((e) => (e ? { ...e, status: 'building' } : e))
-      const poll = async (): Promise<void> => {
+      // Bound the poll so a stuck server job can't pin the UI in "building"
+      // forever: at 1.5s/iteration this caps just past the server build timeout.
+      const MAX_POLLS = 1400
+      const poll = async (n = 0): Promise<void> => {
         const active = await listJobs(projectUid)
         const build = active.find((j) => j.kind === 'build')
         if (build && (build.status === 'queued' || build.status === 'running')) {
+          if (n >= MAX_POLLS) {
+            setError(t('environments.build_taking_too_long'))
+            return
+          }
           await new Promise((r) => setTimeout(r, 1500))
-          return poll()
+          return poll(n + 1)
         }
         if (build && build.status === 'error') setError(build.logTail || 'Build failed')
       }
