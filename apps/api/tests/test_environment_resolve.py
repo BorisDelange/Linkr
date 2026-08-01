@@ -67,7 +67,7 @@ async def test_build_failure_marks_env_error_and_raises(db, monkeypatch):
     from app.services.execution.uv_provisioner import BuildResult, ProvisionError
 
     class _FailingProv:
-        async def build(self, project_uid, on_log=None):
+        async def build(self, project_uid, on_log=None, options=None):
             if on_log:
                 on_log("boom")
             return BuildResult(ok=False, log="boom")

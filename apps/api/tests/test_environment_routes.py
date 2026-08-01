@@ -15,20 +15,20 @@ class _FakeProvisioner:
     def __init__(self):
         self._pkgs: dict[str, list[dict]] = {}
 
-    def add_packages(self, project_uid, packages, on_log=None):
+    def add_packages(self, project_uid, packages, on_log=None, options=None):
         if on_log:
             on_log(f"$ fake add {' '.join(packages)}")
         self._pkgs.setdefault(project_uid, [])
         self._pkgs[project_uid].extend({"name": p, "spec": ""} for p in packages)
 
-    def remove_package(self, project_uid, package, on_log=None):
+    def remove_package(self, project_uid, package, on_log=None, options=None):
         if on_log:
             on_log(f"$ fake remove {package}")
         self._pkgs[project_uid] = [
             p for p in self._pkgs.get(project_uid, []) if p["name"] != package
         ]
 
-    def upgrade(self, project_uid, package=None, on_log=None):
+    def upgrade(self, project_uid, package=None, on_log=None, options=None):
         if on_log:
             on_log(f"$ fake upgrade {package or 'all'}")
 
@@ -38,7 +38,7 @@ class _FakeProvisioner:
     def venv_python(self, project_uid):
         return "/fake/venv/bin/python"
 
-    async def build(self, project_uid, on_log=None):
+    async def build(self, project_uid, on_log=None, options=None):
         from app.services.execution.uv_provisioner import BuildResult
 
         if on_log:
@@ -97,6 +97,32 @@ async def test_add_and_list_packages(client, fake_provisioner):
     assert [p["name"] for p in pkgs] == ["pandas"]
 
 
+async def test_env_options_get_and_set_roundtrip(client, fake_provisioner, monkeypatch, tmp_path):
+    """Setting a per-env override persists it and shows up in the effective options."""
+    from app.services.execution import env_options
+
+    monkeypatch.setattr(
+        env_options.project_fs,
+        "env_spec_dir",
+        lambda project_uid, language: tmp_path / project_uid / language,
+    )
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+
+    r = await client.put(
+        f"{API}/projects/{uid}/environments/r/options",
+        headers=headers,
+        json={"repos": "https://mirror.chu/cran", "method": "curl"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["override"] == {"repos": "https://mirror.chu/cran", "method": "curl"}
+    assert body["effective"]["repos"] == "https://mirror.chu/cran"
+
+    got = (await client.get(f"{API}/projects/{uid}/environments/r/options", headers=headers)).json()
+    assert got["override"]["method"] == "curl"
+
+
 async def test_add_package_creates_visible_job(client, fake_provisioner):
     """A package add runs as a tracked job — the command it ran shows up in the
     jobs panel so the user can inspect what happened."""
@@ -118,7 +144,7 @@ async def test_failed_install_returns_clear_error_not_500(client, monkeypatch):
     opaque 500 — and the failing job is kept for inspection."""
 
     class _FailingProvisioner:
-        def add_packages(self, project_uid, packages, on_log=None):
+        def add_packages(self, project_uid, packages, on_log=None, options=None):
             if on_log:
                 on_log("$ uv add aaa")
                 on_log("error: no solution found: package `aaa` was not found")

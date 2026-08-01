@@ -58,24 +58,38 @@ def is_built(project_uid: str) -> bool:
     return lib.exists() and any(lib.iterdir())
 
 
-def _renv_env(project_uid: str) -> dict[str, str]:
+def _renv_env(project_uid: str, options: dict | None = None) -> dict[str, str]:
     import os
 
+    options = options or {}
     return {
         **os.environ,
         # Shared, instance-wide renv cache (one copy of each package for all projects).
         "RENV_PATHS_CACHE": str(project_fs.env_package_cache("renv")),
         # The project's private library — the build target.
         "RENV_PATHS_LIBRARY": str(_library_dir(project_uid)),
-        "RENV_CONFIG_REPOS_OVERRIDE": settings.r_repos,
+        "RENV_CONFIG_REPOS_OVERRIDE": options.get("repos") or settings.r_repos,
         # Never prompt in a headless subprocess.
         "RENV_CONFIG_AUTO_SNAPSHOT": "FALSE",
     }
 
 
-def _run_r(project_uid: str, r_code: str, on_log=None) -> str:
+def _method_prefix(options: dict | None) -> str:
+    """R code that sets the download method before the real command, when the env
+    overrides it (e.g. method='curl' behind a corporate proxy). Validated upstream
+    (env_options allowlist), but re-checked here as defence in depth before it
+    reaches Rscript source."""
+    method = (options or {}).get("method")
+    if method and method in {"auto", "libcurl", "curl", "wget", "internal", "wininet"}:
+        return f"options(download.file.method='{method}'); "
+    return ""
+
+
+def _run_r(project_uid: str, r_code: str, on_log=None, options: dict | None = None) -> str:
     import subprocess
 
+    r_code = _method_prefix(options) + r_code
+    env = _renv_env(project_uid, options)
     cmdline = f"$ {settings.rscript_bin} --vanilla -e {r_code!r}"
     if on_log is not None:
         on_log(cmdline)
@@ -83,7 +97,7 @@ def _run_r(project_uid: str, r_code: str, on_log=None) -> str:
         proc = subprocess.run(
             [settings.rscript_bin, "--vanilla", "-e", r_code],
             cwd=str(_spec_dir(project_uid)),
-            env=_renv_env(project_uid),
+            env=env,
             capture_output=True,
             text=True,
             timeout=_R_EDIT_TIMEOUT,
@@ -128,7 +142,7 @@ def list_packages(project_uid: str) -> list[dict]:
     ]
 
 
-def add_packages(project_uid: str, packages: list[str], on_log=None) -> None:
+def add_packages(project_uid: str, packages: list[str], on_log=None, options: dict | None = None) -> None:
     """Record packages into the lockfile (no library build yet). renv::record adds
     them to renv.lock; the actual install happens on build (renv::restore)."""
     ensure_manifest(project_uid)
@@ -139,10 +153,11 @@ def add_packages(project_uid: str, packages: list[str], on_log=None) -> None:
         project_uid,
         f"renv::record(c({specs}), lockfile='renv.lock')",
         on_log=on_log,
+        options=options,
     )
 
 
-def remove_package(project_uid: str, package: str, on_log=None) -> None:
+def remove_package(project_uid: str, package: str, on_log=None, options: dict | None = None) -> None:
     ensure_manifest(project_uid)
     name = validate_package_spec(package).split("==")[0].split(">")[0].split("<")[0].strip()
     _run_r(
@@ -152,21 +167,22 @@ def remove_package(project_uid: str, package: str, on_log=None) -> None:
         f"lf$Packages[['{name}']] <- NULL; "
         f"renv::lockfile_write(lf, 'renv.lock')",
         on_log=on_log,
+        options=options,
     )
 
 
-def upgrade(project_uid: str, package: str | None = None, on_log=None) -> None:
+def upgrade(project_uid: str, package: str | None = None, on_log=None, options: dict | None = None) -> None:
     """Re-record newer versions into the lockfile: one package or all. Uses
     ``renv::record`` with the latest available version resolved from the repos."""
     ensure_manifest(project_uid)
     if package:
         safe = validate_package_spec(package)
-        _run_r(project_uid, f"renv::record('{safe}', lockfile='renv.lock')", on_log=on_log)
+        _run_r(project_uid, f"renv::record('{safe}', lockfile='renv.lock')", on_log=on_log, options=options)
     else:
         names = [p["name"] for p in list_packages(project_uid)]
         if names:
             specs = ", ".join(f'"{n}"' for n in names)
-            _run_r(project_uid, f"renv::record(c({specs}), lockfile='renv.lock')", on_log=on_log)
+            _run_r(project_uid, f"renv::record(c({specs}), lockfile='renv.lock')", on_log=on_log, options=options)
 
 
 def _to_renv_ref(requirement: str) -> str:
@@ -177,7 +193,7 @@ def _to_renv_ref(requirement: str) -> str:
     return requirement.strip()
 
 
-async def build(project_uid: str, on_log=None) -> BuildResult:
+async def build(project_uid: str, on_log=None, options: dict | None = None) -> BuildResult:
     """Materialise the private library from ``renv.lock`` (``renv::restore``) as an
     async subprocess — off the event loop and killable on cancel."""
     ensure_manifest(project_uid)
@@ -185,14 +201,14 @@ async def build(project_uid: str, on_log=None) -> BuildResult:
     # RENV_PATHS_LIBRARY isn't enough — renv restores into a default location.
     # Forward-slash the path so it's a valid R string literal on every OS.
     lib = str(_library_dir(project_uid)).replace("\\", "/")
-    restore_code = f"renv::restore(lockfile='renv.lock', library='{lib}', prompt=FALSE)"
+    restore_code = _method_prefix(options) + f"renv::restore(lockfile='renv.lock', library='{lib}', prompt=FALSE)"
     if on_log is not None:
         on_log(f"$ {settings.rscript_bin} --vanilla -e {restore_code!r}")
     proc = await asyncio.create_subprocess_exec(
         settings.rscript_bin, "--vanilla", "-e",
         restore_code,
         cwd=str(_spec_dir(project_uid)),
-        env=_renv_env(project_uid),
+        env=_renv_env(project_uid, options),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )

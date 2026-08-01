@@ -96,6 +96,43 @@ async def list_env_packages(
     return [PackageResponse(**p) for p in environments.list_packages(project_uid, language)]
 
 
+@router.get("/projects/{project_uid}/environments/{language}/options")
+async def get_env_options(
+    project_uid: str,
+    language: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Install options for this env: the per-env `override`, plus the `effective`
+    values after inheriting the workspace default and server config. The UI shows
+    the override for editing and the effective as placeholders."""
+    await _require_ide(db, project_uid, user, "read")
+    _valid_language(language)
+    return {
+        "override": environments.get_env_override(project_uid, language),
+        "effective": await environments.resolve_options(db, project_uid, language),
+    }
+
+
+@router.put("/projects/{project_uid}/environments/{language}/options")
+async def set_env_options(
+    project_uid: str,
+    language: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set the per-env install options override (versioned in git). Blank fields
+    are dropped (they fall back to the workspace default / server config)."""
+    await _require_ide(db, project_uid, user, "write")
+    _valid_language(language)
+    override = environments.set_env_override(project_uid, language, body or {})
+    return {
+        "override": override,
+        "effective": await environments.resolve_options(db, project_uid, language),
+    }
+
+
 @router.post(
     "/projects/{project_uid}/environments/{language}/packages",
     response_model=EnvironmentResponse,

@@ -107,6 +107,26 @@ async def list_for_project(db: AsyncSession, project_uid: str) -> list[Environme
     ]
 
 
+async def resolve_options(db: AsyncSession, project_uid: str, language: str) -> dict:
+    """The effective install options (repos/method or index/trusted-host) for this
+    env: server defaults ← workspace default ← per-env override, most specific wins.
+    Threaded into every provisioner call so packages resolve against the right
+    index/repo (e.g. an internal mirror at a hospital)."""
+    from app.models.project import Project
+    from app.models.workspace import Workspace
+    from app.services.execution import env_options
+
+    project = await db.get(Project, project_uid)
+    ws = (
+        await db.get(Workspace, project.workspace_id)
+        if project and project.workspace_id
+        else None
+    )
+    ws_default = ws.default_env_options if ws else None
+    override = env_options.read_env_override(project_uid, language)
+    return env_options.resolve(language, ws_default, override)
+
+
 async def add_packages(
     db: AsyncSession, project_uid: str, language: str, packages: list[str], on_log=None
 ) -> Environment:
@@ -114,9 +134,10 @@ async def add_packages(
     Adding a package promotes a `system` env to `managed` — it now has a spec to
     build. The venv itself is (re)built separately via ``build`` (manual)."""
     env = await resolve(db, project_uid, language)
+    opts = await resolve_options(db, project_uid, language)
     # The provisioner shells out (blocking subprocess) — run it off the event loop
     # so a slow index resolve can't freeze the single uvicorn worker.
-    await asyncio.to_thread(_provisioner(language).add_packages, project_uid, packages, on_log)
+    await asyncio.to_thread(_provisioner(language).add_packages, project_uid, packages, on_log, opts)
     return await _mark_managed(db, env)
 
 
@@ -124,12 +145,29 @@ async def remove_package(
     db: AsyncSession, project_uid: str, language: str, package: str, on_log=None
 ) -> Environment:
     env = await resolve(db, project_uid, language)
-    await asyncio.to_thread(_provisioner(language).remove_package, project_uid, package, on_log)
+    opts = await resolve_options(db, project_uid, language)
+    await asyncio.to_thread(_provisioner(language).remove_package, project_uid, package, on_log, opts)
     return await _mark_managed(db, env)
 
 
 def list_packages(project_uid: str, language: str) -> list[dict]:
     return _provisioner(language).list_packages(project_uid)
+
+
+def get_env_override(project_uid: str, language: str) -> dict:
+    """The per-env install options override (repos/method or index/trusted-host)."""
+    from app.services.execution import env_options
+
+    return env_options.read_env_override(project_uid, language)
+
+
+def set_env_override(project_uid: str, language: str, options: dict) -> dict:
+    """Persist the per-env install options override (versioned in git). Returns the
+    sanitised, stored override."""
+    from app.services.execution import env_options
+
+    env_options.write_env_override(project_uid, language, options)
+    return env_options.read_env_override(project_uid, language)
 
 
 async def upgrade(
@@ -138,7 +176,8 @@ async def upgrade(
     """Re-lock one package (or all) to a newer version and mark the env draft so the
     user rebuilds. `package=None` = upgrade all."""
     env = await resolve(db, project_uid, language)
-    await asyncio.to_thread(_provisioner(language).upgrade, project_uid, package, on_log)
+    opts = await resolve_options(db, project_uid, language)
+    await asyncio.to_thread(_provisioner(language).upgrade, project_uid, package, on_log, opts)
     return await _mark_managed(db, env)
 
 
@@ -151,9 +190,10 @@ async def build(
     to stream into the job's log tail."""
     prov = _provisioner(language)
     env = await resolve(db, project_uid, language)
+    opts = await resolve_options(db, project_uid, language)
     env.status = "building"
     await db.commit()
-    result = await prov.build(project_uid, on_log=on_log)
+    result = await prov.build(project_uid, on_log=on_log, options=opts)
     env = await resolve(db, project_uid, language)
     if result.ok:
         env.status = "ready"

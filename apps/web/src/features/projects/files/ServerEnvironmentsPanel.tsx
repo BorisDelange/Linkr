@@ -6,6 +6,9 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { ChevronRight } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,9 +39,12 @@ import {
   buildEnvironment,
   installPreset,
   upgradeEnvPackages,
+  getEnvOptions,
+  setEnvOptions,
   listJobs,
   type ProjectEnvironment,
   type EnvPackage,
+  type EnvInstallOptions,
 } from '@/lib/api/environments'
 
 /**
@@ -424,6 +430,8 @@ export function ServerEnvironmentsPanel({
             </div>
           </div>
         )}
+
+        {canWrite && <AdvancedOptions language={language} projectUid={projectUid} reloadKey={reloadKey} />}
       </div>
 
       <AlertDialog open={!!removeTarget} onOpenChange={(open) => { if (!open) setRemoveTarget(null) }}>
@@ -451,5 +459,96 @@ export function ServerEnvironmentsPanel({
         </AlertDialogContent>
       </AlertDialog>
     </TooltipProvider>
+  )
+}
+
+/** Collapsible "Advanced options" — per-env install settings (repos/method for R,
+ *  index URL / trusted host for Python). Blank fields inherit the workspace default
+ *  (shown as a placeholder). Saved to the env's versioned options.json. */
+function AdvancedOptions({
+  language,
+  projectUid,
+  reloadKey,
+}: {
+  language: 'python' | 'r'
+  projectUid: string
+  reloadKey?: unknown
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [override, setOverride] = useState<EnvInstallOptions>({})
+  const [effective, setEffective] = useState<EnvInstallOptions>({})
+  const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
+
+  const load = useCallback(async () => {
+    const res = await getEnvOptions(projectUid, language).catch(() => null)
+    if (res) {
+      setOverride(res.override)
+      setEffective(res.effective)
+      setDirty(false)
+    }
+  }, [projectUid, language])
+
+  useEffect(() => {
+    void load()
+  }, [load, reloadKey])
+
+  const set = (key: keyof EnvInstallOptions, value: string) => {
+    setOverride((o) => ({ ...o, [key]: value }))
+    setDirty(true)
+  }
+
+  const onSave = async () => {
+    setSaving(true)
+    try {
+      const res = await setEnvOptions(projectUid, language, override)
+      setOverride(res.override)
+      setEffective(res.effective)
+      setDirty(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Fields per language: [key, label, placeholder from effective/inherited value].
+  const fields: Array<{ key: keyof EnvInstallOptions; label: string; placeholder?: string }> =
+    language === 'r'
+      ? [
+          { key: 'repos', label: t('environments.opt_repos'), placeholder: effective.repos },
+          { key: 'method', label: t('environments.opt_method'), placeholder: effective.method || 'auto' },
+        ]
+      : [
+          { key: 'indexUrl', label: t('environments.opt_index_url'), placeholder: effective.indexUrl },
+          { key: 'trustedHost', label: t('environments.opt_trusted_host'), placeholder: effective.trustedHost },
+        ]
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="border-t pt-2">
+      <CollapsibleTrigger className="flex w-full items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <ChevronRight size={13} className={cn('transition-transform', open && 'rotate-90')} />
+        {t('environments.advanced_options')}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2 flex flex-col gap-2">
+        {fields.map((f) => (
+          <div key={f.key} className="flex flex-col gap-1">
+            <Label className="text-[11px] text-muted-foreground">{f.label}</Label>
+            <Input
+              value={override[f.key] ?? ''}
+              placeholder={f.placeholder}
+              onChange={(e) => set(f.key, e.target.value)}
+              className="h-7 text-xs"
+            />
+          </div>
+        ))}
+        <p className="text-[10px] text-muted-foreground">{t('environments.advanced_options_hint')}</p>
+        <div className="flex justify-end">
+          <Button size="xs" disabled={!dirty || saving} onClick={() => void onSave()}>
+            {saving && <Loader2 size={12} className="mr-1 animate-spin" />}
+            {t('common.save')}
+          </Button>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }

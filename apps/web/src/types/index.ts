@@ -161,6 +161,12 @@ export interface Workspace extends Seedable, Authored, Lineaged {
   /** Default package lists for new projects' environments, per language:
    *  { python: ["pandas", …], r: ["dplyr", …] }. Undefined = built-in defaults. */
   defaultEnvPackages?: { python?: string[]; r?: string[] }
+  /** Default install options inherited by new projects' environments:
+   *  { python: {indexUrl, trustedHost}, r: {repos, method} }. */
+  defaultEnvOptions?: {
+    python?: { indexUrl?: string; trustedHost?: string }
+    r?: { repos?: string; method?: string }
+  }
   createdAt: string
   updatedAt: string
 }

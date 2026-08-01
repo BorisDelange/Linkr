@@ -250,7 +250,10 @@
     "description": "Packages avec lesquels démarre un nouveau projet de ce workspace. Un par ligne — un nom seul installe la dernière version, ou épinglez-en une avec un comparateur (ex. pandas==2.1.4, plotly>=5.20). Laissez un langage vide pour démarrer avec un environnement vide. Utilisez « Charger les valeurs par défaut » pour un jeu data-science courant.",
     "load_defaults": "Charger les valeurs par défaut",
     "python_hint": "Packages Python (installés avec uv)",
-    "r_hint": "Packages R (installés avec renv)"
+    "r_hint": "Packages R (installés avec renv)",
+    "python_options": "Options d'installation Python",
+    "r_options": "Options d'installation R",
+    "options_hint": "Réglages d'installation par défaut hérités par les nouveaux projets (surchargeables par environnement). Laissez vide pour la valeur par défaut du serveur."
   },
   "projects": {
     "title": "Projets",
@@ -2527,6 +2530,12 @@
     "build": "Reconstruire",
     "auto_build": "Reconstruire automatiquement",
     "auto_build_hint": "Si activé, ajouter, mettre à jour ou supprimer un package reconstruit l'environnement immédiatement (installe le changement). Si désactivé, les changements sont enregistrés et appliqués à la prochaine reconstruction ou au premier lancement du code.",
+    "advanced_options": "Options avancées",
+    "advanced_options_hint": "Laissez vide pour hériter du réglage par défaut du workspace (affiché en indice). Enregistré avec le projet.",
+    "opt_repos": "URL du dépôt CRAN",
+    "opt_method": "Méthode de téléchargement (auto, libcurl, curl, wget)",
+    "opt_index_url": "URL de l'index PyPI",
+    "opt_trusted_host": "Hôte de confiance (ignorer la vérification SSL d'un miroir interne)",
     "build_taking_too_long": "La construction prend plus de temps que prévu — consultez le panneau des tâches pour suivre la progression.",
     "build_help_draft": "Votre liste de packages a changé mais n'est pas encore installée. Reconstruisez pour installer les packages déclarés dans l'environnement isolé du projet. (Cela se fait aussi automatiquement au premier lancement du code.)",
     "build_help_building": "Construction de l'environnement en cours — installation des packages déclarés. Suivez la progression dans le panneau des tâches (barre du bas).",

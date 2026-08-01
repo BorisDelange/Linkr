@@ -92,6 +92,39 @@ export function upgradeEnvPackages(
   })
 }
 
+/** Install options for an env: repos/method (R) or indexUrl/trustedHost (Python). */
+export interface EnvInstallOptions {
+  repos?: string
+  method?: string
+  indexUrl?: string
+  trustedHost?: string
+}
+
+export interface EnvOptionsResponse {
+  /** The per-env override (only fields the user explicitly set). */
+  override: EnvInstallOptions
+  /** Effective values after inheriting workspace default + server config. */
+  effective: EnvInstallOptions
+}
+
+export function getEnvOptions(
+  projectUid: string,
+  language: 'python' | 'r',
+): Promise<EnvOptionsResponse> {
+  return apiRequest(`/projects/${projectUid}/environments/${language}/options`)
+}
+
+export function setEnvOptions(
+  projectUid: string,
+  language: 'python' | 'r',
+  options: EnvInstallOptions,
+): Promise<EnvOptionsResponse> {
+  return apiRequest(`/projects/${projectUid}/environments/${language}/options`, {
+    method: 'PUT',
+    body: JSON.stringify(options),
+  })
+}
+
 export function listJobs(projectUid: string): Promise<Job[]> {
   return apiRequest(`/projects/${projectUid}/jobs`)
 }

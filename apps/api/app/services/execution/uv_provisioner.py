@@ -99,18 +99,32 @@ def _split_requirement(req: str) -> dict:
     return {"name": req.strip(), "spec": ""}
 
 
-def _run(project_uid: str, args: list[str], on_log=None) -> str:
+def _uv_env(project_uid: str, options: dict | None = None) -> dict[str, str]:
+    """The environment for a uv subprocess: shared cache + the project venv, plus
+    the resolved install options (index URL, trusted host for an internal mirror
+    with a self-signed cert). Falls back to the server-wide index."""
+    options = options or {}
+    env = {
+        **_base_env(),
+        "UV_CACHE_DIR": str(project_fs.env_package_cache("uv")),
+        "UV_PROJECT_ENVIRONMENT": str(_venv_dir(project_uid)),
+        "UV_INDEX_URL": options.get("indexUrl") or settings.pip_index_url,
+    }
+    trusted = options.get("trustedHost")
+    if trusted:
+        # uv honours pip's trusted-host to skip TLS verification for an internal
+        # mirror (self-signed cert behind a corporate proxy).
+        env["UV_INSECURE_HOST"] = trusted
+    return env
+
+
+def _run(project_uid: str, args: list[str], on_log=None, options: dict | None = None) -> str:
     """Run a uv command in the env's spec dir with the shared cache configured.
     Returns combined output; raises ProvisionError with the output on failure.
     ``on_log`` (if given) receives the exact command line and its output so a job
     can surface both — the user sees precisely what ran and why it failed."""
     spec_dir = project_fs.env_spec_dir(project_uid, "python")
-    env = {
-        **_base_env(),
-        "UV_CACHE_DIR": str(project_fs.env_package_cache("uv")),
-        "UV_PROJECT_ENVIRONMENT": str(_venv_dir(project_uid)),
-        "UV_INDEX_URL": settings.pip_index_url,
-    }
+    env = _uv_env(project_uid, options)
     cmdline = f"$ {settings.uv_bin} {' '.join(args)}"
     if on_log is not None:
         on_log(cmdline)
@@ -143,22 +157,22 @@ def _base_env() -> dict[str, str]:
     return env
 
 
-def add_packages(project_uid: str, packages: list[str], on_log=None) -> None:
+def add_packages(project_uid: str, packages: list[str], on_log=None, options: dict | None = None) -> None:
     """Add dependencies: rewrite the manifest and re-lock (no venv build yet)."""
     ensure_manifest(project_uid)
     safe = [validate_package_spec(p) for p in packages]
     # `--` so a package name is never parsed as a uv flag (allowlist already bans
     # a leading dash, but keep the argv boundary explicit).
-    _run(project_uid, ["add", "--no-sync", "--", *safe], on_log=on_log)
+    _run(project_uid, ["add", "--no-sync", "--", *safe], on_log=on_log, options=options)
 
 
-def remove_package(project_uid: str, package: str, on_log=None) -> None:
+def remove_package(project_uid: str, package: str, on_log=None, options: dict | None = None) -> None:
     """Remove a dependency: rewrite the manifest and re-lock (no venv build yet)."""
     ensure_manifest(project_uid)
-    _run(project_uid, ["remove", "--no-sync", "--", validate_package_spec(package)], on_log=on_log)
+    _run(project_uid, ["remove", "--no-sync", "--", validate_package_spec(package)], on_log=on_log, options=options)
 
 
-def upgrade(project_uid: str, package: str | None = None, on_log=None) -> None:
+def upgrade(project_uid: str, package: str | None = None, on_log=None, options: dict | None = None) -> None:
     """Re-lock to newer versions: one package (``uv lock --upgrade-package X``) or
     all (``uv lock --upgrade``). Re-lock only — the user builds to materialise."""
     ensure_manifest(project_uid)
@@ -166,22 +180,17 @@ def upgrade(project_uid: str, package: str | None = None, on_log=None) -> None:
         args = ["lock", "--upgrade-package", validate_package_spec(package)]
     else:
         args = ["lock", "--upgrade"]
-    _run(project_uid, args, on_log=on_log)
+    _run(project_uid, args, on_log=on_log, options=options)
 
 
-async def build(project_uid: str, on_log=None) -> BuildResult:
+async def build(project_uid: str, on_log=None, options: dict | None = None) -> BuildResult:
     """Materialise the venv from the lockfile as an async subprocess (`uv sync`),
     so it doesn't block the event loop (uvicorn is 1 worker) AND can be killed on
     cancel. Streams lines to ``on_log`` if given. Cancelling the awaiting task
     terminates the uv process (see the CancelledError handler)."""
     ensure_manifest(project_uid)
     spec_dir = project_fs.env_spec_dir(project_uid, "python")
-    env = {
-        **_base_env(),
-        "UV_CACHE_DIR": str(project_fs.env_package_cache("uv")),
-        "UV_PROJECT_ENVIRONMENT": str(_venv_dir(project_uid)),
-        "UV_INDEX_URL": settings.pip_index_url,
-    }
+    env = _uv_env(project_uid, options)
     if on_log is not None:
         on_log(f"$ {settings.uv_bin} sync")
     proc = await asyncio.create_subprocess_exec(

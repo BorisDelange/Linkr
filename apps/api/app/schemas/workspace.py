@@ -30,6 +30,9 @@ class WorkspaceUpdate(CamelModel):
     git_remote_config: dict | None = None
     # {"python": [...], "r": [...]} default packages for new projects' environments.
     default_env_packages: dict | None = None
+    # {"python": {"indexUrl","trustedHost"}, "r": {"repos","method"}} default install
+    # options inherited by new projects' environments.
+    default_env_options: dict | None = None
     # Editable authoring provenance (author re-attribution + org snapshot).
     created_by_id: int | None = None
     created_by: str | None = None
@@ -50,6 +53,7 @@ class WorkspaceResponse(CamelModel):
     readme: dict | str | None = None
     git_remote_config: dict | None = None
     default_env_packages: dict | None = None
+    default_env_options: dict | None = None
     origin: str
     owner_id: int | None = None
     created_by_id: int | None = None

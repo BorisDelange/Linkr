@@ -250,7 +250,10 @@
     "description": "Packages a new project in this workspace starts with. One per line — a bare name installs the latest version, or pin one with a comparator (e.g. pandas==2.1.4, plotly>=5.20). Leave a language empty to start new projects with an empty environment. Use ‘Load defaults’ for a common data-science set.",
     "load_defaults": "Load defaults",
     "python_hint": "Python packages (installed with uv)",
-    "r_hint": "R packages (installed with renv)"
+    "r_hint": "R packages (installed with renv)",
+    "python_options": "Python install options",
+    "r_options": "R install options",
+    "options_hint": "Default install settings inherited by new projects (can be overridden per environment). Leave blank for the server default."
   },
   "projects": {
     "title": "Projects",
@@ -2527,6 +2530,12 @@
     "build": "Rebuild",
     "auto_build": "Rebuild automatically",
     "auto_build_hint": "When on, adding, updating or removing a package rebuilds the environment immediately (installs the change). When off, changes are recorded and applied on the next Build or the first time you run code.",
+    "advanced_options": "Advanced options",
+    "advanced_options_hint": "Leave blank to inherit the workspace default (shown as a hint). Saved with the project.",
+    "opt_repos": "CRAN repository URL",
+    "opt_method": "Download method (auto, libcurl, curl, wget)",
+    "opt_index_url": "PyPI index URL",
+    "opt_trusted_host": "Trusted host (skip SSL check for an internal mirror)",
     "build_taking_too_long": "The build is taking longer than expected — check the jobs panel for progress.",
     "build_help_draft": "Your package list changed but isn't installed yet. Build to install the declared packages into this project's isolated environment. (This also runs automatically the first time you execute code.)",
     "build_help_building": "Building the environment — installing the declared packages. Follow progress in the jobs panel (footer).",
