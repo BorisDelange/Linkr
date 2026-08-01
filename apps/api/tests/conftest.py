@@ -87,9 +87,14 @@ async def client(engine, seed_roles, monkeypatch):
     # they'd hit the real ~/.linkr database and see a different (or empty) dataset.
     import app.core.ws_auth as ws_auth
     import app.api.v1.routes.execution as execution_route
+    import app.services.execution.jobs as jobs_svc
 
     monkeypatch.setattr(ws_auth, "async_session", maker)
     monkeypatch.setattr(execution_route, "async_session", maker)
+    # Job bodies (env build, package ops) open their own session via
+    # `async_session` — point it at the test maker so they see the seeded project.
+    monkeypatch.setattr(jobs_svc, "async_session", maker)
+    monkeypatch.setattr("app.core.database.async_session", maker)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

@@ -108,13 +108,20 @@ async def add_env_packages(
     db: AsyncSession = Depends(get_db),
 ):
     """Add package(s): rewrite the manifest and re-lock. Build is a separate,
-    explicit step (POST …/build) — nothing is materialised here."""
+    explicit step (POST …/build) — nothing is materialised here. Runs as a tracked
+    job so the exact command + any failure is visible in the jobs panel."""
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
     if not body.packages:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No packages given")
+    label = f"Add {', '.join(body.packages)} to {environments.language_label(language)}"
     try:
-        env = await environments.add_packages(db, project_uid, language, body.packages)
+        env = await environments.run_package_op_as_job(
+            db, project_uid, language, user.id, label,
+            lambda job_db, on_log: environments.add_packages(
+                job_db, project_uid, language, body.packages, on_log=on_log
+            ),
+        )
     except (ValueError, ProvisionError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return _env_response(env)
@@ -134,8 +141,14 @@ async def remove_env_package(
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
     package = _valid_package(package)
+    label = f"Remove {package} from {environments.language_label(language)}"
     try:
-        env = await environments.remove_package(db, project_uid, language, package)
+        env = await environments.run_package_op_as_job(
+            db, project_uid, language, user.id, label,
+            lambda job_db, on_log: environments.remove_package(
+                job_db, project_uid, language, package, on_log=on_log
+            ),
+        )
     except (ValueError, ProvisionError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return _env_response(env)
@@ -183,8 +196,15 @@ async def upgrade_env_packages(
     _valid_language(language)
     if package is not None:
         package = _valid_package(package)
+    target = package or "all packages"
+    label = f"Update {target} in {environments.language_label(language)}"
     try:
-        env = await environments.upgrade(db, project_uid, language, package)
+        env = await environments.run_package_op_as_job(
+            db, project_uid, language, user.id, label,
+            lambda job_db, on_log: environments.upgrade(
+                job_db, project_uid, language, package, on_log=on_log
+            ),
+        )
     except (ValueError, ProvisionError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return _env_response(env)

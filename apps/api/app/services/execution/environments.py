@@ -108,7 +108,7 @@ async def list_for_project(db: AsyncSession, project_uid: str) -> list[Environme
 
 
 async def add_packages(
-    db: AsyncSession, project_uid: str, language: str, packages: list[str]
+    db: AsyncSession, project_uid: str, language: str, packages: list[str], on_log=None
 ) -> Environment:
     """Add packages to a project's environment (declarative: manifest + re-lock).
     Adding a package promotes a `system` env to `managed` — it now has a spec to
@@ -116,15 +116,15 @@ async def add_packages(
     env = await resolve(db, project_uid, language)
     # The provisioner shells out (blocking subprocess) — run it off the event loop
     # so a slow index resolve can't freeze the single uvicorn worker.
-    await asyncio.to_thread(_provisioner(language).add_packages, project_uid, packages)
+    await asyncio.to_thread(_provisioner(language).add_packages, project_uid, packages, on_log)
     return await _mark_managed(db, env)
 
 
 async def remove_package(
-    db: AsyncSession, project_uid: str, language: str, package: str
+    db: AsyncSession, project_uid: str, language: str, package: str, on_log=None
 ) -> Environment:
     env = await resolve(db, project_uid, language)
-    await asyncio.to_thread(_provisioner(language).remove_package, project_uid, package)
+    await asyncio.to_thread(_provisioner(language).remove_package, project_uid, package, on_log)
     return await _mark_managed(db, env)
 
 
@@ -133,12 +133,12 @@ def list_packages(project_uid: str, language: str) -> list[dict]:
 
 
 async def upgrade(
-    db: AsyncSession, project_uid: str, language: str, package: str | None = None
+    db: AsyncSession, project_uid: str, language: str, package: str | None = None, on_log=None
 ) -> Environment:
     """Re-lock one package (or all) to a newer version and mark the env draft so the
     user rebuilds. `package=None` = upgrade all."""
     env = await resolve(db, project_uid, language)
-    await asyncio.to_thread(_provisioner(language).upgrade, project_uid, package)
+    await asyncio.to_thread(_provisioner(language).upgrade, project_uid, package, on_log)
     return await _mark_managed(db, env)
 
 
@@ -216,6 +216,58 @@ async def ensure_ready(
     # job runner so it's visible/cancellable; then re-read the (now built) env.
     await jobs.run_now(job.id, body)
     return await resolve(db, project_uid, language)
+
+
+async def run_package_op_as_job(
+    db: AsyncSession,
+    project_uid: str,
+    language: str,
+    user_id: int,
+    label: str,
+    op,
+) -> Environment:
+    """Run a package op (add/remove/upgrade) as a tracked job so the exact command,
+    its output, and any failure are visible + clickable in the jobs panel — never an
+    opaque 500. ``op`` is an async callable ``(job_db, on_log) -> None``.
+
+    Runs to completion before returning (``run_now``) so the caller still gets the
+    updated env synchronously; the job row survives for debugging. On failure the
+    job runner catches the error and marks the job 'error' with the full log — we
+    then re-read that log and raise ProvisionError so the HTTP layer returns a clear
+    4xx (not a 500)."""
+    from app.core.database import async_session
+    from app.models.job import Job
+    from app.services.execution import jobs
+    from app.services.execution.uv_provisioner import ProvisionError
+
+    job = await jobs.create(db, project_uid, user_id, kind="package", label=label)
+    ok = {"done": False}
+
+    async def body(handle) -> None:
+        buffer: list[str] = []
+        try:
+            async with async_session() as job_db:
+                await op(job_db, buffer.append)
+                ok["done"] = True
+        finally:
+            if buffer:
+                await handle.log("\n".join(buffer[-200:]))
+
+    await jobs.run_now(job.id, body)
+    if ok["done"]:
+        # Re-read the env on the request's own session so the returned object is
+        # attached (the op mutated it on the job's now-closed session).
+        env = await _find(db, project_uid, language)
+        assert env is not None  # the op just created/updated it
+        await db.refresh(env)
+        return env
+    # The op failed: run_now caught it and marked the job 'error' with the log.
+    # Re-read it (fresh session — the runner committed from another one) so the
+    # HTTP layer surfaces the real terminal output instead of a bare 500.
+    async with async_session() as read_db:
+        failed = await read_db.get(Job, job.id)
+        detail = (failed.log_tail if failed else "") or "Package operation failed"
+    raise ProvisionError(detail)
 
 
 async def _mark_managed(db: AsyncSession, env: Environment) -> Environment:

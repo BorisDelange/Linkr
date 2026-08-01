@@ -15,14 +15,22 @@ class _FakeProvisioner:
     def __init__(self):
         self._pkgs: dict[str, list[dict]] = {}
 
-    def add_packages(self, project_uid, packages):
+    def add_packages(self, project_uid, packages, on_log=None):
+        if on_log:
+            on_log(f"$ fake add {' '.join(packages)}")
         self._pkgs.setdefault(project_uid, [])
         self._pkgs[project_uid].extend({"name": p, "spec": ""} for p in packages)
 
-    def remove_package(self, project_uid, package):
+    def remove_package(self, project_uid, package, on_log=None):
+        if on_log:
+            on_log(f"$ fake remove {package}")
         self._pkgs[project_uid] = [
             p for p in self._pkgs.get(project_uid, []) if p["name"] != package
         ]
+
+    def upgrade(self, project_uid, package=None, on_log=None):
+        if on_log:
+            on_log(f"$ fake upgrade {package or 'all'}")
 
     def list_packages(self, project_uid):
         return self._pkgs.get(project_uid, [])
@@ -87,6 +95,54 @@ async def test_add_and_list_packages(client, fake_provisioner):
         await client.get(f"{API}/projects/{uid}/environments/python/packages", headers=headers)
     ).json()
     assert [p["name"] for p in pkgs] == ["pandas"]
+
+
+async def test_add_package_creates_visible_job(client, fake_provisioner):
+    """A package add runs as a tracked job — the command it ran shows up in the
+    jobs panel so the user can inspect what happened."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    await client.post(
+        f"{API}/projects/{uid}/environments/python/packages",
+        headers=headers,
+        json={"packages": ["pandas"]},
+    )
+    jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
+    add_jobs = [j for j in jobs if j["kind"] == "package"]
+    assert add_jobs, "package op should create a job"
+    assert "$ fake add pandas" in add_jobs[0]["logTail"]
+
+
+async def test_failed_install_returns_clear_error_not_500(client, monkeypatch):
+    """A provisioner failure surfaces the real terminal output as a 422, not an
+    opaque 500 — and the failing job is kept for inspection."""
+
+    class _FailingProvisioner:
+        def add_packages(self, project_uid, packages, on_log=None):
+            if on_log:
+                on_log("$ uv add aaa")
+                on_log("error: no solution found: package `aaa` was not found")
+            from app.services.execution.uv_provisioner import ProvisionError
+
+            raise ProvisionError("$ uv add aaa\nerror: no solution found")
+
+        def list_packages(self, project_uid):
+            return []
+
+    monkeypatch.setattr(environments, "_provisioner", lambda language: _FailingProvisioner())
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    r = await client.post(
+        f"{API}/projects/{uid}/environments/python/packages",
+        headers=headers,
+        json={"packages": ["aaa"]},
+    )
+    assert r.status_code == 422
+    assert "no solution found" in r.json()["detail"]
+
+    jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
+    errored = [j for j in jobs if j["status"] == "error"]
+    assert errored and "uv add aaa" in errored[0]["logTail"]
 
 
 async def test_unknown_language_is_rejected(client):

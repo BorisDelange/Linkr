@@ -73,9 +73,12 @@ def _renv_env(project_uid: str) -> dict[str, str]:
     }
 
 
-def _run_r(project_uid: str, r_code: str) -> str:
+def _run_r(project_uid: str, r_code: str, on_log=None) -> str:
     import subprocess
 
+    cmdline = f"$ {settings.rscript_bin} --vanilla -e {r_code!r}"
+    if on_log is not None:
+        on_log(cmdline)
     try:
         proc = subprocess.run(
             [settings.rscript_bin, "--vanilla", "-e", r_code],
@@ -86,10 +89,12 @@ def _run_r(project_uid: str, r_code: str) -> str:
             timeout=_R_EDIT_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        raise ProvisionError("Rscript command timed out")
+        raise ProvisionError(f"{cmdline}\nRscript command timed out")
     out = (proc.stdout or "") + (proc.stderr or "")
+    if on_log is not None and out.strip():
+        on_log(out.rstrip())
     if proc.returncode != 0:
-        raise ProvisionError(out.strip() or "Rscript command failed")
+        raise ProvisionError(f"{cmdline}\n{out.strip()}" if out.strip() else f"{cmdline}\nRscript command failed")
     return out
 
 
@@ -123,7 +128,7 @@ def list_packages(project_uid: str) -> list[dict]:
     ]
 
 
-def add_packages(project_uid: str, packages: list[str]) -> None:
+def add_packages(project_uid: str, packages: list[str], on_log=None) -> None:
     """Record packages into the lockfile (no library build yet). renv::record adds
     them to renv.lock; the actual install happens on build (renv::restore)."""
     ensure_manifest(project_uid)
@@ -133,10 +138,11 @@ def add_packages(project_uid: str, packages: list[str]) -> None:
     _run_r(
         project_uid,
         f"renv::record(c({specs}), lockfile='renv.lock')",
+        on_log=on_log,
     )
 
 
-def remove_package(project_uid: str, package: str) -> None:
+def remove_package(project_uid: str, package: str, on_log=None) -> None:
     ensure_manifest(project_uid)
     name = validate_package_spec(package).split("==")[0].split(">")[0].split("<")[0].strip()
     _run_r(
@@ -145,21 +151,22 @@ def remove_package(project_uid: str, package: str) -> None:
         f"lf <- renv::lockfile_read('renv.lock'); "
         f"lf$Packages[['{name}']] <- NULL; "
         f"renv::lockfile_write(lf, 'renv.lock')",
+        on_log=on_log,
     )
 
 
-def upgrade(project_uid: str, package: str | None = None) -> None:
+def upgrade(project_uid: str, package: str | None = None, on_log=None) -> None:
     """Re-record newer versions into the lockfile: one package or all. Uses
     ``renv::record`` with the latest available version resolved from the repos."""
     ensure_manifest(project_uid)
     if package:
         safe = validate_package_spec(package)
-        _run_r(project_uid, f"renv::record('{safe}', lockfile='renv.lock')")
+        _run_r(project_uid, f"renv::record('{safe}', lockfile='renv.lock')", on_log=on_log)
     else:
         names = [p["name"] for p in list_packages(project_uid)]
         if names:
             specs = ", ".join(f'"{n}"' for n in names)
-            _run_r(project_uid, f"renv::record(c({specs}), lockfile='renv.lock')")
+            _run_r(project_uid, f"renv::record(c({specs}), lockfile='renv.lock')", on_log=on_log)
 
 
 def _to_renv_ref(requirement: str) -> str:
@@ -178,9 +185,12 @@ async def build(project_uid: str, on_log=None) -> BuildResult:
     # RENV_PATHS_LIBRARY isn't enough — renv restores into a default location.
     # Forward-slash the path so it's a valid R string literal on every OS.
     lib = str(_library_dir(project_uid)).replace("\\", "/")
+    restore_code = f"renv::restore(lockfile='renv.lock', library='{lib}', prompt=FALSE)"
+    if on_log is not None:
+        on_log(f"$ {settings.rscript_bin} --vanilla -e {restore_code!r}")
     proc = await asyncio.create_subprocess_exec(
         settings.rscript_bin, "--vanilla", "-e",
-        f"renv::restore(lockfile='renv.lock', library='{lib}', prompt=FALSE)",
+        restore_code,
         cwd=str(_spec_dir(project_uid)),
         env=_renv_env(project_uid),
         stdout=asyncio.subprocess.PIPE,

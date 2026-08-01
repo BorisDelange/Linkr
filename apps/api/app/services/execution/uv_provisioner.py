@@ -99,9 +99,11 @@ def _split_requirement(req: str) -> dict:
     return {"name": req.strip(), "spec": ""}
 
 
-def _run(project_uid: str, args: list[str]) -> str:
+def _run(project_uid: str, args: list[str], on_log=None) -> str:
     """Run a uv command in the env's spec dir with the shared cache configured.
-    Returns combined output; raises ProvisionError with the output on failure."""
+    Returns combined output; raises ProvisionError with the output on failure.
+    ``on_log`` (if given) receives the exact command line and its output so a job
+    can surface both — the user sees precisely what ran and why it failed."""
     spec_dir = project_fs.env_spec_dir(project_uid, "python")
     env = {
         **_base_env(),
@@ -109,6 +111,9 @@ def _run(project_uid: str, args: list[str]) -> str:
         "UV_PROJECT_ENVIRONMENT": str(_venv_dir(project_uid)),
         "UV_INDEX_URL": settings.pip_index_url,
     }
+    cmdline = f"$ {settings.uv_bin} {' '.join(args)}"
+    if on_log is not None:
+        on_log(cmdline)
     try:
         proc = subprocess.run(
             [settings.uv_bin, *args],
@@ -119,10 +124,13 @@ def _run(project_uid: str, args: list[str]) -> str:
             timeout=_UV_EDIT_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        raise ProvisionError(f"uv {' '.join(args)} timed out")
+        raise ProvisionError(f"{cmdline}\nuv {' '.join(args)} timed out")
     out = (proc.stdout or "") + (proc.stderr or "")
+    if on_log is not None and out.strip():
+        on_log(out.rstrip())
     if proc.returncode != 0:
-        raise ProvisionError(out.strip() or f"uv {' '.join(args)} failed")
+        # Prefix the command so the job log shows what ran, then the real output.
+        raise ProvisionError(f"{cmdline}\n{out.strip()}" if out.strip() else f"{cmdline}\nuv {' '.join(args)} failed")
     return out
 
 
@@ -135,22 +143,22 @@ def _base_env() -> dict[str, str]:
     return env
 
 
-def add_packages(project_uid: str, packages: list[str]) -> None:
+def add_packages(project_uid: str, packages: list[str], on_log=None) -> None:
     """Add dependencies: rewrite the manifest and re-lock (no venv build yet)."""
     ensure_manifest(project_uid)
     safe = [validate_package_spec(p) for p in packages]
     # `--` so a package name is never parsed as a uv flag (allowlist already bans
     # a leading dash, but keep the argv boundary explicit).
-    _run(project_uid, ["add", "--no-sync", "--", *safe])
+    _run(project_uid, ["add", "--no-sync", "--", *safe], on_log=on_log)
 
 
-def remove_package(project_uid: str, package: str) -> None:
+def remove_package(project_uid: str, package: str, on_log=None) -> None:
     """Remove a dependency: rewrite the manifest and re-lock (no venv build yet)."""
     ensure_manifest(project_uid)
-    _run(project_uid, ["remove", "--no-sync", "--", validate_package_spec(package)])
+    _run(project_uid, ["remove", "--no-sync", "--", validate_package_spec(package)], on_log=on_log)
 
 
-def upgrade(project_uid: str, package: str | None = None) -> None:
+def upgrade(project_uid: str, package: str | None = None, on_log=None) -> None:
     """Re-lock to newer versions: one package (``uv lock --upgrade-package X``) or
     all (``uv lock --upgrade``). Re-lock only — the user builds to materialise."""
     ensure_manifest(project_uid)
@@ -158,7 +166,7 @@ def upgrade(project_uid: str, package: str | None = None) -> None:
         args = ["lock", "--upgrade-package", validate_package_spec(package)]
     else:
         args = ["lock", "--upgrade"]
-    _run(project_uid, args)
+    _run(project_uid, args, on_log=on_log)
 
 
 async def build(project_uid: str, on_log=None) -> BuildResult:
@@ -174,6 +182,8 @@ async def build(project_uid: str, on_log=None) -> BuildResult:
         "UV_PROJECT_ENVIRONMENT": str(_venv_dir(project_uid)),
         "UV_INDEX_URL": settings.pip_index_url,
     }
+    if on_log is not None:
+        on_log(f"$ {settings.uv_bin} sync")
     proc = await asyncio.create_subprocess_exec(
         settings.uv_bin, "sync",
         cwd=str(spec_dir),
