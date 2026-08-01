@@ -1,7 +1,15 @@
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { gitCloneToZip, gitSetSyncState, gitClearContentStatus, gitSetContentStatus, type GitScope } from '@/lib/api/git'
+import { toGitError } from '@/lib/git-error-message'
 import { applyClonedEntity, type GitLinkedEntity } from '@/lib/entity-io'
+
+/** Outcome of a content re-clone. On failure, `error` holds the underlying git
+ *  message so the badge can surface *why* (volatile, not persisted). */
+export interface RetryContentResult {
+  ok: boolean
+  error?: string
+}
 
 /**
  * Re-clone a single git-linked entity's content into its already-imported record
@@ -21,8 +29,8 @@ export async function retryGitContentClone(args: {
   branch: string
   workspaceId: string
   token?: string
-}): Promise<boolean> {
-  if (!isServerMode()) return false
+}): Promise<RetryContentResult> {
+  if (!isServerMode()) return { ok: false }
   const { scope, type, id, url, branch, workspaceId, token } = args
   try {
     const JSZip = (await import('jszip')).default
@@ -36,9 +44,9 @@ export async function retryGitContentClone(args: {
       if (ok) await gitClearContentStatus(workspaceId, scope, id)
       else await gitSetContentStatus(workspaceId, scope, id, 'failed')
     } catch { /* status is advisory */ }
-    return ok
-  } catch {
+    return { ok }
+  } catch (e) {
     try { await gitSetContentStatus(workspaceId, scope, id, 'failed') } catch { /* advisory */ }
-    return false
+    return { ok: false, error: toGitError(e).raw }
   }
 }

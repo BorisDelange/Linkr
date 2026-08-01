@@ -25,16 +25,19 @@ interface Props {
 export function GitContentStatusBadge({ workspaceId, scope, type, id, name, gitRemote, status, onResolved }: Props) {
   const { t } = useTranslation()
   const [retrying, setRetrying] = useState(false)
+  const [retryError, setRetryError] = useState<string | null>(null)
   if (!status) return null
 
   const retry = async () => {
     if (!gitRemote?.url) return
     setRetrying(true)
+    setRetryError(null)
     try {
-      const ok = await retryGitContentClone({
+      const { ok, error } = await retryGitContentClone({
         scope, type, id, name, url: gitRemote.url, branch: gitRemote.branch || 'main', workspaceId,
       })
       if (ok) onResolved()
+      else setRetryError(error || t('versioning.content_import_error_generic'))
     } finally {
       setRetrying(false)
     }
@@ -49,14 +52,28 @@ export function GitContentStatusBadge({ workspaceId, scope, type, id, name, gitR
             {t('versioning.content_not_imported')}
           </Badge>
         </TooltipTrigger>
-        <TooltipContent className="max-w-xs whitespace-pre-line">
-          {isServerMode()
-            ? t('versioning.content_not_imported_hint')
-            : t('versioning.content_not_imported_hint_clientonly')}
+        <TooltipContent className="max-w-xs">
+          <p className="whitespace-pre-line">
+            {isServerMode()
+              ? t('versioning.content_not_imported_hint')
+              : t('versioning.content_not_imported_hint_clientonly')}
+          </p>
+          {retryError && (
+            <div className="mt-2 border-t border-border/50 pt-2">
+              <p className="mb-1 font-medium text-amber-500">{t('versioning.content_import_error_label')}</p>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-relaxed opacity-90">{retryError}</pre>
+            </div>
+          )}
         </TooltipContent>
       </Tooltip>
       {isServerMode() && gitRemote?.url && (
-        <Button size="sm" variant="ghost" className="h-6 gap-1 px-2 text-xs" disabled={retrying} onClick={retry}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 gap-1 px-2 text-xs text-amber-600 hover:bg-amber-50 hover:text-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/40 dark:hover:text-amber-300"
+          disabled={retrying}
+          onClick={retry}
+        >
           {retrying ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           {t('versioning.content_retry_import')}
         </Button>

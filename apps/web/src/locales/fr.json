@@ -1489,6 +1489,8 @@
     "content_not_imported_hint": "Cet élément lié par Git a été importé sous forme de pointeur, mais son contenu n'a pas pu être reconstitué depuis le dépôt lié.",
     "content_not_imported_hint_clientonly": "Cet élément lié à Git a été importé comme pointeur uniquement — son contenu n'a pas été téléchargé.\nLe clonage Git n'est pas disponible en mode client seul ; lancez Linkr en mode serveur, ou téléchargez le dépôt lié en ZIP et importez-le ici pour charger son contenu.",
     "content_retry_import": "Réessayer l'import",
+    "content_import_error_label": "Dernière erreur d'import :",
+    "content_import_error_generic": "Le dépôt lié a été cloné, mais son contenu n'a pas pu être appliqué.",
     "tab_remote": "Distant",
     "tab_export": "Export",
     "commit_title": "Commit",
@@ -2766,8 +2768,8 @@
     "sign_out": "Se déconnecter"
   },
   "runtime": {
-    "loading_python": "Chargement Python...",
-    "loading_r": "Chargement R..."
+    "loading_python": "Chargement de l'environnement Python",
+    "loading_r": "Chargement de l'environnement R"
   },
   "catalog": {
     "title": "Catalogue",

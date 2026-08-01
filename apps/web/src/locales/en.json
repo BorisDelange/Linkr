@@ -1489,6 +1489,8 @@
     "content_not_imported_hint": "This git-linked element was imported as a pointer, but its content could not be reconstituted from the linked repository.",
     "content_not_imported_hint_clientonly": "This git-linked element was imported as a pointer only — its content wasn't downloaded.\nCloning from Git isn't available in client-only mode; run Linkr in server mode, or download the linked repository as a ZIP and import it here to load its content.",
     "content_retry_import": "Retry import",
+    "content_import_error_label": "Last import error:",
+    "content_import_error_generic": "The linked repository was cloned, but its content could not be applied.",
     "tab_remote": "Remote",
     "tab_export": "Export",
     "commit_title": "Commit",
@@ -2766,8 +2768,8 @@
     "sign_out": "Sign out"
   },
   "runtime": {
-    "loading_python": "Loading Python...",
-    "loading_r": "Loading R..."
+    "loading_python": "Loading Python runtime",
+    "loading_r": "Loading R runtime"
   },
   "catalog": {
     "title": "Catalog",
