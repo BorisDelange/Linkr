@@ -92,25 +92,6 @@ export function upgradeEnvPackages(
   })
 }
 
-/** Packages installed in the library/venv but not in the lockfile — the drift an
- *  imperative install (install.packages / pip install in a script) leaves behind. */
-export function getEnvDrift(
-  projectUid: string,
-  language: 'python' | 'r',
-): Promise<string[]> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/drift`)
-}
-
-/** Record drift-detected packages into the lockfile (renv::snapshot / uv add). */
-export function captureEnvDrift(
-  projectUid: string,
-  language: 'python' | 'r',
-): Promise<ProjectEnvironment> {
-  return apiRequest(`/projects/${projectUid}/environments/${language}/capture`, {
-    method: 'POST',
-  })
-}
-
 export function listJobs(projectUid: string): Promise<Job[]> {
   return apiRequest(`/projects/${projectUid}/jobs`)
 }

@@ -115,46 +115,6 @@ def ensure_manifest(project_uid: str) -> Path:
     return lock
 
 
-def installed_names(project_uid: str) -> list[str]:
-    """Package names actually present in the project's private library — read off
-    disk (each package is a directory with a DESCRIPTION). Used to detect drift:
-    packages installed imperatively (install.packages in a script) that the lockfile
-    doesn't record. Cheap and dependency-free (no Rscript call)."""
-    lib = _library_dir(project_uid)
-    if not lib.exists():
-        return []
-    names: list[str] = []
-    for entry in lib.iterdir():
-        # renv's library is flat: one directory per package, each with a DESCRIPTION.
-        if entry.is_dir() and (entry / "DESCRIPTION").exists():
-            names.append(entry.name)
-    return sorted(names)
-
-
-def detect_extra_names(project_uid: str) -> list[str]:
-    """Names present in the library but not recorded in the lockfile — packages a
-    script's ``install.packages`` added outside the declarative flow. renv's own
-    bookkeeping packages are excluded (they're infrastructure, not user deps)."""
-    _INFRA = {"renv", "BiocManager"}
-    recorded = {p["name"] for p in list_packages(project_uid)}
-    return [n for n in installed_names(project_uid) if n not in recorded and n not in _INFRA]
-
-
-def capture(project_uid: str, packages: list[str] | None = None, on_log=None) -> None:
-    """Record every package in the library into the lockfile (``renv::snapshot``),
-    so packages installed imperatively become versioned. type='all' snapshots the
-    whole library, not just what's reachable from the project's code. ``packages``
-    is accepted for interface parity with uv (renv always snapshots the whole
-    library, so it's ignored)."""
-    ensure_manifest(project_uid)
-    lib = str(_library_dir(project_uid)).replace("\\", "/")
-    _run_r(
-        project_uid,
-        f"renv::snapshot(lockfile='renv.lock', library='{lib}', type='all', prompt=FALSE)",
-        on_log=on_log,
-    )
-
-
 def list_packages(project_uid: str) -> list[dict]:
     """Recorded packages read from ``renv.lock`` (name + pinned version)."""
     lock = _lock_path(project_uid)

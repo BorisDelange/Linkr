@@ -210,50 +210,6 @@ async def upgrade_env_packages(
     return _env_response(env)
 
 
-@router.get(
-    "/projects/{project_uid}/environments/{language}/drift",
-    response_model=list[str],
-)
-async def get_env_drift(
-    project_uid: str,
-    language: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Packages installed in the library/venv but not in the lockfile — what a
-    script's imperative install left unversioned. The UI offers to capture them."""
-    await _require_ide(db, project_uid, user, "read")
-    _valid_language(language)
-    return environments.detect_drift(project_uid, language)
-
-
-@router.post(
-    "/projects/{project_uid}/environments/{language}/capture",
-    response_model=EnvironmentResponse,
-)
-async def capture_env_drift(
-    project_uid: str,
-    language: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Record drift-detected packages into the lockfile (renv::snapshot / uv add) so
-    an imperative install becomes versioned. Runs as a tracked job."""
-    await _require_ide(db, project_uid, user, "write")
-    _valid_language(language)
-    label = f"Capture packages into {environments.language_label(language)} lockfile"
-    try:
-        env = await environments.run_package_op_as_job(
-            db, project_uid, language, user.id, label,
-            lambda job_db, on_log: environments.capture_drift(
-                job_db, project_uid, language, on_log=on_log
-            ),
-        )
-    except (ValueError, ProvisionError) as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return _env_response(env)
-
-
 @router.post(
     "/projects/{project_uid}/environments/{language}/build",
     response_model=JobResponse,
