@@ -90,9 +90,12 @@ class JobHandle:
             job = await db.get(Job, self.job_id)
             if job is None:
                 return
+            # Append the line; don't prefix a newline when the log is still empty,
+            # and strip leading blank lines off the first entry — otherwise the
+            # panel opens on an empty leading line.
+            combined = f"{job.log_tail}\n{line}" if job.log_tail else line.lstrip("\n")
             # Keep only the tail so a chatty build doesn't bloat the row.
-            tail = (job.log_tail + "\n" + line).splitlines()[-200:]
-            job.log_tail = "\n".join(tail)
+            job.log_tail = "\n".join(combined.splitlines()[-200:])
             await db.commit()
 
     async def progress(self, pct: int) -> None:

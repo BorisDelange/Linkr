@@ -22,6 +22,9 @@ export function JobsIndicator() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [reloadTick, setReloadTick] = useState(0)
   const [logJobId, setLogJobId] = useState<string | null>(null)
+  // Controlled so opening a job's detail modal closes the list, and closing the
+  // modal reopens the list (natural back-to-list flow).
+  const [popoverOpen, setPopoverOpen] = useState(false)
   const enabled = isServerMode() && !!projectUid
 
   useEffect(() => {
@@ -57,7 +60,7 @@ export function JobsIndicator() {
 
   return (
     <>
-    <Popover>
+    <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
       <PopoverTrigger asChild>
         <button className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent/50 transition-colors">
           {activeCount > 0 ? (
@@ -87,7 +90,7 @@ export function JobsIndicator() {
               {/* Click the row to open the full log in a modal. */}
               <button
                 className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                onClick={() => setLogJobId(job.id)}
+                onClick={() => { setLogJobId(job.id); setPopoverOpen(false) }}
                 title={t('jobs.show_log')}
               >
                 <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">{formatJobTime(job.createdAt)}</span>
@@ -116,7 +119,7 @@ export function JobsIndicator() {
 
     {/* Full log in a large modal — the complete captured output (commands +
         results) of a build/package op, scrollable, monospace, with ANSI colour. */}
-    <Dialog open={!!logJob} onOpenChange={(o) => { if (!o) setLogJobId(null) }}>
+    <Dialog open={!!logJob} onOpenChange={(o) => { if (!o) { setLogJobId(null); setPopoverOpen(true) } }}>
       <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col sm:max-w-[1400px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">

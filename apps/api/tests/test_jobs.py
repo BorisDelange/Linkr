@@ -51,6 +51,30 @@ async def test_job_runs_to_done(db):
     assert "hello" in settled.log_tail
 
 
+async def test_log_has_no_blank_leading_line(db):
+    """The first log entry must not leave an empty leading line in the panel."""
+    job = await jobs.create(db, "proj-1", 1, kind="run", label="Run")
+
+    async def body(handle):
+        await handle.log("first")
+        await handle.log("second")
+
+    jobs.launch(job.id, body)
+    settled = await _wait_settled(db, job.id)
+    assert settled.log_tail == "first\nsecond"
+
+
+async def test_log_strips_leading_blank_lines_of_first_entry(db):
+    job = await jobs.create(db, "proj-1", 1, kind="run", label="Run")
+
+    async def body(handle):
+        await handle.log("\n\nfirst")
+
+    jobs.launch(job.id, body)
+    settled = await _wait_settled(db, job.id)
+    assert settled.log_tail == "first"
+
+
 async def test_job_body_failure_becomes_error(db):
     job = await jobs.create(db, "proj-1", 1, kind="build", label="Build")
 
