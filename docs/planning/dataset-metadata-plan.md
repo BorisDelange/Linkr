@@ -1,6 +1,6 @@
 # Dataset column metadata — design (labels, descriptions, value labels, parse options)
 
-Status: **design, ready to implement.** Captures how a dataset's *editorial*
+Status: **implemented (phases 1 + 2).** Captures how a dataset's *editorial*
 column metadata — display **label**, **description**, categorical **value
 labels** (code→label), plus the **parse options** (column types, filter mode,
 delimiter…) — is persisted so it **survives an app restart** and **travels with
@@ -229,6 +229,14 @@ Depends on the **blocking portal check** above.
 11. `setColumnType`: also write the sidecar (durable intent, not just the reimport).
 12. Stop writing `_columns.json` (`project_export.py` + `entity-io.ts`);
     `_tree.json` is the sole carrier. Regenerate + verify golden (TS + Python).
+
+## Relation to the dataset edit layer
+
+This sidecar is also the storage the **dataset edit layer**
+(`dataset-edit-layer-plan.md`) will reuse: a future top-level `"edits": [...]`
+key alongside `parseOptions` / `columns`, replayed at the same `resolve_cache`
+hook. Keep the sidecar's root generic (a JSON object of independent sections),
+not label-specific, so that layer slots in without a second sidecar.
 
 ## Open questions
 

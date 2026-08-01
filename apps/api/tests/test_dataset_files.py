@@ -389,3 +389,49 @@ async def test_column_meta_clear_removes_sidecar(client, seed_roles):
     )
     assert dataset_fs.read_column_meta(uid, "cohort.csv") == {}
     assert not dataset_fs._colmeta_path(uid, "cohort.csv").exists()
+
+
+async def test_parse_options_survives_raw_change(client, seed_roles):
+    """A forced column type persists in the sidecar and is re-applied when the raw
+    file changes (the fragility Phase 2 fixes: a plain reparse used to re-infer)."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    raw = _datasets(uid) / "c.csv"
+    raw.write_text("age,sex\n70,m\n")
+    await _meta(client, h, uid, "c.csv")
+    # Force age to string via reimport (persists parseOptions to the sidecar).
+    r = await client.post(
+        f"{API}/dataset-files/reimport", headers=h,
+        json={"projectUid": uid, "path": "c.csv", "parseOptions": {"columnTypes": {"col_age": "string"}}},
+    )
+    assert {c["id"]: c["type"] for c in r.json()["columns"]}["col_age"] == "string"
+    # Change the raw so the next /meta reparses with parseOptions=None.
+    import time
+    time.sleep(0.01)
+    raw.write_text("age,sex\n70,m\n80,f\n")
+    meta = await _meta(client, h, uid, "c.csv")
+    assert {c["id"]: c["type"] for c in meta["columns"]}["col_age"] == "string"  # survived
+    assert meta["parseOptions"]["columnTypes"] == {"col_age": "string"}
+
+
+async def test_filter_mode_persists_via_sidecar(client, seed_roles):
+    """columnFilterMode (pure-UI) persists through /columns/meta without a reparse,
+    and a later columns-only write does not clobber it."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "c.csv").write_text("age,sex\n70,m\n")
+    await _meta(client, h, uid, "c.csv")
+    await client.post(
+        f"{API}/dataset-files/columns/meta", headers=h,
+        json={"projectUid": uid, "path": "c.csv", "parseOptions": {"columnFilterMode": {"col_sex": "list"}}},
+    )
+    meta = await _meta(client, h, uid, "c.csv")
+    assert meta["parseOptions"]["columnFilterMode"] == {"col_sex": "list"}
+    # A columns-only write must leave parseOptions intact.
+    await client.post(
+        f"{API}/dataset-files/columns/meta", headers=h,
+        json={"projectUid": uid, "path": "c.csv", "columns": {"col_sex": {"label": "Sexe"}}},
+    )
+    meta = await _meta(client, h, uid, "c.csv")
+    assert meta["parseOptions"]["columnFilterMode"] == {"col_sex": "list"}
+    assert {c["id"]: c for c in meta["columns"]}["col_sex"]["label"] == "Sexe"

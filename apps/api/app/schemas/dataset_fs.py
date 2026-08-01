@@ -12,6 +12,9 @@ class DsNodeResponse(CamelModel):
     # Files only: inferred columns + row count (from the parsed Parquet cache).
     columns: list[dict] | None = None
     row_count: int | None = None
+    # Persisted parse options (columnTypes/columnFilterMode/delimiter/…) from the
+    # sidecar, so the client restores them after a restart and they travel on export.
+    parse_options: dict | None = None
 
 
 class DsImport(CamelModel):
@@ -60,12 +63,15 @@ class DsReimport(CamelModel):
 
 
 class DsColumnMeta(CamelModel):
-    """Editorial column metadata to persist in the disk sidecar. `columns` maps
-    columnId → {label?, description?, valueLabels?}; merged read-modify-write."""
+    """Editorial metadata to persist in the disk sidecar. `columns` maps columnId →
+    {label?, description?, valueLabels?} (authoritative replace). `parseOptions`,
+    when present, replaces the stored parse options (columnFilterMode/columnTypes/…)
+    without a reparse — for pure-UI options like filter mode."""
 
     project_uid: str
     path: str
-    columns: dict[str, dict]
+    columns: dict[str, dict] | None = None
+    parse_options: dict | None = None
 
 
 class DsDuplicate(CamelModel):

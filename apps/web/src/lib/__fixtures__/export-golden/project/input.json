@@ -95,7 +95,7 @@
   "datasetFiles": [
     { "id": "sub", "projectUid": "proj-uid-1", "name": "sub", "type": "folder", "parentId": null, "path": "sub", "createdAt": "", "updatedAt": "" },
     { "id": "sub/labs.csv", "projectUid": "proj-uid-1", "name": "labs.csv", "type": "file", "parentId": "sub", "path": "sub/labs.csv", "columns": [{ "id": "col_val", "name": "val", "type": "number", "order": 0 }], "rowCount": 2, "createdAt": "", "updatedAt": "" },
-    { "id": "cohort.csv", "projectUid": "proj-uid-1", "name": "cohort.csv", "type": "file", "parentId": null, "path": "cohort.csv", "columns": [{ "id": "col_age", "name": "age", "type": "number", "order": 0, "label": "Age", "description": "Age in years at inclusion" }, { "id": "col_sex", "name": "sex", "type": "string", "order": 1, "valueLabels": { "m": "Male", "f": "Female" } }], "rowCount": 3, "createdAt": "", "updatedAt": "" }
+    { "id": "cohort.csv", "projectUid": "proj-uid-1", "name": "cohort.csv", "type": "file", "parentId": null, "path": "cohort.csv", "columns": [{ "id": "col_age", "name": "age", "type": "number", "order": 0, "label": "Age", "description": "Age in years at inclusion" }, { "id": "col_sex", "name": "sex", "type": "string", "order": 1, "valueLabels": { "m": "Male", "f": "Female" } }], "rowCount": 3, "parseOptions": { "columnTypes": { "col_age": "number" }, "columnFilterMode": { "col_sex": "list" } }, "createdAt": "", "updatedAt": "" }
   ],
   "datasetAnalyses": {
     "cohort.csv": [

@@ -33,6 +33,7 @@ interface DsNode {
     label?: string; description?: string; valueLabels?: Record<string, string>
   }[] | null
   rowCount?: number | null
+  parseOptions?: import('@/types').DatasetParseOptions | null
 }
 
 function dsNodeToFile(projectUid: string, n: DsNode): DatasetFile {
@@ -49,6 +50,7 @@ function dsNodeToFile(projectUid: string, n: DsNode): DatasetFile {
     path: n.path,
     columns: (n.columns ?? undefined) as DatasetFile['columns'],
     rowCount: n.rowCount ?? undefined,
+    parseOptions: n.parseOptions ?? undefined,
     createdAt: '',
     updatedAt: '',
   }
@@ -363,6 +365,18 @@ export const apiDatasetFileStorage: DatasetFileStorage = {
       await apiRequest('/dataset-files/columns/meta', {
         method: 'POST',
         body: JSON.stringify({ projectUid, path: id, columns: columnMeta }),
+      })
+    }
+    // Parse options that don't require a reparse (e.g. columnFilterMode, a pure-UI
+    // filter preference) → same sidecar endpoint. columnTypes/delimiter changes go
+    // through /reimport, which persists them server-side on the reparse.
+    if (changes.parseOptions !== undefined && changes.parseOptions?.columnFilterMode !== undefined) {
+      await apiRequest('/dataset-files/columns/meta', {
+        method: 'POST',
+        body: JSON.stringify({
+          projectUid, path: id,
+          parseOptions: { columnFilterMode: changes.parseOptions.columnFilterMode },
+        }),
       })
     }
   },

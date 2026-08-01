@@ -77,21 +77,40 @@ signature; surface a "raw changed, review edits" state when the signature moves.
 
 ### Storage — where
 
-Beside the dataset, mirroring `columnTypes`:
-- **Server mode**: in the cache meta sidecar (`_meta.json` via `dataset_fs`) OR a
-  dedicated `edits.json` next to it. Keyed by the raw signature so a raw change
-  is detectable. The op list is small; it is NOT the Parquet (that's the
-  replayed output).
+**Settled: shares the column-metadata sidecar** (`docs/planning/dataset-metadata-plan.md`).
+That plan already ships the durable, git-travelling, `resolve_cache`-merged
+sidecar this layer needs — reuse it rather than a separate `edits.json`:
+- **Server mode**: the single per-dataset sidecar
+  `projects/<uid>/dataset-meta/<hash>.json` (under the project root, NOT the
+  re-bindable `datasets/`). It already holds `parseOptions` + `columns`
+  (label/description/valueLabels); the edit layer adds a top-level `"edits": [...]`
+  key. One file, one merge point, one thing that travels. The op list is small; it
+  is NOT the Parquet (that's the replayed output).
 - **Local mode**: in IndexedDB alongside the dataset record.
-- **Export/versioning**: the op list travels with the dataset metadata (small
-  JSON), never the materialized rows — consistent with the existing export
-  stripping rules.
+- **Export/versioning**: the sidecar travels via `resolve_cache` → `_tree.json`
+  (small JSON), never the materialized rows — consistent with the metadata plan.
+
+```json
+projects/<uid>/dataset-meta/<hash>.json
+{
+  "parseOptions": { "columnTypes": {...} },   // metadata plan phase 2
+  "columns":      { "col_x": { "label", "description", "valueLabels" } },  // phase 1
+  "edits":        [ { "op": "setCell", ... }, ... ]   // THIS layer
+}
+```
+
+Note the overlap: `setColumnType` / `renameColumn` / `reorderColumns` are already
+**column-metadata** in nature — once the metadata plan's phase 2 lands
+(`columnTypes` in the sidecar), those three ops are largely free here; only the
+row-level ops (`setCell`, `deleteRows`, `addRow`, `addColumn`, `dropColumn`) need
+the DuckDB replay below.
 
 ### Application — where in the pipeline
 
-In `dataset_fs.resolve_cache`, after parsing the raw and before writing the
-Parquet cache, **replay the ops in order** as DuckDB SQL over the parsed
-relation:
+In `dataset_fs.resolve_cache` — the metadata plan already merges the sidecar's
+column fields here, so the hook point exists. After parsing the raw and before
+writing the Parquet cache, **replay the ops in order** as DuckDB SQL over the
+parsed relation:
 - `setCell` → `UPDATE`/`CASE WHEN __row = k THEN v`
 - `deleteRows` → `WHERE __row NOT IN (...)`
 - `dropColumn` → projection without the column

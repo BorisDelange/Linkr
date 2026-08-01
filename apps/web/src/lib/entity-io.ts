@@ -709,9 +709,8 @@ export async function buildProjectZip(
       const dsPath = buildDatasetPath(df, byId)
       const folderName = dsPath.replace(/\.[^.]+$/, '')
 
-      if (df.columns && df.columns.length > 0) {
-        zip.file(`datasets/${folderName}/_columns.json`, json(df.columns))
-      }
+      // columns (with label/description/valueLabels) travel inline in _tree.json;
+      // the redundant _columns.json is no longer written (never read on import).
 
       const analyses = await storage.datasetAnalyses.getByDataset(df.id)
       for (const a of analyses) {

@@ -4,7 +4,7 @@
 The spec is authored by hand (or by Claude); this script owns every mechanical
 detail of the ZIP format so the spec stays readable:
   - assigns col-N ids from CSV headers and infers column types
-  - writes datasets/<slug>/{_columns.json,_data.json,<name>.csv}
+  - writes datasets/<slug>/{_data.json,<name>.csv} (columns inline in _tree.json)
   - remaps widget "column" refs (given as CSV header names) to col-N ids
   - assigns dashboard/tab/widget ids and grid layout
   - stamps appVersion, timestamps, .gitignore
@@ -691,9 +691,9 @@ def main():
             for ds in datasets:
                 # The parser rebuilds the folder from the dataset's `name` (minus any
                 # trailing extension), NOT from `slug` — mirror buildDatasetPath exactly
-                # so _data.json / _columns.json are found on import.
+                # so _data.json is found on import. columns travel inline in _tree.json
+                # (the redundant _columns.json is no longer written).
                 folder = strip_ext(ds["file"]["name"])
-                z.writestr(f"datasets/{folder}/_columns.json", json_bytes(ds["columns"]))
                 z.writestr(f"datasets/{folder}/_data.json", json_bytes({"rows": ds["rows"]}))
                 # Original CSV kept verbatim so "Import settings" works after re-import.
                 csv_name = f"{ds['slug']}.csv"

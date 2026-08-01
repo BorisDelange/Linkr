@@ -85,9 +85,10 @@ async def dataset_meta(
     await _check_project(db, project_uid, user, "datasets:read")
     columns: list[dict] | None = None
     row_count: int | None = None
+    parse_options: dict | None = None
     try:
         res = await asyncio.to_thread(dataset_fs.resolve_cache, project_uid, path)
-        columns, row_count = res["columns"], res["rowCount"]
+        columns, row_count, parse_options = res["columns"], res["rowCount"], res.get("parseOptions")
     except FileNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
     except Exception:
@@ -96,7 +97,7 @@ async def dataset_meta(
         id=project_fs.node_id("ds", path),
         name=path.rsplit("/", 1)[-1], type="file",
         parent_id=(project_fs.node_id("ds", path.rsplit("/", 1)[0]) if "/" in path else None),
-        path=path, columns=columns, row_count=row_count,
+        path=path, columns=columns, row_count=row_count, parse_options=parse_options,
     )
 
 
@@ -295,17 +296,17 @@ async def import_dataset(
 
 
 def _file_node(project_uid: str, path: str) -> DsNodeResponse:
-    columns = row_count = None
+    columns = row_count = parse_options = None
     try:
         res = dataset_fs.resolve_cache(project_uid, path)
-        columns, row_count = res["columns"], res["rowCount"]
+        columns, row_count, parse_options = res["columns"], res["rowCount"], res.get("parseOptions")
     except Exception:
         pass
     return DsNodeResponse(
         id=project_fs.node_id("ds", path),
         name=path.rsplit("/", 1)[-1], type="file",
         parent_id=(project_fs.node_id("ds", path.rsplit("/", 1)[0]) if "/" in path else None),
-        path=path, columns=columns, row_count=row_count,
+        path=path, columns=columns, row_count=row_count, parse_options=parse_options,
     )
 
 
@@ -338,7 +339,13 @@ async def set_column_meta(
     await _check_project(db, body.project_uid, user, "datasets:write")
     if not project_fs.dataset_path(body.project_uid, body.path).is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
-    dataset_fs.write_column_meta(body.project_uid, body.path, body.columns)
+    if body.columns is not None:
+        dataset_fs.write_column_meta(body.project_uid, body.path, body.columns)
+    if body.parse_options is not None:
+        # Field-wise merge so setting one option (e.g. columnFilterMode) never wipes
+        # another already stored (e.g. columnTypes).
+        merged = {**(dataset_fs.read_parse_options(body.project_uid, body.path) or {}), **body.parse_options}
+        dataset_fs.write_parse_options(body.project_uid, body.path, merged)
     return _file_node(body.project_uid, body.path)
 
 

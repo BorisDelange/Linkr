@@ -53,6 +53,31 @@ def read_column_meta(project_uid: str, rel: str) -> dict:
     return cols if isinstance(cols, dict) else {}
 
 
+def read_parse_options(project_uid: str, rel: str) -> dict | None:
+    """The persisted parse options (columnTypes/columnFilterMode/delimiter/…) from
+    the sidecar, or None. Durable — unlike the Parquet cache, it survives a raw
+    change, so a reparse re-applies the user's column types instead of re-inferring."""
+    meta = _read_meta(_colmeta_path(project_uid, rel))
+    opts = (meta or {}).get("parseOptions")
+    return opts if isinstance(opts, dict) and opts else None
+
+
+def write_parse_options(project_uid: str, rel: str, parse_options: dict | None) -> None:
+    """Persist the dataset's parse options into the sidecar (read-modify-write of
+    the parseOptions section only; the columns section is left intact)."""
+    path = _colmeta_path(project_uid, rel)
+    current = _read_meta(path) or {}
+    if parse_options:
+        current["parseOptions"] = parse_options
+        _write_meta(path, current)
+    else:
+        current.pop("parseOptions", None)
+        if current:
+            _write_meta(path, current)
+        else:
+            path.unlink(missing_ok=True)
+
+
 def write_column_meta(project_uid: str, rel: str, columns: dict) -> None:
     """Replace the sidecar's editorial column metadata with the given authoritative
     set (the client sends the full desired state, so a cleared column drops out —
@@ -127,13 +152,22 @@ def resolve_cache(
             meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": True}
             _write_meta(meta_path, meta)
         cols = merge_column_meta(meta["columns"], read_column_meta(project_uid, rel))
-        return {"parquet": raw, "columns": cols, "rowCount": meta["rowCount"], "native": True}
+        return {"parquet": raw, "columns": cols, "rowCount": meta["rowCount"], "native": True,
+                "parseOptions": read_parse_options(project_uid, rel)}
 
     # CSV/XLSX/etc: parse to a Parquet cache when missing/stale.
     parquet = _cache_parquet(project_uid, rel)
     meta = _read_meta(meta_path)
     if force or meta is None or meta.get("sig") != sig or not parquet.is_file():
-        columns, rows, row_count = _parse(raw, rel, parse_options)
+        # A reimport passes explicit options → persist them; otherwise fall back to
+        # the sidecar's stored options so a raw-change reparse keeps the user's
+        # column types instead of re-inferring (the fragility this fixes).
+        if parse_options is not None:
+            write_parse_options(project_uid, rel, parse_options)
+            effective_options = parse_options
+        else:
+            effective_options = read_parse_options(project_uid, rel)
+        columns, rows, row_count = _parse(raw, rel, effective_options)
         parquet.parent.mkdir(parents=True, exist_ok=True)
         # Write the temp on the destination filesystem so the replace() below is a
         # same-device atomic rename (a mounted volume differs from /tmp in Docker).
@@ -142,7 +176,8 @@ def resolve_cache(
         meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": False}
         _write_meta(meta_path, meta)
     cols = merge_column_meta(meta["columns"], read_column_meta(project_uid, rel))
-    return {"parquet": parquet, "columns": cols, "rowCount": meta["rowCount"], "native": False}
+    return {"parquet": parquet, "columns": cols, "rowCount": meta["rowCount"], "native": False,
+            "parseOptions": read_parse_options(project_uid, rel)}
 
 
 def _parse(raw: Path, rel: str, parse_options: dict | None):

@@ -513,9 +513,9 @@ def build_project_tree(
             ds_path = _dataset_path(df, by_id)
             folder_name = ds_path.rsplit(".", 1)[0] if "." in ds_path.rsplit("/", 1)[-1] else ds_path
 
-            columns = df.get("columns")
-            if columns:
-                tree[f"datasets/{folder_name}/_columns.json"] = _json(columns)
+            # columns (with label/description/valueLabels) travel inline in
+            # _tree.json — the redundant per-dataset _columns.json is no longer
+            # written (it was never read back on import; see dataset-metadata-plan).
 
             for a in dataset_analyses.get(df["id"], []):
                 tree[

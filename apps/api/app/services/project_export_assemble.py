@@ -104,13 +104,13 @@ def _dataset_node(project_uid: str, node: dict) -> dict:
     ``dsNodeToFile``): id === relative path, parentId === parent path. columns /
     rowCount are omitted when absent (the adapter maps null → undefined, which
     ``JSON.stringify`` drops). createdAt/updatedAt are '' (stripped by the builder)."""
-    columns, row_count = None, None
+    columns, row_count, parse_options = None, None, None
     if node["type"] == "file":
         try:
             res = dataset_fs.resolve_cache(project_uid, node["path"])
-            columns, row_count = res["columns"], res["rowCount"]
+            columns, row_count, parse_options = res["columns"], res["rowCount"], res.get("parseOptions")
         except Exception:
-            columns, row_count = None, None
+            columns, row_count, parse_options = None, None, None
     path = node["path"]
     parent_path = path.rsplit("/", 1)[0] if "/" in path else None
     out: dict = {
@@ -125,6 +125,8 @@ def _dataset_node(project_uid: str, node: dict) -> dict:
         out["columns"] = columns
     if row_count is not None:
         out["rowCount"] = row_count
+    if parse_options is not None:
+        out["parseOptions"] = parse_options
     out["createdAt"] = ""
     out["updatedAt"] = ""
     return out
