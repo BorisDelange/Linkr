@@ -42,6 +42,9 @@ build/
 *.xls
 *.duckdb
 *.arrow
+
+# ...but the dependabot triage log is a tracked decision record, not data
+!docs/security/dependabot-triage.csv
 *.feather
 
 # Golden test fixtures are versioned content, not data — the export format

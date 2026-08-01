@@ -1,0 +1,109 @@
+date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
+2026-08-01,@babel/core,GHSA-4x5r-pxfx-6jf8,low,105,resolved-in-lockfile,pending-merge,,installed 7.29.7 >= patched 7.29.6
+2026-08-01,@hono/node-server,GHSA-92pp-h63x-v22m,medium,44,resolved-in-lockfile,pending-merge,,installed 1.19.17 >= patched 1.19.13
+2026-08-01,@hono/node-server,GHSA-frvp-7c67-39w9,medium,113,false-positive,dismissed,not_used,"Windows-only, transitive dev tooling"
+2026-08-01,@hono/node-server,GHSA-wc8c-qw6v-h7f6,high,21,resolved-in-lockfile,pending-merge,,installed 1.19.17 >= patched 1.19.10
+2026-08-01,ajv,GHSA-2g4f-4pwh-qvx6,medium,"6,7",resolved-in-lockfile,pending-merge,,installed 6.15.0/8.20.0 >= patched 6.14.0
+2026-08-01,body-parser,GHSA-v422-hmwv-36x6,low,109,resolved-in-lockfile,pending-merge,,installed 2.3.0 >= patched 2.3.0
+2026-08-01,brace-expansion,GHSA-3jxr-9vmj-r5cp,high,"108,110,111",open,none,,transitive (build/lint tooling); a residual copy still < patched 2.1.2
+2026-08-01,brace-expansion,GHSA-f886-m6hf-6m8v,medium,"31,32,33",open,none,,transitive (build/lint tooling); a residual copy still < patched 1.1.13
+2026-08-01,brace-expansion,GHSA-jxxr-4gwj-5jf2,medium,70,open,none,,transitive (build/lint tooling); a residual copy still < patched 5.0.6
+2026-08-01,brace-expansion,GHSA-mh99-v99m-4gvg,high,128,open,none,,transitive (build/lint tooling); a residual copy still < patched 5.0.8
+2026-08-01,dompurify,GHSA-39q2-94rc-95cp,medium,51,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-76mc-f452-cxcm,medium,93,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-c2j3-45gr-mqc4,low,118,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-cj63-jhhr-wcxv,medium,39,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-cjmm-f4jc-qw8r,medium,40,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-cmwh-pvxp-8882,medium,103,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-crv5-9vww-q3g8,medium,54,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-gvmj-g25r-r7wr,low,89,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-h7mw-gpvr-xq4m,medium,53,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-h8r8-wccr-v5f2,medium,34,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-hpcv-96wg-7vj8,medium,90,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-r47g-fvhr-h676,medium,91,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-rp9w-3fw7-7cwq,medium,94,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-v2wj-7wpq-c8vv,medium,22,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-v9jr-rg53-9pgp,medium,52,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-vxr8-fq34-vvx9,low,95,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,dompurify,GHSA-x4vx-rjvf-j5p4,low,92,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-08-01,esbuild,GHSA-g7r4-m6w7-qqqr,low,86,false-positive,dismissed,not_used,"dev-server Windows-only, transitive via vite"
+2026-08-01,express-rate-limit,GHSA-46wh-pxpv-q5gq,high,23,resolved-in-lockfile,pending-merge,,installed 8.6.1 >= patched 8.2.2
+2026-08-01,fast-uri,GHSA-4c8g-83qw-93j6,high,117,resolved-in-lockfile,pending-merge,,installed 3.1.5 >= patched 3.1.3
+2026-08-01,fast-uri,GHSA-q3j6-qgpj-74h6,high,60,resolved-in-lockfile,pending-merge,,installed 3.1.5 >= patched 3.1.1
+2026-08-01,fast-uri,GHSA-v2hh-gcrm-f6hx,high,119,resolved-in-lockfile,pending-merge,,installed 3.1.5 >= patched 3.1.4
+2026-08-01,fast-uri,GHSA-v39h-62p7-jpjc,high,62,resolved-in-lockfile,pending-merge,,installed 3.1.5 >= patched 3.1.2
+2026-08-01,flatted,GHSA-25h7-pfq9-p65f,high,25,resolved-in-lockfile,pending-merge,,installed 3.4.4 >= patched 3.4.0
+2026-08-01,flatted,GHSA-rf6f-7fwh-wjgh,high,26,resolved-in-lockfile,pending-merge,,installed 3.4.4 >= patched 3.4.2
+2026-08-01,hono,GHSA-26pp-8wgv-hjvm,medium,47,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.12
+2026-08-01,hono,GHSA-2gcr-mfcq-wcc3,medium,84,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.21
+2026-08-01,hono,GHSA-3hrh-pfw6-9m5x,medium,82,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.21
+2026-08-01,hono,GHSA-458j-xx4x-4375,medium,50,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.14
+2026-08-01,hono,GHSA-5pq2-9x2x-5p6w,medium,20,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.4
+2026-08-01,hono,GHSA-69xw-7hcm-h432,medium,59,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.16
+2026-08-01,hono,GHSA-88fw-hqm2-52qc,high,100,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.25
+2026-08-01,hono,GHSA-9vqf-7f2p-gf9v,medium,58,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.16
+2026-08-01,hono,GHSA-f577-qrjj-4474,medium,81,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.21
+2026-08-01,hono,GHSA-gq3j-xvxp-8hrf,low,5,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.11.10
+2026-08-01,hono,GHSA-hm8q-7f3q-5f36,low,63,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.18
+2026-08-01,hono,GHSA-hvrm-45r6-mjfj,medium,116,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.27
+2026-08-01,hono,GHSA-j6c9-x7qj-28xf,medium,99,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.25
+2026-08-01,hono,GHSA-p6xx-57qc-3wxr,medium,19,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.4
+2026-08-01,hono,GHSA-p77w-8qqv-26rm,medium,61,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.18
+2026-08-01,hono,GHSA-q5qw-h33p-qvwr,high,18,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.4
+2026-08-01,hono,GHSA-qp7p-654g-cw7p,medium,64,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.18
+2026-08-01,hono,GHSA-r5rp-j6wh-rvv4,medium,49,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.12
+2026-08-01,hono,GHSA-rv63-4mwf-qqc2,medium,102,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.25
+2026-08-01,hono,GHSA-v8w9-8mx6-g223,medium,24,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.7
+2026-08-01,hono,GHSA-w62v-xxxg-mg59,medium,115,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.27
+2026-08-01,hono,GHSA-wgpf-jwqj-8h8p,medium,101,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.25
+2026-08-01,hono,GHSA-wmmm-f939-6g9c,medium,45,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.12
+2026-08-01,hono,GHSA-wwfh-h76j-fc44,medium,98,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.25
+2026-08-01,hono,GHSA-xf4j-xp2r-rqqx,medium,46,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.12
+2026-08-01,hono,GHSA-xgm2-5f3f-mvvc,medium,114,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.27
+2026-08-01,hono,GHSA-xpcf-pg52-r92g,medium,48,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.12
+2026-08-01,hono,GHSA-xrhx-7g5j-rcj5,medium,83,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.21
+2026-08-01,ip-address,GHSA-v2v4-37r5-5v8g,medium,57,resolved-in-lockfile,pending-merge,,installed 10.4.0 >= patched 10.1.1
+2026-08-01,js-yaml,GHSA-52cp-r559-cp3m,high,112,resolved-in-lockfile,pending-merge,,installed 4.3.1 >= patched 4.3.0
+2026-08-01,js-yaml,GHSA-h67p-54hq-rp68,medium,107,resolved-in-lockfile,pending-merge,,installed 4.3.1 >= patched 4.2.0
+2026-08-01,lodash-es,GHSA-f23m-r3pf-42rh,medium,37,resolved-in-lockfile,pending-merge,,installed 4.18.1 >= patched 4.18.0
+2026-08-01,lodash-es,GHSA-r5fr-rjxr-66jc,high,38,resolved-in-lockfile,pending-merge,,installed 4.18.1 >= patched 4.18.0
+2026-08-01,mermaid,GHSA-6m6c-36f7-fhxh,medium,68,resolved-in-lockfile,pending-merge,,installed 11.16.0 >= patched 11.15.0
+2026-08-01,mermaid,GHSA-87f9-hvmw-gh4p,medium,67,resolved-in-lockfile,pending-merge,,installed 11.16.0 >= patched 11.15.0
+2026-08-01,mermaid,GHSA-ghcm-xqfw-q4vr,medium,65,resolved-in-lockfile,pending-merge,,installed 11.16.0 >= patched 11.15.0
+2026-08-01,mermaid,GHSA-xcj9-5m2h-648r,medium,66,resolved-in-lockfile,pending-merge,,installed 11.16.0 >= patched 11.15.0
+2026-08-01,minimatch,GHSA-23c5-xmqv-rm74,high,"12,13,14",resolved-in-lockfile,pending-merge,,installed 10.2.6/3.1.5/9.0.9 >= patched 3.1.4
+2026-08-01,minimatch,GHSA-3ppc-4f35-3m26,high,"8,9,10",resolved-in-lockfile,pending-merge,,installed 10.2.6/3.1.5/9.0.9 >= patched 3.1.3
+2026-08-01,minimatch,GHSA-7r86-cg39-jmmj,high,"15,16,17",resolved-in-lockfile,pending-merge,,installed 10.2.6/3.1.5/9.0.9 >= patched 3.1.3
+2026-08-01,path-to-regexp,GHSA-27v5-c462-wpq7,medium,36,open,none,,transitive (build/lint tooling); a residual copy still < patched 8.4.0
+2026-08-01,path-to-regexp,GHSA-j3q9-mxjg-w52f,high,35,open,none,,transitive (build/lint tooling); a residual copy still < patched 8.4.0
+2026-08-01,picomatch,GHSA-3v7f-55p6-f55p,medium,"29,30",resolved-in-lockfile,pending-merge,,installed 2.3.2/4.0.5 >= patched 2.3.2
+2026-08-01,picomatch,GHSA-c2c7-rcm5-vvqj,high,"27,28",resolved-in-lockfile,pending-merge,,installed 2.3.2/4.0.5 >= patched 2.3.2
+2026-08-01,postcss,GHSA-6g55-p6wh-862q,high,127,resolved-in-lockfile,pending-merge,,installed 8.5.25 >= patched 8.5.12
+2026-08-01,postcss,GHSA-qx2v-qp2m-jg93,medium,69,resolved-in-lockfile,pending-merge,,installed 8.5.25 >= patched 8.5.10
+2026-08-01,postcss,GHSA-r28c-9q8g-f849,high,129,resolved-in-lockfile,pending-merge,,installed 8.5.25 >= patched 8.5.18
+2026-08-01,qs,GHSA-q8mj-m7cp-5q26,medium,71,resolved-in-lockfile,pending-merge,,installed 6.15.3 >= patched 6.15.2
+2026-08-01,react-router,GHSA-2j2x-hqr9-3h42,medium,79,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.14.1
+2026-08-01,react-router,GHSA-337j-9hxr-rhxg,medium,124,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.18.0
+2026-08-01,react-router,GHSA-49rj-9fvp-4h2h,high,78,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.14.2
+2026-08-01,react-router,GHSA-84g9-w2xq-vcv6,low,88,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.15.1
+2026-08-01,react-router,GHSA-8646-j5j9-6r62,high,76,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.13.2
+2026-08-01,react-router,GHSA-8x6r-g9mw-2r78,high,80,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.15.0
+2026-08-01,react-router,GHSA-chx6-hx7r-mcp5,high,123,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.18.0
+2026-08-01,react-router,GHSA-f22v-gfqf-p8f3,medium,77,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.13.2
+2026-08-01,react-router,GHSA-h8fp-f39c-q6mh,medium,120,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.18.0
+2026-08-01,react-router,GHSA-qwww-vcr4-c8h2,high,"121,122",false-positive,dismissed,not_used,RSC mode not used by Linkr (client SPA)
+2026-08-01,react-router,GHSA-rxv8-25v2-qmq8,high,85,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.14.0
+2026-08-01,react-router,GHSA-wrjc-x8rr-h8h6,medium,125,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.18.0
+2026-08-01,rollup,GHSA-mw96-cpmx-2vgc,high,11,resolved-in-lockfile,pending-merge,,installed 4.62.3 >= patched 4.59.0
+2026-08-01,turbo,GHSA-3qcw-2rhx-2726,low,73,resolved-in-lockfile,pending-merge,,installed 2.10.8 >= patched 2.9.14
+2026-08-01,turbo,GHSA-hcf7-66rw-9f5r,medium,74,resolved-in-lockfile,pending-merge,,installed 2.10.8 >= patched 2.9.14
+2026-08-01,uuid,GHSA-w5hq-g745-h8pq,medium,72,resolved-in-lockfile,pending-merge,,installed 14.0.1 >= patched 11.1.1
+2026-08-01,vite,GHSA-4w7w-66w2-5vf9,medium,43,resolved-in-lockfile,pending-merge,,installed 7.3.6 >= patched 7.3.2
+2026-08-01,vite,GHSA-fx2h-pf6j-xcff,high,96,resolved-in-lockfile,pending-merge,,installed 7.3.6 >= patched 7.3.5
+2026-08-01,vite,GHSA-p9ff-h696-f583,high,41,resolved-in-lockfile,pending-merge,,installed 7.3.6 >= patched 7.3.2
+2026-08-01,vite,GHSA-v2wj-q39q-566r,high,42,resolved-in-lockfile,pending-merge,,installed 7.3.6 >= patched 7.3.2
+2026-08-01,vite,GHSA-v6wh-96g9-6wx3,medium,97,resolved-in-lockfile,pending-merge,,installed 7.3.6 >= patched 7.3.5
+2026-08-01,ws,GHSA-58qx-3vcg-4xpx,medium,75,resolved-in-lockfile,pending-merge,,installed 8.21.1 >= patched 8.20.1
+2026-08-01,ws,GHSA-96hv-2xvq-fx4p,high,104,resolved-in-lockfile,pending-merge,,installed 8.21.1 >= patched 8.21.0
+2026-08-01,xlsx,GHSA-4r6h-8v6p-xvw6,high,"1,3",resolved-in-lockfile,pending-merge,,SheetJS 0.20.3 (official CDN) > vulnerable range
+2026-08-01,xlsx,GHSA-5pgg-2g8v-p4x9,high,"2,4",resolved-in-lockfile,pending-merge,,SheetJS 0.20.3 (official CDN) > vulnerable range
