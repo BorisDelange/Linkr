@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
+import { CodeViewer } from '@/components/editor/CodeViewer'
 import { useFileStore, type ExecutionResult } from '@/stores/file-store'
 import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check, ChevronsUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -460,10 +461,18 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
           </div>
         </div>
         {!collapsed && (
-          <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
-            {shownText}
-            {result.running && <RunningDots />}
-          </pre>
+          showCode ? (
+            // Source view: the real editor (read-only), so it keeps the syntax
+            // highlighting and layout it had on the left.
+            <div className="overflow-hidden rounded border">
+              <CodeViewer value={result.code ?? ''} language={result.language} />
+            </div>
+          ) : (
+            <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
+              {shownText}
+              {result.running && <RunningDots />}
+            </pre>
+          )
         )}
       </div>
     </TooltipProvider>

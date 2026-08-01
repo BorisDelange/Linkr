@@ -660,7 +660,13 @@ export function FilesPage() {
           content: selectedNode?.content ?? code,
         })
         setOutputVisible(true)
-      } else if (isSql && activeConnectionId) {
+        return
+      }
+      // One run at a time: while a script is executing, ignore further run
+      // triggers (button is already Stop, but the keyboard shortcuts must be
+      // blocked too — otherwise Cmd+Enter would queue overlapping runs).
+      if (isExecuting) return
+      if (isSql && activeConnectionId) {
         executeSql(code, label)
       } else if (selectedLanguage === 'python') {
         executeCode(code, label, 'python')
@@ -668,7 +674,7 @@ export function FilesPage() {
         executeCode(code, label, 'r')
       }
     },
-    [isMarkdown, isSql, activeConnectionId, executeSql, executeCode, selectedLanguage, selectedNode, addOutputTab, setOutputVisible]
+    [isMarkdown, isExecuting, isSql, activeConnectionId, executeSql, executeCode, selectedLanguage, selectedNode, addOutputTab, setOutputVisible]
   )
 
   const handleRunFile = useCallback(() => {
