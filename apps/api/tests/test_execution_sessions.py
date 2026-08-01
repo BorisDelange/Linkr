@@ -45,10 +45,11 @@ async def test_create_list_delete(client):
     created = await client.post(
         f"{API}/execute/sessions",
         headers=headers,
-        json={"id": "sess-1", "projectUid": uid, "name": "Analysis"},
+        json={"id": "sess-1", "projectUid": uid, "language": "r", "name": "Analysis"},
     )
     assert created.status_code == 201
     assert created.json()["name"] == "Analysis"
+    assert created.json()["language"] == "r"
 
     listed = (await client.get(f"{API}/execute/sessions?projectUid={uid}", headers=headers)).json()
     assert [s["id"] for s in listed] == ["sess-1"]
@@ -56,6 +57,37 @@ async def test_create_list_delete(client):
     assert (await client.delete(f"{API}/execute/sessions/sess-1", headers=headers)).status_code == 204
     listed = (await client.get(f"{API}/execute/sessions?projectUid={uid}", headers=headers)).json()
     assert listed == []
+
+
+async def test_sessions_are_language_scoped(client):
+    """A session created for one language is only listed when filtering by it."""
+    headers = await _admin_headers(client)
+    uid, _ws = await _project(client, headers)
+
+    await client.post(
+        f"{API}/execute/sessions",
+        headers=headers,
+        json={"id": "py-1", "projectUid": uid, "language": "python", "name": "Py"},
+    )
+    await client.post(
+        f"{API}/execute/sessions",
+        headers=headers,
+        json={"id": "r-1", "projectUid": uid, "language": "r", "name": "R"},
+    )
+
+    r_only = (
+        await client.get(f"{API}/execute/sessions?projectUid={uid}&language=r", headers=headers)
+    ).json()
+    assert [s["id"] for s in r_only] == ["r-1"]
+
+    py_only = (
+        await client.get(f"{API}/execute/sessions?projectUid={uid}&language=python", headers=headers)
+    ).json()
+    assert [s["id"] for s in py_only] == ["py-1"]
+
+    # No filter → both.
+    both = (await client.get(f"{API}/execute/sessions?projectUid={uid}", headers=headers)).json()
+    assert {s["id"] for s in both} == {"py-1", "r-1"}
 
 
 async def test_sessions_are_per_user(client, db):

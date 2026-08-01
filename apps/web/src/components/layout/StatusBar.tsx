@@ -78,10 +78,10 @@ export function StatusBar() {
   // kernel line names its session (Ready/Executing is PER kernel, not global).
   // Subscribe to the raw slice (a stable reference) — NOT getSessionsForProject,
   // which returns a fresh array each call and would loop the selector.
-  const sessionsByProject = useSessionStore((s) => s.sessions)
-  const sessionName = (envId: string) => {
+  const sessionsByScope = useSessionStore((s) => s.sessions)
+  const sessionName = (language: 'python' | 'r', envId: string) => {
     if (envId === 'default') return t('sessions.default')
-    const named = activeProjectUid ? sessionsByProject[activeProjectUid] : undefined
+    const named = activeProjectUid ? sessionsByScope[`${activeProjectUid}:${language}`] : undefined
     return named?.find((sn) => sn.id === envId)?.name ?? envId
   }
 
@@ -256,7 +256,7 @@ export function StatusBar() {
                     kernels.map((k) => (
                       <div key={`${k.language}-${k.envId}`} className="space-y-0.5">
                         <div className="flex items-center justify-between text-xs">
-                          <span>{k.language === 'python' ? 'Python' : 'R'} · {sessionName(k.envId)}</span>
+                          <span>{k.language === 'python' ? 'Python' : 'R'} · {sessionName(k.language, k.envId)}</span>
                           <div className="flex items-center gap-1.5">
                             <Circle size={6} className={cn('fill-current', k.busy ? 'text-blue-500' : k.alive ? 'text-emerald-500' : 'text-muted-foreground/30')} />
                             <span className="text-muted-foreground">

@@ -336,12 +336,18 @@ async def interrupt_kernel(
 @router.get("/sessions", response_model=list[ExecutionSessionResponse])
 async def list_sessions(
     project_uid: str = Query(alias="projectUid"),
+    language: str | None = Query(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """The caller's named execution sessions for a project (per-user, never shared)."""
+    """The caller's named execution sessions for a project (per-user, never shared).
+
+    Filtered to one language when ``language`` is given — a session is language-scoped.
+    """
     await _require_project_access(db, project_uid, user, "ide:read")
-    return await execution_session_service.list_for_user(db, project_uid, user.id)
+    return await execution_session_service.list_for_user(
+        db, project_uid, user.id, language
+    )
 
 
 @router.post("/sessions", response_model=ExecutionSessionResponse, status_code=status.HTTP_201_CREATED)

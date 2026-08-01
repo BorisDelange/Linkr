@@ -3,7 +3,15 @@ import { useAppStore } from '@/stores/app-store'
 import { useSessionStore } from '@/stores/session-store'
 import { TerminalSocket } from '@/lib/api/terminal-ws'
 import type { RuntimeLanguage, RuntimeOutput, RuntimeFigure, RuntimeTable } from '@/lib/runtimes/types'
+import type { SessionLanguage } from '@/lib/api/execution-sessions'
 import type { Job } from '@/lib/api/environments'
+
+/** The active session for (project, language) — but only R/Python carry sessions;
+ *  anything else (sql) always runs in the implicit 'default' namespace. */
+function activeSessionFor(projectUid: string | null, language: RuntimeLanguage): string {
+  if (!projectUid || (language !== 'python' && language !== 'r')) return 'default'
+  return useSessionStore.getState().getActiveSessionId(projectUid, language as SessionLanguage)
+}
 
 /**
  * Run R/Python on the server (server mode) and return the same RuntimeOutput the
@@ -35,9 +43,7 @@ export function executeOnServer(
   if (!projectUid) throw new Error('Cannot run code without an active project')
   // Default to the project's active session so runs land in the namespace the
   // user selected in the Session dropdown (unless a caller pins an explicit env).
-  const envId =
-    opts?.envId ??
-    (projectUid ? useSessionStore.getState().getActiveSessionId(projectUid) : 'default')
+  const envId = opts?.envId ?? activeSessionFor(projectUid, language)
   return apiRequest<RuntimeOutput>('/execute', {
     method: 'POST',
     body: JSON.stringify({
@@ -101,7 +107,7 @@ export function streamOnServer(
 ): Promise<RuntimeOutput> {
   const projectUid = opts.projectUid ?? useAppStore.getState().activeProjectUid ?? null
   if (!projectUid) throw new Error('Cannot run code without an active project')
-  const envId = opts.envId ?? useSessionStore.getState().getActiveSessionId(projectUid)
+  const envId = opts.envId ?? activeSessionFor(projectUid, language)
 
   return new Promise<RuntimeOutput>((resolve, reject) => {
     let settled = false
@@ -155,8 +161,8 @@ export function renderOnServer(
 ): Promise<RuntimeOutput> {
   const projectUid = opts?.projectUid ?? useAppStore.getState().activeProjectUid ?? null
   if (!projectUid) throw new Error('Cannot render without an active project')
-  const envId =
-    opts?.envId ?? (projectUid ? useSessionStore.getState().getActiveSessionId(projectUid) : 'default')
+  // Render kernels are language-agnostic here; default namespace.
+  const envId = opts?.envId ?? (projectUid ? activeSessionFor(projectUid, 'python') : 'default')
   return apiRequest<RuntimeOutput>('/execute/render', {
     method: 'POST',
     body: JSON.stringify({

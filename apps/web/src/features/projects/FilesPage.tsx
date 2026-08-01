@@ -275,9 +275,20 @@ export function FilesPage() {
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const activeTerminalTab = terminalTabs.find((t) => t.id === selectedFileId)
-  const activeSessionId = useSessionStore(
-    (s) => (activeProjectUid ? s.getActiveSessionId(activeProjectUid) : undefined),
-  )
+  // Sessions are language-scoped: resolve the active session for the language
+  // of what's in focus. A script uses its own language; an R/Python terminal
+  // uses its kind. Subscribe to activeByScope so the id updates on selection.
+  const activeByScope = useSessionStore((s) => s.activeByScope)
+  const sessionLanguage: 'python' | 'r' | undefined =
+    activeTerminalTab && (activeTerminalTab.kind === 'python' || activeTerminalTab.kind === 'r')
+      ? activeTerminalTab.kind
+      : selectedNode?.language === 'python' || selectedNode?.language === 'r'
+        ? selectedNode.language
+        : undefined
+  const activeSessionId =
+    activeProjectUid && sessionLanguage
+      ? activeByScope[`${activeProjectUid}:${sessionLanguage}`] ?? 'default'
+      : 'default'
   const isVirtualFile = selectedNode?.virtual === true
   const hasOutput = outputTabs.length > 0 || executionResults.length > 0
   const selectedLanguage = selectedNode?.language
@@ -1009,7 +1020,7 @@ export function FilesPage() {
                 {/* Session selector for an active R/Python terminal tab — on the
                     left, like a script's (files get theirs next to Run). */}
                 {activeTerminalTab && (activeTerminalTab.kind === 'python' || activeTerminalTab.kind === 'r') && activeProjectUid && (
-                  <SessionDropdown projectUid={activeProjectUid} />
+                  <SessionDropdown projectUid={activeProjectUid} language={activeTerminalTab.kind} />
                 )}
 
                 <Tooltip>
@@ -1039,9 +1050,10 @@ export function FilesPage() {
                       language={selectedLanguage as 'python' | 'r' | undefined}
                       projectUid={activeProjectUid ?? undefined}
                     />
-                    {/* Session (kernel namespace) selector — server mode, R/Python only. */}
+                    {/* Session (kernel namespace) selector — server mode, R/Python only.
+                        Scoped to the script's language: R scripts list R sessions. */}
                     {(selectedLanguage === 'python' || selectedLanguage === 'r') && activeProjectUid && (
-                      <SessionDropdown projectUid={activeProjectUid} />
+                      <SessionDropdown projectUid={activeProjectUid} language={selectedLanguage} />
                     )}
                     {/* Save current file (Cmd+S) — after the environments dropdown */}
                     <Tooltip>

@@ -6,14 +6,16 @@ from app.schemas.execution_session import ExecutionSessionCreate
 
 
 async def list_for_user(
-    db: AsyncSession, project_uid: str, user_id: int
+    db: AsyncSession, project_uid: str, user_id: int, language: str | None = None
 ) -> list[ExecutionSession]:
-    result = await db.execute(
+    query = (
         select(ExecutionSession)
         .where(ExecutionSession.project_uid == project_uid)
         .where(ExecutionSession.user_id == user_id)
-        .order_by(ExecutionSession.created_at)
     )
+    if language is not None:
+        query = query.where(ExecutionSession.language == language)
+    result = await db.execute(query.order_by(ExecutionSession.created_at))
     return list(result.scalars().all())
 
 
@@ -28,6 +30,7 @@ async def create(
         id=data.id,
         project_uid=data.project_uid,
         user_id=user_id,
+        language=data.language,
         name=data.name,
     )
     db.add(session)

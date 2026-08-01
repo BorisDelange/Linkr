@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Boxes, ChevronDown, Plus, Trash2, Check, CornerDownLeft } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
 import { useSessionStore } from '@/stores/session-store'
+import type { SessionLanguage } from '@/lib/api/execution-sessions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -15,39 +16,47 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 /**
- * Selects the active execution session (kernel namespace) for a project. Sits in
+ * Selects the active execution session (kernel namespace) for a project, scoped
+ * to the current script's language: an R session only shows on R scripts. Sits in
  * the IDE toolbar next to the database dropdown. Server mode only — a session is
  * a server-side kernel namespace.
  */
-export function SessionDropdown({ projectUid }: { projectUid: string }) {
+export function SessionDropdown({
+  projectUid,
+  language,
+}: {
+  projectUid: string
+  language: SessionLanguage
+}) {
   const { t } = useTranslation()
   const loadSessions = useSessionStore((s) => s.loadSessions)
   const createSession = useSessionStore((s) => s.createSession)
   const removeSession = useSessionStore((s) => s.removeSession)
   const setActiveSession = useSessionStore((s) => s.setActiveSession)
   // Subscribe to the slices so the label re-renders on change.
-  const activeByProject = useSessionStore((s) => s.activeByProject)
-  const sessionsByProject = useSessionStore((s) => s.sessions)
+  const activeByScope = useSessionStore((s) => s.activeByScope)
+  const sessionsByScope = useSessionStore((s) => s.sessions)
 
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
 
   useEffect(() => {
-    if (projectUid) loadSessions(projectUid)
-  }, [projectUid, loadSessions])
+    if (projectUid) loadSessions(projectUid, language)
+  }, [projectUid, language, loadSessions])
 
   if (!isServerMode()) return null
 
-  const activeId = activeByProject[projectUid] ?? 'default'
-  const named = sessionsByProject[projectUid] ?? []
+  const scopeKey = `${projectUid}:${language}`
+  const activeId = activeByScope[scopeKey] ?? 'default'
+  const named = sessionsByScope[scopeKey] ?? []
   const all = [{ id: 'default', name: t('sessions.default') }, ...named]
   const activeName = all.find((s) => s.id === activeId)?.name ?? t('sessions.default')
 
   const submitNew = async () => {
     const name = newName.trim()
     if (!name) return
-    const id = await createSession(projectUid, name)
-    setActiveSession(projectUid, id)
+    const id = await createSession(projectUid, language, name)
+    setActiveSession(projectUid, language, id)
     setNewName('')
     setAdding(false)
   }
@@ -69,7 +78,7 @@ export function SessionDropdown({ projectUid }: { projectUid: string }) {
           <DropdownMenuItem
             key={s.id}
             className="flex items-center gap-2 text-xs"
-            onSelect={() => setActiveSession(projectUid, s.id)}
+            onSelect={() => setActiveSession(projectUid, language, s.id)}
           >
             <Check size={12} className={s.id === activeId ? 'opacity-100' : 'opacity-0'} />
             <span className="flex-1 truncate">{s.name}</span>
@@ -84,7 +93,7 @@ export function SessionDropdown({ projectUid }: { projectUid: string }) {
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation()
-                  removeSession(projectUid, s.id)
+                  removeSession(projectUid, language, s.id)
                 }}
                 aria-label={t('sessions.delete')}
               >
