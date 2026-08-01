@@ -2535,6 +2535,7 @@
     "version_help_python": "Saisissez un nom de package pour sa dernière version (ex. pandas), ou épinglez-en une avec « == », ex. pandas==2.1.4. Installé avec uv. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
     "version_help_r": "Saisissez un nom de package pour sa dernière version (ex. dplyr), ou épinglez-en une avec « == », ex. dplyr==1.1.4. Installé avec renv depuis Posit Package Manager. Utilisez le bouton de mise à jour pour passer à une version plus récente.",
     "install_preset": "Installer les packages par défaut du workspace",
+    "install_in_env": "Installer {{packages}} dans l'environnement",
     "update": "Mettre à jour",
     "update_all": "Tout mettre à jour",
     "update_all_hint": "Re-verrouiller tous les packages à leur dernière version, puis reconstruire.",
@@ -4111,6 +4112,7 @@
   },
   "terminal": {
     "installWarning": "Note : une installation ici ne sera pas conservée — utilisez le gestionnaire d'Environnements (barre du bas) pour que le package soit versionné et survive à une reconstruction.",
+    "installOfferBanner": "Installé hors du gestionnaire : {{packages}} ne survivra pas à une reconstruction.",
     "connecting": "Connexion au shell serveur…",
     "authFailed": "Échec de l’authentification — rouvrez le terminal.",
     "shellExited": "[shell terminé]",

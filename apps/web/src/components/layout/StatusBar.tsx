@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Cpu, HardDrive, MemoryStick, Circle, Box, GitBranch, Trash2, Server } from 'lucide-react'
 import {
@@ -14,6 +13,7 @@ import { isServerMode } from '@/lib/api-client'
 import { restartServerKernel } from '@/lib/api/execution'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { useSessionStore } from '@/stores/session-store'
+import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
 import { APP_VERSION } from '@/lib/version'
 import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
 import { JobsIndicator } from '@/components/layout/JobsIndicator'
@@ -64,7 +64,10 @@ function formatMB(mb: number): string {
 export function StatusBar() {
   const { t } = useTranslation()
   const metrics = useBrowserMetrics()
-  const [environmentsOpen, setEnvironmentsOpen] = useState(false)
+  // Modal open state lives in a store so the "install in environment" affordances
+  // (script output button, terminal toast) can open it and queue an install.
+  const environmentsOpen = useEnvironmentsUiStore((s) => s.open)
+  const setEnvironmentsOpen = useEnvironmentsUiStore((s) => s.setOpen)
   const server = isServerMode()
   // Only treat a project as active on an actual project route — the app-store's
   // activeProjectUid lingers after you leave a project into a workspace view, which

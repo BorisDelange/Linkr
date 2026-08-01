@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { useMyProjectRole } from '@/hooks/use-context-role'
+import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
 import { ServerEnvironmentsPanel } from './ServerEnvironmentsPanel'
 import { getPyodideStatus } from '@/lib/runtimes/pyodide-engine'
 import { getWebRStatus } from '@/lib/runtimes/webr-engine'
@@ -84,6 +85,14 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
   // Installing/updating/uninstalling packages runs server-side → ide:execute.
   const canExecute = useMyProjectRole().can('ide:execute')
   const [langTab, setLangTab] = useState<'python' | 'r'>('python')
+  const [serverTab, setServerTab] = useState<'python' | 'r'>('python')
+  const pending = useEnvironmentsUiStore((s) => s.pending)
+
+  // A queued install from the "install in environment" affordances selects its
+  // language tab so the user lands on the panel that's doing the work.
+  useEffect(() => {
+    if (pending) setServerTab(pending.language)
+  }, [pending])
   const [newPkgName, setNewPkgName] = useState('')
   const [installing, setInstalling] = useState(false)
   const [installError, setInstallError] = useState<string | null>(null)
@@ -431,16 +440,16 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
         </DialogHeader>
 
         {server ? (
-          <Tabs defaultValue="python">
+          <Tabs value={serverTab} onValueChange={(v) => setServerTab(v as 'python' | 'r')}>
             <TabsList className="w-full">
               <TabsTrigger value="python" className="flex-1">Python</TabsTrigger>
               <TabsTrigger value="r" className="flex-1">R</TabsTrigger>
             </TabsList>
             <TabsContent value="python">
-              <ServerEnvironmentsPanel language="python" reloadKey={open} />
+              <ServerEnvironmentsPanel language="python" reloadKey={open} pending={pending} />
             </TabsContent>
             <TabsContent value="r">
-              <ServerEnvironmentsPanel language="r" reloadKey={open} />
+              <ServerEnvironmentsPanel language="r" reloadKey={open} pending={pending} />
             </TabsContent>
           </Tabs>
         ) : (

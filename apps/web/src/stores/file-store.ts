@@ -42,6 +42,10 @@ export interface ExecutionResult {
   /** True while the run is still executing (drives the "…" activity indicator);
    *  cleared when the run finishes or errors. */
   running?: boolean
+  /** Set when the run contained an imperative install (install.packages / pip
+   *  install): offers a one-click "install in the managed environment" button so
+   *  the package is versioned instead of lost on the next rebuild. */
+  installOffer?: { language: 'python' | 'r'; packages: string[] }
 }
 
 export interface UndoAction {

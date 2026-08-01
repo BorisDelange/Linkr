@@ -2535,6 +2535,7 @@
     "version_help_python": "Type a package name for its latest version (e.g. pandas), or pin one with '==', e.g. pandas==2.1.4. Installed with uv. Use the update button to move a package to a newer version.",
     "version_help_r": "Type a package name for its latest version (e.g. dplyr), or pin one with '==', e.g. dplyr==1.1.4. Installed with renv from Posit Package Manager. Use the update button to move a package to a newer version.",
     "install_preset": "Install the workspace's default packages",
+    "install_in_env": "Install {{packages}} in the environment",
     "update": "Update to latest",
     "update_all": "Update all",
     "update_all_hint": "Re-lock every package to its latest version, then rebuild.",
@@ -4111,6 +4112,7 @@
   },
   "terminal": {
     "installWarning": "Note: installing here won't persist — use the Environments manager (footer) so the package is versioned and survives a rebuild.",
+    "installOfferBanner": "Installed outside the manager: {{packages}} won't survive a rebuild.",
     "connecting": "Connecting to server shell…",
     "authFailed": "Authentication failed — reopen the terminal.",
     "shellExited": "[shell exited]",

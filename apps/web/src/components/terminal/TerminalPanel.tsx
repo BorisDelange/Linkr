@@ -1,12 +1,15 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { getPyodide, getPyodideStatus } from '@/lib/runtimes/pyodide-engine'
 import { getWebR, getWebRStatus } from '@/lib/runtimes/webr-engine'
-import { isImperativeInstall } from '@/lib/runtimes/install-detect'
+import { isImperativeInstall, extractInstallPackages } from '@/lib/runtimes/install-detect'
 import { isServerMode } from '@/lib/api-client'
+import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
+import { Button } from '@/components/ui/button'
+import { Package, X } from 'lucide-react'
 import { TerminalSocket } from '@/lib/api/terminal-ws'
 import { useAppStore, isEditorThemeDark } from '@/stores/app-store'
 
@@ -122,6 +125,11 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  // A one-click "install in the managed environment" offer, shown as a banner over
+  // the terminal after an imperative install command (which xterm can't host a
+  // button for). Only meaningful for python/r REPLs in server mode.
+  const [installOffer, setInstallOffer] = useState<{ language: 'python' | 'r'; packages: string[] } | null>(null)
+  const requestInstall = useEnvironmentsUiStore((s) => s.requestInstall)
   const darkMode = useAppStore((s) => s.darkMode)
   const editorTheme = useAppStore((s) => s.editorSettings.theme)
   // The terminal uses the same font size the user set for the code editor, so the
@@ -341,6 +349,8 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
       // and is wiped on the next build. Warn, then still run the command.
       if (serverMode && (terminalType === 'python' || terminalType === 'r') && isImperativeInstall(terminalType, cmd)) {
         terminal.writeln(`\x1b[33m${t('terminal.installWarning')}\x1b[0m`)
+        const pkgs = extractInstallPackages(terminalType, cmd)
+        setInstallOffer(pkgs.length ? { language: terminalType, packages: pkgs } : null)
       }
 
       // Server REPL: hand the line to the kernel; chunks stream back via
@@ -488,10 +498,40 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
   }, [terminalType, onData, projectUid, envId, t])
 
   return (
-    <div
-      ref={containerRef}
-      className="h-full w-full"
-      style={{ backgroundColor: xtermTheme.background, padding: '6px 0 6px 8px' }}
-    />
+    <div className="relative h-full w-full">
+      <div
+        ref={containerRef}
+        className="h-full w-full"
+        style={{ backgroundColor: xtermTheme.background, padding: '6px 0 6px 8px' }}
+      />
+      {/* xterm is a canvas and can't host a button, so the "install in the managed
+          environment" offer sits as a banner over the terminal. */}
+      {installOffer && (
+        <div className="absolute inset-x-2 bottom-2 flex items-center gap-2 rounded-md border border-amber-500/40 bg-background/95 px-3 py-1.5 text-xs shadow-md backdrop-blur">
+          <Package size={13} className="shrink-0 text-amber-500" />
+          <span className="min-w-0 flex-1 truncate">
+            {t('terminal.installOfferBanner', { packages: installOffer.packages.join(', ') })}
+          </span>
+          <Button
+            size="xs"
+            variant="outline"
+            className="shrink-0"
+            onClick={() => {
+              requestInstall(installOffer.language, installOffer.packages)
+              setInstallOffer(null)
+            }}
+          >
+            {t('environments.install_in_env', { packages: installOffer.packages.join(', ') })}
+          </Button>
+          <button
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setInstallOffer(null)}
+            aria-label={t('common.close')}
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

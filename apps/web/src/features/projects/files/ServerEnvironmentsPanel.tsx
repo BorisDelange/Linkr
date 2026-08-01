@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, RefreshCw, Sparkles, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,7 @@ import {
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { summarizeInstallError, fullInstallError } from '@/lib/install-error'
+import { useEnvironmentsUiStore, type PendingEnvInstall } from '@/stores/environments-ui-store'
 import { cn } from '@/lib/utils'
 import {
   listEnvironments,
@@ -48,15 +49,20 @@ import {
 export function ServerEnvironmentsPanel({
   language,
   reloadKey,
+  pending,
 }: {
   language: 'python' | 'r'
   /** Toggled by the dialog's `open` — reloads the package list each time the
    *  dialog is (re)opened, so a package added elsewhere shows up. */
   reloadKey?: unknown
+  /** A queued one-click install (from a script/terminal affordance). When it
+   *  targets this panel's language, its packages are added declaratively. */
+  pending?: PendingEnvInstall | null
 }) {
   const { t } = useTranslation()
   const projectUid = useProjectRouteUid()
   const canWrite = useMyProjectRole().can('ide:write')
+  const clearPending = useEnvironmentsUiStore((s) => s.clearPending)
 
   const [env, setEnv] = useState<ProjectEnvironment | null>(null)
   const [packages, setPackages] = useState<EnvPackage[]>([])
@@ -113,17 +119,39 @@ export function ServerEnvironmentsPanel({
     }
   }
 
+  const addPackages = useCallback(async (names: string[]) => {
+    if (!projectUid || names.length === 0) return
+    setAdding(true)
+    setBusy(true)
+    setError(null)
+    try {
+      setEnv(await addEnvPackages(projectUid, language, names))
+      setPackages(await listEnvPackages(projectUid, language))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAdding(false)
+      setBusy(false)
+    }
+  }, [projectUid, language])
+
   const onAdd = async () => {
     const name = newPkg.trim()
     if (!name) return
     setNewPkg('')
-    setAdding(true)
-    try {
-      await run(() => addEnvPackages(projectUid!, language, [name]))
-    } finally {
-      setAdding(false)
-    }
+    await addPackages([name])
   }
+
+  // Consume a queued one-click install targeting this language: add the packages
+  // declaratively, then clear it so it doesn't fire again on re-render. Keyed on
+  // the request nonce so repeat requests for the same package still run.
+  const consumedNonce = useRef<number | null>(null)
+  useEffect(() => {
+    if (!pending || pending.language !== language) return
+    if (consumedNonce.current === pending.nonce) return
+    consumedNonce.current = pending.nonce
+    void addPackages(pending.packages).finally(() => clearPending())
+  }, [pending, language, addPackages, clearPending])
 
   // A build runs as a background job → poll until it settles, then reload the env
   // so its status flips draft/building → ready/error in the UI.

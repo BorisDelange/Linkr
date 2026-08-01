@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { CodeViewer } from '@/components/editor/CodeViewer'
 import { useFileStore, type ExecutionResult } from '@/stores/file-store'
-import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check, ChevronsUpDown } from 'lucide-react'
+import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check, ChevronsUpDown, Package } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -11,6 +11,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { AnsiText } from '@/components/AnsiText'
 import { stripAnsi } from '@/lib/ansi'
+import { Button } from '@/components/ui/button'
+import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
 
 export function getTabIcon(type: string) {
   switch (type) {
@@ -477,8 +479,30 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
             </div>
           )
         )}
+        {!showCode && result.installOffer && !result.running && (
+          <InstallOfferButton offer={result.installOffer} />
+        )}
       </div>
     </TooltipProvider>
+  )
+}
+
+/** One-click "install these packages in the managed environment" — opens the
+ *  Environments modal on the right tab and queues the declarative install, so a
+ *  package installed imperatively in a script gets versioned instead of lost. */
+function InstallOfferButton({ offer }: { offer: { language: 'python' | 'r'; packages: string[] } }) {
+  const { t } = useTranslation()
+  const requestInstall = useEnvironmentsUiStore((s) => s.requestInstall)
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      className="mt-2 gap-1.5"
+      onClick={() => requestInstall(offer.language, offer.packages)}
+    >
+      <Package size={12} />
+      {t('environments.install_in_env', { packages: offer.packages.join(', ') })}
+    </Button>
   )
 }
 
