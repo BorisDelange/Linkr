@@ -89,7 +89,7 @@ const storage = {
 void byDashboardId
 
 async function buildTree(): Promise<Map<string, Uint8Array>> {
-  const built = await buildProjectZip('proj-uid-1', storage, { includeDataFiles: false })
+  const built = await buildProjectZip('proj-uid-1', storage, {})
   if (!built) throw new Error('build returned null')
   const zip = await JSZip.loadAsync(await built.blob.arrayBuffer())
   const out = new Map<string, Uint8Array>()

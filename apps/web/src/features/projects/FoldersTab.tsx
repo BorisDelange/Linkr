@@ -58,16 +58,15 @@ function validationMessage(t: (k: string) => string, v: FsValidation): string {
 
 export function FoldersTab({ projectUid, canEdit }: Props) {
   const { t } = useTranslation()
-  const project = useAppStore((s) => s.projects.find((p) => p.uid === projectUid))
   const _projectRaw = useAppStore((s) => s._projectsRaw.find((p) => p.uid === projectUid))
   const updateProjectPaths = useAppStore((s) => s.updateProjectPaths)
   const resolved = useResolvedDirs(projectUid, `${_projectRaw?.idePath ?? ''}|${_projectRaw?.scriptsPath ?? ''}|${_projectRaw?.datasetsPath ?? ''}`)
   const defaultFor = (w: Which) =>
     resolved?.defaults[w === 'idePath' ? 'ide' : w === 'scriptsPath' ? 'scripts' : 'datasets']
 
-  const idePath = _projectRaw?.idePath ?? project?.idePath
-  const scriptsPath = _projectRaw?.scriptsPath ?? project?.scriptsPath
-  const datasetsPath = _projectRaw?.datasetsPath ?? project?.datasetsPath
+  const idePath = _projectRaw?.idePath
+  const scriptsPath = _projectRaw?.scriptsPath
+  const datasetsPath = _projectRaw?.datasetsPath
   const currentOf = (w: Which) => (w === 'idePath' ? idePath : w === 'scriptsPath' ? scriptsPath : datasetsPath)
 
   const [pickerFor, setPickerFor] = useState<Which | null>(null)
@@ -94,7 +93,8 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
         setPending({ which, oldPath, newPath: v.path as string })
       }
     } catch (e) {
-      setError(formatApiError(e).message)
+      const fe = formatApiError(e)
+      setError(fe.summary ?? fe.detail ?? String(e))
     } finally {
       setSaving(null)
     }
@@ -108,7 +108,8 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
       await fsRebindCopy(projectUid, pending.oldPath, pending.newPath, conflict)
       setPending(null)
     } catch (e) {
-      setError(formatApiError(e).message)
+      const fe = formatApiError(e)
+      setError(fe.summary ?? fe.detail ?? String(e))
     } finally {
       setCopying(false)
     }

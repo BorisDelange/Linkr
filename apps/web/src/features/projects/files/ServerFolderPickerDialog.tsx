@@ -43,7 +43,8 @@ export function ServerFolderPickerDialog({ projectUid, open, initialPath, defaul
       try {
         setListing(await fsListDir(projectUid, path))
       } catch (e) {
-        setError(formatApiError(e).message)
+        const fe = formatApiError(e)
+        setError(fe.summary ?? fe.detail ?? String(e))
       } finally {
         setLoading(false)
       }
