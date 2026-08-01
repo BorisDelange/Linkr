@@ -1,6 +1,6 @@
 ---
 name: dependabot-triage
-description: List, triage, and act on GitHub Dependabot alerts for Linkr. Fetches open alerts via the GitHub API, classifies each (resolved-once-merged / false-positive / blocked-upstream / actionable), proposes fixes or dismissals, then records every decision in docs/security/dependabot-triage.csv so already-triaged alerts are never re-processed. Use when the user asks to check, review, fix, or dismiss Dependabot / dependency security alerts.
+description: List, triage, and act on GitHub Dependabot alerts for Linkr. Fetches open alerts via the GitHub API, classifies each (resolved-once-merged / false-positive / blocked-upstream / actionable), proposes fixes or dismissals, then records every decision in this skill's TRIAGE-LOG.csv so already-triaged alerts are never re-processed. Use when the user asks to check, review, fix, or dismiss Dependabot / dependency security alerts.
 argument-hint: [owner/repo (optional, e.g. BorisDelange/Linkr)]
 ---
 
@@ -11,7 +11,9 @@ You are triaging the project's Dependabot security alerts. The user is **not** a
 The single most important fact about this workflow (learned the hard way):
 
 > **Dependabot *alerts* only ever scan the repository's default branch (usually `main`).**
-> They completely ignore feature branches. So a dependency you have *already fixed* in a feature branch's `package-lock.json` will keep showing as **open** on the Security page until that lockfile reaches `main`. Do **not** re-fix or re-dismiss those — they are already handled, just not yet visible as closed. The triage CSV exists precisely to remember this across sessions.
+> They completely ignore feature branches. So a dependency you have *already fixed* in a feature branch's `package-lock.json` will keep showing as **open** on the Security page until that lockfile reaches `main`. Do **not** re-fix or re-dismiss those — they are already handled, just not yet visible as closed. `TRIAGE-LOG.csv` (next to this file) exists precisely to remember this across sessions.
+
+Because of this rule, fixes committed on a feature branch will **not** move the counter on the Security page. To make it drop before the feature merges, open a small dedicated PR (e.g. `security/dependency-updates`) carrying only the `package.json` + `package-lock.json` changes into the default branch; after it merges, Dependabot re-scans and closes every `resolved-in-lockfile` alert at once. A re-scan can also be forced from **Insights → Dependency graph → Dependabot → Check for updates** (it re-scans the latest commit on the default branch).
 
 ## Prerequisites — access
 
@@ -41,7 +43,7 @@ Also read the default branch (from Step 0). Note that the alert count on the Sec
 
 ## Step 2 — Load prior decisions
 
-Read `docs/security/dependabot-triage.csv` (create it from the header below if absent). It records, per `package,ghsa_id`, what was decided and why. Any alert already present with a terminal decision (`dismissed-*`, `fixed-in-branch`) is **not** re-triaged — only reported as "already handled, pending merge to <default branch>".
+Read `TRIAGE-LOG.csv` (in this skill's own directory; create it from the header below if absent). It records, per `package,ghsa_id`, what was decided and why. Any alert already present with a terminal decision (`dismissed`, `pending-merge`) is **not** re-triaged — only reported as "already handled, pending merge to <default branch>".
 
 ## Step 3 — Classify every open alert
 
@@ -73,9 +75,9 @@ gh api -X PATCH "repos/OWNER/REPO/dependabot/alerts/NUMBER" \
 - **The comment is hard-capped at 280 characters** — the API returns 422 above it (and the error confusingly blames `alert_number`). Keep comments tight.
 - Loop over alert numbers with an explicit list (`for n in 118 103 95; do …; done`), not a shell-expanded variable — a single variable holding all numbers gets passed as one bad argument.
 
-## Step 5 — Record every decision in the CSV
+## Step 5 — Record every decision in TRIAGE-LOG.csv
 
-Append/update one row per `package,ghsa_id` touched this session. Header:
+Append/update one row per `package,ghsa_id` touched this session in `TRIAGE-LOG.csv` (this skill's directory). Header:
 
 ```
 date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
