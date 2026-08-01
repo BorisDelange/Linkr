@@ -413,13 +413,16 @@ def build_project_tree(
             tp = _ide_path(f, by_id)
             return not _is_data_ext(tp) and tp in excluded
 
-        tree["scripts/_tree.json"] = _json(
-            [
-                {k: v for k, v in f.items() if k not in ("content", "projectUid")}
-                for f in ide
-                if not _is_excluded_code(f)
-            ]
-        )
+        tree_files = [f for f in ide if not _is_excluded_code(f)]
+        # Only emit the tree when something survives the exclusions — otherwise every
+        # script is excluded and we'd version a useless `scripts/_tree.json: []`.
+        if tree_files:
+            tree["scripts/_tree.json"] = _json(
+                [
+                    {k: v for k, v in f.items() if k not in ("content", "projectUid")}
+                    for f in tree_files
+                ]
+            )
         for f in ide:
             if f.get("type") == "file" and f.get("content") is not None:
                 if _is_excluded_code(f):

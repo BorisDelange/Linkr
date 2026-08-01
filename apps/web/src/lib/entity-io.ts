@@ -549,7 +549,11 @@ export async function buildProjectZip(
   if (ideFiles.length > 0) {
     const byId = new Map(ideFiles.map(f => [f.id, f]))
     const treeFiles = ideFiles.filter((f) => !(f.type === 'file' && isExcludedCode(buildIdePath(f, byId))))
-    zip.file('scripts/_tree.json', json(treeFiles.map(({ content: _, projectUid: _p, ...meta }) => meta)))
+    // Only emit the tree when something survives the exclusions — otherwise every
+    // script is excluded and we'd version a useless `scripts/_tree.json: []`.
+    if (treeFiles.length > 0) {
+      zip.file('scripts/_tree.json', json(treeFiles.map(({ content: _, projectUid: _p, ...meta }) => meta)))
+    }
     for (const f of ideFiles) {
       if (f.type === 'file' && f.content != null) {
         const treePath = buildIdePath(f, byId)

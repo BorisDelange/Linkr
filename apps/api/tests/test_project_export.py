@@ -244,6 +244,24 @@ def test_excluded_code_file_omitted_from_tree():
     assert "secret.py" not in meta_names
 
 
+def test_scripts_tree_omitted_when_every_code_file_excluded():
+    # When the only script is excluded, don't emit a useless `scripts/_tree.json: []`
+    # (the whole scripts/ section drops out). Mirrors buildProjectZip.
+    only = {"id": "d1", "name": "test.py", "type": "file", "parentId": None, "content": "x = 1", "path": "test.py"}
+    tree = build_project_tree(
+        project={"uid": "p", "name": {"en": "P"}},
+        organization=None,
+        ide_files=[only],
+        pipelines=[], cohorts=[], connections=[], dashboards=[],
+        dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+        attachments=[], attachment_blobs={},
+        versioned_data_files=set(),
+        excluded_files={"scripts/test.py"},
+    )
+    assert "scripts/_tree.json" not in tree
+    assert "scripts/test.py" not in tree
+
+
 def test_gitignore_exception_escapes_metacharacters():
     # A marked filename containing gitignore metachars ([ ] * ? # !) must be escaped
     # in the !path exception, else git reads it as a pattern and the re-inclusion
