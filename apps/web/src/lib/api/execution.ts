@@ -1,7 +1,8 @@
 import { apiRequest } from '@/lib/api-client'
 import { useAppStore } from '@/stores/app-store'
 import { useSessionStore } from '@/stores/session-store'
-import type { RuntimeLanguage, RuntimeOutput } from '@/lib/runtimes/types'
+import { TerminalSocket } from '@/lib/api/terminal-ws'
+import type { RuntimeLanguage, RuntimeOutput, RuntimeFigure, RuntimeTable } from '@/lib/runtimes/types'
 
 /**
  * Run R/Python on the server (server mode) and return the same RuntimeOutput the
@@ -48,6 +49,58 @@ export function executeOnServer(
       datasetFilters: opts?.datasetFilters ?? null,
       purpose: opts?.purpose ?? 'ide',
     }),
+  })
+}
+
+/**
+ * Like executeOnServer, but STREAMS: opens the kernel WebSocket, sends the code,
+ * and calls `onChunk` for each stdout/stderr fragment as it's produced (so a long
+ * run shows output incrementally instead of all at once). Resolves with the final
+ * RuntimeOutput (figures/table/html) when the run completes. Python/R only.
+ */
+export function streamOnServer(
+  language: 'python' | 'r',
+  code: string,
+  opts: {
+    projectUid?: string
+    envId?: string
+    connectionId?: string
+    onChunk: (text: string, kind: 'stdout' | 'stderr') => void
+  },
+): Promise<RuntimeOutput> {
+  const projectUid = opts.projectUid ?? useAppStore.getState().activeProjectUid ?? null
+  if (!projectUid) throw new Error('Cannot run code without an active project')
+  const envId = opts.envId ?? useSessionStore.getState().getActiveSessionId(projectUid)
+
+  return new Promise<RuntimeOutput>((resolve, reject) => {
+    let settled = false
+    const finish = (fn: () => void) => { if (!settled) { settled = true; fn() } socket.close() }
+    const socket = new TerminalSocket(
+      { projectUid, language, envId, connectionId: opts.connectionId },
+      {
+        onOpen: () => socket.runCode(code),
+        onMessage: (msg) => {
+          if ((msg.type === 'stdout' || msg.type === 'stderr') && msg.data) {
+            opts.onChunk(msg.data, msg.type)
+          } else if (msg.type === 'error') {
+            finish(() => reject(new Error(msg.message ?? 'Execution failed')))
+          } else if (msg.type === 'done') {
+            finish(() => resolve({
+              // Chunks already delivered the text via onChunk; the final payload
+              // carries only the rendered artefacts.
+              stdout: '', stderr: '',
+              figures: (msg.figures ?? []) as RuntimeFigure[],
+              table: (msg.table ?? null) as RuntimeTable | null,
+              html: msg.html ?? null,
+            }))
+          }
+        },
+        onClose: ({ authFailed }) => {
+          if (!settled) finish(() => reject(new Error(authFailed ? 'Authentication failed' : 'Connection closed')))
+        },
+      },
+    )
+    socket.connect()
   })
 }
 

@@ -77,7 +77,8 @@ import { useProjectTree } from '@/hooks/use-project-tree'
 import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { isServerMode } from '@/lib/api-client'
-import { executeOnServer, interruptServerKernel } from '@/lib/api/execution'
+import { streamOnServer, interruptServerKernel } from '@/lib/api/execution'
+import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { queryDatasetRows } from '@/lib/api/datasets'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
@@ -568,48 +569,54 @@ export function FilesPage() {
         code,
       })
 
+      const addFiguresAndTable = (result: RuntimeOutput) => {
+        for (const fig of result.figures) {
+          addOutputTab({ id: fig.id, label: `${fig.label} — ${fileName}`, type: 'figure', content: fig.data })
+          setActiveOutputTab(fig.id)
+        }
+        if (result.table) {
+          addOutputTab({ id: `table-${Date.now()}`, label: `Result — ${fileName}`, type: 'table', content: result.table })
+        }
+      }
+
       const controller = startExecution()
       try {
-        // Server mode: run on the backend (data stays server-side). The active
-        // connection / dataset injection is a later step (e4) — MVP runs free code.
-        const result = isServerMode()
-          ? await executeOnServer(language, code, {
-              projectUid: activeProjectUid ?? undefined,
-              connectionId: activeConnectionId ?? undefined,
-            })
-          : language === 'python'
-            ? await executePython(code, activeConnectionId, controller.signal)
-            : await executeR(code, activeConnectionId, controller.signal)
+        // Server mode: STREAM over the kernel WebSocket so output appears line by
+        // line as it's produced (a long Sys.sleep between prints shows the pause),
+        // instead of the whole block arriving at once. Front-only keeps the WASM
+        // runtimes. The active connection is threaded so sql_query() still works.
+        if (isServerMode()) {
+          let streamed = ''
+          const result = await streamOnServer(language, code, {
+            projectUid: activeProjectUid ?? undefined,
+            connectionId: activeConnectionId ?? undefined,
+            onChunk: (text) => {
+              streamed += text
+              updateExecutionResult(execId, { output: streamed })
+            },
+          })
+          const duration = Date.now() - start
+          updateExecutionResult(execId, {
+            duration,
+            success: !result.stderr,
+            output: streamed || `Executed in ${duration}ms`,
+          })
+          addFiguresAndTable(result)
+          return
+        }
+
+        const result = language === 'python'
+          ? await executePython(code, activeConnectionId, controller.signal)
+          : await executeR(code, activeConnectionId, controller.signal)
 
         const duration = Date.now() - start
         const success = !result.stderr
-
         updateExecutionResult(execId, {
           duration,
           success,
-          output: success
-            ? result.stdout || `Executed in ${duration}ms`
-            : result.stderr,
+          output: success ? result.stdout || `Executed in ${duration}ms` : result.stderr,
         })
-
-        for (const fig of result.figures) {
-          addOutputTab({
-            id: fig.id,
-            label: `${fig.label} — ${fileName}`,
-            type: 'figure',
-            content: fig.data,
-          })
-          setActiveOutputTab(fig.id)
-        }
-
-        if (result.table) {
-          addOutputTab({
-            id: `table-${Date.now()}`,
-            label: `Result — ${fileName}`,
-            type: 'table',
-            content: result.table,
-          })
-        }
+        addFiguresAndTable(result)
       } catch (err) {
         const duration = Date.now() - start
         const message = err instanceof Error ? err.message : String(err)
