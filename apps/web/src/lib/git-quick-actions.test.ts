@@ -64,11 +64,11 @@ describe('buildQuickActions', () => {
     expect(paths(mappings)).toEqual(['mappings.csv'])
   })
 
-  it('Sync all drops "other" (unrecognised) files but keeps .gitignore', () => {
-    // review/*, state.json, a custom CSV aren't in the taxonomy → "other" (dropped).
-    // .gitignore IS part of the exported tree → recognised, kept.
-    const changed = ch('project.json', 'mappings.json', 'review/app.js', 'state.json', 'hosp_units_cleaned.csv', '.gitignore', 'source-concepts.csv')
+  it('Sync all drops foreign files but keeps Linkr-managed ones (incl. .gitignore/.gitattributes)', () => {
+    // review/*, state.json, a custom CSV aren't Linkr's → foreign (dropped).
+    // .gitignore/.gitattributes are Linkr-managed → kept even if categorised 'other'.
+    const changed = ch('project.json', 'mappings.json', 'review/app.js', 'state.json', 'hosp_units_cleaned.csv', '.gitignore', '.gitattributes', 'source-concepts.csv')
     const [all] = buildQuickActions('mapping-projects', changed)
-    expect(paths(all)).toEqual(['project.json', 'mappings.json', '.gitignore', 'source-concepts.csv'])
+    expect(paths(all)).toEqual(['project.json', 'mappings.json', '.gitignore', '.gitattributes', 'source-concepts.csv'])
   })
 })

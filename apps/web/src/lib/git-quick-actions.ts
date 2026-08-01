@@ -1,5 +1,5 @@
 import type { GitFileChange, GitScope } from '@/lib/api/git'
-import { gitFileMeta } from '@/lib/git-file-meta'
+import { isForeignPath } from '@/lib/git-file-classify'
 
 /** One changed file an action will commit, with its git change type (A/M/D) so the
  *  UI can badge it — a "deleted" row makes clear the action REMOVES that file. */
@@ -37,11 +37,13 @@ interface QuickActionDef {
   /** When present, only paths matching one of these are included; when absent,
    *  ALL changed paths are included ("sync everything that changed"). */
   patterns?: RegExp[]
-  /** Drop paths whose git-file category is "other" (unrecognised files). Used by
-   *  "Sync all" so a stray/unknown file isn't swept into a one-click commit —
-   *  the user handles those deliberately from the Details tab. This also marks the
-   *  preset as the "Sync all" one for the shared accent. */
-  excludeOther?: boolean
+  /** Drop foreign files Linkr doesn't manage (a stray/unknown file another tool
+   *  wrote — see isForeignPath; Linkr-managed config like .gitignore is kept even
+   *  when it falls to the 'other' category). Used by "Sync all" so a one-click
+   *  commit versions everything Linkr owns without sweeping in foreign files — the
+   *  user handles those deliberately from Details. Also marks the preset as the
+   *  "Sync all" one for the shared accent. */
+  excludeForeign?: boolean
 }
 
 // Per-scope presets, in display order (first is the primary/"all" action).
@@ -51,7 +53,7 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       labelKey: 'versioning.quick_sync_all',
       descriptionKey: 'versioning.quick_desc_all',
       messageKey: 'versioning.quick_msg_all',
-      excludeOther: true,
+      excludeForeign: true,
     },
     {
       labelKey: 'versioning.quick_sync_mappings',
@@ -65,7 +67,7 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       labelKey: 'versioning.quick_sync_all',
       descriptionKey: 'versioning.quick_desc_all_project',
       messageKey: 'versioning.quick_msg_all_project',
-      excludeOther: true,
+      excludeForeign: true,
     },
     {
       labelKey: 'versioning.quick_sync_dashboards',
@@ -85,7 +87,7 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       labelKey: 'versioning.quick_sync_all',
       descriptionKey: 'versioning.quick_desc_all_workspace',
       messageKey: 'versioning.quick_msg_all_workspace',
-      excludeOther: true,
+      excludeForeign: true,
     },
   ],
   // "What to version" as one-click presets: all, or just one entity kind.
@@ -94,7 +96,7 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       labelKey: 'versioning.quick_sync_all',
       descriptionKey: 'versioning.quick_desc_all_settings',
       messageKey: 'versioning.quick_msg_all_settings',
-      excludeOther: true,
+      excludeForeign: true,
     },
     {
       labelKey: 'versioning.quick_sync_settings_organizations',
@@ -131,15 +133,15 @@ export function buildQuickActions(
       ? changes.filter((c) => def.patterns!.some((re) => re.test(c.path)))
       : [...changes]
     ).map((c) => ({ path: c.path, changeType: c.changeType }))
-    if (def.excludeOther) {
-      files = files.filter((f) => gitFileMeta(scope, f.path).category !== 'other')
+    if (def.excludeForeign) {
+      files = files.filter((f) => !isForeignPath(scope, f.path))
     }
     return {
       labelKey: def.labelKey,
       descriptionKey: def.descriptionKey,
       messageKey: def.messageKey,
       files,
-      isSyncAll: !!def.excludeOther,
+      isSyncAll: !!def.excludeForeign,
     }
   })
 }

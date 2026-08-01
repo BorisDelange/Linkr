@@ -1,5 +1,26 @@
 import { describe, it, expect } from 'vitest'
-import { isDataFile, defaultSelectedPaths } from './git-file-classify'
+import { isDataFile, defaultSelectedPaths, isForeignPath } from './git-file-classify'
+
+describe('isForeignPath', () => {
+  it('flags files no scope rule recognises (another tool wrote them)', () => {
+    expect(isForeignPath('mapping-projects', 'review/app.js')).toBe(true)
+    expect(isForeignPath('mapping-projects', 'state.json')).toBe(true)
+    expect(isForeignPath('projects', 'weird/unknown.xyz')).toBe(true)
+  })
+
+  it('never flags .gitignore/.gitattributes — Linkr-managed even when category is "other"', () => {
+    // In a scope without an explicit gitignore rule these fall to 'other', but they
+    // are Linkr's own config and must not be treated as foreign.
+    expect(isForeignPath('data-catalogs', '.gitignore')).toBe(false)
+    expect(isForeignPath('data-catalogs', '.gitattributes')).toBe(false)
+    expect(isForeignPath('projects', '.gitignore')).toBe(false)
+  })
+
+  it('never flags recognised content', () => {
+    expect(isForeignPath('projects', 'project.json')).toBe(false)
+    expect(isForeignPath('projects', 'dashboards/d.json')).toBe(false)
+  })
+})
 
 // Health data must never be pushed to git by default, so the commit list leaves
 // data files unchecked — this must match the export tab's includeDataFiles rule.

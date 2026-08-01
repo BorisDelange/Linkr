@@ -49,6 +49,21 @@ function isConfigFile(path: string): boolean {
 }
 
 /**
+ * A path Linkr didn't generate and doesn't manage — a file another tool wrote into
+ * the repo (the concept-mapping agent's `review/`, `state.json`, a hand-added CSV).
+ * These are the ONLY files "Sync all" and the default selection leave aside, so the
+ * user versions them deliberately from Details rather than sweeping them in.
+ *
+ * It is NOT simply "category === 'other'": `.gitignore` / `.gitattributes` are
+ * Linkr-managed even in scopes without an explicit rule for them (they fall to
+ * 'other' but are ours), so they are never foreign.
+ */
+export function isForeignPath(scope: GitScope, path: string): boolean {
+  if (isConfigFile(path)) return false
+  return gitFileMeta(scope, path).category === 'other'
+}
+
+/**
  * Paths checked by default in the commit list, and modifications to hand-enriched
  * repo config are left unchecked.
  *
@@ -73,14 +88,13 @@ export function defaultSelectedPaths(
   return files
     .filter((f) => {
       if (isUnownedConfigModification(f, scope)) return false
-      // A deleted .gitignore/.gitattributes is category 'config' (not 'other'), so
-      // don't let the deletion branch below propose to erase a hand-enriched remote
-      // copy by default — same reasoning as isUnownedConfigModification. (Projects
-      // own their config, but a *deletion* still isn't proposed by default: Linkr
-      // never drops these from a project export, so a deleted one came from elsewhere.)
+      // A deleted config file (.gitignore/.gitattributes) is left unchecked: Linkr
+      // never drops these from an export, so a deletion came from elsewhere and
+      // checking it would propose erasing a possibly hand-enriched remote copy.
+      // A deletion of a foreign file is likewise left aside (Linkr doesn't own it).
       if (f.changeType === 'deleted') {
         if (isConfigFile(f.path)) return false
-        return gitFileMeta(scope, f.path).category !== 'other'
+        return !isForeignPath(scope, f.path)
       }
       return true
     })
