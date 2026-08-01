@@ -210,9 +210,12 @@ def _build_projects_section(
                 "uid": project.get("uid"),
                 "projectId": project.get("projectId"),
                 "name": project.get("name"),
-                "createdAt": project.get("createdAt"),
-                "gitRemoteConfig": git,
             }
+            # Omit when absent so it matches the TS builder (JSON.stringify drops an
+            # undefined key; emitting `null` here would spuriously diverge).
+            if project.get("createdAt"):
+                pointer["createdAt"] = project["createdAt"]
+            pointer["gitRemoteConfig"] = git
             tree[f"projects/{folder}/project.json"] = _json(pointer)
             git_links.add("project", project["uid"], folder, git)
         elif entry.get("sub_tree") is not None:
@@ -532,7 +535,7 @@ def build_workspace_tree(
         # Sort deterministically so adding/removing an unrelated link never reorders
         # the rest and churns the versioning diff. Key is (type, id) — id is an
         # immutable UUID. Must match the TS export (entity-io.ts).
-        links = sorted(git_links.links, key=lambda l: (l["type"], l["id"]))
+        links = sorted(git_links.links, key=lambda link: (link["type"], link["id"]))
         tree["git-links.json"] = _json({"appVersion": APP_VERSION, "links": links})
 
     return tree

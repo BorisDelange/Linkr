@@ -142,6 +142,46 @@ describe('excludedCodeFiles', () => {
   })
 })
 
+// The git-link project pointer must match the Python builder byte-for-byte: an
+// absent createdAt is OMITTED (JSON.stringify drops undefined) — emitting a null
+// like Python's json.dumps would would spuriously diverge on a mixed-mode remote.
+describe('buildWorkspaceZip — git-link pointer createdAt', () => {
+  const GIT = { url: 'https://example.test/repo.git', branch: 'main' }
+  const storeWith = (project: Record<string, unknown>) => {
+    const table = (methods: Record<string, unknown>) => new Proxy(methods, {
+      get: (t, prop) => (typeof prop === 'string' && prop in t ? (t as Record<string, unknown>)[prop] : async () => []),
+    })
+    return new Proxy({}, {
+      get: (_t, prop) => {
+        switch (prop) {
+          case 'workspaces': return table({ getById: async () => ({ id: 'w1', name: { en: 'W' }, description: {} }) })
+          case 'organizations': return table({ getById: async () => undefined })
+          case 'projects': return table({ getAll: async () => [project] })
+          default: return table({})
+        }
+      },
+    }) as unknown as Storage
+  }
+  const pointer = async (project: Record<string, unknown>) => {
+    const ONLY = { projects: true } as unknown as NonNullable<Parameters<typeof buildWorkspaceZip>[2]>['sections']
+    const built = await buildWorkspaceZip('w1', storeWith(project), { sections: ONLY })
+    const zip = await JSZip.loadAsync(await built!.blob.arrayBuffer())
+    return JSON.parse(await zip.files['projects/p/project.json'].async('string')) as Record<string, unknown>
+  }
+
+  it('omits createdAt when absent, preserving key order', async () => {
+    const ptr = await pointer({ uid: 'u1', projectId: 'p', name: { en: 'P' }, workspaceId: 'w1', gitRemoteConfig: GIT })
+    expect('createdAt' in ptr).toBe(false)
+    expect(Object.keys(ptr)).toEqual(['uid', 'projectId', 'name', 'gitRemoteConfig'])
+  })
+
+  it('keeps createdAt when present', async () => {
+    const ptr = await pointer({ uid: 'u1', projectId: 'p', name: { en: 'P' }, workspaceId: 'w1', createdAt: '2026-01-01T00:00:00.000Z', gitRemoteConfig: GIT })
+    expect(ptr.createdAt).toBe('2026-01-01T00:00:00.000Z')
+    expect(Object.keys(ptr)).toEqual(['uid', 'projectId', 'name', 'createdAt', 'gitRemoteConfig'])
+  })
+})
+
 // parseCsvLine guards data integrity on import. Quote handling bugs silently
 // corrupt clinical data, so the adversarial cases matter.
 describe('parseCsvLine', () => {
