@@ -39,6 +39,9 @@ export interface ExecutionResult {
   output: string
   /** The source code that was executed. */
   code?: string
+  /** True while the run is still executing (drives the "…" activity indicator);
+   *  cleared when the run finishes or errors. */
+  running?: boolean
 }
 
 export interface UndoAction {

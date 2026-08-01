@@ -567,6 +567,7 @@ export function FilesPage() {
         success: true,
         output: language === 'python' ? t('runtime.loading_python') : t('runtime.loading_r'),
         code,
+        running: true,
       })
 
       const addFiguresAndTable = (result: RuntimeOutput) => {
@@ -626,6 +627,8 @@ export function FilesPage() {
           output: message,
         })
       } finally {
+        // Clear the activity indicator on every exit path (done / error / stop).
+        updateExecutionResult(execId, { running: false })
         finishExecution()
       }
     },
