@@ -74,8 +74,11 @@ def language_label(language: str) -> str:
 
 
 DEFAULT_PACKAGES: dict[str, list[str]] = {
-    "python": ["pandas", "numpy", "matplotlib", "plotly", "scikit-learn", "duckdb"],
-    "r": ["dplyr", "ggplot2", "tidyr", "readr", "data.table"],
+    # pyarrow is required: injected analysis code reads the dataset via
+    # pandas.read_parquet, which needs a parquet engine (widget rendering fails
+    # otherwise). R's arrow is the equivalent for read_parquet on the R side.
+    "python": ["pandas", "numpy", "pyarrow", "matplotlib", "plotly", "scikit-learn", "duckdb"],
+    "r": ["arrow", "dplyr", "ggplot2", "tidyr", "readr", "data.table"],
 }
 
 

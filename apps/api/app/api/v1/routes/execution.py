@@ -231,13 +231,24 @@ async def run_as_job(
 
 
 async def _run_in_kernel(
-    db: AsyncSession, project_uid: str, user: User, language: str, env_id: str, code: str, resolver
+    db: AsyncSession, project_uid: str, user: User, language: str, env_id: str, code: str, resolver,
+    use_app_env: bool = False,
 ) -> ExecuteResponse:
     """Run `code` in the caller's persistent kernel for (project, language, env)
-    and shape the captured output. Shared by /execute and /execute/render."""
-    # Auto-build the project env on first run if it declares packages but isn't
-    # materialised yet (build is visible as a job); an empty/ready env is instant.
-    environment = await environments.ensure_ready(db, project_uid, language, user.id)
+    and shape the captured output. Shared by /execute and /execute/render.
+
+    `use_app_env=True` runs against the app's own interpreter (sys.executable, which
+    ships the render deps: pandas/pyarrow/duckdb/scipy/…) rather than the project's
+    managed env — for built-in renders, whose program is server-owned and must not
+    depend on the user's package choices. It uses a dedicated env id so its kernel
+    is never the one a user's custom-code run pins to the managed interpreter."""
+    if use_app_env:
+        environment = None
+        env_id = "__app__"
+    else:
+        # Auto-build the project env on first run if it declares packages but isn't
+        # materialised yet (build is visible as a job); an empty/ready env is instant.
+        environment = await environments.ensure_ready(db, project_uid, language, user.id)
     try:
         try:
             k = await kernel.manager.get(project_uid, user.id, language, env_id, environment)
@@ -293,7 +304,9 @@ async def render_component(
             db, body.dataset_file_id, "python", body.dataset_filters, body.project_uid
         )
         code = preamble + "\n" + analysis_code
-    return await _run_in_kernel(db, body.project_uid, user, "python", body.env_id, code, None)
+    # Built-in renders run on the app's interpreter, never the project's managed env
+    # (the program is server-owned; it must not break when the user's env lacks a dep).
+    return await _run_in_kernel(db, body.project_uid, user, "python", body.env_id, code, None, use_app_env=True)
 
 
 @router.get("/kernels")
