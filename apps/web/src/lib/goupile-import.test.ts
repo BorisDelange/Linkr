@@ -56,7 +56,9 @@ describe('isGoupileWorkbook', () => {
 })
 
 describe('parseGoupileWorkbook', () => {
-  const res = parseGoupileWorkbook(SHEETS, { __tid: 'Identifiant dossier' })
+  const res = parseGoupileWorkbook(SHEETS, {
+    __tid: { label: 'Identifiant dossier', description: 'Identifiant unique du dossier' },
+  })
   const byTid = Object.fromEntries(res.rows.map((r) => [r.__tid, r]))
 
   it('joins on __tid: one row per distinct respondent', () => {
@@ -92,23 +94,24 @@ describe('parseGoupileWorkbook', () => {
 
   it('keeps system columns unprefixed and up front', () => {
     expect(res.columns.slice(0, 3)).toEqual(['__tid', '__sequence', '__hid'])
-    expect(res.columnMeta.__tid).toEqual({ label: 'Identifiant dossier' })
+    expect(res.columnMeta.__tid).toEqual({ label: 'Identifiant dossier', description: 'Identifiant unique du dossier' })
   })
 
-  it('labels an enum column and maps its value labels', () => {
-    expect(res.columnMeta.sexe.label).toBe('Quel est votre sexe ?')
+  it('humanizes the name into a short label, puts the question in the description, maps value labels', () => {
+    expect(res.columnMeta.sexe.label).toBe('Sexe') // humanized from the variable name
+    expect(res.columnMeta.sexe.description).toBe('Quel est votre sexe ?')
     expect(res.columnMeta.sexe.valueLabels).toEqual({ homme: 'Homme', femme: 'Femme' })
   })
 
   it('labels a one-hot column with the option, and the parent question as description', () => {
     const meta = res.columnMeta['situations_recours.detresse_vitale']
-    expect(meta.label).toBe('Détresse vitale')
+    expect(meta.label).toBe('Détresse vitale') // the proposition is a good short label
     expect(meta.description).toBe('Situations de recours')
     expect(meta.valueLabels).toBeUndefined() // it's a 0/1 flag
   })
 
-  it('gives colliding text columns their own per-form labels', () => {
-    expect(res.columnMeta['a_propos_de_vous.remarques'].label).toBe('Remarques (profil)')
-    expect(res.columnMeta['recours_mir.remarques'].label).toBe('Remarques (recours)')
+  it('gives colliding text columns their own per-form question as description', () => {
+    expect(res.columnMeta['a_propos_de_vous.remarques'].description).toBe('Remarques (profil)')
+    expect(res.columnMeta['recours_mir.remarques'].description).toBe('Remarques (recours)')
   })
 })

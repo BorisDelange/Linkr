@@ -27,6 +27,14 @@ function denaturalize(value: unknown): unknown {
   return value === 'NA' ? null : value
 }
 
+/** A short, human-friendly label from a technical variable name: underscores → spaces,
+ *  first letter capitalized (e.g. "type_structure" → "Type structure"). Goupile has no
+ *  clean short label — only the full question — so we derive one from the name. */
+function humanizeName(name: string): string {
+  const spaced = name.replace(/_/g, ' ').trim()
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
 export interface GoupileColumnMeta {
   label?: string
   description?: string
@@ -93,12 +101,12 @@ function readPropositions(rows: Record<string, unknown>[]): Map<string, Record<s
  * Join every data sheet on `__tid` into one wide dataset and derive column
  * metadata from the dictionary sheets.
  *
- * @param sheets       all workbook sheets (data + `@definitions`/`@propositions`)
- * @param systemLabels display labels for `__tid`/`__sequence`/`__hid` (i18n by the caller)
+ * @param sheets     all workbook sheets (data + `@definitions`/`@propositions`)
+ * @param systemMeta label + description for `__tid`/`__sequence`/`__hid` (i18n by the caller)
  */
 export function parseGoupileWorkbook(
   sheets: SheetMap,
-  systemLabels: Partial<Record<(typeof GOUPILE_SYSTEM_COLUMNS)[number], string>> = {},
+  systemMeta: Partial<Record<(typeof GOUPILE_SYSTEM_COLUMNS)[number], GoupileColumnMeta>> = {},
 ): GoupileParseResult {
   const defs = readDefinitions(sheets[DEFINITIONS_SHEET] ?? [])
   const props = readPropositions(sheets[PROPOSITIONS_SHEET] ?? [])
@@ -130,7 +138,7 @@ export function parseGoupileWorkbook(
   const columns: string[] = [...GOUPILE_SYSTEM_COLUMNS]
   const columnMeta: Record<string, GoupileColumnMeta> = {}
   for (const sys of GOUPILE_SYSTEM_COLUMNS) {
-    if (systemLabels[sys]) columnMeta[sys] = { label: systemLabels[sys] }
+    if (systemMeta[sys]) columnMeta[sys] = { ...systemMeta[sys] }
   }
 
   const byTid = new Map<string, Record<string, unknown>>()
@@ -182,11 +190,14 @@ export function parseGoupileWorkbook(
 }
 
 /**
- * Metadata for one wide column from the dictionary:
- * - one-hot `<var>.<prop>` (parent is a `multi`): label = the proposition label,
- *   description = the parent question label. It's a 0/1 flag, so no valueLabels.
- * - plain `enum`: label = the variable label, valueLabels = its propositions.
- * - plain number/text: label = the variable label.
+ * Metadata for one wide column from the dictionary. The Goupile `label` is the
+ * full question asked — too long for a column label, so it becomes the column
+ * DESCRIPTION; the column keeps its technical name as its visible name.
+ * - one-hot `<var>.<prop>` (parent is a `multi`): a short, meaningful `label` is
+ *   the proposition text (e.g. "Détresse vitale"); the parent question is the
+ *   description. It's a 0/1 flag, so no valueLabels.
+ * - plain `enum`: description = the question, valueLabels = its code→label map.
+ * - plain number/text: description = the question.
  */
 function deriveColumnMeta(
   table: string,
@@ -204,7 +215,7 @@ function deriveColumnMeta(
       const propLabels = props.get(`${table}\t${parentVar}`)
       const meta: GoupileColumnMeta = {}
       const propLabel = propLabels?.[prop]
-      if (propLabel) meta.label = propLabel
+      if (propLabel) meta.label = propLabel // the proposition is a good short label
       if (parentDef.label) meta.description = parentDef.label
       return meta
     }
@@ -213,7 +224,9 @@ function deriveColumnMeta(
   const def = defs.get(`${table}\t${rawName}`)
   if (!def) return {}
   const meta: GoupileColumnMeta = {}
-  if (def.label) meta.label = def.label
+  // Short label from the variable name; the full question is the description.
+  meta.label = humanizeName(rawName)
+  if (def.label) meta.description = def.label
   if (def.type === 'enum') {
     const valueLabels = props.get(`${table}\t${rawName}`)
     if (valueLabels && Object.keys(valueLabels).length > 0) meta.valueLabels = { ...valueLabels }
