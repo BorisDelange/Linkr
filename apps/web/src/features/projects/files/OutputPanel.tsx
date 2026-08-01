@@ -480,7 +480,7 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
           )
         )}
         {!showCode && result.installOffer && !result.running && (
-          <InstallOfferButton offer={result.installOffer} />
+          <InstallOfferButton resultId={result.id} offer={result.installOffer} />
         )}
       </div>
     </TooltipProvider>
@@ -489,16 +489,27 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
 
 /** One-click "install these packages in the managed environment" — opens the
  *  Environments modal on the right tab and queues the declarative install, so a
- *  package installed imperatively in a script gets versioned instead of lost. */
-function InstallOfferButton({ offer }: { offer: { language: 'python' | 'r'; packages: string[] } }) {
+ *  package installed imperatively in a script gets versioned instead of lost. The
+ *  offer clears itself once used, so the button doesn't linger on a done action. */
+function InstallOfferButton({
+  resultId,
+  offer,
+}: {
+  resultId: string
+  offer: { language: 'python' | 'r'; packages: string[] }
+}) {
   const { t } = useTranslation()
   const requestInstall = useEnvironmentsUiStore((s) => s.requestInstall)
+  const updateExecutionResult = useFileStore((s) => s.updateExecutionResult)
   return (
     <Button
       size="xs"
       variant="outline"
       className="mt-2 gap-1.5"
-      onClick={() => requestInstall(offer.language, offer.packages)}
+      onClick={() => {
+        requestInstall(offer.language, offer.packages)
+        updateExecutionResult(resultId, { installOffer: undefined })
+      }}
     >
       <Package size={12} />
       {t('environments.install_in_env', { packages: offer.packages.join(', ') })}
