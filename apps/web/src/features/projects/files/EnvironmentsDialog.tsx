@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Info,
+  Package,
   RefreshCw,
 } from 'lucide-react'
 import {
