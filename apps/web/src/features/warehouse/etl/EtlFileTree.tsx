@@ -12,6 +12,8 @@ import {
   X,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -98,7 +100,7 @@ export function EtlFileTree() {
 
   return (
     <>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="py-1">
           {rootFiles.sort((a, b) => a.order - b.order).map((file) => (
             <EtlFileTreeItem
@@ -178,6 +180,7 @@ function EtlFileTreeItem({
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(file.name)
   const inputRef = useRef<HTMLInputElement>(null)
+  const { ref: nameRef, overflows: nameOverflows, triggerProps: nameTriggerProps } = useOverflowTooltip()
 
   useEffect(() => {
     if (!editing || !inputRef.current) return
@@ -285,15 +288,18 @@ function EtlFileTreeItem({
 
   return (
     <div>
+      <Tooltip>
       <ContextMenu>
         <ContextMenuTrigger asChild>
+          <TooltipTrigger asChild>
           <button
             onClick={() => {
               if (isFolder) onToggleFolder(file.id)
               else onSelect(file.id)
             }}
+            {...nameTriggerProps}
             className={cn(
-              'flex h-6 w-full items-center gap-1.5 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
+              'flex h-6 w-full min-w-0 items-center gap-1.5 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -313,8 +319,9 @@ function EtlFileTreeItem({
                 <FileCode size={14} className={cn('shrink-0', getFileColor(file))} />
               </>
             )}
-            <span className="truncate">{file.name}</span>
+            <span ref={nameRef} className="truncate">{file.name}</span>
           </button>
+          </TooltipTrigger>
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onClick={handleStartRename} disabled={!canWrite}>
@@ -332,6 +339,8 @@ function EtlFileTreeItem({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+        {nameOverflows && <TooltipContent side="right">{file.name}</TooltipContent>}
+      </Tooltip>
 
       {isFolder && isExpanded && getChildren(file.id).map((child) => (
         <EtlFileTreeItem

@@ -40,6 +40,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
 import { getStorage } from '@/lib/storage'
@@ -114,6 +115,7 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
 
   const [editing, setEditing] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const { ref: nameRef, overflows: nameOverflows, triggerProps: nameTriggerProps } = useOverflowTooltip()
 
   const resolvedDirs = useContext(ResolvedDirsContext)
   // A relative path only resolves from a script when datasets sits under the IDE
@@ -263,16 +265,19 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
 
   return (
     <>
+      <Tooltip>
       <ContextMenu>
         <ContextMenuTrigger asChild>
+          <TooltipTrigger asChild>
           <div
             className={cn(
-              'group flex items-center gap-0.5 px-1 py-0.5 cursor-pointer text-xs hover:bg-accent/50 transition-colors',
+              'group flex min-w-0 items-center gap-0.5 px-1 py-0.5 cursor-pointer text-xs hover:bg-accent/50 transition-colors',
               isSelected && !isFolder && 'bg-accent text-accent-foreground',
               dragOver && 'bg-accent/70 ring-1 ring-primary/50',
             )}
             style={{ paddingLeft: `${depth * 12 + 4}px` }}
             onClick={handleClick}
+            {...nameTriggerProps}
             draggable={!editing}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
@@ -315,7 +320,7 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
               />
             ) : (
               <span className="ml-1 flex min-w-0 items-center gap-1 truncate">
-                <span className="truncate">{node.name}</span>
+                <span ref={nameRef} className="truncate">{node.name}</span>
                 {isMarkedVersioned && (
                   <GitCommitVertical
                     size={12}
@@ -328,6 +333,7 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
               </span>
             )}
           </div>
+          </TooltipTrigger>
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onClick={handleStartRename}>
@@ -406,6 +412,8 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+        {nameOverflows && <TooltipContent side="right">{node.name}</TooltipContent>}
+      </Tooltip>
 
       {/* Children */}
       {isFolder &&
@@ -496,7 +504,7 @@ export function DatasetFileTree() {
           <p className="text-xs text-muted-foreground">{t('datasets.no_files')}</p>
         </div>
       ) : (
-      <ScrollArea className="h-full min-h-0 flex-1">
+      <ScrollArea className="h-full min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div
           className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
           onDragOver={handleRootDragOver}

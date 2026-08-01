@@ -36,6 +36,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import {
   Dialog,
   DialogContent,
@@ -168,6 +170,9 @@ export function FileTreeItem({
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(node.name)
   const renameRef = useRef<HTMLInputElement>(null)
+  // Only surface the tooltip when the name is actually clipped by the sidebar
+  // width — otherwise every short row would flash a redundant tooltip.
+  const { ref: nameRef, overflows: nameOverflows, triggerProps: nameTriggerProps } = useOverflowTooltip()
 
   // datasets/ is now a read-only virtual view, so no node is a bridge anymore;
   // these resolve false/undefined at runtime. Kept so the surrounding branches
@@ -395,34 +400,42 @@ export function FileTreeItem({
     )
   }
 
-  return (
-    <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <button
-            onClick={handleClick}
-            draggable={!isVirtual || isBridge}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={cn(
-              'flex h-6 w-full items-center gap-1 px-2 text-left text-xs hover:bg-accent/50 transition-colors',
-              isSelected && !isFolder && 'bg-accent text-accent-foreground',
-              dragOver && 'bg-accent/70 ring-1 ring-primary/50'
-            )}
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
-          >
-            {rowIcon}
-            <span className="truncate">{node.name}</span>
-            {isRealFile && willBeVersioned && (
-              <GitCommitVertical size={11} className="shrink-0 text-primary" aria-label={t('datasets.versioned_badge')} />
-            )}
-            {isVirtual && !isBridge && !isFolder && (
-              <Lock size={10} className="ml-auto shrink-0 text-muted-foreground/50" />
-            )}
-          </button>
-        </ContextMenuTrigger>
+  const rowButton = (
+    <button
+      onClick={handleClick}
+      {...nameTriggerProps}
+      draggable={!isVirtual || isBridge}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={cn(
+        'flex h-6 w-full min-w-0 items-center gap-1 px-2 text-left text-xs hover:bg-accent/50 transition-colors',
+        isSelected && !isFolder && 'bg-accent text-accent-foreground',
+        dragOver && 'bg-accent/70 ring-1 ring-primary/50'
+      )}
+      style={{ paddingLeft: `${depth * 16 + 8}px` }}
+    >
+      {rowIcon}
+      <span ref={nameRef} className="truncate">{node.name}</span>
+      {isRealFile && willBeVersioned && (
+        <GitCommitVertical size={11} className="shrink-0 text-primary" aria-label={t('datasets.versioned_badge')} />
+      )}
+      {isVirtual && !isBridge && !isFolder && (
+        <Lock size={10} className="ml-auto shrink-0 text-muted-foreground/50" />
+      )}
+    </button>
+  )
+
+  // The button carries both a context menu and a tooltip. Radix `asChild`
+  // triggers must land on a real DOM node, so the two triggers nest directly
+  // around the button. The tooltip is always mounted (measuring overflow on
+  // hover), but its content only renders when the name is actually clipped.
+  const rowWithMenu = (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <TooltipTrigger asChild>{rowButton}</TooltipTrigger>
+      </ContextMenuTrigger>
         <ContextMenuContent>
           {isVirtual && !isBridge ? (
             <>
@@ -528,6 +541,14 @@ export function FileTreeItem({
           )}
         </ContextMenuContent>
       </ContextMenu>
+  )
+
+  return (
+    <>
+      <Tooltip>
+        {rowWithMenu}
+        {nameOverflows && <TooltipContent side="right">{node.name}</TooltipContent>}
+      </Tooltip>
 
       {isFolder &&
         isExpanded &&

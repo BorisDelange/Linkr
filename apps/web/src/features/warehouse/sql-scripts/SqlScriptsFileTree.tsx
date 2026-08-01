@@ -17,6 +17,8 @@ import {
   X,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -108,7 +110,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
 
   return (
     <>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div
           className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
           onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setRootDragOver(true) }}
@@ -214,6 +216,7 @@ function SqlScriptsFileTreeItem({
   const [editName, setEditName] = useState(file.name)
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const { ref: nameRef, overflows: nameOverflows, triggerProps: nameTriggerProps } = useOverflowTooltip()
 
   useEffect(() => {
     if (!editing) return
@@ -402,8 +405,10 @@ function SqlScriptsFileTreeItem({
 
   return (
     <div>
+      <Tooltip>
       <ContextMenu>
         <ContextMenuTrigger asChild>
+          <TooltipTrigger asChild>
           <button
             draggable
             onDragStart={handleDragStart}
@@ -414,6 +419,7 @@ function SqlScriptsFileTreeItem({
               if (isFolder) onToggleFolder(file.id)
               else onSelect(file.id)
             }}
+            {...nameTriggerProps}
             className={cn(
               'flex h-6 w-full min-w-0 items-center gap-1.5 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
@@ -422,8 +428,9 @@ function SqlScriptsFileTreeItem({
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
           >
             {icon}
-            <span className="truncate">{file.name}</span>
+            <span ref={nameRef} className="truncate">{file.name}</span>
           </button>
+          </TooltipTrigger>
         </ContextMenuTrigger>
         <ContextMenuContent>
           {isFolder && (
@@ -466,6 +473,8 @@ function SqlScriptsFileTreeItem({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+        {nameOverflows && <TooltipContent side="right">{file.name}</TooltipContent>}
+      </Tooltip>
 
       {childItems}
     </div>
