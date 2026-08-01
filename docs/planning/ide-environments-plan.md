@@ -353,20 +353,21 @@ SessionDropdown.
    JSZip wiring: `environments.resolve` detects a committed lockfile on disk and seeds the
    row `managed`/`draft` ("needs build") on first access — **no auto-build**. Portal
    `build.sh` needs no change (it clones committed files; `.cache/` is never committed).
-7. **Finishing touches** — ⏳ *deferred (best built + verified against a live kernel, not
-   blind).* Two UX-polish items:
-   - **Streaming Run button**: the IDE Run still batches via HTTP `executeOnServer`
-     (`FilesPage.tsx:576`); routing it through the terminal streaming WS + a real Stop is a
-     substantial change to how an `ExecutionResult` is modelled (single object → stream).
-   - **True real-time R streaming**: needs an R-side incremental flush in `_R_KERNEL_LOOP`
-     (today buffered by `capture.output`, emitted at end).
-   - **Code runs as jobs**: a long script run (e.g. `Sys.sleep(5)`) does NOT appear in the
-     jobs panel today — only **builds** create a `Job` (`kind="build"`). Surfacing runs as
-     `kind="run"` jobs (visible + cancellable) folds in with the streaming Run work here.
-   Neither blocks the feature — batch Run works; builds/long jobs already stream status via
-   the jobs panel (step 4). The `render` purpose guard in `_require_execute` is load-bearing
-   security (refuses a viewer-gate downgrade), **not** a cosmetic enum — it stays; the
-   earlier "drop render from the enum" note is withdrawn.
+7. **Finishing touches** — ✅ *streaming done (2026-08-01); one optional item left.*
+   - **Streaming Run button** — ✅ done. The IDE Run now streams over the kernel WebSocket
+     (`streamOnServer` in `lib/api/execution.ts`, consumed in `FilesPage.tsx`): stdout/stderr
+     appear live in the Console tab, figures/table land on the final `done`. Stop already
+     SIGINTs the kernel (`/execute/interrupt`).
+   - **True real-time R streaming** — ✅ done. `_R_KERNEL_LOOP` now evaluates one top-level
+     expression at a time and flushes each expression's output immediately (replacing the
+     single `capture.output(eval(whole block))`), so `print; Sys.sleep(10); print` shows the
+     first line, the pause, then the second. Batch mode (render path) still returns one
+     payload. Verified end-to-end with timing (first line at 0.3s, second after the sleep).
+   - **Code runs as jobs** — ⏳ *optional, deferred.* A long run doesn't appear in the jobs
+     panel (only builds create a `Job`). Stop works and output streams, so this is pure
+     panel visibility; surface runs as `kind="run"` jobs if wanted later.
+   The `render` purpose guard in `_require_execute` is load-bearing security (refuses a
+   viewer-gate downgrade), **not** a cosmetic enum — it stays.
 
 Steps 1–6 ship the feature end to end (behaviour-preserving step 1; managed uv/renv envs;
 jobs; git round-trip). Step 7 is optional polish layered on top.
