@@ -302,9 +302,9 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
           sheets[sn] = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sn], { defval: null })
         }
         const { columns: colNames, rows, columnMeta } = parseGoupileWorkbook(sheets, {
-          __tid: t('datasets.goupile_col_tid'),
-          __sequence: t('datasets.goupile_col_sequence'),
-          __hid: t('datasets.goupile_col_hid'),
+          __tid: { label: t('datasets.goupile_col_tid'), description: t('datasets.goupile_col_tid_desc') },
+          __sequence: { label: t('datasets.goupile_col_sequence'), description: t('datasets.goupile_col_sequence_desc') },
+          __hid: { label: t('datasets.goupile_col_hid'), description: t('datasets.goupile_col_hid_desc') },
         })
         if (colNames.length === 0 || rows.length === 0) {
           setError(t('datasets.upload_no_columns'))
@@ -505,9 +505,11 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
         let path: string
         if (isServerMode()) {
           const created = await importDatasetOnServer({ projectUid, name, parentId, file: csvFile, fileName: name })
-          store.addImportedFile(created)
           path = created.id
-          await setDatasetColumnMeta({ projectUid, path, columns: parsed.goupileMeta })
+          // Push the dictionary labels, then insert the RE-MERGED node (the import
+          // node predates the metadata, so inserting `created` would show no labels).
+          const labelled = await setDatasetColumnMeta({ projectUid, path, columns: parsed.goupileMeta })
+          store.addImportedFile(labelled)
         } else {
           const fileId = await store.createFileWithData(
             name, parentId, parsed.columns, parsed.rows, undefined,

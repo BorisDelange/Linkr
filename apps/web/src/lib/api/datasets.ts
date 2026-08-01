@@ -183,11 +183,14 @@ export async function setDatasetColumnMeta(params: {
   projectUid: string
   path: string
   columns: Record<string, { label?: string; description?: string; valueLabels?: Record<string, string> }>
-}): Promise<void> {
-  await apiRequest('/dataset-files/columns/meta', {
+}): Promise<DatasetFile> {
+  const node = await apiRequest<DsNode>('/dataset-files/columns/meta', {
     method: 'POST',
     body: JSON.stringify({ projectUid: params.projectUid, path: params.path, columns: params.columns }),
   })
+  // The endpoint re-merges the metadata onto the columns, so the returned node
+  // carries the labels — use it to refresh the store (the import node predates them).
+  return dsNodeToFile(params.projectUid, node)
 }
 
 /**
@@ -290,9 +293,11 @@ export async function duplicateDataset(datasetFileId: string, name: string): Pro
 export function fetchColumnStats(
   datasetFileId: string,
   colId: string,
+  opts?: { full?: boolean },
 ): Promise<Record<string, unknown>> {
   const projectUid = _dsProject.get(datasetFileId) ?? ''
-  const qs = `projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(datasetFileId)}`
+  let qs = `projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(datasetFileId)}`
+  if (opts?.full) qs += '&full=true'
   return apiRequest<Record<string, unknown>>(
     `/dataset-files/columns/${encodeURIComponent(colId)}/stats?${qs}`,
   )
