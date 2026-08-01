@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Check } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -479,7 +479,11 @@ function AdvancedOptions({
   const [override, setOverride] = useState<EnvInstallOptions>({})
   const [effective, setEffective] = useState<EnvInstallOptions>({})
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current) }, [])
 
   const load = useCallback(async () => {
     const res = await getEnvOptions(projectUid, language).catch(() => null)
@@ -497,6 +501,7 @@ function AdvancedOptions({
   const set = (key: keyof EnvInstallOptions, value: string) => {
     setOverride((o) => ({ ...o, [key]: value }))
     setDirty(true)
+    setSaved(false)
   }
 
   const onSave = async () => {
@@ -506,6 +511,10 @@ function AdvancedOptions({
       setOverride(res.override)
       setEffective(res.effective)
       setDirty(false)
+      // Briefly confirm the save, then revert the button to its normal state.
+      setSaved(true)
+      if (savedTimer.current) clearTimeout(savedTimer.current)
+      savedTimer.current = setTimeout(() => setSaved(false), 2000)
     } finally {
       setSaving(false)
     }
@@ -543,9 +552,18 @@ function AdvancedOptions({
         ))}
         <p className="text-[10px] text-muted-foreground">{t('environments.advanced_options_hint')}</p>
         <div className="flex justify-end">
-          <Button size="xs" disabled={!dirty || saving} onClick={() => void onSave()}>
-            {saving && <Loader2 size={12} className="mr-1 animate-spin" />}
-            {t('common.save')}
+          <Button
+            size="xs"
+            variant={saved ? 'outline' : 'default'}
+            disabled={saving || (!dirty && !saved)}
+            onClick={() => void onSave()}
+          >
+            {saving ? (
+              <Loader2 size={12} className="mr-1 animate-spin" />
+            ) : saved ? (
+              <Check size={12} className="mr-1 text-emerald-500" />
+            ) : null}
+            {saved ? t('common.saved') : t('common.save')}
           </Button>
         </div>
       </CollapsibleContent>
