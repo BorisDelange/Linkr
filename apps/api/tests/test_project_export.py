@@ -262,6 +262,38 @@ def test_scripts_tree_omitted_when_every_code_file_excluded():
     assert "scripts/test.py" not in tree
 
 
+def test_stale_marked_and_excluded_paths_pruned_from_project_json():
+    # A file marked "to version" (versionedDataFiles) or "do not version"
+    # (excludedFiles) and then DELETED must drop out of project.json — else it
+    # lingers forever with no UI to clear it. Only paths whose file still exists
+    # (in scripts/ or datasets/) survive.
+    keep_code = {"id": "k", "name": "keep.py", "type": "file", "parentId": None, "content": "x", "path": "keep.py"}
+    kept_ds = {"id": "d1", "name": "here.csv", "type": "file", "parentId": None, "path": "here.csv"}
+    project = {
+        "uid": "p",
+        "name": {"en": "P"},
+        "config": {
+            "theme": "dark",
+            "versionedDataFiles": ["datasets/here.csv", "datasets/gone.csv", "scripts/gone.csv"],
+            "excludedFiles": ["scripts/keep.py", "scripts/vanished.R"],
+        },
+    }
+    tree = build_project_tree(
+        project=project,
+        organization=None,
+        ide_files=[keep_code],
+        pipelines=[], cohorts=[], connections=[], dashboards=[],
+        dataset_files=[kept_ds], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+        attachments=[], attachment_blobs={},
+        versioned_data_files={"datasets/here.csv"},
+    )
+    cfg = json.loads(tree["project.json"].decode())["config"]
+    # Existing files survive; dead entries are dropped; unrelated keys untouched.
+    assert cfg["versionedDataFiles"] == ["datasets/here.csv"]
+    assert cfg["excludedFiles"] == ["scripts/keep.py"]
+    assert cfg["theme"] == "dark"
+
+
 def test_gitignore_exception_escapes_metacharacters():
     # A marked filename containing gitignore metachars ([ ] * ? # !) must be escaped
     # in the !path exception, else git reads it as a pattern and the re-inclusion

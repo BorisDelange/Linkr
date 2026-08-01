@@ -318,6 +318,46 @@ export function excludedCodeFiles(project: { config?: Record<string, unknown> } 
   return new Set(Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : [])
 }
 
+/** Marking keys (export tree paths) of the files that currently exist in the
+ *  project — every IDE file's `scripts/<path>` and every dataset file's
+ *  `datasets/<path>`. Mirrors the path computation buildProjectZip uses, so a mark
+ *  is "live" iff its file is still there. Used to prune stale config entries. */
+async function collectLiveMarkKeys(projectUid: string, storage: Storage): Promise<Set<string>> {
+  const keys = new Set<string>()
+  const rawIdeFiles = await storage.ideFiles.getByProject(projectUid)
+  const syntheticRoot = rawIdeFiles.find((f) => f.parentId == null && f.type === 'folder' && f.name === 'scripts')
+  const ideFiles = rawIdeFiles
+    .filter((f) => f !== syntheticRoot)
+    .map((f) => (syntheticRoot && f.parentId === syntheticRoot.id ? { ...f, parentId: null } : f))
+  const ideById = new Map(ideFiles.map((f) => [f.id, f]))
+  for (const f of ideFiles) if (f.type === 'file') keys.add(buildIdePath(f, ideById))
+  const datasetFiles = await storage.datasetFiles.getByProject(projectUid)
+  const dsById = new Map(datasetFiles.map((f) => [f.id, f]))
+  for (const f of datasetFiles) if (f.type === 'file') keys.add(`datasets/${buildDatasetPath(f, dsById)}`)
+  return keys
+}
+
+/** Return the project with config.versionedDataFiles / excludedFiles filtered to
+ *  entries whose file still exists (key in `liveMarkKeys`). Order preserved; a
+ *  shallow copy only when something changed. Byte-parity with the server's
+ *  _prune_marked_paths. */
+function pruneMarkedPaths<T extends { config?: Record<string, unknown> }>(project: T, liveMarkKeys: Set<string>): T {
+  const config = project.config
+  if (!config || typeof config !== 'object') return project
+  let changed = false
+  const newConfig = { ...config }
+  for (const key of ['versionedDataFiles', 'excludedFiles'] as const) {
+    const raw = config[key]
+    if (!Array.isArray(raw)) continue
+    const pruned = raw.filter((p): p is string => typeof p === 'string' && liveMarkKeys.has(p))
+    if (pruned.length !== raw.length) {
+      newConfig[key] = pruned
+      changed = true
+    }
+  }
+  return changed ? { ...project, config: newConfig } : project
+}
+
 function resolveProjectName(project: Project): string {
   return typeof project.name === 'string'
     ? project.name
@@ -509,12 +549,19 @@ export async function buildProjectZip(
 
   const zip = new JSZip()
 
+  // Prune config.versionedDataFiles / excludedFiles down to files that still exist,
+  // so a marked (or excluded) file that was later deleted drops out of project.json
+  // instead of lingering forever with no UI to clear it. Keys are export tree paths
+  // (scripts/<path>, datasets/<path>) — the same namespace the marks use.
+  const liveMarkKeys = await collectLiveMarkKeys(projectUid, storage)
+  const prunedProject = pruneMarkedPaths(project, liveMarkKeys)
+
   // --- project.json (without readme/todos/notes — those go in separate files —
   // nor instance-specific fields like ownerId/workspaceId/gitRemoteConfig) ---
   // `uid` is the local primary key: a delete+reimport regenerates it, so writing it
   // would churn the diff. It's dropped here (NOT added to INSTANCE_FIELDS, which
   // children share); lineageId/parentLineageId stay for cross-instance identity.
-  const { readme: _r, todos: _t, notes: _n, uid: _uid, ...projectMeta } = project
+  const { readme: _r, todos: _t, notes: _n, uid: _uid, ...projectMeta } = prunedProject
   zip.file('project.json', json({ ...stripInstanceFields(projectMeta), appVersion: APP_VERSION }))
 
   // --- README.md (+ README.<lang>.md per extra language) ---

@@ -234,6 +234,30 @@ def _build_dashboard_json(
     return _json({"dashboard": dashboard_out, "tabs": tabs_out, "widgets": widgets_out})
 
 
+def _prune_marked_paths(project: dict, live_mark_keys: set[str]) -> dict:
+    """Drop config.versionedDataFiles / excludedFiles entries whose file no longer
+    exists in the export (marking key not in ``live_mark_keys``). A file marked "to
+    version" (or "do not version") and later deleted would otherwise linger in
+    project.json forever with no UI to clear it. Order is preserved. Byte-parity
+    with buildProjectZip's pruning. Returns a shallow copy when it changes anything."""
+    config = project.get("config")
+    if not isinstance(config, dict):
+        return project
+    new_config = dict(config)
+    changed = False
+    for key in ("versionedDataFiles", "excludedFiles"):
+        raw = config.get(key)
+        if not isinstance(raw, list):
+            continue
+        pruned = [p for p in raw if isinstance(p, str) and p in live_mark_keys]
+        if pruned != raw:
+            new_config[key] = pruned
+            changed = True
+    if not changed:
+        return project
+    return {**project, "config": new_config}
+
+
 def _build_project_json(project: dict, organization: dict | None) -> bytes:
     """Port of the project.json transform (entity-io.ts:474-475 + attachEntity-
     Organization:1473).
@@ -368,6 +392,20 @@ def build_project_tree(
     # Tree paths of data files written into the export — each becomes a `!path`
     # exception in .gitignore. Collected across scripts/ (reference data) + datasets/.
     included_data_paths: list[str] = []
+
+    # Marking keys of the files that actually exist in this export, so a config that
+    # still lists a since-deleted marked/excluded file (versionedDataFiles /
+    # excludedFiles) is pruned before it's written to project.json — a deleted file
+    # then drops out of the versioned config instead of lingering forever.
+    _ide_by_id = {f["id"]: f for f in ide_files}
+    live_mark_keys = {
+        _ide_path(f, _ide_by_id) for f in ide_files if f.get("type") == "file"
+    } | {
+        f"datasets/{_dataset_path(f, {df['id']: df for df in dataset_files})}"
+        for f in dataset_files
+        if f.get("type") == "file"
+    }
+    project = _prune_marked_paths(project, live_mark_keys)
 
     tree["project.json"] = _build_project_json(project, organization)
 
