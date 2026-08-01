@@ -32,6 +32,64 @@ def _meta_path(project_uid: str, rel: str) -> Path:
     return _cache_root(project_uid) / f"{_key(rel)}.json"
 
 
+def _colmeta_root(project_uid: str) -> Path:
+    # Editorial column metadata (labels/descriptions/value labels). Lives under the
+    # project root — NOT under the re-bindable datasets/ dir — so it is git-tracked
+    # and travels on export regardless of where datasets/ is bound (mirrors how
+    # environments/ sits under the project root, not the re-bindable scripts/).
+    d = project_fs.project_dir(project_uid) / "dataset-meta"
+    return d
+
+
+def _colmeta_path(project_uid: str, rel: str) -> Path:
+    return _colmeta_root(project_uid) / f"{_key(rel)}.json"
+
+
+def read_column_meta(project_uid: str, rel: str) -> dict:
+    """The editorial column-metadata sidecar for a dataset: {columnId: {label?,
+    description?, valueLabels?}}. Empty dict when none has been set."""
+    meta = _read_meta(_colmeta_path(project_uid, rel))
+    cols = (meta or {}).get("columns")
+    return cols if isinstance(cols, dict) else {}
+
+
+def write_column_meta(project_uid: str, rel: str, columns: dict) -> None:
+    """Replace the sidecar's editorial column metadata with the given authoritative
+    set (the client sends the full desired state, so a cleared column drops out —
+    no stale merge). Each value is {label?, description?, valueLabels?}; empty
+    fields are stripped, and columns left with no fields are omitted. The sidecar
+    file is deleted when nothing remains."""
+    path = _colmeta_path(project_uid, rel)
+    cleaned = {}
+    for col_id, fields in (columns or {}).items():
+        entry = {k: v for k, v in (fields or {}).items() if v not in (None, "", {}, [])}
+        if entry:
+            cleaned[col_id] = entry
+    current = _read_meta(path) or {}
+    if cleaned:
+        current["columns"] = cleaned
+        _write_meta(path, current)
+    else:
+        current.pop("columns", None)
+        if current:
+            _write_meta(path, current)
+        else:
+            path.unlink(missing_ok=True)
+
+
+def merge_column_meta(columns: list[dict], sidecar: dict) -> list[dict]:
+    """Overlay the sidecar's editorial fields onto derived columns, matched by id.
+    Derived {id,name,type,order} stay authoritative; only label/description/
+    valueLabels are added. Sidecar entries for unknown ids are ignored."""
+    if not sidecar:
+        return columns
+    out = []
+    for col in columns:
+        extra = sidecar.get(col.get("id"))
+        out.append({**col, **extra} if isinstance(extra, dict) else col)
+    return out
+
+
 def _cache_parquet(project_uid: str, rel: str) -> Path:
     return _cache_root(project_uid) / f"{_key(rel)}.parquet"
 
@@ -68,7 +126,8 @@ def resolve_cache(
             columns, row_count = dataset_parser.parquet_schema(raw)
             meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": True}
             _write_meta(meta_path, meta)
-        return {"parquet": raw, "columns": meta["columns"], "rowCount": meta["rowCount"], "native": True}
+        cols = merge_column_meta(meta["columns"], read_column_meta(project_uid, rel))
+        return {"parquet": raw, "columns": cols, "rowCount": meta["rowCount"], "native": True}
 
     # CSV/XLSX/etc: parse to a Parquet cache when missing/stale.
     parquet = _cache_parquet(project_uid, rel)
@@ -82,7 +141,8 @@ def resolve_cache(
         Path(tmp).replace(parquet)
         meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": False}
         _write_meta(meta_path, meta)
-    return {"parquet": parquet, "columns": meta["columns"], "rowCount": meta["rowCount"], "native": False}
+    cols = merge_column_meta(meta["columns"], read_column_meta(project_uid, rel))
+    return {"parquet": parquet, "columns": cols, "rowCount": meta["rowCount"], "native": False}
 
 
 def _parse(raw: Path, rel: str, parse_options: dict | None):
@@ -115,3 +175,10 @@ def purge_orphans(project_uid: str) -> None:
         if entry.stem not in live_keys:
             entry.unlink(missing_ok=True)
             (root / f"{entry.stem}.parquet").unlink(missing_ok=True)
+    # The editorial sidecar lives under the project root, not the cache; purge it
+    # on the same live-key set so a deleted dataset leaves no metadata behind.
+    colmeta_root = _colmeta_root(project_uid)
+    if colmeta_root.is_dir():
+        for entry in colmeta_root.glob("*.json"):
+            if entry.stem not in live_keys:
+                entry.unlink(missing_ok=True)

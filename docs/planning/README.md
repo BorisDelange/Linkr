@@ -28,6 +28,13 @@ The as-built is in `docs/architecture.md`; details for each item live in the lin
 |----|------|--------|
 | 🤔 | Spreadsheet-style edits over immutable raw — design not yet arbitrated vs "pipeline-only transforms" (the dataset-store edit API is its unused groundwork) | L |
 
+## Dataset column metadata — [dataset-metadata-plan.md](dataset-metadata-plan.md)
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **Phase 1**: disk sidecar (`dataset-meta/`) for label/description/valueLabels, merged in `resolve_cache`, travels on export/git. Fixes server-mode label loss on restart | S–M |
+| 🤔 | **Phase 2**: extend sidecar to `parseOptions` (fixes raw-change type loss + filterMode); drop redundant `_columns.json`. Gated on portal not reading `_columns.json` | M |
+
 ## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)
 
 | St | Item | Effort |

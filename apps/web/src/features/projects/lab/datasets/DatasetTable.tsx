@@ -12,6 +12,7 @@ import {
   Columns2,
   Pin,
   PinOff,
+  Tag,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -43,7 +44,9 @@ import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { TypeBadge } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { useColumnDistinct } from './use-column-distinct'
-import { hasTimeComponent, columnTint } from '@/lib/dataset-utils'
+import { EditColumnMetaDialog } from './EditColumnMetaDialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { hasTimeComponent, columnTint, displayColumnName } from '@/lib/dataset-utils'
 import type { DatasetColumn, DatasetParseOptions } from '@/types'
 
 const COLUMN_TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 'date']
@@ -78,6 +81,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
   const [resizing, setResizing] = useState<{ colId: string; startX: number; startW: number } | null>(null)
   const [pinnedColumns, setPinnedColumns] = useState<string[]>([])
+  const [metaColumn, setMetaColumn] = useState<DatasetColumn | null>(null)
 
   // Reset state when switching files
   useEffect(() => {
@@ -346,6 +350,10 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           <Settings2 size={13} />
           {t('datasets.col_view_stats')}
         </Item>
+        <Item onClick={() => setMetaColumn(col)} className="text-xs">
+          <Tag size={13} />
+          {t('datasets.col_edit_meta')}
+        </Item>
         <Separator />
         {/* Force the column type (overrides inference; persisted in parseOptions). */}
         {COLUMN_TYPES.map((ty) => (
@@ -440,7 +448,23 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                   >
                     <div className="flex items-center gap-1.5">
                       <TypeBadge type={col.type} size="sm" />
-                      <span className="truncate">{col.name}</span>
+                      <TooltipProvider delayDuration={400}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="truncate">{displayColumnName(col)}</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-80">
+                            <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-xs">
+                              <span className="text-muted-foreground">{t('datasets.col_meta_col_id')}</span>
+                              <span className="font-mono break-all">{col.name}</span>
+                              <span className="text-muted-foreground">{t('datasets.col_meta_label')}</span>
+                              <span className="break-words">{col.label || '—'}</span>
+                              <span className="text-muted-foreground">{t('datasets.col_meta_description')}</span>
+                              <span className="break-words">{col.description || '—'}</span>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                       {isSorted && (
                         sort!.dir === 'asc'
                           ? <ArrowUp size={11} className="shrink-0 text-primary" />
@@ -655,6 +679,17 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
           </Button>
         </div>
       </div>
+
+      {metaColumn && (
+        <EditColumnMetaDialog
+          key={metaColumn.id}
+          fileId={fileId}
+          column={metaColumn}
+          rows={rows}
+          open={metaColumn != null}
+          onOpenChange={(open) => { if (!open) setMetaColumn(null) }}
+        />
+      )}
     </div>
   )
 }

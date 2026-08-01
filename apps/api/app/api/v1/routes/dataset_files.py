@@ -21,6 +21,7 @@ from app.schemas.dataset import (
     DatasetRowsQuery,
 )
 from app.schemas.dataset_fs import (
+    DsColumnMeta,
     DsCreateFolder,
     DsDelete,
     DsDuplicate,
@@ -322,6 +323,22 @@ async def reimport_dataset(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    return _file_node(body.project_uid, body.path)
+
+
+@router.post("/columns/meta", response_model=DsNodeResponse)
+async def set_column_meta(
+    body: DsColumnMeta,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist editorial column metadata (label/description/valueLabels) to the
+    disk sidecar. Metadata-only — never touches the raw file or Parquet cache; the
+    returned node re-merges it onto the derived columns."""
+    await _check_project(db, body.project_uid, user, "datasets:write")
+    if not project_fs.dataset_path(body.project_uid, body.path).is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
+    dataset_fs.write_column_meta(body.project_uid, body.path, body.columns)
     return _file_node(body.project_uid, body.path)
 
 

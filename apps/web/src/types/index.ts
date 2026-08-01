@@ -694,6 +694,15 @@ export interface DatasetColumn {
   name: string
   type: 'string' | 'number' | 'boolean' | 'date' | 'unknown'
   order: number
+  /** Human-friendly display name shown in headers, plugin pickers, charts.
+   *  The technical `name` stays the join/query key; this is presentation only. */
+  label?: string
+  /** Short free-text description of the column, surfaced on hover / in the meta dialog. */
+  description?: string
+  /** Code → label map for categorical values (e.g. { chu_chr: 'CHU/CHR' }). Display
+   *  layer only — cells keep the raw code, so filters/joins/exports are unaffected.
+   *  Populated by hand or auto-filled on import (e.g. Goupile @propositions). */
+  valueLabels?: Record<string, string>
 }
 
 export interface DatasetParseOptions {

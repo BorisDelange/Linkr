@@ -100,6 +100,20 @@ export function columnTint(index: number): string {
   return COLUMN_TINTS[index % COLUMN_TINTS.length]
 }
 
+/** Human-facing column name: the descriptive label if set, else the technical name.
+ *  Use everywhere a column name is *shown*; keep `col.name`/`col.id` as the actual key. */
+export function displayColumnName(col: Pick<DatasetColumn, 'name' | 'label'>): string {
+  return col.label?.trim() || col.name
+}
+
+/** Human-facing cell value for a categorical column: the mapped value label if one
+ *  exists, else the raw code as-is. Display layer only — never mutate stored cells. */
+export function displayCellValue(col: Pick<DatasetColumn, 'valueLabels'>, raw: unknown): string {
+  if (raw == null) return ''
+  const key = String(raw)
+  return col.valueLabels?.[key] ?? key
+}
+
 /** Build DatasetColumn metadata from raw headers and rows. */
 export function buildColumns(
   headers: string[],

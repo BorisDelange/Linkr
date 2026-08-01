@@ -25,6 +25,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
 import { isServerMode } from '@/lib/api-client'
 import { fetchColumnDistinct } from '@/lib/api/datasets'
 import { ColorPickerPopover } from '@/components/ui/color-picker-popover'
@@ -555,7 +556,7 @@ function MultiColumnSelect({
                   >
                     {isSelected && <Check size={10} />}
                   </div>
-                  <span className="truncate">{col.name}</span>
+                  <span className="truncate" title={col.name}>{displayColumnName(col)}</span>
                   <span className="ml-auto text-[10px] text-muted-foreground/60">{col.type}</span>
                 </button>
               )
@@ -621,7 +622,7 @@ function SingleColumnSelect({
             className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
           >
             <span className={cn('truncate', !currentCol && 'text-muted-foreground')}>
-              {currentCol ? currentCol.name : t('common.none')}
+              {currentCol ? displayColumnName(currentCol) : t('common.none')}
             </span>
             <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
           </button>
@@ -664,7 +665,7 @@ function SingleColumnSelect({
                     isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
                   )}
                 >
-                  <span className="truncate">{col.name}</span>
+                  <span className="truncate" title={col.name}>{displayColumnName(col)}</span>
                   <span className="ml-auto text-[10px] text-muted-foreground/60">{col.type}</span>
                 </button>
               )
@@ -696,6 +697,7 @@ function ColumnValueSelect({
 }: FieldRendererProps) {
   const { t } = useTranslation()
   const columnFieldId = config[field.columnField ?? ''] as string | undefined
+  const valueCol = useMemo(() => _columns.find(c => c.id === columnFieldId), [_columns, columnFieldId])
   const current = (value as string | undefined) ?? ''
 
   const localValues = useMemo(() => {
@@ -742,7 +744,7 @@ function ColumnValueSelect({
           <SelectItem value="__none__">{t('common.auto')}</SelectItem>
           {uniqueValues.map(val => (
             <SelectItem key={val} value={val}>
-              {val}
+              {valueCol ? displayCellValue(valueCol, val) : val}
             </SelectItem>
           ))}
         </SelectContent>

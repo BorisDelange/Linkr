@@ -305,3 +305,87 @@ async def test_preview_path_reparses_existing_dataset(client, seed_roles):
     assert [c["name"] for c in r2.json()["columns"]] == ["a|b"]
     # Preview must not have written a Parquet cache (it's non-destructive).
     assert not list((project_fs.cache_dir(uid) / "datasets").glob("*.parquet"))
+
+
+# --- Editorial column metadata sidecar (label/description/valueLabels) ---
+
+
+def test_merge_column_meta_overlays_by_id():
+    """Pure merge: editorial fields overlay derived columns by id; derived
+    id/name/type/order stay; unknown ids are ignored; empty sidecar is a no-op."""
+    cols = [
+        {"id": "col_age", "name": "age", "type": "number", "order": 0},
+        {"id": "col_sex", "name": "sex", "type": "string", "order": 1},
+    ]
+    sidecar = {"col_sex": {"label": "Sexe", "valueLabels": {"m": "Homme"}}, "col_x": {"label": "x"}}
+    out = dataset_fs.merge_column_meta(cols, sidecar)
+    assert out[0] == cols[0]  # untouched
+    assert out[1]["label"] == "Sexe" and out[1]["valueLabels"] == {"m": "Homme"}
+    assert out[1]["name"] == "sex" and out[1]["type"] == "string"  # derived preserved
+    assert dataset_fs.merge_column_meta(cols, {}) == cols
+
+
+async def test_column_meta_round_trip(client, seed_roles):
+    """POST /columns/meta persists labels; /meta re-merges them onto the columns."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "cohort.csv").write_text("age,sex\n70,m\n80,f\n")
+    await _meta(client, h, uid, "cohort.csv")  # build the cache first
+
+    r = await client.post(
+        f"{API}/dataset-files/columns/meta",
+        headers=h,
+        json={"projectUid": uid, "path": "cohort.csv", "columns": {
+            "col_age": {"label": "Âge", "description": "Âge à l'inclusion"},
+            "col_sex": {"label": "Sexe", "valueLabels": {"m": "Homme", "f": "Femme"}},
+        }},
+    )
+    assert r.status_code == 200
+    by_id = {c["id"]: c for c in r.json()["columns"]}
+    assert by_id["col_age"]["label"] == "Âge"
+    assert by_id["col_sex"]["valueLabels"] == {"m": "Homme", "f": "Femme"}
+    # Re-fetch via /meta: labels persist independently of the write response.
+    by_id = {c["id"]: c for c in (await _meta(client, h, uid, "cohort.csv"))["columns"]}
+    assert by_id["col_age"]["description"] == "Âge à l'inclusion"
+
+
+async def test_column_meta_survives_reparse(client, seed_roles):
+    """The bug this fixes: labels must survive a raw-file change (cache reparse),
+    unlike the derived columns which are rebuilt from the parquet."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    raw = _datasets(uid) / "cohort.csv"
+    raw.write_text("age,sex\n70,m\n")
+    await _meta(client, h, uid, "cohort.csv")
+    await client.post(
+        f"{API}/dataset-files/columns/meta", headers=h,
+        json={"projectUid": uid, "path": "cohort.csv", "columns": {"col_sex": {"label": "Sexe"}}},
+    )
+    # Mutate the raw so the cache signature changes and /meta reparses.
+    import time
+    time.sleep(0.01)
+    raw.write_text("age,sex\n70,m\n80,f\n90,m\n")
+    meta = await _meta(client, h, uid, "cohort.csv")
+    assert meta["rowCount"] == 3  # reparsed
+    by_id = {c["id"]: c for c in meta["columns"]}
+    assert by_id["col_sex"]["label"] == "Sexe"  # label survived the reparse
+
+
+async def test_column_meta_clear_removes_sidecar(client, seed_roles):
+    """Sending the authoritative full state without a column drops its metadata;
+    an empty payload deletes the sidecar file entirely."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "cohort.csv").write_text("age,sex\n70,m\n")
+    await _meta(client, h, uid, "cohort.csv")
+    await client.post(
+        f"{API}/dataset-files/columns/meta", headers=h,
+        json={"projectUid": uid, "path": "cohort.csv", "columns": {"col_sex": {"label": "Sexe"}}},
+    )
+    assert dataset_fs.read_column_meta(uid, "cohort.csv") == {"col_sex": {"label": "Sexe"}}
+    await client.post(
+        f"{API}/dataset-files/columns/meta", headers=h,
+        json={"projectUid": uid, "path": "cohort.csv", "columns": {}},
+    )
+    assert dataset_fs.read_column_meta(uid, "cohort.csv") == {}
+    assert not dataset_fs._colmeta_path(uid, "cohort.csv").exists()

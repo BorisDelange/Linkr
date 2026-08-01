@@ -54,6 +54,9 @@ interface DatasetState {
   addColumn: (fileId: string, name: string, type: DatasetColumn['type']) => void
   removeColumn: (fileId: string, columnId: string) => void
   renameColumn: (fileId: string, columnId: string, newName: string) => void
+  /** Update a column's descriptive metadata (label, description, value labels).
+   *  Metadata-only — touches `columns` not the Parquet, so it works in server mode. */
+  updateColumnMeta: (fileId: string, columnId: string, meta: Pick<DatasetColumn, 'label' | 'description' | 'valueLabels'>) => void
   reorderColumns: (fileId: string, fromIndex: number, toIndex: number) => void
   /** Force a column's type (right-click "Treat as…"). Persisted in parseOptions;
    *  server re-parses the cache, local re-coerces in-memory rows. */
@@ -705,6 +708,25 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     if (!file || file.type !== 'file') return
     const columns = file.columns ?? []
     const updatedColumns = columns.map((c) => c.id === columnId ? { ...c, name: newName } : c)
+    set((s) => ({
+      files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),
+    }))
+    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
+  },
+
+  updateColumnMeta: (fileId, columnId, meta) => {
+    const file = get().files.find((f) => f.id === fileId)
+    if (!file || file.type !== 'file') return
+    const columns = file.columns ?? []
+    const label = meta.label?.trim() || undefined
+    const description = meta.description?.trim() || undefined
+    const cleaned = Object.fromEntries(
+      Object.entries(meta.valueLabels ?? {}).filter(([, v]) => v?.trim()),
+    )
+    const valueLabels = Object.keys(cleaned).length > 0 ? cleaned : undefined
+    const updatedColumns = columns.map((c) =>
+      c.id === columnId ? { ...c, label, description, valueLabels } : c,
+    )
     set((s) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),
     }))

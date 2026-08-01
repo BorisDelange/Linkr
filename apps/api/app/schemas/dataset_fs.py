@@ -59,6 +59,15 @@ class DsReimport(CamelModel):
     parse_options: dict | None = None
 
 
+class DsColumnMeta(CamelModel):
+    """Editorial column metadata to persist in the disk sidecar. `columns` maps
+    columnId → {label?, description?, valueLabels?}; merged read-modify-write."""
+
+    project_uid: str
+    path: str
+    columns: dict[str, dict]
+
+
 class DsDuplicate(CamelModel):
     project_uid: str
     path: str

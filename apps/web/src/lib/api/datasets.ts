@@ -28,7 +28,10 @@ interface DsNode {
   type: 'file' | 'folder'
   parentId: string | null
   path: string
-  columns?: { id: string; name: string; type: string; order?: number }[] | null
+  columns?: {
+    id: string; name: string; type: string; order?: number
+    label?: string; description?: string; valueLabels?: Record<string, string>
+  }[] | null
   rowCount?: number | null
 }
 
@@ -341,6 +344,25 @@ export const apiDatasetFileStorage: DatasetFileStorage = {
       await apiRequest('/dataset-files/move', {
         method: 'POST',
         body: JSON.stringify({ projectUid, path: id, newPath }),
+      })
+    }
+    // Editorial column metadata (label/description/valueLabels) → persisted to the
+    // server-side sidecar. The technical id/name/type/order are disk-derived and
+    // never written here. The store sends the full column set, so this is the
+    // authoritative desired state: only columns with at least one field are kept,
+    // and a cleared column simply drops out (no stale merge on the server).
+    if (changes.columns !== undefined) {
+      const columnMeta: Record<string, Record<string, unknown>> = {}
+      for (const col of changes.columns ?? []) {
+        const entry: Record<string, unknown> = {}
+        if (col.label) entry.label = col.label
+        if (col.description) entry.description = col.description
+        if (col.valueLabels && Object.keys(col.valueLabels).length > 0) entry.valueLabels = col.valueLabels
+        if (Object.keys(entry).length > 0) columnMeta[col.id] = entry
+      }
+      await apiRequest('/dataset-files/columns/meta', {
+        method: 'POST',
+        body: JSON.stringify({ projectUid, path: id, columns: columnMeta }),
       })
     }
   },

@@ -3,12 +3,18 @@
     "id": "col_age",
     "name": "age",
     "type": "number",
-    "order": 0
+    "order": 0,
+    "label": "Age",
+    "description": "Age in years at inclusion"
   },
   {
     "id": "col_sex",
     "name": "sex",
     "type": "string",
-    "order": 1
+    "order": 1,
+    "valueLabels": {
+      "m": "Male",
+      "f": "Female"
+    }
   }
 ]

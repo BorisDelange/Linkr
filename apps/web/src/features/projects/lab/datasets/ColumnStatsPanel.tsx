@@ -11,6 +11,7 @@ import { TypeBadge } from './TypeBadge'
 import { BoxPlot } from '@/components/charts/box-plot'
 import { niceStep, niceTicks } from '@/lib/chart-ticks'
 import { computeNumericStats, buildHistogram, roundBinLabel, type HistBin } from '@/lib/column-stats'
+import { displayColumnName } from '@/lib/dataset-utils'
 
 interface ColumnStatsPanelProps {
   fileId: string | null
@@ -271,12 +272,15 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
+      {/* Header — show the friendly label; the technical name stays visible below it. */}
       <div className="border-b px-3 py-2">
         <div className="flex items-center gap-1.5">
           <TypeBadge type={column.type} />
-          <h3 className="text-xs font-medium truncate">{column.name}</h3>
+          <h3 className="text-xs font-medium truncate" title={column.description || column.name}>{displayColumnName(column)}</h3>
         </div>
+        {column.label && (
+          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground truncate" title={column.name}>{column.name}</p>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto p-3 space-y-4 text-xs">
