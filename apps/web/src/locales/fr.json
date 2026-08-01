@@ -2526,6 +2526,8 @@
     "add_placeholder": "Nom du package (ex. pandas, numpy==1.26)…",
     "build": "Reconstruire",
     "build_hint": "Les packages s'installent automatiquement au premier lancement du code. Épinglez une version avec « == », ex. pandas==2.1.4.",
+    "auto_build": "Reconstruire automatiquement",
+    "auto_build_hint": "Si activé, ajouter, mettre à jour ou supprimer un package reconstruit l'environnement immédiatement (installe le changement). Si désactivé, les changements sont enregistrés et appliqués à la prochaine reconstruction ou au premier lancement du code.",
     "build_taking_too_long": "La construction prend plus de temps que prévu — consultez le panneau des tâches pour suivre la progression.",
     "build_help_draft": "Votre liste de packages a changé mais n'est pas encore installée. Reconstruisez pour installer les packages déclarés dans l'environnement isolé du projet. (Cela se fait aussi automatiquement au premier lancement du code.)",
     "build_help_building": "Construction de l'environnement en cours — installation des packages déclarés. Suivez la progression dans le panneau des tâches (barre du bas).",

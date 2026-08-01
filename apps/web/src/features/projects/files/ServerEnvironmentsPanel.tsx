@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +64,8 @@ export function ServerEnvironmentsPanel({
   const projectUid = useProjectRouteUid()
   const canWrite = useMyProjectRole().can('ide:write')
   const clearPending = useEnvironmentsUiStore((s) => s.clearPending)
+  const autoBuild = useEnvironmentsUiStore((s) => s.autoBuild)
+  const setAutoBuild = useEnvironmentsUiStore((s) => s.setAutoBuild)
 
   const [env, setEnv] = useState<ProjectEnvironment | null>(null)
   const [packages, setPackages] = useState<EnvPackage[]>([])
@@ -95,67 +98,9 @@ export function ServerEnvironmentsPanel({
     void load()
   }, [load, reloadKey])
 
-  // `mark` is the package name(s) whose row should spin while the op runs ('*' =
-  // all rows). Omit it for ops that aren't tied to a specific row (add, preset).
-  const run = async (fn: () => Promise<ProjectEnvironment>, mark?: string) => {
-    if (!projectUid) return
-    setBusy(true)
-    setError(null)
-    if (mark) setPendingPkgs((s) => new Set(s).add(mark))
-    try {
-      setEnv(await fn())
-      setPackages(await listEnvPackages(projectUid, language))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-      if (mark) {
-        setPendingPkgs((s) => {
-          const next = new Set(s)
-          next.delete(mark)
-          return next
-        })
-      }
-    }
-  }
-
-  const addPackages = useCallback(async (names: string[]) => {
-    if (!projectUid || names.length === 0) return
-    setAdding(true)
-    setBusy(true)
-    setError(null)
-    try {
-      setEnv(await addEnvPackages(projectUid, language, names))
-      setPackages(await listEnvPackages(projectUid, language))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setAdding(false)
-      setBusy(false)
-    }
-  }, [projectUid, language])
-
-  const onAdd = async () => {
-    const name = newPkg.trim()
-    if (!name) return
-    setNewPkg('')
-    await addPackages([name])
-  }
-
-  // Consume a queued one-click install targeting this language: add the packages
-  // declaratively, then clear it so it doesn't fire again on re-render. Keyed on
-  // the request nonce so repeat requests for the same package still run.
-  const consumedNonce = useRef<number | null>(null)
-  useEffect(() => {
-    if (!pending || pending.language !== language) return
-    if (consumedNonce.current === pending.nonce) return
-    consumedNonce.current = pending.nonce
-    void addPackages(pending.packages).finally(() => clearPending())
-  }, [pending, language, addPackages, clearPending])
-
   // A build runs as a background job → poll until it settles, then reload the env
   // so its status flips draft/building → ready/error in the UI.
-  const onBuild = async () => {
+  const onBuild = useCallback(async () => {
     if (!projectUid) return
     setBusy(true)
     setError(null)
@@ -185,7 +130,72 @@ export function ServerEnvironmentsPanel({
     } finally {
       setBusy(false)
     }
+  }, [projectUid, language, load, t])
+
+  // `mark` is the package name(s) whose row should spin while the op runs ('*' =
+  // all rows). Omit it for ops that aren't tied to a specific row (add, preset).
+  // A spec change puts the env in draft; if auto-build is on, rebuild right away.
+  const run = async (fn: () => Promise<ProjectEnvironment>, mark?: string) => {
+    if (!projectUid) return
+    setBusy(true)
+    setError(null)
+    if (mark) setPendingPkgs((s) => new Set(s).add(mark))
+    let ok = false
+    try {
+      setEnv(await fn())
+      setPackages(await listEnvPackages(projectUid, language))
+      ok = true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+      if (mark) {
+        setPendingPkgs((s) => {
+          const next = new Set(s)
+          next.delete(mark)
+          return next
+        })
+      }
+    }
+    if (ok && autoBuild) await onBuild()
   }
+
+  const addPackages = useCallback(async (names: string[]) => {
+    if (!projectUid || names.length === 0) return
+    setAdding(true)
+    setBusy(true)
+    setError(null)
+    let ok = false
+    try {
+      setEnv(await addEnvPackages(projectUid, language, names))
+      setPackages(await listEnvPackages(projectUid, language))
+      ok = true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAdding(false)
+      setBusy(false)
+    }
+    if (ok && autoBuild) await onBuild()
+  }, [projectUid, language, autoBuild, onBuild])
+
+  const onAdd = async () => {
+    const name = newPkg.trim()
+    if (!name) return
+    setNewPkg('')
+    await addPackages([name])
+  }
+
+  // Consume a queued one-click install targeting this language: add the packages
+  // declaratively, then clear it so it doesn't fire again on re-render. Keyed on
+  // the request nonce so repeat requests for the same package still run.
+  const consumedNonce = useRef<number | null>(null)
+  useEffect(() => {
+    if (!pending || pending.language !== language) return
+    if (consumedNonce.current === pending.nonce) return
+    consumedNonce.current = pending.nonce
+    void addPackages(pending.packages).finally(() => clearPending())
+  }, [pending, language, addPackages, clearPending])
 
   const onPreset = () => run(() => installPreset(projectUid!, language))
   const onUpgradeAll = () => run(() => upgradeEnvPackages(projectUid!, language), '*')
@@ -393,6 +403,27 @@ export function ServerEnvironmentsPanel({
             </ul>
           )}
         </ScrollArea>
+
+        {canWrite && (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={autoBuild}
+              onCheckedChange={(v) => setAutoBuild(v === true)}
+              disabled={busy}
+            />
+            <span>{t('environments.auto_build')}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button className="text-muted-foreground/60 hover:text-muted-foreground" aria-label={t('environments.auto_build')}>
+                  <Info size={12} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs text-xs">
+                {t('environments.auto_build_hint')}
+              </TooltipContent>
+            </Tooltip>
+          </label>
+        )}
 
         <p className="text-[11px] text-muted-foreground">{t('environments.build_hint')}</p>
       </div>
