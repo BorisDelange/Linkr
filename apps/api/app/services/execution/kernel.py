@@ -244,13 +244,14 @@ repeat {
   #   print("a"); Sys.sleep(5); print("b")
   # shows "a", then the pause, then "b" — instead of both at the end. Batch mode
   # accumulates into .out for the single final payload.
+  .interrupted <- FALSE
   .eval_one <- function(.e) tryCatch(
     withCallingHandlers(
       utils::capture.output(eval(.e, envir = globalenv())),
       warning = function(w) { .err <<- c(.err, conditionMessage(w)); invokeRestart("muffleWarning") },
       message = function(m) { .err <<- c(.err, conditionMessage(m)); invokeRestart("muffleMessage") }
     ),
-    interrupt = function(i) { .err <<- c(.err, "interrupt"); character(0) },
+    interrupt = function(i) { .err <<- c(.err, "interrupt"); .interrupted <<- TRUE; character(0) },
     error = function(e) { .err <<- c(.err, conditionMessage(e)); character(0) }
   )
   .out <- character(0)
@@ -264,6 +265,9 @@ repeat {
     } else {
       .out <- c(.out, .e_out)
     }
+    # Stop (Ctrl+C) interrupts the whole run, not just the current expression —
+    # otherwise a `print` after an interrupted `Sys.sleep` would still fire.
+    if (.interrupted) break
   }
   # A parse error (or any error left over when there were no expressions to run)
   # still needs to reach a streaming client — flush it here.
