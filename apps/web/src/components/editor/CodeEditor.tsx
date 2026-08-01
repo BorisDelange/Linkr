@@ -16,6 +16,7 @@ interface CodeEditorProps {
   onSave?: () => void
   onRunSelectionOrLine?: () => void
   onRunFile?: () => void
+  onRunFileAsJob?: () => void
 }
 
 const languageMap: Record<string, string> = {
@@ -87,6 +88,7 @@ export function CodeEditor({
   onSave,
   onRunSelectionOrLine,
   onRunFile,
+  onRunFileAsJob,
 }: CodeEditorProps) {
   const internalRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const { editorSettings, darkMode } = useAppStore()
@@ -95,10 +97,12 @@ export function CodeEditor({
   const onSaveRef = useRef(onSave)
   const onRunSelectionOrLineRef = useRef(onRunSelectionOrLine)
   const onRunFileRef = useRef(onRunFile)
+  const onRunFileAsJobRef = useRef(onRunFileAsJob)
   useEffect(() => {
     onSaveRef.current = onSave
     onRunSelectionOrLineRef.current = onRunSelectionOrLine
     onRunFileRef.current = onRunFile
+    onRunFileAsJobRef.current = onRunFileAsJob
   })
 
   const resolvedTheme = resolveEditorTheme(editorSettings.theme, darkMode)
@@ -131,6 +135,11 @@ export function CodeEditor({
       editor.addCommand(
         toMonacoKeybinding(monaco, shortcuts.run_file.binding),
         () => onRunFileRef.current?.()
+      )
+
+      editor.addCommand(
+        toMonacoKeybinding(monaco, shortcuts.run_file_as_job.binding),
+        () => onRunFileAsJobRef.current?.()
       )
 
       // Toggle comment (Cmd+Shift+C by default) — triggers Monaco's built-in comment action

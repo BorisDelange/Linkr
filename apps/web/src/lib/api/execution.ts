@@ -3,6 +3,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useSessionStore } from '@/stores/session-store'
 import { TerminalSocket } from '@/lib/api/terminal-ws'
 import type { RuntimeLanguage, RuntimeOutput, RuntimeFigure, RuntimeTable } from '@/lib/runtimes/types'
+import type { Job } from '@/lib/api/environments'
 
 /**
  * Run R/Python on the server (server mode) and return the same RuntimeOutput the
@@ -48,6 +49,32 @@ export function executeOnServer(
       connectionId: opts?.connectionId ?? null,
       datasetFilters: opts?.datasetFilters ?? null,
       purpose: opts?.purpose ?? 'ide',
+    }),
+  })
+}
+
+/**
+ * Run a script server-side as a background job (batch — a fresh process, not the
+ * session namespace). Returns the queued Job immediately; poll listJobs for
+ * progress, and read its `result` (figures/table) once done. Cancellable + visible
+ * in the jobs panel.
+ */
+export function runFileAsJob(
+  language: RuntimeLanguage,
+  code: string,
+  opts?: { projectUid?: string; datasetFileId?: string; label?: string },
+): Promise<Job> {
+  const projectUid = opts?.projectUid ?? useAppStore.getState().activeProjectUid ?? null
+  if (!projectUid) throw new Error('Cannot run code without an active project')
+  return apiRequest<Job>('/execute/run-as-job', {
+    method: 'POST',
+    body: JSON.stringify({
+      language,
+      code,
+      projectUid,
+      datasetFileId: opts?.datasetFileId ?? null,
+      label: opts?.label ?? null,
+      purpose: 'ide',
     }),
   })
 }

@@ -6,6 +6,7 @@ export type ShortcutActionId =
   | 'save_file'
   | 'run_selection_or_line'
   | 'run_file'
+  | 'run_file_as_job'
   | 'toggle_comment'
   | 'find'
   | 'replace'
@@ -123,6 +124,12 @@ export const DEFAULT_SHORTCUTS: Record<
     labelKey: 'shortcuts.run_file',
     scope: 'editor',
     defaultBinding: kb('Enter', { shift: true }),
+  },
+  run_file_as_job: {
+    id: 'run_file_as_job',
+    labelKey: 'shortcuts.run_file_as_job',
+    scope: 'editor',
+    defaultBinding: kb('j', { shift: true }),
   },
   toggle_comment: {
     id: 'toggle_comment',
@@ -298,6 +305,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       'save_file',
       'run_selection_or_line',
       'run_file',
+      'run_file_as_job',
       'toggle_comment',
     ],
   },

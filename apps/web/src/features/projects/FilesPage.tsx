@@ -77,7 +77,7 @@ import { useProjectTree } from '@/hooks/use-project-tree'
 import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { isServerMode } from '@/lib/api-client'
-import { streamOnServer, interruptServerKernel } from '@/lib/api/execution'
+import { streamOnServer, interruptServerKernel, runFileAsJob } from '@/lib/api/execution'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { queryDatasetRows } from '@/lib/api/datasets'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
@@ -703,6 +703,36 @@ export function FilesPage() {
     runCode(selectedNode.content, selectedNode.name)
   }, [selectedNode, runCode])
 
+  // Run the whole file as a background job (batch, fresh process). Server-only;
+  // the RunButton hides the menu item off server mode. Fire-and-forget: the jobs
+  // panel takes over from here (progress, output, cancel, figures/table). A pending
+  // result card confirms it started and points to the jobs panel.
+  const handleRunFileAsJob = useCallback(() => {
+    if (!selectedNode?.content) return
+    if (selectedLanguage !== 'python' && selectedLanguage !== 'r') return
+    const execId = `run-job-${Date.now()}`
+    addExecutionResult({
+      id: execId,
+      fileName: selectedNode.name,
+      language: selectedLanguage,
+      timestamp: Date.now(),
+      duration: 0,
+      success: true,
+      output: t('files.run_as_job_started', { label: selectedNode.name }),
+      code: selectedNode.content,
+    })
+    setOutputVisible(true)
+    void runFileAsJob(selectedLanguage, selectedNode.content, {
+      projectUid: activeProjectUid ?? undefined,
+      label: selectedNode.name,
+    }).catch((e) =>
+      updateExecutionResult(execId, {
+        success: false,
+        output: e instanceof Error ? e.message : String(e),
+      })
+    )
+  }, [selectedNode, selectedLanguage, activeProjectUid, t, addExecutionResult, updateExecutionResult, setOutputVisible])
+
   const handleRunSelection = useCallback(() => {
     if (!editorRef.current || !selectedNode) return
     const selection = editorRef.current.getSelection()
@@ -851,6 +881,7 @@ export function FilesPage() {
       s.shortcuts.save_file.binding,
       s.shortcuts.run_selection_or_line.binding,
       s.shortcuts.run_file.binding,
+      s.shortcuts.run_file_as_job.binding,
     ])
   )
 
@@ -996,6 +1027,7 @@ export function FilesPage() {
                       onRunSelection={handleRunSelection}
                       onRunLine={handleRunLine}
                       onStop={handleStop}
+                      onRunFileAsJob={handleRunFileAsJob}
                       isSql={isSql}
                       isExecuting={isExecuting}
                       language={selectedLanguage as 'python' | 'r' | undefined}
@@ -1761,6 +1793,7 @@ export function FilesPage() {
                             onSave={handleSaveFile}
                             onRunSelectionOrLine={isVirtualFile ? undefined : handleRunSelectionOrLine}
                             onRunFile={isVirtualFile ? undefined : handleRunFile}
+                            onRunFileAsJob={isVirtualFile ? undefined : handleRunFileAsJob}
                           />
                         )}
 

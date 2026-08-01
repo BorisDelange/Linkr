@@ -17,6 +17,7 @@ import {
   X,
   Table2,
   Keyboard,
+  ListChecks,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -477,8 +478,14 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={handleRunFile}>{t('etl.run_file')}</DropdownMenuItem>
-                            <DropdownMenuItem onClick={handleRunAll}>{t('etl.run_all')}</DropdownMenuItem>
+                            <DropdownMenuItem onClick={handleRunFile} className="gap-2 text-xs">
+                              <FileCode size={13} className="text-muted-foreground" />
+                              {t('etl.run_file')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={handleRunAll} className="gap-2 text-xs">
+                              <ListChecks size={13} className="text-muted-foreground" />
+                              {t('etl.run_all')}
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>

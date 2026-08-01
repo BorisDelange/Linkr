@@ -49,6 +49,13 @@ export function removeEnvPackage(
   )
 }
 
+/** A 'run' job's collected artifacts (figures/table/html), or null. */
+export interface JobResult {
+  figures?: Array<{ id?: string; type: 'svg' | 'png'; data: string; label?: string }>
+  table?: { headers: string[]; rows: string[][] } | null
+  html?: string | null
+}
+
 export interface Job {
   id: string
   projectUid: string
@@ -57,6 +64,7 @@ export interface Job {
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   progress: number
   logTail: string
+  result?: JobResult | null
   createdAt: string
 }
 

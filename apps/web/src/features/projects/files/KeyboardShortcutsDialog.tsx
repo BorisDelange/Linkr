@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { comboToDisplay } from '@/lib/format-shortcut'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import {
   SHORTCUT_GROUPS,
@@ -31,25 +32,6 @@ interface KeyboardShortcutsDialogProps {
   /** When set, only these actions are shown (and groups with none are hidden).
    *  Used by non-IDE editors (e.g. SQL scripts) to show only relevant shortcuts. */
   actionIds?: ShortcutActionId[]
-}
-
-const isMac = navigator.platform.toUpperCase().includes('MAC')
-
-function comboToDisplay(combo: KeyCombo): string[] {
-  const parts: string[] = []
-  if (combo.ctrlOrMeta) parts.push(isMac ? '⌘' : 'Ctrl')
-  if (combo.shift) parts.push('Shift')
-  if (combo.alt) parts.push(isMac ? '⌥' : 'Alt')
-  const keyDisplay =
-    combo.key === 'Enter'
-      ? '↵'
-      : combo.key === '`'
-        ? '`'
-        : combo.key.length === 1
-          ? combo.key.toUpperCase()
-          : combo.key
-  parts.push(keyDisplay)
-  return parts
 }
 
 function isBrowserReserved(combo: KeyCombo): boolean {

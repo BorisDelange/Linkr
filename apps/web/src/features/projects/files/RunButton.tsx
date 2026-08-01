@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Play, Square, ChevronDown, Database, Loader2 } from 'lucide-react'
+import { Play, Square, ChevronDown, Database, Loader2, Server, FileCode, TextSelect, CornerDownLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -8,17 +8,23 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useConnectionStore, type ConnectionEntry } from '@/stores/connection-store'
 import { useRuntimeStore } from '@/stores/runtime-store'
+import { useShortcutStore } from '@/stores/shortcut-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
+import { isServerMode } from '@/lib/api-client'
+import { comboToString } from '@/lib/format-shortcut'
 
 interface RunButtonProps {
   onRunFile: () => void
   onRunSelection: () => void
   onRunLine: () => void
   onStop: () => void
+  /** Run the whole file as a background job (server mode only). */
+  onRunFileAsJob?: () => void
   /** Whether the current file is SQL (shows connection selector). */
   isSql?: boolean
   /** Whether code is currently executing. */
@@ -33,12 +39,18 @@ export function RunButton({
   onRunSelection,
   onRunLine,
   onStop,
+  onRunFileAsJob,
   isSql,
   isExecuting,
   language,
   projectUid,
 }: RunButtonProps) {
   const { t } = useTranslation()
+  const serverMode = isServerMode()
+  // Show each item's keyboard shortcut at the end of its row.
+  const runFileKey = useShortcutStore((s) => comboToString(s.shortcuts.run_file.binding))
+  const runLineKey = useShortcutStore((s) => comboToString(s.shortcuts.run_selection_or_line.binding))
+  const runAsJobKey = useShortcutStore((s) => comboToString(s.shortcuts.run_file_as_job.binding))
   const { getProjectConnections, activeConnectionId, setActiveConnection } = useConnectionStore()
   const { pythonStatus, rStatus } = useRuntimeStore()
   const canExecute = useMyProjectRole(projectUid).can('ide:execute')
@@ -112,15 +124,40 @@ export function RunButton({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
-                <DropdownMenuItem onClick={onRunFile} disabled={isDisabled}>
+                <DropdownMenuItem onClick={onRunFile} disabled={isDisabled} className="gap-2 text-xs">
+                  <FileCode size={13} className="text-muted-foreground" />
                   {t('files.run_file')}
+                  {runFileKey && <DropdownMenuShortcut>{runFileKey}</DropdownMenuShortcut>}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={onRunSelection} disabled={isDisabled}>
+                {/* run_selection_or_line (⌘Enter) covers BOTH: run selection when
+                    there's a selection, else the current line — so show it on both. */}
+                <DropdownMenuItem onClick={onRunSelection} disabled={isDisabled} className="gap-2 text-xs">
+                  <TextSelect size={13} className="text-muted-foreground" />
                   {t('files.run_selection')}
+                  {runLineKey && <DropdownMenuShortcut>{runLineKey}</DropdownMenuShortcut>}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={onRunLine} disabled={isDisabled}>
+                <DropdownMenuItem onClick={onRunLine} disabled={isDisabled} className="gap-2 text-xs">
+                  <CornerDownLeft size={13} className="text-muted-foreground" />
                   {t('files.run_line')}
+                  {runLineKey && <DropdownMenuShortcut>{runLineKey}</DropdownMenuShortcut>}
                 </DropdownMenuItem>
+                {/* Batch run is server-only (a fresh process on the server); hide
+                    it in front-only/WASM mode and for SQL files. */}
+                {onRunFileAsJob && !isSql && serverMode && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={onRunFileAsJob}
+                      disabled={!canRun}
+                      className="gap-2 text-xs"
+                      title={t('files.run_as_job_hint')}
+                    >
+                      <Server size={13} className="text-muted-foreground" />
+                      {t('files.run_as_job')}
+                      {runAsJobKey && <DropdownMenuShortcut>{runAsJobKey}</DropdownMenuShortcut>}
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </>
