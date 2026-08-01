@@ -47,6 +47,9 @@ class DqRuleSetUpdate(CamelModel):
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
     version: str | None = None
+    # Restored on import/clone so the original creation date survives a git
+    # round-trip; a normal PATCH never sends it (exclude_unset leaves it alone).
+    created_at: datetime | None = None
 
 
 class DqRuleSetResponse(CamelModel):

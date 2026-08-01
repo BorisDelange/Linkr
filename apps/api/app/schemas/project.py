@@ -63,6 +63,11 @@ class ProjectUpdate(CamelModel):
     created_by: str | None = None
     created_by_details: dict | None = None
     version: str | None = None
+    # Restored on import/clone so the original creation date survives a git
+    # round-trip (a git-pointer create stamps func.now(); the follow-up clone
+    # re-applies the repo's real createdAt). A normal PATCH never sends it, so
+    # exclude_unset leaves it untouched.
+    created_at: datetime | None = None
 
 
 class ProjectResponse(CamelModel):

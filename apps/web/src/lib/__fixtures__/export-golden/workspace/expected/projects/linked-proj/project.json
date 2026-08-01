@@ -4,6 +4,7 @@
   "name": {
     "en": "Linked Project"
   },
+  "createdAt": "2026-01-01T00:00:00.000Z",
   "gitRemoteConfig": {
     "url": "https://git.example.org/linked.git",
     "branch": "main"

@@ -1954,7 +1954,11 @@ export async function buildWorkspaceZip(
         // the git pointer. The clone (applyClonedEntity → importProjectContent) overwrites
         // the metadata from the repo. This kills the double-versioning where editing a
         // linked project rewrote its project.json in both its repo and the workspace branch.
-        const pointer = { uid: project.uid, projectId: project.projectId, name: project.name, gitRemoteConfig: git }
+        // createdAt rides along so the pointer-create records the real creation
+        // date up front (the server stamps func.now() for an absent createdAt, and
+        // the follow-up clone would only correct it if reached). Kept off the churn
+        // list because it's immutable provenance, not volatile placement.
+        const pointer = { uid: project.uid, projectId: project.projectId, name: project.name, createdAt: project.createdAt, gitRemoteConfig: git }
         zip.file(`projects/${folder}/project.json`, json(pointer))
         gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
       } else if (includeData[project.uid]) {

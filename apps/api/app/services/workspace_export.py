@@ -203,10 +203,14 @@ def _build_projects_section(
         project_meta_out["appVersion"] = APP_VERSION
 
         if git:
+            # createdAt rides along so the pointer-create records the real creation
+            # date (an absent createdAt makes the server stamp func.now()). Key order
+            # mirrors buildWorkspaceZip's pointer for byte-parity.
             pointer = {
                 "uid": project.get("uid"),
                 "projectId": project.get("projectId"),
                 "name": project.get("name"),
+                "createdAt": project.get("createdAt"),
                 "gitRemoteConfig": git,
             }
             tree[f"projects/{folder}/project.json"] = _json(pointer)

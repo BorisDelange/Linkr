@@ -26,6 +26,9 @@ class DatasetFileUpdate(CamelModel):
     columns: list[dict] | None = None
     row_count: int | None = None
     parse_options: dict | None = None
+    # Restored on import/clone so the original creation date survives a git
+    # round-trip; a normal PATCH never sends it (exclude_unset leaves it alone).
+    created_at: datetime | None = None
 
 
 class DatasetFileResponse(CamelModel):

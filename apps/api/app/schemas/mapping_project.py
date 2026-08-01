@@ -64,6 +64,9 @@ class MappingProjectUpdate(CamelModel):
     import_batches: list | None = None
     git_remote_config: dict | None = None
     version: str | None = None
+    # Restored on import/clone so the original creation date survives a git
+    # round-trip; a normal PATCH never sends it (exclude_unset leaves it alone).
+    created_at: datetime | None = None
 
 
 class MappingProjectResponse(CamelModel):

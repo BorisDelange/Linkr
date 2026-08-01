@@ -31,6 +31,9 @@ class CohortUpdate(CamelModel):
     materialization: dict | None = None
     schema_version: int | None = None
     version: str | None = None
+    # Restored on import/clone so the original creation date survives a git
+    # round-trip; a normal PATCH never sends it (exclude_unset leaves it alone).
+    created_at: datetime | None = None
 
 
 class CohortResponse(CamelModel):

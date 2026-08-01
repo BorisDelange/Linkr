@@ -219,6 +219,34 @@ async def test_lineage_identity_preserved_and_forkable(client):
     assert r.json()["parentLineageId"] == "lin-123"
 
 
+async def test_created_at_preserved_on_import_and_restored_on_clone(client):
+    # createdAt is immutable provenance that must survive a git round-trip. A create
+    # keeps the supplied value; a later PATCH (the clone re-applying the repo's
+    # authoritative project.json) restores it — so a git-pointer create that stamped
+    # func.now() gets corrected to the real date instead of drifting each pull.
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/projects",
+        headers=headers,
+        json={"name": {"en": "P"}, "uid": "proj-ca", "createdAt": "2020-03-15T08:09:10.123Z"},
+    )
+    assert r.status_code == 201
+    assert r.json()["createdAt"] == "2020-03-15T08:09:10.123Z"
+
+    # A create WITHOUT createdAt stamps now; the clone-PATCH then restores the real date.
+    r = await client.post(
+        f"{API}/projects", headers=headers, json={"name": {"en": "Q"}, "uid": "proj-cb"}
+    )
+    assert r.status_code == 201 and r.json()["createdAt"] != "2019-01-02T03:04:05.000Z"
+    r = await client.patch(
+        f"{API}/projects/proj-cb",
+        headers=headers,
+        json={"createdAt": "2019-01-02T03:04:05.000Z"},
+    )
+    assert r.status_code == 200
+    assert r.json()["createdAt"] == "2019-01-02T03:04:05.000Z"
+
+
 async def test_cascade_delete_with_workspace(client, db):
     headers = await _bootstrap_admin(client)
     ws_id = await _make_workspace(client, headers)
