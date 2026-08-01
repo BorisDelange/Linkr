@@ -2525,7 +2525,6 @@
     "open_project_first": "Open a project to manage its environment.",
     "add_placeholder": "Package name (e.g. pandas, numpy==1.26)…",
     "build": "Rebuild",
-    "build_hint": "Packages install automatically the first time you run code. Pin a version with '==', e.g. pandas==2.1.4.",
     "auto_build": "Rebuild automatically",
     "auto_build_hint": "When on, adding, updating or removing a package rebuilds the environment immediately (installs the change). When off, changes are recorded and applied on the next Build or the first time you run code.",
     "build_taking_too_long": "The build is taking longer than expected — check the jobs panel for progress.",

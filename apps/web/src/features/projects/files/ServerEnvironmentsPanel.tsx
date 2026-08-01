@@ -250,52 +250,6 @@ export function ServerEnvironmentsPanel({
               </TooltipContent>
             </Tooltip>
           </div>
-          <div className="flex items-center gap-1">
-            {canWrite && packages.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button size="sm" variant="ghost" className="h-7 px-2" disabled={busy} onClick={() => void onUpgradeAll()}>
-                    {pendingPkgs.has('*') ? (
-                      <Loader2 size={13} className="mr-1 animate-spin" />
-                    ) : (
-                      <RefreshCw size={13} className="mr-1" />
-                    )}
-                    {t('environments.update_all')}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="text-xs">{t('environments.update_all_hint')}</TooltipContent>
-              </Tooltip>
-            )}
-            {/* Build is always shown so its role is discoverable. It's only
-                actionable when the declared lockfile is ahead of the built
-                venv/library (draft/error) — up-to-date (ready) it's disabled. The
-                tooltip explains why. */}
-            {canWrite && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      size="sm"
-                      variant={needsBuild ? 'default' : 'outline'}
-                      className="h-7 px-2"
-                      disabled={busy || !needsBuild || env?.status === 'building'}
-                      onClick={() => void onBuild()}
-                    >
-                      {env?.status === 'building' ? (
-                        <Loader2 size={13} className="mr-1 animate-spin" />
-                      ) : (
-                        <Hammer size={13} className="mr-1" />
-                      )}
-                      {t('environments.build')}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs text-xs">
-                  {t(`environments.build_help_${buildState}`)}
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
         </div>
 
         {canWrite && (
@@ -405,27 +359,71 @@ export function ServerEnvironmentsPanel({
         </ScrollArea>
 
         {canWrite && (
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox
-              checked={autoBuild}
-              onCheckedChange={(v) => setAutoBuild(v === true)}
-              disabled={busy}
-            />
-            <span>{t('environments.auto_build')}</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button className="text-muted-foreground/60 hover:text-muted-foreground" aria-label={t('environments.auto_build')}>
-                  <Info size={12} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-xs text-xs">
-                {t('environments.auto_build_hint')}
-              </TooltipContent>
-            </Tooltip>
-          </label>
-        )}
+          <div className="flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={autoBuild}
+                onCheckedChange={(v) => setAutoBuild(v === true)}
+                disabled={busy}
+              />
+              <span>{t('environments.auto_build')}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button className="text-muted-foreground/60 hover:text-muted-foreground" aria-label={t('environments.auto_build')}>
+                    <Info size={12} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-xs">
+                  {t('environments.auto_build_hint')}
+                </TooltipContent>
+              </Tooltip>
+            </label>
 
-        <p className="text-[11px] text-muted-foreground">{t('environments.build_hint')}</p>
+            <div className="flex items-center gap-1">
+              {packages.length > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button size="sm" variant="ghost" className="h-7 px-2" disabled={busy} onClick={() => void onUpgradeAll()}>
+                      {pendingPkgs.has('*') ? (
+                        <Loader2 size={13} className="mr-1 animate-spin" />
+                      ) : (
+                        <RefreshCw size={13} className="mr-1" />
+                      )}
+                      {t('environments.update_all')}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="text-xs">{t('environments.update_all_hint')}</TooltipContent>
+                </Tooltip>
+              )}
+              {/* Build is always shown so its role is discoverable. It's only
+                  actionable when the declared lockfile is ahead of the built
+                  venv/library (draft/error) — up-to-date (ready) it's disabled. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size="sm"
+                      variant={needsBuild ? 'default' : 'outline'}
+                      className="h-7 px-2"
+                      disabled={busy || !needsBuild || env?.status === 'building'}
+                      onClick={() => void onBuild()}
+                    >
+                      {env?.status === 'building' ? (
+                        <Loader2 size={13} className="mr-1 animate-spin" />
+                      ) : (
+                        <Hammer size={13} className="mr-1" />
+                      )}
+                      {t('environments.build')}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs text-xs">
+                  {t(`environments.build_help_${buildState}`)}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+        )}
       </div>
 
       <AlertDialog open={!!removeTarget} onOpenChange={(open) => { if (!open) setRemoveTarget(null) }}>

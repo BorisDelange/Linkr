@@ -2525,7 +2525,6 @@
     "open_project_first": "Ouvrez un projet pour gérer son environnement.",
     "add_placeholder": "Nom du package (ex. pandas, numpy==1.26)…",
     "build": "Reconstruire",
-    "build_hint": "Les packages s'installent automatiquement au premier lancement du code. Épinglez une version avec « == », ex. pandas==2.1.4.",
     "auto_build": "Reconstruire automatiquement",
     "auto_build_hint": "Si activé, ajouter, mettre à jour ou supprimer un package reconstruit l'environnement immédiatement (installe le changement). Si désactivé, les changements sont enregistrés et appliqués à la prochaine reconstruction ou au premier lancement du code.",
     "build_taking_too_long": "La construction prend plus de temps que prévu — consultez le panneau des tâches pour suivre la progression.",
