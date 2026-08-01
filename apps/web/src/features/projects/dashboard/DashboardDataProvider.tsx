@@ -105,7 +105,7 @@ interface DashboardDataProviderProps {
 }
 
 export function DashboardDataProvider({ datasetFileId, filters, reloadOnTabSwitch = false, children }: DashboardDataProviderProps) {
-  const { files, getFileRows, loadFileData } = useDatasetStore()
+  const { files, getFileRows, loadFileData, ensureServerMeta } = useDatasetStore()
   const [dataReady, setDataReady] = useState(false)
 
   // Ensure row data is loaded from IDB (needed after app restart)
@@ -114,6 +114,12 @@ export function DashboardDataProvider({ datasetFileId, filters, reloadOnTabSwitc
     setDataReady(false)
     loadFileData(datasetFileId).then(() => setDataReady(true))
   }, [datasetFileId, loadFileData])
+
+  // Server mode lists datasets without columns; hydrate them for this widget's
+  // dataset so `columns` below isn't empty (loadFileData is a no-op in server mode).
+  useEffect(() => {
+    if (datasetFileId) ensureServerMeta(datasetFileId)
+  }, [datasetFileId, ensureServerMeta])
 
   const datasetFile = files.find((f) => f.id === datasetFileId)
   const columns = dataReady ? (datasetFile?.columns ?? []) : []

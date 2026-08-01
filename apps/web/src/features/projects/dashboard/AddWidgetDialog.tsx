@@ -74,7 +74,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
       if (rows) fitDashboardToHeight(dash.id, rows, 'shrink-only')
     }
   }
-  const { files: datasetFiles, getFileRows } = useDatasetStore()
+  const { files: datasetFiles, getFileRows, ensureServerMeta } = useDatasetStore()
 
   const lang = i18n.language as 'en' | 'fr'
   // Existing widget names in this tab (active language, for uniqueness check)
@@ -87,8 +87,11 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
   // Restore last-used dataset for this project
   const [datasetFileId, setDatasetFileId] = useState<string | null>(null)
 
+  // Server mode lists datasets without columns (lazy /meta on open), so don't
+  // require columns here — that would hide every dataset. Columns are hydrated for
+  // the selected dataset by the effect below so the config's column pickers fill in.
   const projectDatasetFiles = datasetFiles.filter(
-    (f) => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0
+    (f) => f.projectUid === projectUid && f.type === 'file'
   )
 
   // When dialog opens, restore dataset: dashboard default > last-used > null
@@ -133,6 +136,12 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
 
   const selectedDatasetFile = datasetFiles.find((f) => f.id === datasetFileId)
   const columns = selectedDatasetFile?.columns ?? []
+
+  // Server mode lists datasets without columns; load them for the selected dataset
+  // so the config's column pickers populate (no-op in local mode / once loaded).
+  useEffect(() => {
+    if (datasetFileId) ensureServerMeta(datasetFileId)
+  }, [datasetFileId, ensureServerMeta])
 
   const plugins = useMemo(() => getLabPlugins(), [])
   const [selectedPluginId, setSelectedPluginId] = useState('')

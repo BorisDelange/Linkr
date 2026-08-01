@@ -66,8 +66,11 @@ export function DashboardSettingsDialog({
   // Bulk-assign confirmation
   const [bulkAssignScope, setBulkAssignScope] = useState<'all' | 'tab' | null>(null)
 
+  // A dataset is selectable even before its columns are loaded: server mode lists
+  // files without columns (lazy /meta on open), so requiring columns here would
+  // hide every dataset until it is opened. `type === 'file'` is enough.
   const projectDatasetFiles = useMemo(
-    () => datasetFiles.filter(f => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0),
+    () => datasetFiles.filter(f => f.projectUid === projectUid && f.type === 'file'),
     [datasetFiles, projectUid]
   )
 
