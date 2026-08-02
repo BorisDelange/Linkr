@@ -37,6 +37,25 @@ class ExecuteRequest(CamelModel):
     # Optional human label for a run-as-job (POST /execute/run-as-job); ignored by
     # the interactive /execute path. E.g. the file name being run.
     label: str | None = None
+    # When set, the run uses a FRESH, isolated ephemeral process (from the warm
+    # pool) instead of the caller's persistent (project, language, env) kernel — so
+    # dashboard widgets run in parallel, never sharing a namespace or a lock.
+    ephemeral: bool = False
+
+
+class PrewarmRequest(CamelModel):
+    """Pre-start the warm pool for a project's language so the first ephemeral
+    widget run pays no interpreter/import startup. Fire-and-forget (background)."""
+
+    project_uid: str
+    language: str  # 'python' | 'r'
+    # How many warm processes to pre-start (typically the page's code-widget count).
+    # Clamped server-side to [pool_size, max_concurrency].
+    count: int | None = None
+    # True → warm the app-interpreter pool used by built-in component renders
+    # (/execute/render, environment=None), instead of the project's managed env
+    # used by code widgets. The two use different pool buckets.
+    app_env: bool = False
 
 
 class RenderRequest(CamelModel):

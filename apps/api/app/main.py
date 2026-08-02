@@ -90,9 +90,11 @@ async def lifespan(app: FastAPI):
     await reconcile_on_startup()
     yield
     from app.services.execution.kernel import manager as kernel_manager
+    from app.services.execution.kernel import warm_pool
     from app.services.execution.pty_kernel import manager as pty_manager
 
     await kernel_manager.shutdown_all()
+    await warm_pool.shutdown_all()
     pty_manager.shutdown_all()
     logger.info("shutting_down_linkr")
 

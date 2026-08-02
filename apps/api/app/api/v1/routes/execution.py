@@ -21,6 +21,7 @@ from app.schemas.execution import (
     ExecuteRequest,
     ExecuteResponse,
     JobResponse,
+    PrewarmRequest,
     RenderRequest,
     RestartKernelRequest,
     RuntimeFigureResponse,
@@ -135,7 +136,10 @@ async def _dataset_preamble(
     a DB DatasetFile id."""
     if project_uid:
         try:
-            res = dataset_fs.resolve_cache(project_uid, dataset_ref)
+            # resolve_cache is synchronous and can parse a multi-second CSV/XLSX on a
+            # cold cache — run it off the event loop so concurrent widget runs don't
+            # serialise behind one another (they'd otherwise all wait on this call).
+            res = await asyncio.to_thread(dataset_fs.resolve_cache, project_uid, dataset_ref)
         except FileNotFoundError:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
         path = res["parquet"].as_posix()
@@ -197,6 +201,20 @@ async def execute_code(
             status.HTTP_400_BAD_REQUEST,
             f"Unsupported language: {body.language}",
         )
+    # Dashboard widgets run ephemeral: a fresh, isolated process from the warm pool
+    # so widgets run in parallel (no shared kernel/namespace/lock). Still the
+    # project's managed env — the widget's code is user code and needs its packages.
+    if body.ephemeral:
+        environment = await environments.ensure_ready(
+            db, body.project_uid, body.language, user.id
+        )
+        try:
+            out = await kernel.run_ephemeral(
+                body.language, body.project_uid, code, environment, resolver
+            )
+        except runtime.ExecutionError as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        return _shape_output(out)
     return await _run_in_kernel(db, body.project_uid, user, body.language, body.env_id, code, resolver)
 
 
@@ -232,23 +250,14 @@ async def run_as_job(
 
 async def _run_in_kernel(
     db: AsyncSession, project_uid: str, user: User, language: str, env_id: str, code: str, resolver,
-    use_app_env: bool = False,
 ) -> ExecuteResponse:
     """Run `code` in the caller's persistent kernel for (project, language, env)
-    and shape the captured output. Shared by /execute and /execute/render.
-
-    `use_app_env=True` runs against the app's own interpreter (sys.executable, which
-    ships the render deps: pandas/pyarrow/duckdb/scipy/…) rather than the project's
-    managed env — for built-in renders, whose program is server-owned and must not
-    depend on the user's package choices. It uses a dedicated env id so its kernel
-    is never the one a user's custom-code run pins to the managed interpreter."""
-    if use_app_env:
-        environment = None
-        env_id = "__app__"
-    else:
-        # Auto-build the project env on first run if it declares packages but isn't
-        # materialised yet (build is visible as a job); an empty/ready env is instant.
-        environment = await environments.ensure_ready(db, project_uid, language, user.id)
+    and shape the captured output. Used by the IDE /execute path (persistent
+    namespace). Dashboard widgets and built-in renders use the ephemeral path
+    (`kernel.run_ephemeral`) instead, for isolated parallel execution."""
+    # Auto-build the project env on first run if it declares packages but isn't
+    # materialised yet (build is visible as a job); an empty/ready env is instant.
+    environment = await environments.ensure_ready(db, project_uid, language, user.id)
     try:
         try:
             k = await kernel.manager.get(project_uid, user.id, language, env_id, environment)
@@ -258,6 +267,11 @@ async def _run_in_kernel(
     except runtime.ExecutionError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
+    return _shape_output(out)
+
+
+def _shape_output(out) -> ExecuteResponse:
+    """Shape a RuntimeOutput into the wire response (figures get stable ids)."""
     return ExecuteResponse(
         stdout=out.stdout,
         stderr=out.stderr,
@@ -304,9 +318,46 @@ async def render_component(
             db, body.dataset_file_id, "python", body.dataset_filters, body.project_uid
         )
         code = preamble + "\n" + analysis_code
-    # Built-in renders run on the app's interpreter, never the project's managed env
-    # (the program is server-owned; it must not break when the user's env lacks a dep).
-    return await _run_in_kernel(db, body.project_uid, user, "python", body.env_id, code, None, use_app_env=True)
+    # Built-in renders run ephemeral (a fresh process from the warm pool) so a page
+    # of component widgets renders IN PARALLEL — the old shared __app__ kernel
+    # serialised them on its lock. environment=None → the app interpreter
+    # (sys.executable, which ships the render deps), never the project's managed env.
+    try:
+        out = await kernel.run_ephemeral("python", body.project_uid, code, environment=None)
+    except runtime.ExecutionError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return _shape_output(out)
+
+
+@router.post("/prewarm", status_code=status.HTTP_202_ACCEPTED)
+async def prewarm_pool(
+    body: PrewarmRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pre-start the warm pool for a project's language (dashboard open) so the
+    first widget run/render is import-free. Fire-and-forget. A no-op if execution
+    is disabled.
+
+    `app_env` warms the app-interpreter pool used by built-in component renders
+    (viewer-visible → gated at project read); otherwise the managed-env pool used
+    by code widgets (gated at dashboards:execute)."""
+    if body.language not in ("python", "r"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unsupported language: {body.language}")
+    if body.app_env:
+        project = await db.get(Project, body.project_uid)
+        if project is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+        await check_project_permission(db, project, user, "project-summary:read")
+    else:
+        await _require_execute(db, body.project_uid, user, "dashboards")
+    if not settings.enable_code_execution:
+        return
+    # Renders use the app interpreter (environment=None); code widgets the managed env.
+    environment = None if body.app_env else await environments.resolve(
+        db, body.project_uid, body.language
+    )
+    await kernel.prewarm(body.language, body.project_uid, environment, body.count)
 
 
 @router.get("/kernels")

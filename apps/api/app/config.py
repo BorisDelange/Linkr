@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     session_timeout_minutes: int = 60
     # Hard wall-clock limit for a single server-side R/Python run (subprocess).
     execution_timeout_seconds: int = 120
+    # Dashboard widgets run as ephemeral, isolated processes so they execute in
+    # parallel (never sharing one serialised kernel). To keep the interpreter +
+    # heavy-import startup off the critical path, a small pool of pre-warmed
+    # processes is kept ready per (language, project, interpreter); `pool_size` is
+    # how many stay warm, `max_concurrency` caps simultaneous ephemeral runs so a
+    # dashboard with many widgets doesn't spawn an unbounded number at once.
+    widget_pool_size: int = 2
+    widget_max_concurrency: int = 8
 
     # Managed environments (uv for Python; renv for R lands with step 5). The uv
     # binary and PyPI index stay configurable so a future internal mirror is a

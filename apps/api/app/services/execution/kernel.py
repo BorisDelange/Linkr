@@ -294,7 +294,13 @@ repeat {
   .stream <- substr(.line, 1, 1) == "S"
   .code <- rawToChar(base64decode(substr(.line, 2, nchar(.line))))
   .run_n <- .run_n + 1
-  .pat <- sprintf("_linkr_p_%03d_%%03d.svg", .run_n)
+  # Figures go into a PROCESS-UNIQUE temp dir, never the (shared) working directory:
+  # ephemeral dashboard kernels all run in the same project cwd and all start at
+  # .run_n = 1, so a fixed "_linkr_p_001_*.svg" name in "." made parallel widgets
+  # overwrite / delete each other's figure files — only one widget's plot survived.
+  .fig_dir <- file.path(tempdir(), sprintf("linkr_figs_%03d", .run_n))
+  dir.create(.fig_dir, showWarnings = FALSE, recursive = TRUE)
+  .pat <- file.path(.fig_dir, "p_%03d.svg")
   # 28x28 in @ pointsize 24 reproduces WebR's 2016x2016 px client canvas (webr-engine.ts),
   # so a widget's absolute sizes (base_size, margins, point/text sizes) render identically in
   # both modes; the old 8x6 landscape device made large base_size text overflow and overlap.
@@ -309,9 +315,18 @@ repeat {
   # The value of the last evaluated expression — captured so a trailing htmlwidget
   # (plotly/leaflet/DT) can be rendered to HTML like a REPL auto-print.
   .last_value <- NULL
+  # Auto-print ONLY visible values, exactly like the R REPL: `x <- 3`, `library(..)`,
+  # a `for` loop and other invisible-returning calls print nothing, while a bare
+  # `x` or `head(df)` prints. withVisible() carries R's visibility flag; capturing
+  # `.last_value` itself (which is always visible) would print every expression's
+  # result — that leaked the injected dataset preamble's intermediate values.
   .eval_one <- function(.e) tryCatch(
     withCallingHandlers(
-      utils::capture.output({ .last_value <<- eval(.e, envir = globalenv()); .last_value }),
+      utils::capture.output({
+        .vis <- withVisible(eval(.e, envir = globalenv()))
+        .last_value <<- .vis$value
+        if (isTRUE(.vis$visible)) print(.vis$value)
+      }),
       warning = function(w) { .err <<- c(.err, conditionMessage(w)); invokeRestart("muffleWarning") },
       message = function(m) { .err <<- c(.err, conditionMessage(m)); invokeRestart("muffleMessage") }
     ),
@@ -343,12 +358,12 @@ repeat {
   if (.stream && length(.err) > 0) { .stream_lines("stderr", .err); .err <- character(0) }
   if (.has_svglite) invisible(grDevices::dev.off())
   .figs <- list()
-  for (.f in list.files(".", pattern = sprintf("^_linkr_p_%03d_.*svg$", .run_n))) {
+  for (.f in sort(list.files(.fig_dir, pattern = "svg$", full.names = TRUE))) {
     .svg <- paste(readLines(.f, warn = FALSE), collapse = "\n")
     if (grepl("<svg", .svg, fixed = TRUE))
       .figs[[length(.figs) + 1]] <- list(type = "svg", data = .svg, label = paste("Plot", length(.figs) + 1))
-    file.remove(.f)
   }
+  unlink(.fig_dir, recursive = TRUE)
   # A trailing htmlwidget (plotly/leaflet/DT/…) → standalone HTML, shown in an
   # iframe on the client. saveWidget needs pandoc-free self-contained output.
   .html <- NULL
@@ -370,6 +385,27 @@ repeat {
              "__linkr_done__" = TRUE))
 }
 '''
+
+
+# Heavy imports a widget process almost always needs. Run once at spawn on a
+# warm-pool process so the first real run doesn't pay the import cost. Kept in a
+# try/except: a project env may lack one (e.g. no plotly) and that must not stop
+# the process from starting — the real run will surface a clear ImportError.
+_WARM_BOOTSTRAP = {
+    "python": (
+        "try:\n"
+        "    import pandas, numpy, matplotlib\n"
+        "    matplotlib.use('Agg')\n"
+        "    import matplotlib.pyplot\n"
+        "except Exception:\n"
+        "    pass\n"
+    ),
+    "r": (
+        "suppressWarnings(suppressMessages(tryCatch({\n"
+        "  library(arrow); library(ggplot2); library(dplyr)\n"
+        "}, error = function(e) NULL)))\n"
+    ),
+}
 
 
 async def _resolve_query(query_resolver, sql: str) -> dict:
@@ -734,4 +770,190 @@ class KernelManager:
         raise ExecutionError(f"No persistent kernel for language: {language}")
 
 
+def _interpreter_key(language: str, environment: "Environment | None") -> str:
+    """Identity of the interpreter a run will use, so warm processes are only
+    reused by runs that would spawn the same interpreter/library set."""
+    if environment is not None and environment.kind == "managed" and environment.interpreter_path:
+        return environment.interpreter_path
+    return f"__system__:{language}"
+
+
+class WarmPool:
+    """A small stock of pre-started, pre-imported processes per
+    (language, project, interpreter), so a dashboard widget run pays ~0 startup.
+
+    A warm process has already run the heavy imports (pandas/matplotlib), sits
+    idle, and is handed to exactly one run. After the run the process is discarded
+    (never reused → its namespace never carries state between widgets); the pool
+    then tops itself back up in the background.
+    """
+
+    def __init__(self) -> None:
+        self._pools: dict[tuple[str, str, str], list[Kernel]] = {}
+        # In-flight warm spawns per bucket, so concurrent refills don't each spawn
+        # the full shortfall (which would overshoot pool_size).
+        self._reserved: dict[tuple[str, str, str], int] = {}
+        self._lock = asyncio.Lock()
+
+    async def acquire(
+        self, make: "Callable[[], Kernel]", language: str, project_uid: str,
+        interpreter_key: str,
+    ) -> Kernel:
+        """Take a warm process for this bucket, or make + warm one on the spot when
+        the pool is empty. Always returns a started kernel; the caller owns it and
+        must shutdown() it when the run finishes."""
+        key = (language, project_uid, interpreter_key)
+        async with self._lock:
+            bucket = self._pools.get(key)
+            k = bucket.pop() if bucket else None
+            reserved = self._reserved.get(key, 0)
+        if k is not None and k.alive:
+            return k
+        # Empty pool but a prewarm/refill is in flight (reserved > 0): a warm process
+        # is seconds away. Wait for it rather than each concurrent run cold-starting
+        # its own — that's what made a page of widgets warm serially instead of once.
+        if reserved > 0:
+            for _ in range(600):  # up to ~30s, matched to a cold Rscript+library() warm
+                await asyncio.sleep(0.05)
+                async with self._lock:
+                    bucket = self._pools.get(key)
+                    k = bucket.pop() if bucket else None
+                    still_warming = self._reserved.get(key, 0) > 0
+                if k is not None and k.alive:
+                    return k
+                if not still_warming:
+                    break  # warming finished without a spare for us — fall through
+        # Cache miss (empty pool, nothing warming): make + warm inline.
+        k = make()
+        await _warm(k, language)
+        return k
+
+    async def refill(
+        self, make: "Callable[[], Kernel]", language: str, project_uid: str,
+        interpreter_key: str, pool_size: int,
+    ) -> None:
+        """Bring the bucket up to `pool_size`, warming the missing processes
+        CONCURRENTLY (so prewarming N for a page of N widgets costs one cold start,
+        not N of them). Best-effort: a spawn/warm failure just leaves the pool
+        short (the next acquire makes one). A reservation counter prevents two
+        concurrent refills from both spawning the same shortfall."""
+        key = (language, project_uid, interpreter_key)
+        async with self._lock:
+            have = len(self._pools.get(key, [])) + self._reserved.get(key, 0)
+            need = max(0, pool_size - have)
+            if need == 0:
+                return
+            self._reserved[key] = self._reserved.get(key, 0) + need
+
+        async def warm_one() -> None:
+            k = make()
+            try:
+                await _warm(k, language)
+            except Exception:  # noqa: BLE001 — a warm failure must not crash refill
+                await k.shutdown()
+                async with self._lock:
+                    self._reserved[key] = max(0, self._reserved.get(key, 0) - 1)
+                return
+            async with self._lock:
+                self._pools.setdefault(key, []).append(k)
+                self._reserved[key] = max(0, self._reserved.get(key, 0) - 1)
+
+        await asyncio.gather(*(warm_one() for _ in range(need)))
+
+    async def shutdown_all(self) -> None:
+        async with self._lock:
+            kernels = [k for bucket in self._pools.values() for k in bucket]
+            self._pools.clear()
+        for k in kernels:
+            await k.shutdown()
+
+
+async def _warm(k: Kernel, language: str) -> None:
+    """Start a kernel and run its warm bootstrap (heavy imports) so a later run
+    on it is import-free. Swallows the bootstrap's own errors — a missing package
+    surfaces on the real run, not here."""
+    bootstrap = _WARM_BOOTSTRAP.get(language, "")
+    if bootstrap:
+        await k.execute(bootstrap)
+    else:
+        await k._ensure_started()
+
+
 manager = KernelManager()
+warm_pool = WarmPool()
+
+
+class EphemeralConcurrency:
+    """Bounds simultaneous ephemeral widget runs so a dashboard with many widgets
+    doesn't launch an unbounded number of processes at once. Excess runs queue on
+    the semaphore but still execute in parallel up to the bound."""
+
+    def __init__(self) -> None:
+        self._sem: asyncio.Semaphore | None = None
+
+    def _semaphore(self) -> asyncio.Semaphore:
+        # Built lazily on the running loop (settings aren't available at import in
+        # every test harness, and a Semaphore binds to the current event loop).
+        if self._sem is None:
+            self._sem = asyncio.Semaphore(settings.widget_max_concurrency)
+        return self._sem
+
+    async def __aenter__(self):
+        await self._semaphore().acquire()
+        return self
+
+    async def __aexit__(self, *exc):
+        self._semaphore().release()
+
+
+_ephemeral_gate = EphemeralConcurrency()
+
+
+async def run_ephemeral(
+    language: str,
+    project_uid: str,
+    code: str,
+    environment: "Environment | None",
+    query_resolver=None,
+) -> RuntimeOutput:
+    """Run `code` in a FRESH, isolated process taken from the warm pool, then
+    discard it and refill the pool in the background. Bounded by the concurrency
+    gate. For dashboard widgets: parallel, never sharing a namespace or a lock."""
+    interpreter_key = _interpreter_key(language, environment)
+
+    def make() -> Kernel:
+        return manager.spawn_batch(language, project_uid, environment)
+
+    async with _ephemeral_gate:
+        k = await warm_pool.acquire(make, language, project_uid, interpreter_key)
+        try:
+            return await k.execute(code, query_resolver=query_resolver)
+        finally:
+            await k.shutdown()
+            asyncio.create_task(
+                warm_pool.refill(
+                    make, language, project_uid, interpreter_key, settings.widget_pool_size
+                )
+            )
+
+
+async def prewarm(
+    language: str, project_uid: str, environment: "Environment | None",
+    count: int | None = None,
+) -> None:
+    """Fill the warm pool for this (language, project, interpreter) in the
+    background — called on dashboard open so the widgets' first runs are warm.
+
+    `count` lets the dashboard size the pool to how many code widgets a page has
+    (so 4 widgets get 4 warm processes, not the default 2), clamped to the
+    concurrency bound so a huge page can't pre-spawn an unbounded fleet."""
+    interpreter_key = _interpreter_key(language, environment)
+    target = settings.widget_pool_size if count is None else count
+    target = max(settings.widget_pool_size, min(target, settings.widget_max_concurrency))
+
+    def make() -> Kernel:
+        return manager.spawn_batch(language, project_uid, environment)
+
+    asyncio.create_task(
+        warm_pool.refill(make, language, project_uid, interpreter_key, target)
+    )
