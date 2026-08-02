@@ -82,6 +82,11 @@ def _emit(obj):
     _real_out.flush()
 
 
+# Current run number, tagged onto each streamed chunk so the host can discard a
+# stopped run's leftover output instead of feeding it to the next run.
+_CUR_RUN = 0
+
+
 class _StreamWriter(io.TextIOBase):
     """A stdout/stderr replacement that emits each write to the host as a
     __linkr_stream__ line, so a REPL sees output as it is produced."""
@@ -91,7 +96,7 @@ class _StreamWriter(io.TextIOBase):
 
     def write(self, s):
         if s:
-            _emit({"__linkr_stream__": self._kind, "data": s})
+            _emit({"__linkr_stream__": self._kind, "data": s, "__linkr_run__": _CUR_RUN})
         return len(s)
 
     def flush(self):
@@ -231,6 +236,7 @@ def _run(code, stream):
 
 # Explicit readline (not `for line in sys.stdin`) so sql_query can do its own
 # readline() for RPC responses without fighting the iterator's read-ahead buffer.
+_run_n = 0
 while True:
     try:
         line = sys.stdin.readline()
@@ -245,6 +251,8 @@ while True:
         continue
     stream = line[:1] == "S"
     payload = line[1:]
+    _run_n += 1
+    _CUR_RUN = _run_n
     try:
         code = base64.b64decode(payload).decode("utf-8")
         result = _run(code, stream)
@@ -254,6 +262,10 @@ while True:
         result = {"stdout": "", "stderr": "kernel error: " + str(e),
                   "figures": [], "table": None, "html": None,
                   "__linkr_done__": True}
+    # Tag the done with the run counter so the host can discard a STALE done left
+    # in the pipe by a stopped run (whose reader was torn down) instead of pairing
+    # it with the next run — that mismatch made a fresh run look done instantly.
+    result["__linkr_run__"] = _run_n
     _emit(result)
 '''
 
@@ -317,7 +329,7 @@ suppressMessages({
 }
 .stream_lines <- function(kind, text) {
   if (length(text) == 0) return(invisible())
-  for (.l in text) .emit(list("__linkr_stream__" = kind, data = paste0(.l, "\n")))
+  for (.l in text) .emit(list("__linkr_stream__" = kind, data = paste0(.l, "\n"), "__linkr_run__" = .run_n))
 }
 repeat {
   # Absorb a stray SIGINT arriving during the idle read (a late Stop from a
@@ -421,7 +433,7 @@ repeat {
   .emit(list(stdout = if (.stream) "" else paste(.out, collapse = "\n"),
              stderr = if (.stream) "" else paste(.err, collapse = "\n"),
              figures = .figs, table = NULL, html = .html,
-             "__linkr_done__" = TRUE))
+             "__linkr_run__" = .run_n, "__linkr_done__" = TRUE))
 }
 '''
 
@@ -478,6 +490,12 @@ class Kernel:
         self._proc: asyncio.subprocess.Process | None = None
         self._lock = asyncio.Lock()
         self.busy = False
+        # Highest run number whose done payload we've already consumed. The kernel
+        # tags every done with a monotonic __linkr_run__; a done at or below this
+        # is a STALE leftover from a stopped run whose reader was torn down, and
+        # must be skipped so it isn't paired with the current run. Reset whenever a
+        # fresh process starts (its counter restarts at 0).
+        self._run_seq = 0
         # Monotonic timestamp of the last run — drives the idle-timeout sweep and
         # the footer's "last active" display. Seeded at creation so a just-started
         # kernel isn't immediately considered idle.
@@ -515,6 +533,8 @@ class Kernel:
             stderr=asyncio.subprocess.DEVNULL,
             limit=64 * 1024 * 1024,
         )
+        # A fresh process restarts its run counter at 0.
+        self._run_seq = 0
         return self._proc
 
     @property
@@ -607,14 +627,29 @@ class Kernel:
         done payload. Raises BrokenPipeError/ConnectionResetError on a dead pipe."""
         proc = await self._ensure_started()
         assert proc.stdin is not None and proc.stdout is not None
+        # The kernel increments __linkr_run__ on every request it reads, in lockstep
+        # with this counter (one request per _run_once). We accept only the done
+        # carrying our number; anything lower is a leftover from a stopped run whose
+        # reader was torn down, so it must be skipped instead of ending THIS run.
+        self._run_seq += 1
+        expected = self._run_seq
         proc.stdin.write(b"S" + base64.b64encode(code.encode("utf-8")) + b"\n")
         await proc.stdin.drain()
-        return await self._read_stream(proc, on_chunk, query_resolver)
+        return await self._read_stream(proc, on_chunk, query_resolver, expected)
 
-    async def _read_stream(self, proc, on_chunk, query_resolver) -> dict | None:
+    async def _read_stream(self, proc, on_chunk, query_resolver, expected=None) -> dict | None:
         """Read stdout line by line: forward __linkr_stream__ chunks to on_chunk,
         service __linkr_rpc__ SQL requests, return the __linkr_done__ payload (or
-        None on EOF). Each read is bounded by the execution timeout."""
+        None on EOF). Each read is bounded by the execution timeout.
+
+        `expected` is this run's kernel run number. Chunks and a done tagged with a
+        LOWER number are leftovers from a stopped run whose reader was torn down —
+        they still sit in the pipe and must be discarded, not fed to this run."""
+        # Until we've seen this run's first tagged line, we can't tell a leftover
+        # chunk from ours (chunks carry no run number). But leftovers only ever
+        # precede our own output, and the kernel processes requests strictly in
+        # order, so once our done arrives everything before it that outranks us was
+        # already skipped. A leftover done (lower number) is the reliable discriminator.
         while True:
             line = await asyncio.wait_for(
                 proc.stdout.readline(), timeout=settings.execution_timeout_seconds
@@ -630,13 +665,25 @@ class Kernel:
                 proc.stdin.write((json.dumps(resp) + "\n").encode("utf-8"))
                 await proc.stdin.drain()
                 continue
+            run_n = msg.get("__linkr_run__")
+            is_stale = (
+                expected is not None and isinstance(run_n, int) and run_n < expected
+            )
             stream_kind = msg.get("__linkr_stream__")
             if stream_kind is not None:
+                # Drop a leftover chunk from a stopped run so its output doesn't
+                # bleed into ours.
+                if is_stale:
+                    continue
                 res = on_chunk(stream_kind, msg.get("data", ""))
                 if asyncio.iscoroutine(res):
                     await res
                 continue
             if msg.get("__linkr_done__"):
+                # A done from an earlier run (its reader was torn down) is stale —
+                # skip it and keep reading for ours. Without the tag (legacy), accept.
+                if is_stale:
+                    continue
                 return msg
             # An unmarked JSON line (legacy) is treated as the final payload.
             return msg

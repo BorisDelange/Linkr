@@ -147,6 +147,53 @@ def test_kernel_interrupt_only_fires_while_busy():
     assert len(proc.signals) == 1
 
 
+class _FakeStdout:
+    """Feeds pre-canned JSON lines to _read_stream, one per readline()."""
+
+    def __init__(self, lines: list[bytes]):
+        self._lines = list(lines)
+
+    async def readline(self) -> bytes:
+        return self._lines.pop(0) if self._lines else b""
+
+
+class _StdoutProc:
+    def __init__(self, lines):
+        self.stdout = _FakeStdout(lines)
+        self.stdin = None
+
+
+async def test_read_stream_skips_a_stopped_runs_leftover_output():
+    """A stopped run whose reader was torn down leaves its chunks + done in the
+    pipe, tagged with its (lower) run number. Reading the NEXT run must discard
+    those leftovers — otherwise the old output bleeds in and the stale done ends
+    the fresh run instantly."""
+    import json as _json
+
+    from app.services.execution.kernel import Kernel
+
+    def line(obj):
+        return (_json.dumps(obj) + "\n").encode()
+
+    lines = [
+        # leftover from run 1 (reader torn down): stale chunk + stale done
+        line({"__linkr_stream__": "stdout", "data": "OLD\n", "__linkr_run__": 1}),
+        line({"__linkr_done__": True, "__linkr_run__": 1, "stdout": "", "stderr": ""}),
+        # our run 2: real chunk, then our done
+        line({"__linkr_stream__": "stdout", "data": "NEW\n", "__linkr_run__": 2}),
+        line({"__linkr_done__": True, "__linkr_run__": 2, "stdout": "", "stderr": ""}),
+    ]
+    k = Kernel(cmd=["true"])
+    seen: list[str] = []
+    done = await k._read_stream(
+        _StdoutProc(lines), lambda kind, data: seen.append(data), None, expected=2
+    )
+    # Only our chunk reached the client; the leftover was dropped.
+    assert seen == ["NEW\n"]
+    # And the done we returned is ours (run 2), not the stale one.
+    assert done is not None and done.get("__linkr_run__") == 2
+
+
 # --- Warm pool + ephemeral runs -------------------------------------------
 
 class _RunKernel:
