@@ -232,3 +232,40 @@ async def test_run_ephemeral_discards_process_and_refills(warm, monkeypatch):
 
     await asyncio.sleep(0)
     await asyncio.sleep(0)
+
+
+class _Env:
+    def __init__(self, kind, interpreter_path=None):
+        self.kind = kind
+        self.interpreter_path = interpreter_path
+
+
+def test_interpreter_key_isolates_every_project_r_env():
+    """A project R env is isolated to its own library even when empty/unbuilt, so it
+    gets a per-project key — a shared warm process (global packages) is never reused
+    for it. Only the app interpreter (environment is None) shares the system key."""
+    from app.services.execution.kernel import _interpreter_key
+
+    # Built env → its concrete library path.
+    assert _interpreter_key("r", "p1", _Env("managed", "/libs/p1/r")) == "/libs/p1/r"
+    # Any project R env, not built (managed draft OR empty system) → per-project key.
+    assert _interpreter_key("r", "p1", _Env("managed")) == "__project_r__:p1"
+    assert _interpreter_key("r", "p1", _Env("system")) == "__project_r__:p1"
+    assert _interpreter_key("r", "p2", _Env("system")) == "__project_r__:p2"
+    assert _interpreter_key("r", "p1", _Env("system")) != _interpreter_key("r", "p1", None)
+    # The app interpreter (no env) → shared system interpreter.
+    assert _interpreter_key("r", "p1", None) == "__system__:r"
+    # Python not-yet-built has no private-lib isolation here → stays app interpreter.
+    assert _interpreter_key("python", "p1", _Env("managed")) == "__system__:python"
+
+
+def test_r_kernel_loop_stays_under_e_arg_threshold():
+    """`Rscript --vanilla -e <loop>` mangles the argument past ~7 KB (WARNING + a
+    fatal "unexpected end of input"), which hangs the client on "Loading R runtime".
+    Keep the R source lean — prose comments belong in Python, not the R string. This
+    guards the regression that adding a comment block reintroduced."""
+    from app.services.execution.kernel import _R_KERNEL_LOOP
+
+    assert len(_R_KERNEL_LOOP.encode("utf-8")) < 7000, (
+        "R kernel loop too large for `Rscript -e`; move comments to Python, not the R string"
+    )

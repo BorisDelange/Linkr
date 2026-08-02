@@ -264,11 +264,37 @@ while True:
 # eval() runs in globalenv() so variables persist; an svglite device per run
 # yields SVG figures. R interrupts (SIGINT) surface as a caught condition, so the
 # kernel survives Ctrl+C.
+# NOTE: keep this R source LEAN. It is passed to `Rscript --vanilla -e <loop>` as a
+# single argv string; past a ~7 KB threshold Rscript mangles the argument (emits a
+# "WARNING: '-e ..." and dies with "unexpected end of input"), so the kernel never
+# starts and the client hangs on "Loading R runtime". Prose comments therefore live
+# HERE in Python, not inside the R string. What the leading R does:
+#   - STRICT library isolation (the renv "sandbox" technique): when LINKR_R_LIB is set
+#     (a project env), REPLACE the .Library binding with LINKR_R_SANDBOX — a directory
+#     the server pre-populates with symlinks to ONLY the base+recommended packages
+#     (selected by Priority, not by path). This works even where base and contributed
+#     packages share one directory (e.g. the macOS R.framework), which a plain
+#     .libPaths()+ .Library could not isolate. Then pin .libPaths() to [project lib,
+#     shared kernel-infra lib] so library() resolves ONLY against the project's
+#     declared packages + the kernel infra + base R — a server-global package (plotly
+#     not in renv.lock) never leaks. Empty LINKR_R_LIB (the app interpreter) keeps the
+#     default paths untouched.
+#   - point install.packages()/renv at the configured repo so a manual install in
+#     the R console has a CRAN mirror despite --vanilla skipping the site Rprofile.
 _R_KERNEL_LOOP = r'''
-# Point install.packages()/renv at the configured repo (default p3m) so a manual
-# install in the R console/terminal has a mirror — otherwise R errors "trying to
-# use CRAN without setting a mirror" and installs nothing.
 local({
+  .lib <- Sys.getenv("LINKR_R_LIB")
+  if (nzchar(.lib)) {
+    .sandbox <- Sys.getenv("LINKR_R_SANDBOX")
+    if (nzchar(.sandbox) && dir.exists(.sandbox)) {
+      .base <- .BaseNamespaceEnv
+      if (bindingIsLocked(".Library", .base)) unlockBinding(".Library", .base)
+      assign(".Library", .sandbox, envir = .base)
+      lockBinding(".Library", .base)
+    }
+    .paths <- c(.lib, Sys.getenv("LINKR_R_KERNEL_LIB"))
+    .libPaths(.paths[nzchar(.paths)])
+  }
   .repo <- Sys.getenv("LINKR_R_REPOS")
   if (nzchar(.repo)) options(repos = c(CRAN = .repo))
 })
@@ -750,34 +776,65 @@ class KernelManager:
 
         cwd = str(project_fs.ide_dir(project_uid))
         env = project_fs.runtime_env(project_uid)
-        # A `managed` environment overrides the interpreter (Python) or the library
-        # path (R) with its provisioned one. A `system` env (or no env passed) keeps
-        # today's shared interpreter — the behaviour-preserving default.
-        managed = environment is not None and environment.kind == "managed"
-        interpreter_path = environment.interpreter_path if managed else None
+        # A project environment isolates the interpreter (Python venv) or library path
+        # (R). `environment is None` is the APP INTERPRETER — the shared server Python /
+        # Rscript that runs built-in dashboard component renders; it is deliberately
+        # NOT isolated (it uses the app's own packages). A project env, even empty, IS
+        # isolated (see the R branch).
+        has_env = environment is not None
+        interpreter_path = environment.interpreter_path if has_env else None
         if language == "python":
             import sys
 
+            # Python isolation comes from the built venv; an empty/unbuilt env has none,
+            # so it falls back to the app interpreter. (R isolates without a build via a
+            # possibly-empty library — Python has no lib-only equivalent.)
             python = interpreter_path or sys.executable
             return Kernel([python, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env)
         if language == "r":
-            # renv keeps a shared Rscript; the env is isolated by its private library.
-            # Prepend it to R_LIBS so library() resolves against the project's packages.
-            # A CRAN mirror is set (LINKR_R_REPOS) so a manual install.packages() works
-            # despite --vanilla skipping the site Rprofile.
+            # renv keeps a shared Rscript; a project env is isolated by its private
+            # library. LINKR_R_REPOS gives a CRAN mirror for a manual install.packages()
+            # (--vanilla skips the site Rprofile). STRICT isolation for a project env
+            # (see _R_KERNEL_LOOP): the kernel pins .libPaths() to [project lib, shared
+            # kernel-infra lib, base R] and drops the site/user library, so a global
+            # package (plotly not in the project's renv.lock) never resolves. This
+            # applies even to an empty/unbuilt env — its project lib is just empty, so
+            # library() of an undeclared package fails cleanly (reproducible renv model)
+            # instead of leaking a server-global package. The shared kernel lib
+            # (jsonlite/base64enc/svglite) keeps the kernel itself working there. The app
+            # interpreter (environment is None) keeps the default paths.
             env = {**env, "LINKR_R_REPOS": settings.r_repos}
-            if interpreter_path:
-                existing = env.get("R_LIBS", "")
-                env = {**env, "R_LIBS": f"{interpreter_path}:{existing}" if existing else interpreter_path}
+            if has_env:
+                from app.services.execution import renv_provisioner
+
+                # Both are idempotent + cheap once populated: the shared sandbox
+                # (base+recommended symlinks) and the shared kernel-infra library.
+                renv_provisioner.ensure_r_sandbox()
+                renv_provisioner.ensure_kernel_r_lib()
+                env = {
+                    **env,
+                    "LINKR_R_LIB": interpreter_path or str(renv_provisioner.library_path(project_uid)),
+                    "LINKR_R_KERNEL_LIB": str(project_fs.kernel_r_lib()),
+                    "LINKR_R_SANDBOX": str(project_fs.r_sandbox()),
+                }
             return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=cwd, env=env)
         raise ExecutionError(f"No persistent kernel for language: {language}")
 
 
-def _interpreter_key(language: str, environment: "Environment | None") -> str:
+def _interpreter_key(language: str, project_uid: str, environment: "Environment | None") -> str:
     """Identity of the interpreter a run will use, so warm processes are only
-    reused by runs that would spawn the same interpreter/library set."""
-    if environment is not None and environment.kind == "managed" and environment.interpreter_path:
-        return environment.interpreter_path
+    reused by runs that would spawn the same interpreter/library set.
+
+    The app interpreter (environment is None) is shared → a per-language system key.
+    A project R env is ALWAYS isolated to its own library (even empty/unbuilt), so it
+    is keyed per project — otherwise a shared warm process (with global packages)
+    could be handed to an env that must only see its declared packages. Python only
+    isolates once built (a venv), so an unbuilt Python env still shares the app key."""
+    if environment is not None:
+        if environment.interpreter_path:
+            return environment.interpreter_path
+        if language == "r":
+            return f"__project_r__:{project_uid}"
     return f"__system__:{language}"
 
 
@@ -964,7 +1021,7 @@ async def run_ephemeral(
     """Run `code` in a FRESH, isolated process taken from the warm pool, then
     discard it and refill the pool in the background. Bounded by the concurrency
     gate. For dashboard widgets: parallel, never sharing a namespace or a lock."""
-    interpreter_key = _interpreter_key(language, environment)
+    interpreter_key = _interpreter_key(language, project_uid, environment)
 
     def make() -> Kernel:
         return manager.spawn_batch(language, project_uid, environment)
@@ -992,7 +1049,7 @@ async def prewarm(
     `count` lets the dashboard size the pool to how many code widgets a page has
     (so 4 widgets get 4 warm processes, not the default 2), clamped to the
     concurrency bound so a huge page can't pre-spawn an unbounded fleet."""
-    interpreter_key = _interpreter_key(language, environment)
+    interpreter_key = _interpreter_key(language, project_uid, environment)
     target = settings.widget_pool_size if count is None else count
     target = max(settings.widget_pool_size, min(target, settings.widget_max_concurrency))
 

@@ -193,6 +193,72 @@ def _to_renv_ref(requirement: str) -> str:
     return requirement.strip()
 
 
+# Infra packages the R kernel loop itself needs (host↔kernel JSON protocol +
+# figure capture — see kernel.py _R_KERNEL_LOOP): jsonlite/base64enc are required,
+# svglite optional (no figures without it). They are NOT user packages (never in
+# renv.lock); they live in a shared kernel library (project_fs.kernel_r_lib) that
+# every isolated R kernel puts on its .libPaths(), so the kernel works even for an
+# empty/unbuilt env without re-exposing the site library.
+_KERNEL_DEPS = ("jsonlite", "base64enc", "svglite")
+
+
+def ensure_r_sandbox(on_log=None) -> None:
+    """Populate the shared R "sandbox" — a directory of symlinks to ONLY the base +
+    recommended packages of the system R (selected by Priority, mirroring renv's
+    sandbox). An isolated kernel replaces .Library with this sandbox, so base tooling
+    (stats, methods, MASS, …) resolves while contributed packages in the same system
+    directory (the macOS R.framework case) do NOT. Idempotent: skips packages already
+    linked. Cheap once populated."""
+    import subprocess
+
+    sandbox = str(project_fs.r_sandbox()).replace("\\", "/")
+    # installed.packages(priority=...) picks base+recommended by metadata, then symlink
+    # each into the sandbox if not already present.
+    code = (
+        "local({ .sb <- '%s'; "
+        "ip <- installed.packages(lib.loc = .Library, priority = c('base','recommended')); "
+        "for (i in seq_len(nrow(ip))) { "
+        "  pkg <- ip[i,'Package']; from <- file.path(ip[i,'LibPath'], pkg); to <- file.path(.sb, pkg); "
+        "  if (!file.exists(to)) file.symlink(from, to) } })"
+    ) % sandbox
+    try:
+        subprocess.run(
+            [settings.rscript_bin, "--vanilla", "-e", code],
+            capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        if on_log is not None:
+            on_log(f"R sandbox ensure failed: {e}")
+
+
+def ensure_kernel_r_lib(on_log=None) -> None:
+    """Install the kernel's infra packages into the shared kernel R library if any
+    are missing. Idempotent and cheap once populated (a pure existence check). Called
+    before an isolated R kernel starts so it can load jsonlite/base64enc/svglite from
+    a library that holds ONLY the infra — never the site library where a global
+    package (plotly, …) would leak in."""
+    import subprocess
+
+    lib = str(project_fs.kernel_r_lib()).replace("\\", "/")
+    deps = ", ".join(f"'{d}'" for d in _KERNEL_DEPS)
+    repo = settings.r_repos.replace("'", "")
+    code = (
+        f"local({{ .need <- Filter(function(p) "
+        f"!nzchar(system.file(package=p, lib.loc='{lib}')), c({deps})); "
+        f"if (length(.need)) install.packages(.need, lib='{lib}', repos='{repo}') }})"
+    )
+    try:
+        subprocess.run(
+            [settings.rscript_bin, "--vanilla", "-e", code],
+            capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        # Best-effort: a failure here surfaces as the kernel's own import error, which
+        # is clearer than blocking the launch. Log for diagnostics.
+        if on_log is not None:
+            on_log(f"kernel R lib ensure failed: {e}")
+
+
 async def build(project_uid: str, on_log=None, options: dict | None = None) -> BuildResult:
     """Materialise the private library from ``renv.lock`` (``renv::restore``) as an
     async subprocess — off the event loop and killable on cancel."""
@@ -201,7 +267,10 @@ async def build(project_uid: str, on_log=None, options: dict | None = None) -> B
     # RENV_PATHS_LIBRARY isn't enough — renv restores into a default location.
     # Forward-slash the path so it's a valid R string literal on every OS.
     lib = str(_library_dir(project_uid)).replace("\\", "/")
-    restore_code = _method_prefix(options) + f"renv::restore(lockfile='renv.lock', library='{lib}', prompt=FALSE)"
+    restore_code = (
+        _method_prefix(options)
+        + f"renv::restore(lockfile='renv.lock', library='{lib}', prompt=FALSE)"
+    )
     if on_log is not None:
         on_log(f"$ {settings.rscript_bin} --vanilla -e {restore_code!r}")
     proc = await asyncio.create_subprocess_exec(

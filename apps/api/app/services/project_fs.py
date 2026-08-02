@@ -168,6 +168,29 @@ def env_package_cache(tool: str) -> Path:
     return d
 
 
+def r_sandbox() -> Path:
+    """A Linkr-wide R "sandbox": a directory of symlinks to ONLY the base+recommended
+    packages of the system R (mirroring renv's sandbox). An isolated R kernel replaces
+    .Library with this so base tooling resolves while contributed packages sharing the
+    system library directory (the macOS R.framework case) stay hidden. One per
+    instance, under data_dir/.cache/r-sandbox."""
+    d = settings.data_path / ".cache" / "r-sandbox"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def kernel_r_lib() -> Path:
+    """A Linkr-wide R library holding ONLY the kernel's own infra packages
+    (jsonlite/base64enc/svglite — the host↔kernel protocol + figure capture). It is
+    put on every isolated R kernel's .libPaths() so the kernel works even for an
+    empty/unbuilt project env, WITHOUT re-exposing the site library (which is where a
+    global package like plotly would otherwise leak in). One shared install for all
+    projects. Under data_dir/.cache/kernel-r-lib."""
+    d = settings.data_path / ".cache" / "kernel-r-lib"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def dataset_path(project_uid: str, rel: str) -> Path:
     """Absolute on-disk path of a raw dataset file, validated against traversal."""
     return _safe_join(datasets_dir(project_uid), rel)

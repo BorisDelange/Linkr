@@ -24,9 +24,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && git lfs install --system \
     && rm -rf /var/lib/apt/lists/*
 
-# R packages for server-side execution: arrow (Parquet dataset injection),
-# svglite (standalone SVG device), jsonlite + base64enc (persistent R kernel
-# wire protocol — see execution/kernel.py). Binary installs from p3m (fast).
+# R packages for the APP interpreter (built-in dashboard component renders run on
+# the shared Rscript, NOT an isolated project env): arrow (Parquet dataset
+# injection), svglite (SVG device), jsonlite + base64enc (R kernel wire protocol —
+# see execution/kernel.py). Binary installs from p3m (fast).
+# NB: isolated PROJECT R kernels drop the site library, so they load the kernel
+# infra (jsonlite/base64enc/svglite) from a separate shared library that
+# renv_provisioner.ensure_kernel_r_lib() populates on first use (a one-off install
+# under the data volume, whose path isn't known at image-build time).
 RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arrow","svglite","jsonlite","base64enc"))' \
     && Rscript -e 'library(arrow); library(svglite); library(jsonlite); library(base64enc)'
 
