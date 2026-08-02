@@ -49,13 +49,51 @@ const Sep = () => <span aria-hidden className="text-muted-foreground/50">·</spa
  * (label + value) so that a parent `grid grid-cols-[auto_1fr]` aligns every
  * label column to the same width, datatable-style.
  */
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, href }: { label: string; value: string; href?: string }) {
   return (
     <>
       <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0 break-words font-medium">{value}</span>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          // Stop the click from bubbling to the card underneath (which would open
+          // the entity) — the tooltip renders in a portal, but the click is
+          // replayed on the trigger's ancestors otherwise.
+          onClick={(e) => e.stopPropagation()}
+          // The tooltip has an INVERTED background (bg-foreground), so page accent
+          // colors read poorly on it. Keep the tooltip's own text color for
+          // guaranteed contrast and signal the link with a permanent underline.
+          className="min-w-0 break-words font-medium text-background underline underline-offset-2 decoration-background/50 hover:decoration-background"
+        >
+          {value}
+        </a>
+      ) : (
+        <span className="min-w-0 break-words font-medium">{value}</span>
+      )}
     </>
   )
+}
+
+/** A web URL for a raw value, or null when it isn't linkable. Accepts a bare
+ *  domain (chu-hugo.fr) by defaulting to https://; leaves a full URL as-is. */
+export function websiteHref(raw: string): string | null {
+  const v = raw.trim()
+  if (!v) return null
+  if (/^https?:\/\//i.test(v)) return v
+  // A plausible domain (has a dot, no spaces) → assume https.
+  if (/^[^\s/]+\.[^\s/]+/.test(v)) return `https://${v}`
+  return null
+}
+
+/** ORCID iD → its orcid.org URL. Accepts a bare 16-digit id or a full URL. */
+export function orcidHref(raw: string): string | null {
+  const v = raw.trim()
+  if (!v) return null
+  if (/^https?:\/\//i.test(v)) return v
+  if (/^(\d{4}-){3}\d{3}[\dX]$/i.test(v)) return `https://orcid.org/${v}`
+  return null
 }
 
 /**
@@ -90,8 +128,8 @@ function AuthorChip({
   const profession = localized(details?.profession, lang)
   if (affiliation) authorRows.push(<DetailRow key="aff" label={t('common.affiliation')} value={affiliation} />)
   if (profession) authorRows.push(<DetailRow key="prof" label={t('common.profession')} value={profession} />)
-  if (details?.email) authorRows.push(<DetailRow key="email" label={t('common.email')} value={details.email} />)
-  if (details?.orcid) authorRows.push(<DetailRow key="orcid" label="ORCID" value={details.orcid} />)
+  if (details?.email) authorRows.push(<DetailRow key="email" label={t('common.email')} value={details.email} href={`mailto:${details.email}`} />)
+  if (details?.orcid) authorRows.push(<DetailRow key="orcid" label="ORCID" value={details.orcid} href={orcidHref(details.orcid) ?? undefined} />)
 
   const orgRows: React.ReactNode[] = []
   if (organization) {
@@ -105,7 +143,8 @@ function AuthorChip({
     }
     const loc = [localized(organization.location, lang), localized(organization.country, lang)].filter(Boolean).join(', ')
     if (loc) orgRows.push(<DetailRow key="oloc" label={t('common.location')} value={loc} />)
-    if (organization.website) orgRows.push(<DetailRow key="oweb" label={t('common.website')} value={organization.website} />)
+    if (organization.website) orgRows.push(<DetailRow key="oweb" label={t('common.website')} value={organization.website} href={websiteHref(organization.website) ?? undefined} />)
+    if (organization.email) orgRows.push(<DetailRow key="oemail" label={t('common.email')} value={organization.email} href={`mailto:${organization.email}`} />)
     if (organization.referenceId) orgRows.push(<DetailRow key="oref" label={t('common.reference_id')} value={organization.referenceId} />)
   }
 
@@ -179,7 +218,10 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
   // drop the card's bottom padding so the bar sits flush at the base — pb-2 here
   // leaves only a small margin below it.
   return (
-    <div className={cn('pt-3 pb-2', className)}>
+    // The footer (author/date chips + their tooltips) is provenance UI, not a way
+    // to open the card. Swallow clicks so interacting with it — a chip or a link
+    // inside its hover tooltip — never triggers the card's onClick navigation.
+    <div className={cn('pt-3 pb-2', className)} onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-2 border-t pt-2 text-[11px] text-muted-foreground">
         {leading && <span className="min-w-0 truncate">{leading}</span>}
         {leading && (label || created || updated) && <Sep />}
