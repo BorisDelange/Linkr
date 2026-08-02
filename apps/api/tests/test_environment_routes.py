@@ -236,3 +236,40 @@ async def test_install_preset_records_default_packages(client, fake_provisioner)
     # The built-in Python data-science default set landed in the env.
     assert "pandas" in {p["name"] for p in pkgs}
     assert "numpy" in {p["name"] for p in pkgs}
+
+
+async def test_import_env_spec_restores_renv_lock_and_lists_packages(client):
+    """A project clone restores environments/r/renv.lock on disk; its recorded
+    packages then surface through the packages endpoint (renv list reads the lock,
+    no renv binary needed)."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    lock = (
+        '{"R":{"Version":"4.3.0"},'
+        '"Packages":{"dplyr":{"Package":"dplyr","Version":"1.2.1"},'
+        '"ggplot2":{"Package":"ggplot2","Version":"4.0.3"}}}'
+    )
+    r = await client.post(
+        f"{API}/projects/{uid}/environments/r/spec",
+        headers=headers,
+        json={"files": [{"name": "renv.lock", "content": lock}]},
+    )
+    assert r.status_code == 204
+
+    pkgs = (
+        await client.get(f"{API}/projects/{uid}/environments/r/packages", headers=headers)
+    ).json()
+    by_name = {p["name"]: p["spec"] for p in pkgs}
+    assert by_name == {"dplyr": "==1.2.1", "ggplot2": "==4.0.3"}
+
+
+async def test_import_env_spec_rejects_unknown_and_traversal_names(client):
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    for bad in ["evil.sh", "../secret", "r/../../etc/passwd"]:
+        r = await client.post(
+            f"{API}/projects/{uid}/environments/r/spec",
+            headers=headers,
+            json={"files": [{"name": bad, "content": "x"}]},
+        )
+        assert r.status_code == 400, bad

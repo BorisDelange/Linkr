@@ -294,6 +294,29 @@ describe('parseProjectZip — dataset data sidecars', () => {
   })
 })
 
+// Managed-environment specs (environments/<lang>/<file>) must survive a clone so
+// the versioned env (renv.lock / pyproject.toml) isn't dropped on import.
+describe('parseProjectZip — environment specs', () => {
+  const makeZip = async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({ uid: 'p1', name: { en: 'P' }, projectId: 'p', workspaceId: 'w', ownerId: 1 }))
+    zip.file('environments/r/renv.lock', '{"Packages":{"dplyr":{"Version":"1.2.1"}}}')
+    zip.file('environments/python/pyproject.toml', '[project]\nname = "p"\n')
+    zip.file('environments/python/uv.lock', 'version = 1\n')
+    return await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+  }
+
+  it('collects every environments/<lang>/<file> into envSpecs', async () => {
+    const parsed = await parseProjectZip(await makeZip())
+    expect(parsed).not.toBeNull()
+    const byKey = Object.fromEntries(parsed!.envSpecs.map((s) => [`${s.language}/${s.name}`, s.content]))
+    expect(byKey['r/renv.lock']).toBe('{"Packages":{"dplyr":{"Version":"1.2.1"}}}')
+    expect(byKey['python/pyproject.toml']).toContain('name = "p"')
+    expect(byKey['python/uv.lock']).toBe('version = 1\n')
+    expect(parsed!.envSpecs).toHaveLength(3)
+  })
+})
+
 // A project inherits its org from its workspace at export time (project.json has
 // no org fields, but organization.json rides alongside). Import must surface it
 // so doImport can upsert the org by UUID on the target instance.

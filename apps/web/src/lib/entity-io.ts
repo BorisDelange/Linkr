@@ -830,6 +830,9 @@ export interface ParsedProjectZip {
   attachmentsMeta: Omit<ReadmeAttachment, 'data'>[]
   /** Keyed by attachment id */
   attachmentBlobs: Map<string, ArrayBuffer>
+  /** Managed-environment spec files (manifest + lockfile) under environments/<lang>/,
+   *  restored on disk in server mode so the versioned env travels with the project. */
+  envSpecs: { language: string; name: string; content: string }[]
 }
 
 /**
@@ -1137,6 +1140,25 @@ export async function importProjectContent(
       } as ReadmeAttachment)
     }
   }
+
+  // Managed-environment specs are on-disk (server mode only): write them back so the
+  // versioned env (renv.lock / pyproject.toml) survives a clone and its packages show
+  // up in Environments. Front-only has no managed env, so this is a no-op there. Only
+  // on a full import (no `groups`) — a selective pull doesn't carry envs.
+  if (!groups && isServerMode() && parsed.envSpecs?.length) {
+    const { importEnvSpec } = await import('@/lib/api/environments')
+    const byLang = new Map<'python' | 'r', { name: string; content: string }[]>()
+    for (const s of parsed.envSpecs) {
+      if (s.language !== 'python' && s.language !== 'r') continue
+      const list = byLang.get(s.language) ?? []
+      list.push({ name: s.name, content: s.content })
+      byLang.set(s.language, list)
+    }
+    for (const [language, files] of byLang) {
+      // Best-effort: a spec-restore failure must not fail the whole project import.
+      await importEnvSpec(projectUid, language, files).catch(() => {})
+    }
+  }
 }
 
 export async function parseProjectZip(file: File): Promise<ParsedProjectZip | null> {
@@ -1381,10 +1403,22 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
     if (entry) attachmentBlobs.set(meta.id, await entry.async('arraybuffer'))
   }
 
+  // Managed-environment specs: environments/<lang>/<file> (renv.lock, pyproject.toml…).
+  // Kept as raw text; restored on disk server-side so the versioned env survives a
+  // clone. `<file>` is a flat base name (the export writes no nested env files).
+  const envSpecs: ParsedProjectZip['envSpecs'] = []
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir) continue
+    const m = /^environments\/(python|r)\/([^/]+)$/.exec(path)
+    if (!m) continue
+    envSpecs.push({ language: m[1], name: m[2], content: await entry.async('string') })
+  }
+
   return {
     project, ideFiles, pipelines, cohorts, connections,
     dashboards, dashboardTabs, dashboardWidgets,
     datasetFiles, datasetAnalyses, datasetData, datasetRawFiles, attachmentsMeta, attachmentBlobs,
+    envSpecs,
   }
 }
 

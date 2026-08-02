@@ -38,6 +38,20 @@ export function addEnvPackages(
   })
 }
 
+/** Restore a managed environment's spec files (manifest + lockfile) on disk during
+ *  a project import/clone, so the versioned env travels with the project. Writes
+ *  only; the venv/library is rebuilt on demand. */
+export function importEnvSpec(
+  projectUid: string,
+  language: 'python' | 'r',
+  files: { name: string; content: string }[],
+): Promise<void> {
+  return apiRequest(`/projects/${projectUid}/environments/${language}/spec`, {
+    method: 'POST',
+    body: JSON.stringify({ files }),
+  })
+}
+
 export function removeEnvPackage(
   projectUid: string,
   language: 'python' | 'r',

@@ -125,6 +125,19 @@ class AddPackagesRequest(CamelModel):
             raise ValueError(str(e)) from e
 
 
+class EnvSpecFile(CamelModel):
+    name: str  # base filename, e.g. "renv.lock" / "pyproject.toml"
+    content: str  # UTF-8 text of the spec file
+
+
+class ImportEnvSpecRequest(CamelModel):
+    """Restore a managed environment's declarative spec (manifest + lockfile) on
+    disk during a project import/clone — so the versioned env travels with the
+    project. Only the spec is written; the venv/library is rebuilt on demand."""
+
+    files: list[EnvSpecFile]
+
+
 class JobResponse(CamelModel):
     id: str
     project_uid: str

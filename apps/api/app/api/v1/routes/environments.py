@@ -20,6 +20,7 @@ from app.models.workspace import Workspace
 from app.schemas.execution import (
     AddPackagesRequest,
     EnvironmentResponse,
+    ImportEnvSpecRequest,
     JobResponse,
     PackageResponse,
 )
@@ -162,6 +163,41 @@ async def add_env_packages(
     except (ValueError, ProvisionError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return _env_response(env)
+
+
+# Spec filenames a language legitimately versions (manifest + lockfile + activation).
+# An import may only (re)write these; anything else is refused so a crafted ZIP can't
+# drop arbitrary files into the project dir.
+_SPEC_FILES = {
+    "python": {"pyproject.toml", "uv.lock", "requirements.txt"},
+    "r": {"renv.lock", ".Rprofile", "settings.json"},
+}
+
+
+@router.post(
+    "/projects/{project_uid}/environments/{language}/spec",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def import_env_spec(
+    project_uid: str,
+    language: str,
+    body: ImportEnvSpecRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Restore a managed environment's declarative spec on disk (project import /
+    git clone). Writes only the recognised spec files into environments/<language>/;
+    the venv/library is rebuilt from it on demand. No build is triggered here."""
+    await _require_ide(db, project_uid, user, "write")
+    _valid_language(language)
+    allowed = _SPEC_FILES[language]
+    spec_dir = project_fs.env_spec_dir(project_uid, language)
+    for f in body.files:
+        # Base name only — reject any path separators / traversal before it touches
+        # the filesystem, then confirm it's a known spec file for this language.
+        if "/" in f.name or "\\" in f.name or f.name in ("", ".", "..") or f.name not in allowed:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unexpected spec file: {f.name!r}")
+        (spec_dir / f.name).write_text(f.content, encoding="utf-8")
 
 
 @router.delete(
