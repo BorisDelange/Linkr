@@ -653,7 +653,7 @@ export function FilesPage() {
         // (the kernel is SIGINT'd separately) instead of replacing it with an
         // error message.
         if (err instanceof DOMException && err.name === 'AbortError') {
-          updateExecutionResult(execId, { duration })
+          updateExecutionResult(execId, { duration, success: false, interrupted: true })
         } else {
           const message = err instanceof Error ? err.message : String(err)
           updateExecutionResult(execId, {

@@ -42,6 +42,9 @@ export interface ExecutionResult {
   /** True while the run is still executing (drives the "…" activity indicator);
    *  cleared when the run finishes or errors. */
   running?: boolean
+  /** True when the user stopped the run mid-flight (Stop button → SIGINT). Shown
+   *  in red and flagged "interrupted"; distinct from a code error. */
+  interrupted?: boolean
   /** Set when the run contained an imperative install (install.packages / pip
    *  install): offers a one-click "install in the managed environment" button so
    *  the package is versioned instead of lost on the next rebuild. */

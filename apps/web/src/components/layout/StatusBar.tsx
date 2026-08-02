@@ -265,7 +265,7 @@ export function StatusBar() {
                             <button
                               onClick={() => handleCloseSession(k.language, k.sessionId)}
                               className="group/kill rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent"
-                              title={t('server.close_session')}
+                              title={t('server.kill_session')}
                             >
                               <Trash2 size={11} className="group-hover/kill:text-destructive" />
                             </button>

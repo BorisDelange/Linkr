@@ -384,7 +384,7 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
             ? 'border-green-500/30 bg-green-500/5'
             : 'border-red-500/30 bg-red-500/5'
         )}
-      >
+      >{/* interrupted runs are !success → same red styling */}
         <div className={cn('flex items-center justify-between', collapsed ? 'mb-0' : 'mb-1.5')}>
           <div className="flex items-center gap-1.5">
             {isLong && (
@@ -398,6 +398,11 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
             <span className={cn('text-xs font-medium', collapsed && 'text-muted-foreground')}>
               {result.fileName}
             </span>
+            {result.interrupted && (
+              <span className="rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+                {t('files.interrupted')}
+              </span>
+            )}
             {collapsed && (
               <span className="text-[10px] text-muted-foreground">
                 ({lineCount} lines)
@@ -437,13 +442,13 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
             <span className="ml-1 text-[10px] text-muted-foreground">
               {new Date(result.timestamp).toLocaleTimeString()}
             </span>
-            {result.duration > 0 && (
-              <span className="text-[10px] text-muted-foreground">
-                {result.duration >= 1000
-                  ? `${(result.duration / 1000).toFixed(1)}s`
-                  : `${result.duration}ms`}
+            {result.running ? (
+              <LiveTimer startedAt={result.timestamp} />
+            ) : result.duration > 0 ? (
+              <span className="text-[10px] tabular-nums text-muted-foreground">
+                {formatDuration(result.duration)}
               </span>
-            )}
+            ) : null}
           </div>
         </div>
         {!collapsed && (
@@ -496,6 +501,43 @@ function InstallOfferButton({
       {t('environments.install_in_env', { packages: offer.packages.join(', ') })}
     </Button>
   )
+}
+
+/** Adaptive elapsed-time label. Precision is kept high at short durations and
+ *  coarsens as the run gets longer — the user prefers "1min30s" over a bare
+ *  "1min":
+ *    < 1s   → "820ms"
+ *    < 1min → "6.6s"   (one decimal)
+ *    < 1h   → "1min30s"
+ *    ≥ 1h   → "2h05min"                                                        */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const totalSec = ms / 1000
+  if (totalSec < 60) return `${totalSec.toFixed(1)}s`
+  const totalMin = Math.floor(totalSec / 60)
+  if (totalMin < 60) {
+    const sec = Math.floor(totalSec % 60)
+    return `${totalMin}min${String(sec).padStart(2, '0')}s`
+  }
+  const hours = Math.floor(totalMin / 60)
+  const min = totalMin % 60
+  return `${hours}h${String(min).padStart(2, '0')}min`
+}
+
+/** Live-ticking elapsed time for a still-running result — counts up from the
+ *  run's start (its `timestamp`) so the user sees progress in real time. The
+ *  cadence adapts: fine (100ms) under a minute for a smooth sub-second read,
+ *  then 1s once minutes/hours are what matter. */
+function LiveTimer({ startedAt }: { startedAt: number }) {
+  const [elapsed, setElapsed] = useState(() => Date.now() - startedAt)
+  // Sub-minute: fine cadence for a smooth sub-second read; past a minute, 1s is
+  // enough. Re-runs the effect only when crossing that threshold, not every tick.
+  const fineCadence = elapsed < 60_000
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Date.now() - startedAt), fineCadence ? 100 : 1000)
+    return () => clearInterval(id)
+  }, [startedAt, fineCadence])
+  return <span className="text-[10px] tabular-nums text-muted-foreground">{formatDuration(elapsed)}</span>
 }
 
 /** Animated "…" appended to a running result's output — a live sign the run is

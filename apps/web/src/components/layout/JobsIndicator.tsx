@@ -42,7 +42,7 @@ export function JobsIndicator() {
 
   const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length
 
-  if (!enabled || jobs.length === 0) return null
+  if (!enabled) return null
 
   const onCancel = async (id: string) => {
     await cancelJob(id)
@@ -84,6 +84,11 @@ export function JobsIndicator() {
             </button>
           )}
         </div>
+        {jobs.length === 0 && (
+          <p className="px-1.5 py-3 text-center text-[11px] text-muted-foreground">
+            {t('jobs.empty')}
+          </p>
+        )}
         <ul className="flex flex-col gap-1">
           {jobs.map((job) => (
             <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
