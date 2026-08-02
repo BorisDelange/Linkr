@@ -18,11 +18,11 @@ caches in the shared server `stats_cache`; IndexedDB retained for front-only onl
 
 ## Backlog (unordered — PO)
 
-- **IDE — environments & job management**: real venv/packages per env (`uv`/`renv`),
-  env per terminal tab, tracking/interruption of long jobs. Fully designed, decisions
-  ratified → **`ide-environments-plan.md`** (that plan also settles the session/environment
-  merge that §07c of the old document left open: sessions and environments become one
-  concept).
+- ~~**IDE — environments & job management**~~ — **DONE** (shipped & manually validated):
+  real venv/packages per env (`uv`/`renv`), managed-env resolution, DB-backed jobs with a
+  bounded executor + cancel, git round-trip of the env spec, streaming Run + live R flush,
+  and warm-pool ephemeral runs for parallel dashboard widgets. As-built in
+  `docs/architecture.md` (Fullstack section).
 - **Versioning offloading** (→ `versioning-plan.md`, items 6–7): extend `serverBuildsZip`
   to the 6 remaining scopes (server builders already exist), and the bigger one —
   **server-side ZIP import** (`POST /projects/import`, `/workspaces/import`): today import
@@ -35,10 +35,10 @@ caches in the shared server `stats_cache`; IndexedDB retained for front-only onl
   on 1 worker.
 - **Pipeline**: make it actually functional.
 - **Reports page**: to implement (permission `reports` already reserved in the catalogue).
-- **Finishing touches**: editor Run button still executes in batch → move to streaming
-  (+ real Stop/Ctrl+C); true real-time R streaming (today buffered by `capture.output`,
-  output emitted at end of run); cosmetic — drop `render` from the `ExecuteRequest.purpose`
-  enum/docstring (`/execute` already refuses it, see architecture.md "Server-Owned
-  Rendering").
+- **Finishing touches**: streaming Run + real Stop/Ctrl+C and true real-time R streaming
+  are **done** (see architecture.md "Terminal & streaming Run"). Remaining is cosmetic only —
+  drop `render` from the `ExecuteRequest.purpose` enum/docstring (`/execute` already refuses
+  it, see architecture.md "Server-Owned Rendering"); and optionally surface long code runs as
+  `kind="run"` jobs in the panel.
 - **Permissions**: PO end-to-end validation of the resources × actions catalogue →
   `users-authorizations-audit.md`.

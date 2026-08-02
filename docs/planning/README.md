@@ -3,43 +3,32 @@
 Read this at the start of a session and pick. One line per remaining item.
 The as-built is in `docs/architecture.md`; details for each item live in the linked plan.
 
-**Status**: 🔜 ready to do · 🤔 needs your decision · 💤 later/maybe · 🧪 needs manual testing
+**Status**: 🔜 ready to do · 🤔 needs your decision · 💤 later/maybe
 **Effort**: S (< ½ day) · M (½–2 days) · L (several days)
 
 ## Versioning — [versioning-plan.md](versioning-plan.md)
 
 | St | Item | Effort |
 |----|------|--------|
-| 🧪 | LFS pull/push end-to-end against a real GitLab/GitHub remote (scores parquet, big CSV) | S (manual) |
 | 🤔 | Pull for the 6 entity scopes + workspaces — as **pull-overwrite** (reuse `applyClonedEntity`) or drop | M |
 | 🔜 | Server-side guard: refuse `paths=None` (git add -A) on the commit-push HTTP route | S |
 | 💤 | Server-side import (`POST /projects/import`, `/workspaces/import`) — last big client-offload | L |
 
-## IDE — environments & jobs — [ide-environments-plan.md](ide-environments-plan.md)
+## IDE — environments & jobs
+
+Feature **built and manually validated** (managed uv/renv envs, multi-session, DB-backed
+jobs, git round-trip, streaming Run + live R flush, warm-pool ephemeral widget runs). Plan
+retired; as-built documented in `docs/architecture.md` (Fullstack section). Only this remains:
 
 | St | Item | Effort |
 |----|------|--------|
-| 🧪 | Real environments (1 uv + 1 renv per project, git-versioned) + multi-session + jobs — **steps 1–7 built** (table+resolution, uv, jobs, renv, git round-trip, streaming Run + live R flush); needs manual testing against a live server | L |
-| ⏳ | Optional leftover: surface long code runs as `kind="run"` jobs in the panel (Stop + streaming already work) | S |
+| 💤 | Optional: surface long code runs as `kind="run"` jobs in the panel (Stop + streaming already work) | S |
 
 ## Dataset edit layer — [dataset-edit-layer-plan.md](dataset-edit-layer-plan.md)
 
 | St | Item | Effort |
 |----|------|--------|
 | 🤔 | Spreadsheet-style edits over immutable raw — design not yet arbitrated vs "pipeline-only transforms" (the dataset-store edit API is its unused groundwork) | L |
-
-## Dataset column metadata — [dataset-metadata-plan.md](dataset-metadata-plan.md)
-
-| St | Item | Effort |
-|----|------|--------|
-| ✅ | **Phase 1**: disk sidecar (`dataset-meta/`) for label/description/valueLabels, merged in `resolve_cache`, travels on export/git. Fixes server-mode label loss on restart | done |
-| ✅ | **Phase 2**: sidecar `parseOptions` (fixes raw-change type loss + filterMode survival); dropped redundant `_columns.json`. Portal verified safe | done |
-
-## Goupile import connector — [goupile-import-plan.md](goupile-import-plan.md)
-
-| St | Item | Effort |
-|----|------|--------|
-| ✅ | Auto-detected Goupile eCRF import: join form sheets on `__tid` into one wide dataset, auto-label from `@definitions`/`@propositions`. Client-side, rides the column-metadata layer | done |
 
 ## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)
 
@@ -49,7 +38,6 @@ The as-built is in `docs/architecture.md`; details for each item live in the lin
 | 🔜 | Reports page | L |
 | 💤 | Multi-user concurrent editing (conflicts, locking) | L |
 | 💤 | Job queue / multi-worker perf (uvicorn is 1 worker) | M |
-| 💤 | Run streaming + realtime R output polish | M |
 | 💤 | Cosmetic: drop `render` from the `/execute` purpose docs/enum | S |
 
 ## Permissions — [users-authorizations-audit.md](users-authorizations-audit.md)
@@ -75,5 +63,9 @@ The as-built is in `docs/architecture.md`; details for each item live in the lin
 Pillars 2 (Monitoring) and 3 (Deployment) not started.
 
 ---
+
+*Shipped & retired (as-built in `docs/architecture.md` / the code): IDE managed environments
++ jobs, dashboard widget parallel execution, dataset column-metadata sidecar, Goupile eCRF
+import.*
 
 *[../health-dcat-ap.md](../health-dcat-ap.md) is a reference document, not an effort.*

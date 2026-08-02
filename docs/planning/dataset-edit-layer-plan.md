@@ -77,9 +77,10 @@ signature; surface a "raw changed, review edits" state when the signature moves.
 
 ### Storage — where
 
-**Settled: shares the column-metadata sidecar** (`docs/planning/dataset-metadata-plan.md`).
-That plan already ships the durable, git-travelling, `resolve_cache`-merged
-sidecar this layer needs — reuse it rather than a separate `edits.json`:
+**Settled: shares the column-metadata sidecar** (already shipped — the
+`dataset-meta/<hash>.json` sidecar merged in `dataset_fs.resolve_cache`, holding `columns`
++ `parseOptions`). That sidecar is durable, git-travelling and `resolve_cache`-merged — this
+layer reuses it (adds an `"edits"` key) rather than a separate `edits.json`:
 - **Server mode**: the single per-dataset sidecar
   `projects/<uid>/dataset-meta/<hash>.json` (under the project root, NOT the
   re-bindable `datasets/`). It already holds `parseOptions` + `columns`
