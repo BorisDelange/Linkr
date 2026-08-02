@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, RefreshCw, Sparkles, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -243,31 +243,19 @@ export function ServerEnvironmentsPanel({
   const onUpgrade = (pkg: string) => run(() => upgradeEnvPackages(projectUid!, language, pkg), pkg)
   const onRemove = (pkg: string) => run(() => removeEnvPackage(projectUid!, language, pkg), pkg)
 
-  if (!projectUid) {
-    return (
-      <p className="py-8 text-center text-xs text-muted-foreground">
-        {t('environments.open_project_first')}
-      </p>
-    )
-  }
-
-  // User (removable) packages, distinct from the always-present kernel infra rows:
-  // an env with only infra is still "empty" for the no-packages hint / preset button.
-  const userPackages = packages.filter((p) => !p.system)
-
-  const statusVariant =
-    env?.status === 'ready' ? 'secondary' : env?.status === 'error' ? 'destructive' : 'outline'
-  const needsBuild = env?.status === 'draft' || env?.status === 'error' || env?.status === 'building'
-  // Which build-help copy to show: building / needs-a-build / up-to-date.
-  const buildState =
-    env?.status === 'building' ? 'building' : needsBuild ? 'draft' : 'ready'
-  const label = language === 'python' ? 'Python' : 'R'
   const packageUrl = (name: string) =>
     language === 'python'
       ? `https://pypi.org/project/${encodeURIComponent(name)}`
       : `https://packagemanager.posit.co/client/#/repos/cran/packages/${encodeURIComponent(name)}`
 
-  const columns: ConceptColumn<EnvPackage>[] = [
+  // Memoised so its identity is stable across renders. The footer polls live kernels
+  // every few seconds (useServerKernels) which re-renders this panel via StatusBar;
+  // a fresh `columns` array each time would feed react-table new columns and remount
+  // every cell — tearing down an open tooltip mid-hover (the "tooltip flickers away"
+  // bug). The row actions (onUpgrade/onRemove/setRemoveTarget) are intentionally NOT
+  // deps: they close over fresh state via `run`, and listing them would defeat the
+  // memo. Deps are only the values the cells render from.
+  const columns: ConceptColumn<EnvPackage>[] = useMemo(() => [
     {
       id: 'name',
       header: t('environments.col_name'),
@@ -364,14 +352,17 @@ export function ServerEnvironmentsPanel({
                 {p.system ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="relative inline-flex cursor-not-allowed text-muted-foreground/30">
-                        <Trash2 size={13} />
-                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                          <span className="h-px w-[15px] rotate-45 bg-muted-foreground/50" />
-                        </span>
+                      {/* A single stable element (no absolute overlay) so the hover
+                          target doesn't flicker the tooltip closed. The struck-out
+                          trash lives in one inline SVG. */}
+                      <span
+                        className="inline-flex cursor-not-allowed text-muted-foreground/40"
+                        aria-label={t('environments.kernel_pkg_hint')}
+                      >
+                        <TrashDisabledIcon />
                       </span>
                     </TooltipTrigger>
-                    <TooltipContent side="left" className="max-w-xs text-xs">
+                    <TooltipContent side="top" className="max-w-[16rem] text-xs">
                       {t('environments.kernel_pkg_hint')}
                     </TooltipContent>
                   </Tooltip>
@@ -391,7 +382,30 @@ export function ServerEnvironmentsPanel({
         )
       },
     },
-  ]
+    // onUpgrade/onRemove/setRemoveTarget/isPkgPending/packageUrl are omitted on
+    // purpose — see the note above; they read fresh state and would defeat the memo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [t, language, updates, checkedAt, busy, canWrite, pendingPkgs])
+
+  if (!projectUid) {
+    return (
+      <p className="py-8 text-center text-xs text-muted-foreground">
+        {t('environments.open_project_first')}
+      </p>
+    )
+  }
+
+  // User (removable) packages, distinct from the always-present kernel infra rows:
+  // an env with only infra is still "empty" for the no-packages hint / preset button.
+  const userPackages = packages.filter((p) => !p.system)
+
+  const statusVariant =
+    env?.status === 'ready' ? 'secondary' : env?.status === 'error' ? 'destructive' : 'outline'
+  const needsBuild = env?.status === 'draft' || env?.status === 'error' || env?.status === 'building'
+  // Which build-help copy to show: building / needs-a-build / up-to-date.
+  const buildState =
+    env?.status === 'building' ? 'building' : needsBuild ? 'draft' : 'ready'
+  const label = language === 'python' ? 'Python' : 'R'
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -618,6 +632,29 @@ export function ServerEnvironmentsPanel({
         </AlertDialogContent>
       </AlertDialog>
     </TooltipProvider>
+  )
+}
+
+/** A trash icon with a diagonal strike, in ONE inline SVG (no absolute overlay),
+ *  so it's a single stable tooltip target. Marks a package that can't be removed. */
+function TrashDisabledIcon() {
+  return (
+    <svg
+      width={13}
+      height={13}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="3" y1="21" x2="21" y2="3" />
+    </svg>
   )
 }
 
