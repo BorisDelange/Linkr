@@ -83,6 +83,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [warning, setWarning] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Server preview: the raw file is uploaded ONCE (per selected file); its sha is
   // cached so option tweaks re-preview by sha instead of re-uploading the whole
@@ -204,6 +205,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const parseFile = useCallback((f: File) => {
     setLoading(true)
     setError(null)
+    setWarning(null)
 
     const supported = isCSVLike(f) || isExcel(f) || isParquet(f)
     if (!supported) {
@@ -301,7 +303,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
         for (const sn of wb.SheetNames) {
           sheets[sn] = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sn], { defval: null })
         }
-        const { columns: colNames, rows, columnMeta } = parseGoupileWorkbook(sheets, {
+        const { columns: colNames, rows, columnMeta, duplicateForms } = parseGoupileWorkbook(sheets, {
           __tid: { label: t('datasets.goupile_col_tid'), description: t('datasets.goupile_col_tid_desc') },
           __sequence: { label: t('datasets.goupile_col_sequence'), description: t('datasets.goupile_col_sequence_desc') },
           __hid: { label: t('datasets.goupile_col_hid'), description: t('datasets.goupile_col_hid_desc') },
@@ -311,6 +313,11 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
           setLoading(false)
           return
         }
+        setWarning(
+          duplicateForms.length > 0
+            ? t('datasets.goupile_duplicate_rows', { forms: duplicateForms.join(', ') })
+            : null,
+        )
         const columns = buildColumns(colNames, rows)
         const remapped = remapRows(rows, columns)
         // Metadata keyed by columnId (the id the dataset stores), from name-keyed meta.
@@ -793,6 +800,14 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                 <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2 text-sm text-destructive">
                   <AlertCircle size={14} className="shrink-0" />
                   {error}
+                </div>
+              )}
+
+              {/* Warning (non-blocking, e.g. a repeatable form dropped extra rows) */}
+              {warning && (
+                <div className="flex items-center gap-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-2 text-sm text-amber-700 dark:text-amber-400">
+                  <AlertCircle size={14} className="shrink-0" />
+                  {warning}
                 </div>
               )}
 

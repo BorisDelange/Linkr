@@ -506,6 +506,31 @@ export function stripInstanceFields<T extends object>(meta: T): Partial<T> {
   return out
 }
 
+/** parseOptions with its keys (and nested per-column maps) sorted, so the exported
+ *  datasets/_tree.json order doesn't depend on the order the user set the options
+ *  in. Mirrors the server's `_canonical_parse_options` — both builders emit
+ *  insertion order verbatim for front/back byte-parity, so both must canonicalise. */
+function canonicalParseOptions(opts: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const k of Object.keys(opts).sort()) {
+    const v = opts[k]
+    out[k] = v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.keys(v as object).sort().map((ck) => [ck, (v as Record<string, unknown>)[ck]]))
+      : v
+  }
+  return out
+}
+
+/** A dataset file's export metadata: instance fields stripped + parseOptions keys
+ *  canonicalised (parity-stable ordering). */
+function datasetExportMeta(df: DatasetFile): Partial<DatasetFile> {
+  const meta = stripInstanceFields(df) as Record<string, unknown>
+  if (meta.parseOptions && typeof meta.parseOptions === 'object') {
+    meta.parseOptions = canonicalParseOptions(meta.parseOptions as Record<string, unknown>)
+  }
+  return meta as Partial<DatasetFile>
+}
+
 /**
  * Drop a createdById carried by an imported record: it's a foreign instance's
  * local user id and must never be persisted. The author snapshot
@@ -702,7 +727,7 @@ export async function buildProjectZip(
   const datasetFiles = await storage.datasetFiles.getByProject(projectUid)
   if (datasetFiles.length > 0) {
     const byId = new Map(datasetFiles.map(f => [f.id, f]))
-    zip.file('datasets/_tree.json', json(datasetFiles.map(stripInstanceFields)))
+    zip.file('datasets/_tree.json', json(datasetFiles.map(datasetExportMeta)))
 
     for (const df of datasetFiles) {
       if (df.type !== 'file') continue

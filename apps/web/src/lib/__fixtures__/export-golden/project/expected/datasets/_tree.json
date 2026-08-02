@@ -50,11 +50,11 @@
     ],
     "rowCount": 3,
     "parseOptions": {
-      "columnTypes": {
-        "col_age": "number"
-      },
       "columnFilterMode": {
         "col_sex": "list"
+      },
+      "columnTypes": {
+        "col_age": "number"
       }
     }
   }

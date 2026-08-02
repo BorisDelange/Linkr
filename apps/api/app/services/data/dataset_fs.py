@@ -53,13 +53,27 @@ def read_column_meta(project_uid: str, rel: str) -> dict:
     return cols if isinstance(cols, dict) else {}
 
 
+def _canonical_parse_options(opts: dict) -> dict:
+    """parseOptions with keys (and its nested per-column maps) in a stable, sorted
+    order. parseOptions is a free-form dict assembled across separate writes
+    (columnTypes then columnFilterMode, or the reverse), so its insertion order —
+    which both export builders emit verbatim for front/back byte-parity — would
+    otherwise depend on write history and churn the git diff. Canonicalise once."""
+    out: dict = {}
+    for k in sorted(opts):
+        v = opts[k]
+        out[k] = {ck: v[ck] for ck in sorted(v)} if isinstance(v, dict) else v
+    return out
+
+
 def read_parse_options(project_uid: str, rel: str) -> dict | None:
     """The persisted parse options (columnTypes/columnFilterMode/delimiter/…) from
     the sidecar, or None. Durable — unlike the Parquet cache, it survives a raw
-    change, so a reparse re-applies the user's column types instead of re-inferring."""
+    change, so a reparse re-applies the user's column types instead of re-inferring.
+    Keys are returned in a canonical order so the export stays parity-stable."""
     meta = _read_meta(_colmeta_path(project_uid, rel))
     opts = (meta or {}).get("parseOptions")
-    return opts if isinstance(opts, dict) and opts else None
+    return _canonical_parse_options(opts) if isinstance(opts, dict) and opts else None
 
 
 def write_parse_options(project_uid: str, rel: str, parse_options: dict | None) -> None:
@@ -68,7 +82,7 @@ def write_parse_options(project_uid: str, rel: str, parse_options: dict | None) 
     path = _colmeta_path(project_uid, rel)
     current = _read_meta(path) or {}
     if parse_options:
-        current["parseOptions"] = parse_options
+        current["parseOptions"] = _canonical_parse_options(parse_options)
         _write_meta(path, current)
     else:
         current.pop("parseOptions", None)

@@ -10,8 +10,11 @@ The job runs behind the same bounded executor as env builds and is cancellable
 (cancelling the task shuts the kernel subprocess down).
 """
 
+import asyncio
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.database import async_session
 from app.models.job import Job
 from app.services.execution import environments, jobs, kernel
@@ -39,7 +42,20 @@ async def start(
             buffer.append(data)
 
         try:
-            out = await k.execute_stream(code, on_chunk)
+            # Overall wall-clock cap: the kernel's per-readline timeout doesn't bound
+            # total runtime (a chatty loop resets it every line), so a runaway job
+            # would pin a build-concurrency slot forever. wait_for kills it; the
+            # finally shuts the subprocess down and the raise marks the job 'error'.
+            try:
+                out = await asyncio.wait_for(
+                    k.execute_stream(code, on_chunk), timeout=settings.job_timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                if buffer:
+                    await handle.log("".join(buffer).rstrip("\n"))
+                raise RuntimeError(
+                    f"Job exceeded the {settings.job_timeout_seconds}s time limit and was stopped."
+                )
             text = "".join(buffer) + (out.stderr or "")
             if text.strip():
                 await handle.log(text.rstrip("\n"))

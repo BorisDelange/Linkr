@@ -92,6 +92,38 @@ describe('parseGoupileWorkbook', () => {
     expect(byTid.T1['recours_mir.remarques']).toBe('form2 remark')
   })
 
+  it('reports no duplicate forms for a clean workbook', () => {
+    expect(res.duplicateForms).toEqual([])
+  })
+
+  it('flags a form with more than one row per __tid (repeatable form)', () => {
+    const dup = parseGoupileWorkbook({
+      ...SHEETS,
+      recours_mir: [
+        { __tid: 'T1', __sequence: 1, __hid: 'H1', remarques: 'first' },
+        { __tid: 'T1', __sequence: 2, __hid: 'H1', remarques: 'second' },
+      ],
+    })
+    expect(dup.duplicateForms).toContain('recours_mir')
+    // Last-write-wins: only the second entry survives the join.
+    const t1 = dup.rows.find((r) => r.__tid === 'T1')!
+    expect(t1['recours_mir.remarques'] ?? t1.remarques).toBe('second')
+  })
+
+  it('unions ragged headers so a column missing from the first row is not dropped', () => {
+    const ragged = parseGoupileWorkbook({
+      '@definitions': SHEETS['@definitions'],
+      '@propositions': SHEETS['@propositions'],
+      form_x: [
+        { __tid: 'T1', __sequence: 1, __hid: 'H1', a: 1 },
+        { __tid: 'T2', __sequence: 2, __hid: 'H2', a: 2, b: 9 }, // `b` only on row 2
+      ],
+    })
+    expect(ragged.columns).toContain('b')
+    const t2 = ragged.rows.find((r) => r.__tid === 'T2')!
+    expect(t2.b).toBe(9)
+  })
+
   it('keeps system columns unprefixed and up front', () => {
     expect(res.columns.slice(0, 3)).toEqual(['__tid', '__sequence', '__hid'])
     expect(res.columnMeta.__tid).toEqual({ label: 'Identifiant dossier', description: 'Identifiant unique du dossier' })

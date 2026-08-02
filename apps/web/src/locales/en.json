@@ -998,6 +998,7 @@
     "goupile_col_sequence_desc": "Goupile record sequence number.",
     "goupile_col_hid": "Human id",
     "goupile_col_hid_desc": "Goupile human-readable record identifier.",
+    "goupile_duplicate_rows": "Some forms ({{forms}}) have more than one row per record; only the last entry of each was kept. Repeatable forms are not fully imported.",
     "name": "Name",
     "rows": "rows",
     "columns": "columns",

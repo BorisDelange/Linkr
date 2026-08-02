@@ -998,6 +998,7 @@
     "goupile_col_sequence_desc": "Numéro de séquence du dossier Goupile.",
     "goupile_col_hid": "Identifiant humain",
     "goupile_col_hid_desc": "Identifiant lisible du dossier Goupile.",
+    "goupile_duplicate_rows": "Certains formulaires ({{forms}}) ont plusieurs lignes par dossier ; seule la dernière entrée de chacun a été conservée. Les formulaires répétables ne sont pas importés intégralement.",
     "name": "Nom",
     "rows": "lignes",
     "columns": "colonnes",

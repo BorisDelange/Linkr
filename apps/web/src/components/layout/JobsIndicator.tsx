@@ -169,10 +169,13 @@ function JobArtifacts({ result }: { result: NonNullable<Job['result']> }) {
       ))}
       {html && (
         // A widget (plotly/leaflet/DT) — self-contained HTML in a sandboxed iframe.
+        // NO allow-same-origin: a srcDoc iframe inherits our origin, and combining it
+        // with allow-scripts would let untrusted widget JS reach the parent origin
+        // (cookies/session/DOM). Plotly/leaflet/DT run fine on allow-scripts alone.
         <iframe
           srcDoc={html}
           className="h-[60vh] w-full rounded border"
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-scripts"
           title="widget"
         />
       )}

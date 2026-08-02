@@ -321,7 +321,10 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
           <iframe
             srcDoc={String(activeTab.content)}
             className="h-full w-full border-0"
-            sandbox="allow-scripts allow-same-origin"
+            // NO allow-same-origin: a srcDoc iframe inherits our origin; combined with
+            // allow-scripts, untrusted widget JS could reach the parent origin
+            // (cookies/session/DOM). Plotly/leaflet/DT run fine on allow-scripts alone.
+            sandbox="allow-scripts"
             title={activeTab.label}
           />
         )}

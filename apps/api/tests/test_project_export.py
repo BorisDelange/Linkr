@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from app.services.project_export import (
+    _canonical_parse_options,
     _slugify,
     build_project_tree,
 )
@@ -120,6 +121,42 @@ def test_slugify_matches_ts():
     assert _slugify("cohort.csv") == "cohort-csv"
     assert _slugify("  ") == "export"
     assert _slugify("A/B — C") == "a-b-c"
+
+
+def test_canonical_parse_options_sorts_keys_and_nested_maps():
+    # parseOptions written in either order canonicalises identically, so the
+    # exported datasets/_tree.json doesn't churn on write history (front/back twin).
+    a = _canonical_parse_options(
+        {"columnTypes": {"col_z": "number", "col_a": "string"}, "columnFilterMode": {"col_b": "list"}}
+    )
+    b = _canonical_parse_options(
+        {"columnFilterMode": {"col_b": "list"}, "columnTypes": {"col_a": "string", "col_z": "number"}}
+    )
+    assert list(a.keys()) == ["columnFilterMode", "columnTypes"]
+    assert a == b
+    assert list(a["columnTypes"].keys()) == ["col_a", "col_z"]
+
+
+def test_dataset_tree_parse_options_order_independent():
+    # The exported datasets/_tree.json bytes are identical regardless of the order
+    # parseOptions keys were stored in.
+    data = json.loads((_GOLDEN / "input.json").read_text())
+    df = next(f for f in data["datasetFiles"] if f.get("parseOptions"))
+    reversed_opts = dict(reversed(list(df["parseOptions"].items())))
+    variant = [
+        {**f, "parseOptions": reversed_opts} if f["id"] == df["id"] else f
+        for f in data["datasetFiles"]
+    ]
+    common = dict(
+        project=data["project"], organization=data["organization"], ide_files=data["ideFiles"],
+        pipelines=data["pipelines"], cohorts=data["cohorts"], connections=data["connections"],
+        dashboards=data["dashboards"], dataset_analyses=data["datasetAnalyses"],
+        dataset_data=data["datasetData"], dataset_raw_files=data["datasetRawFiles"],
+        attachments=[], attachment_blobs={}, versioned_data_files=set(),
+    )
+    original = build_project_tree(dataset_files=data["datasetFiles"], **common)
+    variant_tree = build_project_tree(dataset_files=variant, **common)
+    assert original["datasets/_tree.json"] == variant_tree["datasets/_tree.json"]
 
 
 def test_gitignore_ignores_data_by_default():

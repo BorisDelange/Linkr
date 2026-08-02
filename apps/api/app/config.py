@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     # Hard wall-clock limit for a single env build (uv sync / renv restore). A hung
     # build otherwise holds a max_build_concurrency slot forever, wedging all builds.
     build_timeout_seconds: int = 1800
+    # Hard wall-clock limit for a run-as-job (batch script). The per-readline
+    # execution timeout does NOT bound total runtime — a script that prints faster
+    # than that resets the deadline every line and runs forever, pinning a
+    # max_build_concurrency slot (shared with env builds) until it's manually killed.
+    job_timeout_seconds: int = 1800
 
     # Data
     data_dir: str = "~/.linkr"

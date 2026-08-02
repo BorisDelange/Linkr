@@ -48,6 +48,10 @@ export interface GoupileParseResult {
   rows: Record<string, unknown>[]
   /** Editorial metadata per column name (label/description/valueLabels). */
   columnMeta: Record<string, GoupileColumnMeta>
+  /** Forms where the same `__tid` appeared on more than one row. The join keeps one
+   *  row per (form, __tid), so a repeatable form's extra entries are dropped —
+   *  surface this so the user knows the data isn't silently complete. */
+  duplicateForms: string[]
 }
 
 /** Sheets as SheetJS `sheet_to_json` yields them: name → array of row objects. */
@@ -143,13 +147,19 @@ export function parseGoupileWorkbook(
 
   const byTid = new Map<string, Record<string, unknown>>()
   const tidOrder: string[] = []
+  const duplicateForms: string[] = []
 
   for (const sheetName of dataSheetNames) {
     const rows = sheets[sheetName] ?? []
-    const headers = rows.length > 0 ? Object.keys(rows[0]) : []
-    const variableHeaders = headers.filter(
-      (h) => !(GOUPILE_SYSTEM_COLUMNS as readonly string[]).includes(h),
-    )
+    // Union the keys of EVERY row, not just rows[0]: a ragged sheet whose first row
+    // omits a column (blank cell) would otherwise drop that column entirely.
+    const variableHeaders: string[] = []
+    for (const row of rows) {
+      for (const h of Object.keys(row)) {
+        if ((GOUPILE_SYSTEM_COLUMNS as readonly string[]).includes(h)) continue
+        if (!variableHeaders.includes(h)) variableHeaders.push(h)
+      }
+    }
 
     // Register this sheet's columns (once) with their dictionary metadata.
     for (const raw of variableHeaders) {
@@ -158,10 +168,15 @@ export function parseGoupileWorkbook(
       columnMeta[wide] = deriveColumnMeta(sheetName, raw, defs, props)
     }
 
-    // Merge each row into the joined table by __tid.
+    // Merge each row into the joined table by __tid. A repeatable form can have >1
+    // row per __tid; the join keeps one (last-write-wins), so flag such a form.
+    const seenTidsThisSheet = new Set<string>()
+    let sheetHasDuplicate = false
     for (const row of rows) {
       const tid = row.__tid != null ? String(row.__tid) : ''
       if (!tid) continue // a data sheet with no __tid can't be joined; skip the row
+      if (seenTidsThisSheet.has(tid)) sheetHasDuplicate = true
+      seenTidsThisSheet.add(tid)
       let target = byTid.get(tid)
       if (!target) {
         target = {}
@@ -176,6 +191,7 @@ export function parseGoupileWorkbook(
         target[wideName(sheetName, raw)] = denaturalize(row[raw])
       }
     }
+    if (sheetHasDuplicate) duplicateForms.push(sheetName)
   }
 
   const rows = tidOrder.map((tid) => {
@@ -186,7 +202,7 @@ export function parseGoupileWorkbook(
     return full
   })
 
-  return { columns, rows, columnMeta }
+  return { columns, rows, columnMeta, duplicateForms }
 }
 
 /**

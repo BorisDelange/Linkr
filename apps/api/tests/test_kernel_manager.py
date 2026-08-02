@@ -125,9 +125,14 @@ class _RunKernel:
         self.alive = True
         self.shut = False
         self.ran: list[str] = []
+        self.last_activity = time.monotonic()
+
+    def idle_seconds(self) -> float:
+        return time.monotonic() - self.last_activity
 
     async def execute(self, code, query_resolver=None):
         self.ran.append(code)
+        self.last_activity = time.monotonic()
         from app.services.execution.runtime import RuntimeOutput
 
         return RuntimeOutput(stdout="ok", stderr="", figures=[], table=None, html=None)

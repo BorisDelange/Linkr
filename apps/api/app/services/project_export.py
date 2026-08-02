@@ -73,6 +73,28 @@ def _strip_instance_fields(meta: dict) -> dict:
     return out
 
 
+def _canonical_parse_options(opts: dict) -> dict:
+    """parseOptions with keys (and nested per-column maps) sorted — mirrors
+    entity-io.ts:canonicalParseOptions and dataset_fs._canonical_parse_options, so
+    the datasets/_tree.json ordering is independent of the option write history and
+    identical front/back."""
+    out: dict = {}
+    for k in sorted(opts):
+        v = opts[k]
+        out[k] = {ck: v[ck] for ck in sorted(v)} if isinstance(v, dict) else v
+    return out
+
+
+def _dataset_export_meta(df: dict) -> dict:
+    """Dataset file export metadata: instance fields stripped + parseOptions keys
+    canonicalised (parity-stable ordering)."""
+    out = _strip_instance_fields(df)
+    opts = out.get("parseOptions")
+    if isinstance(opts, dict):
+        out = {**out, "parseOptions": _canonical_parse_options(opts)}
+    return out
+
+
 def _slugify(name: str) -> str:
     """Port of ``slugify`` (entity-io.ts:143): NFD-normalize, strip combining
     marks, lowercase, non-alphanumeric runs → ``-``, trim leading/trailing ``-``,
@@ -505,7 +527,7 @@ def build_project_tree(
     if dataset_files:
         by_id = {f["id"]: f for f in dataset_files}
         tree["datasets/_tree.json"] = _json(
-            [_strip_instance_fields(f) for f in dataset_files]
+            [_dataset_export_meta(f) for f in dataset_files]
         )
         for df in dataset_files:
             if df.get("type") != "file":
