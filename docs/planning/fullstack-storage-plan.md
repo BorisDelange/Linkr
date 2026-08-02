@@ -10,7 +10,7 @@
 The full-stack transition is functional and deployable (Docker validated end to end).
 As-built: DB/files split under `LINKR_DATA_DIR`, server DuckDB engine, datasets on disk
 (immutable raw + Parquet cache), persistent R/Python kernels keyed
-`(project_uid, user_id, language, env_id)`, PTY terminal streaming, zero WASM / zero
+`(project_uid, user_id, language, session_id)`, PTY terminal streaming, zero WASM / zero
 IndexedDB in server mode, server-side export builders with golden parity tests. Settled
 decisions (ratified): compute placement = the mode decides, never the data; DB = truth of
 metadata, disk = single source for `scripts/` + `datasets/`; shareable recomputable
