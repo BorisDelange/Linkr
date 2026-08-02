@@ -1,8 +1,22 @@
 /** Git URL normalization helpers for git-linked entities. */
 
 /**
+ * Add an `https://` scheme to a schemeless host/path (`gitlab.com/g/repo`) so it
+ * resolves like the full URL. SSH-style remotes (`git@host:path`, `ssh://…`) and
+ * anything that already carries a scheme are left untouched. We only infer a
+ * scheme when the first path segment looks like a domain (contains a dot), which
+ * keeps a bare local path from being mistaken for a remote.
+ */
+function ensureScheme(url: string): string {
+  if (!url || /^[a-z][a-z0-9+.-]*:\/\//i.test(url) || /^[\w.-]+@[^/]+:/.test(url)) return url
+  const host = url.split('/', 1)[0]
+  return host.includes('.') ? `https://${url}` : url
+}
+
+/**
  * Strip the browser-navigation cruft users paste from a repo web page, leaving
  * the bare clone URL. Handles:
+ *  - a schemeless host/path (`gitlab.com/group/repo`) → `https://…`
  *  - GitLab/framagit `…/repo/-/tree/main`, `…/-/blob/…`, `…/-/merge_requests/…`
  *    (everything from the `/-/` separator on is navigation; subgroups keep it robust)
  *  - GitHub `…/repo/tree/main`, `/blob/…`, `/commit/…`, `/pull/…`, `/releases/…`
@@ -10,7 +24,7 @@
  * SSH-style URLs (git@host:path) are left untouched.
  */
 export function cleanGitUrl(raw: string): string {
-  let url = raw.trim()
+  let url = ensureScheme(raw.trim())
   if (!url || !/^https?:\/\//i.test(url)) return url
   // Drop query + fragment.
   url = url.split(/[?#]/, 1)[0]

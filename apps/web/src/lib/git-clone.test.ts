@@ -40,6 +40,14 @@ describe('cleanGitUrl', () => {
 
   it('leaves SSH-style URLs alone', () => {
     expect(cleanGitUrl('git@github.com:owner/repo.git')).toBe('git@github.com:owner/repo.git')
+    expect(cleanGitUrl('ssh://git@gitlab.com/g/repo.git')).toBe('ssh://git@gitlab.com/g/repo.git')
+  })
+
+  it('adds https:// to a schemeless host/path and still cleans it', () => {
+    expect(cleanGitUrl('gitlab.com/ricdc/atelier/linkr-content-private/workspaces/ricdc')).toBe(
+      'https://gitlab.com/ricdc/atelier/linkr-content-private/workspaces/ricdc',
+    )
+    expect(cleanGitUrl('github.com/owner/repo/tree/main')).toBe('https://github.com/owner/repo')
   })
 })
 

@@ -161,9 +161,17 @@ _GH_NAV_SEGMENTS = ("tree", "blob", "commit", "commits", "pull", "pulls", "relea
 
 def _clean_url(url: str) -> str:
     """Strip browser-navigation cruft from a pasted repo URL (defense in depth;
-    the frontend cleans too). GitLab uses a `/-/` separator; GitHub uses known
-    path segments. Query/fragment are dropped. SSH URLs are left untouched."""
+    the frontend cleans too). A schemeless host/path (`gitlab.com/g/repo`) gets an
+    `https://` prefix. GitLab uses a `/-/` separator; GitHub uses known path
+    segments. Query/fragment are dropped. SSH URLs are left untouched."""
     url = (url or "").strip()
+    # Infer https:// for a schemeless host/path, but leave SSH-style (git@host:…)
+    # and anything already carrying a scheme alone. Only when the first segment
+    # looks like a domain, so a bare local path isn't taken for a remote.
+    if url and not re.match(r"[a-z][a-z0-9+.-]*://", url, re.I) and not re.match(r"[\w.-]+@[^/]+:", url):
+        host = url.split("/", 1)[0]
+        if "." in host:
+            url = "https://" + url
     if not url.lower().startswith(("http://", "https://")):
         return url
     url = url.split("?", 1)[0].split("#", 1)[0]
