@@ -12,6 +12,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -58,8 +59,15 @@ export function CatalogListPage() {
   const doImport = useCallback(async (catalog: DataCatalog, duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : catalog.id
+    // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
+    // persisted — capture it for anchoring, then strip it from the stored config.
+    const syncedOid = catalog.gitRemoteConfig?.syncedOid
+    const gitRemoteConfig = catalog.gitRemoteConfig
+      ? { url: catalog.gitRemoteConfig.url, branch: catalog.gitRemoteConfig.branch, authToken: catalog.gitRemoteConfig.authToken }
+      : catalog.gitRemoteConfig
     const entity: DataCatalog = {
       ...catalog,
+      gitRemoteConfig,
       id,
       workspaceId: activeWorkspaceId ?? catalog.workspaceId,
       name: duplicate ? setLocalized(catalog.name, language, `${localized(catalog.name, language)} (copy)`) : catalog.name,
@@ -70,13 +78,26 @@ export function CatalogListPage() {
       await getStorage().dataCatalogs.delete(catalog.id).catch(() => {})
     }
     await getStorage().dataCatalogs.create(entity)
+    // Anchor sync state to the commit we cloned (server-mode git import only): it's
+    // the base this workspace imported from, so a later push elsewhere is detected
+    // as "behind". Best-effort — a failure just means no banner yet.
+    if (syncedOid) {
+      try {
+        const { gitSetSyncState } = await import('@/lib/api/git')
+        await gitSetSyncState('data-catalogs', id, gitRemoteConfig?.branch ?? 'main', syncedOid)
+      } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
+    }
     await loadCatalogs()
   }, [activeWorkspaceId, loadCatalogs])
 
-  const handleImport = useCallback(async (file: File) => {
+  const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
     const catalog = parsed['catalog.json'] as DataCatalog | undefined
     if (!catalog?.id) return
+    // Imported from a git repo → pre-link the Versioning page to that repo (with
+    // the token, if supplied). The export strips gitRemoteConfig, so it's only
+    // ever set from the import source.
+    if (gitRemote) catalog.gitRemoteConfig = gitRemote
     const existing = await getStorage().dataCatalogs.getById(catalog.id)
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: catalog })

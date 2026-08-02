@@ -13,6 +13,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateEtlDialog } from './CreateEtlDialog'
@@ -58,8 +59,15 @@ export function EtlListPage() {
   const doImport = useCallback(async (pipeline: EtlPipeline, files: import('@/types').EtlFile[], duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : pipeline.id
+    // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
+    // persisted — capture it for anchoring, then strip it from the stored config.
+    const syncedOid = pipeline.gitRemoteConfig?.syncedOid
+    const gitRemoteConfig = pipeline.gitRemoteConfig
+      ? { url: pipeline.gitRemoteConfig.url, branch: pipeline.gitRemoteConfig.branch, authToken: pipeline.gitRemoteConfig.authToken }
+      : pipeline.gitRemoteConfig
     const entity: EtlPipeline = {
       ...pipeline,
+      gitRemoteConfig,
       id,
       workspaceId: activeWorkspaceId ?? pipeline.workspaceId,
       name: duplicate ? setLocalized(pipeline.name, language, `${localized(pipeline.name, language)} (copy)`) : pipeline.name,
@@ -67,11 +75,22 @@ export function EtlListPage() {
       ...(duplicate ? { createdAt: now } : {}),
     }
     if (!duplicate) {
-      // Overwrite: delete old children first
-      await getStorage().etlFiles.deleteByPipeline(pipeline.id)
+      // Overwrite: delete old children first. A fresh import (git clone of a
+      // pipeline not on this server) has nothing to clear — the file delete 404s
+      // ("Not found") on the missing pipeline, so swallow it like the row delete.
+      await getStorage().etlFiles.deleteByPipeline(pipeline.id).catch(() => {})
       await getStorage().etlPipelines.delete(pipeline.id).catch(() => {})
     }
     await getStorage().etlPipelines.create(entity)
+    // Anchor sync state to the commit we cloned (server-mode git import only): it's
+    // the base this workspace imported from, so a later push elsewhere is detected
+    // as "behind". Best-effort — a failure just means no banner yet.
+    if (syncedOid) {
+      try {
+        const { gitSetSyncState } = await import('@/lib/api/git')
+        await gitSetSyncState('etl-pipelines', id, gitRemoteConfig?.branch ?? 'main', syncedOid)
+      } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
+    }
     for (const f of files) {
       await getStorage().etlFiles.create({
         ...f,
@@ -82,12 +101,16 @@ export function EtlListPage() {
     await loadEtlPipelines()
   }, [activeWorkspaceId, language, loadEtlPipelines])
 
-  const handleImport = useCallback(async (file: File) => {
+  const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
     // New git-friendly layout (_pipeline.json + _tree.json + raw files) with a fallback
     // to the legacy layout (pipeline.json + files.json).
     const pipeline = (parsed['_pipeline.json'] ?? parsed['pipeline.json']) as EtlPipeline | undefined
     if (!pipeline?.id) return
+    // Imported from a git repo → pre-link the Versioning page to that repo (with
+    // the token, if supplied). The export strips gitRemoteConfig, so it's only
+    // ever set from the import source.
+    if (gitRemote) pipeline.gitRemoteConfig = gitRemote
     const tree = parsed['_tree.json'] as import('@/types').EtlFile[] | undefined
     const files = tree
       ? reconstructTreeFiles(tree, parsed)

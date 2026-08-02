@@ -11,6 +11,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -53,8 +54,15 @@ export function SqlScriptsListPage() {
   const doImport = useCallback(async (collection: SqlScriptCollection, files: import('@/types').SqlScriptFile[], duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : collection.id
+    // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
+    // persisted — capture it for anchoring, then strip it from the stored config.
+    const syncedOid = collection.gitRemoteConfig?.syncedOid
+    const gitRemoteConfig = collection.gitRemoteConfig
+      ? { url: collection.gitRemoteConfig.url, branch: collection.gitRemoteConfig.branch, authToken: collection.gitRemoteConfig.authToken }
+      : collection.gitRemoteConfig
     const entity: SqlScriptCollection = {
       ...collection,
+      gitRemoteConfig,
       id,
       workspaceId: activeWorkspaceId ?? collection.workspaceId,
       name: duplicate ? setLocalized(collection.name, language, `${localized(collection.name, language)} (copy)`) : collection.name,
@@ -62,10 +70,23 @@ export function SqlScriptsListPage() {
       ...(duplicate ? { createdAt: now } : {}),
     }
     if (!duplicate) {
-      await getStorage().sqlScriptFiles.deleteByCollection(collection.id)
+      // Overwrite of an existing collection: clear its files/row first. A fresh
+      // import (git clone of a collection not on this server) has nothing to
+      // clear — the file delete 404s ("Not found") on the missing collection, so
+      // swallow it like the collection delete below.
+      await getStorage().sqlScriptFiles.deleteByCollection(collection.id).catch(() => {})
       await getStorage().sqlScriptCollections.delete(collection.id).catch(() => {})
     }
     await getStorage().sqlScriptCollections.create(entity)
+    // Anchor sync state to the commit we cloned (server-mode git import only): it's
+    // the base this workspace imported from, so a later push elsewhere is detected
+    // as "behind". Best-effort — a failure just means no banner yet.
+    if (syncedOid) {
+      try {
+        const { gitSetSyncState } = await import('@/lib/api/git')
+        await gitSetSyncState('sql-script-collections', id, gitRemoteConfig?.branch ?? 'main', syncedOid)
+      } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
+    }
     for (const f of files) {
       await getStorage().sqlScriptFiles.create({
         ...f,
@@ -76,12 +97,16 @@ export function SqlScriptsListPage() {
     await loadCollections()
   }, [activeWorkspaceId, language, loadCollections])
 
-  const handleImport = useCallback(async (file: File) => {
+  const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
     // New git-friendly layout (_collection.json + _tree.json + raw files) with a fallback
     // to the legacy layout (collection.json + files.json).
     const collection = (parsed['_collection.json'] ?? parsed['collection.json']) as SqlScriptCollection | undefined
     if (!collection?.id) return
+    // Imported from a git repo → pre-link the Versioning page to that repo (with
+    // the token, if supplied). The export strips gitRemoteConfig, so it's only
+    // ever set from the import source.
+    if (gitRemote) collection.gitRemoteConfig = gitRemote
     const tree = parsed['_tree.json'] as import('@/types').SqlScriptFile[] | undefined
     const files = tree
       ? reconstructTreeFiles(tree, parsed)

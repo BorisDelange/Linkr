@@ -13,6 +13,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -66,8 +67,15 @@ export function DqRuleSetListPage() {
   const doImport = useCallback(async (rs: DqRuleSet, checks: import('@/types').DqCustomCheck[], duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : rs.id
+    // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
+    // persisted — capture it for anchoring, then strip it from the stored config.
+    const syncedOid = rs.gitRemoteConfig?.syncedOid
+    const gitRemoteConfig = rs.gitRemoteConfig
+      ? { url: rs.gitRemoteConfig.url, branch: rs.gitRemoteConfig.branch, authToken: rs.gitRemoteConfig.authToken }
+      : rs.gitRemoteConfig
     const entity: DqRuleSet = {
       ...rs,
+      gitRemoteConfig,
       id,
       workspaceId: activeWorkspaceId ?? rs.workspaceId,
       name: duplicate ? setLocalized(rs.name, language, `${localized(rs.name, language)} (copy)`) : rs.name,
@@ -75,10 +83,23 @@ export function DqRuleSetListPage() {
       ...(duplicate ? { createdAt: now } : {}),
     }
     if (!duplicate) {
-      await getStorage().dqCustomChecks.deleteByRuleSet(rs.id)
+      // Overwrite of an existing rule set: clear its checks/row first. A fresh
+      // import (git clone of a rule set not on this server) has nothing to clear —
+      // the check delete 404s ("Not found") on the missing rule set, so swallow it
+      // like the row delete below.
+      await getStorage().dqCustomChecks.deleteByRuleSet(rs.id).catch(() => {})
       await getStorage().dqRuleSets.delete(rs.id).catch(() => {})
     }
     await getStorage().dqRuleSets.create(entity)
+    // Anchor sync state to the commit we cloned (server-mode git import only): it's
+    // the base this workspace imported from, so a later push elsewhere is detected
+    // as "behind". Best-effort — a failure just means no banner yet.
+    if (syncedOid) {
+      try {
+        const { gitSetSyncState } = await import('@/lib/api/git')
+        await gitSetSyncState('dq-rule-sets', id, gitRemoteConfig?.branch ?? 'main', syncedOid)
+      } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
+    }
     for (const c of checks) {
       await getStorage().dqCustomChecks.create({
         ...c,
@@ -89,10 +110,14 @@ export function DqRuleSetListPage() {
     await loadDqRuleSets()
   }, [activeWorkspaceId, loadDqRuleSets])
 
-  const handleImport = useCallback(async (file: File) => {
+  const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
     const rs = parsed['ruleset.json'] as DqRuleSet | undefined
     if (!rs?.id) return
+    // Imported from a git repo → pre-link the Versioning page to that repo (with
+    // the token, if supplied). The export strips gitRemoteConfig, so it's only
+    // ever set from the import source.
+    if (gitRemote) rs.gitRemoteConfig = gitRemote
     const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
     const existing = await getStorage().dqRuleSets.getById(rs.id)
     if (existing) {

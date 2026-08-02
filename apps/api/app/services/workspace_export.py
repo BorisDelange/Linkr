@@ -317,9 +317,14 @@ def _build_sql_scripts_section(
         git = entry.get("git")
         folder = entry["folder"]
         if git:
-            tree[f"sql-scripts/{folder}/_collection.json"] = _json(
-                {"id": collection["id"], "name": collection.get("name"), "gitRemoteConfig": git}
-            )
+            # createdAt rides along so the pointer-create records the real creation
+            # date (an absent createdAt makes the server stamp func.now()). Omit when
+            # absent for byte-parity with the TS builder.
+            pointer = {"id": collection["id"], "name": collection.get("name")}
+            if collection.get("createdAt"):
+                pointer["createdAt"] = collection["createdAt"]
+            pointer["gitRemoteConfig"] = git
+            tree[f"sql-scripts/{folder}/_collection.json"] = _json(pointer)
             git_links.add("sql-collection", collection["id"], folder, git)
             continue
         if entry.get("sub_tree") is None:
@@ -338,9 +343,14 @@ def _build_etl_section(
         git = entry.get("git")
         folder = entry["folder"]
         if git:
-            tree[f"etl/{folder}/_pipeline.json"] = _json(
-                {"id": pipeline["id"], "name": pipeline.get("name"), "gitRemoteConfig": git}
-            )
+            # createdAt rides along so the pointer-create records the real creation
+            # date (an absent createdAt makes the server stamp func.now()). Omit when
+            # absent for byte-parity with the TS builder.
+            pointer = {"id": pipeline["id"], "name": pipeline.get("name")}
+            if pipeline.get("createdAt"):
+                pointer["createdAt"] = pipeline["createdAt"]
+            pointer["gitRemoteConfig"] = git
+            tree[f"etl/{folder}/_pipeline.json"] = _json(pointer)
             git_links.add("etl-pipeline", pipeline["id"], folder, git)
             continue
         if entry.get("sub_tree") is None:
@@ -363,12 +373,16 @@ def _build_data_quality_section(
         folder = entry["folder"]
         if git:
             # Pointer only — the linked repo's rule-set.json + checks.json are the
-            # source of truth; the clone re-applies metadata and checks.
+            # source of truth; the clone re-applies metadata and checks. createdAt
+            # rides along so the pointer-create records the real creation date (an
+            # absent createdAt makes the server stamp func.now()). Omit when absent
+            # for byte-parity with the TS builder.
+            rule_set_ptr = {"id": rs["id"], "name": rs.get("name")}
+            if rs.get("createdAt"):
+                rule_set_ptr["createdAt"] = rs["createdAt"]
+            rule_set_ptr["gitRemoteConfig"] = git
             tree[f"data-quality/{folder}/_ruleset.json"] = _json(
-                {
-                    "ruleSet": {"id": rs["id"], "name": rs.get("name"), "gitRemoteConfig": git},
-                    "checks": [],
-                }
+                {"ruleSet": rule_set_ptr, "checks": []}
             )
             git_links.add("dq-rule-set", rs["id"], folder, git)
             continue
@@ -396,12 +410,17 @@ def _build_mapping_projects_section(
         git = entry.get("git")
         folder = entry["folder"]
         if git:
+            # createdAt rides along so the pointer-create records the real creation
+            # date (an absent createdAt makes the server stamp func.now()). Omit when
+            # absent for byte-parity with the TS builder.
             pointer = {
                 "id": entry["id"],
                 "entityId": entry.get("entityId"),
                 "name": entry.get("name"),
-                "gitRemoteConfig": git,
             }
+            if clean_meta.get("createdAt"):
+                pointer["createdAt"] = clean_meta["createdAt"]
+            pointer["gitRemoteConfig"] = git
             tree[f"mapping-projects/{folder}/project.json"] = _json(pointer)
             git_links.add("mapping-project", entry["id"], folder, git)
             continue
@@ -427,9 +446,14 @@ def _build_catalogs_section(
         git = entry.get("git")
         if git:
             folder = _eid(cat)
-            tree[f"catalogs/{folder}/_catalog.json"] = _json(
-                {"id": cat["id"], "name": cat.get("name"), "gitRemoteConfig": git}
-            )
+            # createdAt rides along so the pointer-create records the real creation
+            # date (an absent createdAt makes the server stamp func.now()). Omit when
+            # absent for byte-parity with the TS builder.
+            pointer = {"id": cat["id"], "name": cat.get("name")}
+            if cat.get("createdAt"):
+                pointer["createdAt"] = cat["createdAt"]
+            pointer["gitRemoteConfig"] = git
+            tree[f"catalogs/{folder}/_catalog.json"] = _json(pointer)
             git_links.add("data-catalog", cat["id"], folder, git)
             continue
         tree[f"catalogs/{_eid(cat)}.json"] = _json(cat)

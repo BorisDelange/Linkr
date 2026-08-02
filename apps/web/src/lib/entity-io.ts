@@ -2134,7 +2134,10 @@ export async function buildWorkspaceZip(
       if (git) {
         // Pointer only — the linked repo is the source of truth for the collection
         // metadata AND its scripts; the clone (applyClonedEntity) re-applies both.
-        zip.file(`sql-scripts/${folder}/_collection.json`, json({ id: collection.id, name: collection.name, gitRemoteConfig: git }))
+        // createdAt rides along so the pointer-create records the real creation date
+        // (an absent createdAt makes the server stamp func.now(), and a failed clone
+        // would never correct it). Omit when absent for byte-parity with the server.
+        zip.file(`sql-scripts/${folder}/_collection.json`, json({ id: collection.id, name: collection.name, ...(collection.createdAt ? { createdAt: collection.createdAt } : {}), gitRemoteConfig: git }))
         gitLinks.push({ type: 'sql-collection', id: collection.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -2158,7 +2161,10 @@ export async function buildWorkspaceZip(
       if (git) {
         // Pointer only — the linked repo is the source of truth for the pipeline
         // metadata AND its files; the clone (applyClonedEntity) re-applies both.
-        zip.file(`etl/${folder}/_pipeline.json`, json({ id: pipeline.id, name: pipeline.name, gitRemoteConfig: git }))
+        // createdAt rides along so the pointer-create records the real creation date
+        // (an absent createdAt makes the server stamp func.now(), and a failed clone
+        // would never correct it). Omit when absent for byte-parity with the server.
+        zip.file(`etl/${folder}/_pipeline.json`, json({ id: pipeline.id, name: pipeline.name, ...(pipeline.createdAt ? { createdAt: pipeline.createdAt } : {}), gitRemoteConfig: git }))
         gitLinks.push({ type: 'etl-pipeline', id: pipeline.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -2181,7 +2187,10 @@ export async function buildWorkspaceZip(
         // Pointer only — the linked repo's rule-set.json + checks.json are the source
         // of truth; the clone (applyClonedEntity) re-applies metadata and checks.
         const folder = eid(rs)
-        zip.file(`data-quality/${folder}/_ruleset.json`, json({ ruleSet: { id: rs.id, name: rs.name, gitRemoteConfig: git }, checks: [] }))
+        // createdAt rides along so the pointer-create records the real creation date
+        // (an absent createdAt makes the server stamp func.now(), and a failed clone
+        // would never correct it). Omit when absent for byte-parity with the server.
+        zip.file(`data-quality/${folder}/_ruleset.json`, json({ ruleSet: { id: rs.id, name: rs.name, ...(rs.createdAt ? { createdAt: rs.createdAt } : {}), gitRemoteConfig: git }, checks: [] }))
         gitLinks.push({ type: 'dq-rule-set', id: rs.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -2203,7 +2212,10 @@ export async function buildWorkspaceZip(
         // metadata (+ mappings.json / source-concepts.csv). The clone re-applies it via
         // importMappingProjectContent(replaceExisting). Kills the createdAt/etc. churn
         // where versioning a linked mapping project rewrote its stub in the workspace.
-        zip.file(`mapping-projects/${folder}/project.json`, json({ id: mp.id, entityId: mp.entityId, name: mp.name, gitRemoteConfig: git }))
+        // createdAt rides along so the pointer-create records the real creation date
+        // (an absent createdAt makes the server stamp func.now(), and a failed clone
+        // would never correct it). Omit when absent for byte-parity with the server.
+        zip.file(`mapping-projects/${folder}/project.json`, json({ id: mp.id, entityId: mp.entityId, name: mp.name, ...(mp.createdAt ? { createdAt: mp.createdAt } : {}), gitRemoteConfig: git }))
         gitLinks.push({ type: 'mapping-project', id: mp.id, folder, url: git.url, branch: git.branch })
         continue
       }
@@ -2243,7 +2255,10 @@ export async function buildWorkspaceZip(
         // Pointer only — the linked repo's catalog.json is the source of truth; the
         // clone (applyClonedEntity) re-applies the full catalog metadata.
         const folder = eid(cat)
-        zip.file(`catalogs/${folder}/_catalog.json`, json({ id: cat.id, name: cat.name, gitRemoteConfig: git }))
+        // createdAt rides along so the pointer-create records the real creation date
+        // (an absent createdAt makes the server stamp func.now(), and a failed clone
+        // would never correct it). Omit when absent for byte-parity with the server.
+        zip.file(`catalogs/${folder}/_catalog.json`, json({ id: cat.id, name: cat.name, ...(cat.createdAt ? { createdAt: cat.createdAt } : {}), gitRemoteConfig: git }))
         gitLinks.push({ type: 'data-catalog', id: cat.id, folder, url: git.url, branch: git.branch })
         continue
       }
