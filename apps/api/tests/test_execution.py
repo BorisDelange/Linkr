@@ -621,6 +621,60 @@ async def test_execute_stream_final_payload_carries_table(tmp_path):
     assert out.table == {"headers": ["a"], "rows": [["1"], ["2"]]}
 
 
+def _make_r_kernel(tmp_path):
+    from app.services.execution.kernel import Kernel, _R_KERNEL_LOOP
+
+    return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=str(tmp_path))
+
+
+@requires_r
+async def test_r_kernel_only_prints_visible_values(tmp_path):
+    """The R kernel auto-prints like the REPL: invisible-returning expressions
+    (assignment, for loops, invisible()) print nothing; a bare value prints. This
+    guards the regression where every expression's value was force-printed, which
+    leaked the injected dataset preamble's intermediate values into widget output."""
+    kernel = _make_r_kernel(tmp_path)
+    chunks: list[str] = []
+    try:
+        out = await kernel.execute_stream(
+            "x <- 3\n"                       # assignment → invisible, no print
+            "for (i in 1:2) i\n"             # for loop → invisible, no print
+            "invisible(99)\n"                # invisible() → no print
+            "x + 1\n",                       # bare value → prints "[1] 4"
+            lambda k, d: chunks.append(d),
+        )
+    finally:
+        await kernel.shutdown()
+    text = "".join(chunks) + out.stdout
+    assert "[1] 4" in text        # the visible value printed
+    assert "[1] 3" not in text    # the assignment did NOT print its value
+
+
+@requires_r
+async def test_parallel_r_kernels_do_not_clobber_each_others_figures(tmp_path):
+    """Two R kernels sharing the SAME working directory each keep their own figure.
+
+    svglite writes figures to files; the kernel used a fixed name in the cwd, so
+    parallel dashboard widgets (all in the project's shared cwd, all at run #1)
+    overwrote/deleted each other's SVG — only one widget's plot survived. Figures
+    now go to a process-unique tempdir. Same cwd here reproduces the old collision."""
+    import asyncio as _asyncio
+
+    plot = ("suppressPackageStartupMessages(library(ggplot2))\n"
+            "ggplot(data.frame(x=1:3, y=1:3), aes(x, y)) + geom_line()")
+
+    async def run_one():
+        k = _make_r_kernel(tmp_path)  # SAME tmp_path → shared cwd
+        try:
+            return await k.execute(plot)
+        finally:
+            await k.shutdown()
+
+    outs = await _asyncio.gather(*(run_one() for _ in range(4)))
+    # Every parallel run must have produced its own figure — not 1 winner + 3 blanks.
+    assert all(len(o.figures) == 1 for o in outs), [len(o.figures) for o in outs]
+
+
 async def test_execute_stream_keeps_variables_between_runs(tmp_path):
     kernel = _make_python_kernel(tmp_path)
     collected: list[str] = []
