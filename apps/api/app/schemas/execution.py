@@ -13,10 +13,10 @@ class ExecuteRequest(CamelModel):
     language: str  # 'python' | 'r'
     code: str
     # Persistent-kernel routing. When project_uid is given, the run reuses a
-    # long-lived kernel for (project, language, env) so variables persist between
-    # runs. Without it, a stateless one-shot run is used.
+    # long-lived kernel for (project, language, session) so variables persist
+    # between runs. Without it, a stateless one-shot run is used.
     project_uid: str | None = None
-    env_id: str = "default"
+    session_id: str = "default"
     # When set, the dataset's Parquet is loaded into the kernel as a `dataset`
     # DataFrame before the code runs (data stays server-side).
     dataset_file_id: str | None = None
@@ -38,8 +38,8 @@ class ExecuteRequest(CamelModel):
     # the interactive /execute path. E.g. the file name being run.
     label: str | None = None
     # When set, the run uses a FRESH, isolated ephemeral process (from the warm
-    # pool) instead of the caller's persistent (project, language, env) kernel — so
-    # dashboard widgets run in parallel, never sharing a namespace or a lock.
+    # pool) instead of the caller's persistent (project, language, session) kernel
+    # — so dashboard widgets run in parallel, never sharing a namespace or a lock.
     ephemeral: bool = False
 
 
@@ -66,7 +66,7 @@ class RenderRequest(CamelModel):
     kind: str  # analysis kind (table1, ...) — must be a server-known render builder
     spec: dict  # structured, per-kind config (column names + options); validated server-side
     project_uid: str | None = None
-    env_id: str = "default"
+    session_id: str = "default"
     dataset_file_id: str | None = None
     dataset_filters: list[dict] | None = None
 
@@ -74,7 +74,7 @@ class RenderRequest(CamelModel):
 class RestartKernelRequest(CamelModel):
     language: str
     project_uid: str
-    env_id: str = "default"
+    session_id: str = "default"
 
 
 class RuntimeFigureResponse(CamelModel):

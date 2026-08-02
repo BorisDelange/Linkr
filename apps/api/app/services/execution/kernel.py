@@ -370,10 +370,11 @@ repeat {
   if (!.interrupted && inherits(.last_value, "htmlwidget") &&
       requireNamespace("htmlwidgets", quietly = TRUE)) {
     .tmp <- tempfile(fileext = ".html")
+    # ONLY selfcontained=TRUE: the client shows this in a sandboxed, network-less
+    # iframe, so a non-self-contained widget (its JS/CSS in a sibling *_files/ dir)
+    # would render blank. Surface the save error instead of emitting a broken widget.
     .ok <- tryCatch({ htmlwidgets::saveWidget(.last_value, .tmp, selfcontained = TRUE); TRUE },
-                    error = function(e) tryCatch({
-                      htmlwidgets::saveWidget(.last_value, .tmp, selfcontained = FALSE); TRUE
-                    }, error = function(e2) { .err <<- c(.err, conditionMessage(e2)); FALSE }))
+                    error = function(e) { .err <<- c(.err, conditionMessage(e)); FALSE })
     if (isTRUE(.ok) && file.exists(.tmp)) {
       .html <- paste(readLines(.tmp, warn = FALSE), collapse = "\n")
       file.remove(.tmp)
@@ -608,7 +609,7 @@ class KernelLimitReached(Exception):
 
 
 class KernelManager:
-    """Holds live kernels keyed by (project_uid, language, env_id).
+    """Holds live kernels keyed by (project_uid, language, session_id).
 
     Idle kernels are evicted after ``session_timeout_minutes`` (their process is
     a long-lived interpreter holding memory), and the number of concurrent
@@ -616,9 +617,11 @@ class KernelManager:
     PTY shells enforce, so a user cannot pin unbounded server processes."""
 
     def __init__(self):
-        # Keyed by (project_uid, user_id, language, env_id): a kernel holds a live
-        # variable namespace, so it MUST be per-user — two users on the same env
-        # id must never share one interpreter (they'd see each other's variables).
+        # Keyed by (project_uid, user_id, language, session_id): a kernel holds a
+        # live variable namespace, so it MUST be per-user — two users on the same
+        # session id must never share one interpreter (they'd see each other's
+        # variables). The managed environment is resolved separately and passed to
+        # `get`; the session id only selects which live process among a user's own.
         self._kernels: dict[tuple[str, int, str, str], Kernel] = {}
         self._lock = asyncio.Lock()
 
@@ -641,14 +644,14 @@ class KernelManager:
         return evicted
 
     def _count_for_user(self, user_id: int) -> int:
-        return sum(1 for (_p, uid, _l, _e) in self._kernels if uid == user_id)
+        return sum(1 for (_p, uid, _l, _s) in self._kernels if uid == user_id)
 
     async def get(
         self,
         project_uid: str,
         user_id: int,
         language: str,
-        env_id: str,
+        session_id: str,
         environment: "Environment | None" = None,
     ) -> Kernel:
         """Return the caller's live kernel, launching one on a cache miss.
@@ -656,7 +659,7 @@ class KernelManager:
         `environment` is the resolved project environment (interpreter + packages)
         used only when a new kernel is spawned; on the hot path (kernel already
         alive) it is ignored, so callers may pass None to keep today's behaviour."""
-        key = (project_uid, user_id, language, env_id)
+        key = (project_uid, user_id, language, session_id)
         async with self._lock:
             to_shutdown = self._sweep_idle_locked()
             kernel = self._kernels.get(key)
@@ -683,31 +686,31 @@ class KernelManager:
         return self._make(language, project_uid, environment)
 
     async def restart(
-        self, project_uid: str, user_id: int, language: str, env_id: str
+        self, project_uid: str, user_id: int, language: str, session_id: str
     ) -> None:
-        key = (project_uid, user_id, language, env_id)
+        key = (project_uid, user_id, language, session_id)
         async with self._lock:
             kernel = self._kernels.pop(key, None)
         if kernel is not None:
             await kernel.shutdown()
 
     def interrupt(
-        self, project_uid: str, user_id: int, language: str, env_id: str
+        self, project_uid: str, user_id: int, language: str, session_id: str
     ) -> bool:
         """SIGINT the caller's live kernel for (project, language, session) — the
         Stop button. Returns False if there's no live kernel to interrupt."""
-        kernel = self._kernels.get((project_uid, user_id, language, env_id))
+        kernel = self._kernels.get((project_uid, user_id, language, session_id))
         return kernel.interrupt() if kernel is not None else False
 
-    async def shutdown_env(
-        self, project_uid: str, user_id: int, env_id: str
+    async def shutdown_session(
+        self, project_uid: str, user_id: int, session_id: str
     ) -> None:
-        """Kill every kernel (python + r) of one env for a user — used when the
+        """Kill every kernel (python + r) of one session for a user — used when the
         user deletes that session."""
         async with self._lock:
             keys = [
                 k for k in self._kernels
-                if k[0] == project_uid and k[1] == user_id and k[3] == env_id
+                if k[0] == project_uid and k[1] == user_id and k[3] == session_id
             ]
             kernels = [self._kernels.pop(k) for k in keys]
         for k in kernels:
@@ -721,19 +724,19 @@ class KernelManager:
             await k.shutdown()
 
     def list_for_user(self, project_uid: str, user_id: int) -> list[dict]:
-        """Live kernels for one user in a project: language, env, running/busy
+        """Live kernels for one user in a project: language, session, running/busy
         state, and monitoring (pid, resident memory KB, idle seconds)."""
         return [
             {
                 "language": lang,
-                "envId": env,
+                "sessionId": session,
                 "alive": kernel.alive,
                 "busy": kernel.busy,
                 "pid": kernel.pid,
                 "rssKb": kernel.rss_kb,
                 "idleSeconds": round(kernel.idle_seconds()),
             }
-            for (proj, uid, lang, env), kernel in self._kernels.items()
+            for (proj, uid, lang, session), kernel in self._kernels.items()
             if proj == project_uid and uid == user_id
         ]
 
@@ -795,6 +798,28 @@ class WarmPool:
         self._reserved: dict[tuple[str, str, str], int] = {}
         self._lock = asyncio.Lock()
 
+    def _sweep_idle_locked(self) -> list[Kernel]:
+        """Drop warm processes that have sat unused past the session timeout (each
+        is a live interpreter holding heavy imports in memory) plus any that died.
+        A prewarm burst that widgets never consume would otherwise pin those
+        processes until app shutdown. Caller holds the lock; returns the evicted
+        kernels to shut down outside it (shutdown awaits the process)."""
+        timeout = settings.session_timeout_minutes * 60
+        evicted: list[Kernel] = []
+        for key in list(self._pools):
+            kept: list[Kernel] = []
+            for k in self._pools[key]:
+                idle = timeout > 0 and k.idle_seconds() > timeout
+                if not k.alive or idle:
+                    evicted.append(k)
+                else:
+                    kept.append(k)
+            if kept:
+                self._pools[key] = kept
+            else:
+                del self._pools[key]
+        return evicted
+
     async def acquire(
         self, make: "Callable[[], Kernel]", language: str, project_uid: str,
         interpreter_key: str,
@@ -804,9 +829,12 @@ class WarmPool:
         must shutdown() it when the run finishes."""
         key = (language, project_uid, interpreter_key)
         async with self._lock:
+            stale = self._sweep_idle_locked()
             bucket = self._pools.get(key)
             k = bucket.pop() if bucket else None
             reserved = self._reserved.get(key, 0)
+        for s in stale:
+            await s.shutdown()
         if k is not None and k.alive:
             return k
         # Empty pool but a prewarm/refill is in flight (reserved > 0): a warm process
@@ -839,11 +867,15 @@ class WarmPool:
         concurrent refills from both spawning the same shortfall."""
         key = (language, project_uid, interpreter_key)
         async with self._lock:
+            stale = self._sweep_idle_locked()
             have = len(self._pools.get(key, [])) + self._reserved.get(key, 0)
             need = max(0, pool_size - have)
-            if need == 0:
-                return
-            self._reserved[key] = self._reserved.get(key, 0) + need
+            if need > 0:
+                self._reserved[key] = self._reserved.get(key, 0) + need
+        for s in stale:
+            await s.shutdown()
+        if need == 0:
+            return
 
         async def warm_one() -> None:
             k = make()
@@ -909,6 +941,19 @@ class EphemeralConcurrency:
 _ephemeral_gate = EphemeralConcurrency()
 
 
+# Background refill/prewarm tasks are retained here: the event loop keeps only a
+# weak reference to a bare create_task, so one whose sole reference is dropped can
+# be garbage-collected mid-flight (silently cancelling the refill). Holding a
+# strong ref until the task finishes prevents that.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_bg(coro) -> None:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
 async def run_ephemeral(
     language: str,
     project_uid: str,
@@ -930,7 +975,7 @@ async def run_ephemeral(
             return await k.execute(code, query_resolver=query_resolver)
         finally:
             await k.shutdown()
-            asyncio.create_task(
+            _spawn_bg(
                 warm_pool.refill(
                     make, language, project_uid, interpreter_key, settings.widget_pool_size
                 )
@@ -954,6 +999,4 @@ async def prewarm(
     def make() -> Kernel:
         return manager.spawn_batch(language, project_uid, environment)
 
-    asyncio.create_task(
-        warm_pool.refill(make, language, project_uid, interpreter_key, target)
-    )
+    _spawn_bg(warm_pool.refill(make, language, project_uid, interpreter_key, target))

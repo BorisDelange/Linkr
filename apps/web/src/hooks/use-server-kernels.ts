@@ -3,7 +3,7 @@ import { apiRequest, isServerMode } from '@/lib/api-client'
 
 export interface ServerKernel {
   language: 'python' | 'r'
-  envId: string
+  sessionId: string
   alive: boolean
   busy: boolean
   pid: number | null

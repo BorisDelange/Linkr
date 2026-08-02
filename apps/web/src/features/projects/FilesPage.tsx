@@ -1828,7 +1828,7 @@ export function FilesPage() {
                             <TerminalPanel
                               terminalType={tt.kind}
                               projectUid={activeProjectUid ?? undefined}
-                              envId={activeSessionId}
+                              sessionId={activeSessionId}
                               active={tt.id === selectedFileId}
                             />
                           </div>

@@ -74,24 +74,24 @@ export function StatusBar() {
   // would otherwise keep the last project's kernels/env showing in the footer.
   const activeProjectUid = useProjectRouteUid()
   const { kernels, refresh } = useServerKernels(activeProjectUid)
-  // Map a kernel's envId (its session id) → the session's display name, so each
-  // kernel line names its session (Ready/Executing is PER kernel, not global).
+  // Map a kernel's sessionId → the session's display name, so each kernel line
+  // names its session (Ready/Executing is PER kernel, not global).
   // Subscribe to the raw slice (a stable reference) — NOT getSessionsForProject,
   // which returns a fresh array each call and would loop the selector.
   const sessionsByScope = useSessionStore((s) => s.sessions)
-  const sessionName = (language: 'python' | 'r', envId: string) => {
-    if (envId === 'default') return t('sessions.default')
+  const sessionName = (language: 'python' | 'r', sessionId: string) => {
+    if (sessionId === 'default') return t('sessions.default')
     const named = activeProjectUid ? sessionsByScope[`${activeProjectUid}:${language}`] : undefined
-    return named?.find((sn) => sn.id === envId)?.name ?? envId
+    return named?.find((sn) => sn.id === sessionId)?.name ?? sessionId
   }
 
   // "Close session": shut down the live kernel (it disappears from the list).
   // The next run in that session lazily recreates it with a fresh namespace — so
   // this doubles as the "restart with clean variables" path. The backend endpoint
   // is still /execute/restart (it does a shutdown; no relaunch).
-  const handleCloseSession = async (language: 'python' | 'r', envId: string) => {
+  const handleCloseSession = async (language: 'python' | 'r', sessionId: string) => {
     if (!activeProjectUid) return
-    await restartServerKernel(language, activeProjectUid, envId)
+    await restartServerKernel(language, activeProjectUid, sessionId)
     refresh()
   }
 
@@ -254,16 +254,16 @@ export function StatusBar() {
                     <p className="text-[10px] text-muted-foreground italic">{t('server.no_kernels')}</p>
                   ) : (
                     kernels.map((k) => (
-                      <div key={`${k.language}-${k.envId}`} className="space-y-0.5">
+                      <div key={`${k.language}-${k.sessionId}`} className="space-y-0.5">
                         <div className="flex items-center justify-between text-xs">
-                          <span>{k.language === 'python' ? 'Python' : 'R'} · {sessionName(k.language, k.envId)}</span>
+                          <span>{k.language === 'python' ? 'Python' : 'R'} · {sessionName(k.language, k.sessionId)}</span>
                           <div className="flex items-center gap-1.5">
                             <Circle size={6} className={cn('fill-current', k.busy ? 'text-blue-500' : k.alive ? 'text-emerald-500' : 'text-muted-foreground/30')} />
                             <span className="text-muted-foreground">
                               {k.busy ? t('server.runtime_executing') : t('server.runtime_ready')}
                             </span>
                             <button
-                              onClick={() => handleCloseSession(k.language, k.envId)}
+                              onClick={() => handleCloseSession(k.language, k.sessionId)}
                               className="group/kill rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent"
                               title={t('server.close_session')}
                             >

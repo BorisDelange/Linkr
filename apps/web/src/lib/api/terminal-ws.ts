@@ -45,7 +45,7 @@ function wsBaseUrl(): string {
 export interface TerminalSocketOptions {
   projectUid: string
   language: TerminalLanguage
-  envId?: string
+  sessionId?: string
   connectionId?: string
 }
 
@@ -66,7 +66,7 @@ export class TerminalSocket {
       projectUid: this.opts.projectUid,
       language: this.opts.language,
     })
-    if (this.opts.envId) params.set('envId', this.opts.envId)
+    if (this.opts.sessionId) params.set('sessionId', this.opts.sessionId)
     if (this.opts.connectionId) params.set('connectionId', this.opts.connectionId)
 
     const ws = new WebSocket(`${wsBaseUrl()}/api/v1/execute/terminal?${params}`)

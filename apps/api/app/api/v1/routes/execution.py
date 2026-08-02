@@ -101,6 +101,12 @@ async def _require_execute(
             status.HTTP_400_BAD_REQUEST,
             "purpose='render' must use POST /execute/render (no free-form code)",
         )
+    # Instance-wide kill switch: when code execution is disabled, no free-form run
+    # is allowed regardless of permission (matches the terminal WS / env routes).
+    if not settings.enable_code_execution:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Code execution is disabled on this instance"
+        )
     permission = _PURPOSE_PERMISSION.get(purpose, "ide:execute")
     if not await has_project_permission(db, project, user, permission):
         raise HTTPException(
@@ -215,7 +221,7 @@ async def execute_code(
         except runtime.ExecutionError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
         return _shape_output(out)
-    return await _run_in_kernel(db, body.project_uid, user, body.language, body.env_id, code, resolver)
+    return await _run_in_kernel(db, body.project_uid, user, body.language, body.session_id, code, resolver)
 
 
 @router.post("/run-as-job", response_model=JobResponse)
@@ -249,9 +255,9 @@ async def run_as_job(
 
 
 async def _run_in_kernel(
-    db: AsyncSession, project_uid: str, user: User, language: str, env_id: str, code: str, resolver,
+    db: AsyncSession, project_uid: str, user: User, language: str, session_id: str, code: str, resolver,
 ) -> ExecuteResponse:
-    """Run `code` in the caller's persistent kernel for (project, language, env)
+    """Run `code` in the caller's persistent kernel for (project, language, session)
     and shape the captured output. Used by the IDE /execute path (persistent
     namespace). Dashboard widgets and built-in renders use the ephemeral path
     (`kernel.run_ephemeral`) instead, for isolated parallel execution."""
@@ -260,7 +266,7 @@ async def _run_in_kernel(
     environment = await environments.ensure_ready(db, project_uid, language, user.id)
     try:
         try:
-            k = await kernel.manager.get(project_uid, user.id, language, env_id, environment)
+            k = await kernel.manager.get(project_uid, user.id, language, session_id, environment)
         except kernel.KernelLimitReached as e:
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
         out = await k.execute(code, query_resolver=resolver)
@@ -305,6 +311,11 @@ async def render_component(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     # View-time: project read access suffices (the code is server-owned).
     await check_project_permission(db, project, user, "project-summary:read")
+    # Server-owned, but it still runs an interpreter — honour the instance kill switch.
+    if not settings.enable_code_execution:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Code execution is disabled on this instance"
+        )
 
     try:
         analysis_code = render.build_render_code(body.kind, body.spec)
@@ -378,10 +389,10 @@ async def restart_kernel(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Kill the caller's persistent kernel for (project, language, env) so the
+    """Kill the caller's persistent kernel for (project, language, session) so the
     next run starts with a clean namespace."""
     await _require_code_execution(db, body.project_uid, user)
-    await kernel.manager.restart(body.project_uid, user.id, body.language, body.env_id)
+    await kernel.manager.restart(body.project_uid, user.id, body.language, body.session_id)
 
 
 @router.post("/interrupt", status_code=status.HTTP_204_NO_CONTENT)
@@ -390,11 +401,11 @@ async def interrupt_kernel(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """SIGINT the caller's running kernel for (project, language, env) — the Stop
-    button. Unlike restart it keeps the namespace; it just interrupts the current
-    run (e.g. a long Sys.sleep). A no-op if nothing is running."""
+    """SIGINT the caller's running kernel for (project, language, session) — the
+    Stop button. Unlike restart it keeps the namespace; it just interrupts the
+    current run (e.g. a long Sys.sleep). A no-op if nothing is running."""
     await _require_code_execution(db, body.project_uid, user)
-    kernel.manager.interrupt(body.project_uid, user.id, body.language, body.env_id)
+    kernel.manager.interrupt(body.project_uid, user.id, body.language, body.session_id)
 
 
 @router.get("/sessions", response_model=list[ExecutionSessionResponse])
@@ -436,7 +447,7 @@ async def delete_session(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     if session.user_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your session")
-    await kernel.manager.shutdown_env(session.project_uid, user.id, session.id)
+    await kernel.manager.shutdown_session(session.project_uid, user.id, session.id)
     await execution_session_service.delete(db, session)
 
 
@@ -462,7 +473,7 @@ async def _make_ws_resolver(connection_id: str | None, user: User):
 
 
 async def _terminal_kernel_loop(
-    websocket: WebSocket, project_uid: str, language: str, env_id: str,
+    websocket: WebSocket, project_uid: str, language: str, session_id: str,
     connection_id: str | None, user: User,
 ) -> None:
     """REPL over a persistent R/Python kernel: each {code} message streams
@@ -475,7 +486,7 @@ async def _terminal_kernel_loop(
     async with async_session() as db:
         environment = await environments.resolve(db, project_uid, language)
     try:
-        k = await kernel.manager.get(project_uid, user.id, language, env_id, environment)
+        k = await kernel.manager.get(project_uid, user.id, language, session_id, environment)
     except kernel.KernelLimitReached as e:
         await websocket.send_json({"type": "error", "data": str(e)})
         await websocket.close()
@@ -588,10 +599,10 @@ async def terminal_ws(websocket: WebSocket):
                 websocket, project_uid, session_id=uuid.uuid4().hex, user_id=user.id
             )
         else:
-            env_id = websocket.query_params.get("envId", "default")
+            session_id = websocket.query_params.get("sessionId", "default")
             connection_id = websocket.query_params.get("connectionId")
             await _terminal_kernel_loop(
-                websocket, project_uid, language, env_id, connection_id, user
+                websocket, project_uid, language, session_id, connection_id, user
             )
     except WebSocketDisconnect:
         pass

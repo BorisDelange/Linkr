@@ -24,7 +24,7 @@ export function executeOnServer(
   code: string,
   opts?: {
     projectUid?: string
-    envId?: string
+    sessionId?: string
     datasetFileId?: string
     connectionId?: string
     datasetFilters?: unknown[]
@@ -46,15 +46,15 @@ export function executeOnServer(
   // with a clear message rather than sending a request that can only 400.
   if (!projectUid) throw new Error('Cannot run code without an active project')
   // Default to the project's active session so runs land in the namespace the
-  // user selected in the Session dropdown (unless a caller pins an explicit env).
-  const envId = opts?.envId ?? activeSessionFor(projectUid, language)
+  // user selected in the Session dropdown (unless a caller pins an explicit one).
+  const sessionId = opts?.sessionId ?? activeSessionFor(projectUid, language)
   return apiRequest<RuntimeOutput>('/execute', {
     method: 'POST',
     body: JSON.stringify({
       language,
       code,
       projectUid,
-      envId,
+      sessionId,
       datasetFileId: opts?.datasetFileId ?? null,
       connectionId: opts?.connectionId ?? null,
       datasetFilters: opts?.datasetFilters ?? null,
@@ -122,7 +122,7 @@ export function streamOnServer(
   code: string,
   opts: {
     projectUid?: string
-    envId?: string
+    sessionId?: string
     connectionId?: string
     onChunk: (text: string, kind: 'stdout' | 'stderr') => void
     // Stop: abort closes the socket and rejects the promise promptly. The kernel
@@ -133,7 +133,7 @@ export function streamOnServer(
 ): Promise<RuntimeOutput> {
   const projectUid = opts.projectUid ?? useAppStore.getState().activeProjectUid ?? null
   if (!projectUid) throw new Error('Cannot run code without an active project')
-  const envId = opts.envId ?? activeSessionFor(projectUid, language)
+  const sessionId = opts.sessionId ?? activeSessionFor(projectUid, language)
 
   return new Promise<RuntimeOutput>((resolve, reject) => {
     let settled = false
@@ -146,7 +146,7 @@ export function streamOnServer(
     if (opts.signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return }
     opts.signal?.addEventListener('abort', onAbort)
     const socket = new TerminalSocket(
-      { projectUid, language, envId, connectionId: opts.connectionId },
+      { projectUid, language, sessionId, connectionId: opts.connectionId },
       {
         onOpen: () => socket.runCode(code),
         onMessage: (msg) => {
@@ -183,46 +183,46 @@ export function streamOnServer(
 export function renderOnServer(
   kind: string,
   spec: unknown,
-  opts?: { projectUid?: string; envId?: string; datasetFileId?: string; datasetFilters?: unknown[] },
+  opts?: { projectUid?: string; sessionId?: string; datasetFileId?: string; datasetFilters?: unknown[] },
 ): Promise<RuntimeOutput> {
   const projectUid = opts?.projectUid ?? useAppStore.getState().activeProjectUid ?? null
   if (!projectUid) throw new Error('Cannot render without an active project')
   // Render kernels are language-agnostic here; default namespace.
-  const envId = opts?.envId ?? (projectUid ? activeSessionFor(projectUid, 'python') : 'default')
+  const sessionId = opts?.sessionId ?? (projectUid ? activeSessionFor(projectUid, 'python') : 'default')
   return apiRequest<RuntimeOutput>('/execute/render', {
     method: 'POST',
     body: JSON.stringify({
       kind,
       spec,
       projectUid,
-      envId,
+      sessionId,
       datasetFileId: opts?.datasetFileId ?? null,
       datasetFilters: opts?.datasetFilters ?? null,
     }),
   })
 }
 
-/** Kill the persistent kernel for (project, language, env) — next run starts fresh. */
+/** Kill the persistent kernel for (project, language, session) — next run starts fresh. */
 export function restartServerKernel(
   language: RuntimeLanguage,
   projectUid: string,
-  envId = 'default',
+  sessionId = 'default',
 ): Promise<void> {
   return apiRequest<void>('/execute/restart', {
     method: 'POST',
-    body: JSON.stringify({ language, projectUid, envId }),
+    body: JSON.stringify({ language, projectUid, sessionId }),
   })
 }
 
-/** SIGINT the running kernel for (project, language, env) — the Stop button. Keeps
+/** SIGINT the running kernel for (project, language, session) — the Stop button. Keeps
  *  the namespace; just interrupts the current run. No-op if nothing is running. */
 export function interruptServerKernel(
   language: RuntimeLanguage,
   projectUid: string,
-  envId = 'default',
+  sessionId = 'default',
 ): Promise<void> {
   return apiRequest<void>('/execute/interrupt', {
     method: 'POST',
-    body: JSON.stringify({ language, projectUid, envId }),
+    body: JSON.stringify({ language, projectUid, sessionId }),
   })
 }

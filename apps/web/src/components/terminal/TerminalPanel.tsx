@@ -28,7 +28,7 @@ interface TerminalPanelProps {
    * (python/r) or a PTY shell (bash) over a WebSocket instead of WASM. */
   projectUid?: string
   /** Kernel namespace (session) for python/r REPLs. Ignored for bash. */
-  envId?: string
+  sessionId?: string
   /** True when this terminal's tab is the active one. A hidden xterm has zero
    * size, so we re-fit when it becomes active again. */
   active?: boolean
@@ -120,7 +120,7 @@ const terminalThemes = {
   },
 }
 
-export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId, active = true }: TerminalPanelProps) {
+export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessionId, active = true }: TerminalPanelProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -296,7 +296,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
     // WASM engines below are the front-only path. Chunks stream in live.
     if (serverMode && (terminalType === 'python' || terminalType === 'r')) {
       socket = new TerminalSocket(
-        { projectUid: projectUid!, language: terminalType, envId },
+        { projectUid: projectUid!, language: terminalType, sessionId },
         {
           onMessage: (msg) => {
             if ((msg.type === 'stdout' || msg.type === 'output') && msg.data) {
@@ -495,7 +495,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
     })
 
     return teardown
-  }, [terminalType, onData, projectUid, envId, t])
+  }, [terminalType, onData, projectUid, sessionId, t])
 
   return (
     <div className="relative h-full w-full">

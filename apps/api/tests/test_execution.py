@@ -208,13 +208,13 @@ async def test_kernel_recovers_from_dead_subprocess(client):
     assert r.json()["stdout"].strip() == "ok"
 
 
-async def test_kernels_isolated_per_env(client):
+async def test_kernels_isolated_per_session(client):
     headers = await _admin_headers(client)
     uid = await _project(client, headers)
     await client.post(f"{API}/execute", headers=headers,
-                      json={"language": "python", "code": "x = 1", "projectUid": uid, "envId": "e1"})
+                      json={"language": "python", "code": "x = 1", "projectUid": uid, "sessionId": "e1"})
     r = await client.post(f"{API}/execute", headers=headers,
-                          json={"language": "python", "code": "print(x)", "projectUid": uid, "envId": "e2"})
+                          json={"language": "python", "code": "print(x)", "projectUid": uid, "sessionId": "e2"})
     assert "NameError" in r.json()["stderr"]
 
 
