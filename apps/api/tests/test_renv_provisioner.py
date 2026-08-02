@@ -61,3 +61,20 @@ def test_list_packages_reads_full_lockfile(monkeypatch, tmp_path):
     by = {p["name"]: p["spec"] for p in pkgs}
     # Both the declared package AND its dependency appear (snapshot recorded them).
     assert by == {"ggplot2": "==3.5.1", "plotly": "==4.10.4"}
+
+
+def test_check_updates_parses_json_object(monkeypatch, tmp_path):
+    monkeypatch.setattr(R.project_fs, "r_sandbox", lambda: tmp_path / "sandbox")
+    monkeypatch.setattr(R, "_library_dir", lambda uid: tmp_path / uid / "lib")
+    # Fake the R call: it prints a JSON object of outdated {name: latest}.
+    monkeypatch.setattr(R, "_run_r", lambda uid, code, on_log=None, options=None: 'some warning\n{"glue":"1.8.1","cli":"3.6.3"}')
+
+    out = R.check_updates("p1")
+    assert out == {"glue": "1.8.1", "cli": "3.6.3"}
+
+
+def test_check_updates_empty_when_nothing_outdated(monkeypatch, tmp_path):
+    monkeypatch.setattr(R.project_fs, "r_sandbox", lambda: tmp_path / "sandbox")
+    monkeypatch.setattr(R, "_library_dir", lambda uid: tmp_path / uid / "lib")
+    monkeypatch.setattr(R, "_run_r", lambda uid, code, on_log=None, options=None: "{}")
+    assert R.check_updates("p1") == {}

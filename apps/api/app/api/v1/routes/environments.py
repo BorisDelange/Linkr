@@ -97,6 +97,38 @@ async def list_env_packages(
     return [PackageResponse(**p) for p in environments.list_packages(project_uid, language)]
 
 
+@router.get("/projects/{project_uid}/environments/{language}/updates")
+async def get_env_updates(
+    project_uid: str,
+    language: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The LAST cached update check for this env (or null). Never runs a check — the
+    modal reads this on open so it never blocks or hits the network unprompted."""
+    await _require_ide(db, project_uid, user, "read")
+    _valid_language(language)
+    return environments.read_cached_updates(project_uid, language)
+
+
+@router.post("/projects/{project_uid}/environments/{language}/updates")
+async def check_env_updates(
+    project_uid: str,
+    language: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run the on-demand outdated check (a single batch repo query), cache it, and
+    return {packages: {name: latest}, checkedAt}. Triggered only by an explicit user
+    action (the modal's "Check for updates" button)."""
+    from datetime import datetime, timezone
+
+    await _require_ide(db, project_uid, user, "read")
+    _valid_language(language)
+    checked_at = datetime.now(timezone.utc).isoformat()
+    return environments.check_updates(project_uid, language, checked_at)
+
+
 @router.get("/projects/{project_uid}/environments/{language}/options")
 async def get_env_options(
     project_uid: str,

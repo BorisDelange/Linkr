@@ -27,6 +27,31 @@ export function listEnvPackages(
   return apiRequest(`/projects/${projectUid}/environments/${language}/packages`)
 }
 
+/** Result of an on-demand "check for updates": which installed packages have a
+ *  newer version on the repo, plus when the check ran. */
+export interface EnvUpdates {
+  packages: Record<string, string>
+  checkedAt: string
+}
+
+/** The LAST cached update check (null if never run). Reading this never triggers a
+ *  check or hits the network beyond the local cache. */
+export function getEnvUpdates(
+  projectUid: string,
+  language: 'python' | 'r',
+): Promise<EnvUpdates | null> {
+  return apiRequest(`/projects/${projectUid}/environments/${language}/updates`)
+}
+
+/** Run the on-demand outdated check (one batch repo query) and cache it. Only call
+ *  from an explicit user action — never on modal open or after an install. */
+export function checkEnvUpdates(
+  projectUid: string,
+  language: 'python' | 'r',
+): Promise<EnvUpdates> {
+  return apiRequest(`/projects/${projectUid}/environments/${language}/updates`, { method: 'POST' })
+}
+
 export function addEnvPackages(
   projectUid: string,
   language: 'python' | 'r',

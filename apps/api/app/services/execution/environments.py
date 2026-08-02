@@ -157,6 +157,44 @@ def list_packages(project_uid: str, language: str) -> list[dict]:
     return _provisioner(language).list_packages(project_uid)
 
 
+def _updates_cache_path(project_uid: str, language: str):
+    from app.services import project_fs
+
+    return project_fs.cache_dir(project_uid) / f"env-updates-{language}.json"
+
+
+def read_cached_updates(project_uid: str, language: str) -> dict | None:
+    """The last on-demand update check ({packages: {name: latest}, checkedAt: iso}), or
+    None if never run. Never triggers a check itself — the modal reads this on open so
+    it never blocks or hits the network unless the user explicitly asks."""
+    import json
+
+    path = _updates_cache_path(project_uid, language)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def check_updates(project_uid: str, language: str, checked_at: str) -> dict:
+    """Run the (batch) outdated query for `language`, cache it, and return
+    {packages: {name: latest}, checkedAt}. On-demand ONLY — the caller (a route hit by
+    a user click) passes the timestamp; nothing here runs on modal open or install."""
+    import json
+
+    opts = get_env_override(project_uid, language) or None
+    updates = _provisioner(language).check_updates(project_uid, options=opts)
+    result = {"packages": updates, "checkedAt": checked_at}
+    path = _updates_cache_path(project_uid, language)
+    try:
+        path.write_text(json.dumps(result))
+    except OSError:
+        pass
+    return result
+
+
 def get_env_override(project_uid: str, language: str) -> dict:
     """The per-env install options override (repos/method or index/trusted-host)."""
     from app.services.execution import env_options

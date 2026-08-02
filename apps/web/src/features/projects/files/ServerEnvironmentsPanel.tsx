@@ -34,6 +34,8 @@ import { cn } from '@/lib/utils'
 import {
   listEnvironments,
   listEnvPackages,
+  getEnvUpdates,
+  checkEnvUpdates,
   addEnvPackages,
   removeEnvPackage,
   buildEnvironment,
@@ -85,6 +87,11 @@ export function ServerEnvironmentsPanel({
   const [pendingPkgs, setPendingPkgs] = useState<Set<string>>(new Set())
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // On-demand "check for updates": {name: latest} for outdated packages + when it ran.
+  // Loaded from the server cache on open (no network check); only the button runs one.
+  const [updates, setUpdates] = useState<Record<string, string>>({})
+  const [checkedAt, setCheckedAt] = useState<string | null>(null)
+  const [checking, setChecking] = useState(false)
 
   const isPkgPending = (name: string) => pendingPkgs.has(name) || pendingPkgs.has('*')
 
@@ -95,10 +102,29 @@ export function ServerEnvironmentsPanel({
       const envs = await listEnvironments(projectUid)
       setEnv(envs.find((e) => e.language === language) ?? null)
       setPackages(await listEnvPackages(projectUid, language))
+      // Read the last cached update check (never triggers one).
+      const cached = await getEnvUpdates(projectUid, language)
+      setUpdates(cached?.packages ?? {})
+      setCheckedAt(cached?.checkedAt ?? null)
     } finally {
       setLoading(false)
     }
   }, [projectUid, language])
+
+  const onCheckUpdates = useCallback(async () => {
+    if (!projectUid || checking) return
+    setChecking(true)
+    setError(null)
+    try {
+      const res = await checkEnvUpdates(projectUid, language)
+      setUpdates(res.packages ?? {})
+      setCheckedAt(res.checkedAt ?? null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setChecking(false)
+    }
+  }, [projectUid, language, checking])
 
   useEffect(() => {
     void load()
@@ -150,6 +176,10 @@ export function ServerEnvironmentsPanel({
     try {
       setEnv(await fn())
       setPackages(await listEnvPackages(projectUid, language))
+      // Versions changed → the cached update check is stale; clear it (a new check is
+      // on-demand only, never automatic here).
+      setUpdates({})
+      setCheckedAt(null)
       ok = true
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -175,6 +205,8 @@ export function ServerEnvironmentsPanel({
     try {
       setEnv(await addEnvPackages(projectUid, language, names))
       setPackages(await listEnvPackages(projectUid, language))
+      setUpdates({})
+      setCheckedAt(null)
       ok = true
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -250,10 +282,41 @@ export function ServerEnvironmentsPanel({
       cell: (p) => <span className="text-muted-foreground">{p.spec.replace(/^==/, '') || '—'}</span>,
     },
     {
+      id: 'status',
+      header: t('environments.col_status'),
+      // Sort/filter by the latest-available version when known, else empty.
+      accessor: (p) => updates[p.name] ?? '',
+      filter: 'none',
+      size: 130,
+      center: true,
+      cell: (p) => {
+        const latest = updates[p.name]
+        if (latest) {
+          return (
+            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+              <RefreshCw size={11} />
+              {t('environments.update_available', { version: latest })}
+            </span>
+          )
+        }
+        // A check has run and this package wasn't flagged → it's current.
+        if (checkedAt) {
+          return (
+            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 size={11} />
+              {t('environments.up_to_date')}
+            </span>
+          )
+        }
+        return <span className="text-muted-foreground/40">—</span>
+      },
+    },
+    {
       id: 'actions',
       header: t('environments.col_actions'),
       accessor: () => '',
       filter: 'none',
+      sortable: false,
       size: canWrite ? 110 : 70,
       center: true,
       cell: (p) => {
@@ -335,6 +398,28 @@ export function ServerEnvironmentsPanel({
               </TooltipContent>
             </Tooltip>
           </div>
+
+          {env?.status === 'ready' && packages.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1.5 text-xs"
+                  disabled={busy || checking}
+                  onClick={() => void onCheckUpdates()}
+                >
+                  {checking ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                  {t('environments.check_updates')}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-xs text-xs">
+                {checkedAt
+                  ? t('environments.checked_at', { when: new Date(checkedAt).toLocaleString() })
+                  : t('environments.check_updates_hint')}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {canWrite && (

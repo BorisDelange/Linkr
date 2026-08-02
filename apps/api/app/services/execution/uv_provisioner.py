@@ -91,6 +91,13 @@ def list_packages(project_uid: str) -> list[dict]:
     return [_split_requirement(d) for d in deps]
 
 
+def check_updates(project_uid: str, options: dict | None = None) -> dict[str, str]:
+    """Which installed packages have a newer version on the index → {name: latest}.
+    Not implemented for Python yet (uv has no stable single-shot outdated query across
+    versions); returns empty so the shared endpoint works. R is supported today."""
+    return {}
+
+
 def _split_requirement(req: str) -> dict:
     for sep in ("==", ">=", "<=", "~=", ">", "<", "!="):
         if sep in req:

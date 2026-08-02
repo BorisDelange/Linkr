@@ -82,6 +82,8 @@ export interface ConceptColumn<T> {
   /** Optional custom cell renderer (defaults to a truncated text of the accessor value). */
   cell?: (row: T) => ReactNode
   filter?: ConceptColumnFilter
+  /** Disable sorting on this column (e.g. an actions/links column). Default true. */
+  sortable?: boolean
   /** For a 'select' filter: map a raw option value to a display label (e.g. translate/capitalize). */
   selectOptionLabel?: (value: string) => string
   size?: number
@@ -236,22 +238,31 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
               {table.getHeaderGroups().map((hg) =>
                 hg.headers.map((header) => {
                   const colId = header.column.id
+                  const canSort = colById.get(colId)?.sortable !== false
                   return (
                     <TableHead
                       key={header.id}
                       className="relative select-none overflow-hidden text-xs"
                       style={{ width: header.getSize(), maxWidth: header.getSize() }}
                     >
-                      <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground" onClick={() => handleSort(colId)}>
-                        <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                        </TruncatedHeader>
-                        {!sorting || sorting.columnId !== colId
-                          ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                          : sorting.desc
-                            ? <ArrowDown size={10} className="shrink-0 text-primary" />
-                            : <ArrowUp size={10} className="shrink-0 text-primary" />}
-                      </button>
+                      {canSort ? (
+                        <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground" onClick={() => handleSort(colId)}>
+                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </TruncatedHeader>
+                          {!sorting || sorting.columnId !== colId
+                            ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
+                            : sorting.desc
+                              ? <ArrowDown size={10} className="shrink-0 text-primary" />
+                              : <ArrowUp size={10} className="shrink-0 text-primary" />}
+                        </button>
+                      ) : (
+                        <div className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2">
+                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </TruncatedHeader>
+                        </div>
+                      )}
                       {header.column.getCanResize() && (
                         <div
                           onMouseDown={header.getResizeHandler()}

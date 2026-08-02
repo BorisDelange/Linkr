@@ -165,6 +165,36 @@ def list_packages(project_uid: str) -> list[dict]:
     ]
 
 
+def check_updates(project_uid: str, options: dict | None = None) -> dict[str, str]:
+    """Which installed packages have a newer version on the repo → {name: latest}.
+    ONE batch query (old.packages compares the whole project library against the repo
+    index), never per package. On-demand only — the caller caches the result; it never
+    runs on modal open or install. Empty when nothing is outdated or the lib is empty."""
+    projlib = str(_library_dir(project_uid)).replace("\\", "/")
+    repo = ((options or {}).get("repos") or settings.r_repos).replace("'", "")
+    # old.packages returns a matrix (Package, Installed, ReposVer, …) or NULL. We build
+    # each "name":"version" pair with toJSON on a named list, then wrap in braces, so
+    # the output is a JSON object of {outdated package: latest version}. Written as a
+    # plain string (not an f-string) to avoid brace-escaping noise.
+    code = (
+        "suppressWarnings(local({ "
+        "op <- old.packages(lib.loc='%s', repos='%s'); "
+        "if (is.null(op)) { cat('{}') } else { "
+        "v <- as.list(op[, 'ReposVer']); names(v) <- op[, 'Package']; "
+        "cat(jsonlite::toJSON(v, auto_unbox=TRUE)) } }))"
+    ) % (projlib, repo)
+    out = _run_r(project_uid, code, options=options)
+    # The last non-empty line is the JSON object (R may print warnings before it).
+    for line in reversed(out.splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                break
+    return {}
+
+
 def _snapshot_code(project_uid: str) -> str:
     """renv::snapshot of the project library into renv.lock, capturing the FULL tree
     actually installed (declared packages + their dependencies) so the lockfile is
