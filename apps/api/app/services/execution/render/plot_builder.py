@@ -240,16 +240,32 @@ def _linkr_print_plot(dataset, spec):
         elif ua == "last":
             df = df.groupby(up, sort=False, as_index=False).last()
         else:
-            cols = list(df.columns)
-            def _reduce(g):
-                out = {}
-                for c in cols:
-                    if c == up:
-                        out[c] = g[c].iloc[0]; continue
-                    nums = list(_pd.to_numeric(g[c], errors="coerce").dropna())
-                    out[c] = _linkr_agg_num(nums, ua) if nums else g[c].iloc[0]
-                return _pd.Series(out)
-            df = df.groupby(up, sort=False, group_keys=False)[cols].apply(_reduce).reset_index(drop=True)
+            # Only the columns the plot actually reads need aggregating — the source
+            # can carry 100+ columns and the old per-column, per-group reduce made
+            # this O(groups × columns) (seconds on a real dataset). Aggregate the
+            # needed numeric columns VECTORISED (one groupby per column), and take
+            # `first` for the rest, matching the JS aggregateByEntity semantics
+            # (numeric → the chosen stat; non-numeric → first).
+            needed = {up}
+            for key in ("x", "y", "hist", "group"):
+                c = spec.get(key)
+                if c and c in df.columns:
+                    needed.add(c)
+            agg_cols = [c for c in needed if c != up]
+            gb = df.groupby(up, sort=False)
+            # Base frame: `first` of every needed column (preserves non-numeric).
+            out = gb[agg_cols].first().reset_index() if agg_cols else gb.size().reset_index()[[up]]
+            fn = {"mean": "mean", "median": "median", "min": "min",
+                  "max": "max", "sum": "sum"}.get(ua)
+            if fn:
+                for c in agg_cols:
+                    nums = _pd.to_numeric(df[c], errors="coerce")
+                    # A column with no numeric values keeps its `first` (non-numeric);
+                    # otherwise overlay the vectorised stat over numeric entries.
+                    if nums.notna().any():
+                        stat = nums.groupby(df[up], sort=False).agg(fn)
+                        out[c] = out[up].map(stat).where(lambda s: s.notna(), out[c])
+            df = out
 
     x = spec.get("x"); y = spec.get("y"); hist = spec.get("hist"); group = spec.get("group")
     exclude_na = spec.get("excludeNA", True)

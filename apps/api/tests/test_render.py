@@ -136,3 +136,69 @@ def test_key_indicator_clamps_chart_bins_and_decimals():
     })
     assert out["chartBins"] == 1
     assert out["decimals"] == 0
+
+
+def _run_plot(spec_extra, df):
+    """Execute the plot-builder render program against a DataFrame and return the
+    parsed JSON result (the program prints one JSON line)."""
+    import io
+    import json
+    from contextlib import redirect_stdout
+
+    from app.services.execution.render import plot_builder
+
+    spec = plot_builder.validate_spec(spec_extra)
+    code = plot_builder.build_code(spec)
+    buf = io.StringIO()
+    ns = {"dataset": df}
+    with redirect_stdout(buf):
+        exec(code, ns)  # noqa: S102 — server-owned program, test-only
+    return json.loads(buf.getvalue().strip().splitlines()[-1])
+
+
+def test_plot_builder_unique_per_median_aggregates_per_entity():
+    """uniquePer + median collapses multiple rows per entity to the per-entity
+    median of the value column before plotting — and only the plotted columns need
+    aggregating (the vectorised fast path must match the old per-column reduce)."""
+    import pandas as pd
+
+    # Entity E1 has vent values [10, 20] (median 15); E2 [4, 8] (median 6). A wide
+    # 'noise' column must not affect the result nor slow it down.
+    df = pd.DataFrame({
+        "visit": ["E1", "E1", "E2", "E2"],
+        "type": ["A", "A", "B", "B"],
+        "vent": [10.0, 20.0, 4.0, 8.0],
+        "noise": ["x", "y", "z", "w"],
+    })
+    res = _run_plot(
+        {"plotType": "boxplot", "x": "type", "y": "vent",
+         "uniquePer": "visit", "uniqueAggregation": "median"},
+        df,
+    )
+    by_name = {d["name"]: d for d in res["data"]}
+    # One aggregated value per entity → A has [15], B has [6].
+    assert by_name["A"]["values"] == [15.0]
+    assert by_name["B"]["values"] == [6.0]
+
+
+def test_plot_builder_unique_per_keeps_non_numeric_first():
+    """A non-numeric aggregated column keeps its first value (parity with the JS
+    aggregateByEntity: numeric → stat, else first)."""
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "visit": ["E1", "E1"],
+        "cat": ["A", "B"],          # non-numeric grouping/x column
+        "val": [10.0, 30.0],
+    })
+    res = _run_plot(
+        {"plotType": "boxplot", "x": "cat", "y": "val",
+         "uniquePer": "visit", "uniqueAggregation": "mean"},
+        df,
+    )
+    # visit E1 collapses to one row: cat = first ("A"), val = mean (20).
+    assert res["data"] == [{"name": "A", "stats": pytest_approx_stats(20.0), "values": [20.0]}]
+
+
+def pytest_approx_stats(v):
+    return {"min": v, "q1": v, "median": v, "q3": v, "max": v, "mean": v}
