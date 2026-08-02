@@ -318,6 +318,8 @@
     "widget_dataset": "Dataset",
     "widget_dataset_placeholder": "Select a dataset...",
     "widget_dataset_none": "No dataset",
+    "widget_console": "Console",
+    "widget_console_empty": "No console output yet — run the widget to see stdout and messages here.",
     "no_dataset_confirm_title": "No dataset selected",
     "no_dataset_confirm_description": "This widget will have no data source. You can assign a dataset later from the widget settings. Continue anyway?",
     "source_custom_code": "Custom code",

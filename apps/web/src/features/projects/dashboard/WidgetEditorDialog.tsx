@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo, Suspense } from 'rea
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Play, RotateCcw, Settings, Code2, X, Database } from 'lucide-react'
+import { Play, RotateCcw, Settings, Code2, X, Database, Terminal, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -51,12 +51,11 @@ interface WidgetEditorDialogProps {
 }
 
 export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gridWidth, widgetSpacing }: WidgetEditorDialogProps) {
-  // Read the live widget from the store so dataset/config edits made in the editor
-  // (e.g. picking a dataset) immediately reach the preview — the `widget` prop is a
-  // snapshot and would otherwise leave the preview provider with a stale datasetFileId.
   const liveWidget = useDashboardStore((s) => s.widgets.find((w) => w.id === widget?.id))
   const current = liveWidget ?? widget
   if (!current) return null
+  // Remount the editor when the target widget changes so its draft state resets
+  // cleanly (the editor holds an uncommitted local draft — see WidgetEditorContent).
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -64,9 +63,14 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gri
         showCloseButton={false}
         className="w-[calc(100vw-16rem)] max-w-none sm:max-w-none p-0 gap-0"
       >
-        <DashboardDataProvider datasetFileId={current.datasetFileId ?? null}>
-          <WidgetEditorContent widget={current} onClose={() => onOpenChange(false)} projectUid={projectUid} gridWidth={gridWidth} widgetSpacing={widgetSpacing} />
-        </DashboardDataProvider>
+        <WidgetEditorContent
+          key={current.id}
+          widget={current}
+          onClose={() => onOpenChange(false)}
+          projectUid={projectUid}
+          gridWidth={gridWidth}
+          widgetSpacing={widgetSpacing}
+        />
       </SheetContent>
     </Sheet>
   )
@@ -77,8 +81,144 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gri
 // ---------------------------------------------------------------------------
 
 function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpacing }: { widget: DashboardWidget; onClose: () => void; projectUid: string; gridWidth?: number; widgetSpacing?: number }) {
-  const { t, i18n } = useTranslation()
   const { updateWidgetSource, updateWidgetDataset } = useDashboardStore()
+
+  const source = widget.source
+  const isPlugin = source.type === 'plugin'
+  const isInline = source.type === 'inline'
+
+  const plugin = isPlugin ? getPlugin(source.pluginId) : null
+  const isComponentPlugin = !!(plugin?.componentId && plugin.manifest.runtime.includes('component'))
+
+  // --- Local DRAFT state -----------------------------------------------------
+  // The editor never mutates the store until Save (Cmd/Ctrl+S). Every edit lands
+  // in this draft; Cancel/close discards it. The preview runs off the draft, so
+  // the live preview still reflects uncommitted edits. Seeded from the widget on
+  // mount (the whole editor is remounted per-widget via `key`, so a mount == a
+  // fresh draft for the target widget).
+  const initialLanguage: 'python' | 'r' = isInline
+    ? ((source.language === 'r' ? 'r' : 'python') as 'python' | 'r')
+    : (isPlugin && source.language) ? source.language
+    : plugin?.templates?.python ? 'python' : 'r'
+
+  const [draftDatasetFileId, setDraftDatasetFileId] = useState<string | null>(widget.datasetFileId ?? null)
+  const [config, setConfig] = useState<Record<string, unknown>>(source.config ?? {})
+  const [language, setLanguage] = useState<'python' | 'r'>(initialLanguage)
+  const [isCodeCustomized, setIsCodeCustomized] = useState(
+    (source.config?.isCodeCustomized as boolean) ?? false,
+  )
+  const [userCode, setUserCode] = useState((source.config?.userCode as string) ?? '')
+  const [inlineCode, setInlineCode] = useState(isInline ? ((source as { code: string }).code ?? '') : '')
+
+  const handleConfigChange = useCallback((changes: Record<string, unknown>) => {
+    setConfig((prev) => ({ ...prev, ...changes }))
+    // Picking config re-generates code, so a prior manual customisation is dropped.
+    setIsCodeCustomized(false)
+    setUserCode('')
+  }, [])
+
+  const handleLanguageChange = useCallback((newLang: 'python' | 'r') => {
+    setLanguage(newLang)
+    setIsCodeCustomized(false)
+    setUserCode('')
+  }, [])
+
+  const handleResetCode = useCallback(() => {
+    setIsCodeCustomized(false)
+    setUserCode('')
+  }, [])
+
+  // The source the draft would commit to the store. Comparing it (+ the dataset)
+  // to what's already stored gives `dirty` — so Save can grey out with nothing to
+  // save and flip to "Saved" once the draft matches the store again.
+  const nextSource: DashboardWidgetSource = useMemo(() => (
+    isInline
+      ? { ...(source as DashboardWidgetSource), code: inlineCode, config }
+      : {
+          ...(source as DashboardWidgetSource),
+          language,
+          config: { ...config, isCodeCustomized, userCode: isCodeCustomized ? userCode : undefined },
+        }
+  ), [isInline, source, inlineCode, config, language, isCodeCustomized, userCode])
+  const datasetDirty = draftDatasetFileId !== (widget.datasetFileId ?? null)
+  const sourceDirty = JSON.stringify(nextSource) !== JSON.stringify(widget.source)
+  const dirty = datasetDirty || sourceDirty
+
+  const commit = useCallback(() => {
+    if (draftDatasetFileId !== (widget.datasetFileId ?? null)) {
+      updateWidgetDataset(widget.id, draftDatasetFileId)
+    }
+    updateWidgetSource(widget.id, nextSource)
+  }, [widget.id, widget.datasetFileId, draftDatasetFileId, nextSource, updateWidgetDataset, updateWidgetSource])
+
+  return (
+    <DashboardDataProvider datasetFileId={draftDatasetFileId}>
+      <WidgetEditorBody
+        widget={widget}
+        onClose={onClose}
+        projectUid={projectUid}
+        gridWidth={gridWidth}
+        widgetSpacing={widgetSpacing}
+        isInline={isInline}
+        isPlugin={isPlugin}
+        isComponentPlugin={isComponentPlugin}
+        plugin={plugin}
+        language={language}
+        onLanguageChange={handleLanguageChange}
+        config={config}
+        onConfigChange={handleConfigChange}
+        isCodeCustomized={isCodeCustomized}
+        userCode={userCode}
+        setUserCode={setUserCode}
+        setIsCodeCustomized={setIsCodeCustomized}
+        inlineCode={inlineCode}
+        setInlineCode={setInlineCode}
+        onResetCode={handleResetCode}
+        draftDatasetFileId={draftDatasetFileId}
+        setDraftDatasetFileId={setDraftDatasetFileId}
+        dirty={dirty}
+        commit={commit}
+      />
+    </DashboardDataProvider>
+  )
+}
+
+interface WidgetEditorBodyProps {
+  widget: DashboardWidget
+  onClose: () => void
+  projectUid: string
+  gridWidth?: number
+  widgetSpacing?: number
+  isInline: boolean
+  isPlugin: boolean
+  isComponentPlugin: boolean
+  plugin: ReturnType<typeof getPlugin> | null
+  language: 'python' | 'r'
+  onLanguageChange: (l: 'python' | 'r') => void
+  config: Record<string, unknown>
+  onConfigChange: (changes: Record<string, unknown>) => void
+  isCodeCustomized: boolean
+  userCode: string
+  setUserCode: (v: string) => void
+  setIsCodeCustomized: (v: boolean) => void
+  inlineCode: string
+  setInlineCode: (v: string) => void
+  onResetCode: () => void
+  draftDatasetFileId: string | null
+  setDraftDatasetFileId: (id: string | null) => void
+  dirty: boolean
+  commit: () => void
+}
+
+function WidgetEditorBody({
+  widget, onClose, projectUid, gridWidth, widgetSpacing,
+  isInline, isPlugin: _isPlugin, isComponentPlugin, plugin,
+  language, onLanguageChange, config, onConfigChange,
+  isCodeCustomized, userCode, setUserCode, setIsCodeCustomized,
+  inlineCode, setInlineCode, onResetCode,
+  draftDatasetFileId, setDraftDatasetFileId, dirty, commit,
+}: WidgetEditorBodyProps) {
+  const { t, i18n } = useTranslation()
   const { filteredRows, columns, datasetFileId, filters } = useDashboardData()
   const { files: datasetFiles } = useDatasetStore()
 
@@ -86,35 +226,10 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
     (f) => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0
   )
 
-  const source = widget.source
-  const isPlugin = source.type === 'plugin'
-  const isInline = source.type === 'inline'
-
-  // Resolve plugin info
-  const plugin = isPlugin ? getPlugin(source.pluginId) : null
   const hasConfigSchema = plugin?.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
-  const isComponentPlugin = !!(plugin?.componentId && plugin.manifest.runtime.includes('component'))
+  const hasBothLanguages = _isPlugin && !isComponentPlugin && plugin?.templates?.python && plugin?.templates?.r
 
-  // Detect language — use persisted value if available, otherwise default
-  const hasBothLanguages = isPlugin && !isComponentPlugin && plugin?.templates?.python && plugin?.templates?.r
-  const language: 'python' | 'r' = isInline
-    ? ((source.language === 'r' ? 'r' : 'python') as 'python' | 'r')
-    : (isPlugin && source.language) ? source.language
-    : plugin?.templates?.python
-      ? 'python'
-      : 'r'
-
-  // Local config state
-  const [config, setConfig] = useState<Record<string, unknown>>(source.config ?? {})
   const [activeTab, setActiveTab] = useState<'config' | 'code' | null>(hasConfigSchema ? 'config' : 'code')
-
-  // Code state
-  const [isCodeCustomized, setIsCodeCustomized] = useState(
-    (source.config?.isCodeCustomized as boolean) ?? false,
-  )
-  const [userCode, setUserCode] = useState(
-    (source.config?.userCode as string) ?? '',
-  )
 
   // Execution state
   const [result, setResult] = useState<RuntimeOutput | null>(null)
@@ -132,71 +247,25 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
     return () => clearTimeout(debounceRef.current)
   }, [config])
 
-  // Reset state when the target widget changes, or when its dataset is swapped — the
-  // latter remaps column references in the store, so the local config must re-sync.
-  useEffect(() => {
-    setConfig(widget.source.config ?? {})
-    setDebouncedConfig(widget.source.config ?? {})
-    setIsCodeCustomized((widget.source.config?.isCodeCustomized as boolean) ?? false)
-    setUserCode((widget.source.config?.userCode as string) ?? '')
-    setResult(null)
-  }, [widget.id, widget.datasetFileId])
-
-  // Generate code from template
+  // Generate code from template (draft config/columns/language)
   const generatedCode = useGeneratedCode(plugin ?? undefined, config, columns, language)
   const currentCode = isInline
-    ? ((source as { code: string }).code ?? '')
+    ? inlineCode
     : (isCodeCustomized && userCode ? userCode : generatedCode)
 
-  // Persist changes to store
-  const persistSource = useCallback((updates: Partial<DashboardWidgetSource>) => {
-    const newSource = { ...widget.source, ...updates } as DashboardWidgetSource
-    updateWidgetSource(widget.id, newSource)
-  }, [widget.id, widget.source, updateWidgetSource])
-
-  // Config changes
-  const handleConfigChange = useCallback((changes: Record<string, unknown>) => {
-    const newConfig = { ...config, ...changes }
-    setConfig(newConfig)
-    if (isCodeCustomized) {
-      setIsCodeCustomized(false)
-      setUserCode('')
-      persistSource({ config: { ...newConfig, isCodeCustomized: false, userCode: undefined } })
-    } else {
-      persistSource({ config: newConfig })
-    }
-  }, [config, isCodeCustomized, persistSource])
-
-  // Code editing
+  // Code editing → draft only
   const handleCodeChange = useCallback((value: string | undefined) => {
     if (value === undefined) return
     if (isInline) {
-      persistSource({ code: value } as Partial<DashboardWidgetSource>)
+      setInlineCode(value)
+    } else if (value === generatedCode) {
+      setIsCodeCustomized(false)
+      setUserCode('')
     } else {
-      if (value === generatedCode) {
-        setIsCodeCustomized(false)
-        setUserCode('')
-        persistSource({ config: { ...config, isCodeCustomized: false, userCode: undefined } })
-      } else {
-        setIsCodeCustomized(true)
-        setUserCode(value)
-        persistSource({ config: { ...config, isCodeCustomized: true, userCode: value } })
-      }
+      setIsCodeCustomized(true)
+      setUserCode(value)
     }
-  }, [isInline, generatedCode, config, persistSource])
-
-  const handleResetCode = useCallback(() => {
-    setIsCodeCustomized(false)
-    setUserCode('')
-    persistSource({ config: { ...config, isCodeCustomized: false, userCode: undefined } })
-  }, [config, persistSource])
-
-  // Language change (for plugin widgets)
-  const handleLanguageChange = useCallback((newLang: 'python' | 'r') => {
-    persistSource({ language: newLang } as Partial<DashboardWidgetSource>)
-    setIsCodeCustomized(false)
-    setUserCode('')
-  }, [persistSource])
+  }, [isInline, generatedCode, setInlineCode, setIsCodeCustomized, setUserCode])
 
   // Run execution. `code` defaults to the full editor content; the keyboard shortcuts
   // pass a selection or single line to run a subset.
@@ -217,9 +286,12 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
           projectUid,
           datasetFileId: datasetFileId ?? undefined,
           datasetFilters: datasetFileId ? resolveServerFilters(filters, columns) : undefined,
+          purpose: 'dashboards',
+          // Match the dashboard's parallel, isolated run model in the preview too.
+          ephemeral: true,
         })
       } else {
-        if (isPlugin && plugin) {
+        if (_isPlugin && plugin) {
           const newlyInstalled = await ensurePluginDependencies(plugin.manifest.id, language, (msg) => setStatusMessage(msg))
           setInstalledDeps(newlyInstalled)
           setStatusMessage(null)
@@ -242,7 +314,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, filteredRows, columns, language, isPlugin, plugin, datasetFileId, filters, projectUid])
+  }, [currentCode, filteredRows, columns, language, _isPlugin, plugin, datasetFileId, filters, projectUid])
 
   // Cmd/Ctrl+Shift+Enter: run the whole file.
   const handleRunFile = useCallback(() => { void handleRun() }, [handleRun])
@@ -265,6 +337,37 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
     void handleRun()
   }, [handleRun])
 
+  // Save commits the draft to the store WITHOUT closing the editor (nor its config
+  // panel) — the user keeps editing. "Saved" is a brief transient shown right after,
+  // and the button greys out until there's a new change to save.
+  const [justSaved, setJustSaved] = useState(false)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const handleSave = useCallback(() => {
+    if (!dirty) return
+    commit()
+    setJustSaved(true)
+    clearTimeout(savedTimerRef.current)
+    savedTimerRef.current = setTimeout(() => setJustSaved(false), 1500)
+  }, [dirty, commit])
+  // A fresh edit clears the "Saved" flash so the button reads "Save" again.
+  useEffect(() => { if (dirty) setJustSaved(false) }, [dirty])
+  useEffect(() => () => clearTimeout(savedTimerRef.current), [])
+
+  // Cmd/Ctrl+S saves in place (does not close). Kept as a ref so the window-level
+  // listener always calls the latest closure without re-binding every render.
+  const saveRef = useRef(handleSave)
+  useEffect(() => { saveRef.current = handleSave })
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        saveRef.current()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   const leftVisible = activeTab !== null
   const configSchema = plugin?.manifest.configSchema ?? {}
 
@@ -276,8 +379,8 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
         <div className="flex-1" />
         {plugin && <PluginBadge plugin={plugin} lang={i18n.language as 'en' | 'fr'} />}
         <Select
-          value={widget.datasetFileId ?? '__none__'}
-          onValueChange={(v) => updateWidgetDataset(widget.id, v === '__none__' ? null : v)}
+          value={draftDatasetFileId ?? '__none__'}
+          onValueChange={(v) => setDraftDatasetFileId(v === '__none__' ? null : v)}
         >
           <SelectTrigger className="h-6 w-auto max-w-48 gap-1 text-xs border-dashed">
             <Database size={11} className="text-muted-foreground shrink-0" />
@@ -291,7 +394,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
           </SelectContent>
         </Select>
         {hasBothLanguages && (
-          <Select value={language} onValueChange={(v) => handleLanguageChange(v as 'python' | 'r')}>
+          <Select value={language} onValueChange={(v) => onLanguageChange(v as 'python' | 'r')}>
             <SelectTrigger className="h-6 w-auto gap-1 text-xs border-dashed">
               <SelectValue />
             </SelectTrigger>
@@ -301,6 +404,14 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
             </SelectContent>
           </Select>
         )}
+        <div className="mx-1 h-4 w-px bg-border" />
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={onClose}>
+          {t('common.cancel')}
+        </Button>
+        <Button size="sm" className="h-6 gap-1 text-xs" onClick={handleSave} disabled={!dirty}>
+          {justSaved && !dirty ? <Check size={12} /> : null}
+          {justSaved && !dirty ? t('common.saved') : t('common.save')}
+        </Button>
         <Button variant="ghost" size="icon-xs" onClick={onClose}>
           <X size={14} />
         </Button>
@@ -358,7 +469,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
             <Button
               size="sm"
               variant="ghost"
-              onClick={handleResetCode}
+              onClick={onResetCode}
               className="h-6 gap-1 text-xs"
             >
               <RotateCcw size={12} />
@@ -379,7 +490,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
                     schema={configSchema as Record<string, PluginConfigField>}
                     config={config}
                     columns={columns}
-                    onConfigChange={handleConfigChange}
+                    onConfigChange={onConfigChange}
                     rows={filteredRows}
                     datasetFileId={datasetFileId ?? undefined}
                   />
@@ -391,6 +502,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
                     onChange={handleCodeChange}
                     height="100%"
                     editorRef={editorRef}
+                    onSave={handleSave}
                     onRunFile={handleRunFile}
                     onRunSelectionOrLine={handleRunSelectionOrLine}
                   />
@@ -400,29 +512,69 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
           </Allotment.Pane>
 
           <Allotment.Pane minSize={200}>
-            <SizedPreview widget={widget} gridWidth={gridWidth} widgetSpacing={widgetSpacing}>
-              {isComponentPlugin && plugin?.componentId ? (
-                <ComponentPluginOutput
-                  componentId={plugin.componentId}
-                  config={debouncedConfig}
-                  columns={columns}
-                  rows={filteredRows}
-                  datasetFileId={datasetFileId}
-                  datasetFilters={datasetFileId ? resolveServerFilters(filters, columns) : undefined}
-                />
-              ) : (
-                <PluginOutputRenderer
-                  result={result}
-                  isExecuting={isExecuting}
-                  statusMessage={statusMessage}
-                  installedDeps={installedDeps}
-                  onRerun={handleRun}
-                  compact
-                />
+            {/* Preview split: the rendered Output (top) and the raw Console
+                (bottom). The Console is edit-only — the dashboard never shows it. */}
+            <Allotment vertical proportionalLayout={false}>
+              <Allotment.Pane minSize={140}>
+                <SizedPreview widget={widget} gridWidth={gridWidth} widgetSpacing={widgetSpacing}>
+                  {isComponentPlugin && plugin?.componentId ? (
+                    <ComponentPluginOutput
+                      componentId={plugin.componentId}
+                      config={debouncedConfig}
+                      columns={columns}
+                      rows={filteredRows}
+                      datasetFileId={datasetFileId}
+                      datasetFilters={datasetFileId ? resolveServerFilters(filters, columns) : undefined}
+                    />
+                  ) : (
+                    <PluginOutputRenderer
+                      result={result}
+                      isExecuting={isExecuting}
+                      statusMessage={statusMessage}
+                      installedDeps={installedDeps}
+                      onRerun={handleRun}
+                      compact
+                      showConsole={false}
+                    />
+                  )}
+                </SizedPreview>
+              </Allotment.Pane>
+              {!isComponentPlugin && (
+                <Allotment.Pane preferredSize={160} minSize={40}>
+                  <ConsolePane result={result} isExecuting={isExecuting} />
+                </Allotment.Pane>
               )}
-            </SizedPreview>
+            </Allotment>
           </Allotment.Pane>
         </Allotment>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Console pane — raw stdout/stderr of the last preview run. Edit-mode only:
+// the rendered dashboard widget never shows the console (see PluginOutputRenderer
+// showConsole=false), keeping widgets clean for viewers.
+// ---------------------------------------------------------------------------
+
+function ConsolePane({ result, isExecuting }: { result: RuntimeOutput | null; isExecuting: boolean }) {
+  const { t } = useTranslation()
+  const text = result ? [result.stdout, result.stderr].filter((s) => s && s.length > 0).join('\n') : ''
+  return (
+    <div className="flex h-full flex-col border-t bg-muted/20">
+      <div className="flex items-center gap-1.5 border-b px-3 py-1 text-[11px] font-medium text-muted-foreground">
+        <Terminal size={11} />
+        {t('dashboard.widget_console')}
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-2">
+        {isExecuting ? (
+          <p className="text-[11px] text-muted-foreground">{t('datasets.analysis_running')}</p>
+        ) : text ? (
+          <pre className="text-[11px] font-mono whitespace-pre-wrap break-words">{text}</pre>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">{t('dashboard.widget_console_empty')}</p>
+        )}
       </div>
     </div>
   )
