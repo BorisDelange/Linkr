@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import {
   Tooltip,
   TooltipContent,
@@ -231,9 +231,87 @@ export function ServerEnvironmentsPanel({
       ? `https://pypi.org/project/${encodeURIComponent(name)}`
       : `https://packagemanager.posit.co/client/#/repos/cran/packages/${encodeURIComponent(name)}`
 
+  const columns: ConceptColumn<EnvPackage>[] = [
+    {
+      id: 'name',
+      header: t('environments.col_name'),
+      accessor: (p) => p.name,
+      filter: 'text',
+      size: 220,
+      cell: (p) => <span className="font-medium">{p.name}</span>,
+    },
+    {
+      id: 'version',
+      header: t('environments.col_version'),
+      // Sort/filter on the bare version (spec is "==2.1.4"); show it cleaned up.
+      accessor: (p) => p.spec.replace(/^[=<>!~ ]+/, ''),
+      filter: 'text',
+      size: 120,
+      cell: (p) => <span className="text-muted-foreground">{p.spec.replace(/^==/, '') || '—'}</span>,
+    },
+    {
+      id: 'docs',
+      header: t('environments.col_docs'),
+      accessor: () => '',
+      filter: 'none',
+      size: 90,
+      center: true,
+      cell: (p) => (
+        <a
+          href={packageUrl(p.name)}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-1 text-primary hover:underline"
+          aria-label={t('environments.col_docs')}
+        >
+          <ExternalLink size={12} />
+        </a>
+      ),
+    },
+    ...(canWrite
+      ? [{
+          id: 'actions',
+          header: t('environments.col_actions'),
+          accessor: () => '',
+          filter: 'none' as const,
+          size: 90,
+          center: true,
+          cell: (p: EnvPackage) => {
+            const pending = isPkgPending(p.name)
+            return (
+              <div className="flex items-center justify-center gap-1.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-40"
+                      disabled={busy}
+                      onClick={(e) => { e.stopPropagation(); void onUpgrade(p.name) }}
+                      aria-label={t('environments.update')}
+                    >
+                      {pending ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="text-xs">{t('environments.update')}</TooltipContent>
+                </Tooltip>
+                <button
+                  className="text-muted-foreground hover:text-destructive disabled:opacity-40"
+                  disabled={busy}
+                  onClick={(e) => { e.stopPropagation(); setRemoveTarget(p.name) }}
+                  aria-label={t('environments.remove')}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            )
+          },
+        }]
+      : []),
+  ]
+
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="mt-2 flex flex-col gap-3">
+      <div className="mt-2 flex min-h-0 flex-1 flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-sm font-medium">
             {label}
@@ -298,74 +376,32 @@ export function ServerEnvironmentsPanel({
           </div>
         )}
 
-        <ScrollArea className="max-h-64">
-          {loading ? (
-            <div className="flex justify-center py-6">
-              <Loader2 size={16} className="animate-spin text-muted-foreground" />
-            </div>
-          ) : packages.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-6 text-center">
-              <p className="text-xs text-muted-foreground">{t('environments.no_packages')}</p>
-              {canWrite && (
-                <Button size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => void onPreset()}>
-                  <Sparkles size={13} className="mr-1" />
-                  {t('environments.install_preset')}
-                </Button>
-              )}
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {packages.map((pkg) => {
-                const pending = isPkgPending(pkg.name)
-                return (
-                <li key={pkg.name} className="group flex items-center justify-between rounded text-xs hover:bg-muted/50">
-                  {/* Whole row (name + version + external-link icon) is one link. */}
-                  <a
-                    href={packageUrl(pkg.name)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex flex-1 items-center gap-1.5 px-2 py-1"
-                  >
-                    <span className="font-medium">{pkg.name}</span>
-                    {pkg.spec && <span className="text-muted-foreground">{pkg.spec}</span>}
-                    <ExternalLink size={10} className="text-muted-foreground/50" />
-                  </a>
-                  {canWrite && (
-                    // While this row's op is in flight the actions stay visible even
-                    // if the pointer leaves the row (a spinner replaces the update icon).
-                    <div className={cn(
-                      'flex items-center gap-0.5 pr-1.5 transition-opacity',
-                      pending ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                    )}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            className="text-muted-foreground hover:text-foreground disabled:opacity-40"
-                            disabled={busy}
-                            onClick={() => void onUpgrade(pkg.name)}
-                            aria-label={t('environments.update')}
-                          >
-                            {pending ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent className="text-xs">{t('environments.update')}</TooltipContent>
-                      </Tooltip>
-                      <button
-                        className="text-muted-foreground hover:text-destructive disabled:opacity-40"
-                        disabled={busy}
-                        onClick={() => setRemoveTarget(pkg.name)}
-                        aria-label={t('environments.remove')}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  )}
-                </li>
-                )
-              })}
-            </ul>
-          )}
-        </ScrollArea>
+        {loading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 size={16} className="animate-spin text-muted-foreground" />
+          </div>
+        ) : packages.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-6 text-center">
+            <p className="text-xs text-muted-foreground">{t('environments.no_packages')}</p>
+            {canWrite && (
+              <Button size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => void onPreset()}>
+                <Sparkles size={13} className="mr-1" />
+                {t('environments.install_preset')}
+              </Button>
+            )}
+          </div>
+        ) : (
+          // Datatable (sort / filter / resize, scrolls internally) so a long package
+          // list stays inside the dialog instead of overflowing it.
+          <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
+            <ConceptDataTable<EnvPackage>
+              data={packages}
+              columns={columns}
+              rowKey={(p) => p.name}
+              emptyMessage={t('environments.no_packages')}
+            />
+          </div>
+        )}
 
         {canWrite && (
           <div className="flex items-center justify-between gap-2">

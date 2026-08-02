@@ -431,7 +431,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className={server ? 'flex h-[85vh] flex-col sm:max-w-2xl' : 'sm:max-w-xl max-h-[85vh] overflow-y-auto'}>
         <DialogHeader>
           <DialogTitle>{t('environments.title')}</DialogTitle>
           <DialogDescription>
@@ -440,15 +440,15 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
         </DialogHeader>
 
         {server ? (
-          <Tabs value={serverTab} onValueChange={(v) => setServerTab(v as 'python' | 'r')}>
+          <Tabs value={serverTab} onValueChange={(v) => setServerTab(v as 'python' | 'r')} className="flex min-h-0 flex-1 flex-col">
             <TabsList className="w-full">
               <TabsTrigger value="python" className="flex-1">Python</TabsTrigger>
               <TabsTrigger value="r" className="flex-1">R</TabsTrigger>
             </TabsList>
-            <TabsContent value="python">
+            <TabsContent value="python" className="min-h-0 flex-1">
               <ServerEnvironmentsPanel language="python" reloadKey={open} pending={pending} />
             </TabsContent>
-            <TabsContent value="r">
+            <TabsContent value="r" className="min-h-0 flex-1">
               <ServerEnvironmentsPanel language="r" reloadKey={open} pending={pending} />
             </TabsContent>
           </Tabs>
