@@ -14,6 +14,9 @@ export interface EnvPackage {
   name: string
   /** Version constraint as declared ("==2.1.4", ">=1", or ""). */
   spec: string
+  /** A kernel infra package (jsonlite/base64enc/svglite) in the shared kernel
+   *  library: shown but not removable — only updatable. User packages: false. */
+  system?: boolean
 }
 
 export function listEnvironments(projectUid: string): Promise<ProjectEnvironment[]> {

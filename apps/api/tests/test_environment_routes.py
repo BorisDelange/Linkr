@@ -260,7 +260,13 @@ async def test_import_env_spec_restores_renv_lock_and_lists_packages(client):
         await client.get(f"{API}/projects/{uid}/environments/r/packages", headers=headers)
     ).json()
     by_name = {p["name"]: p["spec"] for p in pkgs}
-    assert by_name == {"dplyr": "==1.2.1", "ggplot2": "==4.0.3"}
+    # The restored user packages surface from the lockfile...
+    assert by_name["dplyr"] == "==1.2.1"
+    assert by_name["ggplot2"] == "==4.0.3"
+    # ...alongside the kernel infra rows, which are marked system (non-removable).
+    system = {p["name"] for p in pkgs if p.get("system")}
+    assert {"jsonlite", "base64enc", "svglite"} <= system
+    assert not any(p.get("system") for p in pkgs if p["name"] in ("dplyr", "ggplot2"))
 
 
 async def test_import_env_spec_rejects_unknown_and_traversal_names(client):

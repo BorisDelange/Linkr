@@ -291,6 +291,84 @@ def _to_renv_ref(requirement: str) -> str:
 _KERNEL_DEPS = ("jsonlite", "base64enc", "svglite")
 
 
+def list_kernel_packages() -> list[dict]:
+    """The kernel infra packages (jsonlite/base64enc/svglite) with the version
+    installed in the shared kernel library. Project-independent — they live in one
+    library every isolated R kernel shares. Marked ``system`` so the UI shows them
+    (they make the kernel work) but forbids removing them. A dep not yet installed
+    shows an empty version (it is materialised on first kernel launch)."""
+    lib = project_fs.kernel_r_lib()
+    out: list[dict] = []
+    for name in _KERNEL_DEPS:
+        desc = lib / name / "DESCRIPTION"
+        version = ""
+        if desc.exists():
+            for line in desc.read_text(errors="ignore").splitlines():
+                if line.startswith("Version:"):
+                    version = line.split(":", 1)[1].strip()
+                    break
+        out.append({
+            "name": name,
+            "spec": ("==" + version) if version else "",
+            "system": True,
+        })
+    return out
+
+
+def check_kernel_updates(options: dict | None = None) -> dict[str, str]:
+    """Outdated kernel infra packages → {name: latest}. One batch query against the
+    shared kernel library, same shape as ``check_updates`` for user packages."""
+    lib = str(project_fs.kernel_r_lib()).replace("\\", "/")
+    repo = ((options or {}).get("repos") or settings.r_repos).replace("'", "")
+    code = ("suppressWarnings(local({ op <- old.packages(lib.loc='%s', repos='%s'); "
+            "if (is.null(op)) { cat('{}') } else { "
+            "v <- as.list(op[, 'ReposVer']); names(v) <- op[, 'Package']; "
+            "cat(jsonlite::toJSON(v, auto_unbox=TRUE)) } }))") % (lib, repo)
+    import subprocess
+
+    try:
+        res = subprocess.run(
+            [settings.rscript_bin, "--vanilla", "-e", code],
+            capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return {}
+    for line in reversed(res.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                break
+            # Only the infra packages — the kernel lib holds nothing else, but guard.
+            return {k: v for k, v in parsed.items() if k in _KERNEL_DEPS}
+    return {}
+
+
+def upgrade_kernel_package(package: str, on_log=None, options: dict | None = None) -> None:
+    """Reinstall one kernel infra package to the latest version in the shared kernel
+    library. No lockfile involved — the kernel lib is machine-local infra, not part of
+    the project's versioned spec."""
+    if package not in _KERNEL_DEPS:
+        raise ProvisionError(f"'{package}' is not a kernel package")
+    import subprocess
+
+    lib = str(project_fs.kernel_r_lib()).replace("\\", "/")
+    repo = ((options or {}).get("repos") or settings.r_repos).replace("'", "")
+    code = f"install.packages('{package}', lib='{lib}', repos='{repo}')"
+    try:
+        res = subprocess.run(
+            [settings.rscript_bin, "--vanilla", "-e", code],
+            capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        raise ProvisionError(str(e)) from e
+    if on_log is not None and res.stdout:
+        on_log(res.stdout)
+    if res.returncode != 0:
+        raise ProvisionError(res.stderr or res.stdout or "install failed")
+
+
 def ensure_r_sandbox(on_log=None) -> None:
     """Populate the shared R "sandbox" — a directory of symlinks to ONLY the base +
     recommended packages of the system R (selected by Priority, mirroring renv's

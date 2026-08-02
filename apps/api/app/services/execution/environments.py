@@ -154,7 +154,15 @@ async def remove_package(
 
 
 def list_packages(project_uid: str, language: str) -> list[dict]:
-    return _provisioner(language).list_packages(project_uid)
+    user = _provisioner(language).list_packages(project_uid)
+    # R: prepend the kernel infra packages (jsonlite/base64enc/svglite). They live in
+    # a shared kernel library, not the project lockfile, so the UI shows them as
+    # non-removable `system` rows — they make every R kernel work.
+    if language == "r":
+        from app.services.execution import renv_provisioner
+
+        return [*renv_provisioner.list_kernel_packages(), *user]
+    return user
 
 
 def _updates_cache_path(project_uid: str, language: str):
@@ -186,6 +194,12 @@ def check_updates(project_uid: str, language: str, checked_at: str) -> dict:
 
     opts = get_env_override(project_uid, language) or None
     updates = _provisioner(language).check_updates(project_uid, options=opts)
+    # R: also check the shared kernel infra library (separate from the project lib),
+    # so an outdated jsonlite/base64enc/svglite is flagged like a user package.
+    if language == "r":
+        from app.services.execution import renv_provisioner
+
+        updates = {**renv_provisioner.check_kernel_updates(options=opts), **updates}
     result = {"packages": updates, "checkedAt": checked_at}
     path = _updates_cache_path(project_uid, language)
     try:
@@ -216,8 +230,18 @@ async def upgrade(
 ) -> Environment:
     """Re-lock one package (or all) to a newer version and mark the env draft so the
     user rebuilds. `package=None` = upgrade all."""
+    from app.services.execution import renv_provisioner
+
     env = await resolve(db, project_uid, language)
     opts = await resolve_options(db, project_uid, language)
+    # A kernel infra package lives in the shared kernel library, not the project
+    # lockfile: reinstall it in place (no relock, no rebuild — it's machine-local
+    # infra) and leave the project env untouched.
+    if language == "r" and package in renv_provisioner._KERNEL_DEPS:
+        await asyncio.to_thread(
+            renv_provisioner.upgrade_kernel_package, package, on_log, opts
+        )
+        return env
     await asyncio.to_thread(_provisioner(language).upgrade, project_uid, package, on_log, opts)
     return await _mark_managed(db, env)
 

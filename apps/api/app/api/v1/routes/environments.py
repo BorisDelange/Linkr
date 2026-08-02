@@ -246,6 +246,16 @@ async def remove_env_package(
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
     package = _valid_package(package)
+    # Kernel infra packages (shared kernel library) make every R kernel work — the UI
+    # hides their remove button, but reject it here too so the API can't strip them.
+    if language == "r":
+        from app.services.execution import renv_provisioner
+
+        if package in renv_provisioner._KERNEL_DEPS:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"'{package}' is a kernel package and cannot be removed",
+            )
     label = f"Remove {package} from {environments.language_label(language)}"
     try:
         env = await environments.run_package_op_as_job(

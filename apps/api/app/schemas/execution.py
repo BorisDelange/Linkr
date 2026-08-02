@@ -109,6 +109,9 @@ class EnvironmentResponse(CamelModel):
 class PackageResponse(CamelModel):
     name: str
     spec: str  # version constraint as declared ("==2.1.4", ">=1", or "")
+    # A kernel infra package (jsonlite/base64enc/svglite) in the shared kernel
+    # library — shown but not removable (only updatable). User packages: False.
+    system: bool = False
 
 
 class AddPackagesRequest(CamelModel):

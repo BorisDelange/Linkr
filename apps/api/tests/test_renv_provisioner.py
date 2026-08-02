@@ -4,6 +4,8 @@ is captured — so these run without renv installed."""
 
 import json
 
+import pytest
+
 from app.services.execution import renv_provisioner as R
 
 
@@ -61,6 +63,29 @@ def test_list_packages_reads_full_lockfile(monkeypatch, tmp_path):
     by = {p["name"]: p["spec"] for p in pkgs}
     # Both the declared package AND its dependency appear (snapshot recorded them).
     assert by == {"ggplot2": "==3.5.1", "plotly": "==4.10.4"}
+
+
+def test_list_kernel_packages_reads_version_from_description(monkeypatch, tmp_path):
+    """The kernel infra rows carry the version installed in the shared kernel library
+    (read from each package's DESCRIPTION), are flagged system, and a not-yet-installed
+    one shows an empty version."""
+    monkeypatch.setattr(R.project_fs, "kernel_r_lib", lambda: tmp_path)
+    # jsonlite installed with a version; base64enc without DESCRIPTION; svglite absent.
+    (tmp_path / "jsonlite").mkdir()
+    (tmp_path / "jsonlite" / "DESCRIPTION").write_text("Package: jsonlite\nVersion: 1.8.9\n")
+
+    pkgs = R.list_kernel_packages()
+    by = {p["name"]: p for p in pkgs}
+    assert by["jsonlite"]["spec"] == "==1.8.9" and by["jsonlite"]["system"] is True
+    assert by["base64enc"]["spec"] == "" and by["base64enc"]["system"] is True
+    assert by["svglite"]["spec"] == "" and by["svglite"]["system"] is True
+
+
+def test_upgrade_kernel_package_rejects_non_kernel(monkeypatch, tmp_path):
+    """Only the three infra packages can be reinstalled via the kernel-lib path."""
+    monkeypatch.setattr(R.project_fs, "kernel_r_lib", lambda: tmp_path)
+    with pytest.raises(R.ProvisionError):
+        R.upgrade_kernel_package("dplyr")
 
 
 def test_check_updates_parses_json_object(monkeypatch, tmp_path):

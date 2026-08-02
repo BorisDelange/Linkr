@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, RefreshCw, Sparkles, CheckCircle2 } from 'lucide-react'
+import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, RefreshCw, Sparkles, CheckCircle2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -251,6 +251,10 @@ export function ServerEnvironmentsPanel({
     )
   }
 
+  // User (removable) packages, distinct from the always-present kernel infra rows:
+  // an env with only infra is still "empty" for the no-packages hint / preset button.
+  const userPackages = packages.filter((p) => !p.system)
+
   const statusVariant =
     env?.status === 'ready' ? 'secondary' : env?.status === 'error' ? 'destructive' : 'outline'
   const needsBuild = env?.status === 'draft' || env?.status === 'error' || env?.status === 'building'
@@ -270,7 +274,24 @@ export function ServerEnvironmentsPanel({
       accessor: (p) => p.name,
       filter: 'text',
       size: 220,
-      cell: (p) => <span className="font-medium">{p.name}</span>,
+      cell: (p) => (
+        <span className="flex items-center gap-1.5">
+          <span className="font-medium">{p.name}</span>
+          {p.system && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="gap-1 px-1.5 py-0 text-[9px] font-normal text-muted-foreground">
+                  <Lock size={9} />
+                  {t('environments.kernel_pkg')}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                {t('environments.kernel_pkg_hint')}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </span>
+      ),
     },
     {
       id: 'version',
@@ -354,14 +375,17 @@ export function ServerEnvironmentsPanel({
                   </TooltipTrigger>
                   <TooltipContent className="text-xs">{t('environments.update')}</TooltipContent>
                 </Tooltip>
-                <button
-                  className="text-muted-foreground hover:text-destructive disabled:opacity-40"
-                  disabled={busy}
-                  onClick={(e) => { e.stopPropagation(); setRemoveTarget(p.name) }}
-                  aria-label={t('environments.remove')}
-                >
-                  <Trash2 size={13} />
-                </button>
+                {/* Kernel infra packages can be updated but never removed. */}
+                {!p.system && (
+                  <button
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-40"
+                    disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); setRemoveTarget(p.name) }}
+                    aria-label={t('environments.remove')}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -474,17 +498,30 @@ export function ServerEnvironmentsPanel({
             )}
           </div>
         ) : (
-          // Datatable (sort / filter / resize, scrolls internally) so a long package
-          // list stays inside the dialog instead of overflowing it. `flex` + min-h-0
-          // lets the table's own `h-full`/overflow-auto resolve against this box.
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
-            <ConceptDataTable<EnvPackage>
-              data={packages}
-              columns={columns}
-              rowKey={(p) => p.name}
-              emptyMessage={t('environments.no_packages')}
-            />
-          </div>
+          <>
+            {/* An env with only the kernel infra rows has no user packages yet —
+                offer the preset without hiding the (infra) table. */}
+            {canWrite && userPackages.length === 0 && (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                <span>{t('environments.no_user_packages')}</span>
+                <Button size="sm" variant="outline" className="h-7 shrink-0" disabled={busy} onClick={() => void onPreset()}>
+                  <Sparkles size={13} className="mr-1" />
+                  {t('environments.install_preset')}
+                </Button>
+              </div>
+            )}
+            {/* Datatable (sort / filter / resize, scrolls internally) so a long package
+                list stays inside the dialog instead of overflowing it. `flex` + min-h-0
+                lets the table's own `h-full`/overflow-auto resolve against this box. */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
+              <ConceptDataTable<EnvPackage>
+                data={packages}
+                columns={columns}
+                rowKey={(p) => p.name}
+                emptyMessage={t('environments.no_packages')}
+              />
+            </div>
+          </>
         )}
 
         {canWrite && (
