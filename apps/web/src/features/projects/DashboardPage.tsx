@@ -97,12 +97,15 @@ export function DashboardPage() {
   //  - component widgets that compute server-side (plot-builder, table1…) → app
   //    interpreter via /execute/render (viewer-visible, no execute perm needed)
   useEffect(() => {
-    if (!projectUid || !isServerMode() || !activeTabId) return
+    // activeTabId is a per-dashboard map (dashboardId → tabId); resolve the tab
+    // for the dashboard on screen before matching widgets to it.
+    const currentTab = currentDashboardId ? activeTabId[currentDashboardId] : undefined
+    if (!projectUid || !isServerMode() || !currentTab) return
     let codePy = 0
     let codeR = 0
     let renderPy = 0
     for (const w of widgets) {
-      if (w.tabId !== activeTabId) continue
+      if (w.tabId !== currentTab) continue
       const src = w.source
       if (src.type === 'inline') {
         if (!canExecute) continue
