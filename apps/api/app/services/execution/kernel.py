@@ -281,6 +281,13 @@ while True:
 #     default paths untouched.
 #   - point install.packages()/renv at the configured repo so a manual install in
 #     the R console has a CRAN mirror despite --vanilla skipping the site Rprofile.
+#   - absorb a STRAY interrupt during the idle stdin read: a Stop SIGINT races the
+#     run's own completion and can land after the run's done payload, while the
+#     kernel is back blocking idle on stdin. Catching it there (the `.stray_int`
+#     retry) stops it from firing at the start of the NEXT run and aborting it with
+#     a spurious "interrupt". A real in-flight run is still interrupted inside
+#     .eval_one. .stray_int distinguishes an absorbed interrupt (retry the read)
+#     from a real EOF (readLines returns character(0) → break).
 _R_KERNEL_LOOP = r'''
 local({
   .lib <- Sys.getenv("LINKR_R_LIB")
@@ -313,7 +320,12 @@ suppressMessages({
   for (.l in text) .emit(list("__linkr_stream__" = kind, data = paste0(.l, "\n")))
 }
 repeat {
-  .line <- readLines(.con, n = 1, warn = FALSE)
+  # Absorb a stray SIGINT arriving during the idle read (a late Stop from a
+  # finished run) so it can't bleed into the next run. See Python notes below.
+  .stray_int <- FALSE
+  .line <- tryCatch(readLines(.con, n = 1, warn = FALSE),
+                    interrupt = function(i) { .stray_int <<- TRUE; character(0) })
+  if (.stray_int) next
   if (length(.line) == 0) break
   .line <- trimws(.line)
   if (nchar(.line) == 0) next

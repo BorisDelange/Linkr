@@ -77,7 +77,7 @@ import { useProjectTree } from '@/hooks/use-project-tree'
 import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { isServerMode } from '@/lib/api-client'
-import { streamOnServer, interruptServerKernel, runFileAsJob } from '@/lib/api/execution'
+import { streamOnServer, runFileAsJob } from '@/lib/api/execution'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { queryDatasetRows } from '@/lib/api/datasets'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
@@ -671,15 +671,15 @@ export function FilesPage() {
     [activeConnectionId, activeProjectUid, t, startExecution, finishExecution, addExecutionResult, updateExecutionResult, addOutputTab, setActiveOutputTab]
   )
 
-  // Stop: abort the WASM run (front-only) AND, in server mode, SIGINT the kernel
-  // so a long server-side run (e.g. Sys.sleep) actually interrupts — an aborted
-  // HTTP request alone would not stop the kernel process.
+  // Stop: abort the run. In server mode, aborting closes the kernel WebSocket,
+  // and the server's socket-teardown SIGINTs the kernel AND drains its stdout to
+  // the done payload before the kernel goes idle — so a long run (Sys.sleep)
+  // actually stops and no leftover output bleeds into the next run. We must NOT
+  // also fire the separate /execute/interrupt HTTP route here: a second SIGINT
+  // can land on the now-idle kernel and get queued into the following run.
   const handleStop = useCallback(() => {
     stopExecution()
-    if (isServerMode() && activeProjectUid && (selectedLanguage === 'python' || selectedLanguage === 'r')) {
-      void interruptServerKernel(selectedLanguage, activeProjectUid, activeSessionId).catch(() => {})
-    }
-  }, [stopExecution, activeProjectUid, selectedLanguage, activeSessionId])
+  }, [stopExecution])
 
   const isMarkdown = selectedLanguage === 'markdown' || selectedNode?.name.endsWith('.md')
 

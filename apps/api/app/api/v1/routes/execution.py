@@ -526,8 +526,22 @@ async def _terminal_kernel_loop(
                 continue
             current = asyncio.create_task(run(code))
     finally:
+        # The IDE client stops a run by CLOSING this socket (and SIGINT'ing via the
+        # HTTP route), which lands here as a receive error. Do NOT just cancel the
+        # run task: cancelling mid-stream abandons the kernel's stdout pipe with the
+        # run still writing (its remaining prints + done payload), and those bytes
+        # are then read at the START of the NEXT run — output bleeds across runs and
+        # a stale done makes a fresh run look finished in milliseconds. Instead
+        # SIGINT the kernel and let the task DRAIN the pipe to its done payload, so
+        # the kernel is left clean and back to idle. Bounded so a wedged kernel
+        # can't hang the socket teardown forever.
         if current is not None and not current.done():
-            current.cancel()
+            k.interrupt()
+            try:
+                await asyncio.wait_for(current, timeout=settings.execution_timeout_seconds)
+            except BaseException:  # noqa: BLE001 — drain best-effort; teardown must not raise
+                if not current.done():
+                    current.cancel()
 
 
 async def _terminal_pty_loop(

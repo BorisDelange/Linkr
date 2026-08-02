@@ -125,9 +125,10 @@ export function streamOnServer(
     sessionId?: string
     connectionId?: string
     onChunk: (text: string, kind: 'stdout' | 'stderr') => void
-    // Stop: abort closes the socket and rejects the promise promptly. The kernel
-    // is separately SIGINT'd (interruptServerKernel); this ends the client wait so
-    // the run doesn't stay "streaming" until the server's done/timeout.
+    // Stop: aborting closes the socket and rejects the promise promptly. The
+    // server's socket-teardown then SIGINTs the kernel and drains its stdout to
+    // the done payload, so the run stops and no leftover output leaks into the
+    // next run — no separate interrupt call is needed from the client.
     signal?: AbortSignal
   },
 ): Promise<RuntimeOutput> {
