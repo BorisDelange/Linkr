@@ -80,6 +80,8 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
           datasetFileId: datasetFileId ?? undefined,
           datasetFilters: datasetFileId ? resolveServerFilters(filters, columns) : undefined,
           purpose: 'dashboards',
+          // Each widget run gets its own isolated process → widgets execute in parallel.
+          ephemeral: true,
         })
       }
       // Ensure plugin dependencies are installed (cached per session) — WASM only.
@@ -121,6 +123,7 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
         isExecuting={loading}
         onRerun={rerun}
         compact
+        showConsole={false}
       />
     </div>
   )

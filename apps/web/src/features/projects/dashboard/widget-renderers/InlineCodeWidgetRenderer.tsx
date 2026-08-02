@@ -44,6 +44,8 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
           datasetFileId: datasetFileId ?? undefined,
           datasetFilters: datasetFileId ? resolveServerFilters(filters, columns) : undefined,
           purpose: 'dashboards',
+          // Each widget run gets its own isolated process → widgets execute in parallel.
+          ephemeral: true,
         })
       }
       const executor = await import('@/features/projects/lab/datasets/analysis-executor')
@@ -82,6 +84,7 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
         isExecuting={loading}
         onRerun={rerun}
         compact
+        showConsole={false}
       />
     </div>
   )

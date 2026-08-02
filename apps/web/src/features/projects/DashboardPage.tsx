@@ -19,6 +19,10 @@ import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
 import { DashboardSettingsDialog } from './dashboard/DashboardSettingsDialog'
 import { ExportDashboardDialog } from './dashboard/ExportDashboardDialog'
 import { isWidgetPluginStale } from './dashboard/plugin-drift'
+import { isServerMode } from '@/lib/api-client'
+import { prewarmPool } from '@/lib/api/execution'
+import { getPlugin } from '@/lib/plugins/registry'
+import { componentSupportsServer } from '@/lib/plugins/component-registry'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export function DashboardPage() {
@@ -26,7 +30,9 @@ export function DashboardPage() {
   const { wsUid, projectUid: resolvedProjectUid, raw } = useResolvedParams()
   const navigate = useNavigate()
   const projectUid = resolvedProjectUid ?? ''
-  const canWrite = useMyProjectRole(projectUid).can('dashboards:write')
+  const projectRole = useMyProjectRole(projectUid)
+  const canWrite = projectRole.can('dashboards:write')
+  const canExecute = projectRole.can('dashboards:execute')
 
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
@@ -83,6 +89,41 @@ export function DashboardPage() {
     loadProjectDashboards(projectUid)
     loadProjectDatasets(projectUid)
   }, [projectUid, loadProjectDashboards, loadProjectDatasets])
+
+  // Server mode: pre-start the warm pools sized to the CURRENT tab's widgets so a
+  // page of N widgets gets N warm processes and they run warm+parallel (not "2 warm
+  // + the rest cold-starting"). Three buckets:
+  //  - code widgets (inline / script plugin) → managed env, gated on execute
+  //  - component widgets that compute server-side (plot-builder, table1…) → app
+  //    interpreter via /execute/render (viewer-visible, no execute perm needed)
+  useEffect(() => {
+    if (!projectUid || !isServerMode() || !activeTabId) return
+    let codePy = 0
+    let codeR = 0
+    let renderPy = 0
+    for (const w of widgets) {
+      if (w.tabId !== activeTabId) continue
+      const src = w.source
+      if (src.type === 'inline') {
+        if (!canExecute) continue
+        if (src.language === 'r') codeR++; else codePy++
+      } else if (src.type === 'plugin') {
+        const plugin = getPlugin(src.pluginId)
+        const isComponent = !!(plugin?.componentId && plugin.manifest.runtime.includes('component'))
+        if (isComponent) {
+          // Component renders run server-side (python, app interpreter) via /render.
+          if (plugin?.componentId && componentSupportsServer(plugin.componentId)) renderPy++
+          continue
+        }
+        if (!canExecute) continue
+        const lang = src.language ?? (plugin?.templates?.python ? 'python' : 'r')
+        if (lang === 'r') codeR++; else codePy++
+      }
+    }
+    if (codePy > 0) prewarmPool('python', projectUid, { count: codePy })
+    if (codeR > 0) prewarmPool('r', projectUid, { count: codeR })
+    if (renderPy > 0) prewarmPool('python', projectUid, { count: renderPy, appEnv: true })
+  }, [projectUid, canExecute, activeTabId, widgets])
 
   useEffect(() => {
     if (currentDashboardId) {

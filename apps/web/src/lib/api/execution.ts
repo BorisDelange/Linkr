@@ -32,6 +32,10 @@ export function executeOnServer(
      *  code-backed widget/analysis (needs the resource :execute); 'ide' (default) =
      *  ide:execute. Built-in component renders use renderOnServer(), not this. */
     purpose?: 'ide' | 'dashboards' | 'datasets' | 'patient-data'
+    /** Run in a FRESH, isolated ephemeral process (warm pool) instead of the
+     *  project's persistent session kernel — so dashboard widgets run in parallel
+     *  without sharing a namespace or serialising on one lock. */
+    ephemeral?: boolean
   },
 ): Promise<RuntimeOutput> {
   // The backend resolves a disk-source dataset (datasetFileId = its path) only
@@ -55,8 +59,30 @@ export function executeOnServer(
       connectionId: opts?.connectionId ?? null,
       datasetFilters: opts?.datasetFilters ?? null,
       purpose: opts?.purpose ?? 'ide',
+      ephemeral: opts?.ephemeral ?? false,
     }),
   })
+}
+
+/**
+ * Pre-start the warm pool for a project's language so the first ephemeral widget
+ * run is import-free. Fire-and-forget: failures are swallowed (a cold run still
+ * works, just slower). Call on dashboard open.
+ */
+export function prewarmPool(
+  language: 'python' | 'r',
+  projectUid: string,
+  opts?: { count?: number; appEnv?: boolean },
+): void {
+  void apiRequest<void>('/execute/prewarm', {
+    method: 'POST',
+    body: JSON.stringify({
+      language,
+      projectUid,
+      count: opts?.count ?? null,
+      appEnv: opts?.appEnv ?? false,
+    }),
+  }).catch(() => { /* best-effort */ })
 }
 
 /**
