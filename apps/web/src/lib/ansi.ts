@@ -26,8 +26,28 @@ const FG: Record<number, string> = {
 // eslint-disable-next-line no-control-regex
 const SGR_RE = /\x1b\[([0-9;]*)m/g
 
+// Any CSI sequence that is NOT an SGR one: cursor moves/visibility (ESC[?25l,
+// ESC[1G), line/screen erases (ESC[2K, ESC[0J), etc. Progress-bar output (uv,
+// pip, renv) is full of these; in a static <pre> they can't animate anything, so
+// their ESC is invisible but the trailing bytes ("[?25l") would print literally.
+// Drop them. The final byte of a CSI sequence is in the @–~ range (0x40–0x7E);
+// exclude 'm' so SGR colour codes are left for the parser below to style.
+// eslint-disable-next-line no-control-regex
+const NON_SGR_CSI_RE = /\x1b\[[0-9;?]*[@-ln-~]/g
+// Two-byte escapes that carry no CSI payload (ESC = keypad, ESC c reset, …) and a
+// bare/orphan ESC — strip so no stray control byte reaches the DOM.
+// eslint-disable-next-line no-control-regex
+const OTHER_ESC_RE = /\x1b[=>c78]|\x1b(?![[\]])/g
+
+/** Remove ANSI control sequences that carry no styling (cursor/erase/keypad),
+ *  leaving SGR colour codes in place for the caller to interpret. */
+function stripNonSgr(input: string): string {
+  return input.replace(NON_SGR_CSI_RE, '').replace(OTHER_ESC_RE, '')
+}
+
 /** Split ANSI-coded text into styled segments. Unstyled runs get no className. */
-export function parseAnsi(input: string): AnsiSegment[] {
+export function parseAnsi(rawInput: string): AnsiSegment[] {
+  const input = stripNonSgr(rawInput)
   const segments: AnsiSegment[] = []
   let className: string | undefined
   let bold = false
@@ -63,8 +83,9 @@ export function parseAnsi(input: string): AnsiSegment[] {
   return segments
 }
 
-/** Strip all ANSI SGR codes from text (for copy-to-clipboard, length checks). */
+/** Strip ALL ANSI control sequences (colour + cursor/erase/keypad) from text —
+ *  for copy-to-clipboard, length checks, or any plain-text consumer. */
 export function stripAnsi(input: string): string {
   // eslint-disable-next-line no-control-regex
-  return input.replace(/\x1b\[[0-9;]*m/g, '')
+  return stripNonSgr(input).replace(/\x1b\[[0-9;]*m/g, '')
 }

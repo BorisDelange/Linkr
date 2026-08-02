@@ -41,10 +41,28 @@ describe('parseAnsi', () => {
     const segs = parseAnsi('\x1b[32m\x1b[1mx')
     expect(segs).toEqual([{ text: 'x', className: 'text-emerald-500', bold: true }])
   })
+
+  it('drops cursor hide/show sequences (ESC[?25l / ESC[?25h) that would print literally', () => {
+    const segs = parseAnsi('\x1b[?25lRunning\x1b[?25h done')
+    expect(segs).toEqual([{ text: 'Running done' }])
+  })
+
+  it('drops erase-line and cursor-move sequences from progress-bar output', () => {
+    // A uv/pip-style redraw: clear line, move to column 1, then coloured text.
+    const segs = parseAnsi('\x1b[2K\x1b[1G\x1b[32mResolved\x1b[0m 12 packages')
+    expect(segs).toEqual([
+      { text: 'Resolved', className: 'text-emerald-500' },
+      { text: ' 12 packages' },
+    ])
+  })
 })
 
 describe('stripAnsi', () => {
   it('removes all SGR codes', () => {
     expect(stripAnsi('\x1b[32m✔\x1b[0m done')).toBe('✔ done')
+  })
+
+  it('removes cursor/erase control sequences too', () => {
+    expect(stripAnsi('\x1b[?25l\x1b[2Kbuilding\x1b[?25h')).toBe('building')
   })
 })
