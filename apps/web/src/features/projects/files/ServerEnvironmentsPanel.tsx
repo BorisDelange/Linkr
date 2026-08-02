@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, RefreshCw, Sparkles, CheckCircle2, Lock } from 'lucide-react'
+import { Plus, Loader2, Trash2, Hammer, ExternalLink, Info, RefreshCw, Sparkles, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -274,24 +274,7 @@ export function ServerEnvironmentsPanel({
       accessor: (p) => p.name,
       filter: 'text',
       size: 220,
-      cell: (p) => (
-        <span className="flex items-center gap-1.5">
-          <span className="font-medium">{p.name}</span>
-          {p.system && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge variant="outline" className="gap-1 px-1.5 py-0 text-[9px] font-normal text-muted-foreground">
-                  <Lock size={9} />
-                  {t('environments.kernel_pkg')}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs text-xs">
-                {t('environments.kernel_pkg_hint')}
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </span>
-      ),
+      cell: (p) => <span className="font-medium">{p.name}</span>,
     },
     {
       id: 'version',
@@ -375,8 +358,24 @@ export function ServerEnvironmentsPanel({
                   </TooltipTrigger>
                   <TooltipContent className="text-xs">{t('environments.update')}</TooltipContent>
                 </Tooltip>
-                {/* Kernel infra packages can be updated but never removed. */}
-                {!p.system && (
+                {/* Kernel infra packages can be updated but never removed: the
+                    remove button is shown disabled + struck through, with a tooltip
+                    explaining why. */}
+                {p.system ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="relative inline-flex cursor-not-allowed text-muted-foreground/30">
+                        <Trash2 size={13} />
+                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                          <span className="h-px w-[15px] rotate-45 bg-muted-foreground/50" />
+                        </span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="max-w-xs text-xs">
+                      {t('environments.kernel_pkg_hint')}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
                   <button
                     className="text-muted-foreground hover:text-destructive disabled:opacity-40"
                     disabled={busy}
