@@ -5,6 +5,7 @@ import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog
 import type { GitScope } from '@/lib/api/git'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
 import { localized } from '@/lib/localized'
+import { cardMenuTriggerClass } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 import { Button } from '@/components/ui/button'
 import {
@@ -128,6 +129,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             <Button
               variant="ghost"
               size="icon-sm"
+              className={cardMenuTriggerClass}
               onClick={(e) => e.stopPropagation()}
             >
               <MoreHorizontal size={14} />

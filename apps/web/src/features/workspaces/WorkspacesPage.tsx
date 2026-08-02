@@ -17,6 +17,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { isServerMode, formatApiError, type FormattedError } from '@/lib/api-client'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cardMenuTriggerClass } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -957,7 +958,7 @@ export function WorkspacesPage() {
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon-sm" className={cardMenuTriggerClass} onClick={(e) => e.stopPropagation()}>
                             <MoreHorizontal size={14} />
                           </Button>
                         </DropdownMenuTrigger>

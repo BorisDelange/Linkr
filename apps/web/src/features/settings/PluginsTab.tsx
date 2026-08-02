@@ -12,7 +12,7 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
-import { cn } from '@/lib/utils'
+import { cn, cardMenuTriggerClass } from '@/lib/utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -111,7 +111,7 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
             {!readOnly && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
+                  <Button variant="ghost" size="icon-sm" className={cardMenuTriggerClass} onClick={(e) => e.stopPropagation()}>
                     <MoreHorizontal size={14} />
                   </Button>
                 </DropdownMenuTrigger>

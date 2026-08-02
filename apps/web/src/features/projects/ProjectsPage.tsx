@@ -17,6 +17,7 @@ import { buildProjectZip, parseProjectZip, deleteProjectData, importProjectConte
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cardMenuTriggerClass } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
@@ -418,7 +419,7 @@ export function ProjectsPage() {
                         </span>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
+                            <Button variant="ghost" size="icon-sm" className={cardMenuTriggerClass} onClick={(e) => e.stopPropagation()}>
                               <MoreHorizontal size={14} />
                             </Button>
                           </DropdownMenuTrigger>

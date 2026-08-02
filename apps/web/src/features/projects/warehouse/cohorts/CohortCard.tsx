@@ -8,6 +8,7 @@ import {
   Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cardMenuTriggerClass } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -77,7 +78,7 @@ export function CohortCard({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="ml-auto shrink-0"
+                className={`ml-auto shrink-0 ${cardMenuTriggerClass}`}
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal size={14} />
