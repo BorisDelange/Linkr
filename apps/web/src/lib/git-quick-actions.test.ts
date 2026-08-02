@@ -64,6 +64,17 @@ describe('buildQuickActions', () => {
     expect(paths(mappings)).toEqual(['mappings.csv'])
   })
 
+  it('sql-script-collections: Sync all takes every changed path; Sync SQL scripts narrows to .sql', () => {
+    const changed = ch('_collection.json', '_tree.json', 'folder/query.sql', 'README.md')
+    const [all, sql] = buildQuickActions('sql-script-collections', changed)
+    expect(all.labelKey).toBe('versioning.quick_sync_all')
+    expect(all.descriptionKey).toBe('versioning.quick_desc_all_collection')
+    expect(all.isSyncAll).toBe(true)
+    expect(paths(all)).toEqual(['_collection.json', '_tree.json', 'folder/query.sql', 'README.md'])
+    expect(sql.labelKey).toBe('versioning.quick_sync_sql_scripts')
+    expect(paths(sql)).toEqual(['folder/query.sql'])
+  })
+
   it('Sync all drops foreign files but keeps Linkr-managed ones (incl. .gitignore/.gitattributes)', () => {
     // review/*, state.json, a custom CSV aren't Linkr's → foreign (dropped).
     // .gitignore/.gitattributes are Linkr-managed → kept even if categorised 'other'.

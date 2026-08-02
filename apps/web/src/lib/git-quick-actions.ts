@@ -82,6 +82,22 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       patterns: [/^scripts\//],
     },
   ],
+  'sql-script-collections': [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_collection',
+      messageKey: 'versioning.quick_msg_all_collection',
+      excludeForeign: true,
+    },
+    {
+      labelKey: 'versioning.quick_sync_sql_scripts',
+      descriptionKey: 'versioning.quick_desc_sql_scripts',
+      messageKey: 'versioning.quick_msg_sql_scripts',
+      // Script files live at an arbitrary path in the collection tree, so match by
+      // extension rather than a fixed prefix.
+      patterns: [/\.sql$/i],
+    },
+  ],
   workspaces: [
     {
       labelKey: 'versioning.quick_sync_all',

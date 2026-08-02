@@ -118,6 +118,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   'sql-script-collections': [
     { test: /^_collection\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_collection_json' },
     { test: /^_tree\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_tree' },
+    README_RULE,
     { test: /\.sql$/i, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_sql_file' },
     ATTRS_RULE,
   ],
