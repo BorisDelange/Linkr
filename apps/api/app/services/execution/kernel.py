@@ -512,8 +512,18 @@ class Kernel:
     def interrupt(self) -> bool:
         """Send SIGINT to the running kernel (Ctrl+C). Returns False if no live
         process. The kernel catches the interrupt and stays alive for the next
-        request; a hung C-extension that ignores SIGINT still hits the timeout."""
+        request; a hung C-extension that ignores SIGINT still hits the timeout.
+
+        Only fires while a run is in flight (``busy``). A Stop click races the
+        run's own completion — the client aborts the stream and calls this in
+        parallel. If the run already finished, the kernel is back to blocking on
+        stdin for the NEXT request; a SIGINT delivered then is queued by the
+        interpreter and caught at the start of the following run, which would
+        wrongly abort a fresh run with a spurious "interrupt". Skipping it when
+        idle keeps Stop→re-run working."""
         if self._proc is None or self._proc.returncode is not None:
+            return False
+        if not self.busy:
             return False
         try:
             self._proc.send_signal(signal.SIGINT)

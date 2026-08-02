@@ -116,6 +116,37 @@ async def test_interrupt_is_a_noop_without_a_live_kernel(mgr):
     assert mgr.interrupt("p", 1, "python", "missing") is False
 
 
+class _FakeProc:
+    def __init__(self):
+        self.returncode = None
+        self.signals: list = []
+
+    def send_signal(self, sig):
+        self.signals.append(sig)
+
+
+def test_kernel_interrupt_only_fires_while_busy():
+    """A Stop click races the run's own completion. If the run already finished
+    (busy=False) the kernel is idle on stdin, and a SIGINT delivered then is
+    queued and caught at the start of the NEXT run — spuriously aborting a fresh
+    run. interrupt() must be a no-op unless a run is actually in flight."""
+    from app.services.execution.kernel import Kernel
+
+    k = Kernel(cmd=["true"])
+    proc = _FakeProc()
+    k._proc = proc
+
+    # Idle kernel: Stop must NOT send a signal (else it poisons the next run).
+    k.busy = False
+    assert k.interrupt() is False
+    assert proc.signals == []
+
+    # A run in flight: Stop signals it.
+    k.busy = True
+    assert k.interrupt() is True
+    assert len(proc.signals) == 1
+
+
 # --- Warm pool + ephemeral runs -------------------------------------------
 
 class _RunKernel:
