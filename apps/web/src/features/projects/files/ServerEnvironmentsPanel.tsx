@@ -186,10 +186,13 @@ export function ServerEnvironmentsPanel({
   }, [projectUid, language, autoBuild, onBuild])
 
   const onAdd = async () => {
-    const name = newPkg.trim()
-    if (!name) return
+    // Accept several packages at once: comma / whitespace separated, each optionally
+    // version-pinned ("dplyr==1.2.1, tidyr, lubridate"). The backend takes a list and
+    // installs them plus their missing dependencies in one pass.
+    const names = newPkg.split(/[,\s]+/).map((n) => n.trim()).filter(Boolean)
+    if (names.length === 0) return
     setNewPkg('')
-    await addPackages([name])
+    await addPackages(names)
   }
 
   // Consume a queued one-click install targeting this language: add the packages

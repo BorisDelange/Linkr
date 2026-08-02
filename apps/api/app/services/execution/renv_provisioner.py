@@ -112,6 +112,29 @@ def _run_r(project_uid: str, r_code: str, on_log=None, options: dict | None = No
     return out
 
 
+def _isolation_prefix(project_uid: str) -> str:
+    """R code that puts a package op inside the SAME isolation the kernel uses (see
+    kernel.py): replace .Library with the shared sandbox (base+recommended only) and
+    pin .libPaths() to [project library]. So install.packages() resolves a dependency
+    (e.g. plotly's ggplot2) against the project library + base R — never the server's
+    global contributed packages — and installs whatever is missing INTO the project
+    library. Requires the sandbox to be populated first (ensure_r_sandbox).
+
+    renv itself is a contributed package (not in the base-only sandbox), so it is
+    loaded into memory FIRST, while the system library is still visible; its functions
+    then keep working after .Library is swapped."""
+    projlib = str(_library_dir(project_uid)).replace("\\", "/")
+    sandbox = str(project_fs.r_sandbox()).replace("\\", "/")
+    return (
+        "suppressMessages(requireNamespace('renv', quietly=TRUE)); "
+        f"local({{ .sb <- '{sandbox}'; "
+        f"if (dir.exists(.sb)) {{ .b <- .BaseNamespaceEnv; "
+        f"if (bindingIsLocked('.Library', .b)) unlockBinding('.Library', .b); "
+        f"assign('.Library', .sb, envir = .b); lockBinding('.Library', .b) }}; "
+        f".libPaths('{projlib}') }}); "
+    )
+
+
 def ensure_manifest(project_uid: str) -> Path:
     """Create an empty ``renv.lock`` if none exists so record/snapshot has a base.
     Idempotent."""
@@ -142,47 +165,83 @@ def list_packages(project_uid: str) -> list[dict]:
     ]
 
 
+def _snapshot_code(project_uid: str) -> str:
+    """renv::snapshot of the project library into renv.lock, capturing the FULL tree
+    actually installed (declared packages + their dependencies) so the lockfile is
+    what gets versioned/exported and what a rebuild restores — truly reproducible.
+    type='all' records every package present in the library, not just those reachable
+    from project code (there is no package code to scan at this layer)."""
+    projlib = str(_library_dir(project_uid)).replace("\\", "/")
+    return (
+        f"renv::snapshot(library='{projlib}', lockfile='renv.lock', "
+        f"type='all', prompt=FALSE, force=TRUE)"
+    )
+
+
 def add_packages(project_uid: str, packages: list[str], on_log=None, options: dict | None = None) -> None:
-    """Record packages into the lockfile (no library build yet). renv::record adds
-    them to renv.lock; the actual install happens on build (renv::restore)."""
+    """Install package(s) — AND their missing dependencies — into the project library,
+    then snapshot the full tree into renv.lock. Runs inside the kernel's isolation
+    (sandbox as .Library) so a dependency resolves against the project lib + base R,
+    never the server's global contributed packages. Only missing dependencies are
+    installed; an already-present one is left at its version (renv default)."""
     ensure_manifest(project_uid)
+    ensure_r_sandbox(on_log=on_log)
     # Validated (allowlist) before interpolation — the values reach `Rscript -e`
     # source, so an unescaped metachar would be R-code injection (RCE).
     specs = ", ".join(f'"{_to_renv_ref(validate_package_spec(p))}"' for p in packages)
+    projlib = str(_library_dir(project_uid)).replace("\\", "/")
     _run_r(
         project_uid,
-        f"renv::record(c({specs}), lockfile='renv.lock')",
+        _isolation_prefix(project_uid)
+        + f"renv::install(c({specs}), library='{projlib}', prompt=FALSE); "
+        + _snapshot_code(project_uid),
         on_log=on_log,
         options=options,
     )
 
 
 def remove_package(project_uid: str, package: str, on_log=None, options: dict | None = None) -> None:
+    """Uninstall a package from the project library, then re-snapshot so the lockfile
+    reflects the removal. Its now-orphaned dependencies are left installed (renv does
+    not garbage-collect them here) but a later snapshot with a clean library would
+    drop them — we keep it simple and safe."""
     ensure_manifest(project_uid)
     name = validate_package_spec(package).split("==")[0].split(">")[0].split("<")[0].strip()
+    projlib = str(_library_dir(project_uid)).replace("\\", "/")
     _run_r(
         project_uid,
-        f"renv::record(list(), lockfile='renv.lock'); "
-        f"lf <- renv::lockfile_read('renv.lock'); "
-        f"lf$Packages[['{name}']] <- NULL; "
-        f"renv::lockfile_write(lf, 'renv.lock')",
+        _isolation_prefix(project_uid)
+        + f"try(remove.packages('{name}', lib='{projlib}'), silent=TRUE); "
+        + _snapshot_code(project_uid),
         on_log=on_log,
         options=options,
     )
 
 
 def upgrade(project_uid: str, package: str | None = None, on_log=None, options: dict | None = None) -> None:
-    """Re-record newer versions into the lockfile: one package or all. Uses
-    ``renv::record`` with the latest available version resolved from the repos."""
+    """Install the latest version of one package (or every installed one) into the
+    project library, then snapshot. Like add_packages, runs isolated and re-locks the
+    full tree so the lockfile stays the reproducible source of truth."""
     ensure_manifest(project_uid)
+    ensure_r_sandbox(on_log=on_log)
+    projlib = str(_library_dir(project_uid)).replace("\\", "/")
     if package:
-        safe = validate_package_spec(package)
-        _run_r(project_uid, f"renv::record('{safe}', lockfile='renv.lock')", on_log=on_log, options=options)
+        # Strip any version pin — upgrade means "go to latest".
+        name = validate_package_spec(package).split("==")[0].split(">")[0].split("<")[0].strip()
+        targets = f'"{name}"'
     else:
         names = [p["name"] for p in list_packages(project_uid)]
-        if names:
-            specs = ", ".join(f'"{n}"' for n in names)
-            _run_r(project_uid, f"renv::record(c({specs}), lockfile='renv.lock')", on_log=on_log, options=options)
+        if not names:
+            return
+        targets = "c(" + ", ".join(f'"{n}"' for n in names) + ")"
+    _run_r(
+        project_uid,
+        _isolation_prefix(project_uid)
+        + f"renv::install({targets}, library='{projlib}', prompt=FALSE, rebuild=FALSE); "
+        + _snapshot_code(project_uid),
+        on_log=on_log,
+        options=options,
+    )
 
 
 def _to_renv_ref(requirement: str) -> str:
@@ -260,15 +319,20 @@ def ensure_kernel_r_lib(on_log=None) -> None:
 
 
 async def build(project_uid: str, on_log=None, options: dict | None = None) -> BuildResult:
-    """Materialise the private library from ``renv.lock`` (``renv::restore``) as an
-    async subprocess — off the event loop and killable on cancel."""
+    """Materialise the private library from ``renv.lock`` (``renv::restore``) — the
+    full tree the lockfile pins (declared packages + their dependencies) — as an async
+    subprocess, off the event loop and killable on cancel. Runs inside the kernel's
+    isolation so restore resolves against the project lib + base R, not the global
+    contributed packages."""
     ensure_manifest(project_uid)
+    ensure_r_sandbox(on_log=on_log)
     # Pass the target library explicitly: outside an activated renv project,
     # RENV_PATHS_LIBRARY isn't enough — renv restores into a default location.
     # Forward-slash the path so it's a valid R string literal on every OS.
     lib = str(_library_dir(project_uid)).replace("\\", "/")
     restore_code = (
         _method_prefix(options)
+        + _isolation_prefix(project_uid)
         + f"renv::restore(lockfile='renv.lock', library='{lib}', prompt=FALSE)"
     )
     if on_log is not None:

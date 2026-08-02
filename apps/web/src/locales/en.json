@@ -2559,7 +2559,7 @@
     "description": "Install and manage Python and R packages for your WASM runtimes.",
     "description_server": "Python and R run on the server in full-stack mode.",
     "open_project_first": "Open a project to manage its environment.",
-    "add_placeholder": "Package name (e.g. pandas, numpy==1.26)…",
+    "add_placeholder": "Package(s), comma-separated (e.g. pandas, numpy==1.26)…",
     "build": "Rebuild",
     "auto_build": "Rebuild automatically",
     "auto_build_hint": "When on, adding, updating or removing a package rebuilds the environment immediately (installs the change). When off, changes are recorded and applied on the next Build or the first time you run code.",

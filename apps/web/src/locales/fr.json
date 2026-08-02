@@ -2559,7 +2559,7 @@
     "description": "Installer et gérer les packages Python et R pour les runtimes WASM.",
     "description_server": "Python et R s'exécutent sur le serveur en mode full-stack.",
     "open_project_first": "Ouvrez un projet pour gérer son environnement.",
-    "add_placeholder": "Nom du package (ex. pandas, numpy==1.26)…",
+    "add_placeholder": "Package(s), séparés par des virgules (ex. pandas, numpy==1.26)…",
     "build": "Reconstruire",
     "auto_build": "Reconstruire automatiquement",
     "auto_build_hint": "Si activé, ajouter, mettre à jour ou supprimer un package reconstruit l'environnement immédiatement (installe le changement). Si désactivé, les changements sont enregistrés et appliqués à la prochaine reconstruction ou au premier lancement du code.",
