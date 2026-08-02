@@ -55,9 +55,18 @@ const R_WARNING_PATTERNS = [
   /^Don't know how to automatically pick/,
 ]
 
-/** Split stderr into real errors and informational warnings. */
-function splitStderr(stderr: string): { errors: string; warnings: string } {
+/** Split stderr into real errors and informational warnings.
+ *
+ * `producedOutput` = the run yielded a figure/table/html. When it did, the run
+ * SUCCEEDED, so everything on stderr is warnings/messages (R sends ggplot
+ * "Removed N rows…", "no non-missing arguments…", package-load notes, etc. to
+ * stderr even on success). Treating those as errors showed a scary red block that,
+ * on a small dashboard cell, starved the figure of height — the widget looked
+ * blank/broken though its plot rendered fine. A real error prevents any output, so
+ * this only reclassifies noise, never a genuine failure. */
+function splitStderr(stderr: string, producedOutput = false): { errors: string; warnings: string } {
   if (!stderr) return { errors: '', warnings: '' }
+  if (producedOutput) return { errors: '', warnings: stderr.trim() }
 
   const lines = stderr.split('\n')
   const errorLines: string[] = []
@@ -96,9 +105,12 @@ interface PluginOutputRendererProps {
   onRerun?: () => void
   /** Compact mode for dashboard widgets — less padding, no borders on table. */
   compact?: boolean
+  /** Show the console (stdout/stderr) inline. On the rendered dashboard this is
+   *  false — console is an edit-time concern, shown in the editor's own pane. */
+  showConsole?: boolean
 }
 
-export function PluginOutputRenderer({ result, isExecuting, statusMessage, installedDeps, onRerun, compact }: PluginOutputRendererProps) {
+export function PluginOutputRenderer({ result, isExecuting, statusMessage, installedDeps, onRerun, compact, showConsole = true }: PluginOutputRendererProps) {
   const { t } = useTranslation()
   const [expandedPanel, setExpandedPanel] = useState<'info' | 'warnings' | null>(null)
 
@@ -122,13 +134,18 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
     )
   }
 
-  const { errors, warnings } = splitStderr(result.stderr)
+  const hasFigures = result.figures.length > 0
+  const hasTable = result.table !== null
+  const hasHtml = !!result.html
+  const hasStdout = result.stdout.length > 0
+  // A run that produced any visible output succeeded → its stderr is warnings, not
+  // a fatal error (see splitStderr). This is what keeps a plotted widget from
+  // rendering as a red error box that hides the plot.
+  const producedOutput = hasFigures || hasTable || hasHtml
+  const { errors, warnings } = splitStderr(result.stderr, producedOutput)
   const hasError = errors.length > 0
   const hasWarnings = warnings.length > 0
   const hasInfo = (installedDeps?.length ?? 0) > 0
-  const hasFigures = result.figures.length > 0
-  const hasTable = result.table !== null
-  const hasStdout = result.stdout.length > 0
   // In server mode a missing package must be provisioned in the server runtime,
   // not installed in the browser's WASM engine — hide the in-browser installer.
   const missingPackages = hasError && !isServerMode() ? detectMissingPackages(errors) : []
@@ -244,8 +261,9 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
           </pre>
         )}
 
-        {/* Stdout alongside table/figures */}
-        {hasStdout && (hasTable || hasFigures) && (
+        {/* Stdout alongside table/figures — console is edit-time only; on the
+            rendered dashboard (showConsole=false) it lives in the editor's pane. */}
+        {showConsole && hasStdout && (hasTable || hasFigures) && (
           <details className="text-xs">
             <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
               {t('datasets.analysis_console_output')}
