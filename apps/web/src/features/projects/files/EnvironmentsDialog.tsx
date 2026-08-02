@@ -445,10 +445,10 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
               <TabsTrigger value="python" className="flex-1">Python</TabsTrigger>
               <TabsTrigger value="r" className="flex-1">R</TabsTrigger>
             </TabsList>
-            <TabsContent value="python" className="min-h-0 flex-1">
+            <TabsContent value="python" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
               <ServerEnvironmentsPanel language="python" reloadKey={open} pending={pending} />
             </TabsContent>
-            <TabsContent value="r" className="min-h-0 flex-1">
+            <TabsContent value="r" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
               <ServerEnvironmentsPanel language="r" reloadKey={open} pending={pending} />
             </TabsContent>
           </Tabs>

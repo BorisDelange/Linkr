@@ -250,37 +250,34 @@ export function ServerEnvironmentsPanel({
       cell: (p) => <span className="text-muted-foreground">{p.spec.replace(/^==/, '') || '—'}</span>,
     },
     {
-      id: 'docs',
-      header: t('environments.col_docs'),
+      id: 'actions',
+      header: t('environments.col_actions'),
       accessor: () => '',
       filter: 'none',
-      size: 90,
+      size: canWrite ? 110 : 70,
       center: true,
-      cell: (p) => (
-        <a
-          href={packageUrl(p.name)}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1 text-primary hover:underline"
-          aria-label={t('environments.col_docs')}
-        >
-          <ExternalLink size={12} />
-        </a>
-      ),
-    },
-    ...(canWrite
-      ? [{
-          id: 'actions',
-          header: t('environments.col_actions'),
-          accessor: () => '',
-          filter: 'none' as const,
-          size: 90,
-          center: true,
-          cell: (p: EnvPackage) => {
-            const pending = isPkgPending(p.name)
-            return (
-              <div className="flex items-center justify-center gap-1.5">
+      cell: (p) => {
+        const pending = isPkgPending(p.name)
+        return (
+          <div className="flex items-center justify-center gap-1.5">
+            {/* Docs link — always shown (even read-only). */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={packageUrl(p.name)}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label={t('environments.col_docs')}
+                >
+                  <ExternalLink size={13} />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent className="text-xs">{t('environments.col_docs')}</TooltipContent>
+            </Tooltip>
+            {canWrite && (
+              <>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -302,11 +299,12 @@ export function ServerEnvironmentsPanel({
                 >
                   <Trash2 size={13} />
                 </button>
-              </div>
-            )
-          },
-        }]
-      : []),
+              </>
+            )}
+          </div>
+        )
+      },
+    },
   ]
 
   return (
@@ -392,8 +390,9 @@ export function ServerEnvironmentsPanel({
           </div>
         ) : (
           // Datatable (sort / filter / resize, scrolls internally) so a long package
-          // list stays inside the dialog instead of overflowing it.
-          <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
+          // list stays inside the dialog instead of overflowing it. `flex` + min-h-0
+          // lets the table's own `h-full`/overflow-auto resolve against this box.
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
             <ConceptDataTable<EnvPackage>
               data={packages}
               columns={columns}
