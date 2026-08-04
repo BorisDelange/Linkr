@@ -138,11 +138,19 @@ def test_kernel_interrupt_only_fires_while_busy():
 
     # Idle kernel: Stop must NOT send a signal (else it poisons the next run).
     k.busy = False
+    k._running = True
     assert k.interrupt() is False
     assert proc.signals == []
 
-    # A run in flight: Stop signals it.
+    # Dispatched but the interpreter hasn't acked yet (cold start): a SIGINT here
+    # lands before any handler is installed and would KILL the process.
     k.busy = True
+    k._running = False
+    assert k.interrupt() is False
+    assert proc.signals == []
+
+    # A run genuinely in flight: Stop signals it.
+    k._running = True
     assert k.interrupt() is True
     assert len(proc.signals) == 1
 
@@ -295,7 +303,7 @@ async def test_acquire_waits_for_in_flight_warm_instead_of_cold_starting(warm):
 async def test_run_ephemeral_discards_process_and_refills(warm, monkeypatch):
     pool, make, made = warm
     monkeypatch.setattr(kernel_mod, "warm_pool", pool)
-    monkeypatch.setattr(kernel_mod.manager, "spawn_batch", lambda language, project_uid, environment=None: make())
+    monkeypatch.setattr(kernel_mod.manager, "_make", lambda language, project_uid, environment=None: make())
     monkeypatch.setattr(settings, "widget_pool_size", 1, raising=False)
     monkeypatch.setattr(settings, "widget_max_concurrency", 4, raising=False)
 
@@ -347,3 +355,34 @@ def test_r_kernel_loop_stays_under_e_arg_threshold():
     assert len(_R_KERNEL_LOOP.encode("utf-8")) < 7000, (
         "R kernel loop too large for `Rscript -e`; move comments to Python, not the R string"
     )
+
+
+@pytest.mark.asyncio
+async def test_stop_immediately_after_run_does_not_kill_a_cold_kernel():
+    """Regression: a Stop click within milliseconds of Run used to KILL a cold kernel
+    (destroying the whole namespace) because `busy` is set before the code is even
+    written to stdin — so the SIGINT landed while the interpreter was still booting,
+    before it installed any handler. Runs a REAL subprocess: a mock kernel can't
+    reproduce a signal arriving pre-handler."""
+    import asyncio
+    import sys
+
+    from app.services.execution.kernel import _PY_KERNEL_LOOP, Kernel
+
+    for delay in (0.0, 0.01, 0.05):
+        k = Kernel(cmd=[sys.executable, "-c", _PY_KERNEL_LOOP])
+        try:
+            task = asyncio.create_task(k.execute_stream("x = 1", lambda kind, data: None))
+            await asyncio.sleep(delay)
+            k.interrupt()
+            try:
+                await asyncio.wait_for(task, timeout=30)
+            except Exception:
+                pass
+            assert k.alive, f"kernel died on a Stop {delay}s after Run"
+            # The namespace survived, so a follow-up run still sees x.
+            out = await k.execute_stream("print(x)", lambda kind, data: None)
+            assert k.alive
+        finally:
+            await k.shutdown()
+    assert out is not None

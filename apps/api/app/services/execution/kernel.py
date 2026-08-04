@@ -249,12 +249,20 @@ while True:
     line = line.strip()
     if not line:
         continue
-    stream = line[:1] == "S"
-    payload = line[1:]
+    # Bump the counter BEFORE anything interruptible, so the done emitted below always
+    # carries THIS run's tag — a tag from the previous run would be discarded as stale
+    # by the host and leave the client waiting forever.
     _run_n += 1
     _CUR_RUN = _run_n
     try:
-        code = base64.b64decode(payload).decode("utf-8")
+        # Inside the try: a Stop SIGINT racing the dispatch can land HERE, between the
+        # readline and _run's own handler. Uncaught it killed the interpreter (and the
+        # whole namespace) instead of just aborting the run.
+        # Ack first: tells the host we're inside the interrupt-safe loop, so Stop works
+        # even for a run that prints nothing before it hangs.
+        _emit({"__linkr_ack__": True})
+        stream = line[:1] == "S"
+        code = base64.b64decode(line[1:]).decode("utf-8")
         result = _run(code, stream)
     # BaseException so a stray KeyboardInterrupt between expressions (outside
     # _run's own handler) ends the run cleanly instead of killing the interpreter.
@@ -300,7 +308,36 @@ while True:
 #     a spurious "interrupt". A real in-flight run is still interrupted inside
 #     .eval_one. .stray_int distinguishes an absorbed interrupt (retry the read)
 #     from a real EOF (readLines returns character(0) → break).
+# And what the per-run body does (comments kept here, not in the R string, to stay
+# under the argv threshold):
+#   - ack (__linkr_ack__) BEFORE any interruptible work, so the host knows the
+#     interpreter is inside its interrupt-catching loop and Stop can SIGINT it even
+#     for a run that prints nothing before hanging. See Kernel._running.
+#   - figures go into a PROCESS-UNIQUE temp dir, never the shared working directory:
+#     ephemeral dashboard kernels share the project cwd and all start at .run_n = 1,
+#     so a fixed "p_001.svg" in "." made parallel widgets overwrite each other's
+#     figures — only one widget's plot survived.
+#   - the 28x28in @ pointsize 24 device reproduces WebR's 2016x2016px client canvas
+#     (webr-engine.ts), so a widget's absolute sizes (base_size, margins, point/text
+#     sizes) render identically in both modes; the old 8x6 landscape device made
+#     large base_size text overflow and overlap.
+#   - one top-level expression at a time: in stream mode each expression's output is
+#     emitted as soon as it finishes, so `print("a"); Sys.sleep(5); print("b")` shows
+#     "a", the pause, then "b" instead of both at the end. Batch mode accumulates
+#     into .out for the single final payload.
+#   - auto-print ONLY visible values, exactly like the R REPL: `x <- 3`, `library(..)`
+#     and other invisible-returning calls print nothing, while a bare `x` or
+#     `head(df)` prints. withVisible() carries R's visibility flag; printing
+#     `.last_value` directly (always visible) would leak the injected dataset
+#     preamble's intermediate values.
+#   - the outer tryCatch(interrupt=) around the eval loop catches an interrupt landing
+#     BETWEEN expressions (in .stream_lines/parse/…, outside .eval_one's handler),
+#     which would otherwise be uncaught and kill the interpreter.
+#   - htmlwidget save uses ONLY selfcontained=TRUE: the client shows it in a
+#     sandboxed, network-less iframe, so a non-self-contained widget (JS/CSS in a
+#     sibling *_files/ dir) renders blank. Surface the save error instead.
 _R_KERNEL_LOOP = r'''
+tryCatch({
 local({
   .lib <- Sys.getenv("LINKR_R_LIB")
   if (nzchar(.lib)) {
@@ -321,6 +358,7 @@ suppressMessages({
   .has_svglite <- requireNamespace("svglite", quietly = TRUE)
   library(jsonlite); library(base64enc)
 })
+}, interrupt = function(e) NULL)
 .con <- file("stdin", "r")
 .run_n <- 0
 .emit <- function(obj) {
@@ -341,35 +379,21 @@ repeat {
   if (length(.line) == 0) break
   .line <- trimws(.line)
   if (nchar(.line) == 0) next
+  .run_n <- .run_n + 1
+  # Ack before any interruptible work: tells the host we're inside the
+  # interrupt-catching loop, so Stop works even for a run that prints nothing.
+  .emit(list("__linkr_ack__" = TRUE))
   .stream <- substr(.line, 1, 1) == "S"
   .code <- rawToChar(base64decode(substr(.line, 2, nchar(.line))))
-  .run_n <- .run_n + 1
-  # Figures go into a PROCESS-UNIQUE temp dir, never the (shared) working directory:
-  # ephemeral dashboard kernels all run in the same project cwd and all start at
-  # .run_n = 1, so a fixed "_linkr_p_001_*.svg" name in "." made parallel widgets
-  # overwrite / delete each other's figure files — only one widget's plot survived.
   .fig_dir <- file.path(tempdir(), sprintf("linkr_figs_%03d", .run_n))
   dir.create(.fig_dir, showWarnings = FALSE, recursive = TRUE)
   .pat <- file.path(.fig_dir, "p_%03d.svg")
-  # 28x28 in @ pointsize 24 reproduces WebR's 2016x2016 px client canvas (webr-engine.ts),
-  # so a widget's absolute sizes (base_size, margins, point/text sizes) render identically in
-  # both modes; the old 8x6 landscape device made large base_size text overflow and overlap.
   if (.has_svglite) svglite::svglite(filename = .pat, width = 28, height = 28, pointsize = 24)
   .err <- character(0)
-  # Evaluate one top-level expression at a time. In stream mode each expression's
-  # output is emitted as soon as it finishes, so a run like
-  #   print("a"); Sys.sleep(5); print("b")
-  # shows "a", then the pause, then "b" — instead of both at the end. Batch mode
-  # accumulates into .out for the single final payload.
   .interrupted <- FALSE
   # The value of the last evaluated expression — captured so a trailing htmlwidget
   # (plotly/leaflet/DT) can be rendered to HTML like a REPL auto-print.
   .last_value <- NULL
-  # Auto-print ONLY visible values, exactly like the R REPL: `x <- 3`, `library(..)`,
-  # a `for` loop and other invisible-returning calls print nothing, while a bare
-  # `x` or `head(df)` prints. withVisible() carries R's visibility flag; capturing
-  # `.last_value` itself (which is always visible) would print every expression's
-  # result — that leaked the injected dataset preamble's intermediate values.
   .eval_one <- function(.e) tryCatch(
     withCallingHandlers(
       utils::capture.output({
@@ -384,9 +408,6 @@ repeat {
     error = function(e) { .err <<- c(.err, conditionMessage(e)); character(0) }
   )
   .out <- character(0)
-  # An interrupt landing BETWEEN expressions (in .stream_lines/parse/etc., outside
-  # .eval_one's own handler) would otherwise be uncaught and kill the interpreter.
-  # Catch it here too so Stop always just ends the run and the kernel survives.
   tryCatch({
     .exprs <- tryCatch(parse(text = .code), error = function(e) { .err <<- c(.err, conditionMessage(e)); NULL })
     for (.e in .exprs) {
@@ -420,9 +441,6 @@ repeat {
   if (!.interrupted && inherits(.last_value, "htmlwidget") &&
       requireNamespace("htmlwidgets", quietly = TRUE)) {
     .tmp <- tempfile(fileext = ".html")
-    # ONLY selfcontained=TRUE: the client shows this in a sandboxed, network-less
-    # iframe, so a non-self-contained widget (its JS/CSS in a sibling *_files/ dir)
-    # would render blank. Surface the save error instead of emitting a broken widget.
     .ok <- tryCatch({ htmlwidgets::saveWidget(.last_value, .tmp, selfcontained = TRUE); TRUE },
                     error = function(e) { .err <<- c(.err, conditionMessage(e)); FALSE })
     if (isTRUE(.ok) && file.exists(.tmp)) {
@@ -496,6 +514,13 @@ class Kernel:
         # must be skipped so it isn't paired with the current run. Reset whenever a
         # fresh process starts (its counter restarts at 0).
         self._run_seq = 0
+        # Has THIS process proven it reached its interrupt-catching read loop? A SIGINT
+        # delivered before that point (the interpreter is still booting: importing
+        # site-packages, sourcing the R prologue) hits a process with no handler
+        # installed and kills it, taking the namespace with it. The kernel's first
+        # emitted line is the proof; from then on the process stays interrupt-safe, so
+        # this only ever gates the cold-start window. Reset with the process.
+        self._running = False
         # Monotonic timestamp of the last run — drives the idle-timeout sweep and
         # the footer's "last active" display. Seeded at creation so a just-started
         # kernel isn't immediately considered idle.
@@ -533,8 +558,10 @@ class Kernel:
             stderr=asyncio.subprocess.DEVNULL,
             limit=64 * 1024 * 1024,
         )
-        # A fresh process restarts its run counter at 0.
+        # A fresh process restarts its run counter at 0 and has not yet proven it
+        # reached its interrupt-catching loop.
         self._run_seq = 0
+        self._running = False
         return self._proc
 
     @property
@@ -546,16 +573,23 @@ class Kernel:
         process. The kernel catches the interrupt and stays alive for the next
         request; a hung C-extension that ignores SIGINT still hits the timeout.
 
-        Only fires while a run is in flight (``busy``). A Stop click races the
-        run's own completion — the client aborts the stream and calls this in
-        parallel. If the run already finished, the kernel is back to blocking on
-        stdin for the NEXT request; a SIGINT delivered then is queued by the
-        interpreter and caught at the start of the following run, which would
-        wrongly abort a fresh run with a spurious "interrupt". Skipping it when
-        idle keeps Stop→re-run working."""
+        Only fires while a run is in flight AND the interpreter has confirmed it is
+        executing (``_running``). A Stop click races the run's own completion — the
+        client aborts the stream and calls this in parallel. If the run already
+        finished, the kernel is back to blocking on stdin for the NEXT request; a
+        SIGINT delivered then is queued by the interpreter and caught at the start of
+        the following run, which would wrongly abort a fresh run with a spurious
+        "interrupt". Skipping it when idle keeps Stop→re-run working.
+
+        ``busy`` alone is NOT enough: it is set before the code is even written to
+        stdin, so on a COLD kernel a Stop within ~100ms lands while the interpreter is
+        still booting — before it installs any handler — and kills it outright,
+        destroying the whole namespace. ``_running`` is set only once the kernel has
+        emitted its first line for this run, i.e. it is definitely inside its
+        interrupt-catching loop."""
         if self._proc is None or self._proc.returncode is not None:
             return False
-        if not self.busy:
+        if not self.busy or not self._running:
             return False
         try:
             self._proc.send_signal(signal.SIGINT)
@@ -656,6 +690,9 @@ class Kernel:
             )
             if not line:
                 return None
+            # Any line at all proves the interpreter is past boot and inside its
+            # interrupt-catching loop, so Stop can now safely SIGINT it.
+            self._running = True
             try:
                 msg = json.loads(line.decode("utf-8"))
             except ValueError:
@@ -664,6 +701,11 @@ class Kernel:
                 resp = await _resolve_query(query_resolver, msg.get("sql", ""))
                 proc.stdin.write((json.dumps(resp) + "\n").encode("utf-8"))
                 await proc.stdin.drain()
+                continue
+            # The kernel's per-run ack: it is inside its interrupt-catching loop and
+            # nothing has been evaluated yet. Carries no output — just unblocks Stop
+            # for a run that prints nothing before it hangs.
+            if msg.get("__linkr_ack__"):
                 continue
             run_n = msg.get("__linkr_run__")
             is_stale = (
@@ -684,6 +726,15 @@ class Kernel:
                 # skip it and keep reading for ours. Without the tag (legacy), accept.
                 if is_stale:
                     continue
+                # A done from a LATER run means the pipe desynced (the kernel read a
+                # request we never counted), so this payload belongs to work we can't
+                # attribute. Accepting it would repeat the "fresh run looks instantly
+                # done" bug in the other direction; the pipe is unrecoverable, so fail
+                # and let the caller restart the kernel.
+                if expected is not None and isinstance(run_n, int) and run_n > expected:
+                    raise ExecutionError(
+                        f"Kernel stream desynchronised (run {run_n} > {expected})."
+                    )
                 return msg
             # An unmarked JSON line (legacy) is treated as the final payload.
             return msg
@@ -719,6 +770,14 @@ class KernelManager:
         # `get`; the session id only selects which live process among a user's own.
         self._kernels: dict[tuple[str, int, str, str], Kernel] = {}
         self._lock = asyncio.Lock()
+        # Memo of the data dir whose shared R sandbox + kernel-infra library are already
+        # provisioned, so the hot spawn path costs an in-memory compare instead of two
+        # Rscript launches. Keyed by path, not a bare bool: the data dir is
+        # reconfigurable (and per-test), and a stale "ready" against a fresh, empty
+        # sandbox starts an R kernel that dies on launch. Its own lock (never the
+        # manager lock) so a cold build doesn't block unrelated kernel ops.
+        self._r_shared_ready_for: str | None = None
+        self._r_shared_lock = asyncio.Lock()
 
     def _timeout_seconds(self) -> float:
         return settings.session_timeout_minutes * 60
@@ -754,6 +813,11 @@ class KernelManager:
         `environment` is the resolved project environment (interpreter + packages)
         used only when a new kernel is spawned; on the hot path (kernel already
         alive) it is ignored, so callers may pass None to keep today's behaviour."""
+        # BEFORE the lock: provisioning the shared R sandbox / kernel-infra library
+        # shells out to Rscript (~9s on a cold cache, ~0.3s warm). Doing it inside
+        # _make — which runs under self._lock — froze the whole event loop and queued
+        # every other user's kernel op behind it.
+        await self._prepare_r_shared(language, environment)
         key = (project_uid, user_id, language, session_id)
         async with self._lock:
             to_shutdown = self._sweep_idle_locked()
@@ -771,13 +835,42 @@ class KernelManager:
             await k.shutdown()
         return kernel
 
-    def spawn_batch(
+    async def _prepare_r_shared(
+        self, language: str, environment: "Environment | None"
+    ) -> None:
+        """Materialise the two SHARED R directories an isolated kernel needs: the
+        base+recommended sandbox and the kernel-infra library (jsonlite/base64enc/
+        svglite + their dependency closure).
+
+        Both shell out to Rscript, so they run in a thread — never on the event loop,
+        and never under the manager lock. Memoised per data dir: after the first
+        success this is an in-memory string compare, so the hot spawn path costs
+        nothing. Only a project env needs them; the app interpreter keeps the default
+        paths."""
+        if language != "r" or environment is None:
+            return
+        from app.services import project_fs
+
+        data_dir = str(project_fs.kernel_r_lib())
+        if self._r_shared_ready_for == data_dir:
+            return
+        async with self._r_shared_lock:
+            if self._r_shared_ready_for == data_dir:
+                return
+            from app.services.execution import renv_provisioner
+
+            await asyncio.to_thread(renv_provisioner.ensure_r_sandbox)
+            await asyncio.to_thread(renv_provisioner.ensure_kernel_r_lib)
+            self._r_shared_ready_for = data_dir
+
+    async def spawn_batch(
         self, language: str, project_uid: str, environment: "Environment | None" = None
     ) -> Kernel:
         """A one-shot kernel in a FRESH process (empty namespace), NOT cached and
         NOT counted against the per-user session limit — for a background 'run as
         job'. The caller must ``shutdown()`` it when done. Same interpreter/cwd/env
         selection as an interactive kernel, so managed envs resolve identically."""
+        await self._prepare_r_shared(language, environment)
         return self._make(language, project_uid, environment)
 
     async def restart(
@@ -876,10 +969,9 @@ class KernelManager:
             if has_env:
                 from app.services.execution import renv_provisioner
 
-                # Both are idempotent + cheap once populated: the shared sandbox
-                # (base+recommended symlinks) and the shared kernel-infra library.
-                renv_provisioner.ensure_r_sandbox()
-                renv_provisioner.ensure_kernel_r_lib()
+                # The shared sandbox + kernel-infra library are provisioned by
+                # _prepare_r_shared() BEFORE the manager lock (they shell out to
+                # Rscript); _make must stay non-blocking.
                 env = {
                     **env,
                     "LINKR_R_LIB": interpreter_path or str(renv_provisioner.library_path(project_uid)),
@@ -1092,8 +1184,12 @@ async def run_ephemeral(
     gate. For dashboard widgets: parallel, never sharing a namespace or a lock."""
     interpreter_key = _interpreter_key(language, project_uid, environment)
 
+    # Provision the shared R dirs here (off the loop, memoised) so the pool's sync
+    # factory below never shells out to Rscript.
+    await manager._prepare_r_shared(language, environment)
+
     def make() -> Kernel:
-        return manager.spawn_batch(language, project_uid, environment)
+        return manager._make(language, project_uid, environment)
 
     async with _ephemeral_gate:
         k = await warm_pool.acquire(make, language, project_uid, interpreter_key)
@@ -1122,7 +1218,11 @@ async def prewarm(
     target = settings.widget_pool_size if count is None else count
     target = max(settings.widget_pool_size, min(target, settings.widget_max_concurrency))
 
+    # Provision the shared R dirs here (off the loop, memoised) so the pool's sync
+    # factory below never shells out to Rscript.
+    await manager._prepare_r_shared(language, environment)
+
     def make() -> Kernel:
-        return manager.spawn_batch(language, project_uid, environment)
+        return manager._make(language, project_uid, environment)
 
     _spawn_bg(warm_pool.refill(make, language, project_uid, interpreter_key, target))

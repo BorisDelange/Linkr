@@ -33,7 +33,7 @@ async def start(
     job = await jobs.create(db, project_uid, user_id, kind="run", label=label)
 
     async def body(handle: jobs.JobHandle) -> None:
-        k = kernel.manager.spawn_batch(language, project_uid, env)
+        k = await kernel.manager.spawn_batch(language, project_uid, env)
         # Buffer streamed chunks and flush them to the log tail periodically, so a
         # chatty run doesn't hammer the DB with one write per line.
         buffer: list[str] = []
