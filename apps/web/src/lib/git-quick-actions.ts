@@ -89,20 +89,54 @@ const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
       messageKey: 'versioning.quick_msg_all_collection',
       excludeForeign: true,
     },
-    {
-      labelKey: 'versioning.quick_sync_sql_scripts',
-      descriptionKey: 'versioning.quick_desc_sql_scripts',
-      messageKey: 'versioning.quick_msg_sql_scripts',
-      // Script files live at an arbitrary path in the collection tree, so match by
-      // extension rather than a fixed prefix.
-      patterns: [/\.sql$/i],
-    },
   ],
   workspaces: [
     {
       labelKey: 'versioning.quick_sync_all',
       descriptionKey: 'versioning.quick_desc_all_workspace',
       messageKey: 'versioning.quick_msg_all_workspace',
+      excludeForeign: true,
+    },
+  ],
+  // Single-entity scopes: their repo is small and homogeneous (a config JSON, or a
+  // manifest + a few files), so a per-kind preset would just restate "Sync all".
+  'etl-pipelines': [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_pipeline',
+      messageKey: 'versioning.quick_msg_all_pipeline',
+      excludeForeign: true,
+    },
+  ],
+  'data-catalogs': [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_catalog',
+      messageKey: 'versioning.quick_msg_all_catalog',
+      excludeForeign: true,
+    },
+  ],
+  'dq-rule-sets': [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_rule_set',
+      messageKey: 'versioning.quick_msg_all_rule_set',
+      excludeForeign: true,
+    },
+  ],
+  'schema-presets': [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_schema_preset',
+      messageKey: 'versioning.quick_msg_all_schema_preset',
+      excludeForeign: true,
+    },
+  ],
+  'user-plugins': [
+    {
+      labelKey: 'versioning.quick_sync_all',
+      descriptionKey: 'versioning.quick_desc_all_plugin',
+      messageKey: 'versioning.quick_msg_all_plugin',
       excludeForeign: true,
     },
   ],

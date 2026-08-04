@@ -201,8 +201,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
   // its sidebar (project.config.versionedDataFiles), which re-includes it via a
   // .gitignore exception. No blanket "include data" toggle anymore.
 
-  // Quick mode only exists for scopes that define quick actions (mapping
-  // projects today). Elsewhere the panel is the Details UI alone, no tab bar.
+  // Quick mode only exists for scopes that define quick actions (every scope
+  // does today). A scope with none falls back to the Details UI alone, no tab bar.
   const hasQuickMode = quickActions.length > 0
   const effectiveMode = hasQuickMode ? mode : 'details'
 

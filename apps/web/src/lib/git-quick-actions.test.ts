@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildQuickActions } from './git-quick-actions'
-import type { GitFileChange } from '@/lib/api/git'
+import type { GitFileChange, GitScope } from '@/lib/api/git'
 
 /** Build change rows from paths; default change type "modified" (or pass [path, type]). */
 const ch = (...items: (string | [string, string])[]): GitFileChange[] =>
@@ -12,8 +12,8 @@ const ch = (...items: (string | [string, string])[]): GitFileChange[] =>
 const paths = (a: { files: { path: string }[] }) => a.files.map((f) => f.path)
 
 describe('buildQuickActions', () => {
-  it('returns no actions for a scope without presets', () => {
-    expect(buildQuickActions('etl-pipelines', ch('_pipeline.json'))).toEqual([])
+  it('returns no actions for an unknown scope (the panel then shows Details only)', () => {
+    expect(buildQuickActions('nope' as GitScope, ch('_pipeline.json'))).toEqual([])
   })
 
   it('projects: Sync all takes every changed path; per-group actions narrow', () => {
@@ -64,15 +64,35 @@ describe('buildQuickActions', () => {
     expect(paths(mappings)).toEqual(['mappings.csv'])
   })
 
-  it('sql-script-collections: Sync all takes every changed path; Sync SQL scripts narrows to .sql', () => {
+  it('sql-script-collections: Sync all only, taking every changed path', () => {
     const changed = ch('_collection.json', '_tree.json', 'folder/query.sql', 'README.md')
-    const [all, sql] = buildQuickActions('sql-script-collections', changed)
-    expect(all.labelKey).toBe('versioning.quick_sync_all')
-    expect(all.descriptionKey).toBe('versioning.quick_desc_all_collection')
-    expect(all.isSyncAll).toBe(true)
-    expect(paths(all)).toEqual(['_collection.json', '_tree.json', 'folder/query.sql', 'README.md'])
-    expect(sql.labelKey).toBe('versioning.quick_sync_sql_scripts')
-    expect(paths(sql)).toEqual(['folder/query.sql'])
+    const actions = buildQuickActions('sql-script-collections', changed)
+    expect(actions).toHaveLength(1)
+    expect(actions[0].labelKey).toBe('versioning.quick_sync_all')
+    expect(actions[0].descriptionKey).toBe('versioning.quick_desc_all_collection')
+    expect(actions[0].isSyncAll).toBe(true)
+    expect(paths(actions[0])).toEqual(['_collection.json', '_tree.json', 'folder/query.sql', 'README.md'])
+  })
+
+  it('every git scope offers a Quick actions tab (a scope with no action has none)', () => {
+    const scopes: GitScope[] = [
+      'projects', 'workspaces', 'mapping-projects', 'sql-script-collections',
+      'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets',
+      'user-plugins', 'settings',
+    ]
+    for (const scope of scopes) {
+      const actions = buildQuickActions(scope, ch('_tree.json'))
+      expect(actions.length, scope).toBeGreaterThan(0)
+      // The first preset is always the primary "Sync all" (shared accent colour).
+      expect(actions[0].labelKey, scope).toBe('versioning.quick_sync_all')
+      expect(actions[0].isSyncAll, scope).toBe(true)
+    }
+  })
+
+  it('the single-entity scopes expose Sync all and nothing else', () => {
+    for (const scope of ['etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets', 'user-plugins'] as GitScope[]) {
+      expect(buildQuickActions(scope, ch('_tree.json')), scope).toHaveLength(1)
+    }
   })
 
   it('Sync all drops foreign files but keeps Linkr-managed ones (incl. .gitignore/.gitattributes)', () => {
