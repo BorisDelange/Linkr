@@ -131,7 +131,6 @@ export async function prepareProjectPull(
     localDatasets.filter((f) => f.type === 'file').map((f) => treePath(f, localDsById)),
   )
 
-  const remoteScriptById = new Map(parsed.ideFiles.map((f) => [f.id, f]))
   const remoteDsById = new Map(parsed.datasetFiles.map((f) => [f.id, f]))
 
   const dashboards: PullItem[] = parsed.dashboards.map((d) => {
@@ -148,10 +147,7 @@ export async function prepareProjectPull(
   })
   const scripts: PullItem[] = parsed.ideFiles
     .filter((f) => f.type === 'file')
-    .map((f) => {
-      const path = treePath(f, remoteScriptById)
-      return { key: path, label: path, exists: localScriptPaths.has(path) }
-    })
+    .map((f) => ({ key: f.path, label: f.path, exists: localScriptPaths.has(f.path) }))
   const datasets: PullItem[] = parsed.datasetFiles
     .filter((f) => f.type === 'file')
     .map((f) => {
@@ -250,11 +246,12 @@ function narrowParsed(parsed: ParsedProjectZip, sel: ProjectPullSelection): Pars
     return false
   })
 
-  const remoteScriptById = new Map(parsed.ideFiles.map((f) => [f.id, f]))
   const remoteDsById = new Map(parsed.datasetFiles.map((f) => [f.id, f]))
   // Files match by path; folders are kept when any kept file needs them as an
   // ancestor (so the tree the import walks is complete).
-  const keptScripts = keepTreeSelection(parsed.ideFiles, remoteScriptById, sel.scripts)
+  // Path-keyed nodes: select the chosen files directly (their folder ancestors are
+  // re-synthesized from the paths at import, so no ancestor walk is needed).
+  const keptScripts = parsed.ideFiles.filter((f) => f.type !== 'file' || sel.scripts.has(f.path))
   const keptDatasetFiles = keepTreeSelection(parsed.datasetFiles, remoteDsById, sel.datasets)
   const keptDatasetFileIds = new Set(keptDatasetFiles.filter((f) => f.type === 'file').map((f) => f.id))
 

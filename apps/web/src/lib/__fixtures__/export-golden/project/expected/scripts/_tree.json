@@ -1,25 +1,19 @@
 [
   {
-    "id": "ide-d988e7fc56cd7301",
-    "name": "utils",
-    "type": "folder",
-    "parentId": null,
-    "language": null,
-    "createdAt": ""
-  },
-  {
-    "id": "ide-b03568913cadf18a",
-    "name": "helpers.py",
+    "path": "main.py",
     "type": "file",
-    "parentId": "ide-d988e7fc56cd7301",
     "language": "python",
     "createdAt": ""
   },
   {
-    "id": "ide-f1bdda93d9a278e3",
-    "name": "main.py",
+    "path": "utils",
+    "type": "folder",
+    "language": null,
+    "createdAt": ""
+  },
+  {
+    "path": "utils/helpers.py",
     "type": "file",
-    "parentId": null,
     "language": "python",
     "createdAt": ""
   }

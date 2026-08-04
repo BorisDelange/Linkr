@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
 import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
+import { deterministicId } from '@/lib/deterministic-id'
 import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset } from '@/types'
 import type { Storage } from '@/lib/storage'
 
@@ -725,13 +726,71 @@ describe('importProjectContent — server-mode datasets', () => {
 })
 
 // The project pull imports a curated SUBSET of the remote content: importProjectContent
+describe('scripts/_tree.json — path-keyed IDE tree', () => {
+  it('parses a path-keyed tree and derives ids from (projectUid, path)', async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({ uid: 'ignored', name: { en: 'P' } }))
+    zip.file('scripts/_tree.json', JSON.stringify([
+      { path: 'utils', type: 'folder' },
+      { path: 'utils/helpers.py', type: 'file', language: 'python' },
+      { path: 'main.py', type: 'file', language: 'python' },
+    ]))
+    zip.file('scripts/utils/helpers.py', 'def h(): pass')
+    zip.file('scripts/main.py', 'print(1)')
+
+    const buf = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = await parseProjectZip(buf)
+    const nodes = parsed!.ideFiles as unknown as { path: string; type: string; content?: string }[]
+    expect(nodes.map((f) => f.path)).toEqual(['utils', 'utils/helpers.py', 'main.py'])
+    // Content is read from the real file at its tree path (under scripts/).
+    expect(nodes.find((f) => f.path === 'utils/helpers.py')!.content).toBe('def h(): pass')
+
+    const created: { id: string; name: string; parentId: string | null; path?: string }[] = []
+    const store = new Proxy({}, {
+      get: (_t, prop) => {
+        if (prop === 'ideFiles') return {
+          create: (f: typeof created[number]) => { created.push(f); return Promise.resolve() },
+          deleteByProject: async () => {},
+        }
+        return new Proxy({}, { get: () => async () => {} })
+      },
+    }) as unknown as Storage
+    await importProjectContent(parsed!, 'proj-1', store, { groups: new Set(['scripts']) })
+
+    const folder = created.find((f) => f.name === 'utils')!
+    const nested = created.find((f) => f.name === 'helpers.py')!
+    expect(nested.parentId).toBe(folder.id)
+    expect(created.find((f) => f.name === 'main.py')!.parentId).toBeNull()
+    // Ids are derived, deterministic, and the transport-only path never persists.
+    expect(folder.id).toBe(deterministicId('proj-1', 'utils'))
+    expect(nested.id).toBe(deterministicId('proj-1', 'utils/helpers.py'))
+    expect(created.every((f) => f.path === undefined)).toBe(true)
+  })
+
+  it('still reads a legacy id/parentId scripts tree', async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({ uid: 'ignored', name: { en: 'P' } }))
+    zip.file('scripts/_tree.json', JSON.stringify([
+      { id: 'f1', projectUid: 'old', name: 'utils', type: 'folder', parentId: null },
+      { id: 'f2', projectUid: 'old', name: 'helpers.py', type: 'file', parentId: 'f1' },
+    ]))
+    zip.file('scripts/utils/helpers.py', 'legacy')
+    const buf = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+    const parsed = await parseProjectZip(buf)
+    const nodes = parsed!.ideFiles as unknown as { path: string; content?: string }[]
+    expect(nodes.map((f) => f.path).sort()).toEqual(['utils', 'utils/helpers.py'])
+    expect(nodes.find((f) => f.path === 'utils/helpers.py')!.content).toBe('legacy')
+  })
+})
+
 // with a `groups` set must write only those groups (and never the connections/databases,
 // which don't travel with a project). A regression here would let a pull add entities the
 // user didn't tick.
 describe('importProjectContent — selective groups (project pull)', () => {
   const parsed = {
     project: { uid: 'p1', name: { en: 'P' } } as unknown as ParsedProjectZip['project'],
-    ideFiles: [{ id: 's1', name: 'a.sql', type: 'file', parentId: null, content: 'SELECT 1' } as unknown as ParsedProjectZip['ideFiles'][number]],
+    // Path-keyed, like parseProjectZip emits: ids are derived at import.
+    ideFiles: [{ path: 'a.sql', type: 'file', content: 'SELECT 1' } as unknown as ParsedProjectZip['ideFiles'][number]],
     pipelines: [{ id: 'pp1', name: { en: 'PL' } } as unknown as ParsedProjectZip['pipelines'][number]],
     cohorts: [{ id: 'c1', name: 'Coh', level: 'visit' } as unknown as ParsedProjectZip['cohorts'][number]],
     connections: [{ id: 'db1', name: 'DB' } as unknown as ParsedProjectZip['connections'][number]],

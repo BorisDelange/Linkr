@@ -477,11 +477,21 @@ def build_project_tree(
         # Only emit the tree when something survives the exclusions — otherwise every
         # script is excluded and we'd version a useless `scripts/_tree.json: []`.
         if tree_files:
+            # Keyed by the path relative to scripts/ (port of entity-tree.ts): no
+            # id/parentId in the versioned tree, so a re-import can't churn them.
+            # Sorted by path so the bytes don't depend on the scan/row order.
+            dropped = {"id", "parentId", "name", "content", "projectUid"}
             tree["scripts/_tree.json"] = _json(
-                [
-                    {k: v for k, v in f.items() if k not in ("content", "projectUid")}
-                    for f in tree_files
-                ]
+                sorted(
+                    (
+                        {
+                            "path": _ide_path(f, by_id).removeprefix("scripts/"),
+                            **{k: v for k, v in f.items() if k not in dropped},
+                        }
+                        for f in tree_files
+                    ),
+                    key=lambda n: n["path"],
+                )
             )
         for f in ide:
             if f.get("type") == "file" and f.get("content") is not None:

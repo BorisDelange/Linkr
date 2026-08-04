@@ -44,28 +44,22 @@
   keeps reading legacy id-keyed trees (repos pushed before the bump). Side effect
   fixed in passing: the seed loader read nested script content at a flat
   `<folder>/<name>` path, so a script in a subfolder seeded empty.
-  **Not applied to `scripts/_tree.json` (project IDE files) or `datasets/_tree.json`**:
-  those ids are referenced from elsewhere (widgets/filters point at dataset + column
-  ids), so a rename-driven re-mint would break the references — they keep the
-  `deterministicId(projectUid, oldId)` / content-key remap instead.
+  Extended to **`scripts/_tree.json`** (a project's IDE files) the same day: same
+  reasoning, ids derived from `deterministicId(projectUid, <path relative to
+  scripts/>)`. `project-pull` already selected scripts by path, so it got simpler.
+  **Still NOT applied to `datasets/_tree.json`**: widgets and filters point at
+  dataset + column ids, so a rename-driven re-mint would break those references —
+  datasets keep the name-derived `col_<slug>` / `deterministicId(projectUid, oldId)`
+  remap. The rule is "the natural key must be at least as stable as the references
+  pointing at it", not "paths everywhere".
+  `../linkr-portal/scripts/build.sh` was updated in step (commit `ef9de69`): its seed
+  manifest index now recurses and keys `sqlScriptFiles`/`etlFiles` by tree path, so a
+  script in a subfolder is seeded with its content (a flat basename key also made two
+  same-named files in different folders collide).
 
 ---
 
 ## Remaining
-
-### 0. [TODO — sibling repo] Portal `build.sh`: index nested script files
-
-`../linkr-portal/scripts/build.sh` builds the seed manifest's `sqlScriptFiles` /
-`etlFiles` index with a **non-recursive** glob (`for f in "$sql_dir"*`, lines ~325 and
-~200) and keys each entry `"<collection>/<filename>"`. Since 2.3.0 the seed loader looks
-each file up by its **tree path** (`"<collection>/<sub/dir/file.sql>"`), so a script at
-the collection root still resolves (path == filename) but one inside a subfolder is
-absent from the index and seeds with no content.
-
-Fix: recurse (e.g. `find "$sql_dir" -type f`) and key by the path *relative to the
-collection folder*, skipping `_collection.json` / `_tree.json` (same for `etl/` and
-`_pipeline.json`). Nothing else in the portal reads these trees — `sync-git-links.sh`
-and `update-submodules.py` work at folder level only.
 
 ### 1. [TO TEST] End-to-end pull flow, especially the LFS path
 

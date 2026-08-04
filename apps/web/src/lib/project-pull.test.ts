@@ -241,9 +241,9 @@ describe('prepareProjectPull — natural-key matching', () => {
       zip.file('cohorts/sepsis.json', JSON.stringify({ id: 'c-1', name: 'Sepsis' }))
       zip.file('pipeline/pipeline.json', JSON.stringify([{ id: 'pl-1', name: { en: 'Main Pipeline' } }]))
       zip.file('scripts/_tree.json', JSON.stringify([
-        { id: 'f-utils', name: 'utils', type: 'folder', parentId: null },
-        { id: 's-1', name: 'analysis.py', type: 'file', parentId: 'f-utils' },
-        { id: 's-2', name: 'new.py', type: 'file', parentId: null },
+        { path: 'utils', type: 'folder' },
+        { path: 'utils/analysis.py', type: 'file' },
+        { path: 'new.py', type: 'file' },
       ]))
       zip.file('scripts/utils/analysis.py', 'print(1)')
       zip.file('scripts/new.py', 'print(2)')
@@ -457,23 +457,24 @@ describe('applyProjectPull — dataset overwrite (the half-deleted-dataset regre
   it('overwrites a script by path, keeping local-only scripts and the shared folder', async () => {
     const { storage, ops, t } = makeStore()
     storageHolder.current = storage
-    t.ideFiles.set(did('f-utils'), { id: did('f-utils'), projectUid: P, name: 'utils', type: 'folder', parentId: null })
-    t.ideFiles.set(did('s-1'), { id: did('s-1'), projectUid: P, name: 'analysis.py', type: 'file', parentId: did('f-utils'), content: 'old' })
+    // IDE ids derive from (projectUid, tree path) — see entity-tree.ts.
+    t.ideFiles.set(did('utils'), { id: did('utils'), projectUid: P, name: 'utils', type: 'folder', parentId: null })
+    t.ideFiles.set(did('utils/analysis.py'), { id: did('utils/analysis.py'), projectUid: P, name: 'analysis.py', type: 'file', parentId: did('utils'), content: 'old' })
     t.ideFiles.set('local-only', { id: 'local-only', projectUid: P, name: 'notes.md', type: 'file', parentId: null })
 
     const parsed = emptyParsed({
       ideFiles: [
-        { id: 'f-utils', name: 'utils', type: 'folder', parentId: null } as unknown as ParsedProjectZip['ideFiles'][number],
-        { id: 's-1', name: 'analysis.py', type: 'file', parentId: 'f-utils', content: 'new' } as unknown as ParsedProjectZip['ideFiles'][number],
+        { path: 'utils', type: 'folder' } as unknown as ParsedProjectZip['ideFiles'][number],
+        { path: 'utils/analysis.py', type: 'file', content: 'new' } as unknown as ParsedProjectZip['ideFiles'][number],
       ],
     })
     await applyProjectPull(P, preparedWith(parsed), sel({ scripts: new Set(['utils/analysis.py']) }))
 
     // Only the FILE is deleted; the folder is upserted in place (IDB put), so the
     // tree keeps a single utils/ folder and the file lands with the new content.
-    expect(ops).toContain(`ideFiles.delete:${did('s-1')}`)
-    expect(ops).not.toContain(`ideFiles.delete:${did('f-utils')}`)
-    expect(t.ideFiles.get(did('s-1'))).toMatchObject({ content: 'new', parentId: did('f-utils') })
+    expect(ops).toContain(`ideFiles.delete:${did('utils/analysis.py')}`)
+    expect(ops).not.toContain(`ideFiles.delete:${did('utils')}`)
+    expect(t.ideFiles.get(did('utils/analysis.py'))).toMatchObject({ content: 'new', parentId: did('utils') })
     expect(t.ideFiles.get('local-only')).toBeDefined()
     expect(t.ideFiles.size).toBe(3)
   })

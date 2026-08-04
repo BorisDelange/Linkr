@@ -1,9 +1,7 @@
 [
   {
-    "id": "f1",
-    "name": "main.py",
+    "path": "main.py",
     "type": "file",
-    "parentId": null,
     "language": "python",
     "createdAt": ""
   }

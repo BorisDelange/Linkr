@@ -1,21 +1,27 @@
 /**
- * The versioned form of a SQL-collection / ETL-pipeline file tree.
+ * The versioned form of a file tree: SQL collections, ETL pipelines and a
+ * project's IDE scripts (`scripts/_tree.json`).
  *
  * `_tree.json` describes the tree by PATH, not by id: a node's identity in the
  * repo is where it sits (`sofa/sofa-duckdb.sql`), which is exactly what git
- * already versions. Carrying the local `id`/`parentId`/`collectionId` too meant
- * a second, instance-local identity in the file — and every import re-minted it,
+ * already versions. Carrying the local `id`/`parentId`/owner FK too meant a
+ * second, instance-local identity in the file — and every import re-minted it,
  * churning the diff on each round-trip. Same reasoning as the dataset column
  * ids (`col_<slug>`) and the dashboard/tab/widget content keys.
  *
- * Local ids are derived back from the path at import: `deterministicId(parentId,
- * path)`. Same repo into the same collection → same ids (idempotent re-import),
- * while the collection id in the hash keeps two clones of one repo distinct.
- * Renaming a folder therefore re-mints its subtree's ids, which is harmless
- * here: nothing outside the tree references a script file's id (`parentId` is
- * internal), unlike a dataset id which widgets point at.
+ * Local ids are derived back from the path at import:
+ * `deterministicId(<owner id>, path)`. Same repo into the same owner → same ids
+ * (idempotent re-import), while the owner id in the hash keeps two clones of one
+ * repo distinct. Renaming a folder therefore re-mints its subtree's ids, which is
+ * harmless for these three: nothing outside the tree references a script file's
+ * id (`parentId` is internal). That's exactly why `datasets/_tree.json` is NOT
+ * modelled here — widgets and filters point at dataset and column ids, so those
+ * keep a name-derived key instead.
  */
 import { deterministicId } from '@/lib/deterministic-id'
+
+/** The instance-local foreign key a tree's nodes carry back to their owner. */
+export type TreeFkKey = 'collectionId' | 'pipelineId' | 'projectUid'
 
 /** A node as stored locally: identity by id, hierarchy by parentId. */
 export interface TreeNode {
@@ -58,7 +64,7 @@ export function treeNodePath(node: TreeNode, byId: Map<string, TreeNode>): strin
  */
 export function toPathTree<T extends TreeNode>(
   nodes: T[],
-  fkKey: 'collectionId' | 'pipelineId',
+  fkKey: TreeFkKey,
 ): Record<string, unknown>[] {
   const byId = new Map<string, TreeNode>(nodes.map((n) => [n.id, n]))
   return nodes
@@ -105,7 +111,7 @@ function basename(path: string): string {
 export function fromPathTree<T extends Record<string, unknown>>(
   tree: PathNode[],
   ownerId: string,
-  fkKey: 'collectionId' | 'pipelineId',
+  fkKey: TreeFkKey,
 ): T[] {
   const idFor = (path: string) => deterministicId(ownerId, path)
   const byPath = new Map<string, PathNode & Record<string, unknown>>()
@@ -153,7 +159,7 @@ export function rederiveTreeIds<T extends TreeNode>(
   nodes: T[],
   fromOwnerId: string,
   toOwnerId: string,
-  fkKey: 'collectionId' | 'pipelineId',
+  fkKey: TreeFkKey,
 ): T[] {
   if (fromOwnerId === toOwnerId) return nodes
   const byId = new Map<string, TreeNode>(nodes.map((n) => [n.id, n]))

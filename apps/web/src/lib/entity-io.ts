@@ -7,6 +7,7 @@ import { APP_VERSION } from '@/lib/version'
 import { deterministicId } from '@/lib/deterministic-id'
 import {
   type PathNode, type TreeNode,
+  type TreeFkKey,
   fromPathTree, readPathTree, storablePathNode, toPathTree, treeNodePath,
 } from '@/lib/entity-tree'
 import type {
@@ -386,6 +387,12 @@ function buildIdePath(file: IdeFile, byId: Map<string, IdeFile>): string {
   return parts.join('/')
 }
 
+/** An IdeFile's path RELATIVE to scripts/ — the key used inside
+ *  `scripts/_tree.json`, which itself lives in that folder. */
+function ideTreePath(file: IdeFile, byId: Map<string, IdeFile>): string {
+  return buildIdePath(file, byId).replace(/^scripts\//, '')
+}
+
 /** Build the full path for a DatasetFile within the tree. */
 function buildDatasetPath(file: DatasetFile, byId: Map<string, DatasetFile>): string {
   const parts: string[] = [file.name]
@@ -628,7 +635,18 @@ export async function buildProjectZip(
     // Only emit the tree when something survives the exclusions — otherwise every
     // script is excluded and we'd version a useless `scripts/_tree.json: []`.
     if (treeFiles.length > 0) {
-      zip.file('scripts/_tree.json', json(treeFiles.map(({ content: _, projectUid: _p, ...meta }) => meta)))
+      // Keyed by the path relative to scripts/ (see entity-tree.ts): no id/parentId
+      // in the versioned tree, so a re-import can't churn them. Nothing outside the
+      // tree references an IdeFile id, so deriving it from the path is safe here
+      // (unlike datasets, whose ids widgets/filters point at).
+      zip.file('scripts/_tree.json', json(
+        treeFiles
+          .map((f) => {
+            const { id: _id, parentId: _p, name: _n, content: _c, projectUid: _uid, ...rest } = f
+            return { path: ideTreePath(f, byId), ...rest }
+          })
+          .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+      ))
     }
     for (const f of ideFiles) {
       if (f.type === 'file' && f.content != null) {
@@ -818,7 +836,9 @@ export interface ParsedProjectZip {
   project: Project
   /** Organization inherited from the parent workspace, bundled by UUID for cross-instance upsert. */
   organization?: Organization
-  ideFiles: IdeFile[]
+  /** Path-keyed IDE tree nodes; local ids are derived from the target projectUid
+   *  at import (attachTreeIds), not carried by the export. */
+  ideFiles: TreeImportNode[]
   pipelines: Pipeline[]
   cohorts: Cohort[]
   connections: IdeConnection[]
@@ -1051,8 +1071,10 @@ export async function importProjectContent(
   const dashIdForTabKey = (tabKey: string): string =>
     dashKeyToId.get(tabKey.split('/')[0]) ?? keyId(tabKey.split('/')[0])
 
-  for (const f of parsed.ideFiles) {
-    await storage.ideFiles.create({ ...f, id: mapId(f.id), projectUid, parentId: f.parentId ? mapId(f.parentId) : null })
+  // IDE file ids derive from (projectUid, path): stable across re-imports of the
+  // same project, distinct across projects, and absent from the versioned tree.
+  for (const f of attachTreeIds<IdeFile>(parsed.ideFiles, projectUid, 'projectUid')) {
+    await storage.ideFiles.create(f)
   }
   for (const p of parsed.pipelines) {
     await storage.pipelines.create(dropForeignAuthorId({ ...p, id: mapId(p.id), projectUid }))
@@ -1298,16 +1320,15 @@ function scanFolder(zip: JSZip, folder: string): [string, JSZip.JSZipObject][] {
 
 async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProjectZip> {
   // --- IDE files (scripts/_tree.json) ---
-  const ideFiles = (await readJsonFile<IdeFile[]>(zip, 'scripts/_tree.json')) ?? []
-  if (ideFiles.length > 0) {
-    const byId = new Map(ideFiles.map(f => [f.id, f]))
-    for (const f of ideFiles) {
-      if (f.type !== 'file') continue
-      const entry = zip.files[buildIdePath(f, byId)]
-      if (entry) {
-        f.content = await entry.async('string')
-      }
-    }
+  // The tree is keyed by path (ids are derived at import from the target
+  // projectUid, which the parser doesn't know); `readPathTree` also accepts a
+  // legacy id/parentId tree. Paths are relative to scripts/, where the tree lives.
+  const ideFiles = readPathTree(await readJsonFile(zip, 'scripts/_tree.json'))
+    .map((node) => ({ ...node })) as (PathNode & { content?: string })[]
+  for (const f of ideFiles) {
+    if (f.type !== 'file') continue
+    const entry = zip.files[`scripts/${f.path}`]
+    if (entry) f.content = await entry.async('string')
   }
 
   const pipelines = (await readJsonFile<Pipeline[]>(zip, 'pipeline/pipeline.json')) ?? []
@@ -1799,7 +1820,7 @@ export function reconstructTreeFiles(
 export function attachTreeIds<T extends Record<string, unknown>>(
   nodes: TreeImportNode[],
   ownerId: string,
-  fkKey: 'collectionId' | 'pipelineId',
+  fkKey: TreeFkKey,
 ): T[] {
   const contentByPath = new Map(nodes.map((n) => [n.path, n.content]))
   return fromPathTree<T & { path: string }>(nodes, ownerId, fkKey).map((rec) => {

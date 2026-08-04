@@ -276,9 +276,10 @@ def test_excluded_code_file_omitted_from_tree():
     )
     assert tree["scripts/keep.sql"] == b"SELECT 1"
     assert "scripts/secret.py" not in tree
-    meta_names = [m["name"] for m in json.loads(tree["scripts/_tree.json"])]
-    assert "keep.sql" in meta_names
-    assert "secret.py" not in meta_names
+    # The tree is keyed by path (relative to scripts/), carrying no id/name.
+    meta_paths = [m["path"] for m in json.loads(tree["scripts/_tree.json"])]
+    assert "keep.sql" in meta_paths
+    assert "secret.py" not in meta_paths
 
 
 def test_scripts_tree_omitted_when_every_code_file_excluded():
