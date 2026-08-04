@@ -801,9 +801,9 @@ export interface WorkspaceInternals {
   databases?: string[]
   wikiPages?: string[]             // paths like 'wiki/slug--id.md'
   sqlCollections?: string[]        // folder names under sql-scripts/
-  sqlScriptFiles?: Record<string, string>  // 'collection/filename' → relative path
+  sqlScriptFiles?: Record<string, string>  // 'collection/<tree path>' → relative path
   etlPipelines?: string[]          // folder names under etl/ (pipeline rows + files)
-  etlFiles?: Record<string, string>  // 'pipeline/filename' → relative path
+  etlFiles?: Record<string, string>  // 'pipeline/<tree path>' → relative path
   conceptSets?: string[]           // paths like 'concept-sets/slug.json'
   serviceMappings?: string[]       // paths like 'service-mappings/slug.json'
   pluginFolders?: string[]         // folder names under plugins/
