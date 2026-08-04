@@ -229,6 +229,18 @@ translations, badges and `status` survive. What the scanner *can't* do — and w
 drafts need review — is invent a translation, choose meaningful badges, or know a
 collection is WIP.
 
+**Standing watch on a group** (`sources.json` + the `rescan` CI job): a group declared once
+in `sources.json` is re-walked on a pipeline schedule; newly published entities are
+drafted and land as a **merge request**, not a push to `main` — precisely because a
+drafted entry has no FR translation, no badges and no maturity status. So "publish a new
+entity under the watched group" → "it shows up in the catalog after a one-click review",
+with no entry file written by hand.
+
+MR creation uses git push options (`merge_request.create/target/title/description/
+remove_source_branch`) — verified against `lib/gitlab/push_options.rb` in gitlab-org/gitlab
+rather than the docs site, which is behind an auth redirect from here. No API call, so the
+job needs no token scope beyond `write_repository`.
+
 ## 6. Submission flow (for the README)
 
 1. Publish your entity to a public git repo (Versioning → push).
