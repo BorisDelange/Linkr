@@ -30,6 +30,20 @@ retired; as-built documented in `docs/architecture.md` (Fullstack section). Only
 |----|------|--------|
 | 🤔 | Spreadsheet-style edits over immutable raw — design not yet arbitrated vs "pipeline-only transforms" (the dataset-store edit API is its unused groundwork) | L |
 
+## Community catalog — [catalog-plan.md](catalog-plan.md)
+
+Centralized index repo (`linkr-catalog` on framagit) listing community-published entities;
+the `/catalog` page is a stub today. Browsing works in static/WASM mode too (the GitLab
+API v4 raw route sends `allow-origin: *`); installing stays server-mode.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Create the `linkr-catalog` repo (entries/ + schema + build.mjs + GitLab CI) | S |
+| 🔜 | `lib/catalog/` fetch + hash-diff + localStorage cache (+ unit tests) | S |
+| 🔜 | Rewrite `CatalogPage.tsx`: grid, toolbar, load/refresh | M |
+| 🔜 | Install dialog → clone → `applyClonedEntity` | M |
+| 💤 | "Propose to catalog" prefill, installed-state by lineageId, custom catalog URL | S |
+
 ## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)
 
 | St | Item | Effort |
