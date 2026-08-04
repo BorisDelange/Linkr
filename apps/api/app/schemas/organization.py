@@ -18,6 +18,10 @@ class OrganizationCreate(CamelModel):
     custom_type: LocalizedOrStr | None = None
     reference_id: str | None = None
     custom_fields: dict[str, str] | None = None
+    # Supplied when an import reconstitutes an org from its export snapshot so
+    # the original creation date survives the git round-trip (same rationale as
+    # WorkspaceCreate/ProjectCreate); a normal create leaves it unset.
+    created_at: datetime | None = None
 
 
 class OrganizationUpdate(CamelModel):

@@ -72,6 +72,24 @@ async def test_client_supplied_id_kept(client):
     assert r.status_code == 201 and r.json()["id"] == "org-fixed"
 
 
+async def test_import_preserves_created_at(client):
+    """A workspace import reconstitutes the org with its snapshot createdAt;
+    the server must keep it (not stamp now) or organization.json churns on
+    every import→export git round-trip."""
+    headers = await _admin_headers(client)
+    r = await client.post(
+        f"{API}/organizations",
+        headers=headers,
+        json={
+            "id": "org-imported",
+            "name": {"en": "RiCDC"},
+            "createdAt": "2026-07-24T09:56:57.000Z",
+        },
+    )
+    assert r.status_code == 201
+    assert r.json()["createdAt"] == "2026-07-24T09:56:57.000Z"
+
+
 async def test_requires_auth(client):
     r = await client.get(f"{API}/organizations")
     assert r.status_code in (401, 403)
