@@ -75,6 +75,10 @@ async def test_creator_stamped_and_reattributed(client):
     got = r.json()
     assert got["createdBy"] == "Origin Author"
     assert got["organization"]["name"]["fr"] == "Org d'origine"
+    # Rewriting the snapshot without an explicit createdById re-resolves the id (no
+    # local ORCID match → NULL). Leaving the importer's id there made a git-cloned
+    # mapping project display the importer as its author.
+    assert got["createdById"] is None
 
 
 async def test_project_crud(client):

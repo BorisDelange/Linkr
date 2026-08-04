@@ -46,6 +46,7 @@ async def update(db: AsyncSession, plugin: UserPlugin, data: UserPluginUpdate) -
     git_secret.apply_to_entity(plugin, changes)
     for key, value in changes.items():
         setattr(plugin, key, value)
+    await author_provenance.relink_creator_on_update(db, plugin, changes)
     await db.commit()
     await db.refresh(plugin)
     return plugin

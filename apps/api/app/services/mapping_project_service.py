@@ -73,6 +73,7 @@ async def update(
     old_sha = project.raw_file_sha
     for key, value in changes.items():
         setattr(project, key, value)
+    await author_provenance.relink_creator_on_update(db, project, changes)
     await db.commit()
     await db.refresh(project)
     # A replaced source CSV leaves the previous blob orphaned — release it.

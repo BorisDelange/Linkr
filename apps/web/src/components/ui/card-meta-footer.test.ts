@@ -40,4 +40,19 @@ describe('orcidHref', () => {
     expect(orcidHref('')).toBeNull()
     expect(orcidHref('1234')).toBeNull()
   })
+
+  it('refuses a non-orcid.org host', () => {
+    // The row is LABELLED "ORCID": passing an arbitrary URL through would turn an
+    // imported entity's metadata into an ORCID-labelled link to anywhere.
+    expect(orcidHref('https://evil.example/phish')).toBeNull()
+    expect(orcidHref('https://orcid.org.evil.example/0009-0002-6055-6935')).toBeNull()
+    expect(orcidHref('https://evil.example/0009-0002-6055-6935')).toBeNull()
+    // Not a URL scheme we render at all.
+    expect(orcidHref('javascript:alert(1)')).toBeNull()
+    expect(orcidHref('data:text/html,<script>alert(1)</script>')).toBeNull()
+  })
+
+  it('normalises the www. and http variants to the canonical URL', () => {
+    expect(orcidHref('http://www.orcid.org/0009-0002-6055-6935')).toBe('https://orcid.org/0009-0002-6055-6935')
+  })
 })

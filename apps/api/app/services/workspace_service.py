@@ -58,6 +58,7 @@ async def update(
     git_secret.apply_to_entity(workspace, changes)
     for key, value in changes.items():
         setattr(workspace, key, value)
+    await author_provenance.relink_creator_on_update(db, workspace, changes)
     await db.commit()
     await db.refresh(workspace)
     return workspace

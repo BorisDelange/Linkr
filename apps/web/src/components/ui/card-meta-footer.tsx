@@ -57,7 +57,7 @@ function DetailRow({ label, value, href }: { label: string; value: string; href?
         <a
           href={href}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           // Stop the click from bubbling to the card underneath (which would open
           // the entity) — the tooltip renders in a portal, but the click is
           // replayed on the trigger's ancestors otherwise.
@@ -87,13 +87,17 @@ export function websiteHref(raw: string): string | null {
   return null
 }
 
-/** ORCID iD → its orcid.org URL. Accepts a bare 16-digit id or a full URL. */
+/** ORCID iD → its orcid.org URL. Accepts a bare 16-digit id or an orcid.org URL.
+ *  Any OTHER host is refused (null → the value renders as plain text): the row is
+ *  labelled "ORCID", so passing an arbitrary URL through would turn an imported
+ *  entity's metadata into an ORCID-labelled link to anywhere. */
 export function orcidHref(raw: string): string | null {
   const v = raw.trim()
   if (!v) return null
-  if (/^https?:\/\//i.test(v)) return v
-  if (/^(\d{4}-){3}\d{3}[\dX]$/i.test(v)) return `https://orcid.org/${v}`
-  return null
+  const bare = /^(\d{4}-){3}\d{3}[\dX]$/i
+  if (bare.test(v)) return `https://orcid.org/${v}`
+  const m = /^https?:\/\/(?:www\.)?orcid\.org\/((?:\d{4}-){3}\d{3}[\dX])$/i.exec(v)
+  return m ? `https://orcid.org/${m[1]}` : null
 }
 
 /**
@@ -152,8 +156,12 @@ function AuthorChip({
 
   return (
     <Tooltip>
+      {/* tabIndex so the card is reachable by keyboard: the tooltip holds the only
+          links to the author's website / email / ORCID, and a bare <span> never
+          takes focus, so the tooltip would never open for a keyboard or
+          screen-reader user. */}
       <TooltipTrigger asChild>
-        <span className="min-w-0 cursor-default">{name}</span>
+        <span tabIndex={0} className="min-w-0 cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">{name}</span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs text-xs">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
