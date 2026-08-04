@@ -52,6 +52,7 @@ import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
+import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { gitCloneToZip } from '@/lib/api/git'
@@ -518,21 +519,15 @@ export function WorkspacesPage() {
           ? { name: copyLocalizedName(collection.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: collection.lineageId }
           : { lineageId: collection.lineageId ?? crypto.randomUUID() }),
       })
-      // Remint child file ids whenever the parent id was re-minted (a duplicate,
-      // or a plain import that dodged a cross-workspace collision) — else they'd
+      // parseWorkspaceZip derived the ids from the ZIP's own collection id; when
+      // the target id differs (a duplicate, or a plain import that dodged a
+      // cross-workspace collision) re-derive them from the target so they can't
       // collide with the other workspace's files.
-      const remint = id !== collection.id
-      const fileIdMap = new Map<string, string>()
-      const mapFileId = (oldId: string): string => {
-        if (!remint) return oldId
-        if (!fileIdMap.has(oldId)) fileIdMap.set(oldId, crypto.randomUUID())
-        return fileIdMap.get(oldId)!
-      }
-      for (const f of files) {
-        await storage.sqlScriptFiles.create({
-          ...f, id: mapFileId(f.id), collectionId: id,
-          parentId: f.parentId ? mapFileId(f.parentId) : null,
-        })
+      const targetFiles = id === collection.id
+        ? files
+        : rederiveTreeIds(files, collection.id, id, 'collectionId')
+      for (const f of targetFiles) {
+        await storage.sqlScriptFiles.create({ ...f, collectionId: id })
       }
     }
 
@@ -554,18 +549,11 @@ export function WorkspacesPage() {
           ? { name: copyLocalizedName(pipeline.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: pipeline.lineageId }
           : { lineageId: pipeline.lineageId ?? crypto.randomUUID() }),
       })
-      const remint = id !== pipeline.id
-      const fileIdMap = new Map<string, string>()
-      const mapFileId = (oldId: string): string => {
-        if (!remint) return oldId
-        if (!fileIdMap.has(oldId)) fileIdMap.set(oldId, crypto.randomUUID())
-        return fileIdMap.get(oldId)!
-      }
-      for (const f of files) {
-        await storage.etlFiles.create({
-          ...f, id: mapFileId(f.id), pipelineId: id,
-          parentId: f.parentId ? mapFileId(f.parentId) : null,
-        })
+      const targetFiles = id === pipeline.id
+        ? files
+        : rederiveTreeIds(files, pipeline.id, id, 'pipelineId')
+      for (const f of targetFiles) {
+        await storage.etlFiles.create({ ...f, pipelineId: id })
       }
     }
 

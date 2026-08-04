@@ -1,0 +1,192 @@
+/**
+ * The versioned form of a SQL-collection / ETL-pipeline file tree.
+ *
+ * `_tree.json` describes the tree by PATH, not by id: a node's identity in the
+ * repo is where it sits (`sofa/sofa-duckdb.sql`), which is exactly what git
+ * already versions. Carrying the local `id`/`parentId`/`collectionId` too meant
+ * a second, instance-local identity in the file — and every import re-minted it,
+ * churning the diff on each round-trip. Same reasoning as the dataset column
+ * ids (`col_<slug>`) and the dashboard/tab/widget content keys.
+ *
+ * Local ids are derived back from the path at import: `deterministicId(parentId,
+ * path)`. Same repo into the same collection → same ids (idempotent re-import),
+ * while the collection id in the hash keeps two clones of one repo distinct.
+ * Renaming a folder therefore re-mints its subtree's ids, which is harmless
+ * here: nothing outside the tree references a script file's id (`parentId` is
+ * internal), unlike a dataset id which widgets point at.
+ */
+import { deterministicId } from '@/lib/deterministic-id'
+
+/** A node as stored locally: identity by id, hierarchy by parentId. */
+export interface TreeNode {
+  id: string
+  name: string
+  type: 'file' | 'folder'
+  parentId: string | null
+  content?: string
+}
+
+/** A node as versioned: identity and hierarchy both carried by `path`. */
+export interface PathNode {
+  path: string
+  type: 'file' | 'folder'
+}
+
+/** Full path of a stored node, walking parentId up to the root. */
+export function treeNodePath(node: TreeNode, byId: Map<string, TreeNode>): string {
+  const parts: string[] = [node.name]
+  const seen = new Set<string>([node.id])
+  let current = node
+  while (current.parentId) {
+    const parent = byId.get(current.parentId)
+    // Stop on a dangling or cyclic parent rather than looping forever — a
+    // malformed tree must still yield a usable (if shallower) path.
+    if (!parent || seen.has(parent.id)) break
+    seen.add(parent.id)
+    parts.unshift(parent.name)
+    current = parent
+  }
+  return parts.join('/')
+}
+
+/**
+ * Rewrite stored nodes into their versioned form: `path` replaces
+ * `id`/`parentId`/`name`, and the instance-local FK (`collectionId`/`pipelineId`)
+ * and `content` are dropped — content lives in the real file next to the tree.
+ * Sorted by path so the array order (hence the bytes) never depends on the
+ * DB's insertion order, which `list_files` doesn't constrain.
+ */
+export function toPathTree<T extends TreeNode>(
+  nodes: T[],
+  fkKey: 'collectionId' | 'pipelineId',
+): Record<string, unknown>[] {
+  const byId = new Map<string, TreeNode>(nodes.map((n) => [n.id, n]))
+  return nodes
+    .map((node) => {
+      const {
+        id: _id,
+        parentId: _parentId,
+        name: _name,
+        content: _content,
+        [fkKey]: _fk,
+        ...rest
+      } = node as T & Record<string, unknown>
+      return { path: treeNodePath(node, byId), ...rest }
+    })
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+}
+
+/** The parent directory of a path, or '' at the root. */
+function dirname(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i === -1 ? '' : path.slice(0, i)
+}
+
+/** The last segment of a path. */
+function basename(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i === -1 ? path : path.slice(i + 1)
+}
+
+/**
+ * Rebuild storable nodes from a versioned `_tree.json`, deriving each id from
+ * (`ownerId`, path). `ownerId` is the LOCAL collection/pipeline id, so the same
+ * repo cloned twice on one instance yields two distinct id sets.
+ *
+ * Parents are emitted before their children, so an insert loop can rely on the
+ * array order when a storage backend requires the parent row to exist first.
+ * A folder implied by a file's path but missing from the tree is synthesized,
+ * so a hand-authored repo (a `.sql` dropped into a new subfolder, with no
+ * `_tree.json` entry for it) imports correctly.
+ *
+ * Each record keeps its `path` so a caller can fetch the file's content from the
+ * ZIP/repo afterwards; strip it before persisting (`storablePathNode`).
+ */
+export function fromPathTree<T extends Record<string, unknown>>(
+  tree: PathNode[],
+  ownerId: string,
+  fkKey: 'collectionId' | 'pipelineId',
+): T[] {
+  const idFor = (path: string) => deterministicId(ownerId, path)
+  const byPath = new Map<string, PathNode & Record<string, unknown>>()
+  for (const node of tree) {
+    if (typeof node?.path !== 'string' || !node.path) continue
+    byPath.set(node.path, node as PathNode & Record<string, unknown>)
+  }
+  // Synthesize the folders a path implies but the tree omits.
+  for (const path of [...byPath.keys()]) {
+    for (let dir = dirname(path); dir; dir = dirname(dir)) {
+      if (!byPath.has(dir)) byPath.set(dir, { path: dir, type: 'folder' })
+    }
+  }
+  // Shallower paths first so a parent always precedes its children.
+  const ordered = [...byPath.values()].sort((a, b) => {
+    const depth = a.path.split('/').length - b.path.split('/').length
+    return depth !== 0 ? depth : a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+  })
+  return ordered.map((node) => {
+    const parentDir = dirname(node.path)
+    return {
+      ...node,
+      id: idFor(node.path),
+      name: basename(node.path),
+      parentId: parentDir ? idFor(parentDir) : null,
+      [fkKey]: ownerId,
+    } as unknown as T
+  })
+}
+
+/** Drop the transport-only `path` before persisting a node built by fromPathTree. */
+export function storablePathNode<T extends Record<string, unknown>>(record: T): T {
+  const { path: _path, ...rest } = record
+  return rest as unknown as T
+}
+
+/**
+ * Re-derive ids for nodes already built under `fromOwnerId` so they belong to
+ * `toOwnerId` instead — used when an import re-mints the parent collection /
+ * pipeline id (a duplicate, or a cross-workspace id collision) after the tree
+ * was parsed. Paths are recovered from the node hierarchy, so the result is
+ * identical to having parsed with the target id from the start.
+ */
+export function rederiveTreeIds<T extends TreeNode>(
+  nodes: T[],
+  fromOwnerId: string,
+  toOwnerId: string,
+  fkKey: 'collectionId' | 'pipelineId',
+): T[] {
+  if (fromOwnerId === toOwnerId) return nodes
+  const byId = new Map<string, TreeNode>(nodes.map((n) => [n.id, n]))
+  const contentByPath = new Map<string, string | undefined>()
+  const paths = nodes.map((n) => {
+    const path = treeNodePath(n, byId)
+    contentByPath.set(path, n.content)
+    return { ...(n as Record<string, unknown>), path, type: n.type } as unknown as PathNode
+  })
+  return fromPathTree<T & { path: string }>(paths, toOwnerId, fkKey).map((rec) => {
+    const content = contentByPath.get(rec.path)
+    const node = storablePathNode(rec) as T
+    if (content !== undefined) (node as Record<string, unknown>).content = content
+    return node
+  })
+}
+
+/**
+ * Read a `_tree.json` array in either form. A legacy export carries
+ * `id`/`name`/`parentId` and no `path`; rebuild the path from the hierarchy so
+ * repos pushed before the format change still import. Nodes are returned in the
+ * input order; `fromPathTree` re-sorts them anyway.
+ */
+export function readPathTree(raw: unknown): PathNode[] {
+  if (!Array.isArray(raw)) return []
+  const nodes = raw.filter((n): n is Record<string, unknown> => !!n && typeof n === 'object')
+  if (nodes.every((n) => typeof n.path === 'string')) return nodes as unknown as PathNode[]
+  const legacy = nodes as unknown as TreeNode[]
+  const byId = new Map<string, TreeNode>(legacy.map((n) => [n.id, n]))
+  return legacy
+    .filter((n) => typeof n?.name === 'string')
+    .map((n) => {
+      const { id: _id, parentId: _p, name: _n, content: _c, ...rest } = n as TreeNode & Record<string, unknown>
+      return { ...rest, path: treeNodePath(n, byId), type: n.type } as PathNode
+    })
+}

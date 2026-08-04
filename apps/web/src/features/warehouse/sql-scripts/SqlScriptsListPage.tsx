@@ -9,7 +9,8 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
-import { parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
+import { attachTreeIds, parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
+import type { TreeImportNode } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -17,7 +18,7 @@ import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateSqlScriptsDialog } from './CreateSqlScriptsDialog'
 import { useSqlCollectionActions } from './use-sql-collection-actions'
-import type { SqlScriptCollection } from '@/types'
+import type { SqlScriptCollection, SqlScriptFile } from '@/types'
 
 export function SqlScriptsListPage() {
   const { t } = useTranslation()
@@ -49,9 +50,9 @@ export function SqlScriptsListPage() {
   }, [collections, searchQuery, sort, language])
 
   // --- Import ---
-  const [conflict, setConflict] = useState<{ name: string; pending: SqlScriptCollection; pendingFiles: import('@/types').SqlScriptFile[] } | null>(null)
+  const [conflict, setConflict] = useState<{ name: string; pending: SqlScriptCollection; pendingFiles: TreeImportNode[] } | null>(null)
 
-  const doImport = useCallback(async (collection: SqlScriptCollection, files: import('@/types').SqlScriptFile[], duplicate: boolean) => {
+  const doImport = useCallback(async (collection: SqlScriptCollection, files: TreeImportNode[], duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : collection.id
     // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
@@ -87,12 +88,11 @@ export function SqlScriptsListPage() {
         await gitSetSyncState('sql-script-collections', id, gitRemoteConfig?.branch ?? 'main', syncedOid)
       } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
     }
-    for (const f of files) {
-      await getStorage().sqlScriptFiles.create({
-        ...f,
-        id: duplicate ? crypto.randomUUID() : f.id,
-        collectionId: id,
-      })
+    // Ids are derived from (target collection id, path), so a duplicate — which
+    // gets a fresh collection id — automatically gets a distinct, collision-free
+    // set without re-minting anything by hand.
+    for (const f of attachTreeIds<SqlScriptFile>(files, id, 'collectionId')) {
+      await getStorage().sqlScriptFiles.create(f)
     }
     await loadCollections()
   }, [activeWorkspaceId, language, loadCollections])
@@ -107,10 +107,7 @@ export function SqlScriptsListPage() {
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
     if (gitRemote) collection.gitRemoteConfig = gitRemote
-    const tree = parsed['_tree.json'] as import('@/types').SqlScriptFile[] | undefined
-    const files = tree
-      ? reconstructTreeFiles(tree, parsed)
-      : ((parsed['files.json'] ?? []) as import('@/types').SqlScriptFile[])
+    const files = reconstructTreeFiles(parsed['_tree.json'] ?? parsed['files.json'], parsed)
     const existing = await getStorage().sqlScriptCollections.getById(collection.id)
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: collection, pendingFiles: files })

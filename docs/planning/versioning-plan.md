@@ -34,10 +34,38 @@
 - Empty commit selection can no longer fall through to the server's "commit everything"
   path (`_commitPushPaths` refuses an empty array; a missing `paths` field means
   `git add -A` server-side).
+- **Path-keyed `_tree.json` for sql-collections / etl-pipelines** (done 2026-08-04,
+  export format `2.3.0`): the versioned tree carries `path` instead of
+  `id`/`parentId`/`name`/`collectionId`, and local ids are derived on import via
+  `deterministicId(<owner id>, path)` — see `lib/entity-tree.ts`. Kills the id churn
+  (the tree no longer holds an instance-local identity at all) and makes the ids
+  idempotent per target without any collision-recovery pass. Same family as the
+  dataset `col_<slug>` ids and the dashboard/tab/widget content keys. `readPathTree`
+  keeps reading legacy id-keyed trees (repos pushed before the bump). Side effect
+  fixed in passing: the seed loader read nested script content at a flat
+  `<folder>/<name>` path, so a script in a subfolder seeded empty.
+  **Not applied to `scripts/_tree.json` (project IDE files) or `datasets/_tree.json`**:
+  those ids are referenced from elsewhere (widgets/filters point at dataset + column
+  ids), so a rename-driven re-mint would break the references — they keep the
+  `deterministicId(projectUid, oldId)` / content-key remap instead.
 
 ---
 
 ## Remaining
+
+### 0. [TODO — sibling repo] Portal `build.sh`: index nested script files
+
+`../linkr-portal/scripts/build.sh` builds the seed manifest's `sqlScriptFiles` /
+`etlFiles` index with a **non-recursive** glob (`for f in "$sql_dir"*`, lines ~325 and
+~200) and keys each entry `"<collection>/<filename>"`. Since 2.3.0 the seed loader looks
+each file up by its **tree path** (`"<collection>/<sub/dir/file.sql>"`), so a script at
+the collection root still resolves (path == filename) but one inside a subfolder is
+absent from the index and seeds with no content.
+
+Fix: recurse (e.g. `find "$sql_dir" -type f`) and key by the path *relative to the
+collection folder*, skipping `_collection.json` / `_tree.json` (same for `etl/` and
+`_pipeline.json`). Nothing else in the portal reads these trees — `sync-git-links.sh`
+and `update-submodules.py` work at folder level only.
 
 ### 1. [TO TEST] End-to-end pull flow, especially the LFS path
 

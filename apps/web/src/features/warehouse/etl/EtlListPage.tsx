@@ -11,14 +11,15 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
-import { parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
+import { attachTreeIds, parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
+import type { TreeImportNode } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateEtlDialog } from './CreateEtlDialog'
 import { useEtlActions } from './use-etl-actions'
-import type { EtlPipeline } from '@/types'
+import type { EtlFile, EtlPipeline } from '@/types'
 
 export function EtlListPage() {
   const { t } = useTranslation()
@@ -54,9 +55,9 @@ export function EtlListPage() {
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('etl.unknown_source')
 
   // --- Import ---
-  const [conflict, setConflict] = useState<{ name: string; pending: EtlPipeline; pendingFiles: import('@/types').EtlFile[] } | null>(null)
+  const [conflict, setConflict] = useState<{ name: string; pending: EtlPipeline; pendingFiles: TreeImportNode[] } | null>(null)
 
-  const doImport = useCallback(async (pipeline: EtlPipeline, files: import('@/types').EtlFile[], duplicate: boolean) => {
+  const doImport = useCallback(async (pipeline: EtlPipeline, files: TreeImportNode[], duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : pipeline.id
     // The cloned HEAD rides in on gitRemoteConfig.syncedOid but must not be
@@ -91,12 +92,10 @@ export function EtlListPage() {
         await gitSetSyncState('etl-pipelines', id, gitRemoteConfig?.branch ?? 'main', syncedOid)
       } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
     }
-    for (const f of files) {
-      await getStorage().etlFiles.create({
-        ...f,
-        id: duplicate ? crypto.randomUUID() : f.id,
-        pipelineId: id,
-      })
+    // Ids are derived from (target pipeline id, path), so a duplicate — which gets
+    // a fresh pipeline id — automatically gets a distinct, collision-free set.
+    for (const f of attachTreeIds<EtlFile>(files, id, 'pipelineId')) {
+      await getStorage().etlFiles.create(f)
     }
     await loadEtlPipelines()
   }, [activeWorkspaceId, language, loadEtlPipelines])
@@ -111,10 +110,7 @@ export function EtlListPage() {
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
     if (gitRemote) pipeline.gitRemoteConfig = gitRemote
-    const tree = parsed['_tree.json'] as import('@/types').EtlFile[] | undefined
-    const files = tree
-      ? reconstructTreeFiles(tree, parsed)
-      : ((parsed['files.json'] ?? []) as import('@/types').EtlFile[])
+    const files = reconstructTreeFiles(parsed['_tree.json'] ?? parsed['files.json'], parsed)
     const existing = await getStorage().etlPipelines.getById(pipeline.id)
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: pipeline, pendingFiles: files })

@@ -1,30 +1,21 @@
 [
   {
-    "id": "f-root",
-    "collectionId": "col-1",
-    "name": "queries",
+    "path": "queries",
     "type": "folder",
-    "parentId": null,
     "order": 0,
     "dataSourceId": null,
     "createdAt": "2026-01-02T03:04:05.000Z"
   },
   {
-    "id": "f-cohort",
-    "collectionId": "col-1",
-    "name": "cohort.sql",
+    "path": "queries/cohort.sql",
     "type": "file",
-    "parentId": "f-root",
     "order": 0,
     "dataSourceId": null,
     "createdAt": "2026-01-02T03:04:05.000Z"
   },
   {
-    "id": "f-top",
-    "collectionId": "col-1",
-    "name": "top.sql",
+    "path": "top.sql",
     "type": "file",
-    "parentId": null,
     "order": 1,
     "dataSourceId": null,
     "createdAt": "2026-01-02T03:04:05.000Z"

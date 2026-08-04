@@ -5,6 +5,10 @@ import JSZip from 'jszip'
 import type { Storage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
 import { deterministicId } from '@/lib/deterministic-id'
+import {
+  type PathNode, type TreeNode,
+  fromPathTree, readPathTree, storablePathNode, toPathTree, treeNodePath,
+} from '@/lib/entity-tree'
 import type {
   Project, IdeFile, Pipeline, Cohort, IdeConnection,
   Dashboard, DashboardTab, DashboardWidget, DashboardFilter,
@@ -1436,11 +1440,11 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
 //   wiki/_attachments/{id}-{filename}         — wiki attachment binaries
 //   sql-scripts/{collection-slug}/
 //     _collection.json                        — collection metadata
-//     _tree.json                              — file tree metadata (folders, order)
+//     _tree.json                              — tree keyed by path (type, order, …); ids derived on import
 //     {path/to/script.sql}                    — script files at their folder path
 //   etl/{slug}/
 //     _pipeline.json                          — ETL pipeline metadata
-//     _tree.json                              — file tree metadata
+//     _tree.json                              — tree keyed by path (type, order, …); ids derived on import
 //     {path/to/script.sql}                    — ETL files at their folder path
 //   data-quality/{slug}.json                   — { ruleSet, checks }
 //   concept-sets/{slug}.json                  — concept set
@@ -1512,23 +1516,11 @@ function resolveWorkspaceName(ws: Workspace): string {
     : (ws.name.en || Object.values(ws.name)[0] || 'workspace')
 }
 
-/** Build the full path for a tree node (SqlScriptFile, EtlFile) preserving folder hierarchy. */
-function buildTreePath(file: { id: string; name: string; parentId: string | null }, byId: Map<string, { id: string; name: string; parentId: string | null }>): string {
-  const parts: string[] = [file.name]
-  let current = file
-  while (current.parentId) {
-    const parent = byId.get(current.parentId)
-    if (!parent) break
-    parts.unshift(parent.name)
-    current = parent
-  }
-  return parts.join('/')
-}
-
 /**
  * Lay out a SQL script collection in a git-friendly tree under `prefix`:
- * `_collection.json` (metadata), `_tree.json` (file hierarchy without content),
- * and each script written at its real path with its raw `.sql` content.
+ * `_collection.json` (metadata), `_tree.json` (the hierarchy keyed by path,
+ * without content), and each script written at its real path with its raw
+ * `.sql` content. See entity-tree.ts for why the tree carries no ids.
  */
 export async function buildSqlCollectionFolder(
   zip: JSZip,
@@ -1540,11 +1532,11 @@ export async function buildSqlCollectionFolder(
   // versioned tree round-trips idempotently — import reassigns them anyway.
   zip.file(`${prefix}_collection.json`, json(stripInstanceFields(collection)))
   const files = await storage.sqlScriptFiles.getByCollection(collection.id)
-  const byId = new Map(files.map(f => [f.id, f]))
-  zip.file(`${prefix}_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
+  const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
+  zip.file(`${prefix}_tree.json`, json(toPathTree(files, 'collectionId')))
   for (const f of files) {
     if (f.type === 'file' && f.content != null) {
-      zip.file(`${prefix}${buildTreePath(f, byId)}`, f.content)
+      zip.file(`${prefix}${treeNodePath(f, byId)}`, f.content)
     }
   }
 }
@@ -1778,22 +1770,43 @@ export async function buildUserPluginZip(
 }
 
 /**
- * Reconstruct tree files (SqlScriptFile / EtlFile) from a parsed import ZIP that uses
- * the git-friendly layout (`_tree.json` for metadata + raw files at their real paths).
- * `parsed` keys are zip paths relative to the collection/pipeline root (after any prefix
- * is stripped by the caller). Folders carry no content; file content comes from the
- * raw entry matching the file's reconstructed path.
+ * Reconstruct tree nodes (SqlScriptFile / EtlFile) from a parsed import ZIP using
+ * the git-friendly layout (`_tree.json` keyed by path + raw files at those paths).
+ * `parsed` keys are zip paths relative to the collection/pipeline root (after any
+ * prefix is stripped by the caller). Folders carry no content.
+ *
+ * Nodes come back carrying their `path` but NO id: the caller only knows the
+ * target collection/pipeline id (which namespaces the derived ids) once the
+ * user has resolved an import conflict. Finish with `attachTreeIds`.
  */
-export function reconstructTreeFiles<T extends { id: string; name: string; type: 'file' | 'folder'; parentId: string | null; content?: string }>(
-  tree: T[],
+export type TreeImportNode = PathNode & { content?: string }
+
+export function reconstructTreeFiles(
+  tree: unknown,
   parsed: Record<string, unknown>,
+): TreeImportNode[] {
+  return readPathTree(tree).map((node) => {
+    if (node.type !== 'file') return node
+    const raw = parsed[node.path]
+    return typeof raw === 'string' ? { ...node, content: raw } : node
+  })
+}
+
+/**
+ * Derive the local ids for path-keyed tree nodes, once the owning
+ * collection/pipeline id is known. Content already attached is preserved.
+ */
+export function attachTreeIds<T extends Record<string, unknown>>(
+  nodes: TreeImportNode[],
+  ownerId: string,
+  fkKey: 'collectionId' | 'pipelineId',
 ): T[] {
-  const byId = new Map(tree.map(f => [f.id, f]))
-  return tree.map(f => {
-    if (f.type !== 'file') return f
-    const path = buildTreePath(f, byId as Map<string, { id: string; name: string; parentId: string | null }>)
-    const raw = parsed[path]
-    return typeof raw === 'string' ? { ...f, content: raw } : f
+  const contentByPath = new Map(nodes.map((n) => [n.path, n.content]))
+  return fromPathTree<T & { path: string }>(nodes, ownerId, fkKey).map((rec) => {
+    const content = contentByPath.get(rec.path)
+    const node = storablePathNode(rec) as T
+    if (content !== undefined) (node as Record<string, unknown>).content = content
+    return node
   })
 }
 
@@ -1825,45 +1838,23 @@ export async function applyClonedEntity(
       if (type === 'sql-collection') await storage.sqlScriptCollections.update(targetId, changes).catch(() => {})
       else await storage.etlPipelines.update(targetId, changes as Partial<EtlPipeline>).catch(() => {})
     }
-    const tree = (await readJson<(SqlScriptFile | EtlFile)[]>('_tree.json')) ?? []
-    const byId = new Map(tree.map(f => [f.id, f as { id: string; name: string; parentId: string | null }]))
     const fkKey = type === 'sql-collection' ? 'collectionId' : 'pipelineId'
     // Clear this collection's/pipeline's own files first, so a retry or a re-clone
     // over a prior pointer doesn't leave stale rows.
-    const clearFiles = type === 'sql-collection'
-      ? () => storage.sqlScriptFiles.deleteByCollection(targetId).catch(() => {})
-      : () => storage.etlFiles.deleteByPipeline(targetId).catch(() => {})
-    await clearFiles()
-    const insertAll = async (mapId: (oldId: string) => string, tolerant: boolean): Promise<void> => {
-      for (const f of tree) {
-        const content = f.type === 'file'
-          ? await zip.files[buildTreePath(f, byId)]?.async('string')
-          : undefined
-        const rec: Record<string, unknown> = dropForeignAuthorId({
-          ...f,
-          id: mapId(f.id),
-          parentId: f.parentId ? mapId(f.parentId) : f.parentId,
-          [fkKey]: targetId,
-        })
+    if (type === 'sql-collection') await storage.sqlScriptFiles.deleteByCollection(targetId).catch(() => {})
+    else await storage.etlFiles.deleteByPipeline(targetId).catch(() => {})
+    // Ids are derived from (targetId, path), so they're stable across re-clones
+    // into this collection and distinct from a sibling clone of the same repo —
+    // no collision to recover from, and _tree.json carries no id to churn.
+    const tree = readPathTree(await readJson('_tree.json'))
+    for (const rec of fromPathTree<Record<string, unknown>>(tree, targetId, fkKey)) {
+      if (rec.type === 'file') {
+        const content = await zip.files[String(rec.path)]?.async('string')
         if (content !== undefined) rec.content = content
-        const create = type === 'sql-collection'
-          ? storage.sqlScriptFiles.create(rec as unknown as SqlScriptFile)
-          : storage.etlFiles.create(rec as unknown as EtlFile)
-        await (tolerant ? create.catch(() => {}) : create)
       }
-    }
-    // Keep the repo's own file ids so re-exporting doesn't churn _tree.json's
-    // id/parentId on every clone. The id is a GLOBAL primary key though: cloning
-    // the same repo into a second collection (or as a copy) collides with the
-    // sibling's rows — deleteByCollection only cleared the target's — and the
-    // create throws (IDB add / server PK). Fall back to one re-minted pass then,
-    // rewriting parentId through the same old→new map.
-    try {
-      await insertAll((id) => id, false)
-    } catch {
-      await clearFiles()
-      const idMap = new Map<string, string>(tree.map(f => [f.id, crypto.randomUUID()]))
-      await insertAll((old) => idMap.get(old) ?? old, true)
+      const node = dropForeignAuthorId(storablePathNode(rec))
+      if (type === 'sql-collection') await storage.sqlScriptFiles.create(node as unknown as SqlScriptFile).catch(() => {})
+      else await storage.etlFiles.create(node as unknown as EtlFile).catch(() => {})
     }
     return true
   }
@@ -1965,11 +1956,11 @@ export async function buildEtlPipelineFolder(
 ): Promise<void> {
   zip.file(`${prefix}_pipeline.json`, json(stripInstanceFields(pipeline)))
   const files = await storage.etlFiles.getByPipeline(pipeline.id)
-  const byId = new Map(files.map(f => [f.id, f]))
-  zip.file(`${prefix}_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
+  const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
+  zip.file(`${prefix}_tree.json`, json(toPathTree(files, 'pipelineId')))
   for (const f of files) {
     if (f.type === 'file' && f.content != null) {
-      zip.file(`${prefix}${buildTreePath(f, byId)}`, f.content)
+      zip.file(`${prefix}${treeNodePath(f, byId)}`, f.content)
     }
   }
 }
@@ -2569,19 +2560,17 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const prefix = `sql-scripts/${folder}/`
     const collection = await readJsonFile<SqlScriptCollection>(zipData, `${prefix}_collection.json`)
     if (!collection) continue
-    const treeMeta = (await readJsonFile<SqlScriptFile[]>(zipData, `${prefix}_tree.json`)) ?? []
-    if (treeMeta.length > 0) {
-      const byId = new Map(treeMeta.map(f => [f.id, f]))
-      for (const f of treeMeta) {
-        if (f.type !== 'file') continue
-        const filePath = `${prefix}${buildTreePath(f, byId)}`
-        const entry = zipData.files[filePath]
-        if (entry) {
-          ;(f as SqlScriptFile).content = await entry.async('string')
-        }
-      }
+    const files = fromPathTree<SqlScriptFile & { path: string }>(
+      readPathTree(await readJsonFile(zipData, `${prefix}_tree.json`)),
+      collection.id,
+      'collectionId',
+    )
+    for (const f of files) {
+      if (f.type !== 'file') continue
+      const entry = zipData.files[`${prefix}${f.path}`]
+      if (entry) f.content = await entry.async('string')
     }
-    sqlCollections.push({ collection, files: treeMeta as SqlScriptFile[] })
+    sqlCollections.push({ collection, files: files as SqlScriptFile[] })
   }
 
   // --- etl/ ---
@@ -2596,19 +2585,17 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const prefix = `etl/${folder}/`
     const pipeline = await readJsonFile<EtlPipeline>(zipData, `${prefix}_pipeline.json`)
     if (!pipeline) continue
-    const treeMeta = (await readJsonFile<EtlFile[]>(zipData, `${prefix}_tree.json`)) ?? []
-    if (treeMeta.length > 0) {
-      const byId = new Map(treeMeta.map(f => [f.id, f]))
-      for (const f of treeMeta) {
-        if (f.type !== 'file') continue
-        const filePath = `${prefix}${buildTreePath(f, byId)}`
-        const entry = zipData.files[filePath]
-        if (entry) {
-          ;(f as EtlFile).content = await entry.async('string')
-        }
-      }
+    const files = fromPathTree<EtlFile & { path: string }>(
+      readPathTree(await readJsonFile(zipData, `${prefix}_tree.json`)),
+      pipeline.id,
+      'pipelineId',
+    )
+    for (const f of files) {
+      if (f.type !== 'file') continue
+      const entry = zipData.files[`${prefix}${f.path}`]
+      if (entry) f.content = await entry.async('string')
     }
-    etlPipelines.push({ pipeline, files: treeMeta as EtlFile[] })
+    etlPipelines.push({ pipeline, files: files as EtlFile[] })
   }
 
   // --- data-quality/ (also supports legacy 'dq/' prefix) ---

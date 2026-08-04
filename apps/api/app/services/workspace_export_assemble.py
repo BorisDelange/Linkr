@@ -108,17 +108,36 @@ def _resolve_git_remote(cfg: dict | None) -> dict | None:
 
 
 def _tree_path(file: dict, by_id: dict[str, dict]) -> str:
-    """Port of ``buildTreePath`` (entity-io.ts:1387): reconstruct a tree node's path
-    from its parent-name chain."""
+    """Port of ``treeNodePath`` (entity-tree.ts): reconstruct a tree node's path
+    from its parent-name chain. Stops on a dangling or cyclic parent."""
     parts = [file["name"]]
+    seen = {file["id"]}
     current = file
     while current.get("parentId"):
         parent = by_id.get(current["parentId"])
-        if not parent:
+        if not parent or parent["id"] in seen:
             break
+        seen.add(parent["id"])
         parts.insert(0, parent["name"])
         current = parent
     return "/".join(parts)
+
+
+def _to_path_tree(files: list[dict], fk_key: str) -> list[dict]:
+    """Port of ``toPathTree`` (entity-tree.ts): a node's identity in the repo is
+    its path, so ``path`` replaces id/parentId/name and the instance-local FK
+    (collectionId/pipelineId) and content are dropped. Sorted by path so the
+    bytes never depend on the DB's insertion order (``list_files`` has no
+    ORDER BY). Key order must match the TS builder — the golden fixtures are
+    shared by both test suites."""
+    by_id = {f["id"]: f for f in files}
+    dropped = {"id", "parentId", "name", "content", fk_key}
+    out = [
+        {"path": _tree_path(f, by_id), **{k: v for k, v in f.items() if k not in dropped}}
+        for f in files
+    ]
+    # Python compares str by code point, matching the TS builder's < / > sort.
+    return sorted(out, key=lambda n: n["path"])
 
 
 def _to_portable_ranges(ranges: list[dict]) -> list[dict]:
@@ -276,7 +295,7 @@ async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, by
         for f in await sql_script_service.list_files(db, collection.id)
     ]
     by_id = {f["id"]: f for f in files}
-    tree["_tree.json"] = _json([{k: v for k, v in f.items() if k != "content"} for f in files])
+    tree["_tree.json"] = _json(_to_path_tree(files, "collectionId"))
     for f in files:
         if f["type"] == "file" and f.get("content") is not None:
             tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
@@ -295,7 +314,7 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
         for f in await etl_pipeline_service.list_files(db, pipeline.id)
     ]
     by_id = {f["id"]: f for f in files}
-    tree["_tree.json"] = _json([{k: v for k, v in f.items() if k != "content"} for f in files])
+    tree["_tree.json"] = _json(_to_path_tree(files, "pipelineId"))
     for f in files:
         if f["type"] == "file" and f.get("content") is not None:
             tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
