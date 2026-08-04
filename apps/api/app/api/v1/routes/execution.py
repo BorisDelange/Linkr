@@ -485,6 +485,26 @@ async def _terminal_kernel_loop(
     while the loop keeps reading, letting {interrupt} fire mid-run."""
     async with async_session() as db:
         environment = await environments.resolve(db, project_uid, language)
+        # Auto-build before the kernel starts, like the non-streaming /execute route:
+        # otherwise this path runs against an unmaterialised library and every
+        # `library(...)` fails. The build can take minutes, so stream a notice + its
+        # log to the console — the client would otherwise sit on "Loading R runtime".
+        if environments.needs_build(environment):
+            await websocket.send_json({
+                "type": "stdout",
+                "data": f"Building {environments.language_label(language)} environment…\n",
+            })
+
+            async def build_log(line: str) -> None:
+                await websocket.send_json({"type": "stdout", "data": line.rstrip() + "\n"})
+
+            try:
+                environment = await environments.ensure_ready(
+                    db, project_uid, language, user.id, on_log=build_log
+                )
+                await websocket.send_json({"type": "stdout", "data": "Environment ready.\n"})
+            except Exception as e:  # noqa: BLE001 — surface the build failure, keep the socket
+                await websocket.send_json({"type": "stderr", "data": f"Environment build failed: {e}\n"})
     try:
         k = await kernel.manager.get(project_uid, user.id, language, session_id, environment)
     except kernel.KernelLimitReached as e:
@@ -493,12 +513,21 @@ async def _terminal_kernel_loop(
         return
     resolver = await _make_ws_resolver(connection_id, user)
 
+    # Set on socket teardown so the drain below reads the run to completion WITHOUT
+    # sending: the socket is already closed, and a failing send would abort the drain
+    # after one chunk, leaving the rest of the run's output in the pipe.
+    draining = False
+
     async def on_chunk(kind: str, data: str) -> None:
+        if draining:
+            return
         await websocket.send_json({"type": kind, "data": data})
 
     async def run(code: str) -> None:
         try:
             out = await k.execute_stream(code, on_chunk, query_resolver=resolver)
+            if draining:
+                return
             await websocket.send_json({
                 "type": "done",
                 "figures": [
@@ -509,6 +538,8 @@ async def _terminal_kernel_loop(
                 "html": out.html,
             })
         except runtime.ExecutionError as e:
+            if draining:
+                return
             await websocket.send_json({"type": "error", "message": str(e)})
 
     current: asyncio.Task | None = None
@@ -536,10 +567,19 @@ async def _terminal_kernel_loop(
         # the kernel is left clean and back to idle. Bounded so a wedged kernel
         # can't hang the socket teardown forever.
         if current is not None and not current.done():
+            # Stop sending to the (already closed) socket first: the drain below reads
+            # the run's remaining chunks, and each one would otherwise try a send on a
+            # dead WebSocket, raise, and abort the drain after a single line — leaving
+            # the leftovers in the pipe, i.e. exactly what the drain exists to avoid.
+            draining = True
             k.interrupt()
             try:
                 await asyncio.wait_for(current, timeout=settings.execution_timeout_seconds)
-            except BaseException:  # noqa: BLE001 — drain best-effort; teardown must not raise
+            except asyncio.CancelledError:
+                # The server itself is shutting us down — never swallow cancellation.
+                current.cancel()
+                raise
+            except Exception:  # noqa: BLE001 — drain best-effort; teardown must not raise
                 if not current.done():
                     current.cancel()
 

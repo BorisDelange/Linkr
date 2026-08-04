@@ -285,17 +285,37 @@ async def build(
 
 
 def needs_build(env: Environment) -> bool:
-    """True when the env declares packages but its venv/library isn't materialised
-    (status draft/error). An empty `system` env never needs a build."""
+    """True when the env declares packages but its venv/library isn't materialised.
+
+    The DB `status` is not sufficient on its own: it records what THIS instance last
+    did, while the built library lives in a machine-local, git-ignored cache. So a
+    `ready` status routinely lies — the project was cloned/imported on another
+    machine, or the cache was cleared — and a run would then execute against an empty
+    library, failing on `library(dplyr)` with no build ever triggered. Conversely a
+    lockfile can appear on disk (an import, a `git pull`) AFTER the env row was first
+    resolved as `system`/`ready`, which no status transition would catch.
+
+    So: ask the DISK. A declared spec with no materialised library needs a build,
+    whatever the status says. `error` is retried too — a failed build (network blip)
+    recovers on the next run."""
+    if env.status == "building":
+        return False
+    if _has_disk_spec(env.project_uid, env.language):
+        return not _provisioner(env.language).is_built(env.project_uid)
+    # No committed spec → nothing to materialise (an empty `system` env).
     return env.kind == "managed" and env.status in ("draft", "error")
 
 
 async def ensure_ready(
-    db: AsyncSession, project_uid: str, language: str, user_id: int
+    db: AsyncSession, project_uid: str, language: str, user_id: int, on_log=None
 ) -> Environment:
     """Make the env runnable before code executes: if it declares packages but
     isn't built yet, build it now (auto-build on first run) as a tracked job so the
-    user sees it in the jobs panel. An empty/ready env returns immediately."""
+    user sees it in the jobs panel. An empty/ready env returns immediately.
+
+    ``on_log`` (optional, may be async) receives each build output line as it is
+    produced, so a caller with a live channel (the IDE's kernel WebSocket) can show
+    the build progressing instead of an opaque wait."""
     env = await resolve(db, project_uid, language)
     if not needs_build(env):
         return env
@@ -309,10 +329,33 @@ async def ensure_ready(
 
     async def body(handle) -> None:
         buffer: list[str] = []
+        queue: asyncio.Queue[str] | None = asyncio.Queue() if on_log is not None else None
+
+        def collect(line: str) -> None:
+            buffer.append(line)
+            # The provisioner runs in a worker thread, so hand lines to the event
+            # loop rather than awaiting on_log here.
+            if queue is not None:
+                queue.put_nowait(line)
+
+        async def pump() -> None:
+            assert queue is not None
+            while True:
+                line = await queue.get()
+                res = on_log(line)
+                if asyncio.iscoroutine(res):
+                    await res
+
+        pump_task = asyncio.create_task(pump()) if queue is not None else None
         try:
             async with async_session() as job_db:
-                await build(job_db, project_uid, language, on_log=buffer.append)
+                await build(job_db, project_uid, language, on_log=collect)
         finally:
+            if pump_task is not None:
+                # Let the queued lines drain before cancelling the pump.
+                while not queue.empty():  # type: ignore[union-attr]
+                    await asyncio.sleep(0)
+                pump_task.cancel()
             # Flush even on failure (build() raises on a bad build → job 'error').
             if buffer:
                 await handle.log("\n".join(buffer[-200:]))
