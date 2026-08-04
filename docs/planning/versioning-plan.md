@@ -35,7 +35,8 @@
   path (`_commitPushPaths` refuses an empty array; a missing `paths` field means
   `git add -A` server-side).
 - **Path-keyed `_tree.json` for sql-collections / etl-pipelines** (done 2026-08-04,
-  export format `2.3.0`): the versioned tree carries `path` instead of
+  still export format `2.2.1` — the `VERSION` bump is deliberately deferred to the
+  next release): the versioned tree carries `path` instead of
   `id`/`parentId`/`name`/`collectionId`, and local ids are derived on import via
   `deterministicId(<owner id>, path)` — see `lib/entity-tree.ts`. Kills the id churn
   (the tree no longer holds an instance-local identity at all) and makes the ids
@@ -55,7 +56,8 @@
   `../linkr-portal/scripts/build.sh` was updated in step (commit `ef9de69`): its seed
   manifest index now recurses and keys `sqlScriptFiles`/`etlFiles` by tree path, so a
   script in a subfolder is seeded with its content (a flat basename key also made two
-  same-named files in different folders collide).
+  same-named files in different folders collide). Since the seed loader reads a legacy
+  id-keyed tree too, that portal change is safe either way.
 
 ---
 
