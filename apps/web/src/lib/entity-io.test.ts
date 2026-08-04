@@ -1014,6 +1014,56 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(batch[0].projectId).toBe('mp-target')
   })
 
+  const sqlCollectionRepoZip = () => {
+    const zip = new JSZip()
+    zip.file('_collection.json', JSON.stringify({ id: 'repo-col', name: { en: 'Scripts' } }))
+    zip.file('_tree.json', JSON.stringify([
+      { id: 'f-folder', collectionId: 'repo-col', name: 'sofa', type: 'folder', parentId: null, order: 0, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'f-file', collectionId: 'repo-col', name: 'sofa.sql', type: 'file', parentId: 'f-folder', order: 1, createdAt: '2026-01-01T00:00:00.000Z' },
+    ]))
+    zip.file('sofa/sofa.sql', 'select 1')
+    return zip
+  }
+  const sqlStore = (createFile: (rec: { id: string }) => Promise<void>, calls: Record<string, unknown[][]>) => {
+    const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }
+    return new Proxy({}, {
+      get: (_t, prop) => {
+        if (prop === 'sqlScriptCollections') return { update: rec('col.update') }
+        if (prop === 'sqlScriptFiles') return {
+          deleteByCollection: rec('files.deleteByCollection'),
+          create: (f: { id: string }) => { (calls['files.create'] ??= []).push([f]); return createFile(f) },
+        }
+        return new Proxy({}, { get: () => async () => {} })
+      },
+    }) as unknown as Storage
+  }
+
+  it('applyClonedEntity keeps the repo file ids when they are free (no _tree.json churn on re-export)', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const store = sqlStore(() => Promise.resolve(), calls)
+    expect(await applyClonedEntity(sqlCollectionRepoZip(), 'sql-collection', 'sql-target', store)).toBe(true)
+    expect(calls['files.deleteByCollection']).toHaveLength(1)
+    const created = calls['files.create']!.map((a) => a[0] as { id: string; parentId: string | null; collectionId: string; content?: string })
+    expect(created.map((f) => f.id)).toEqual(['f-folder', 'f-file'])
+    expect(created[1].parentId).toBe('f-folder')
+    expect(created.every((f) => f.collectionId === 'sql-target')).toBe(true)
+    expect(created[1].content).toBe('select 1')
+  })
+
+  it('applyClonedEntity re-mints every file id when a repo id collides with a sibling collection', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    // Simulate the global-PK collision: the repo's original ids are already taken.
+    const store = sqlStore((f) => (f.id.startsWith('f-') ? Promise.reject(new Error('PK conflict')) : Promise.resolve()), calls)
+    expect(await applyClonedEntity(sqlCollectionRepoZip(), 'sql-collection', 'sql-target', store)).toBe(true)
+    // First pass aborted on the conflict → target cleared again → re-minted pass.
+    expect(calls['files.deleteByCollection']).toHaveLength(2)
+    const created = calls['files.create']!.map((a) => a[0] as { id: string; parentId: string | null })
+    const reminted = created.slice(-2)
+    expect(reminted.every((f) => !f.id.startsWith('f-'))).toBe(true)
+    // parentId rewritten through the same old→new map, so the tree stays intact.
+    expect(reminted[1].parentId).toBe(reminted[0].id)
+  })
+
   it('applyClonedEntity returns false when the cloned repo lacks the expected marker', async () => {
     const store = new Proxy({}, { get: () => new Proxy({}, { get: () => async () => {} }) }) as unknown as Storage
     expect(await applyClonedEntity(new JSZip(), 'data-catalog', 'x', store)).toBe(false)

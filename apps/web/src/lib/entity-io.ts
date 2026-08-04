@@ -1830,26 +1830,40 @@ export async function applyClonedEntity(
     const fkKey = type === 'sql-collection' ? 'collectionId' : 'pipelineId'
     // Clear this collection's/pipeline's own files first, so a retry or a re-clone
     // over a prior pointer doesn't leave stale rows.
-    if (type === 'sql-collection') await storage.sqlScriptFiles.deleteByCollection(targetId).catch(() => {})
-    else await storage.etlFiles.deleteByPipeline(targetId).catch(() => {})
-    // Re-mint every file id. sql_script_files.id is a GLOBAL primary key, so the
-    // repo's original ids collide the moment the same repo is cloned into a second
-    // workspace (or as a copy) — deleteByCollection only clears the target's rows,
-    // not the sibling's. Rewrite parentId through the same old→new map.
-    const idMap = new Map<string, string>(tree.map(f => [f.id, crypto.randomUUID()]))
-    for (const f of tree) {
-      const content = f.type === 'file'
-        ? await zip.files[buildTreePath(f, byId)]?.async('string')
-        : undefined
-      const rec: Record<string, unknown> = dropForeignAuthorId({
-        ...f,
-        id: idMap.get(f.id),
-        parentId: f.parentId ? (idMap.get(f.parentId) ?? f.parentId) : f.parentId,
-        [fkKey]: targetId,
-      })
-      if (content !== undefined) rec.content = content
-      if (type === 'sql-collection') await storage.sqlScriptFiles.create(rec as unknown as SqlScriptFile).catch(() => {})
-      else await storage.etlFiles.create(rec as unknown as EtlFile).catch(() => {})
+    const clearFiles = type === 'sql-collection'
+      ? () => storage.sqlScriptFiles.deleteByCollection(targetId).catch(() => {})
+      : () => storage.etlFiles.deleteByPipeline(targetId).catch(() => {})
+    await clearFiles()
+    const insertAll = async (mapId: (oldId: string) => string, tolerant: boolean): Promise<void> => {
+      for (const f of tree) {
+        const content = f.type === 'file'
+          ? await zip.files[buildTreePath(f, byId)]?.async('string')
+          : undefined
+        const rec: Record<string, unknown> = dropForeignAuthorId({
+          ...f,
+          id: mapId(f.id),
+          parentId: f.parentId ? mapId(f.parentId) : f.parentId,
+          [fkKey]: targetId,
+        })
+        if (content !== undefined) rec.content = content
+        const create = type === 'sql-collection'
+          ? storage.sqlScriptFiles.create(rec as unknown as SqlScriptFile)
+          : storage.etlFiles.create(rec as unknown as EtlFile)
+        await (tolerant ? create.catch(() => {}) : create)
+      }
+    }
+    // Keep the repo's own file ids so re-exporting doesn't churn _tree.json's
+    // id/parentId on every clone. The id is a GLOBAL primary key though: cloning
+    // the same repo into a second collection (or as a copy) collides with the
+    // sibling's rows — deleteByCollection only cleared the target's — and the
+    // create throws (IDB add / server PK). Fall back to one re-minted pass then,
+    // rewriting parentId through the same old→new map.
+    try {
+      await insertAll((id) => id, false)
+    } catch {
+      await clearFiles()
+      const idMap = new Map<string, string>(tree.map(f => [f.id, crypto.randomUUID()]))
+      await insertAll((old) => idMap.get(old) ?? old, true)
     }
     return true
   }
