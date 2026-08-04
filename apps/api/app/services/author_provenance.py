@@ -52,6 +52,24 @@ async def _match_local_user(db: AsyncSession, details: dict) -> User | None:
     return None
 
 
+async def relink_creator_on_update(db: AsyncSession, entity, changes: dict) -> None:
+    """Re-resolve created_by_id when an update rewrites the author snapshot
+    without pinning an id — a git clone re-applying the repo's metadata over a
+    pointer-created record. The pointer create had no snapshot, so stamp_creator
+    attributed the importing user; leaving that id in place makes the UI
+    (which re-hydrates the author live from created_by_id) show the importer
+    instead of the repo's real author. Same resolution as stamp_creator:
+    local match by ORCID/email, else NULL and the frozen snapshot displays.
+    An explicit created_by_id in the changes (author re-attribution editor)
+    always wins and skips this."""
+    if "created_by_id" in changes:
+        return
+    if "created_by" not in changes and "created_by_details" not in changes:
+        return
+    match = await _match_local_user(db, changes.get("created_by_details") or {})
+    entity.created_by_id = match.id if match else None
+
+
 async def stamp_creator(db: AsyncSession, entity, payload: dict, owner: User) -> None:
     """Set created_by_id / created_by / created_by_details on a new entity.
 

@@ -177,6 +177,54 @@ async def test_import_relinks_author_by_orcid(client, db):
     assert p["createdBy"] == "Carol Elsewhere"
 
 
+async def test_clone_update_relinks_author_from_snapshot(client, db):
+    """A git-linked project is created from a snapshot-less workspace pointer
+    (stamp_creator attributes the importing user), then the clone re-applies the
+    repo's project.json via PATCH. Rewriting the author snapshot without an
+    explicit createdById must re-resolve the id (ORCID/email match, else NULL) —
+    not leave the importer's id, which the UI would re-hydrate as the author."""
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/projects", headers=headers, json={"name": {"en": "Pointer"}}
+    )
+    uid = r.json()["uid"]
+    assert r.json()["createdBy"] == "admin"  # pointer create → importer stamped
+
+    r = await client.patch(
+        f"{API}/projects/{uid}",
+        headers=headers,
+        json={
+            "createdBy": "Boris Delange",
+            "createdByDetails": {"firstName": "Boris", "lastName": "Delange", "orcid": "0000-0003-1111-2222"},
+        },
+    )
+    p = r.json()
+    assert p["createdBy"] == "Boris Delange"
+    assert p["createdById"] is None  # importer's id cleared, no local match
+
+    # Same PATCH when the repo author has a local account → re-linked to it.
+    db.add(User(username="boris", password_hash=hash_password("pw"), orcid="0000-0003-1111-2222"))
+    await db.commit()
+    boris = (await db.execute(select(User).where(User.username == "boris"))).scalars().first()
+    r = await client.patch(
+        f"{API}/projects/{uid}",
+        headers=headers,
+        json={
+            "createdBy": "Boris Delange",
+            "createdByDetails": {"orcid": "0000-0003-1111-2222"},
+        },
+    )
+    assert r.json()["createdById"] == boris.id
+
+    # An explicit createdById (author re-attribution editor) always wins.
+    r = await client.patch(
+        f"{API}/projects/{uid}",
+        headers=headers,
+        json={"createdById": None, "createdBy": "External Person"},
+    )
+    assert r.json()["createdById"] is None
+
+
 async def test_foreign_created_by_id_never_persisted(client):
     # A createdById in the payload is a foreign instance's local id — it must be
     # ignored, not written verbatim (which would corrupt the FK / attribution).

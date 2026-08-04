@@ -74,6 +74,7 @@ async def update(
     git_secret.apply_to_entity(project, changes)
     for key, value in changes.items():
         setattr(project, key, value)
+    await author_provenance.relink_creator_on_update(db, project, changes)
     await db.commit()
     await db.refresh(project)
     # A re-pointed path binding must invalidate the cache so the next scan/kernel
