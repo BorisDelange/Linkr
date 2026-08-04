@@ -203,6 +203,19 @@ async def test_remove_package_injection_rejected(client, fake_provisioner):
     assert r.status_code == 400
 
 
+async def test_kernel_package_cannot_be_removed_even_with_a_version_pin(client, fake_provisioner):
+    """The infra guard must match on the bare NAME: `jsonlite==1.0` is not in
+    _KERNEL_DEPS, so a pinned spec used to walk straight past the check."""
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    for spec in ("jsonlite", "jsonlite==1.0", "svglite%3E%3D2", "base64enc@1.1"):
+        r = await client.request(
+            "DELETE", f"{API}/projects/{uid}/environments/r/packages/{spec}", headers=headers
+        )
+        assert r.status_code == 422, spec
+        assert "kernel package" in r.json()["detail"]
+
+
 async def test_code_execution_disabled_blocks_writes(client, fake_provisioner, monkeypatch):
     """With code execution disabled, package/build ops (which shell out) are 403,
     but reads still work."""

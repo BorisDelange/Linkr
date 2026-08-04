@@ -52,3 +52,10 @@ def validate_package_spec(spec: str) -> str:
 def validate_package_specs(specs: list[str]) -> list[str]:
     """Validate a list of specs; raise on the first bad one."""
     return [validate_package_spec(s) for s in specs]
+
+
+def package_name(spec: str) -> str:
+    """The bare package name of a spec, dropping any version pin. Use this when
+    matching a spec against a name list — ``"jsonlite==1.0" in NAMES`` is False and
+    would wave a pinned spec straight past the check."""
+    return _split_spec(spec.strip())[0].strip()

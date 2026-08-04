@@ -58,3 +58,25 @@ def test_write_and_read_env_override_roundtrip(tmp_path, monkeypatch):
     env_options.write_env_override("proj-1", "r", {"repos": "", "method": ""})
     assert env_options.read_env_override("proj-1", "r") == {}
     assert not (spec / "options.json").exists()
+
+
+def test_repos_and_index_url_must_be_clean_http_urls():
+    """The repo/index URL reaches `Rscript -e` source and uv argv, so a value that
+    could terminate the R string literal it lands in is dropped, not quote-stripped
+    at the interpolation site."""
+    for bad in (
+        "https://cran.r-project.org'); system('id'); ('",
+        "https://x\\",
+        'https://x"y',
+        "https://has space/cran",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://x`id`",
+        "https://x;id",
+    ):
+        assert "repos" not in env_options._sanitize("r", {"repos": bad}), bad
+        assert "indexUrl" not in env_options._sanitize("python", {"indexUrl": bad}), bad
+
+    ok = "https://packagemanager.posit.co/cran/latest"
+    assert env_options._sanitize("r", {"repos": ok})["repos"] == ok
+    assert env_options._sanitize("python", {"indexUrl": ok})["indexUrl"] == ok

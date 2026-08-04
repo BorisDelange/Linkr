@@ -121,12 +121,18 @@ async def check_env_updates(
     """Run the on-demand outdated check (a single batch repo query), cache it, and
     return {packages: {name: latest}, checkedAt}. Triggered only by an explicit user
     action (the modal's "Check for updates" button)."""
+    import asyncio
     from datetime import datetime, timezone
 
     await _require_ide(db, project_uid, user, "read")
     _valid_language(language)
     checked_at = datetime.now(timezone.utc).isoformat()
-    return environments.check_updates(project_uid, language, checked_at)
+    # Off the event loop: this shells out to Rscript/uv against the package index
+    # (up to the 120s edit timeout). Run inline it froze the single worker, and the
+    # route is only `read`-gated, so any project reader could stall the whole API.
+    return await asyncio.to_thread(
+        environments.check_updates, project_uid, language, checked_at
+    )
 
 
 @router.get("/projects/{project_uid}/environments/{language}/options")
@@ -250,8 +256,11 @@ async def remove_env_package(
     # hides their remove button, but reject it here too so the API can't strip them.
     if language == "r":
         from app.services.execution import renv_provisioner
+        from app.services.execution.package_spec import package_name
 
-        if package in renv_provisioner._KERNEL_DEPS:
+        # Compare on the bare NAME: `jsonlite==1.0` is not in _KERNEL_DEPS, so a
+        # pinned spec used to slip past this guard entirely.
+        if package_name(package) in renv_provisioner._KERNEL_DEPS:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 f"'{package}' is a kernel package and cannot be removed",
