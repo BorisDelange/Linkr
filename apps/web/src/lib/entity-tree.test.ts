@@ -41,6 +41,20 @@ describe('toPathTree', () => {
     const shuffled = [NODES[2], NODES[1], NODES[0]]
     expect(toPathTree(shuffled, 'collectionId')).toEqual(toPathTree(NODES, 'collectionId'))
   })
+
+  it('orders astral filenames by UTF-16 code unit (the server twin must match)', () => {
+    // JS `<`/`>` compares UTF-16 code units, Python compares code points, and they
+    // diverge above the BMP — so the server sorts on .encode('utf-16-be'). Pinned on
+    // both sides: see test_workspace_export_pointer.py.
+    const nodes = [
+      { id: 'a', collectionId: 'c', name: '�.sql', type: 'file' as const, parentId: null },
+      { id: 'b', collectionId: 'c', name: '\u{1F600}.sql', type: 'file' as const, parentId: null },
+      { id: 'c', collectionId: 'c', name: 'a.sql', type: 'file' as const, parentId: null },
+    ]
+    expect(toPathTree(nodes, 'collectionId').map((n) => n.path)).toEqual([
+      'a.sql', '\u{1F600}.sql', '�.sql',
+    ])
+  })
 })
 
 describe('fromPathTree', () => {
@@ -105,6 +119,14 @@ describe('readPathTree', () => {
       { collectionId: 'col-1', path: 'sofa/sofa.sql', type: 'file', order: 2, createdAt: 'T0' },
       { collectionId: 'col-1', path: 'top.sql', type: 'file', order: 0, createdAt: 'T0' },
     ])
+  })
+
+  it('keeps inline content from the oldest files.json layout', () => {
+    // That layout carried content INLINE with no raw .sql entry in the ZIP, so
+    // dropping it here imported every script empty.
+    const tree = readPathTree(NODES)
+    expect(tree.find((n) => n.path === 'sofa/sofa.sql')).toMatchObject({ content: 'select 1' })
+    expect(tree.find((n) => n.path === 'top.sql')).toMatchObject({ content: 'select 2' })
   })
 
   it('returns [] for a missing or non-array tree', () => {

@@ -855,8 +855,9 @@ export interface ParsedProjectZip {
   /** Keyed by attachment id */
   attachmentBlobs: Map<string, ArrayBuffer>
   /** Managed-environment spec files (manifest + lockfile) under environments/<lang>/,
-   *  restored on disk in server mode so the versioned env travels with the project. */
-  envSpecs: { language: string; name: string; content: string }[]
+   *  restored on disk in server mode so the versioned env travels with the project.
+   *  Optional: a ZIP without an environments/ folder simply has none. */
+  envSpecs?: { language: string; name: string; content: string }[]
 }
 
 /**
@@ -1817,7 +1818,7 @@ export function reconstructTreeFiles(
  * Derive the local ids for path-keyed tree nodes, once the owning
  * collection/pipeline id is known. Content already attached is preserved.
  */
-export function attachTreeIds<T extends Record<string, unknown>>(
+export function attachTreeIds<T extends object>(
   nodes: TreeImportNode[],
   ownerId: string,
   fkKey: TreeFkKey,

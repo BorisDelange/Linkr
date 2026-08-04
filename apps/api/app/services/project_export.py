@@ -490,7 +490,9 @@ def build_project_tree(
                         }
                         for f in tree_files
                     ),
-                    key=lambda n: n["path"],
+                    # UTF-16 code units, matching JS string comparison — see
+                    # workspace_export_assemble._utf16_key.
+                    key=lambda n: n["path"].encode("utf-16-be"),
                 )
             )
         for f in ide:

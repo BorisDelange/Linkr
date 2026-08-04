@@ -108,7 +108,10 @@ function basename(path: string): string {
  * Each record keeps its `path` so a caller can fetch the file's content from the
  * ZIP/repo afterwards; strip it before persisting (`storablePathNode`).
  */
-export function fromPathTree<T extends Record<string, unknown>>(
+// `object`, not `Record<string, unknown>`: a named interface has no index
+// signature, so it cannot satisfy the Record constraint. The bodies index through
+// an explicit cast anyway.
+export function fromPathTree<T extends object>(
   tree: PathNode[],
   ownerId: string,
   fkKey: TreeFkKey,
@@ -143,8 +146,8 @@ export function fromPathTree<T extends Record<string, unknown>>(
 }
 
 /** Drop the transport-only `path` before persisting a node built by fromPathTree. */
-export function storablePathNode<T extends Record<string, unknown>>(record: T): T {
-  const { path: _path, ...rest } = record
+export function storablePathNode<T extends object>(record: T): T {
+  const { path: _path, ...rest } = record as T & Record<string, unknown>
   return rest as unknown as T
 }
 
@@ -192,7 +195,10 @@ export function readPathTree(raw: unknown): PathNode[] {
   return legacy
     .filter((n) => typeof n?.name === 'string')
     .map((n) => {
-      const { id: _id, parentId: _p, name: _n, content: _c, ...rest } = n as TreeNode & Record<string, unknown>
+      // Keep `content`: the oldest layout (collection.json + files.json) carried it
+      // INLINE with no raw file in the ZIP, so dropping it here imports every script
+      // empty. reconstructTreeFiles only overwrites it when a raw entry exists.
+      const { id: _id, parentId: _p, name: _n, ...rest } = n as TreeNode & Record<string, unknown>
       return { ...rest, path: treeNodePath(n, byId), type: n.type } as PathNode
     })
 }

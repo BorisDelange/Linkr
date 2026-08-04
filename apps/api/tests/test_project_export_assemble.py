@@ -25,6 +25,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import blob_store, project_fs
+from app.services.data import dataset_fs
 from app.services.project_export_assemble import build_project_tree_from_db
 
 _GOLDEN = (
@@ -164,6 +165,17 @@ async def _seed(db) -> Project:
     (ds_dir / "cohort.csv").write_text("age,sex\n30,M\n41,F\n52,M\n")
     (ds_dir / "sub").mkdir(parents=True, exist_ok=True)
     (ds_dir / "sub" / "labs.csv").write_text("val\n1.5\n2.5\n")
+    # Editorial column metadata + parse options live in a disk sidecar, NOT the DB, so
+    # the assembler only reproduces the golden's inline `columns`/`parseOptions` when
+    # they are seeded through the same production writers the app uses.
+    dataset_fs.write_column_meta(uid, "cohort.csv", {
+        "col_age": {"label": "Age", "description": "Age in years at inclusion"},
+        "col_sex": {"valueLabels": {"m": "Male", "f": "Female"}},
+    })
+    dataset_fs.write_parse_options(uid, "cohort.csv", {
+        "columnTypes": {"col_age": "number"},
+        "columnFilterMode": {"col_sex": "list"},
+    })
 
     return project
 

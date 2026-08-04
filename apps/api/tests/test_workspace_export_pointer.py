@@ -50,3 +50,18 @@ def test_pointer_keeps_createdat_when_present():
     )
     assert ptr["createdAt"] == "2026-01-01T00:00:00.000Z"
     assert list(ptr.keys()) == ["uid", "projectId", "name", "createdAt", "gitRemoteConfig"]
+
+
+def test_path_sort_matches_javascript_for_astral_characters():
+    """JS `<`/`>` compares UTF-16 code units, Python compares code points; they
+    diverge above the BMP. A file named with an emoji next to a U+E000..U+FFFF
+    sibling must still sort identically in both builders, or the exported
+    `_tree.json` bytes differ between a front-only and a server export."""
+    from app.services.workspace_export_assemble import _utf16_key
+
+    nodes = [{"path": "�.sql"}, {"path": "\U0001F600.sql"}, {"path": "a.sql"}]
+    ours = [n["path"] for n in sorted(nodes, key=_utf16_key)]
+    # What JS produces (verified against Node): the surrogate 0xD83D < 0xFFFD.
+    assert ours == ["a.sql", "\U0001F600.sql", "�.sql"]
+    # Plain code-point sort would put U+FFFD before U+1F600 — the bug this guards.
+    assert ours != [n["path"] for n in sorted(nodes, key=lambda n: n["path"])]

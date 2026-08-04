@@ -310,7 +310,7 @@ describe('parseProjectZip — environment specs', () => {
   it('collects every environments/<lang>/<file> into envSpecs', async () => {
     const parsed = await parseProjectZip(await makeZip())
     expect(parsed).not.toBeNull()
-    const byKey = Object.fromEntries(parsed!.envSpecs.map((s) => [`${s.language}/${s.name}`, s.content]))
+    const byKey = Object.fromEntries(parsed!.envSpecs!.map((s) => [`${s.language}/${s.name}`, s.content]))
     expect(byKey['r/renv.lock']).toBe('{"Packages":{"dplyr":{"Version":"1.2.1"}}}')
     expect(byKey['python/pyproject.toml']).toContain('name = "p"')
     expect(byKey['python/uv.lock']).toBe('version = 1\n')
@@ -1142,6 +1142,19 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect(created[1].content).toBe('select 1')
     // Legacy repo ids are dropped, not persisted.
     expect(created.every((f) => f.id !== 'f-folder' && f.id !== 'f-file')).toBe(true)
+  })
+
+  it('applyClonedEntity keeps INLINE content when the tree carries it and the ZIP has no raw file', async () => {
+    // The oldest layout (collection.json + files.json) stored content inline with no
+    // .sql entry alongside; dropping it imported every script empty.
+    const zip = new JSZip()
+    zip.file('_collection.json', JSON.stringify({ id: 'repo-col', name: { en: 'Scripts' } }))
+    zip.file('_tree.json', JSON.stringify([
+      { id: 'f-file', collectionId: 'repo-col', name: 'inline.sql', type: 'file', parentId: null, content: 'select 42', order: 0, createdAt: '2026-01-01T00:00:00.000Z' },
+    ]))
+    const calls: Record<string, unknown[][]> = {}
+    expect(await applyClonedEntity(zip, 'sql-collection', 'sql-target', sqlStore(calls))).toBe(true)
+    expect(createdNodes(calls)[0].content).toBe('select 42')
   })
 
   it('applyClonedEntity returns false when the cloned repo lacks the expected marker', async () => {

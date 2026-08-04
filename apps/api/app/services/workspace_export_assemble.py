@@ -107,6 +107,20 @@ def _resolve_git_remote(cfg: dict | None) -> dict | None:
     return None
 
 
+def _utf16_key(node: dict) -> bytes:
+    """Sort key reproducing JavaScript's string comparison, for byte-parity with the
+    TS export builder.
+
+    JS `<`/`>` on strings compares UTF-16 CODE UNITS; Python compares CODE POINTS.
+    They diverge above the BMP: a surrogate pair (U+1F600 → 0xD83D…) sorts BELOW
+    U+FFFD in JS but ABOVE it in Python. So a file named `😀.sql` next to a
+    U+E000..U+FFFF sibling would order differently in the two builders → different
+    `_tree.json` bytes → a spurious git diff between a front-only and a server export
+    of the same project. Encoding to UTF-16 big-endian makes Python order by code
+    unit, exactly like JS."""
+    return node["path"].encode("utf-16-be")
+
+
 def _tree_path(file: dict, by_id: dict[str, dict]) -> str:
     """Port of ``treeNodePath`` (entity-tree.ts): reconstruct a tree node's path
     from its parent-name chain. Stops on a dangling or cyclic parent."""
@@ -136,8 +150,7 @@ def _to_path_tree(files: list[dict], fk_key: str) -> list[dict]:
         {"path": _tree_path(f, by_id), **{k: v for k, v in f.items() if k not in dropped}}
         for f in files
     ]
-    # Python compares str by code point, matching the TS builder's < / > sort.
-    return sorted(out, key=lambda n: n["path"])
+    return sorted(out, key=_utf16_key)
 
 
 def _to_portable_ranges(ranges: list[dict]) -> list[dict]:
