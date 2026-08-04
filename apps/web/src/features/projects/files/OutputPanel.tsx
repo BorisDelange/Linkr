@@ -381,10 +381,11 @@ function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; def
           'rounded-md border',
           collapsed ? 'p-1.5' : 'p-3',
           result.success
+            // An interrupted run is !success, so it shares the red styling.
             ? 'border-green-500/30 bg-green-500/5'
             : 'border-red-500/30 bg-red-500/5'
         )}
-      >{/* interrupted runs are !success → same red styling */}
+      >
         <div className={cn('flex items-center justify-between', collapsed ? 'mb-0' : 'mb-1.5')}>
           <div className="flex items-center gap-1.5">
             {isLong && (

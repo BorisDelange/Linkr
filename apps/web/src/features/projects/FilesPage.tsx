@@ -650,8 +650,9 @@ export function FilesPage() {
       } catch (err) {
         const duration = Date.now() - start
         // A user Stop aborts the stream — keep whatever output already arrived
-        // (the kernel is SIGINT'd separately) instead of replacing it with an
-        // error message.
+        // instead of replacing it with an error message. Closing the socket is what
+        // SIGINTs the kernel (the server interrupts on WS teardown), so there is no
+        // separate interrupt call here.
         if (err instanceof DOMException && err.name === 'AbortError') {
           updateExecutionResult(execId, { duration, success: false, interrupted: true })
         } else {

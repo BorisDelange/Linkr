@@ -13,7 +13,7 @@ import {
   Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cardMenuTriggerClass } from '@/lib/utils'
+import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import {
@@ -140,7 +140,7 @@ export const DatabaseCard = memo(function DatabaseCard({
         {/* Actions menu (top-right) */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className={`-mr-1 -mt-1 shrink-0 self-start ${cardMenuTriggerClass}`} onClick={(e) => e.stopPropagation()}>
+            <Button variant="ghost" size="icon-sm" className={cn('-mr-1 -mt-1 shrink-0 self-start', cardMenuTriggerClass)} onClick={(e) => e.stopPropagation()}>
               <MoreHorizontal size={14} />
             </Button>
           </DropdownMenuTrigger>

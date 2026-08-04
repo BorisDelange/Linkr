@@ -126,7 +126,7 @@ export function DashboardPage() {
     if (codePy > 0) prewarmPool('python', projectUid, { count: codePy })
     if (codeR > 0) prewarmPool('r', projectUid, { count: codeR })
     if (renderPy > 0) prewarmPool('python', projectUid, { count: renderPy, appEnv: true })
-  }, [projectUid, canExecute, activeTabId, widgets])
+  }, [projectUid, canExecute, activeTabId, widgets, currentDashboardId])
 
   useEffect(() => {
     if (currentDashboardId) {
