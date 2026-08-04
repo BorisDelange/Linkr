@@ -3,6 +3,7 @@ and list_packages reflects the full lockfile tree. R is not shelled out — `_ru
 is captured — so these run without renv installed."""
 
 import json
+import subprocess
 
 import pytest
 
@@ -103,3 +104,50 @@ def test_check_updates_empty_when_nothing_outdated(monkeypatch, tmp_path):
     monkeypatch.setattr(R, "_library_dir", lambda uid: tmp_path / uid / "lib")
     monkeypatch.setattr(R, "_run_r", lambda uid, code, on_log=None, options=None: "{}")
     assert R.check_updates("p1") == {}
+
+
+def test_ensure_kernel_r_lib_installs_under_kernel_isolation(monkeypatch, tmp_path):
+    """The infra install must run inside the kernel's own isolation (.Library swapped to
+    the base-only sandbox, .libPaths pinned to the kernel lib) and ask for the dependency
+    closure. Without that, install.packages sees svglite's deps in the site library and
+    skips them, but the kernel can't reach those — svglite then fails to load and R
+    figure capture dies silently."""
+    lib = tmp_path / "kernel-lib"
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+    monkeypatch.setattr(R.project_fs, "kernel_r_lib", lambda: lib)
+    monkeypatch.setattr(R.project_fs, "r_sandbox", lambda: sandbox)
+    seen: dict = {}
+
+    class _Res:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(argv, **kwargs):
+        seen["code"] = argv[-1]
+        return _Res()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    R.ensure_kernel_r_lib()
+
+    code = seen["code"]
+    assert "assign('.Library'" in code, "must swap .Library to the sandbox"
+    assert str(sandbox) in code
+    assert f".libPaths('{lib}')" in code, "must pin .libPaths to the kernel lib"
+    assert "dependencies=c('Depends','Imports','LinkingTo')" in code, "must install the closure"
+
+
+def test_ensure_kernel_r_lib_reports_a_failed_install(monkeypatch, tmp_path):
+    """A non-zero exit used to be swallowed, leaving the library half-populated and the
+    user with silently broken figures and nothing in any log."""
+    monkeypatch.setattr(R.project_fs, "kernel_r_lib", lambda: tmp_path / "lib")
+    monkeypatch.setattr(R.project_fs, "r_sandbox", lambda: tmp_path / "sandbox")
+
+    class _Res:
+        returncode = 1
+        stderr = "cannot open URL"
+
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: _Res())
+    logs: list[str] = []
+    R.ensure_kernel_r_lib(on_log=logs.append)
+    assert logs and "exit 1" in logs[0] and "cannot open URL" in logs[0]

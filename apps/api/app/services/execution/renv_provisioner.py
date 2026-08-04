@@ -399,23 +399,41 @@ def ensure_r_sandbox(on_log=None) -> None:
 
 
 def ensure_kernel_r_lib(on_log=None) -> None:
-    """Install the kernel's infra packages into the shared kernel R library if any
-    are missing. Idempotent and cheap once populated (a pure existence check). Called
-    before an isolated R kernel starts so it can load jsonlite/base64enc/svglite from
-    a library that holds ONLY the infra — never the site library where a global
-    package (plotly, …) would leak in."""
+    """Install the kernel's infra packages AND their full dependency closure into the
+    shared kernel R library if any are missing. Idempotent and cheap once populated (a
+    pure existence check). Called before an isolated R kernel starts so it can load
+    jsonlite/base64enc/svglite from a library that holds ONLY the infra — never the site
+    library where a global package (plotly, …) would leak in.
+
+    The install runs inside the SAME isolation the kernel uses (``.Library`` swapped to
+    the base-only sandbox, ``.libPaths()`` pinned to the kernel library), so the
+    dependency resolver sees exactly what the kernel will see at load time and installs
+    the whole closure. Otherwise ``install.packages`` finds svglite's deps (rlang, cli,
+    systemfonts, …) already present in the site library and skips them — but the kernel
+    can't reach those, so svglite silently fails to load: no figures, no error. On
+    macOS's R.framework, base and contributed packages share one directory, so pinning
+    ``R_LIBS`` is NOT enough — ``.Library`` itself must be swapped. Verified: without
+    this, ``requireNamespace('svglite')`` is FALSE inside the isolated kernel with
+    "there is no package called 'rlang'". Requires ensure_r_sandbox() first."""
     import subprocess
 
     lib = str(project_fs.kernel_r_lib()).replace("\\", "/")
+    sandbox = str(project_fs.r_sandbox()).replace("\\", "/")
     deps = ", ".join(f"'{d}'" for d in _KERNEL_DEPS)
     repo = settings.r_repos.replace("'", "")
     code = (
+        f"local({{ .sb <- '{sandbox}'; "
+        f"if (dir.exists(.sb)) {{ .b <- .BaseNamespaceEnv; "
+        f"if (bindingIsLocked('.Library', .b)) unlockBinding('.Library', .b); "
+        f"assign('.Library', .sb, envir = .b); lockBinding('.Library', .b) }}; "
+        f".libPaths('{lib}') }}); "
         f"local({{ .need <- Filter(function(p) "
         f"!nzchar(system.file(package=p, lib.loc='{lib}')), c({deps})); "
-        f"if (length(.need)) install.packages(.need, lib='{lib}', repos='{repo}') }})"
+        f"if (length(.need)) install.packages(.need, lib='{lib}', repos='{repo}', "
+        f"dependencies=c('Depends','Imports','LinkingTo')) }})"
     )
     try:
-        subprocess.run(
+        res = subprocess.run(
             [settings.rscript_bin, "--vanilla", "-e", code],
             capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
         )
@@ -424,6 +442,11 @@ def ensure_kernel_r_lib(on_log=None) -> None:
         # is clearer than blocking the launch. Log for diagnostics.
         if on_log is not None:
             on_log(f"kernel R lib ensure failed: {e}")
+        return
+    # A silent non-zero exit used to leave the library half-populated, which reads to
+    # the user as "figures just don't work" with nothing in any log.
+    if res.returncode != 0 and on_log is not None:
+        on_log(f"kernel R lib ensure failed (exit {res.returncode}): {res.stderr.strip()[:2000]}")
 
 
 async def build(project_uid: str, on_log=None, options: dict | None = None) -> BuildResult:
