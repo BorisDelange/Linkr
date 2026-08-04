@@ -1,8 +1,10 @@
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
+from app.models.base import Base
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
 
@@ -98,5 +100,25 @@ async def delete(db: AsyncSession, user: User, acting_user: User | None = None) 
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete the last administrator",
         )
+    await _detach_authored_rows(db, user.id)
     await db.delete(user)
     await db.commit()
+
+
+async def _detach_authored_rows(db: AsyncSession, user_id: int) -> None:
+    """Null out every nullable FK pointing at the user (owner_id/created_by_id
+    across workspaces, projects, datasets, …) so the delete isn't blocked by the
+    NO ACTION constraints. The author snapshot columns (created_by /
+    created_by_details) are plain values and survive, so provenance still
+    displays; memberships/sessions/jobs cascade at the DB level instead.
+    Swept generically from the metadata so a new entity model can't be missed."""
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            for fk in column.foreign_keys:
+                if fk.column.table.name != "users" or fk.ondelete is not None:
+                    continue
+                if not column.nullable:
+                    continue
+                await db.execute(
+                    sql_update(table).where(column == user_id).values({column.name: None})
+                )

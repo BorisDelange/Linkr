@@ -126,6 +126,34 @@ async def test_directory_available_to_any_user(client, db):
         assert "email" not in e and "role" not in e and "isActive" not in e
 
 
+async def test_delete_user_detaches_owned_content(client):
+    """Deleting a user who owns/authored content (the initial admin, typically)
+    must succeed by nulling the nullable owner_id/created_by_id FKs — not 409 on
+    the NO ACTION constraint — while the content itself survives."""
+    admin = await _bootstrap_admin(client)
+
+    r = await client.post(
+        f"{API}/workspaces", headers=admin, json={"name": {"en": "Demo"}}
+    )
+    assert r.status_code == 201
+    ws_id = r.json()["id"]
+
+    await client.post(
+        f"{API}/users",
+        headers=admin,
+        json={"username": "delange", "password": "pw", "role": "admin"},
+    )
+    delange = await _login(client, "delange")
+
+    r = await client.delete(f"{API}/users/1", headers=delange)
+    assert r.status_code == 204
+
+    r = await client.get(f"{API}/users", headers=delange)
+    assert all(u["username"] != "admin" for u in r.json())
+    r = await client.get(f"{API}/workspaces/{ws_id}", headers=delange)
+    assert r.status_code == 200
+
+
 async def test_cannot_remove_last_admin(client):
     headers = await _bootstrap_admin(client)
     me = (await client.get(f"{API}/users", headers=headers)).json()[0]
