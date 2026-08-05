@@ -2636,6 +2636,7 @@
     "title_other": "{{count}} tâches",
     "recent": "Tâches récentes",
     "cancel": "Annuler",
+    "cancel_tooltip": "Interrompre cette tâche",
     "show_log": "Voir la sortie",
     "no_log": "Aucune sortie.",
     "empty": "Aucune tâche pour le moment.",
@@ -4245,5 +4246,22 @@
     "select_organization": "Choisir une organisation",
     "lock_hint": "Conserver l'original — cliquer pour réattribuer",
     "unlock_hint": "Réattribution — cliquer pour conserver l'original"
+  },
+  "agent": {
+    "title": "Assistant",
+    "external_api": "API externe",
+    "placeholder": "Demandez un graphique, un onglet, une mise en page…",
+    "empty_hint": "Formulez votre demande en langage courant, par ex. « ajoute un onglet avec un histogramme de l'âge, sur la moitié de la largeur ».",
+    "send": "Envoyer",
+    "stop": "Arrêter",
+    "reset": "Effacer la conversation",
+    "undo": "Annuler ces changements",
+    "reverted": "Changements annulés.",
+    "context_tokens": "~{{count}} tokens de contexte",
+    "open": "Assistant",
+    "error": {
+      "no_provider": "Aucun fournisseur LLM configuré pour cet espace de travail.",
+      "unexpected_error": "Une erreur est survenue. Vérifiez que le modèle est accessible."
+    }
   }
 }

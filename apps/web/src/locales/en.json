@@ -2636,6 +2636,7 @@
     "title_other": "{{count}} jobs",
     "recent": "Recent jobs",
     "cancel": "Cancel",
+    "cancel_tooltip": "Stop this job",
     "show_log": "Show output",
     "no_log": "No output.",
     "empty": "No jobs yet.",
@@ -4245,5 +4246,22 @@
     "select_organization": "Select an organization",
     "lock_hint": "Keep the original — click to re-attribute",
     "unlock_hint": "Re-attributing — click to keep the original"
+  },
+  "agent": {
+    "title": "Assistant",
+    "external_api": "External API",
+    "placeholder": "Ask for a chart, a tab, a layout…",
+    "empty_hint": "Ask in plain language, e.g. \"add a tab with a histogram of age, half the width\".",
+    "send": "Send",
+    "stop": "Stop",
+    "reset": "Clear conversation",
+    "undo": "Undo these changes",
+    "reverted": "Changes reverted.",
+    "context_tokens": "~{{count}} tokens of context",
+    "open": "Assistant",
+    "error": {
+      "no_provider": "No LLM provider configured for this workspace.",
+      "unexpected_error": "Something went wrong. Check the model is reachable."
+    }
   }
 }
