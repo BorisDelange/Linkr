@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { isServerMode } from '@/lib/api-client'
@@ -208,12 +207,6 @@ export function CatalogPage() {
           </div>
         )}
 
-        {!serverMode && loaded && (
-          <div className="mt-4">
-            <ServerModeNotice inline description={t('catalog.install_requires_server')} />
-          </div>
-        )}
-
         {loaded && entries.length > 0 && (
           <ListPageToolbar
             className="mt-6"
@@ -274,7 +267,7 @@ export function CatalogPage() {
                 entry={entry}
                 language={language}
                 onInstall={() => setInstalling(entry)}
-                canInstall={serverMode}
+                serverMode={serverMode}
                 hasWorkspace={!!workspaceId}
                 installed={installed[entry.id]}
               />
@@ -302,7 +295,8 @@ export function CatalogPage() {
 interface CatalogEntryCardProps {
   entry: CatalogEntry
   language: string
-  canInstall: boolean
+  /** False in client-only mode: the action shows, disabled, explaining why. */
+  serverMode: boolean
   /** False when no workspace is selected — the action is shown but disabled. */
   hasWorkspace: boolean
   /** Set when this entry is already installed in the selected workspace. */
@@ -310,7 +304,7 @@ interface CatalogEntryCardProps {
   onInstall: () => void
 }
 
-function CatalogEntryCard({ entry, language, canInstall, hasWorkspace, installed, onInstall }: CatalogEntryCardProps) {
+function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed, onInstall }: CatalogEntryCardProps) {
   const { t } = useTranslation()
   const name = localized(entry.name, language) || entry.id
   const description = localized(entry.description, language)
@@ -323,7 +317,7 @@ function CatalogEntryCard({ entry, language, canInstall, hasWorkspace, installed
     <Card
       role="link"
       tabIndex={0}
-      title={t('catalog.open_repository')}
+      aria-label={t('catalog.open_repository')}
       onClick={() => window.open(entry.git.url, '_blank', 'noopener,noreferrer')}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -393,14 +387,15 @@ function CatalogEntryCard({ entry, language, canInstall, hasWorkspace, installed
           updatedAt={entry.updatedAt}
           // The footer already swallows clicks, so the button can't reach the card's
           // open-the-repo handler.
-          trailing={canInstall && (
+          trailing={
             <EntryAction
               state={state}
+              serverMode={serverMode}
               hasWorkspace={hasWorkspace}
               localVersion={installed?.version}
               onClick={onInstall}
             />
-          )}
+          }
         />
       </div>
     </Card>
@@ -409,6 +404,7 @@ function CatalogEntryCard({ entry, language, canInstall, hasWorkspace, installed
 
 interface EntryActionProps {
   state: 'not-installed' | 'installed' | 'outdated'
+  serverMode: boolean
   hasWorkspace: boolean
   localVersion?: string
   onClick: () => void
@@ -420,14 +416,19 @@ interface EntryActionProps {
  * "Installed" stays clickable: re-installing an up-to-date entry is legitimate (restoring
  * a locally-broken copy), it just isn't advertised — hence the muted outline. The
  * duplicate-or-overwrite prompt still guards the write in every case.
+ *
+ * In client-only mode the button is still rendered, disabled, with the reason in its
+ * tooltip — a greyed control on each card says "this entry could be installed, but not
+ * here" far more precisely than one banner above the whole list.
  */
-function EntryAction({ state, hasWorkspace, localVersion, onClick }: EntryActionProps) {
+function EntryAction({ state, serverMode, hasWorkspace, localVersion, onClick }: EntryActionProps) {
   const { t } = useTranslation()
 
   const label = state === 'outdated'
     ? t('catalog.update')
     : state === 'installed' ? t('catalog.installed') : t('catalog.install')
   const Icon = state === 'outdated' ? Upload : state === 'installed' ? Check : Download
+  const disabled = !serverMode || !hasWorkspace
 
   const button = (
     <Button
@@ -437,7 +438,7 @@ function EntryAction({ state, hasWorkspace, localVersion, onClick }: EntryAction
       // primary actions.
       variant={state === 'installed' ? 'outline' : 'default'}
       className="h-6 gap-1 px-2 text-xs"
-      disabled={!hasWorkspace}
+      disabled={disabled}
       onClick={onClick}
     >
       <Icon size={12} />
@@ -445,13 +446,17 @@ function EntryAction({ state, hasWorkspace, localVersion, onClick }: EntryAction
     </Button>
   )
 
-  const hint = !hasWorkspace
-    ? t('catalog.select_workspace_first')
-    : state === 'outdated'
-      ? t('catalog.update_from_version', { version: localVersion ?? '—' })
-      : state === 'installed'
-        ? t('catalog.installed_hint')
-        : null
+  // Server mode is checked first: without a backend, which workspace is selected is
+  // moot, so "pick a workspace" would be misleading advice.
+  const hint = !serverMode
+    ? t('catalog.install_requires_server_short')
+    : !hasWorkspace
+      ? t('catalog.select_workspace_first')
+      : state === 'outdated'
+        ? t('catalog.update_from_version', { version: localVersion ?? '—' })
+        : state === 'installed'
+          ? t('catalog.installed_hint')
+          : null
   if (!hint) return button
 
   return (

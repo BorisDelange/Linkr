@@ -2868,6 +2868,7 @@
     "install_workspace_placeholder": "Select a workspace",
     "install_no_workspace": "Create a workspace first — every catalog item is installed into one.",
     "install_requires_server": "Installing from the catalog clones a Git repository, which requires the Linkr server. Browsing works without it.",
+    "install_requires_server_short": "Not available in client-only mode: installing clones a Git repository, which needs the Linkr server.",
     "install_failed": "Installation failed",
     "install_confirm": "This will be installed into the workspace \"{{workspace}}\".",
     "installed": "Installed",
