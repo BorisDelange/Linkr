@@ -10,6 +10,7 @@ class DqRuleSetCreate(CamelModel):
     git_remote_config: dict | None = None
     name: dict = {}
     description: dict = {}
+    badges: list | None = None
     # Defaults to "" so a git-linked rule set can be created from a minimal
     # workspace pointer; the clone re-applies the real data source id from the repo.
     data_source_id: str = ""
@@ -34,6 +35,7 @@ class DqRuleSetUpdate(CamelModel):
     git_remote_config: dict | None = None
     name: dict | None = None
     description: dict | None = None
+    badges: list | None = None
     data_source_id: str | None = None
     status: str | None = None
     last_run_at: str | None = None
@@ -59,6 +61,7 @@ class DqRuleSetResponse(CamelModel):
     git_remote_config: dict | None = None
     name: dict
     description: dict
+    badges: list | None = None
     data_source_id: str
     status: str
     last_run_at: str | None = None

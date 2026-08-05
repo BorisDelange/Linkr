@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { SquareTerminal } from 'lucide-react'
-import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -37,17 +37,47 @@ export function SqlScriptsListPage() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)
+  const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const filteredCollections = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    const filtered = q
-      ? collections.filter((c) => `${localized(c.name, language)} ${localized(c.description, language)}`.toLowerCase().includes(q))
-      : collections
+    const filtered = collections.filter((c) => {
+      if (q && !`${localized(c.name, language)} ${localized(c.description, language)}`.toLowerCase().includes(q)) return false
+      if (badgeFilter.length > 0) {
+        const labels = new Set((c.badges ?? []).map((b) => localized(b.label, language)))
+        if (!badgeFilter.some((l) => labels.has(l))) return false
+      }
+      return true
+    })
     return applySort(filtered, sort, {
       name: (c) => localized(c.name, language),
       createdAt: (c) => c.createdAt,
       updatedAt: (c) => c.updatedAt,
     })
-  }, [collections, searchQuery, sort, language])
+  }, [collections, searchQuery, badgeFilter, sort, language])
+
+  // Distinct badges across the workspace's items, first-seen colour per label so the
+  // filter options match the chips drawn on the cards.
+  const allBadges = useMemo(() => {
+    const byLabel = new Map<string, string>()
+    for (const c of collections) for (const b of c.badges ?? []) {
+      const label = localized(b.label, language)
+      if (label && !byLabel.has(label)) byLabel.set(label, b.color)
+    }
+    return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
+  }, [collections, language])
+
+  const filterGroups: FilterGroup[] = allBadges.length > 0 ? [{
+    key: 'badges',
+    label: t('common.badges'),
+    selected: badgeFilter,
+    onChange: setBadgeFilter,
+    options: allBadges.map((b) => ({
+      value: b.label,
+      label: b.label,
+      badgeClass: getBadgeClasses(b.color),
+      badgeStyle: getBadgeStyle(b.color),
+    })),
+  }] : []
 
   // --- Import ---
   const [conflict, setConflict] = useState<{ name: string; pending: SqlScriptCollection; pendingFiles: TreeImportNode[] } | null>(null)
@@ -143,6 +173,7 @@ export function SqlScriptsListPage() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('common.search')}
+            filterGroups={filterGroups}
             sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
           />
         ) : undefined
@@ -169,6 +200,7 @@ export function SqlScriptsListPage() {
               <TruncatedText text={localized(collection.description, language)} className="text-xs text-muted-foreground" />
             )}
           </div>
+          <BadgeStrip badges={collection.badges ?? []} className="mt-1.5 h-5" />
         </div>
       )}
       renderCreateDialog={({ open, onOpenChange, onCreated }) => (

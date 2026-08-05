@@ -9,6 +9,7 @@ class EtlPipelineCreate(CamelModel):
     entity_id: str | None = None
     name: dict = {}
     description: dict = {}
+    badges: list | None = None
     source_data_source_id: str | None = None
     target_data_source_id: str | None = None
     mapping_project_id: str | None = None
@@ -32,6 +33,7 @@ class EtlPipelineUpdate(CamelModel):
     entity_id: str | None = None
     name: dict | None = None
     description: dict | None = None
+    badges: list | None = None
     source_data_source_id: str | None = None
     target_data_source_id: str | None = None
     mapping_project_id: str | None = None
@@ -58,6 +60,7 @@ class EtlPipelineResponse(CamelModel):
     entity_id: str | None = None
     name: dict
     description: dict
+    badges: list | None = None
     source_data_source_id: str | None = None
     target_data_source_id: str | None = None
     mapping_project_id: str | None = None

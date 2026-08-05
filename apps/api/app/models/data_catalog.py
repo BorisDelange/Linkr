@@ -18,6 +18,8 @@ class DataCatalog(Base, TimestampMixin):
     entity_id: Mapped[str | None] = mapped_column(String(255))
     name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
     description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    # Badges for grouping/tagging (list of {id, label, color}).
+    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     data_source_id: Mapped[str] = mapped_column(String(36))
     dimensions: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
     anonymization: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)

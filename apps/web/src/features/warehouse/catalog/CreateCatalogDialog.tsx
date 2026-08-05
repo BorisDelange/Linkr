@@ -22,12 +22,14 @@ import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { BadgeEditor } from '@/components/ui/badge-editor'
 import { VersionField } from '@/components/ui/version-field'
+import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { getDefaultDimensions } from '@/types'
-import type { DataCatalog } from '@/types'
+import type { DataCatalog, ProjectBadge } from '@/types'
 
 interface Props {
   open: boolean
@@ -48,12 +50,14 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
+  const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
   const isEdit = !!editingCatalog
   const { catalogs } = useCatalogStore()
   const existingIds = catalogs.map(c => c.entityId).filter((id): id is string => !!id)
+  const badgeSuggestions = useBadgeSuggestions(catalogs, activeWorkspaceId, editingCatalog?.id)
 
   useEffect(() => {
     if (editingCatalog) {
@@ -61,6 +65,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       setEntityId(editingCatalog.entityId ?? '')
       setDescription(localized(editingCatalog.description, language))
       setDataSourceId(editingCatalog.dataSourceId)
+      setBadges(editingCatalog.badges ?? [])
       setVersion(editingCatalog.version ?? '0.1.0')
       setAuthoring({})
     } else {
@@ -68,6 +73,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       setEntityId('')
       setDescription('')
       setDataSourceId('')
+      setBadges([])
       setVersion('0.1.0')
       setAuthoring({})
     }
@@ -81,6 +87,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         name: setLocalized(editingCatalog.name, language, name.trim()),
         description: setLocalized(editingCatalog.description, language, description.trim()),
         dataSourceId,
+        badges,
         version: version.trim() || '0.1.0',
         ...authoring,
       })
@@ -95,6 +102,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         name: setLocalized(undefined, language, name.trim()),
         description: setLocalized(undefined, language, description.trim()),
         dataSourceId,
+        badges,
         dimensions: getDefaultDimensions(),
         periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' },
         anonymization: { threshold: 10, mode: 'replace' },
@@ -164,6 +172,8 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
               </SelectContent>
             </Select>
           </div>
+
+          <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
 
           <VersionField value={version} onChange={setVersion} />
 

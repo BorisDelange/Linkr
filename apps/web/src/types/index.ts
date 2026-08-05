@@ -786,6 +786,8 @@ export interface EtlPipeline extends Seedable, Authored, Lineaged {
   workspaceId: string
   name: LocalizedString
   description: LocalizedString
+  /** Badges for grouping/tagging (e.g. hospital center name). */
+  badges?: ProjectBadge[]
   sourceDataSourceId: string
   targetDataSourceId?: string
   mappingProjectId?: string
@@ -866,6 +868,8 @@ export interface SqlScriptCollection extends Authored, Lineaged {
   workspaceId: string
   name: LocalizedString
   description: LocalizedString
+  /** Badges for grouping/tagging (e.g. hospital center name). */
+  badges?: ProjectBadge[]
   defaultDataSourceId?: string
   /** Git repository this collection is linked to. When set, workspace export emits metadata + this pointer only. */
   gitRemoteConfig?: GitRemoteConfig
@@ -900,6 +904,8 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
   workspaceId: string
   name: LocalizedString
   description: LocalizedString
+  /** Badges for grouping/tagging (e.g. hospital center name). */
+  badges?: ProjectBadge[]
   /** Database to run checks against */
   dataSourceId: string
   status: DqRuleSetStatus

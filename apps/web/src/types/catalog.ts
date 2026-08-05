@@ -136,6 +136,8 @@ export interface DataCatalog extends Seedable, Authored, Lineaged {
   workspaceId: string
   name: LocalizedString
   description: LocalizedString
+  /** Badges for grouping/tagging (e.g. hospital center name). */
+  badges?: import('./index').ProjectBadge[]
   dataSourceId: string
   dimensions: DimensionConfig[]
   anonymization: AnonymizationConfig

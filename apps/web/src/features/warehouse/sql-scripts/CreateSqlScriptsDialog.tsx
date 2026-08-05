@@ -19,15 +19,17 @@ import {
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { BadgeEditor } from '@/components/ui/badge-editor'
 import { VersionField } from '@/components/ui/version-field'
 import { useSaveForm } from '@/hooks/use-save-form'
+import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
-import type { SqlScriptCollection, SqlScriptFile } from '@/types'
+import type { ProjectBadge, SqlScriptCollection, SqlScriptFile } from '@/types'
 
 interface Props {
   open: boolean
@@ -47,6 +49,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [defaultDbId, setDefaultDbId] = useState('')
+  const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
   const [saving, setSaving] = useState(false)
@@ -54,6 +57,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   const isEditing = !!editingCollection
   const { collections } = useSqlScriptsStore()
   const existingIds = collections.map(c => c.entityId).filter((id): id is string => !!id)
+  const badgeSuggestions = useBadgeSuggestions(collections, activeWorkspaceId, editingCollection?.id)
 
   useEffect(() => {
     if (open && editingCollection) {
@@ -61,6 +65,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
       setEntityId(editingCollection.entityId ?? '')
       setDescription(localized(editingCollection.description, language))
       setDefaultDbId(editingCollection.defaultDataSourceId ?? '')
+      setBadges(editingCollection.badges ?? [])
       setVersion(editingCollection.version ?? '0.1.0')
       setAuthoring({})
     } else if (open && !editingCollection) {
@@ -68,6 +73,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
       setEntityId('')
       setDescription('')
       setDefaultDbId('')
+      setBadges([])
       setVersion('0.1.0')
       setAuthoring({})
     }
@@ -85,6 +91,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           name: setLocalized(editingCollection.name, language, name.trim()),
           description: setLocalized(editingCollection.description, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
+          badges,
           version: version.trim() || '0.1.0',
           ...authoring,
         })
@@ -98,6 +105,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           name: setLocalized({}, language, name.trim()),
           description: setLocalized({}, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
+          badges,
           version: version.trim() || '0.1.0',
           ...stampAuthored(),
           ...stampLineage(),
@@ -130,15 +138,18 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
 
   const canSubmit = !!name.trim() && !saving && (isEditing || isEntityIdValid(entityId, existingIds))
   useSaveForm({
-    current: { name: name.trim(), entityId, description: description.trim(), defaultDbId },
+    // Badges are compared as JSON: the hook diffs by value, and a fresh array each
+    // render would otherwise read as dirty on every keystroke.
+    current: { name: name.trim(), entityId, description: description.trim(), defaultDbId, badges: JSON.stringify(badges) },
     baseline: isEditing
       ? {
           name: localized(editingCollection?.name, language),
           entityId: editingCollection?.entityId ?? '',
           description: localized(editingCollection?.description, language),
           defaultDbId: editingCollection?.defaultDataSourceId ?? '',
+          badges: JSON.stringify(editingCollection?.badges ?? []),
         }
-      : { name: '', entityId: '', description: '', defaultDbId: '' },
+      : { name: '', entityId: '', description: '', defaultDbId: '', badges: '[]' },
     onSave: handleSubmit,
     canSave: canSubmit,
     enabled: open,
@@ -203,6 +214,8 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
             </Select>
             <p className="text-xs text-muted-foreground">{t('sql_scripts.default_database_hint')}</p>
           </div>
+
+          <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
 
           <VersionField value={version} onChange={setVersion} />
 

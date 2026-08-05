@@ -22,11 +22,13 @@ import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { BadgeEditor } from '@/components/ui/badge-editor'
 import { VersionField } from '@/components/ui/version-field'
+import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDqStore } from '@/stores/dq-store'
-import type { DqRuleSet } from '@/types'
+import type { DqRuleSet, ProjectBadge } from '@/types'
 
 interface Props {
   open: boolean
@@ -47,12 +49,14 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const [description, setDescription] = useState('')
   const [entityId, setEntityId] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
+  const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
   const isEdit = !!editingRuleSet
   const { dqRuleSets } = useDqStore()
   const existingIds = dqRuleSets.map(r => r.entityId).filter((id): id is string => !!id)
+  const badgeSuggestions = useBadgeSuggestions(dqRuleSets, activeWorkspaceId, editingRuleSet?.id)
 
   useEffect(() => {
     if (editingRuleSet) {
@@ -60,6 +64,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
       setDescription(localized(editingRuleSet.description, language))
       setEntityId(editingRuleSet.entityId ?? '')
       setDataSourceId(editingRuleSet.dataSourceId)
+      setBadges(editingRuleSet.badges ?? [])
       setVersion(editingRuleSet.version ?? '0.1.0')
       setAuthoring({})
     } else {
@@ -67,6 +72,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
       setDescription('')
       setEntityId('')
       setDataSourceId('')
+      setBadges([])
       setVersion('0.1.0')
       setAuthoring({})
     }
@@ -80,6 +86,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         name: setLocalized(editingRuleSet.name, language, name.trim()),
         description: setLocalized(editingRuleSet.description, language, description.trim()),
         dataSourceId,
+        badges,
         version: version.trim() || '0.1.0',
         ...authoring,
       })
@@ -94,6 +101,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         name: setLocalized(undefined, language, name.trim()),
         description: setLocalized(undefined, language, description.trim()),
         dataSourceId,
+        badges,
         status: 'draft',
         version: version.trim() || '0.1.0',
         ...stampAuthored(),
@@ -159,6 +167,8 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               </SelectContent>
             </Select>
           </div>
+
+          <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
 
           <VersionField value={version} onChange={setVersion} />
 

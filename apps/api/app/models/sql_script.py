@@ -19,6 +19,8 @@ class SqlScriptCollection(Base, TimestampMixin):
     entity_id: Mapped[str | None] = mapped_column(String(255))
     name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
     description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    # Badges for grouping/tagging (list of {id, label, color}).
+    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     default_data_source_id: Mapped[str | None] = mapped_column(String(36))
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # User-facing semver, portable across export/import (see Project.version).

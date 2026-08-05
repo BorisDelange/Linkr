@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Workflow, Database, ArrowRight } from 'lucide-react'
-import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { useEtlStore } from '@/stores/etl-store'
@@ -39,17 +39,47 @@ export function EtlListPage() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)
+  const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const filteredPipelines = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    const filtered = q
-      ? pipelines.filter((p) => `${localized(p.name, language)} ${localized(p.description, language)}`.toLowerCase().includes(q))
-      : pipelines
+    const filtered = pipelines.filter((p) => {
+      if (q && !`${localized(p.name, language)} ${localized(p.description, language)}`.toLowerCase().includes(q)) return false
+      if (badgeFilter.length > 0) {
+        const labels = new Set((p.badges ?? []).map((b) => localized(b.label, language)))
+        if (!badgeFilter.some((l) => labels.has(l))) return false
+      }
+      return true
+    })
     return applySort(filtered, sort, {
       name: (p) => localized(p.name, language),
       createdAt: (p) => p.createdAt,
       updatedAt: (p) => p.updatedAt,
     })
-  }, [pipelines, searchQuery, sort, language])
+  }, [pipelines, searchQuery, badgeFilter, sort, language])
+
+  // Distinct badges across the workspace's items, first-seen colour per label so the
+  // filter options match the chips drawn on the cards.
+  const allBadges = useMemo(() => {
+    const byLabel = new Map<string, string>()
+    for (const p of pipelines) for (const b of p.badges ?? []) {
+      const label = localized(b.label, language)
+      if (label && !byLabel.has(label)) byLabel.set(label, b.color)
+    }
+    return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
+  }, [pipelines, language])
+
+  const filterGroups: FilterGroup[] = allBadges.length > 0 ? [{
+    key: 'badges',
+    label: t('common.badges'),
+    selected: badgeFilter,
+    onChange: setBadgeFilter,
+    options: allBadges.map((b) => ({
+      value: b.label,
+      label: b.label,
+      badgeClass: getBadgeClasses(b.color),
+      badgeStyle: getBadgeStyle(b.color),
+    })),
+  }] : []
 
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('etl.unknown_source')
@@ -146,6 +176,7 @@ export function EtlListPage() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('common.search')}
+            filterGroups={filterGroups}
             sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
           />
         ) : undefined
@@ -183,6 +214,7 @@ export function EtlListPage() {
                 </>
               )}
             </div>
+            <BadgeStrip badges={pipeline.badges ?? []} className="mt-1.5 h-5" />
           </div>
         )
       }}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ShieldCheck, Database } from 'lucide-react'
-import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { cn } from '@/lib/utils'
 import { localized, setLocalized } from '@/lib/localized'
@@ -46,17 +46,47 @@ export function DqRuleSetListPage() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)
+  const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const filteredRuleSets = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    const filtered = q
-      ? ruleSets.filter((rs) => `${localized(rs.name, language)} ${localized(rs.description, language)}`.toLowerCase().includes(q))
-      : ruleSets
+    const filtered = ruleSets.filter((rs) => {
+      if (q && !`${localized(rs.name, language)} ${localized(rs.description, language)}`.toLowerCase().includes(q)) return false
+      if (badgeFilter.length > 0) {
+        const labels = new Set((rs.badges ?? []).map((b) => localized(b.label, language)))
+        if (!badgeFilter.some((l) => labels.has(l))) return false
+      }
+      return true
+    })
     return applySort(filtered, sort, {
       name: (rs) => localized(rs.name, language),
       createdAt: (rs) => rs.createdAt,
       updatedAt: (rs) => rs.updatedAt,
     })
-  }, [ruleSets, searchQuery, sort, language])
+  }, [ruleSets, searchQuery, badgeFilter, sort, language])
+
+  // Distinct badges across the workspace's items, first-seen colour per label so the
+  // filter options match the chips drawn on the cards.
+  const allBadges = useMemo(() => {
+    const byLabel = new Map<string, string>()
+    for (const rs of ruleSets) for (const b of rs.badges ?? []) {
+      const label = localized(b.label, language)
+      if (label && !byLabel.has(label)) byLabel.set(label, b.color)
+    }
+    return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
+  }, [ruleSets, language])
+
+  const filterGroups: FilterGroup[] = allBadges.length > 0 ? [{
+    key: 'badges',
+    label: t('common.badges'),
+    selected: badgeFilter,
+    onChange: setBadgeFilter,
+    options: allBadges.map((b) => ({
+      value: b.label,
+      label: b.label,
+      badgeClass: getBadgeClasses(b.color),
+      badgeStyle: getBadgeStyle(b.color),
+    })),
+  }] : []
 
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? '—'
@@ -157,6 +187,7 @@ export function DqRuleSetListPage() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('common.search')}
+            filterGroups={filterGroups}
             sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
           />
         ) : undefined
@@ -196,6 +227,7 @@ export function DqRuleSetListPage() {
               <Database size={12} className="shrink-0" />
               <span className="truncate">{getSourceName(rs.dataSourceId)}</span>
             </div>
+            <BadgeStrip badges={rs.badges ?? []} className="mt-1.5 h-5" />
           </div>
         )
       }}

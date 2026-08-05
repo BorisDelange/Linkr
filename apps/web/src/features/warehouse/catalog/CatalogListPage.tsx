@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { BookOpen, Database } from 'lucide-react'
-import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -38,17 +38,47 @@ export function CatalogListPage() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)
+  const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const filteredCatalogs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    const filtered = q
-      ? catalogs.filter((c) => `${localized(c.name, language)} ${localized(c.description, language)}`.toLowerCase().includes(q))
-      : catalogs
+    const filtered = catalogs.filter((c) => {
+      if (q && !`${localized(c.name, language)} ${localized(c.description, language)}`.toLowerCase().includes(q)) return false
+      if (badgeFilter.length > 0) {
+        const labels = new Set((c.badges ?? []).map((b) => localized(b.label, language)))
+        if (!badgeFilter.some((l) => labels.has(l))) return false
+      }
+      return true
+    })
     return applySort(filtered, sort, {
       name: (c) => localized(c.name, language),
       createdAt: (c) => c.createdAt,
       updatedAt: (c) => c.updatedAt,
     })
-  }, [catalogs, searchQuery, sort, language])
+  }, [catalogs, searchQuery, badgeFilter, sort, language])
+
+  // Distinct badges across the workspace's items, first-seen colour per label so the
+  // filter options match the chips drawn on the cards.
+  const allBadges = useMemo(() => {
+    const byLabel = new Map<string, string>()
+    for (const c of catalogs) for (const b of c.badges ?? []) {
+      const label = localized(b.label, language)
+      if (label && !byLabel.has(label)) byLabel.set(label, b.color)
+    }
+    return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
+  }, [catalogs, language])
+
+  const filterGroups: FilterGroup[] = allBadges.length > 0 ? [{
+    key: 'badges',
+    label: t('common.badges'),
+    selected: badgeFilter,
+    onChange: setBadgeFilter,
+    options: allBadges.map((b) => ({
+      value: b.label,
+      label: b.label,
+      badgeClass: getBadgeClasses(b.color),
+      badgeStyle: getBadgeStyle(b.color),
+    })),
+  }] : []
 
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? '—'
@@ -133,6 +163,7 @@ export function CatalogListPage() {
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
             searchPlaceholder={t('common.search')}
+            filterGroups={filterGroups}
             sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
           />
         ) : undefined
@@ -164,6 +195,7 @@ export function CatalogListPage() {
               <Database size={12} className="shrink-0" />
               <span className="truncate">{getSourceName(catalog.dataSourceId)}</span>
             </div>
+            <BadgeStrip badges={catalog.badges ?? []} className="mt-1.5 h-5" />
           </div>
         )
       }}

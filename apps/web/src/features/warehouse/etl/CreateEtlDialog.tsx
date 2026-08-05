@@ -25,9 +25,11 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { BadgeEditor } from '@/components/ui/badge-editor'
 import { VersionField } from '@/components/ui/version-field'
+import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { localized, setLocalized } from '@/lib/localized'
-import type { EtlPipeline } from '@/types'
+import type { EtlPipeline, ProjectBadge } from '@/types'
 
 interface Props {
   open: boolean
@@ -48,6 +50,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const [entityId, setEntityId] = useState('')
   const [sourceId, setSourceId] = useState('')
   const [targetId, setTargetId] = useState('')
+  const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
   const [saving, setSaving] = useState(false)
@@ -55,6 +58,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const isEditing = !!editingPipeline
   const { etlPipelines } = useEtlStore()
   const existingIds = etlPipelines.map(p => p.entityId).filter((id): id is string => !!id)
+  const badgeSuggestions = useBadgeSuggestions(etlPipelines, activeWorkspaceId, editingPipeline?.id)
 
   // Populate fields when opening in edit mode
   useEffect(() => {
@@ -63,6 +67,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
       setEntityId(editingPipeline.entityId ?? '')
       setSourceId(editingPipeline.sourceDataSourceId)
       setTargetId(editingPipeline.targetDataSourceId ?? '')
+      setBadges(editingPipeline.badges ?? [])
       setVersion(editingPipeline.version ?? '0.1.0')
       setAuthoring({})
     } else if (open && !editingPipeline) {
@@ -70,6 +75,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
       setEntityId('')
       setSourceId('')
       setTargetId('')
+      setBadges([])
       setVersion('0.1.0')
       setAuthoring({})
     }
@@ -87,6 +93,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           name: setLocalized(editingPipeline.name, language, name.trim()),
           sourceDataSourceId: sourceId,
           targetDataSourceId: targetId || undefined,
+          badges,
           version: version.trim() || '0.1.0',
           ...authoring,
         })
@@ -101,6 +108,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           description: {},
           sourceDataSourceId: sourceId,
           targetDataSourceId: targetId || undefined,
+          badges,
           status: 'draft',
           version: version.trim() || '0.1.0',
           ...stampAuthored(),
@@ -188,6 +196,8 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
             </Select>
             <p className="text-xs text-muted-foreground">{t('etl.target_database_hint')}</p>
           </div>
+
+          <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
 
           <VersionField value={version} onChange={setVersion} />
 

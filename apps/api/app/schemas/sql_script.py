@@ -9,6 +9,7 @@ class SqlScriptCollectionCreate(CamelModel):
     entity_id: str | None = None
     name: dict = {}
     description: dict = {}
+    badges: list | None = None
     default_data_source_id: str | None = None
     git_remote_config: dict | None = None
     created_by_id: int | None = None
@@ -26,6 +27,7 @@ class SqlScriptCollectionUpdate(CamelModel):
     entity_id: str | None = None
     name: dict | None = None
     description: dict | None = None
+    badges: list | None = None
     default_data_source_id: str | None = None
     git_remote_config: dict | None = None
     # Editable authoring provenance (author re-attribution + org snapshot).
@@ -47,6 +49,7 @@ class SqlScriptCollectionResponse(CamelModel):
     entity_id: str | None = None
     name: dict
     description: dict
+    badges: list | None = None
     default_data_source_id: str | None = None
     git_remote_config: dict | None = None
     created_by_id: int | None = None
