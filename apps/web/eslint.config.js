@@ -19,7 +19,20 @@ export default defineConfig([
     ],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      globals: {
+        ...globals.browser,
+        // `React` appears only as a type namespace (React.ReactNode) — erased at
+        // runtime, so no import is needed and no-undef must not flag it.
+        React: 'readonly',
+        // DOM lib types the `globals` package doesn't list; type positions only.
+        BlobPart: 'readonly',
+        RequestInit: 'readonly',
+        PermissionState: 'readonly',
+        ParentNode: 'readonly',
+        // Injected at build time by vite.config.ts / vitest.config.ts.
+        __APP_VERSION__: 'readonly',
+        __APP_BUILD_HASH__: 'readonly',
+      },
     },
     rules: {
       // `_`-prefixed names are intentionally unused (e.g. destructuring rest,
@@ -45,6 +58,12 @@ export default defineConfig([
       // change, loading flags) with targeted deps and no infinite-loop risk.
       // Warn (not error) until the compiler is enabled.
       'react-hooks/set-state-in-effect': 'warn',
+      // A JSX tag naming a component that was never imported type-checks fine —
+      // `<Foo />` resolves against the ambient JSX namespace — and then throws
+      // "Foo is not defined" at runtime. tseslint disables no-undef on the
+      // assumption TS covers it; for JSX it does not, so turn it back on.
+      // Type-only names are erased before runtime, so they're not undefined refs.
+      'no-undef': ['error', { typeof: false }],
     },
   },
   {
