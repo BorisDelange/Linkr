@@ -69,9 +69,14 @@ export function catalogFileUrl(source: CatalogSource, file: string): string {
 export type CatalogFetchError = 'network' | 'not-found' | 'malformed' | 'unsupported-version'
 
 export class CatalogError extends Error {
-  constructor(readonly kind: CatalogFetchError, message?: string) {
+  // Declared and assigned explicitly rather than as a constructor parameter
+  // property: `erasableSyntaxOnly` forbids the latter (it emits real code).
+  readonly kind: CatalogFetchError
+
+  constructor(kind: CatalogFetchError, message?: string) {
     super(message ?? kind)
     this.name = 'CatalogError'
+    this.kind = kind
   }
 }
 

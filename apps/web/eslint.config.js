@@ -83,4 +83,12 @@ export default defineConfig([
       globals: globals.node,
     },
   },
+  {
+    // Build configs and scripts run in Node, not the browser: `process`,
+    // `__dirname` & co. are real globals there.
+    files: ['*.config.{ts,js}', 'scripts/**/*.{ts,js,mjs}'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])

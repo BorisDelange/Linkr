@@ -189,7 +189,7 @@ export function CatalogPage() {
           {loaded && (
             <div className="flex shrink-0 items-center gap-2">
               <span className="text-xs text-muted-foreground">
-                {t('catalog.last_updated', { date: formatDate(fetchedAt, language) })}
+                {t('catalog.last_updated', { date: formatDate(fetchedAt ?? undefined, language) })}
               </span>
               <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={refresh} disabled={loading}>
                 {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
@@ -331,63 +331,61 @@ function CatalogEntryCard({ entry, language, canInstall, hasWorkspace, installed
           window.open(entry.git.url, '_blank', 'noopener,noreferrer')
         }
       }}
-      className="flex min-h-52 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
+      className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
     >
-      {/* Same skeleton as the workspace cards: one `px-4 pt-5` column (no bottom
-          padding — CardMetaFooter's own pt-2 closes the card), a flex-1 content block,
-          then the footer pinned below it — Install rides in the footer's trailing slot. */}
-      <div className="flex min-w-0 flex-1 flex-col px-4 pt-5">
-        <div className="flex flex-1 flex-col">
-          {/* Same icon + title row the entity's OWN list page draws, so a catalog card
-              reads as the kind of object it installs. The type badge is gone: the icon
-              carries that, with the label in its tooltip. */}
-          <div className="flex items-center gap-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', meta.bg)}>
-                  <Icon size={20} className={meta.color} />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">{typeLabel}</TooltipContent>
-            </Tooltip>
-            {/* min-w-0 is what makes the truncation bite: without it the flex item takes
-                its content width and pushes the version badge out of the card. */}
-            <div className="min-w-0 flex-1">
-              <TruncatedText text={name} className="text-sm font-medium" />
+      {/* Deliberately the SAME skeleton as ListPageTemplate's card (min-h-44, the
+          `px-4 pt-5` column, the `flex-1 items-center` body row, `mt-auto` on the
+          footer): a catalog card must be visually interchangeable with the card of
+          the entity it installs. Only two things differ — no `⋯` menu, and Install
+          rides in the footer's trailing slot. */}
+      <div className="flex flex-1 flex-col px-4 pt-5">
+        <div className="flex flex-1 items-center gap-4">
+          <div className="min-w-0 flex-1">
+            {/* Icon + title row copied from the entity's own list page. No type badge:
+                the icon carries that, with the label in its tooltip. */}
+            <div className="flex items-center gap-3">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', meta.bg)}>
+                    <Icon size={20} className={meta.color} />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">{typeLabel}</TooltipContent>
+              </Tooltip>
+              <span className="truncate text-sm font-medium">{name}</span>
+              {entry.version && (
+                <Badge variant="outline" className="ml-auto shrink-0 font-mono text-[10px]">v{entry.version}</Badge>
+              )}
             </div>
-            {entry.version && (
-              <Badge variant="outline" className="shrink-0 font-mono text-[10px]">v{entry.version}</Badge>
-            )}
-          </div>
 
-          {/* Fixed height like the workspace cards: the row is reserved whether or not
-              there's a description, so every card's lower half lines up. Truncated with
-              the full text in a hover tooltip. */}
-          <div className="mt-2 h-8">
-            {description ? (
-              <TruncatedText text={description} lines={2} className="text-xs text-muted-foreground" />
-            ) : (
-              <p className="text-xs italic text-muted-foreground/70">{t('catalog.no_description')}</p>
-            )}
-          </div>
+            {/* h-4 and no placeholder, exactly like the list pages: an entity with no
+                description leaves the row blank rather than saying so. */}
+            <div className="mt-2 h-4">
+              {description && (
+                <TruncatedText text={description} className="text-xs text-muted-foreground" />
+              )}
+            </div>
 
-          <div className="mt-1.5 flex h-5 items-center gap-1 overflow-hidden">
-            {entry.status && (
-              <Badge
-                variant="outline"
-                className="shrink-0 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-400"
-              >
-                {t(`catalog.status_${entry.status}`)}
-              </Badge>
+            {(entry.status || (entry.badges ?? []).length > 0) && (
+              <div className="mt-1.5 flex h-5 items-center gap-1 overflow-hidden">
+                {entry.status && (
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-400"
+                  >
+                    {t(`catalog.status_${entry.status}`)}
+                  </Badge>
+                )}
+                {(entry.badges ?? []).map((b) => (
+                  <Badge key={b} variant="outline" className="max-w-32 shrink-0 truncate text-[10px]">{b}</Badge>
+                ))}
+              </div>
             )}
-            {(entry.badges ?? []).map((b) => (
-              <Badge key={b} variant="outline" className="max-w-32 shrink-0 truncate text-[10px]">{b}</Badge>
-            ))}
           </div>
         </div>
 
         <CardMetaFooter
-          className="mt-2"
+          className="mt-auto"
           createdBy={entry.author?.name}
           createdByDetails={entry.author ? { orcid: entry.author.orcid, affiliation: entry.author.affiliation } : undefined}
           organization={entry.organization ? { ...entry.organization, name: entry.organization.name ?? '' } : undefined}

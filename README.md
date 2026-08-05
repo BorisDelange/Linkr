@@ -28,6 +28,18 @@ cd apps/web && npm run build
 # Output is in apps/web/dist/ — deploy this folder as a static site
 ```
 
+> **Already set up for server mode?** The mode is decided by a single variable,
+> `VITE_API_URL`: set → server mode, unset/empty → client-only. Once
+> `apps/web/.env.local` defines it, `npm run dev:web` always starts in server mode.
+> To run client-only *without touching that file*, use:
+>
+> ```bash
+> npm run dev:client   # = VITE_API_URL= vite — forces client-only for this run
+> ```
+>
+> Handy for checking how a feature degrades without a backend (the catalog's install
+> flow, versioning, users/roles — all of which show a "requires server" notice).
+
 ### Full-stack with FastAPI backend
 
 > **🚧 Under development** — the FastAPI backend is being built out entity by entity. Auth, setup and the Workspace/Project entities work end-to-end; other entities still fall back to in-browser IndexedDB.
@@ -73,6 +85,10 @@ cp apps/web/.env.example apps/web/.env.local
 ```
 
 Leaving `VITE_API_URL` unset keeps the app in client-only mode. Setting it enables login + API-backed storage.
+
+Once it is set, every `npm run dev:web` starts in server mode. To go back to client-only
+for a single run without editing `.env.local`, use `npm run dev:client` (it forces
+`VITE_API_URL=` empty).
 
 #### 4. Run
 

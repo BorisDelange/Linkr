@@ -2860,7 +2860,6 @@
     "update_modified": "{{count}} modifié(s)",
     "update_removed": "{{count}} supprimé(s)",
     "empty": "Le catalogue est vide.",
-    "no_description": "Aucune description",
     "open_repository": "Ouvrir le dépôt",
     "install": "Installer",
     "installing": "Installation...",

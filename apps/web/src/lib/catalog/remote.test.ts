@@ -140,7 +140,8 @@ describe('fetch error classification', () => {
   })
 
   it('requests the API v4 raw route, not /-/raw/ (the only one sending CORS headers)', async () => {
-    const spy = vi.fn(() => ok({ schemaVersion: 1, contentHash: 'a', hashes: {} }))
+    // Typed arg so `spy.mock.calls[0][0]` is the URL rather than a never-indexed tuple.
+    const spy = vi.fn((_url: string) => ok({ schemaVersion: 1, contentHash: 'a', hashes: {} }))
     vi.stubGlobal('fetch', spy)
     await fetchCatalogIndex()
     const url = String(spy.mock.calls[0]![0])

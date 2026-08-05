@@ -71,7 +71,8 @@ async function findExisting(
       case 'data-catalog': return storage.dataCatalogs.getById(id)
       case 'dq-rule-set': return storage.dqRuleSets.getById(id)
       case 'mapping-project': return storage.mappingProjects.getById(id)
-      case 'project': return storage.projects.getByUid(id)
+      // Projects are keyed by uid, and getById IS that lookup (see ProjectStorage).
+      case 'project': return storage.projects.getById(id)
       case 'schema-preset': return storage.schemaPresets.getById(id)
     }
   }
