@@ -463,7 +463,8 @@ function EntryAction({ state, hasWorkspace, localVersion, onClick }: EntryAction
       <TooltipTrigger asChild>
         <span className="inline-flex">{button}</span>
       </TooltipTrigger>
-      <TooltipContent side="top" className="text-xs">{hint}</TooltipContent>
+      {/* max-w forces the longer hints to wrap instead of running off as one line. */}
+      <TooltipContent side="top" className="max-w-56 text-xs">{hint}</TooltipContent>
     </Tooltip>
   )
 }
