@@ -46,7 +46,8 @@ path passes no credentials.
 | ✅ | Rewrite `CatalogPage.tsx`: grid, toolbar, load/refresh (card opens the repo) | M |
 | ✅ | Install dialog → clone → `applyClonedEntity` (workspace picker + conflict prompt) | M |
 | ✅ | Custom catalog URL — Settings → Catalog tab | S |
-| 💤 | "Propose to catalog" prefill, installed-state by lineageId | S |
+| ✅ | Installed-state by lineageId + version badge + Update flow (workspace picked in the toolbar) | M |
+| 💤 | "Propose to catalog" prefill | S |
 
 ## AI agents — [ai-agents-plan.md](ai-agents-plan.md)
 

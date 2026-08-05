@@ -48,6 +48,19 @@ export interface CatalogEntry {
   homepage?: string
   createdAt?: string
   updatedAt?: string
+  /**
+   * Cross-instance identity of the published entity, copied from its `lineageId`.
+   * How an installed copy is recognized locally — the local PK may differ (a
+   * duplicate mints a fresh one), the lineage does not.
+   */
+  lineageId?: string
+  /**
+   * Author-declared version ("1.2.0"), shown on the card and compared against the
+   * installed copy's own `version` to offer an update. Absent = unversioned: no badge,
+   * and an installed copy reads as up to date (there is no second staleness signal —
+   * see `installed.ts`).
+   */
+  version?: string
 }
 
 /** `catalog.json` — every entry in full. */

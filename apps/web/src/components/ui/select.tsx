@@ -27,7 +27,10 @@ function SelectValue({
 
 function SelectTrigger({
   className,
-  size = "xs",
+  // "sm" (h-8) matches <Input>'s height, so a select sitting next to a text field in a
+  // form lines up without either side passing a size. Pass "xs" back for the compact
+  // toolbar/inline selects that are deliberately shorter than a field.
+  size = "sm",
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {

@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDown, ArrowUp, Check, Search, SlidersHorizontal, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Search, SlidersHorizontal, X, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -22,6 +22,10 @@ import { cn } from '@/lib/utils'
 export interface FilterOption {
   value: string
   label: string
+  /** Optional icon rendered before the label, replacing the dot (e.g. an entity type). */
+  icon?: LucideIcon
+  /** Tailwind text-colour class for `icon`. */
+  iconClass?: string
   /** Optional colored dot rendered before the label (e.g. a status colour). */
   dotClass?: string
   /** Optional badge-style classes rendered around the label (custom badges). */
@@ -208,6 +212,7 @@ export function ListPageToolbar({
                           >
                             {checked && <Check size={10} strokeWidth={3} />}
                           </span>
+                          {opt.icon && <opt.icon size={13} className={cn('shrink-0', opt.iconClass)} />}
                           {opt.dotClass && <span className={cn('size-1.5 shrink-0 rounded-full', opt.dotClass)} />}
                           {opt.badgeClass !== undefined ? (
                             <span

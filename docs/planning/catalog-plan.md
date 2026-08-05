@@ -194,12 +194,30 @@ already coexist. Keep the new code under `lib/catalog/` + `features/catalog/`.
    `contentHash` to the cached one. If different, an inline button appears next to the
    date: *"Updates available (3 new, 1 updated) — Refresh"*. Never auto-applies.
 4. **Install** — server mode: `gitCloneToZip(url, branch)` → create the local entity →
-   `applyClonedEntity(zip, type, id, storage, workspaceId, gitRemoteConfig)`. Asks for
-   the target workspace. The installed entity lands git-linked, so Versioning can pull
-   later updates through the existing path — no new sync machinery.
-5. **Already installed** — match cached entries against local entities by `lineageId`
-   (falling back to `git.url`) and badge the card "Installed", so re-installing is a
-   conscious act.
+   `applyClonedEntity(zip, type, id, storage, workspaceId, gitRemoteConfig)`. The target
+   workspace is chosen **in the page toolbar**, not in the dialog: it also scopes the
+   installed-state lookup below, so it qualifies the whole list rather than one install.
+   Install actions are disabled until one is picked. The installed entity lands
+   git-linked, so Versioning can pull later updates through the existing path — no new
+   sync machinery.
+5. **Already installed** — `lib/catalog/installed.ts` matches entries against local rows
+   in the selected workspace by `lineageId`, falling back to a normalized `git.url`. The
+   action becomes *Installed* (outline, still clickable) or *Update* when the entry's
+   published `version` differs from the installed copy's. Update opens the same
+   duplicate-or-overwrite prompt as a colliding import — the collision is keyed on the id
+   the repo declares, which is only knowable after the clone.
+
+   **Versioning is `version`-only.** The cloned commit is not persisted on the entity
+   (`GitRemoteConfig.syncedOid` is stripped before storage; the real sync state lives
+   server-side), so there is no second staleness signal. An entry that publishes no
+   `version` shows no version badge and never reads as outdated — a permanent Update
+   button no click could clear would be worse than none.
+
+6. **Card UI** — each card wears its own entity type's identity: the icon block from that
+   type's list page (`lib/catalog/entry-meta.ts` holds the icon + colors + label key, one
+   source of truth shared with the type filter's icons). No type badge — the icon carries
+   it, with the label in a hover tooltip — and no `⋯` menu; the footer's trailing slot
+   holds Install/Update instead. Clicking the card opens the entry's repo.
 
 ## 5b. Bulk scanning a group / account — built, `scripts/scan.mjs`
 

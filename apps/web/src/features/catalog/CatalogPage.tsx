@@ -1,43 +1,34 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, ExternalLink, Loader2, RefreshCw, Store } from 'lucide-react'
+import { Check, Download, ExternalLink, Loader2, RefreshCw, Store, Upload } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { isServerMode } from '@/lib/api-client'
+import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { getCatalogSource } from '@/lib/catalog/settings'
+import { ENTRY_TYPES, ENTRY_TYPE_META } from '@/lib/catalog/entry-meta'
+import { findInstalled, type InstalledInfo } from '@/lib/catalog/installed'
 import { useCatalog } from '@/hooks/use-catalog'
 import { useAppStore } from '@/stores/app-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { CatalogInstallDialog } from './CatalogInstallDialog'
 import type { CatalogEntry } from '@/lib/catalog/types'
-
-/** Entry types, in the order they appear in the type filter. */
-const ENTRY_TYPES: CatalogEntry['type'][] = [
-  'project',
-  'mapping-project',
-  'sql-collection',
-  'etl-pipeline',
-  'data-catalog',
-  'dq-rule-set',
-  'schema-preset',
-]
-
-const TYPE_LABEL_KEYS: Record<CatalogEntry['type'], string> = {
-  'project': 'catalog.type_project',
-  'mapping-project': 'catalog.type_mapping_project',
-  'sql-collection': 'catalog.type_sql_collection',
-  'etl-pipeline': 'catalog.type_etl_pipeline',
-  'data-catalog': 'catalog.type_data_catalog',
-  'dq-rule-set': 'catalog.type_dq_rule_set',
-  'schema-preset': 'catalog.type_schema_preset',
-}
 
 /** Organization label used by the filter list, the filter test and the search haystack. */
 function orgNameOf(entry: CatalogEntry, language: string): string {
@@ -57,8 +48,40 @@ export function CatalogPage() {
   const [sort, setSort] = useState<SortState | null>(null)
   const [installing, setInstalling] = useState<CatalogEntry | null>(null)
 
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const loadWorkspaces = useWorkspaceStore((s) => s.loadWorkspaces)
+  /** Explicit pick only; the effective workspace is derived below. */
+  const [pickedWorkspaceId, setPickedWorkspaceId] = useState('')
+  /** Installed copies in the selected workspace, keyed by catalog entry id. */
+  const [installed, setInstalled] = useState<Record<string, InstalledInfo>>({})
+  /** Bumped after an install to re-read storage; nothing else changes. */
+  const [installedNonce, setInstalledNonce] = useState(0)
+
   const serverMode = isServerMode()
   const source = getCatalogSource()
+
+  useEffect(() => { void loadWorkspaces() }, [loadWorkspaces])
+
+  // Derived, not synced into state: falls back to the workspace the user was last in,
+  // then to the only one there is, so the common single-workspace case never forces a
+  // pick. A stale pick (workspace deleted) resolves back to the fallback on its own.
+  const workspaceId = useMemo(() => {
+    if (pickedWorkspaceId && workspaces.some((w) => w.id === pickedWorkspaceId)) return pickedWorkspaceId
+    if (activeWorkspaceId && workspaces.some((w) => w.id === activeWorkspaceId)) return activeWorkspaceId
+    return workspaces.length === 1 ? workspaces[0]!.id : ''
+  }, [pickedWorkspaceId, workspaces, activeWorkspaceId])
+
+  // Which entries are already installed can only be answered by reading storage, so it
+  // is a genuine external-system sync rather than derivable state.
+  useEffect(() => {
+    let cancelled = false
+    const lookup = !workspaceId || !entries.length
+      ? Promise.resolve({})
+      : findInstalled(entries, workspaceId)
+    void lookup.then((found) => { if (!cancelled) setInstalled(found) })
+    return () => { cancelled = true }
+  }, [entries, workspaceId, installedNonce])
 
   const allBadges = useMemo(
     () => [...new Set(entries.flatMap((e) => e.badges ?? []))].sort(),
@@ -102,7 +125,12 @@ export function CatalogPage() {
       key: 'type',
       label: t('catalog.filter_type'),
       options: ENTRY_TYPES.filter((ty) => entries.some((e) => e.type === ty))
-        .map((ty) => ({ value: ty, label: t(TYPE_LABEL_KEYS[ty]) })),
+        .map((ty) => ({
+          value: ty,
+          label: t(ENTRY_TYPE_META[ty].labelKey),
+          icon: ENTRY_TYPE_META[ty].icon,
+          iconClass: ENTRY_TYPE_META[ty].color,
+        })),
       selected: typeFilter,
       onChange: setTypeFilter,
     },
@@ -194,7 +222,23 @@ export function CatalogPage() {
             searchPlaceholder={t('common.search')}
             filterGroups={filterGroups}
             sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
-          />
+          >
+            {/* Installing targets one workspace, and whether an entry is already
+                installed is answered per workspace — so the choice belongs here, next
+                to the list it qualifies, rather than inside the install dialog. */}
+            {serverMode && workspaces.length > 0 && (
+              <Select value={workspaceId} onValueChange={setPickedWorkspaceId}>
+                <SelectTrigger className="h-9 w-52 shrink-0" aria-label={t('catalog.install_workspace')}>
+                  <SelectValue placeholder={t('catalog.install_workspace_placeholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {workspaces.map((ws) => (
+                    <SelectItem key={ws.id} value={ws.id}>{ws.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </ListPageToolbar>
         )}
 
         {!loaded ? (
@@ -231,6 +275,8 @@ export function CatalogPage() {
                 language={language}
                 onInstall={() => setInstalling(entry)}
                 canInstall={serverMode}
+                hasWorkspace={!!workspaceId}
+                installed={installed[entry.id]}
               />
             ))}
           </div>
@@ -244,7 +290,10 @@ export function CatalogPage() {
 
       <CatalogInstallDialog
         entry={installing}
+        workspaceId={workspaceId}
+        installed={installing ? installed[installing.id] : undefined}
         onOpenChange={(open) => { if (!open) setInstalling(null) }}
+        onInstalled={() => setInstalledNonce((n) => n + 1)}
       />
     </div>
   )
@@ -254,13 +303,21 @@ interface CatalogEntryCardProps {
   entry: CatalogEntry
   language: string
   canInstall: boolean
+  /** False when no workspace is selected — the action is shown but disabled. */
+  hasWorkspace: boolean
+  /** Set when this entry is already installed in the selected workspace. */
+  installed?: InstalledInfo
   onInstall: () => void
 }
 
-function CatalogEntryCard({ entry, language, canInstall, onInstall }: CatalogEntryCardProps) {
+function CatalogEntryCard({ entry, language, canInstall, hasWorkspace, installed, onInstall }: CatalogEntryCardProps) {
   const { t } = useTranslation()
   const name = localized(entry.name, language) || entry.id
   const description = localized(entry.description, language)
+  const state = installed?.state ?? 'not-installed'
+  const meta = ENTRY_TYPE_META[entry.type]
+  const typeLabel = t(meta.labelKey)
+  const Icon = meta.icon
 
   return (
     <Card
@@ -274,18 +331,33 @@ function CatalogEntryCard({ entry, language, canInstall, onInstall }: CatalogEnt
           window.open(entry.git.url, '_blank', 'noopener,noreferrer')
         }
       }}
-      className="flex min-h-52 cursor-pointer flex-col gap-0 py-0 transition-colors hover:border-primary/40"
+      className="flex min-h-52 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
     >
       {/* Same skeleton as the workspace cards: one `px-4 pt-5` column (no bottom
           padding — CardMetaFooter's own pt-2 closes the card), a flex-1 content block,
           then the footer pinned below it — Install rides in the footer's trailing slot. */}
       <div className="flex min-w-0 flex-1 flex-col px-4 pt-5">
         <div className="flex flex-1 flex-col">
-          <div className="flex items-start justify-between gap-2">
-            <TruncatedText text={name} className="text-sm font-semibold text-foreground" />
-            <Badge variant="secondary" className="shrink-0 text-[10px]">
-              {t(TYPE_LABEL_KEYS[entry.type])}
-            </Badge>
+          {/* Same icon + title row the entity's OWN list page draws, so a catalog card
+              reads as the kind of object it installs. The type badge is gone: the icon
+              carries that, with the label in its tooltip. */}
+          <div className="flex items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', meta.bg)}>
+                  <Icon size={20} className={meta.color} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">{typeLabel}</TooltipContent>
+            </Tooltip>
+            {/* min-w-0 is what makes the truncation bite: without it the flex item takes
+                its content width and pushes the version badge out of the card. */}
+            <div className="min-w-0 flex-1">
+              <TruncatedText text={name} className="text-sm font-medium" />
+            </div>
+            {entry.version && (
+              <Badge variant="outline" className="shrink-0 font-mono text-[10px]">v{entry.version}</Badge>
+            )}
           </div>
 
           {/* Fixed height like the workspace cards: the row is reserved whether or not
@@ -324,13 +396,74 @@ function CatalogEntryCard({ entry, language, canInstall, onInstall }: CatalogEnt
           // The footer already swallows clicks, so the button can't reach the card's
           // open-the-repo handler.
           trailing={canInstall && (
-            <Button size="sm" className="h-6 gap-1 px-2 text-xs" onClick={onInstall}>
-              <Download size={12} />
-              {t('catalog.install')}
-            </Button>
+            <EntryAction
+              state={state}
+              hasWorkspace={hasWorkspace}
+              localVersion={installed?.version}
+              onClick={onInstall}
+            />
           )}
         />
       </div>
     </Card>
+  )
+}
+
+interface EntryActionProps {
+  state: 'not-installed' | 'installed' | 'outdated'
+  hasWorkspace: boolean
+  localVersion?: string
+  onClick: () => void
+}
+
+/**
+ * The card's install action, in one of three states.
+ *
+ * "Installed" stays clickable: re-installing an up-to-date entry is legitimate (restoring
+ * a locally-broken copy), it just isn't advertised — hence the muted outline. The
+ * duplicate-or-overwrite prompt still guards the write in every case.
+ */
+function EntryAction({ state, hasWorkspace, localVersion, onClick }: EntryActionProps) {
+  const { t } = useTranslation()
+
+  const label = state === 'outdated'
+    ? t('catalog.update')
+    : state === 'installed' ? t('catalog.installed') : t('catalog.install')
+  const Icon = state === 'outdated' ? Upload : state === 'installed' ? Check : Download
+
+  const button = (
+    <Button
+      size="sm"
+      // Update is the call to action, so it keeps the filled default; an already-installed
+      // entry recedes to an outline so a screenful of them doesn't read as a screenful of
+      // primary actions.
+      variant={state === 'installed' ? 'outline' : 'default'}
+      className="h-6 gap-1 px-2 text-xs"
+      disabled={!hasWorkspace}
+      onClick={onClick}
+    >
+      <Icon size={12} />
+      {label}
+    </Button>
+  )
+
+  const hint = !hasWorkspace
+    ? t('catalog.select_workspace_first')
+    : state === 'outdated'
+      ? t('catalog.update_from_version', { version: localVersion ?? '—' })
+      : state === 'installed'
+        ? t('catalog.installed_hint')
+        : null
+  if (!hint) return button
+
+  return (
+    <Tooltip>
+      {/* A disabled button fires no pointer events, so the trigger needs a wrapper to
+          stay hoverable — otherwise the "pick a workspace" hint never shows. */}
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{button}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">{hint}</TooltipContent>
+    </Tooltip>
   )
 }
