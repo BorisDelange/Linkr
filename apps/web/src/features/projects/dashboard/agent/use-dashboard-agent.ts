@@ -34,6 +34,11 @@ import {
   type ToolResult,
 } from '@/lib/agent/dashboard-tools'
 import { pluginDoc, pluginSummary } from '@/lib/agent/plugin-context'
+import {
+  useAgentSessionStore,
+  type AgentSession,
+  type TranscriptEntry,
+} from '@/stores/agent-session-store'
 import { addNote, loadMemory, removeNote } from '@/lib/agent/memory'
 import { selectToolNames } from '@/lib/agent/tool-selection'
 import { datasetContext } from '@/lib/agent/dataset-context'
@@ -44,53 +49,25 @@ import {
   type ContextOptions,
 } from '@/lib/agent/system-prompt'
 
-/** One line in the transcript the sidebar renders. */
-export interface TranscriptEntry {
-  id: string
-  kind: 'user' | 'assistant' | 'tool' | 'error'
-  text: string
-  /** Tool entries collapse to one line; this is the detail behind it. */
-  detail?: string
-  ok?: boolean
-  /** Set while the assistant text is still streaming in. */
-  streaming?: boolean
-  at: number
-  /** Wall-clock milliseconds the model took, set once the turn finishes. */
-  durationMs?: number
-}
+export type {
+  ExchangeRecord,
+  SessionStats,
+  TranscriptEntry,
+} from '@/stores/agent-session-store'
 
-/**
- * One request/response pair, kept verbatim so the user can audit exactly what
- * left the browser. This matters most with a remote provider: "what did you send
- * about my patients?" must have an exact answer, not a summary.
- */
-export interface ExchangeRecord {
-  id: string
-  at: number
-  /** Messages sent, including the full system prompt. */
-  request: ChatMessage[]
-  responseText: string
-  toolCalls: { name: string; args: Record<string, unknown> }[]
-  usage?: { promptTokens: number; completionTokens: number }
-  durationMs: number
-}
-
-/** Live counters for the session-info dialog. */
-export interface SessionStats {
-  startedAt: number
-  exchanges: number
-  promptTokens: number
-  completionTokens: number
-  /** Milliseconds spent waiting on the model, for a tokens/s figure. */
-  elapsedMs: number
-}
-
-const EMPTY_STATS: SessionStats = {
-  startedAt: Date.now(),
-  exchanges: 0,
-  promptTokens: 0,
-  completionTokens: 0,
-  elapsedMs: 0,
+/** Stable empty session so the selector doesn't mint a new object each render. */
+const EMPTY_SESSION: AgentSession = {
+  transcript: [],
+  exchanges: [],
+  stats: {
+    startedAt: 0,
+    exchanges: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    elapsedMs: 0,
+  },
+  history: [],
+  canUndo: false,
 }
 
 interface Snapshot {
@@ -130,18 +107,21 @@ function toolLabel(
 
 export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptions) {
   const { t, i18n } = useTranslation()
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
+  // The session lives in a store, not in this hook: closing the panel unmounts
+  // the sidebar, and the conversation must survive that.
+  const session = useAgentSessionStore(
+    (s) => s.sessions[dashboardId] ?? EMPTY_SESSION
+  )
+  const updateSession = useAgentSessionStore((s) => s.update)
+  const mutateSession = useAgentSessionStore((s) => s.mutate)
+  const resetSession = useAgentSessionStore((s) => s.reset)
+  const { transcript, exchanges, stats, canUndo } = session
+
   const [running, setRunning] = useState(false)
   const [contextOptions, setContextOptions] = useState<ContextOptions>(
     DEFAULT_CONTEXT_OPTIONS
   )
-  const [canUndo, setCanUndo] = useState(false)
-  const [stats, setStats] = useState<SessionStats>(() => ({
-    ...EMPTY_STATS,
-    startedAt: Date.now(),
-  }))
   const [pending, setPending] = useState<PendingAction | null>(null)
-  const [exchanges, setExchanges] = useState<ExchangeRecord[]>([])
   /** When the current turn started, for the live elapsed counter. */
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null)
   const [memoryNotes, setMemoryNotes] = useState<string[]>(() => loadMemory(dashboardId))
@@ -151,18 +131,23 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     messages: ChatMessage[]
   } | null>(null)
 
-  // Conversation kept across turns so follow-ups ("make it wider") work; reset
-  // clears it, which is the whole point of the reset button.
-  const historyRef = useRef<ChatMessage[]>([])
   const snapshotRef = useRef<Snapshot | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const locale = i18n.language?.slice(0, 2) || 'en'
   const datasets = useDatasetStore((s) => s.files)
 
-  const push = useCallback((entry: Omit<TranscriptEntry, 'id' | 'at'>) => {
-    setTranscript((prev) => [...prev, { ...entry, id: nextId(), at: Date.now() }])
-  }, [])
+  const push = useCallback(
+    (entry: Omit<TranscriptEntry, 'id' | 'at'>) => {
+      mutateSession(dashboardId, (current) => ({
+        transcript: [
+          ...current.transcript,
+          { ...entry, id: nextId(), at: Date.now() },
+        ],
+      }))
+    },
+    [dashboardId, mutateSession]
+  )
 
   const pluginSummaries = useMemo(
     // MVP scope: plot-builder only. Widening this is a one-line change once the
@@ -299,7 +284,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
       activeTabId: snap.activeTabId,
     })
     snapshotRef.current = null
-    setCanUndo(false)
+    updateSession(dashboardId, { canUndo: false })
     push({ kind: 'assistant', text: 'reverted' })
   }, [push])
 
@@ -311,14 +296,10 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
 
   const reset = useCallback(() => {
     stop()
-    historyRef.current = []
     snapshotRef.current = null
     pendingRef.current = null
     setPending(null)
-    setCanUndo(false)
-    setTranscript([])
-    setExchanges([])
-    setStats({ ...EMPTY_STATS, startedAt: Date.now() })
+    resetSession(dashboardId)
   }, [stop])
 
   /** Run a destructive call the user just approved. */
@@ -340,7 +321,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
       detail: result.message,
       ok: result.ok,
     })
-    if (result.ok) setCanUndo(true)
+    if (result.ok) updateSession(dashboardId, { canUndo: true })
   }, [describe, push, t, toolContext])
 
   const addMemoryNote = useCallback(
@@ -382,13 +363,13 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
 
       const messages: ChatMessage[] = [
         { role: 'system', content: buildPrompt() },
-        ...historyRef.current,
+        ...session.history,
         { role: 'user', content: text },
       ]
 
       // Only send the tools this request plausibly needs: definitions are the
       // biggest remaining slice of the prompt and are re-sent every call.
-      const allowed = new Set(selectToolNames(text, historyRef.current.length > 0))
+      const allowed = new Set(selectToolNames(text, session.history.length > 0))
       const tools = DASHBOARD_TOOLS.filter((tool) => allowed.has(tool.function.name))
 
       try {
@@ -405,23 +386,27 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
             tools,
             controller.signal,
             (chunk) => {
-              setTranscript((prev) => {
+              mutateSession(dashboardId, (current) => {
                 if (!streamed) {
                   streamed = true
-                  return [
-                    ...prev,
-                    {
-                      id: entryId,
-                      kind: 'assistant',
-                      text: chunk,
-                      streaming: true,
-                      at: startedAt,
-                    },
-                  ]
+                  return {
+                    transcript: [
+                      ...current.transcript,
+                      {
+                        id: entryId,
+                        kind: 'assistant' as const,
+                        text: chunk,
+                        streaming: true,
+                        at: startedAt,
+                      },
+                    ],
+                  }
                 }
-                return prev.map((entry) =>
-                  entry.id === entryId ? { ...entry, text: entry.text + chunk } : entry
-                )
+                return {
+                  transcript: current.transcript.map((entry) =>
+                    entry.id === entryId ? { ...entry, text: entry.text + chunk } : entry
+                  ),
+                }
               })
             }
           )
@@ -429,34 +414,40 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
           const elapsed = Date.now() - startedAt
           // Snapshot the exact payload sent, before tool results are appended.
           const sent = messages.map((message) => ({ ...message }))
-          setExchanges((prev) => [
-            ...prev,
-            {
-              id: nextId(),
-              at: startedAt,
-              request: sent,
-              responseText: step.text,
-              toolCalls: step.calls.map((call) => ({ name: call.name, args: call.args })),
-              usage: step.usage,
-              durationMs: elapsed,
+          mutateSession(dashboardId, (current) => ({
+            exchanges: [
+              ...current.exchanges,
+              {
+                id: nextId(),
+                at: startedAt,
+                request: sent,
+                responseText: step.text,
+                toolCalls: step.calls.map((call) => ({
+                  name: call.name,
+                  args: call.args,
+                })),
+                usage: step.usage,
+                durationMs: elapsed,
+              },
+            ],
+            stats: {
+              ...current.stats,
+              exchanges: current.stats.exchanges + 1,
+              promptTokens: current.stats.promptTokens + (step.usage?.promptTokens ?? 0),
+              completionTokens:
+                current.stats.completionTokens + (step.usage?.completionTokens ?? 0),
+              elapsedMs: current.stats.elapsedMs + elapsed,
             },
-          ])
-          setStats((prev) => ({
-            ...prev,
-            exchanges: prev.exchanges + 1,
-            promptTokens: prev.promptTokens + (step.usage?.promptTokens ?? 0),
-            completionTokens: prev.completionTokens + (step.usage?.completionTokens ?? 0),
-            elapsedMs: prev.elapsedMs + elapsed,
           }))
 
           if (streamed) {
-            setTranscript((prev) =>
-              prev.map((entry) =>
+            mutateSession(dashboardId, (current) => ({
+              transcript: current.transcript.map((entry) =>
                 entry.id === entryId
                   ? { ...entry, text: step.text, streaming: false, durationMs: elapsed }
                   : entry
-              )
-            )
+              ),
+            }))
           } else if (step.text) {
             push({ kind: 'assistant', text: step.text, durationMs: elapsed })
           }
@@ -498,14 +489,16 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
           }
           if (awaitingConfirmation) break
         }
-        setCanUndo(mutated)
         // Keep only the user/assistant exchange in history: replaying tool calls
         // on the next turn would re-describe stale ids, and the fresh system
         // prompt already carries the current state.
-        historyRef.current = [
-          ...historyRef.current,
-          { role: 'user' as const, content: text },
-        ].slice(-8)
+        mutateSession(dashboardId, (current) => ({
+          canUndo: mutated,
+          history: [
+            ...current.history,
+            { role: 'user' as const, content: text },
+          ].slice(-8),
+        }))
       } catch (error) {
         if ((error as Error)?.name !== 'AbortError') {
           push({

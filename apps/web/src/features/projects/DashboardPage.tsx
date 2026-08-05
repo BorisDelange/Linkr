@@ -16,6 +16,7 @@ import { DashboardTabBar } from './dashboard/DashboardTabBar'
 import { WidgetGrid } from './dashboard/WidgetGrid'
 import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
 import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
+import { useDashboardPanelsStore } from '@/stores/dashboard-panels-store'
 import { DashboardAgentSidebar } from './dashboard/agent/DashboardAgentSidebar'
 import { resolveAgentEndpoint } from '@/lib/agent/settings'
 import { DashboardSettingsDialog } from './dashboard/DashboardSettingsDialog'
@@ -38,8 +39,13 @@ export function DashboardPage() {
 
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [agentOpen, setAgentOpen] = useState(false)
+  // Panel visibility lives in a store so it survives leaving the page.
+  const filterOpen = useDashboardPanelsStore((s) => s.filterOpen)
+  const agentOpen = useDashboardPanelsStore((s) => s.agentOpen)
+  const toggleFilterPanel = useDashboardPanelsStore((s) => s.toggleFilter)
+  const toggleAgentPanel = useDashboardPanelsStore((s) => s.toggleAgent)
+  const setFilterOpen = useDashboardPanelsStore((s) => s.setFilterOpen)
+  const setAgentOpen = useDashboardPanelsStore((s) => s.setAgentOpen)
   // Read once per mount: settings live in Settings → Assistant, so a change there
   // applies when the user comes back to the dashboard.
   const { endpoint: agentEndpoint, isRemote: agentIsRemote } = useMemo(
@@ -302,7 +308,7 @@ export function DashboardPage() {
             variant={filterOpen ? 'default' : 'ghost'}
             size="xs"
             className="gap-1"
-            onClick={() => setFilterOpen(!filterOpen)}
+            onClick={toggleFilterPanel}
           >
             <Filter size={12} />
             {activeFilterCount > 0
@@ -314,7 +320,7 @@ export function DashboardPage() {
               variant={agentOpen ? 'default' : 'ghost'}
               size="xs"
               className="gap-1"
-              onClick={() => setAgentOpen(!agentOpen)}
+              onClick={toggleAgentPanel}
             >
               <Sparkles size={12} />
               {t('agent.open')}
