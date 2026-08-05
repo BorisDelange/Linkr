@@ -2244,7 +2244,8 @@
     "db_col_nullable": "Nullable",
     "db_yes": "Yes",
     "db_no": "No",
-    "db_no_tables": "No tables."
+    "db_no_tables": "No tables.",
+    "tab_agent": "Assistant"
   },
   "schemas": {
     "title": "Schemas",
@@ -4262,6 +4263,21 @@
     "error": {
       "no_provider": "No LLM provider configured for this workspace.",
       "unexpected_error": "Something went wrong. Check the model is reachable."
-    }
+    },
+    "settings_title": "Dashboard assistant",
+    "settings_description": "Point the assistant at a language model. A local model (Ollama, LM Studio, llama.cpp) keeps all data on your infrastructure.",
+    "settings_base_url": "Endpoint URL",
+    "settings_base_url_hint": "OpenAI-compatible endpoint, e.g. http://localhost:11434/v1 for Ollama.",
+    "settings_model": "Model",
+    "settings_api_key": "API key",
+    "settings_test": "Test connection",
+    "settings_test_ok": "Connection OK",
+    "settings_test_fail": "Failed:",
+    "settings_clear": "Clear",
+    "settings_saved": "Saved.",
+    "remote_warning_title": "This is a remote API — health data will leave your infrastructure",
+    "remote_warning_body": "Prompts sent to this model may include dataset column names, descriptions and the questions you ask. Do not use a remote API with identifying or sensitive patient data unless your institution has approved it.",
+    "remote_acknowledge": "I understand that data sent to this model leaves my institution, and I take responsibility for this choice.",
+    "remote_blocked": "Tick the box above to enable the assistant with this remote endpoint."
   }
 }

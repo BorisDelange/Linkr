@@ -17,7 +17,7 @@ import { WidgetGrid } from './dashboard/WidgetGrid'
 import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
 import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
 import { DashboardAgentSidebar } from './dashboard/agent/DashboardAgentSidebar'
-import { readAgentEndpoint } from '@/lib/agent/endpoint'
+import { resolveAgentEndpoint } from '@/lib/agent/settings'
 import { DashboardSettingsDialog } from './dashboard/DashboardSettingsDialog'
 import { ExportDashboardDialog } from './dashboard/ExportDashboardDialog'
 import { isWidgetPluginStale } from './dashboard/plugin-drift'
@@ -40,10 +40,10 @@ export function DashboardPage() {
   const [editMode, setEditMode] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [agentOpen, setAgentOpen] = useState(false)
-  // Read once: the endpoint is a local override until the provider API lands, so
-  // it does not change while the page is open.
+  // Read once per mount: settings live in Settings → Assistant, so a change there
+  // applies when the user comes back to the dashboard.
   const { endpoint: agentEndpoint, isRemote: agentIsRemote } = useMemo(
-    () => readAgentEndpoint(),
+    () => resolveAgentEndpoint(),
     []
   )
   const [settingsOpen, setSettingsOpen] = useState(false)

@@ -5,6 +5,7 @@ import { NoAccessNotice } from '@/components/ui/no-access-notice'
 import { useHasGlobalPermission } from '@/stores/auth-store'
 import { GeneralTab } from './GeneralTab'
 import { CatalogSettingsTab } from './CatalogSettingsTab'
+import { AgentSettingsTab } from './AgentSettingsTab'
 import { UsersTab } from './UsersTab'
 import { RolesTab } from './RolesTab'
 import { OrganizationsTab } from './OrganizationsTab'
@@ -40,6 +41,7 @@ export function SettingsPage() {
             <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>
             <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>
             <TabsTrigger value="catalog">{t('nav.catalog')}</TabsTrigger>
+            <TabsTrigger value="agent">{t('settings.tab_agent')}</TabsTrigger>
             <TabsTrigger value="backup-sync">{t('settings.tab_backup_sync')}</TabsTrigger>
           </TabsList>
           <TabsContent value="general">
@@ -56,6 +58,9 @@ export function SettingsPage() {
           </TabsContent>
           <TabsContent value="catalog">
             <CatalogSettingsTab />
+          </TabsContent>
+          <TabsContent value="agent">
+            <AgentSettingsTab />
           </TabsContent>
           <TabsContent value="backup-sync">
             {canVersionSettings ? <SettingsBackupSyncTab /> : <NoAccessNotice />}

@@ -2244,7 +2244,8 @@
     "db_col_nullable": "Nullable",
     "db_yes": "Oui",
     "db_no": "Non",
-    "db_no_tables": "Aucune table."
+    "db_no_tables": "Aucune table.",
+    "tab_agent": "Assistant"
   },
   "schemas": {
     "title": "Schémas",
@@ -4262,6 +4263,21 @@
     "error": {
       "no_provider": "Aucun fournisseur LLM configuré pour cet espace de travail.",
       "unexpected_error": "Une erreur est survenue. Vérifiez que le modèle est accessible."
-    }
+    },
+    "settings_title": "Assistant de tableau de bord",
+    "settings_description": "Indiquez à l'assistant quel modèle de langage utiliser. Un modèle local (Ollama, LM Studio, llama.cpp) garde toutes les données sur votre infrastructure.",
+    "settings_base_url": "URL du point d'accès",
+    "settings_base_url_hint": "Point d'accès compatible OpenAI, par ex. http://localhost:11434/v1 pour Ollama.",
+    "settings_model": "Modèle",
+    "settings_api_key": "Clé API",
+    "settings_test": "Tester la connexion",
+    "settings_test_ok": "Connexion OK",
+    "settings_test_fail": "Échec :",
+    "settings_clear": "Effacer",
+    "settings_saved": "Enregistré.",
+    "remote_warning_title": "API distante — les données de santé quitteront votre infrastructure",
+    "remote_warning_body": "Les requêtes envoyées à ce modèle peuvent contenir les noms et descriptions des colonnes de vos jeux de données, ainsi que vos questions. N'utilisez pas d'API distante avec des données patient identifiantes ou sensibles sans validation de votre établissement.",
+    "remote_acknowledge": "Je comprends que les données envoyées à ce modèle quittent mon établissement, et j'assume ce choix.",
+    "remote_blocked": "Cochez la case ci-dessus pour activer l'assistant avec ce point d'accès distant."
   }
 }
