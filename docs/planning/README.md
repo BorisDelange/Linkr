@@ -58,9 +58,9 @@ entity + LLM provider config, local models by default.
 | St | Item | Effort |
 |----|------|--------|
 | 🤔 | Foundation: `skills`/`llm-config`/`agents` permissions + `LlmProvider` (Fernet key, derived `is_local`, remote-API acknowledgement, `LINKR_ALLOW_REMOTE_LLM=false`) | M |
-| 🔜 | Skills entity (workspace-scoped file collection, clone of SQL collections) | M |
+| 🔜 | Skills entity (workspace-scoped, one entity = one skill; file tree like SQL collections) | M |
 | 🔜 | Spike: local-model tool-calling on 3 dashboard tools — de-risks the copilot | S |
-| 🔜 | Track A1: generated `opencode.json` + skills → `.claude/skills/` + launch in the existing PTY | S/M |
+| 🔜 | Track A1: generated `opencode.json` + skills → `.agents/skills/` + launch in the existing PTY | S/M |
 | 🤔 | Track B: right-sidebar copilot (agent loop, dashboard tools, per-turn undo) | L |
 | 💤 | Track B on Cohorts / Patient data; Track A2 structured ACP panel | L |
 
