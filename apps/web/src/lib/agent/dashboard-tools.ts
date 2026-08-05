@@ -58,6 +58,8 @@ export interface ToolContext {
   /** Resolve a tab/widget referenced by its visible name rather than its id. */
   findTabByName: (name: string) => string | null
   findWidgetByName: (name: string) => string | null
+  /** Full column schema for one dataset, fetched on demand. */
+  describeDataset: (datasetId: string) => string | null
   locale: string
 }
 
@@ -97,12 +99,11 @@ export const DASHBOARD_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'add_tab',
-      description:
-        'Create a new tab in the current dashboard and switch to it. Returns the new tab id.',
+      description: 'Create a tab and switch to it.',
       parameters: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'Tab title shown to the user.' },
+          name: { type: 'string', description: 'Tab title.' },
         },
         required: ['name'],
       },
@@ -112,27 +113,16 @@ export const DASHBOARD_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'add_widget',
-      description:
-        'Add a chart widget to a tab. Pick the dataset that holds the columns you need. ' +
-        'Call describe_plugin first if you are unsure which config fields exist.',
+      description: 'Add a chart widget to a tab.',
       parameters: {
         type: 'object',
         properties: {
           name: { type: 'string', description: 'Widget title.' },
-          datasetId: {
-            type: 'string',
-            description: 'Id of the dataset supplying the data.',
-          },
-          tabId: {
-            type: 'string',
-            description:
-              'Target tab id. Omit to use the tab the user is currently viewing.',
-          },
+          datasetId: { type: 'string', description: 'Dataset id.' },
+          tabId: { type: 'string', description: 'Tab id. Omit for the current tab.' },
           config: {
             type: 'object',
-            description:
-              'Plugin config, e.g. {"plotType":"histogram","xColumn":"age"}. ' +
-              'Use exact column names from the dataset schema.',
+            description: 'Plugin config, e.g. {"plotType":"histogram","xColumn":"age"}.',
           },
         },
         required: ['name', 'datasetId', 'config'],
@@ -143,15 +133,11 @@ export const DASHBOARD_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'configure_widget',
-      description:
-        'Change the config of an existing widget (e.g. switch plot type, change a column).',
+      description: 'Change an existing widget config.',
       parameters: {
         type: 'object',
         properties: {
-          widgetId: {
-            type: 'string',
-            description: 'Widget id. Omit to target the widget you just added.',
-          },
+          widgetId: { type: 'string', description: 'Widget id. Omit for the last one.' },
           config: { type: 'object', description: 'Config fields to set.' },
         },
         required: ['config'],
@@ -162,19 +148,14 @@ export const DASHBOARD_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'set_layout',
-      description:
-        `Position and size a widget on a ${GRID_COLUMNS}-column grid. Half the width is w=6, ` +
-        'full width is w=12. x=0 is the left edge.',
+      description: 'Position and size a widget on a 12-column grid.',
       parameters: {
         type: 'object',
         properties: {
-          widgetId: {
-            type: 'string',
-            description: 'Widget id. Omit to target the widget you just added.',
-          },
-          x: { type: 'integer', description: `Column offset, 0..${GRID_COLUMNS - 1}.` },
-          y: { type: 'integer', description: 'Row offset from the top.' },
-          w: { type: 'integer', description: `Width in columns, 1..${GRID_COLUMNS}.` },
+          widgetId: { type: 'string', description: 'Widget id. Omit for the last one.' },
+          x: { type: 'integer', description: 'Column offset from left, 0-11.' },
+          y: { type: 'integer', description: 'Row offset from top.' },
+          w: { type: 'integer', description: 'Width: 6 = half, 12 = full.' },
           h: { type: 'integer', description: 'Height in rows.' },
         },
         required: ['w'],
@@ -185,12 +166,11 @@ export const DASHBOARD_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'remove_tab',
-      description:
-        'Delete a tab and every widget it contains. The user is asked to confirm first.',
+      description: 'Delete a tab and its widgets. User confirms first.',
       parameters: {
         type: 'object',
         properties: {
-          tabId: { type: 'string', description: 'Id of the tab to delete.' },
+          tabId: { type: 'string', description: 'Tab id or name.' },
         },
         required: ['tabId'],
       },
@@ -200,11 +180,11 @@ export const DASHBOARD_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'remove_widget',
-      description: 'Delete a widget. The user is asked to confirm first.',
+      description: 'Delete a widget. User confirms first.',
       parameters: {
         type: 'object',
         properties: {
-          widgetId: { type: 'string', description: 'Id of the widget to delete.' },
+          widgetId: { type: 'string', description: 'Widget id or name.' },
         },
         required: ['widgetId'],
       },
@@ -214,15 +194,28 @@ export const DASHBOARD_TOOLS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'describe_plugin',
-      description:
-        'Get the config fields of a plugin before configuring a widget. ' +
-        'Use this instead of guessing field names.',
+      description: 'Get a plugin config fields. Use before configuring a widget.',
       parameters: {
         type: 'object',
         properties: {
           pluginId: { type: 'string', description: 'Plugin id.' },
         },
         required: ['pluginId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'describe_dataset',
+      description:
+        'Get a dataset columns (names, types, descriptions). Use before choosing columns.',
+      parameters: {
+        type: 'object',
+        properties: {
+          datasetId: { type: 'string', description: 'Dataset id.' },
+        },
+        required: ['datasetId'],
       },
     },
   },
@@ -419,6 +412,19 @@ export function runDashboardTool(
       const doc = describePlugin(pluginId)
       if (!doc) {
         return { ok: false, rejected: true, message: `Unknown plugin "${pluginId}".` }
+      }
+      return { ok: true, message: doc }
+    }
+
+    case 'describe_dataset': {
+      const datasetId = typeof args.datasetId === 'string' ? args.datasetId : ''
+      const doc = ctx.describeDataset(datasetId)
+      if (!doc) {
+        return {
+          ok: false,
+          rejected: true,
+          message: `Unknown dataset "${datasetId}". Available: ${ctx.datasetIds().join(', ') || 'none'}.`,
+        }
       }
       return { ok: true, message: doc }
     }

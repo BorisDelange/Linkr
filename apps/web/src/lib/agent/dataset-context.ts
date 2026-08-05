@@ -63,3 +63,23 @@ export function datasetsContext(datasets: DatasetContextInput[]): string {
   if (!datasets.length) return 'No datasets available.'
   return datasets.map(datasetContext).join('\n\n')
 }
+
+/**
+ * One line per dataset: id, name, row count, column count. Enough for the model
+ * to pick a dataset and then call describe_dataset for its columns.
+ *
+ * Measured on a realistic dashboard, full schemas cost ~1120 tokens against ~250
+ * for the whole dashboard state — the dominant cost, and it grows with the
+ * project rather than the request. Long contexts do not merely add latency: they
+ * measurably degrade answer quality ("context rot"), so the fix is to send
+ * summaries and let the model fetch what it needs.
+ */
+export function datasetsSummary(datasets: DatasetContextInput[]): string {
+  if (!datasets.length) return 'No datasets available.'
+  return datasets
+    .map((dataset) => {
+      const rows = dataset.rowCount != null ? `${dataset.rowCount} rows, ` : ''
+      return `- ${dataset.id} — ${dataset.name} (${rows}${dataset.columns.length} columns)`
+    })
+    .join('\n')
+}

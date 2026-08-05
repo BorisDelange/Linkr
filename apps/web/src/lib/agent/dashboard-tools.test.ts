@@ -26,6 +26,7 @@ function ctx(overrides: Partial<ToolContext> = {}): ToolContext {
     widgetName: (id) => (id === 'wid_1' ? 'Age' : null),
     findTabByName: (name) => (name.toLowerCase() === 'overview' ? 'tab_1' : null),
     findWidgetByName: (name) => (name.toLowerCase() === 'age' ? 'wid_1' : null),
+    describeDataset: (id) => (id === 'ds_1' ? 'ds_1 — patients\n  age (number)' : null),
     locale: 'fr',
     ...overrides,
   }

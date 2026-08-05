@@ -34,6 +34,7 @@ import {
   type ToolResult,
 } from '@/lib/agent/dashboard-tools'
 import { pluginDoc, pluginSummary } from '@/lib/agent/plugin-context'
+import { datasetContext } from '@/lib/agent/dataset-context'
 import {
   DEFAULT_CONTEXT_OPTIONS,
   buildSystemPrompt,
@@ -51,6 +52,9 @@ export interface TranscriptEntry {
   ok?: boolean
   /** Set while the assistant text is still streaming in. */
   streaming?: boolean
+  at: number
+  /** Wall-clock milliseconds the model took, set once the turn finishes. */
+  durationMs?: number
 }
 
 /**
@@ -136,6 +140,8 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
   }))
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [exchanges, setExchanges] = useState<ExchangeRecord[]>([])
+  /** When the current turn started, for the live elapsed counter. */
+  const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null)
   const pendingRef = useRef<{
     call: ParsedToolCall
     action: PendingAction
@@ -151,8 +157,8 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
   const locale = i18n.language?.slice(0, 2) || 'en'
   const datasets = useDatasetStore((s) => s.files)
 
-  const push = useCallback((entry: Omit<TranscriptEntry, 'id'>) => {
-    setTranscript((prev) => [...prev, { ...entry, id: nextId() }])
+  const push = useCallback((entry: Omit<TranscriptEntry, 'id' | 'at'>) => {
+    setTranscript((prev) => [...prev, { ...entry, id: nextId(), at: Date.now() }])
   }, [])
 
   const pluginSummaries = useMemo(
@@ -252,6 +258,16 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
             ?.id ?? null
         )
       },
+      describeDataset: (datasetId) => {
+        const file = useDatasetStore.getState().files.find((f) => f.id === datasetId)
+        if (!file || file.type !== 'file') return null
+        return datasetContext({
+          id: file.id,
+          name: file.name,
+          columns: file.columns ?? [],
+          rowCount: file.rowCount,
+        })
+      },
       locale,
     }
   }, [dashboardId, locale])
@@ -340,6 +356,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
 
       push({ kind: 'user', text })
       setRunning(true)
+      setTurnStartedAt(Date.now())
       // Snapshot before any mutation so [Undo] restores the pre-turn dashboard.
       snapshotRef.current = snapshot()
 
@@ -371,7 +388,13 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
                   streamed = true
                   return [
                     ...prev,
-                    { id: entryId, kind: 'assistant', text: chunk, streaming: true },
+                    {
+                      id: entryId,
+                      kind: 'assistant',
+                      text: chunk,
+                      streaming: true,
+                      at: startedAt,
+                    },
                   ]
                 }
                 return prev.map((entry) =>
@@ -408,12 +431,12 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
             setTranscript((prev) =>
               prev.map((entry) =>
                 entry.id === entryId
-                  ? { ...entry, text: step.text, streaming: false }
+                  ? { ...entry, text: step.text, streaming: false, durationMs: elapsed }
                   : entry
               )
             )
           } else if (step.text) {
-            push({ kind: 'assistant', text: step.text })
+            push({ kind: 'assistant', text: step.text, durationMs: elapsed })
           }
 
           // A model that printed a tool call as prose instead of emitting it
@@ -471,6 +494,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
       } finally {
         abortRef.current = null
         setRunning(false)
+        setTurnStartedAt(null)
       }
     },
     [buildPrompt, describe, endpoint, push, running, snapshot, toolContext]
@@ -486,6 +510,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     /** The exact system prompt that will be sent with the next message. */
     systemPrompt: buildPrompt,
     exchanges,
+    turnStartedAt,
     stats,
     pending,
     confirmPending,

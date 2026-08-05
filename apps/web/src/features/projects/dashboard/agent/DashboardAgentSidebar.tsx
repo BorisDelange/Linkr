@@ -73,6 +73,28 @@ function IconAction({
   )
 }
 
+/** Elapsed time, matching the IDE's convention: seconds, then minutes. */
+function formatElapsed(ms: number): string {
+  const seconds = ms / 1000
+  if (seconds < 60) return `${seconds.toFixed(1)}s`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m ${Math.floor(seconds % 60)}s`
+}
+
+function clockTime(at: number): string {
+  return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/** Ticks while a turn runs so the user sees time passing, not a frozen panel. */
+function LiveElapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 100)
+    return () => clearInterval(timer)
+  }, [since])
+  return <span className="tabular-nums">{formatElapsed(now - since)}</span>
+}
+
 /** A tool call renders as one collapsed line; the detail is one click away. */
 function ToolLine({ entry }: { entry: TranscriptEntry }) {
   const [open, setOpen] = useState(false)
@@ -248,6 +270,7 @@ export function DashboardAgentSidebar({
     contextTokens,
     systemPrompt,
     exchanges,
+    turnStartedAt,
     stats,
     pending,
     confirmPending,
@@ -308,11 +331,11 @@ export function DashboardAgentSidebar({
                 if (entry.kind === 'tool') return <ToolLine key={entry.id} entry={entry} />
                 if (entry.kind === 'user') {
                   return (
-                    <div
-                      key={entry.id}
-                      className="rounded-md bg-muted px-2 py-1.5 text-xs"
-                    >
-                      {entry.text}
+                    <div key={entry.id} className="rounded-md bg-muted px-2 py-1.5">
+                      <p className="text-xs">{entry.text}</p>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        {clockTime(entry.at)}
+                      </p>
                     </div>
                   )
                 }
@@ -324,16 +347,23 @@ export function DashboardAgentSidebar({
                   )
                 }
                 return (
-                  <p key={entry.id} className="whitespace-pre-wrap text-xs">
-                    {entry.text === 'reverted' ? t('agent.reverted') : entry.text}
-                    {entry.streaming ? (
-                      <span className="ml-0.5 inline-block animate-pulse">▋</span>
+                  <div key={entry.id}>
+                    <p className="whitespace-pre-wrap text-xs">
+                      {entry.text === 'reverted' ? t('agent.reverted') : entry.text}
+                      {entry.streaming ? (
+                        <span className="ml-0.5 inline-block animate-pulse">▋</span>
+                      ) : null}
+                    </p>
+                    {entry.durationMs != null && !entry.streaming ? (
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        {clockTime(entry.at)} · {formatElapsed(entry.durationMs)}
+                      </p>
                     ) : null}
-                  </p>
+                  </div>
                 )
               })}
 
-              {running && !transcript.some((e) => e.streaming) ? (
+              {running && turnStartedAt != null ? (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span className="inline-flex gap-0.5">
                     <span className="animate-bounce [animation-delay:-0.3s]">.</span>
@@ -341,6 +371,7 @@ export function DashboardAgentSidebar({
                     <span className="animate-bounce">.</span>
                   </span>
                   {t('agent.thinking')}
+                  <LiveElapsed since={turnStartedAt} />
                 </p>
               ) : null}
 

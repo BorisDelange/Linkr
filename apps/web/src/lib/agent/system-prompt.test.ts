@@ -42,11 +42,39 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('wid_1 in tab_1 — Age')
   })
 
-  it('includes dataset schema and plugin summaries by default', () => {
+  it('lists datasets as one-line summaries, not full schemas', () => {
+    // Full schemas measured ~4x the cost of the entire dashboard state and grow
+    // with the project, so the model fetches columns via describe_dataset.
     const prompt = buildSystemPrompt(input())
     expect(prompt).toContain('ds_1 — patients')
-    expect(prompt).toContain('age (number)')
+    expect(prompt).toContain('1 columns')
+    expect(prompt).not.toContain('age (number)')
+    expect(prompt).toContain('describe_dataset')
     expect(prompt).toContain('plot-builder')
+  })
+
+  it('lists only the active tab widgets on a large dashboard', () => {
+    const widgets = Array.from({ length: 20 }, (_, i) => ({
+      id: `wid_${i}`,
+      tabId: i < 3 ? 'tab_1' : 'tab_2',
+      name: `Widget ${i}`,
+    }))
+    const prompt = buildSystemPrompt(
+      input({
+        dashboard: {
+          dashboardName: 'Big',
+          activeTabId: 'tab_1',
+          tabs: [
+            { id: 'tab_1', name: 'One' },
+            { id: 'tab_2', name: 'Two' },
+          ],
+          widgets,
+        },
+      })
+    )
+    expect(prompt).toContain('wid_0 in tab_1')
+    expect(prompt).not.toContain('wid_19')
+    expect(prompt).toContain('17 more elsewhere')
   })
 
   it('omits the project context unless explicitly enabled', () => {
@@ -79,7 +107,7 @@ describe('buildSystemPrompt', () => {
   it('tells the model to ask rather than guess, and not to substitute actions', () => {
     const prompt = buildSystemPrompt(input())
     expect(prompt).toContain('ask one short question instead of guessing')
-    expect(prompt).toContain('Do not substitute a different action')
+    expect(prompt).toContain('Do not substitute another action')
   })
 
   it('renders an empty dashboard without crashing', () => {

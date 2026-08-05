@@ -6,7 +6,7 @@
  * descriptions), so it is off by default and only added when the user turns it on
  * — unlike dataset schemas and plugin summaries, which carry no patient data.
  */
-import { datasetsContext, type DatasetContextInput } from './dataset-context'
+import { datasetsSummary, type DatasetContextInput } from './dataset-context'
 
 export interface ContextOptions {
   /** Column names, types, labels, descriptions. No rows, ever. */
@@ -39,39 +39,56 @@ export interface SystemPromptInput {
 }
 
 const RULES = [
-  'Use the tools to change the dashboard; do not describe changes you have not made.',
-  'Reference ids exactly as given. Never invent a tab, widget, dataset or column id.',
-  'Call describe_plugin before configuring a widget if you are unsure of a field name.',
-  'If the request is ambiguous (e.g. the column exists in several datasets), ask one short question instead of guessing.',
-  'If a request cannot be done with the available tools, say so plainly. Do not substitute a different action.',
+  'Use tools to change the dashboard. Never claim a change you did not make.',
+  'Use exact ids. Never invent one.',
+  'Call describe_dataset before choosing columns, describe_plugin before setting config.',
+  'If ambiguous, ask one short question instead of guessing.',
+  'If you cannot do it with these tools, say so. Do not substitute another action.',
 ].map((rule, index) => `${index + 1}. ${rule}`)
+
+/**
+ * Widget listing is capped: on a large dashboard the full list dominates the
+ * prompt while the model usually acts on the current tab. Beyond this, only the
+ * active tab's widgets are listed.
+ */
+const MAX_LISTED_WIDGETS = 12
 
 export function buildSystemPrompt(input: SystemPromptInput): string {
   const { dashboard, datasets, pluginSummaries, projectContext, options } = input
   const sections: string[] = [
-    'You are a dashboard assistant inside Linkr, a clinical data platform. ' +
-      'You help the user build and arrange dashboard widgets.',
+    'You are a dashboard assistant in Linkr, a clinical data platform.',
     `Rules:\n${RULES.join('\n')}`,
   ]
 
   const tabs = dashboard.tabs
     .map((tab) => `  ${tab.id}${tab.id === dashboard.activeTabId ? ' (active)' : ''} — ${tab.name}`)
     .join('\n')
-  const widgets = dashboard.widgets
+
+  const allWidgets = dashboard.widgets
+  const listed =
+    allWidgets.length > MAX_LISTED_WIDGETS
+      ? allWidgets.filter((widget) => widget.tabId === dashboard.activeTabId)
+      : allWidgets
+  const widgets = listed
     .map((widget) => `  ${widget.id} in ${widget.tabId} — ${widget.name}`)
     .join('\n')
+  const omitted = allWidgets.length - listed.length
+
   sections.push(
     [
       `Current dashboard: ${dashboard.dashboardName}`,
       'Tabs:',
       tabs || '  (none)',
-      'Widgets:',
+      omitted > 0 ? `Widgets in the active tab (${omitted} more elsewhere):` : 'Widgets:',
       widgets || '  (none)',
     ].join('\n')
   )
 
   if (options.includeDatasets) {
-    sections.push(`Available datasets (schema only):\n${datasetsContext(datasets)}`)
+    // Summaries only: full schemas measured ~4x the cost of the whole dashboard
+    // state, and grow with the project rather than the request. The model calls
+    // describe_dataset for the one it needs.
+    sections.push(`Datasets (call describe_dataset for columns):\n${datasetsSummary(datasets)}`)
   }
   if (options.includePlugins && pluginSummaries.length) {
     sections.push(`Available plugins:\n${pluginSummaries.join('\n')}`)
