@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
 import { DefaultEnvironmentsTab } from '@/features/workspaces/DefaultEnvironmentsTab'
+import { AgentSettingsTab } from '@/features/settings/AgentSettingsTab'
 import { isServerMode } from '@/lib/api-client'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -75,6 +76,7 @@ export function WorkspaceSettingsPage() {
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           {isServerMode() && <TabsTrigger value="environments">{t('workspace_env.title')}</TabsTrigger>}
+          <TabsTrigger value="assistant">{t('settings.tab_agent')}</TabsTrigger>
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
 
@@ -89,6 +91,13 @@ export function WorkspaceSettingsPage() {
             <DefaultEnvironmentsTab workspace={workspace} />
           </TabsContent>
         )}
+
+        {/* AI assistant — the LLM endpoint every assistant surface uses */}
+        <TabsContent value="assistant" className="min-h-0 flex-1 overflow-auto pb-6">
+          <div className="mx-auto max-w-3xl">
+            <AgentSettingsTab />
+          </div>
+        </TabsContent>
 
         {/* Danger zone — owner only */}
         {canDelete && (

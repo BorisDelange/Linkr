@@ -123,6 +123,14 @@ passwords.
 `kind` ∈ `local-openai-compatible` (Ollama / LM Studio / llama.cpp / vLLM),
 `anthropic`, `openai`, `mistral`, `gemini`, `custom`.
 
+> **Known gap in the MVP**: the shipped settings UI lives in the GLOBAL
+> `/settings` page (Assistant tab), not per workspace, and stores to
+> `localStorage`. That is deliberate but temporary — a client-side setting is
+> per-browser, so putting it under a workspace tab would imply a shared setting
+> it is not. When `LlmProvider` gets its routes, the tab moves to the workspace
+> and is gated on `llm-config:write`; `lib/agent/settings.ts` is the single file
+> to swap.
+
 ### The remote-model guardrail
 
 OpenCode talks to any OpenAI-compatible endpoint through `options.baseURL`, so a

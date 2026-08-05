@@ -2245,7 +2245,7 @@
     "db_yes": "Yes",
     "db_no": "No",
     "db_no_tables": "No tables.",
-    "tab_agent": "Assistant"
+    "tab_agent": "AI assistant"
   },
   "schemas": {
     "title": "Schemas",
@@ -4264,8 +4264,8 @@
       "no_provider": "No LLM provider configured for this workspace.",
       "unexpected_error": "Something went wrong. Check the model is reachable."
     },
-    "settings_title": "Dashboard assistant",
-    "settings_description": "Point the assistant at a language model. A local model (Ollama, LM Studio, llama.cpp) keeps all data on your infrastructure.",
+    "settings_title": "AI assistant",
+    "settings_description": "The language model used by Linkr's assistants — dashboards, datasets, the IDE and script collections. A local model (Ollama, LM Studio, llama.cpp) keeps all data on your infrastructure.",
     "settings_base_url": "Endpoint URL",
     "settings_base_url_hint": "OpenAI-compatible endpoint, e.g. http://localhost:11434/v1 for Ollama.",
     "settings_model": "Model",
@@ -4278,6 +4278,11 @@
     "remote_warning_title": "This is a remote API — health data will leave your infrastructure",
     "remote_warning_body": "Prompts sent to this model may include dataset column names, descriptions and the questions you ask. Do not use a remote API with identifying or sensitive patient data unless your institution has approved it.",
     "remote_acknowledge": "I understand that data sent to this model leaves my institution, and I take responsibility for this choice.",
-    "remote_blocked": "Tick the box above to enable the assistant with this remote endpoint."
+    "remote_blocked": "Tick the box above to enable the assistant with this remote endpoint.",
+    "settings_model_placeholder": "Select a model",
+    "settings_refresh_models": "Refresh the model list",
+    "settings_models_failed": "Could not list models from this endpoint — check the URL, or type the model name manually.",
+    "settings_disabled": "Assistant disabled.",
+    "settings_test_endpoint_ok": "Endpoint reachable — {{count}} model(s) found"
   }
 }

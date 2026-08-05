@@ -68,6 +68,32 @@ export function clearAgentSettings(): void {
  * being used silently: forgetting to confirm must disable the assistant, not
  * quietly send clinical context to a third party.
  */
+/**
+ * Models the endpoint offers, via the standard OpenAI `GET /v1/models` route —
+ * implemented by Ollama, LM Studio, vLLM, OpenAI and Mistral alike, so the model
+ * field can be a picker rather than a string the user has to spell correctly.
+ *
+ * Throws with a readable message: the caller surfaces it next to the field, since
+ * "cannot list models" usually means the endpoint URL itself is wrong.
+ */
+export async function fetchAvailableModels(
+  baseUrl: string,
+  apiKey?: string
+): Promise<string[]> {
+  const url = `${baseUrl.trim().replace(/\/+$/, '')}/models`
+  const headers: Record<string, string> = {}
+  if (apiKey?.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`
+
+  const response = await fetch(url, { headers })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+  const payload = (await response.json()) as { data?: { id?: string }[] }
+  return (payload.data ?? [])
+    .map((entry) => entry.id)
+    .filter((id): id is string => Boolean(id))
+    .sort((a, b) => a.localeCompare(b))
+}
+
 export function resolveAgentEndpoint(): ResolvedEndpoint {
   const settings = loadAgentSettings()
   if (!settings) return { endpoint: null, isRemote: false }
