@@ -4323,6 +4323,10 @@
     "info_context_hint": "The exact system prompt sent with every message. Dataset schemas only — column names, types and descriptions — never any row of data.",
     "info_no_exchanges": "No API call yet.",
     "info_sent": "Sent to the model",
-    "info_received": "Received from the model"
+    "info_received": "Received from the model",
+    "info_tab_memory": "Memory",
+    "memory_hint": "Preferences you write here are sent with every request. Nothing is learned automatically — the assistant never records anything from your conversation.",
+    "memory_placeholder": "e.g. always label axes in French",
+    "memory_empty": "No preference stored."
   }
 }

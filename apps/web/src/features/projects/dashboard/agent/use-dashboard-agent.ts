@@ -34,6 +34,8 @@ import {
   type ToolResult,
 } from '@/lib/agent/dashboard-tools'
 import { pluginDoc, pluginSummary } from '@/lib/agent/plugin-context'
+import { addNote, loadMemory, removeNote } from '@/lib/agent/memory'
+import { selectToolNames } from '@/lib/agent/tool-selection'
 import { datasetContext } from '@/lib/agent/dataset-context'
 import {
   DEFAULT_CONTEXT_OPTIONS,
@@ -142,6 +144,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
   const [exchanges, setExchanges] = useState<ExchangeRecord[]>([])
   /** When the current turn started, for the live elapsed counter. */
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null)
+  const [memoryNotes, setMemoryNotes] = useState<string[]>(() => loadMemory(dashboardId))
   const pendingRef = useRef<{
     call: ParsedToolCall
     action: PendingAction
@@ -196,9 +199,10 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
           rowCount: file.rowCount,
         })),
       pluginSummaries,
+      memoryNotes,
       options: contextOptions,
     })
-  }, [dashboardId, datasets, locale, pluginSummaries, contextOptions])
+  }, [dashboardId, datasets, locale, pluginSummaries, contextOptions, memoryNotes])
 
   const contextTokens = useMemo(
     () => estimateTokens(buildPrompt()),
@@ -339,6 +343,19 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     if (result.ok) setCanUndo(true)
   }, [describe, push, t, toolContext])
 
+  const addMemoryNote = useCallback(
+    (note: string) => {
+      const trimmed = note.trim()
+      if (trimmed) setMemoryNotes(addNote(dashboardId, trimmed))
+    },
+    [dashboardId]
+  )
+
+  const removeMemoryNote = useCallback(
+    (index: number) => setMemoryNotes(removeNote(dashboardId, index)),
+    [dashboardId]
+  )
+
   const cancelPending = useCallback(() => {
     pendingRef.current = null
     setPending(null)
@@ -369,6 +386,11 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
         { role: 'user', content: text },
       ]
 
+      // Only send the tools this request plausibly needs: definitions are the
+      // biggest remaining slice of the prompt and are re-sent every call.
+      const allowed = new Set(selectToolNames(text, historyRef.current.length > 0))
+      const tools = DASHBOARD_TOOLS.filter((tool) => allowed.has(tool.function.name))
+
       try {
         let mutated = false
         for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -380,7 +402,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
           const step = await requestStep(
             endpoint,
             messages,
-            DASHBOARD_TOOLS,
+            tools,
             controller.signal,
             (chunk) => {
               setTranscript((prev) => {
@@ -511,6 +533,9 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     systemPrompt: buildPrompt,
     exchanges,
     turnStartedAt,
+    memoryNotes,
+    addMemoryNote,
+    removeMemoryNote,
     stats,
     pending,
     confirmPending,

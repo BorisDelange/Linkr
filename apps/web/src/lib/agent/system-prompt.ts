@@ -7,6 +7,7 @@
  * — unlike dataset schemas and plugin summaries, which carry no patient data.
  */
 import { datasetsSummary, type DatasetContextInput } from './dataset-context'
+import { memoryContext } from './memory'
 
 export interface ContextOptions {
   /** Column names, types, labels, descriptions. No rows, ever. */
@@ -35,6 +36,8 @@ export interface SystemPromptInput {
   datasets: DatasetContextInput[]
   pluginSummaries: string[]
   projectContext?: string
+  /** User-written preferences, never inferred. See lib/agent/memory.ts. */
+  memoryNotes?: string[]
   options: ContextOptions
 }
 
@@ -47,11 +50,16 @@ const RULES = [
 ].map((rule, index) => `${index + 1}. ${rule}`)
 
 /**
- * Widget listing is capped: on a large dashboard the full list dominates the
- * prompt while the model usually acts on the current tab. Beyond this, only the
- * active tab's widgets are listed.
+ * Above this many tabs, listing them inline costs more than the
+ * describe_dashboard tool that replaces them.
+ *
+ * The trade-off is not obvious and was measured: a tool definition costs ~44
+ * tokens once, a tab line ~8 tokens each. So inline wins on small dashboards
+ * (26 vs 64 tokens at 3 tabs) and loses past ~11. Widgets are different — there
+ * are many more of them and most requests never name one — so they are always
+ * fetched on demand.
  */
-const MAX_LISTED_WIDGETS = 12
+const MAX_INLINE_TABS = 11
 
 export function buildSystemPrompt(input: SystemPromptInput): string {
   const { dashboard, datasets, pluginSummaries, projectContext, options } = input
@@ -60,29 +68,37 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
     `Rules:\n${RULES.join('\n')}`,
   ]
 
-  const tabs = dashboard.tabs
-    .map((tab) => `  ${tab.id}${tab.id === dashboard.activeTabId ? ' (active)' : ''} — ${tab.name}`)
-    .join('\n')
+  const widgetCount = dashboard.widgets.length
+  const widgetLine =
+    widgetCount > 0
+      ? `${widgetCount} widget(s) — call describe_dashboard for their ids.`
+      : 'No widgets yet.'
 
-  const allWidgets = dashboard.widgets
-  const listed =
-    allWidgets.length > MAX_LISTED_WIDGETS
-      ? allWidgets.filter((widget) => widget.tabId === dashboard.activeTabId)
-      : allWidgets
-  const widgets = listed
-    .map((widget) => `  ${widget.id} in ${widget.tabId} — ${widget.name}`)
-    .join('\n')
-  const omitted = allWidgets.length - listed.length
-
-  sections.push(
-    [
-      `Current dashboard: ${dashboard.dashboardName}`,
-      'Tabs:',
-      tabs || '  (none)',
-      omitted > 0 ? `Widgets in the active tab (${omitted} more elsewhere):` : 'Widgets:',
-      widgets || '  (none)',
-    ].join('\n')
-  )
+  if (dashboard.tabs.length > MAX_INLINE_TABS) {
+    sections.push(
+      [
+        `Current dashboard: ${dashboard.dashboardName}`,
+        `${dashboard.tabs.length} tabs, active: ${dashboard.activeTabId ?? 'none'}.`,
+        'Call describe_dashboard for tab ids and names.',
+        widgetLine,
+      ].join('\n')
+    )
+  } else {
+    const tabs = dashboard.tabs
+      .map(
+        (tab) =>
+          `  ${tab.id}${tab.id === dashboard.activeTabId ? ' (active)' : ''} — ${tab.name}`
+      )
+      .join('\n')
+    sections.push(
+      [
+        `Current dashboard: ${dashboard.dashboardName}`,
+        'Tabs:',
+        tabs || '  (none)',
+        widgetLine,
+      ].join('\n')
+    )
+  }
 
   if (options.includeDatasets) {
     // Summaries only: full schemas measured ~4x the cost of the whole dashboard
@@ -96,6 +112,8 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   if (options.includeProjectContext && projectContext?.trim()) {
     sections.push(`Project context:\n${projectContext.trim()}`)
   }
+  const memory = memoryContext(input.memoryNotes ?? [])
+  if (memory) sections.push(memory)
 
   return sections.join('\n\n')
 }

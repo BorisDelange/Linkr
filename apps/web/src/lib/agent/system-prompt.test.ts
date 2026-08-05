@@ -39,7 +39,6 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('ICU overview')
     expect(prompt).toContain('tab_1 (active) — Demographics')
     expect(prompt).toContain('tab_2 — Labs')
-    expect(prompt).toContain('wid_1 in tab_1 — Age')
   })
 
   it('lists datasets as one-line summaries, not full schemas', () => {
@@ -53,28 +52,41 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('plot-builder')
   })
 
-  it('lists only the active tab widgets on a large dashboard', () => {
-    const widgets = Array.from({ length: 20 }, (_, i) => ({
-      id: `wid_${i}`,
-      tabId: i < 3 ? 'tab_1' : 'tab_2',
-      name: `Widget ${i}`,
+  it('never lists widgets inline — only their count and how to fetch them', () => {
+    // Widgets are many and rarely named in a request, so they are always fetched
+    // on demand rather than paid for on every call.
+    const prompt = buildSystemPrompt(input())
+    expect(prompt).not.toContain('wid_1 in tab_1')
+    expect(prompt).toContain('1 widget(s)')
+    expect(prompt).toContain('describe_dashboard')
+  })
+
+  it('drops tab listing once it costs more than the tool that replaces it', () => {
+    // Measured trade-off: a tool definition costs ~44 tokens once, a tab line ~8
+    // each, so inline wins until roughly a dozen tabs.
+    const tabs = Array.from({ length: 15 }, (_, i) => ({
+      id: `tab_${i}`,
+      name: `Tab ${i}`,
     }))
     const prompt = buildSystemPrompt(
       input({
         dashboard: {
           dashboardName: 'Big',
-          activeTabId: 'tab_1',
-          tabs: [
-            { id: 'tab_1', name: 'One' },
-            { id: 'tab_2', name: 'Two' },
-          ],
-          widgets,
+          activeTabId: 'tab_0',
+          tabs,
+          widgets: [],
         },
       })
     )
-    expect(prompt).toContain('wid_0 in tab_1')
-    expect(prompt).not.toContain('wid_19')
-    expect(prompt).toContain('17 more elsewhere')
+    expect(prompt).not.toContain('tab_14 — Tab 14')
+    expect(prompt).toContain('15 tabs')
+    expect(prompt).toContain('describe_dashboard')
+  })
+
+  it('includes user-written memory notes when present', () => {
+    const prompt = buildSystemPrompt(input({ memoryNotes: ['Always use histograms'] }))
+    expect(prompt).toContain('User preferences:')
+    expect(prompt).toContain('Always use histograms')
   })
 
   it('omits the project context unless explicitly enabled', () => {

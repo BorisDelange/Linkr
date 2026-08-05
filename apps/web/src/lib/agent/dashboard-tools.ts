@@ -207,6 +207,14 @@ export const DASHBOARD_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'describe_dashboard',
+      description: 'List tabs and widgets with their ids.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'describe_dataset',
       description:
         'Get a dataset columns (names, types, descriptions). Use before choosing columns.',
@@ -414,6 +422,26 @@ export function runDashboardTool(
         return { ok: false, rejected: true, message: `Unknown plugin "${pluginId}".` }
       }
       return { ok: true, message: doc }
+    }
+
+    case 'describe_dashboard': {
+      const tabs = ctx
+        .tabIds()
+        .map((id) => `  ${id} — ${ctx.tabName(id) ?? ''}`)
+        .join('\n')
+      const widgets = ctx
+        .widgetIds()
+        .map((id) => `  ${id} — ${ctx.widgetName(id) ?? ''}`)
+        .join('\n')
+      return {
+        ok: true,
+        message: [
+          'Tabs:',
+          tabs || '  (none)',
+          'Widgets:',
+          widgets || '  (none)',
+        ].join('\n'),
+      }
     }
 
     case 'describe_dataset': {

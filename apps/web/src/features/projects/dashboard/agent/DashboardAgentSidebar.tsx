@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -131,6 +132,9 @@ function SessionInfoDialog({
   endpoint,
   systemPrompt,
   exchanges,
+  memoryNotes,
+  addMemoryNote,
+  removeMemoryNote,
   open,
   onOpenChange,
 }: {
@@ -139,10 +143,14 @@ function SessionInfoDialog({
   endpoint: LlmEndpoint | null
   systemPrompt: () => string
   exchanges: ExchangeRecord[]
+  memoryNotes: string[]
+  addMemoryNote: (note: string) => void
+  removeMemoryNote: (index: number) => void
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
+  const [noteDraft, setNoteDraft] = useState('')
   const totalTokens = stats.promptTokens + stats.completionTokens
   const seconds = stats.elapsedMs / 1000
   const rate = seconds > 0 ? stats.completionTokens / seconds : 0
@@ -173,6 +181,9 @@ function SessionInfoDialog({
             <TabsTrigger value="context" className="text-xs">
               {t('agent.info_tab_context')}
             </TabsTrigger>
+            <TabsTrigger value="memory" className="text-xs">
+              {t('agent.info_tab_memory')} ({memoryNotes.length})
+            </TabsTrigger>
             <TabsTrigger value="exchanges" className="text-xs">
               {t('agent.info_tab_exchanges')} ({exchanges.length})
             </TabsTrigger>
@@ -201,6 +212,60 @@ function SessionInfoDialog({
             <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-2 font-mono text-[11px]">
               {systemPrompt()}
             </pre>
+          </TabsContent>
+
+          <TabsContent value="memory" className="mt-3">
+            <p className="mb-2 text-[11px] text-muted-foreground">
+              {t('agent.memory_hint')}
+            </p>
+            <div className="flex gap-1.5">
+              <Input
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addMemoryNote(noteDraft)
+                    setNoteDraft('')
+                  }
+                }}
+                placeholder={t('agent.memory_placeholder')}
+                className="h-8 text-xs"
+              />
+              <Button
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  addMemoryNote(noteDraft)
+                  setNoteDraft('')
+                }}
+                disabled={!noteDraft.trim()}
+              >
+                {t('common.add')}
+              </Button>
+            </div>
+            <ul className="mt-2 space-y-1">
+              {memoryNotes.map((note, index) => (
+                <li
+                  key={`${note}-${index}`}
+                  className="flex items-start gap-2 rounded-md border px-2 py-1.5 text-xs"
+                >
+                  <span className="min-w-0 flex-1 break-words">{note}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeMemoryNote(index)}
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                  >
+                    <X size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {memoryNotes.length === 0 ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t('agent.memory_empty')}
+              </p>
+            ) : null}
           </TabsContent>
 
           <TabsContent value="exchanges" className="mt-3">
@@ -271,6 +336,9 @@ export function DashboardAgentSidebar({
     systemPrompt,
     exchanges,
     turnStartedAt,
+    memoryNotes,
+    addMemoryNote,
+    removeMemoryNote,
     stats,
     pending,
     confirmPending,
@@ -453,6 +521,9 @@ export function DashboardAgentSidebar({
           endpoint={endpoint}
           systemPrompt={systemPrompt}
           exchanges={exchanges}
+          memoryNotes={memoryNotes}
+          addMemoryNote={addMemoryNote}
+          removeMemoryNote={removeMemoryNote}
           open={infoOpen}
           onOpenChange={setInfoOpen}
         />
