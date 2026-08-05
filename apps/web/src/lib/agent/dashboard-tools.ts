@@ -50,6 +50,14 @@ export interface ToolContext {
   lastWidgetIdInTab: (tabId: string) => string | null
   /** Newest tab on the dashboard, same idea. */
   lastTabId: () => string | null
+  removeTab: (tabId: string) => void
+  removeWidget: (widgetId: string) => void
+  /** Display names, so a model naming "Tab 7" can be matched to its id. */
+  tabName: (tabId: string) => string | null
+  widgetName: (widgetId: string) => string | null
+  /** Resolve a tab/widget referenced by its visible name rather than its id. */
+  findTabByName: (name: string) => string | null
+  findWidgetByName: (name: string) => string | null
   locale: string
 }
 
@@ -59,6 +67,23 @@ export interface ToolResult {
   message: string
   /** Set when the call was rejected rather than executed. */
   rejected?: boolean
+  /** Set when the call needs the user to confirm before it runs. */
+  needsConfirmation?: PendingAction
+}
+
+/** A destructive call held back until the user approves it. */
+export interface PendingAction {
+  tool: string
+  args: Record<string, unknown>
+  /** Human-readable description of what will happen, shown in the prompt. */
+  summary: string
+}
+
+/** Tools that destroy user work, so they never run unprompted. */
+const DESTRUCTIVE = new Set(['remove_tab', 'remove_widget'])
+
+export function isDestructive(name: string): boolean {
+  return DESTRUCTIVE.has(name)
 }
 
 /** The 12-column grid the dashboard uses; "half the screen" means w=6. */
@@ -159,6 +184,35 @@ export const DASHBOARD_TOOLS: ToolDefinition[] = [
   {
     type: 'function',
     function: {
+      name: 'remove_tab',
+      description:
+        'Delete a tab and every widget it contains. The user is asked to confirm first.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tabId: { type: 'string', description: 'Id of the tab to delete.' },
+        },
+        required: ['tabId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_widget',
+      description: 'Delete a widget. The user is asked to confirm first.',
+      parameters: {
+        type: 'object',
+        properties: {
+          widgetId: { type: 'string', description: 'Id of the widget to delete.' },
+        },
+        required: ['widgetId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'describe_plugin',
       description:
         'Get the config fields of a plugin before configuring a widget. ' +
@@ -199,7 +253,9 @@ export function runDashboardTool(
   name: string,
   args: Record<string, unknown>,
   ctx: ToolContext,
-  describePlugin: (pluginId: string) => string | null
+  describePlugin: (pluginId: string) => string | null,
+  /** True when the user has approved a destructive call held back earlier. */
+  confirmed = false
 ): ToolResult {
   if (!isKnownTool(name)) {
     return {
@@ -304,6 +360,58 @@ export function runDashboardTool(
       const h = Math.max(asInt(args.h) ?? DEFAULT_WIDGET_HEIGHT, 1)
       ctx.updateWidgetLayout(widgetId, { x, y, w: width, h })
       return { ok: true, message: `Set layout of ${widgetId} to x=${x} y=${y} w=${width} h=${h}.` }
+    }
+
+    case 'remove_tab': {
+      // Models routinely pass the visible name ("Tab 7") where an id belongs, so
+      // accept either rather than rejecting a request the user clearly meant.
+      const raw = typeof args.tabId === 'string' ? args.tabId : ''
+      const tabId = ctx.tabIds().includes(raw) ? raw : ctx.findTabByName(raw)
+      if (!tabId) {
+        return {
+          ok: false,
+          rejected: true,
+          message: `Unknown tab "${raw}". Available: ${ctx.tabIds().join(', ') || 'none'}.`,
+        }
+      }
+      if (!confirmed) {
+        return {
+          ok: false,
+          message: `Waiting for the user to confirm deleting tab "${ctx.tabName(tabId) ?? tabId}".`,
+          needsConfirmation: {
+            tool: name,
+            args: { tabId },
+            summary: ctx.tabName(tabId) ?? tabId,
+          },
+        }
+      }
+      ctx.removeTab(tabId)
+      return { ok: true, message: `Deleted tab ${tabId}.` }
+    }
+
+    case 'remove_widget': {
+      const raw = typeof args.widgetId === 'string' ? args.widgetId : ''
+      const widgetId = ctx.widgetIds().includes(raw) ? raw : ctx.findWidgetByName(raw)
+      if (!widgetId) {
+        return {
+          ok: false,
+          rejected: true,
+          message: `Unknown widget "${raw}". Available: ${ctx.widgetIds().join(', ') || 'none'}.`,
+        }
+      }
+      if (!confirmed) {
+        return {
+          ok: false,
+          message: `Waiting for the user to confirm deleting widget "${ctx.widgetName(widgetId) ?? widgetId}".`,
+          needsConfirmation: {
+            tool: name,
+            args: { widgetId },
+            summary: ctx.widgetName(widgetId) ?? widgetId,
+          },
+        }
+      }
+      ctx.removeWidget(widgetId)
+      return { ok: true, message: `Deleted widget ${widgetId}.` }
     }
 
     case 'describe_plugin': {

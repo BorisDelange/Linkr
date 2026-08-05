@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { isKnownTool, runDashboardTool, type ToolContext } from './dashboard-tools'
+import {
+  isDestructive,
+  isKnownTool,
+  runDashboardTool,
+  type ToolContext,
+} from './dashboard-tools'
 
 function ctx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -15,6 +20,12 @@ function ctx(overrides: Partial<ToolContext> = {}): ToolContext {
     datasetIds: () => ['ds_1'],
     lastWidgetIdInTab: () => 'wid_1',
     lastTabId: () => 'tab_new',
+    removeTab: vi.fn(),
+    removeWidget: vi.fn(),
+    tabName: (id) => (id === 'tab_1' ? 'Overview' : null),
+    widgetName: (id) => (id === 'wid_1' ? 'Age' : null),
+    findTabByName: (name) => (name.toLowerCase() === 'overview' ? 'tab_1' : null),
+    findWidgetByName: (name) => (name.toLowerCase() === 'age' ? 'wid_1' : null),
     locale: 'fr',
     ...overrides,
   }
@@ -193,6 +204,60 @@ describe('set_layout', () => {
   it('rejects a non-numeric width', () => {
     const result = runDashboardTool('set_layout', { w: 'wide' }, ctx(), noDoc)
     expect(result.rejected).toBe(true)
+  })
+})
+
+describe('destructive tools', () => {
+  it('holds back a tab deletion until confirmed', () => {
+    const c = ctx()
+    const result = runDashboardTool('remove_tab', { tabId: 'tab_1' }, c, noDoc)
+    expect(result.ok).toBe(false)
+    expect(result.needsConfirmation).toEqual({
+      tool: 'remove_tab',
+      args: { tabId: 'tab_1' },
+      summary: 'Overview',
+    })
+    expect(c.removeTab).not.toHaveBeenCalled()
+  })
+
+  it('deletes the tab once confirmed', () => {
+    const c = ctx()
+    const result = runDashboardTool('remove_tab', { tabId: 'tab_1' }, c, noDoc, true)
+    expect(result.ok).toBe(true)
+    expect(c.removeTab).toHaveBeenCalledWith('tab_1')
+  })
+
+  it('resolves a tab referenced by its visible name', () => {
+    // Models routinely pass "Tab 7" where an id belongs — the exact failure the
+    // user hit, which silently did nothing.
+    const c = ctx()
+    const result = runDashboardTool('remove_tab', { tabId: 'Overview' }, c, noDoc, true)
+    expect(result.ok).toBe(true)
+    expect(c.removeTab).toHaveBeenCalledWith('tab_1')
+  })
+
+  it('rejects a tab that matches neither id nor name', () => {
+    const c = ctx()
+    const result = runDashboardTool('remove_tab', { tabId: 'Tab 7' }, c, noDoc, true)
+    expect(result.rejected).toBe(true)
+    expect(c.removeTab).not.toHaveBeenCalled()
+  })
+
+  it('holds back a widget deletion until confirmed', () => {
+    const c = ctx()
+    const held = runDashboardTool('remove_widget', { widgetId: 'wid_1' }, c, noDoc)
+    expect(held.needsConfirmation?.summary).toBe('Age')
+    expect(c.removeWidget).not.toHaveBeenCalled()
+
+    const done = runDashboardTool('remove_widget', { widgetId: 'wid_1' }, c, noDoc, true)
+    expect(done.ok).toBe(true)
+    expect(c.removeWidget).toHaveBeenCalledWith('wid_1')
+  })
+
+  it('flags which tools are destructive', () => {
+    expect(isDestructive('remove_tab')).toBe(true)
+    expect(isDestructive('remove_widget')).toBe(true)
+    expect(isDestructive('add_widget')).toBe(false)
   })
 })
 

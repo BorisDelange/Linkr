@@ -19,15 +19,19 @@ import {
   MAX_TURNS,
   assistantToolMessage,
   requestStep,
+  salvageTextToolCall,
   toolResultMessage,
   type ChatMessage,
   type LlmEndpoint,
+  type ParsedToolCall,
 } from '@/lib/agent/agent-loop'
 import {
   DASHBOARD_TOOLS,
   PLOT_BUILDER_ID,
   runDashboardTool,
+  type PendingAction,
   type ToolContext,
+  type ToolResult,
 } from '@/lib/agent/dashboard-tools'
 import { pluginDoc, pluginSummary } from '@/lib/agent/plugin-context'
 import {
@@ -45,6 +49,42 @@ export interface TranscriptEntry {
   /** Tool entries collapse to one line; this is the detail behind it. */
   detail?: string
   ok?: boolean
+  /** Set while the assistant text is still streaming in. */
+  streaming?: boolean
+}
+
+/**
+ * One request/response pair, kept verbatim so the user can audit exactly what
+ * left the browser. This matters most with a remote provider: "what did you send
+ * about my patients?" must have an exact answer, not a summary.
+ */
+export interface ExchangeRecord {
+  id: string
+  at: number
+  /** Messages sent, including the full system prompt. */
+  request: ChatMessage[]
+  responseText: string
+  toolCalls: { name: string; args: Record<string, unknown> }[]
+  usage?: { promptTokens: number; completionTokens: number }
+  durationMs: number
+}
+
+/** Live counters for the session-info dialog. */
+export interface SessionStats {
+  startedAt: number
+  exchanges: number
+  promptTokens: number
+  completionTokens: number
+  /** Milliseconds spent waiting on the model, for a tokens/s figure. */
+  elapsedMs: number
+}
+
+const EMPTY_STATS: SessionStats = {
+  startedAt: Date.now(),
+  exchanges: 0,
+  promptTokens: 0,
+  completionTokens: 0,
+  elapsedMs: 0,
 }
 
 interface Snapshot {
@@ -62,14 +102,45 @@ export interface DashboardAgentOptions {
 let entrySeq = 0
 const nextId = () => `e${++entrySeq}`
 
+/**
+ * Readable label for a tool call. The raw name ("remove_tab") tells a developer
+ * what happened; a user wants "Deleted tab Test". Falls back to the tool name so
+ * an unknown tool still shows something.
+ */
+function toolLabel(
+  call: ParsedToolCall,
+  result: ToolResult,
+  t: (key: string, options?: Record<string, unknown>) => string
+): string {
+  const name =
+    (typeof call.args.name === 'string' && call.args.name) ||
+    (typeof call.args.tabId === 'string' && call.args.tabId) ||
+    (typeof call.args.widgetId === 'string' && call.args.widgetId) ||
+    ''
+  const key = `agent.tool.${call.name}${result.ok ? '' : '_failed'}`
+  const label = t(key, { name, defaultValue: '' })
+  return label || call.name
+}
+
 export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptions) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
   const [running, setRunning] = useState(false)
   const [contextOptions, setContextOptions] = useState<ContextOptions>(
     DEFAULT_CONTEXT_OPTIONS
   )
   const [canUndo, setCanUndo] = useState(false)
+  const [stats, setStats] = useState<SessionStats>(() => ({
+    ...EMPTY_STATS,
+    startedAt: Date.now(),
+  }))
+  const [pending, setPending] = useState<PendingAction | null>(null)
+  const [exchanges, setExchanges] = useState<ExchangeRecord[]>([])
+  const pendingRef = useRef<{
+    call: ParsedToolCall
+    action: PendingAction
+    messages: ChatMessage[]
+  } | null>(null)
 
   // Conversation kept across turns so follow-ups ("make it wider") work; reset
   // clears it, which is the whole point of the reset button.
@@ -155,6 +226,32 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
         const all = tabsOf()
         return all.length ? all[all.length - 1].id : null
       },
+      removeTab: store.removeTab,
+      removeWidget: store.removeWidget,
+      tabName: (tabId) => {
+        const tab = tabsOf().find((t) => t.id === tabId)
+        return tab ? localized(tab.name, locale) : null
+      },
+      widgetName: (widgetId) => {
+        const widget = widgetsOf().find((w) => w.id === widgetId)
+        return widget ? localized(widget.name, locale) : null
+      },
+      findTabByName: (name) => {
+        const wanted = name.trim().toLowerCase()
+        if (!wanted) return null
+        return (
+          tabsOf().find((t) => localized(t.name, locale).toLowerCase() === wanted)?.id ??
+          null
+        )
+      },
+      findWidgetByName: (name) => {
+        const wanted = name.trim().toLowerCase()
+        if (!wanted) return null
+        return (
+          widgetsOf().find((w) => localized(w.name, locale).toLowerCase() === wanted)
+            ?.id ?? null
+        )
+      },
       locale,
     }
   }, [dashboardId, locale])
@@ -196,9 +293,41 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     stop()
     historyRef.current = []
     snapshotRef.current = null
+    pendingRef.current = null
+    setPending(null)
     setCanUndo(false)
     setTranscript([])
+    setExchanges([])
+    setStats({ ...EMPTY_STATS, startedAt: Date.now() })
   }, [stop])
+
+  /** Run a destructive call the user just approved. */
+  const confirmPending = useCallback(() => {
+    const held = pendingRef.current
+    if (!held) return
+    pendingRef.current = null
+    setPending(null)
+    const result = runDashboardTool(
+      held.call.name,
+      held.action.args,
+      toolContext(),
+      describe,
+      true
+    )
+    push({
+      kind: 'tool',
+      text: toolLabel(held.call, result, t),
+      detail: result.message,
+      ok: result.ok,
+    })
+    if (result.ok) setCanUndo(true)
+  }, [describe, push, t, toolContext])
+
+  const cancelPending = useCallback(() => {
+    pendingRef.current = null
+    setPending(null)
+    push({ kind: 'assistant', text: t('agent.cancelled') })
+  }, [push, t])
 
   const send = useCallback(
     async (userText: string) => {
@@ -226,31 +355,103 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
       try {
         let mutated = false
         for (let turn = 0; turn < MAX_TURNS; turn++) {
+          const startedAt = Date.now()
+          // Stream into a single entry so the user watches the reply form rather
+          // than staring at a frozen panel.
+          const entryId = nextId()
+          let streamed = false
           const step = await requestStep(
             endpoint,
             messages,
             DASHBOARD_TOOLS,
-            controller.signal
+            controller.signal,
+            (chunk) => {
+              setTranscript((prev) => {
+                if (!streamed) {
+                  streamed = true
+                  return [
+                    ...prev,
+                    { id: entryId, kind: 'assistant', text: chunk, streaming: true },
+                  ]
+                }
+                return prev.map((entry) =>
+                  entry.id === entryId ? { ...entry, text: entry.text + chunk } : entry
+                )
+              })
+            }
           )
-          if (step.text) push({ kind: 'assistant', text: step.text })
 
-          if (!step.calls.length) {
+          const elapsed = Date.now() - startedAt
+          // Snapshot the exact payload sent, before tool results are appended.
+          const sent = messages.map((message) => ({ ...message }))
+          setExchanges((prev) => [
+            ...prev,
+            {
+              id: nextId(),
+              at: startedAt,
+              request: sent,
+              responseText: step.text,
+              toolCalls: step.calls.map((call) => ({ name: call.name, args: call.args })),
+              usage: step.usage,
+              durationMs: elapsed,
+            },
+          ])
+          setStats((prev) => ({
+            ...prev,
+            exchanges: prev.exchanges + 1,
+            promptTokens: prev.promptTokens + (step.usage?.promptTokens ?? 0),
+            completionTokens: prev.completionTokens + (step.usage?.completionTokens ?? 0),
+            elapsedMs: prev.elapsedMs + elapsed,
+          }))
+
+          if (streamed) {
+            setTranscript((prev) =>
+              prev.map((entry) =>
+                entry.id === entryId
+                  ? { ...entry, text: step.text, streaming: false }
+                  : entry
+              )
+            )
+          } else if (step.text) {
+            push({ kind: 'assistant', text: step.text })
+          }
+
+          // A model that printed a tool call as prose instead of emitting it
+          // properly would otherwise do nothing at all, silently.
+          const calls = step.calls.length
+            ? step.calls
+            : [salvageTextToolCall(step.text)].filter(
+                (call): call is ParsedToolCall => call !== null
+              )
+
+          if (!calls.length) {
             messages.push({ role: 'assistant', content: step.text })
             break
           }
 
-          messages.push(assistantToolMessage(step))
-          for (const call of step.calls) {
+          messages.push(assistantToolMessage({ ...step, calls }))
+          let awaitingConfirmation = false
+          for (const call of calls) {
             const result = runDashboardTool(call.name, call.args, toolContext(), describe)
+
+            if (result.needsConfirmation) {
+              pendingRef.current = { call, action: result.needsConfirmation, messages }
+              setPending(result.needsConfirmation)
+              messages.push(toolResultMessage(call, result.message))
+              awaitingConfirmation = true
+              break
+            }
+
             if (result.ok && call.name !== 'describe_plugin') mutated = true
             push({
               kind: 'tool',
-              text: call.name,
+              text: toolLabel(call, result, t),
               detail: result.message,
               ok: result.ok,
             })
             messages.push(toolResultMessage(call, result.message))
           }
+          if (awaitingConfirmation) break
         }
         setCanUndo(mutated)
         // Keep only the user/assistant exchange in history: replaying tool calls
@@ -282,6 +483,13 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     contextTokens,
     contextOptions,
     setContextOptions,
+    /** The exact system prompt that will be sent with the next message. */
+    systemPrompt: buildPrompt,
+    exchanges,
+    stats,
+    pending,
+    confirmPending,
+    cancelPending,
     send,
     stop,
     undo,
