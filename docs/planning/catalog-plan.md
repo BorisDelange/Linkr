@@ -145,8 +145,13 @@ The split that follows:
 
 - **Browsing the catalog** — works everywhere (static WASM included). Read-only fetch.
 - **Installing an entry** — needs `gitCloneToZip` → backend, so it stays
-  `isServerMode()`-gated, reusing the existing `<ServerModeNotice />`. In WASM mode the
-  card still shows everything and offers "Open repository" instead of "Install".
+  `isServerMode()`-gated, reusing the existing `<ServerModeNotice />`. Clicking the card
+  itself opens the entry's repo in a new tab (in every mode); in WASM mode that is all a
+  card does, since the Install button is hidden.
+
+Entries are **public repos only**: the index is read by every Linkr instance, so an entry
+nobody but its author can clone is not a catalog entry. The install path therefore sends
+no token — the clone is always anonymous.
 
 Constants (both files served from one repo path, so one base):
 

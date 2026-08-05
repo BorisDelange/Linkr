@@ -32,17 +32,36 @@ retired; as-built documented in `docs/architecture.md` (Fullstack section). Only
 
 ## Community catalog — [catalog-plan.md](catalog-plan.md)
 
-Centralized index repo (`linkr-catalog` on framagit) listing community-published entities;
-the `/catalog` page is a stub today. Browsing works in static/WASM mode too (the GitLab
-API v4 raw route sends `allow-origin: *`); installing stays server-mode.
+Centralized index repo (`linkr-catalog` on framagit) listing community-published entities.
+The app side is built; the index repo itself does not exist yet, so the page has nothing
+to load until it does. Browsing works in static/WASM mode too (the GitLab API v4 raw route
+sends `allow-origin: *`); installing stays server-mode. Catalog repos are **public only** —
+every instance reading the index must be able to clone them anonymously, so the install
+path passes no credentials.
 
 | St | Item | Effort |
 |----|------|--------|
 | 🔜 | Create the `linkr-catalog` repo (entries/ + schema + build.mjs + GitLab CI) | S |
-| 🔜 | `lib/catalog/` fetch + hash-diff + localStorage cache (+ unit tests) | S |
-| 🔜 | Rewrite `CatalogPage.tsx`: grid, toolbar, load/refresh | M |
-| 🔜 | Install dialog → clone → `applyClonedEntity` | M |
-| 💤 | "Propose to catalog" prefill, installed-state by lineageId, custom catalog URL | S |
+| ✅ | `lib/catalog/` fetch + hash-diff + localStorage cache (+ unit tests) | S |
+| ✅ | Rewrite `CatalogPage.tsx`: grid, toolbar, load/refresh (card opens the repo) | M |
+| ✅ | Install dialog → clone → `applyClonedEntity` (workspace picker + conflict prompt) | M |
+| ✅ | Custom catalog URL — Settings → Catalog tab | S |
+| 💤 | "Propose to catalog" prefill, installed-state by lineageId | S |
+
+## AI agents — [ai-agents-plan.md](ai-agents-plan.md)
+
+Two tracks: CLI agents (OpenCode first) in the IDE, and a conversational copilot in
+a right sidebar driving the dashboard store as tools. Shared foundation: the Skills
+entity + LLM provider config, local models by default.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | Foundation: `skills`/`llm-config`/`agents` permissions + `LlmProvider` (Fernet key, derived `is_local`, remote-API acknowledgement, `LINKR_ALLOW_REMOTE_LLM=false`) | M |
+| 🔜 | Skills entity (workspace-scoped file collection, clone of SQL collections) | M |
+| 🔜 | Spike: local-model tool-calling on 3 dashboard tools — de-risks the copilot | S |
+| 🔜 | Track A1: generated `opencode.json` + skills → `.claude/skills/` + launch in the existing PTY | S/M |
+| 🤔 | Track B: right-sidebar copilot (agent loop, dashboard tools, per-turn undo) | L |
+| 💤 | Track B on Cohorts / Patient data; Track A2 structured ACP panel | L |
 
 ## Fullstack backlog — [fullstack-storage-plan.md](fullstack-storage-plan.md)
 

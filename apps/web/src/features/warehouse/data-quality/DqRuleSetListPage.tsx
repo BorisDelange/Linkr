@@ -112,7 +112,10 @@ export function DqRuleSetListPage() {
 
   const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
-    const rs = parsed['ruleset.json'] as DqRuleSet | undefined
+    // Two layouts: the git repo tree writes `rule-set.json` (buildDqRuleSetFolder), the
+    // standalone export writes `ruleset.json`. Reading only the latter made importing a
+    // cloned repo fail silently.
+    const rs = (parsed['rule-set.json'] ?? parsed['ruleset.json']) as DqRuleSet | undefined
     if (!rs?.id) return
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only

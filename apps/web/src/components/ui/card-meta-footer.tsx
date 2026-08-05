@@ -28,6 +28,8 @@ interface CardMetaFooterProps {
   updatedAt?: string
   /** Extra leading content on the meta row (e.g. a per-card stat like "3 projects"). */
   leading?: React.ReactNode
+  /** Extra content pinned to the right of the meta row (e.g. a card action button). */
+  trailing?: React.ReactNode
   className?: string
 }
 
@@ -195,7 +197,7 @@ function DateChip({ date, tooltip }: { date: string; tooltip: string }) {
  * which). Renders nothing when there's nothing to show. Sits below the card body
  * so every harmonized list widget reads the same.
  */
-export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, leading, className }: CardMetaFooterProps) {
+export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, leading, trailing, className }: CardMetaFooterProps) {
   const { t, i18n } = useTranslation()
   // Prefer the live directory name + details (reflects profile edits); fall back to
   // the snapshot taken at creation when the id can't be resolved (author gone /
@@ -219,7 +221,7 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
   const label = resolved || authorLabel(createdBy, details)
   const created = createdAt ? formatDate(createdAt, i18n.language) : ''
   const updated = updatedAt ? formatDate(updatedAt, i18n.language) : ''
-  if (!label && !created && !updated && !leading) return null
+  if (!label && !created && !updated && !leading && !trailing) return null
 
   // Outer wrapper owns the top gap + optional mt-auto (pin to card bottom); the
   // gap lives in pt-3 so it survives even when mt-auto collapses to 0. Callers
@@ -246,6 +248,9 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
         {created && <DateChip date={created} tooltip={t('common.created_on', { date: created })} />}
         {created && updated && <Sep />}
         {updated && <DateChip date={updated} tooltip={t('common.last_modified', { date: updated })} />}
+        {/* ml-auto pins the action right; the meta chips above it truncate rather
+            than push it off the row. */}
+        {trailing && <span className="ml-auto shrink-0">{trailing}</span>}
       </div>
     </div>
   )
