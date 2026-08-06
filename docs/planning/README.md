@@ -69,10 +69,26 @@ entity + LLM provider config, local models by default.
 | St | Item | Effort |
 |----|------|--------|
 | 🔜 | Pipeline actually functional (end-to-end transforms) | L |
-| 🔜 | Reports page | L |
+| →  | Reports page — moved to its own plan, see below | L |
 | 💤 | Multi-user concurrent editing (conflicts, locking) | L |
 | 💤 | Job queue / multi-worker perf (uvicorn is 1 worker) | M |
 | 💤 | Cosmetic: drop `render` from the `/execute` purpose docs/enum | S |
+
+## Reports — [reports-plan.md](reports-plan.md)
+
+BlockNote document mixing prose with live Linkr widgets, presentable as slides (split on
+`---`) and exportable to md/HTML/DOCX/ODT/PDF/PPTX. Filters are frozen **per widget**. Design
+arbitrated 2026-08-05; `xl-*` exporters are GPL-3.0 (compatible, no commercial license).
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | 1. Model + persistence (`Report`, store, model + Alembic + service + routes, export/versioning) | M |
+| 🔜 | 2. BlockNote editor (`@blocknote/shadcn`, dynamic import, i18n, missing `form`/`toggle`, Portal audit) | M |
+| 🔜 | 3. `linkrWidget` custom block + slash-menu + "import from a dashboard" | M |
+| 🔜 | 4. Per-widget filters (extract sidebar controls, popover, badge, `resolveBlockFilters` + tests) | M |
+| 🔜 | 5. Freeze figures (reuse `figure-export` + `OffscreenWidgetCapture`, blobs, refresh) | M |
+| 🔜 | 6. Presentation mode (port `splitBlocksIntoSlides` + `computeFitScale`, overlay, shortcuts) | M |
+| 🔜 | 7. Exports (md/HTML → DOCX/ODT/PDF via XL → PPTX via `pptxgenjs`) | L |
 
 ## Permissions — [users-authorizations-audit.md](users-authorizations-audit.md)
 
