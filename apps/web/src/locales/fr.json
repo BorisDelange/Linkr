@@ -4329,10 +4329,9 @@
     "subtab_tests": "Tests",
     "bench_title": "Tests du modèle",
     "bench_description": "Lancez la batterie de tests de l'assistant sur votre modèle, depuis cette machine. Mesure à la fois ce que le modèle réussit et sa vitesse ici — un même modèle se comporte pareil partout, mais sa vitesse dépend du matériel. Vos tableaux de bord ne sont pas touchés.",
-    "bench_mode_quick": "Rapide ({{count}} cas)",
-    "bench_mode_full": "Complet ({{count}} cas)",
+    "bench_mode_quick": "Rapide ({{count}})",
+    "bench_mode_full": "Complet ({{count}})",
     "bench_run": "Lancer",
-    "bench_compare": "Comparer tous les modèles",
     "bench_empty": "Aucun test lancé.",
     "bench_score": "Score",
     "bench_speed": "Vitesse",
@@ -4344,6 +4343,13 @@
     "bench_error_cannot_list_models": "Impossible de lister les modèles de ce point d'accès.",
     "bench_surface_dashboard": "Tableaux de bord",
     "bench_clear_all": "Tout effacer",
-    "bench_remove": "Supprimer ce résultat"
+    "bench_remove": "Supprimer ce résultat",
+    "bench_models": "Modèles",
+    "bench_models_placeholder": "Choisir des modèles",
+    "bench_surfaces": "Quoi tester",
+    "bench_surfaces_placeholder": "Choisir les pages",
+    "bench_depth": "Profondeur",
+    "bench_depth_hint_quick": "Est-ce que ça marche : un cas par capacité, en français seulement. Suffisant pour vérifier un point d'accès et mesurer sa vitesse.",
+    "bench_depth_hint_full": "Est-ce que c'est fiable : ajoute l'anglais, les graphiques à deux colonnes, plusieurs widgets en une demande et le calcul de mise en page — là où les petits modèles échouent."
   }
 }

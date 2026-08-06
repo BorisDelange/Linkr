@@ -4329,10 +4329,9 @@
     "subtab_tests": "Tests",
     "bench_title": "Model tests",
     "bench_description": "Run the assistant's test battery against your model, on this machine. Measures both what the model gets right and how fast it runs here — the same model behaves identically everywhere but its speed depends on the hardware. Nothing touches your real dashboards.",
-    "bench_mode_quick": "Quick ({{count}} cases)",
-    "bench_mode_full": "Full ({{count}} cases)",
+    "bench_mode_quick": "Smoke ({{count}})",
+    "bench_mode_full": "Full ({{count}})",
     "bench_run": "Run",
-    "bench_compare": "Compare all models",
     "bench_empty": "No run yet.",
     "bench_score": "Score",
     "bench_speed": "Speed",
@@ -4344,6 +4343,13 @@
     "bench_error_cannot_list_models": "Could not list the models from this endpoint.",
     "bench_surface_dashboard": "Dashboards",
     "bench_clear_all": "Clear all",
-    "bench_remove": "Remove this result"
+    "bench_remove": "Remove this result",
+    "bench_models": "Models",
+    "bench_models_placeholder": "Select models",
+    "bench_surfaces": "What to test",
+    "bench_surfaces_placeholder": "Select surfaces",
+    "bench_depth": "Depth",
+    "bench_depth_hint_quick": "Does it work at all: one case per capability, French only. Enough to check an endpoint and measure its speed.",
+    "bench_depth_hint_full": "Is it good enough: adds English, multi-column charts, several widgets in one request, and layout arithmetic — where small models fail."
   }
 }

@@ -1,9 +1,11 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Loader2, Play, Square, Trash2, X } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { BenchMultiSelect } from './BenchMultiSelect'
 import { cn } from '@/lib/utils'
 import { getPlugin } from '@/lib/plugins/registry'
 import { PLOT_BUILDER_ID } from '@/lib/agent/dashboard-tools'
@@ -35,13 +37,25 @@ export function AgentBenchTab() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [reports, setReports] = useState<BenchReport[]>(() => loadReports())
   const [surfaces, setSurfaces] = useState<BenchSurface[]>(['dashboard'])
+  const [available, setAvailable] = useState<string[]>([])
+  const [models, setModels] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Offer the endpoint's models, defaulting to the configured one.
+  useEffect(() => {
+    const { endpoint } = resolveAgentEndpoint()
+    if (!endpoint) return
+    setModels([endpoint.model])
+    fetchAvailableModels(endpoint.baseUrl, endpoint.apiKey)
+      .then(setAvailable)
+      .catch(() => setAvailable([endpoint.model]))
+  }, [])
 
   const caseCount = selectCases(surfaces, mode).length
 
   const start = useCallback(
-    async (models?: string[]) => {
+    async () => {
       const { endpoint } = resolveAgentEndpoint()
       if (!endpoint) {
         setError('no_provider')
@@ -59,8 +73,7 @@ export function AgentBenchTab() {
       abortRef.current = controller
 
       try {
-        const targets = models ?? [endpoint.model]
-        for (const model of targets) {
+        for (const model of models) {
           setProgress({ done: 0, total: caseCount })
           const report = await runBench({
             endpoint: { ...endpoint, model },
@@ -83,22 +96,9 @@ export function AgentBenchTab() {
         setProgress(null)
       }
     },
-    [caseCount, mode, surfaces]
+    [caseCount, models, mode, surfaces]
   )
 
-  const compareAll = useCallback(async () => {
-    const { endpoint } = resolveAgentEndpoint()
-    if (!endpoint) {
-      setError('no_provider')
-      return
-    }
-    try {
-      const models = await fetchAvailableModels(endpoint.baseUrl, endpoint.apiKey)
-      if (models.length) await start(models)
-    } catch {
-      setError('cannot_list_models')
-    }
-  }, [start])
 
   const stop = () => abortRef.current?.abort()
 
@@ -110,83 +110,89 @@ export function AgentBenchTab() {
           {t('agent.bench_description')}
         </p>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1.5">
-            {BENCH_SURFACES.map((surface) => {
-              const active = surfaces.includes(surface)
-              return (
+        <div className="mt-4 flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">
+              {t('agent.bench_models')}
+            </Label>
+            <BenchMultiSelect
+              values={available}
+              selected={models}
+              onChange={setModels}
+              placeholder={t('agent.bench_models_placeholder')}
+              disabled={running}
+              className="w-56"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">
+              {t('agent.bench_surfaces')}
+            </Label>
+            <BenchMultiSelect
+              values={BENCH_SURFACES}
+              selected={surfaces}
+              onChange={(next) => setSurfaces(next as BenchSurface[])}
+              placeholder={t('agent.bench_surfaces_placeholder')}
+              disabled={running}
+              className="w-44"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">
+              {t('agent.bench_depth')}
+            </Label>
+            <div className="flex h-8 rounded-md border p-0.5">
+              {(['quick', 'full'] as const).map((value) => (
                 <button
-                  key={surface}
+                  key={value}
                   type="button"
+                  onClick={() => setMode(value)}
                   disabled={running}
-                  onClick={() =>
-                    setSurfaces((prev) =>
-                      // Never allow an empty selection: it would run nothing.
-                      active
-                        ? prev.length > 1
-                          ? prev.filter((s) => s !== surface)
-                          : prev
-                        : [...prev, surface]
-                    )
-                  }
                   className={cn(
-                    'rounded-md border px-2.5 py-1 text-xs transition-colors',
-                    active
-                      ? 'border-primary bg-primary/10 text-foreground'
+                    'rounded px-2.5 text-xs transition-colors',
+                    mode === value
+                      ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
-                  {t(`agent.bench_surface_${surface}`)}
+                  {t(`agent.bench_mode_${value}`, {
+                    count: selectCases(surfaces, value).length,
+                  })}
                 </button>
-              )
-            })}
-          </div>
-
-          <div className="flex rounded-md border p-0.5">
-            {(['quick', 'full'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setMode(value)}
-                disabled={running}
-                className={cn(
-                  'rounded px-2.5 py-1 text-xs transition-colors',
-                  mode === value
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {t(`agent.bench_mode_${value}`, {
-                  count: selectCases(surfaces, value).length,
-                })}
-              </button>
-            ))}
+              ))}
+            </div>
           </div>
 
           {running ? (
-            <Button size="sm" variant="destructive" onClick={stop}>
+            <Button size="sm" className="h-8" variant="destructive" onClick={stop}>
               <Square size={13} />
               {t('agent.stop')}
             </Button>
           ) : (
-            <>
-              <Button size="sm" onClick={() => start()}>
-                <Play size={13} />
-                {t('agent.bench_run')}
-              </Button>
-              <Button size="sm" variant="outline" onClick={compareAll}>
-                {t('agent.bench_compare')}
-              </Button>
-            </>
+            <Button
+              size="sm"
+              className="h-8"
+              onClick={() => start()}
+              disabled={!models.length || !surfaces.length}
+            >
+              <Play size={13} />
+              {t('agent.bench_run')}
+            </Button>
           )}
 
           {progress ? (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="flex h-8 items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 size={13} className="animate-spin" />
               {progress.done}/{progress.total}
             </span>
           ) : null}
         </div>
+
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          {t(`agent.bench_depth_hint_${mode}`)}
+        </p>
 
         {error ? (
           <p className="mt-3 text-xs text-destructive">
