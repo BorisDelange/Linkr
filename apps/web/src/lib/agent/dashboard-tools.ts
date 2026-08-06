@@ -60,6 +60,10 @@ export interface ToolContext {
   findWidgetByName: (name: string) => string | null
   /** Full column schema for one dataset, fetched on demand. */
   describeDataset: (datasetId: string) => string | null
+  /** Column name → column id, for repairing name-valued config fields. */
+  columnIdsByName: (datasetId: string) => Map<string, string>
+  /** Dataset backing a widget, so a reconfigure resolves against the right columns. */
+  widgetDatasetId: (widgetId: string) => string | null
   locale: string
 }
 
@@ -235,6 +239,46 @@ export function isKnownTool(name: string): boolean {
   return TOOL_NAMES.has(name)
 }
 
+/**
+ * Rewrite column values in a plugin config from names to ids.
+ *
+ * The config layer keys columns by id (`col_ga_weeks`); a model handed the name
+ * (`ga_weeks`) produced a widget that rendered blank with an empty column
+ * picker and no error. Telling the model the ids fixes the common case; this
+ * fixes the rest, because a name is what the user says out loud and models will
+ * keep reaching for it.
+ */
+function resolveColumnValues(
+  config: Record<string, unknown>,
+  columnIds: (datasetId: string) => Map<string, string>,
+  datasetId: string
+): Record<string, unknown> {
+  const byName = columnIds(datasetId)
+  if (!byName.size) return config
+  const resolved: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(config)) {
+    if (typeof value === 'string' && byName.has(value)) {
+      resolved[key] = byName.get(value)
+    } else if (Array.isArray(value)) {
+      resolved[key] = value.map((item) =>
+        typeof item === 'string' && byName.has(item) ? byName.get(item) : item
+      )
+    } else {
+      resolved[key] = value
+    }
+  }
+  return resolved
+}
+
+/**
+ * Capitalise a user-visible title. A model asked for "cardiologie" returns it
+ * verbatim, but a tab label sits in a UI where every other title is capitalised,
+ * and asking the user to spell that out each time is noise.
+ */
+function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
 function localizedName(value: string, locale: string): Record<string, string> {
   // Store both locales so the label is never blank in the other language; the
   // user typed their request in one language and we have no translation here.
@@ -270,11 +314,12 @@ export function runDashboardTool(
     case 'add_tab': {
       const title = typeof args.name === 'string' ? args.name.trim() : ''
       if (!title) return { ok: false, rejected: true, message: 'A tab name is required.' }
+      const label = titleCase(title)
       ctx.addTab(ctx.dashboardId)
       const tabId = ctx.lastTabId()
       if (!tabId) return { ok: false, message: 'Tab creation failed.' }
-      ctx.updateTab(tabId, { name: localizedName(title, ctx.locale) })
-      return { ok: true, message: `Created tab "${title}" (id ${tabId}).` }
+      ctx.updateTab(tabId, { name: localizedName(label, ctx.locale) })
+      return { ok: true, message: `Created tab "${label}" (id ${tabId}).` }
     }
 
     case 'add_widget': {
@@ -303,13 +348,14 @@ export function runDashboardTool(
       const source: DashboardWidgetSource = {
         type: 'plugin',
         pluginId: PLOT_BUILDER_ID,
-        config,
+        config: resolveColumnValues(config, ctx.columnIdsByName, datasetId),
       }
-      ctx.addWidget(tabId, source, localizedName(title, ctx.locale), datasetId)
+      const label = titleCase(title)
+      ctx.addWidget(tabId, source, localizedName(label, ctx.locale), datasetId)
       const widgetId = ctx.lastWidgetIdInTab(tabId)
       return {
         ok: true,
-        message: `Added widget "${title}" (id ${widgetId ?? '?'}) to tab ${tabId}.`,
+        message: `Added widget "${label}" (id ${widgetId ?? '?'}) to tab ${tabId}.`,
       }
     }
 
@@ -334,7 +380,11 @@ export function runDashboardTool(
       ctx.updateWidgetSource(widgetId, {
         type: 'plugin',
         pluginId: PLOT_BUILDER_ID,
-        config,
+        config: resolveColumnValues(
+          config,
+          ctx.columnIdsByName,
+          ctx.widgetDatasetId(widgetId) ?? ''
+        ),
       })
       return { ok: true, message: `Reconfigured widget ${widgetId}.` }
     }

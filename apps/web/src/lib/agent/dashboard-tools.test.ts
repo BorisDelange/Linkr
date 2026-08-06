@@ -26,7 +26,15 @@ function ctx(overrides: Partial<ToolContext> = {}): ToolContext {
     widgetName: (id) => (id === 'wid_1' ? 'Age' : null),
     findTabByName: (name) => (name.toLowerCase() === 'overview' ? 'tab_1' : null),
     findWidgetByName: (name) => (name.toLowerCase() === 'age' ? 'wid_1' : null),
-    describeDataset: (id) => (id === 'ds_1' ? 'ds_1 — patients\n  age (number)' : null),
+    describeDataset: (id) => (id === 'ds_1' ? 'ds_1 — patients\n  col_age (number)' : null),
+    columnIdsByName: (id) =>
+      id === 'ds_1'
+        ? new Map([
+            ['age', 'col_age'],
+            ['ga_weeks', 'col_ga_weeks'],
+          ])
+        : new Map(),
+    widgetDatasetId: () => 'ds_1',
     locale: 'fr',
     ...overrides,
   }
@@ -66,6 +74,104 @@ describe('add_tab', () => {
     const result = runDashboardTool('add_tab', { name: '  ' }, ctx(), noDoc)
     expect(result.rejected).toBe(true)
   })
+
+  it('capitalises the title, so "cardiologie" becomes "Cardiologie"', () => {
+    // Models echo the user's lowercase wording; every other tab label in the UI
+    // is capitalised, and saying so in each request is noise.
+    const c = ctx()
+    runDashboardTool('add_tab', { name: 'cardiologie' }, c, noDoc)
+    expect(c.updateTab).toHaveBeenCalledWith('tab_new', {
+      name: expect.objectContaining({ fr: 'Cardiologie' }),
+    })
+  })
+})
+
+describe('column references', () => {
+  it('rewrites a column NAME to its id, which is what the config layer needs', () => {
+    // The reported failure: the model correctly picked ga_weeks, but configs key
+    // columns by id (col_ga_weeks), so the widget rendered with an empty picker
+    // and no error anywhere.
+    const c = ctx()
+    runDashboardTool(
+      'add_widget',
+      {
+        name: 'GA',
+        datasetId: 'ds_1',
+        config: { plotType: 'histogram', xColumn: 'ga_weeks' },
+      },
+      c,
+      noDoc
+    )
+    expect(c.addWidget).toHaveBeenCalledWith(
+      'tab_1',
+      expect.objectContaining({
+        config: expect.objectContaining({ xColumn: 'col_ga_weeks' }),
+      }),
+      expect.anything(),
+      'ds_1'
+    )
+  })
+
+  it('leaves an id that is already correct untouched', () => {
+    const c = ctx()
+    runDashboardTool(
+      'add_widget',
+      { name: 'W', datasetId: 'ds_1', config: { xColumn: 'col_age' } },
+      c,
+      noDoc
+    )
+    expect(c.addWidget).toHaveBeenCalledWith(
+      'tab_1',
+      expect.objectContaining({ config: expect.objectContaining({ xColumn: 'col_age' }) }),
+      expect.anything(),
+      'ds_1'
+    )
+  })
+
+  it('resolves names inside array-valued fields', () => {
+    const c = ctx()
+    runDashboardTool(
+      'add_widget',
+      { name: 'W', datasetId: 'ds_1', config: { columns: ['age', 'ga_weeks'] } },
+      c,
+      noDoc
+    )
+    expect(c.addWidget).toHaveBeenCalledWith(
+      'tab_1',
+      expect.objectContaining({
+        config: expect.objectContaining({ columns: ['col_age', 'col_ga_weeks'] }),
+      }),
+      expect.anything(),
+      'ds_1'
+    )
+  })
+
+  it('leaves non-column values alone', () => {
+    const c = ctx()
+    runDashboardTool(
+      'add_widget',
+      { name: 'W', datasetId: 'ds_1', config: { plotType: 'histogram', bins: 20 } },
+      c,
+      noDoc
+    )
+    expect(c.addWidget).toHaveBeenCalledWith(
+      'tab_1',
+      expect.objectContaining({
+        config: expect.objectContaining({ plotType: 'histogram', bins: 20 }),
+      }),
+      expect.anything(),
+      'ds_1'
+    )
+  })
+
+  it('also repairs a reconfigure', () => {
+    const c = ctx()
+    runDashboardTool('configure_widget', { config: { xColumn: 'ga_weeks' } }, c, noDoc)
+    expect(c.updateWidgetSource).toHaveBeenCalledWith(
+      'wid_1',
+      expect.objectContaining({ config: { xColumn: 'col_ga_weeks' } })
+    )
+  })
 })
 
 describe('add_widget', () => {
@@ -86,7 +192,7 @@ describe('add_widget', () => {
       'tab_1',
       expect.objectContaining({
         type: 'plugin',
-        config: { plotType: 'histogram', xColumn: 'age' },
+        config: { plotType: 'histogram', xColumn: 'col_age' },
       }),
       expect.any(Object),
       'ds_1'

@@ -23,8 +23,9 @@ describe('datasetContext', () => {
       ],
     })
     expect(out).toContain('ds_patients — patients (1420 rows)')
-    expect(out).toContain('  age (number)')
-    expect(out).toContain('  sex (string)')
+    // The id leads: it is what a widget config must carry, not the name.
+    expect(out).toContain('  col_age (number) — age')
+    expect(out).toContain('  col_sex (string) — sex')
   })
 
   it('includes the human label and description', () => {
@@ -40,8 +41,8 @@ describe('datasetContext', () => {
         }),
       ],
     })
-    expect(out).toContain('sofa_d1 (number, "SOFA at day 1")')
-    expect(out).toContain('— Total SOFA score computed on admission day.')
+    expect(out).toContain('col_sofa_d1 (number, "SOFA at day 1") — sofa_d1')
+    expect(out).toContain('Total SOFA score computed on admission day.')
   })
 
   it('omits the label when it merely repeats the technical name', () => {
@@ -50,7 +51,7 @@ describe('datasetContext', () => {
       name: 'd',
       columns: [col({ name: 'age', type: 'number', label: 'age' })],
     })
-    expect(out).toBe('ds — d\n  age (number)')
+    expect(out).toBe('ds — d\n  col_age (number) — age')
   })
 
   it('exposes categorical value labels so codes are interpretable', () => {
@@ -87,9 +88,9 @@ describe('datasetContext', () => {
     })
     const lines = out.split('\n').slice(1)
     expect(lines.map((l) => l.trim().split(' ')[0])).toEqual([
-      'first',
-      'second',
-      'third',
+      'col_first',
+      'col_second',
+      'col_third',
     ])
   })
 

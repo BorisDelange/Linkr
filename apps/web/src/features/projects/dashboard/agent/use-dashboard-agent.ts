@@ -250,6 +250,14 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
             ?.id ?? null
         )
       },
+      columnIdsByName: (datasetId) => {
+        const file = useDatasetStore.getState().files.find((f) => f.id === datasetId)
+        const map = new Map<string, string>()
+        for (const column of file?.columns ?? []) map.set(column.name, column.id)
+        return map
+      },
+      widgetDatasetId: (widgetId) =>
+        widgetsOf().find((w) => w.id === widgetId)?.datasetFileId ?? null,
       describeDataset: (datasetId) => {
         const file = useDatasetStore.getState().files.find((f) => f.id === datasetId)
         if (!file || file.type !== 'file') return null
@@ -326,6 +334,12 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     })
     if (result.ok) updateSession(dashboardId, { canUndo: true })
   }, [dashboardId, describe, push, t, toolContext, updateSession])
+
+  /** Drop the API-call log without touching the conversation itself. */
+  const clearExchanges = useCallback(
+    () => updateSession(dashboardId, { exchanges: [] }),
+    [dashboardId, updateSession]
+  )
 
   const setDraft = useCallback(
     (value: string) => updateSession(dashboardId, { draft: value }),
@@ -532,6 +546,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     /** The exact system prompt that will be sent with the next message. */
     systemPrompt: buildPrompt,
     exchanges,
+    clearExchanges,
     turnStartedAt,
     draft,
     setDraft,

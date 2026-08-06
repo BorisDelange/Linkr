@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Sparkles,
   Square,
+  Trash2,
   Undo2,
   X,
 } from 'lucide-react'
@@ -170,6 +171,7 @@ function SessionInfoDialog({
   endpoint,
   systemPrompt,
   exchanges,
+  clearExchanges,
   open,
   onOpenChange,
 }: {
@@ -178,6 +180,7 @@ function SessionInfoDialog({
   endpoint: LlmEndpoint | null
   systemPrompt: () => string
   exchanges: ExchangeRecord[]
+  clearExchanges: () => void
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -255,10 +258,11 @@ function SessionInfoDialog({
               <>
                 {/* One selector plus one scroll area: a list of expandable blocks
                     nested a second scrollbar inside the dialog's own. */}
+                <div className="mb-2 flex shrink-0 gap-1.5">
                 <select
                   value={selectedExchange}
                   onChange={(e) => setSelectedExchange(Number(e.target.value))}
-                  className="mb-2 h-8 shrink-0 rounded-md border bg-background px-2 text-xs"
+                  className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs"
                 >
                   {exchanges.map((exchange, index) => (
                     <option key={exchange.id} value={index}>
@@ -270,6 +274,19 @@ function SessionInfoDialog({
                     </option>
                   ))}
                 </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0"
+                  onClick={() => {
+                    clearExchanges()
+                    setSelectedExchange(0)
+                  }}
+                >
+                  <Trash2 size={13} />
+                  {t('agent.info_clear_calls')}
+                </Button>
+                </div>
                 {current ? (
                   <div className="min-h-0 flex-1 space-y-2 overflow-auto">
                     <p className="text-[11px] font-medium text-muted-foreground">
@@ -318,6 +335,7 @@ export function DashboardAgentSidebar({
     contextTokens,
     systemPrompt,
     exchanges,
+    clearExchanges,
     turnStartedAt,
     draft,
     setDraft,
@@ -509,6 +527,7 @@ export function DashboardAgentSidebar({
           endpoint={endpoint}
           systemPrompt={systemPrompt}
           exchanges={exchanges}
+          clearExchanges={clearExchanges}
           open={infoOpen}
           onOpenChange={setInfoOpen}
         />

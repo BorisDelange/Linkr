@@ -28,8 +28,13 @@ function columnLine(column: DatasetColumn): string {
   const parts: string[] = [column.type]
   if (column.label && column.label !== column.name) parts.push(`"${column.label}"`)
 
-  let line = `  ${column.name} (${parts.join(', ')})`
-  if (column.description) line += ` — ${column.description}`
+  // Widget configs key columns by ID (`col_ga_weeks`), not by name (`ga_weeks`).
+  // Showing only the name led models to fill config fields with the name, which
+  // silently produced an empty column picker: the widget rendered, but blank,
+  // with no error anywhere. The id is what a tool argument must carry, so it
+  // leads; the name follows because the user speaks in names.
+  let line = `  ${column.id} (${parts.join(', ')}) — ${column.name}`
+  if (column.description) line += `. ${column.description}`
 
   const labels = Object.entries(column.valueLabels ?? {})
   if (labels.length) {
