@@ -107,7 +107,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
           >
             <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
               <Database size={12} className="text-muted-foreground" />
-              <SelectValue />
+              <SelectValue placeholder={t('etl.select_source')} />
             </SelectTrigger>
             <SelectContent>
               {dbSources.map((ds) => (

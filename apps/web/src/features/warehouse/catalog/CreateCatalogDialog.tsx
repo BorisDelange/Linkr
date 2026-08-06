@@ -80,7 +80,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   }, [editingCatalog, open])
 
   const handleSubmit = async () => {
-    if (!name.trim() || !dataSourceId || !activeWorkspaceId) return
+    if (!name.trim() || !activeWorkspaceId) return
 
     if (isEdit && editingCatalog) {
       await updateCatalog(editingCatalog.id, {
@@ -158,7 +158,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
             />
           </div>
           <div>
-            <Label className="text-xs">{t('data_catalog.database')}<RequiredMark /></Label>
+            <Label className="text-xs">{t('data_catalog.database')}</Label>
             <Select value={dataSourceId} onValueChange={setDataSourceId}>
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder={t('data_catalog.select_database')} />
@@ -195,7 +195,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={!name.trim() || !dataSourceId || (!isEdit && !isEntityIdValid(entityId, existingIds))}>
+          <Button onClick={handleSubmit} disabled={!name.trim() || (!isEdit && !isEntityIdValid(entityId, existingIds))}>
             {isEdit ? t('common.save') : t('common.create')}
           </Button>
         </DialogFooter>

@@ -96,7 +96,7 @@ export function BadgeEditor({ value, onChange, suggestions = [], label }: BadgeE
 
   return (
     <div className="grid gap-2">
-      <Label>{label ?? t('common.badges')}</Label>
+      <Label className="text-xs">{label ?? t('common.badges')}</Label>
 
       {value.length > 0 && (
         <div className="mb-1 flex flex-wrap gap-1.5">
@@ -148,7 +148,7 @@ export function BadgeEditor({ value, onChange, suggestions = [], label }: BadgeE
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
             placeholder={t('concept_mapping.badge_label_placeholder')}
-            className={`h-8 flex-1 text-xs ${conflict ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+            className={`h-8 flex-1 ${conflict ? 'border-destructive focus-visible:ring-destructive' : ''}`}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && trimmed && !conflict) {
                 e.preventDefault()

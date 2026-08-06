@@ -141,6 +141,8 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   // Load built-in checks for this data source
   useEffect(() => {
     let cancelled = false
+    // The database is optional until the user picks one — nothing to discover yet.
+    if (!dataSourceId) { setBuiltinChecks([]); return }
     const loadBuiltin = async () => {
       setBuiltinLoading(true)
       try {

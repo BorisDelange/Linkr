@@ -55,7 +55,7 @@ export function EntityIdField({
 
   return (
     <div className="space-y-2">
-      <Label htmlFor={htmlId} className="flex items-center gap-1.5">
+      <Label htmlFor={htmlId} className="flex items-center gap-1.5 text-xs">
         <Lock size={12} className="text-muted-foreground" />
         {t('entity_id.label')}
         {required && <RequiredMark />}
@@ -132,7 +132,7 @@ function IdInput({ htmlId, value, onChange, placeholder }: {
       value={value}
       onChange={handleChange}
       placeholder={placeholder}
-      className="font-mono text-sm"
+      className="font-mono"
     />
   )
 }

@@ -79,7 +79,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   }, [editingRuleSet, open])
 
   const handleSubmit = async () => {
-    if (!name.trim() || !dataSourceId || !activeWorkspaceId) return
+    if (!name.trim() || !activeWorkspaceId) return
 
     if (isEdit && editingRuleSet) {
       await updateRuleSet(editingRuleSet.id, {
@@ -153,7 +153,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
             />
           )}
           <div>
-            <Label className="text-xs">{t('data_quality.rs_database')}<RequiredMark /></Label>
+            <Label className="text-xs">{t('data_quality.rs_database')}</Label>
             <Select value={dataSourceId} onValueChange={setDataSourceId}>
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder={t('data_quality.select_database')} />
@@ -190,7 +190,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={!name.trim() || !dataSourceId || (!isEdit && !isEntityIdValid(entityId, existingIds))}>
+          <Button onClick={handleSubmit} disabled={!name.trim() || (!isEdit && !isEntityIdValid(entityId, existingIds))}>
             {isEdit ? t('common.save') : t('common.create')}
           </Button>
         </DialogFooter>

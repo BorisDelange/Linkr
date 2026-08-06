@@ -84,7 +84,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const handleSubmit = async () => {
-    if (!name.trim() || !sourceId || !activeWorkspaceId) return
+    if (!name.trim() || !activeWorkspaceId) return
     if (!isEditing && !isEntityIdValid(entityId, existingIds)) return
     setSaving(true)
     try {
@@ -138,13 +138,13 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
 
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label>{t('etl.pipeline_name')}<RequiredMark /></Label>
+            <Label className="text-xs">{t('etl.pipeline_name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t('etl.pipeline_name_placeholder')}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim() && sourceId) { e.preventDefault(); handleSubmit() }
+                if (e.key === 'Enter' && name.trim()) { e.preventDefault(); handleSubmit() }
               }}
             />
           </div>
@@ -162,7 +162,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           )}
 
           <div className="space-y-2">
-            <Label>{t('etl.source_database')}<RequiredMark /></Label>
+            <Label className="text-xs">{t('etl.source_database')}</Label>
             <Select value={sourceId} onValueChange={setSourceId}>
               <SelectTrigger>
                 <SelectValue placeholder={t('etl.select_source')} />
@@ -181,7 +181,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           </div>
 
           <div className="space-y-2">
-            <Label>{t('etl.target_database')}</Label>
+            <Label className="text-xs">{t('etl.target_database')}</Label>
             <Select value={targetId} onValueChange={setTargetId}>
               <SelectTrigger>
                 <SelectValue placeholder={t('etl.select_target')} />
@@ -222,7 +222,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!name.trim() || !sourceId || saving || (!isEditing && !isEntityIdValid(entityId, existingIds))}
+            disabled={!name.trim() || saving || (!isEditing && !isEntityIdValid(entityId, existingIds))}
           >
             {isEditing ? t('common.save') : t('common.create')}
           </Button>

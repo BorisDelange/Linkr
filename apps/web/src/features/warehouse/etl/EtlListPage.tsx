@@ -83,8 +83,10 @@ export function EtlListPage() {
     })),
   }] : []
 
+  // No id at all = the database was left unset (it is optional at creation), which
+  // is not the same as an id that no longer resolves to a database.
   const getSourceName = (sourceId: string) =>
-    dataSources.find((ds) => ds.id === sourceId)?.name ?? t('etl.unknown_source')
+    !sourceId ? '—' : dataSources.find((ds) => ds.id === sourceId)?.name ?? t('etl.unknown_source')
 
   // --- Import ---
   const [conflict, setConflict] = useState<{ name: string; pending: EtlPipeline; pendingFiles: TreeImportNode[] } | null>(null)

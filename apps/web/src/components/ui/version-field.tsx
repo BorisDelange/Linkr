@@ -16,7 +16,7 @@ export function VersionField({ value, onChange }: VersionFieldProps) {
   const { t } = useTranslation()
   return (
     <div className="flex items-center justify-between gap-2">
-      <Label htmlFor="element-version" className="text-sm">
+      <Label htmlFor="element-version" className="text-xs">
         {t('common.version')}
       </Label>
       <Input
@@ -24,7 +24,7 @@ export function VersionField({ value, onChange }: VersionFieldProps) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="0.1.0"
-        className="h-8 w-28 text-right font-mono text-xs"
+        className="h-8 w-28 text-right font-mono"
       />
     </div>
   )
