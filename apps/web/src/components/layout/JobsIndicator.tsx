@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, ScrollText, Trash2 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
-import { AnsiText } from '@/components/AnsiText'
+import { CodeViewer } from '@/components/editor/CodeViewer'
+import { stripAnsi } from '@/lib/ansi'
+import { cn } from '@/lib/utils'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { listJobs, cancelJob, clearJobs, type Job } from '@/lib/api/environments'
@@ -104,13 +107,22 @@ export function JobsIndicator() {
                 <ScrollText size={11} className="shrink-0 text-muted-foreground/50" />
               </button>
               {ACTIVE.has(job.status) ? (
-                <button
-                  className="shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => void onCancel(job.id)}
-                  aria-label={t('jobs.cancel')}
-                >
-                  <Ban size={13} />
-                </button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => void onCancel(job.id)}
+                        aria-label={t('jobs.cancel')}
+                      >
+                        <Ban size={13} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={4}>
+                      {t('jobs.cancel_tooltip')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               ) : (
                 <span className="shrink-0 text-[10px] text-muted-foreground">
                   {t(`jobs.status.${job.status}`)}
@@ -122,33 +134,51 @@ export function JobsIndicator() {
       </PopoverContent>
     </Popover>
 
-    {/* Full log in a large modal — the complete captured output (commands +
-        results) of a build/package op, scrollable, monospace, with ANSI colour. */}
+    {/* Full log in a modal — the complete captured output (commands + results) of
+        a build/package op, shown in the read-only editor so shell commands get the
+        same syntax highlighting as the IDE. */}
     <Dialog open={!!logJob} onOpenChange={(o) => { if (!o) { setLogJobId(null); setPopoverOpen(true) } }}>
-      <DialogContent className="flex max-h-[85vh] w-[95vw] flex-col sm:max-w-[1400px]">
+      {/* h-[90vh], not max-h: the log editor fills the body and scrolls inside
+          itself, so the modal must claim its full height up front rather than
+          shrink-wrap the (unwrapped, 3-line) content. */}
+      <DialogContent className="flex h-[90vh] w-[90vw] flex-col sm:max-w-[60vw]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">
             {logJob && <JobStatusIcon status={logJob.status} />}
             {logJob?.label}
           </DialogTitle>
         </DialogHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
-          {logJob?.logTail ? (
-            <AnsiText
-              text={logJob.logTail}
-              className="whitespace-pre-wrap break-words rounded bg-muted/60 p-3 font-mono text-xs leading-relaxed"
-            />
-          ) : (
-            <p className="rounded bg-muted/60 p-3 text-xs text-muted-foreground">
-              {t('jobs.no_log')}
-            </p>
-          )}
-          {/* A 'run' job's collected artifacts (figures + result table). */}
-          {logJob?.result && <JobArtifacts result={logJob.result} />}
-        </div>
+        {logJob?.result ? (
+          // With artifacts the body scrolls: log at a fixed share, figures below.
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
+            {logJob.logTail ? <JobLogView text={logJob.logTail} height={320} /> : <NoLog />}
+            <JobArtifacts result={logJob.result} />
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {logJob?.logTail ? <JobLogView text={logJob.logTail} height="100%" /> : <NoLog />}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
     </>
+  )
+}
+
+function NoLog() {
+  const { t } = useTranslation()
+  return <p className="rounded bg-muted/60 p-3 text-xs text-muted-foreground">{t('jobs.no_log')}</p>
+}
+
+/** A job's captured log in the read-only editor. Monaco renders no SGR sequences,
+ *  so ANSI is stripped rather than shown raw; 'shell' highlights the `$ …` command
+ *  lines the build/install steps echo. */
+function JobLogView({ text, height }: { text: string; height: string | number }) {
+  const plain = useMemo(() => stripAnsi(text), [text])
+  return (
+    <div className={cn('overflow-hidden rounded border', height === '100%' && 'min-h-0 flex-1')}>
+      <CodeViewer value={plain} language="shell" height={height} />
+    </div>
   )
 }
 

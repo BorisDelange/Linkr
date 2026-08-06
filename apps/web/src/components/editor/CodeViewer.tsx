@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import Editor, { type BeforeMount } from '@monaco-editor/react'
 import { useAppStore, resolveEditorTheme } from '@/stores/app-store'
 import { linkrDark, linkrLight } from './monaco-themes'
@@ -19,14 +20,26 @@ const languageMap: Record<string, string> = {
  * it registers NO shortcuts (a viewer must never run/save) and auto-sizes to its
  * content (capped) instead of filling a pane.
  */
-export function CodeViewer({ value, language }: { value: string; language: string }) {
+export function CodeViewer({
+  value,
+  language,
+  height: fixedHeight,
+  maxHeight = 400,
+}: {
+  value: string
+  language: string
+  /** Fill a container instead of auto-sizing (e.g. '100%' inside a flex modal). */
+  height?: string | number
+  maxHeight?: number
+}) {
+  const { t } = useTranslation()
   const { editorSettings, darkMode } = useAppStore()
   const theme = resolveEditorTheme(editorSettings.theme, darkMode)
 
   const lineHeight = Math.round(editorSettings.fontSize * 1.5)
   const lines = value.split('\n').length
   // Cap so a huge script doesn't take over the panel; the editor scrolls past it.
-  const height = Math.min(Math.max(lines, 1) * lineHeight + 16, 400)
+  const height = fixedHeight ?? Math.min(Math.max(lines, 1) * lineHeight + 16, maxHeight)
 
   const beforeMount: BeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme('linkr-dark', linkrDark)
@@ -40,6 +53,8 @@ export function CodeViewer({ value, language }: { value: string; language: strin
       value={value}
       beforeMount={beforeMount}
       theme={theme}
+      // Default placeholder is an unstyled div inheriting the parent font size.
+      loading={<span className="text-xs text-muted-foreground">{t('app.loading')}</span>}
       options={{
         readOnly: true,
         domReadOnly: true,
