@@ -7,6 +7,15 @@ minutes, and what it measures is a property of the MODEL, not of the code. Run i
 when you change the system prompt, the tool definitions, or when evaluating a new
 model.
 
+**The same battery is available in the app**, under Workspace settings → AI
+assistant → Tests. Use that to answer "how does this model behave on THIS
+machine" (speed varies with hardware; results are stored per model, and can be
+deleted individually or all at once). This CLI exists for comparing several
+models unattended and saving the output to a file.
+
+Cases and runner live in `src/lib/agent/bench/` — one battery, so the CLI and the
+in-app tab can never disagree.
+
 ```bash
 # one model
 node scripts/agent-bench/run.mjs qwen3.5:4b

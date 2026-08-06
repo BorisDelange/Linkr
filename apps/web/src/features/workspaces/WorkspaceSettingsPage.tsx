@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
 import { DefaultEnvironmentsTab } from '@/features/workspaces/DefaultEnvironmentsTab'
 import { AgentSettingsTab } from '@/features/settings/AgentSettingsTab'
+import { AgentBenchTab } from '@/features/settings/AgentBenchTab'
 import { isServerMode } from '@/lib/api-client'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -95,7 +96,22 @@ export function WorkspaceSettingsPage() {
         {/* AI assistant — the LLM endpoint every assistant surface uses */}
         <TabsContent value="assistant" className="min-h-0 flex-1 overflow-auto pb-6">
           <div className="mx-auto max-w-3xl">
-            <AgentSettingsTab />
+            <Tabs defaultValue="config" className="mt-2">
+              <TabsList className="mx-auto w-fit">
+                <TabsTrigger value="config" className="text-xs">
+                  {t('agent.subtab_config')}
+                </TabsTrigger>
+                <TabsTrigger value="tests" className="text-xs">
+                  {t('agent.subtab_tests')}
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="config">
+                <AgentSettingsTab />
+              </TabsContent>
+              <TabsContent value="tests">
+                <AgentBenchTab />
+              </TabsContent>
+            </Tabs>
           </div>
         </TabsContent>
 

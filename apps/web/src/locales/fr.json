@@ -4324,6 +4324,26 @@
     "info_no_exchanges": "Aucun appel API pour l'instant.",
     "info_sent": "Envoyé au modèle",
     "info_received": "Reçu du modèle",
-    "info_clear_calls": "Vider"
+    "info_clear_calls": "Vider",
+    "subtab_config": "Configuration",
+    "subtab_tests": "Tests",
+    "bench_title": "Tests du modèle",
+    "bench_description": "Lancez la batterie de tests de l'assistant sur votre modèle, depuis cette machine. Mesure à la fois ce que le modèle réussit et sa vitesse ici — un même modèle se comporte pareil partout, mais sa vitesse dépend du matériel. Vos tableaux de bord ne sont pas touchés.",
+    "bench_mode_quick": "Rapide ({{count}} cas)",
+    "bench_mode_full": "Complet ({{count}} cas)",
+    "bench_run": "Lancer",
+    "bench_compare": "Comparer tous les modèles",
+    "bench_empty": "Aucun test lancé.",
+    "bench_score": "Score",
+    "bench_speed": "Vitesse",
+    "bench_per_case": "Par cas",
+    "bench_per_case_suffix": "/cas",
+    "bench_tokens": "tokens",
+    "bench_error_no_provider": "Configurez d'abord un modèle, dans l'onglet Configuration.",
+    "bench_error_no_plugin": "Le plugin Plot Builder est indisponible.",
+    "bench_error_cannot_list_models": "Impossible de lister les modèles de ce point d'accès.",
+    "bench_surface_dashboard": "Tableaux de bord",
+    "bench_clear_all": "Tout effacer",
+    "bench_remove": "Supprimer ce résultat"
   }
 }

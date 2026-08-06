@@ -4324,6 +4324,26 @@
     "info_no_exchanges": "No API call yet.",
     "info_sent": "Sent to the model",
     "info_received": "Received from the model",
-    "info_clear_calls": "Clear"
+    "info_clear_calls": "Clear",
+    "subtab_config": "Configuration",
+    "subtab_tests": "Tests",
+    "bench_title": "Model tests",
+    "bench_description": "Run the assistant's test battery against your model, on this machine. Measures both what the model gets right and how fast it runs here — the same model behaves identically everywhere but its speed depends on the hardware. Nothing touches your real dashboards.",
+    "bench_mode_quick": "Quick ({{count}} cases)",
+    "bench_mode_full": "Full ({{count}} cases)",
+    "bench_run": "Run",
+    "bench_compare": "Compare all models",
+    "bench_empty": "No run yet.",
+    "bench_score": "Score",
+    "bench_speed": "Speed",
+    "bench_per_case": "Per case",
+    "bench_per_case_suffix": "/case",
+    "bench_tokens": "tokens",
+    "bench_error_no_provider": "Configure a model first, in the Configuration tab.",
+    "bench_error_no_plugin": "The Plot Builder plugin is unavailable.",
+    "bench_error_cannot_list_models": "Could not list the models from this endpoint.",
+    "bench_surface_dashboard": "Dashboards",
+    "bench_clear_all": "Clear all",
+    "bench_remove": "Remove this result"
   }
 }
