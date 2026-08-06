@@ -47,6 +47,8 @@ export interface AgentSession {
   stats: SessionStats
   history: ChatMessage[]
   canUndo: boolean
+  /** Unsent input. Hiding the panel must not discard a half-typed question. */
+  draft: string
 }
 
 function emptySession(): AgentSession {
@@ -62,6 +64,7 @@ function emptySession(): AgentSession {
     },
     history: [],
     canUndo: false,
+    draft: '',
   }
 }
 

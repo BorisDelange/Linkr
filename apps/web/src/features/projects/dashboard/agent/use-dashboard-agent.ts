@@ -39,7 +39,7 @@ import {
   type AgentSession,
   type TranscriptEntry,
 } from '@/stores/agent-session-store'
-import { addNote, loadMemory, removeNote } from '@/lib/agent/memory'
+import { loadMemory } from '@/lib/agent/memory'
 import { selectToolNames } from '@/lib/agent/tool-selection'
 import { datasetContext } from '@/lib/agent/dataset-context'
 import {
@@ -68,6 +68,7 @@ const EMPTY_SESSION: AgentSession = {
   },
   history: [],
   canUndo: false,
+  draft: '',
 }
 
 interface Snapshot {
@@ -115,7 +116,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
   const updateSession = useAgentSessionStore((s) => s.update)
   const mutateSession = useAgentSessionStore((s) => s.mutate)
   const resetSession = useAgentSessionStore((s) => s.reset)
-  const { transcript, exchanges, stats, canUndo } = session
+  const { transcript, exchanges, stats, canUndo, draft } = session
 
   const [running, setRunning] = useState(false)
   const [contextOptions, setContextOptions] = useState<ContextOptions>(
@@ -124,7 +125,9 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
   const [pending, setPending] = useState<PendingAction | null>(null)
   /** When the current turn started, for the live elapsed counter. */
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null)
-  const [memoryNotes, setMemoryNotes] = useState<string[]>(() => loadMemory(dashboardId))
+  // Notes are read for the prompt; there is no UI to edit them yet (see the
+  // plan's deferred section on model-managed memory).
+  const memoryNotes = useMemo(() => loadMemory(dashboardId), [dashboardId])
   const pendingRef = useRef<{
     call: ParsedToolCall
     action: PendingAction
@@ -324,17 +327,9 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     if (result.ok) updateSession(dashboardId, { canUndo: true })
   }, [dashboardId, describe, push, t, toolContext, updateSession])
 
-  const addMemoryNote = useCallback(
-    (note: string) => {
-      const trimmed = note.trim()
-      if (trimmed) setMemoryNotes(addNote(dashboardId, trimmed))
-    },
-    [dashboardId]
-  )
-
-  const removeMemoryNote = useCallback(
-    (index: number) => setMemoryNotes(removeNote(dashboardId, index)),
-    [dashboardId]
+  const setDraft = useCallback(
+    (value: string) => updateSession(dashboardId, { draft: value }),
+    [dashboardId, updateSession]
   )
 
   const cancelPending = useCallback(() => {
@@ -538,9 +533,8 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     systemPrompt: buildPrompt,
     exchanges,
     turnStartedAt,
-    memoryNotes,
-    addMemoryNote,
-    removeMemoryNote,
+    draft,
+    setDraft,
     stats,
     pending,
     confirmPending,

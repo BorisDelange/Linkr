@@ -308,7 +308,6 @@ export function DashboardAgentSidebar({
   onClose,
 }: Props) {
   const { t } = useTranslation()
-  const [draft, setDraft] = useState('')
   const [infoOpen, setInfoOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -320,6 +319,8 @@ export function DashboardAgentSidebar({
     systemPrompt,
     exchanges,
     turnStartedAt,
+    draft,
+    setDraft,
     stats,
     pending,
     confirmPending,
