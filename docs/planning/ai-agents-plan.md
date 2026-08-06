@@ -464,7 +464,23 @@ Batches 1–2 are well-trodden. Batch 3 is the real decision point.
 - **Agent binaries + local model runtime: documented prerequisite**, with detection
   on page load and an explicit empty state. No bundling, no auto-install.
 
-## 8. Open questions
+## 8. Deferred
+
+- **LLM-managed memory** — the copilot ships with no memory beyond the current
+  conversation. The intended design is a memory the MODEL maintains itself (it
+  decides what is worth keeping and writes it), exposed as an option rather than
+  always on. The groundwork exists in `lib/agent/memory.ts` (per-dashboard notes
+  injected into the prompt); the UI was removed until the design is settled.
+  The reason to be careful: in a clinical setting an auto-written memory will
+  eventually capture patient detail, and that record outlives the session and is
+  re-sent to the model — a remote one included — on every later request. So
+  whatever the model writes must stay visible and deletable.
+- **Widening beyond plot-builder** — the derived plugin docs are only validated
+  against one manifest so far.
+- **Other surfaces** — datasets, IDE, script collections share the endpoint
+  config but have no assistant panel yet.
+
+## 9. Open questions
 
 1. **Skills workspace-scoped only**, or project-scoped too? (workspace first,
    consistent with SQL collections)

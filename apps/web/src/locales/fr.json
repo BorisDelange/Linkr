@@ -4323,10 +4323,6 @@
     "info_context_hint": "Le prompt système exact envoyé avec chaque message. Uniquement les schémas des jeux de données — noms de colonnes, types et descriptions — jamais aucune ligne de données.",
     "info_no_exchanges": "Aucun appel API pour l'instant.",
     "info_sent": "Envoyé au modèle",
-    "info_received": "Reçu du modèle",
-    "info_tab_memory": "Mémoire",
-    "memory_hint": "Les préférences que vous écrivez ici sont envoyées à chaque requête. Rien n'est appris automatiquement — l'assistant n'enregistre jamais quoi que ce soit de votre conversation.",
-    "memory_placeholder": "ex. toujours légender les axes en français",
-    "memory_empty": "Aucune préférence enregistrée."
+    "info_received": "Reçu du modèle"
   }
 }

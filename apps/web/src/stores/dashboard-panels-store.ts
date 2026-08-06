@@ -1,12 +1,13 @@
 import { create } from 'zustand'
 
 /**
- * Which side panels are open on the dashboard, kept outside the page so they
- * survive navigation — leaving a dashboard and coming back used to close them.
+ * Which side panel is open on the dashboard, kept outside the page so it
+ * survives navigation — leaving a dashboard and coming back used to close it.
  *
- * Filters and the assistant can be open together: they answer different
- * questions ("what data am I looking at" vs "change this for me"), and the user
- * often wants to see a filter applied while asking for a widget.
+ * At most ONE panel is open at a time: two 320px panels leave the dashboard
+ * itself squeezed, which defeats the point of watching it change. Opening one
+ * closes the other. Closing the assistant does not lose the conversation — that
+ * lives in agent-session-store.
  */
 const STORAGE_KEY = 'linkr.dashboard.panels'
 
@@ -44,22 +45,20 @@ interface DashboardPanelsState extends PanelPrefs {
   setAgentOpen: (open: boolean) => void
 }
 
+/** Apply and persist in one step; opening either panel closes the other. */
+function apply(set: (prefs: PanelPrefs) => void, prefs: PanelPrefs) {
+  set(prefs)
+  persist(prefs)
+}
+
 export const useDashboardPanelsStore = create<DashboardPanelsState>((set, get) => ({
   ...load(),
-  toggleFilter: () => {
-    set({ filterOpen: !get().filterOpen })
-    persist({ filterOpen: get().filterOpen, agentOpen: get().agentOpen })
-  },
-  toggleAgent: () => {
-    set({ agentOpen: !get().agentOpen })
-    persist({ filterOpen: get().filterOpen, agentOpen: get().agentOpen })
-  },
-  setFilterOpen: (open) => {
-    set({ filterOpen: open })
-    persist({ filterOpen: open, agentOpen: get().agentOpen })
-  },
-  setAgentOpen: (open) => {
-    set({ agentOpen: open })
-    persist({ filterOpen: get().filterOpen, agentOpen: open })
-  },
+  toggleFilter: () =>
+    apply(set, { filterOpen: !get().filterOpen, agentOpen: false }),
+  toggleAgent: () =>
+    apply(set, { agentOpen: !get().agentOpen, filterOpen: false }),
+  setFilterOpen: (open) =>
+    apply(set, { filterOpen: open, agentOpen: open ? false : get().agentOpen }),
+  setAgentOpen: (open) =>
+    apply(set, { agentOpen: open, filterOpen: open ? false : get().filterOpen }),
 }))

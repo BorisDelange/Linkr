@@ -15,7 +15,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
-import { Input } from '@/components/ui/input'
+import ReactMarkdown from 'react-markdown'
+import {
+  remarkPlugins,
+  rehypePlugins,
+  urlTransform,
+} from '@/components/editor/MarkdownRenderer'
 import {
   Dialog,
   DialogContent,
@@ -96,6 +101,39 @@ function LiveElapsed({ since }: { since: number }) {
   return <span className="tabular-nums">{formatElapsed(now - since)}</span>
 }
 
+/**
+ * Assistant prose, rendered as markdown.
+ *
+ * Headings are deliberately flattened to near body size: a model writing "# Done"
+ * would otherwise blow out a 320px panel. Everything stays within one or two
+ * steps of the surrounding text, so structure reads as emphasis rather than as a
+ * document. Sanitisation comes from the shared config — this is model output.
+ */
+function AssistantMarkdown({ text }: { text: string }) {
+  return (
+    <div
+      className={cn(
+        'prose prose-sm dark:prose-invert max-w-none text-xs',
+        '[&>*:first-child]:!mt-0 [&>*:last-child]:!mb-0',
+        '[&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h4]:text-xs',
+        '[&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold',
+        '[&_h1]:mb-1 [&_h2]:mb-1 [&_h3]:mb-1 [&_h1]:mt-2 [&_h2]:mt-2 [&_h3]:mt-2',
+        '[&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5',
+        '[&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:p-2 [&_pre]:text-[11px]',
+        '[&_code]:text-[11px] [&_table]:text-[11px] [&_table]:my-1'
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        urlTransform={urlTransform}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
 /** A tool call renders as one collapsed line; the detail is one click away. */
 function ToolLine({ entry }: { entry: TranscriptEntry }) {
   const [open, setOpen] = useState(false)
@@ -132,9 +170,6 @@ function SessionInfoDialog({
   endpoint,
   systemPrompt,
   exchanges,
-  memoryNotes,
-  addMemoryNote,
-  removeMemoryNote,
   open,
   onOpenChange,
 }: {
@@ -143,14 +178,14 @@ function SessionInfoDialog({
   endpoint: LlmEndpoint | null
   systemPrompt: () => string
   exchanges: ExchangeRecord[]
-  memoryNotes: string[]
-  addMemoryNote: (note: string) => void
-  removeMemoryNote: (index: number) => void
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
-  const [noteDraft, setNoteDraft] = useState('')
+  const [selectedExchange, setSelectedExchange] = useState(0)
+  // Latest call is the interesting one; clamp so a reset never leaves a stale index.
+  const index = Math.min(selectedExchange, Math.max(exchanges.length - 1, 0))
+  const current = exchanges[index]
   const totalTokens = stats.promptTokens + stats.completionTokens
   const seconds = stats.elapsedMs / 1000
   const rate = seconds > 0 ? stats.completionTokens / seconds : 0
@@ -169,27 +204,24 @@ function SessionInfoDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] sm:max-w-2xl">
+      <DialogContent className="flex h-[70vh] flex-col sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-sm">{t('agent.info_title')}</DialogTitle>
         </DialogHeader>
-        <Tabs defaultValue="stats" className="min-h-0 flex-1">
-          <TabsList className="w-fit">
+        <Tabs defaultValue="stats" className="flex min-h-0 flex-1 flex-col">
+          <TabsList className="mx-auto w-fit shrink-0">
             <TabsTrigger value="stats" className="text-xs">
               {t('agent.info_tab_stats')}
             </TabsTrigger>
             <TabsTrigger value="context" className="text-xs">
               {t('agent.info_tab_context')}
             </TabsTrigger>
-            <TabsTrigger value="memory" className="text-xs">
-              {t('agent.info_tab_memory')} ({memoryNotes.length})
-            </TabsTrigger>
             <TabsTrigger value="exchanges" className="text-xs">
               {t('agent.info_tab_exchanges')} ({exchanges.length})
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="stats" className="mt-3">
+          <TabsContent value="stats" className="mt-3 min-h-0 flex-1 overflow-auto">
             <dl className="space-y-1.5 text-xs">
               {rows.map(([label, value]) => (
                 <div key={label} className="flex items-start justify-between gap-4">
@@ -205,111 +237,63 @@ function SessionInfoDialog({
             ) : null}
           </TabsContent>
 
-          <TabsContent value="context" className="mt-3">
-            <p className="mb-2 text-[11px] text-muted-foreground">
+          <TabsContent value="context" className="mt-3 flex min-h-0 flex-1 flex-col">
+            <p className="mb-2 shrink-0 text-[11px] text-muted-foreground">
               {t('agent.info_context_hint')}
             </p>
-            <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-2 font-mono text-[11px]">
+            <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-2 font-mono text-[11px]">
               {systemPrompt()}
             </pre>
           </TabsContent>
 
-          <TabsContent value="memory" className="mt-3">
-            <p className="mb-2 text-[11px] text-muted-foreground">
-              {t('agent.memory_hint')}
-            </p>
-            <div className="flex gap-1.5">
-              <Input
-                value={noteDraft}
-                onChange={(e) => setNoteDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    addMemoryNote(noteDraft)
-                    setNoteDraft('')
-                  }
-                }}
-                placeholder={t('agent.memory_placeholder')}
-                className="h-8 text-xs"
-              />
-              <Button
-                size="sm"
-                className="h-8"
-                onClick={() => {
-                  addMemoryNote(noteDraft)
-                  setNoteDraft('')
-                }}
-                disabled={!noteDraft.trim()}
-              >
-                {t('common.add')}
-              </Button>
-            </div>
-            <ul className="mt-2 space-y-1">
-              {memoryNotes.map((note, index) => (
-                <li
-                  key={`${note}-${index}`}
-                  className="flex items-start gap-2 rounded-md border px-2 py-1.5 text-xs"
-                >
-                  <span className="min-w-0 flex-1 break-words">{note}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeMemoryNote(index)}
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                  >
-                    <X size={12} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {memoryNotes.length === 0 ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {t('agent.memory_empty')}
-              </p>
-            ) : null}
-          </TabsContent>
-
-          <TabsContent value="exchanges" className="mt-3">
+          <TabsContent value="exchanges" className="mt-3 flex min-h-0 flex-1 flex-col">
             {exchanges.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 {t('agent.info_no_exchanges')}
               </p>
             ) : (
-              <div className="max-h-[50vh] space-y-2 overflow-auto">
-                {exchanges.map((exchange, index) => (
-                  <details key={exchange.id} className="rounded-md border">
-                    <summary className="cursor-pointer px-2 py-1.5 text-xs">
+              <>
+                {/* One selector plus one scroll area: a list of expandable blocks
+                    nested a second scrollbar inside the dialog's own. */}
+                <select
+                  value={selectedExchange}
+                  onChange={(e) => setSelectedExchange(Number(e.target.value))}
+                  className="mb-2 h-8 shrink-0 rounded-md border bg-background px-2 text-xs"
+                >
+                  {exchanges.map((exchange, index) => (
+                    <option key={exchange.id} value={index}>
                       #{index + 1} · {new Date(exchange.at).toLocaleTimeString()} ·{' '}
                       {(exchange.durationMs / 1000).toFixed(1)}s
                       {exchange.usage
                         ? ` · ${exchange.usage.promptTokens + exchange.usage.completionTokens} tok`
                         : ''}
-                    </summary>
-                    <div className="space-y-2 border-t p-2">
-                      <p className="text-[11px] font-medium text-muted-foreground">
-                        {t('agent.info_sent')}
-                      </p>
-                      <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[10px]">
-                        {JSON.stringify(exchange.request, null, 2)}
-                      </pre>
-                      <p className="text-[11px] font-medium text-muted-foreground">
-                        {t('agent.info_received')}
-                      </p>
-                      <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[10px]">
-                        {JSON.stringify(
-                          {
-                            content: exchange.responseText,
-                            tool_calls: exchange.toolCalls,
-                          },
-                          null,
-                          2
-                        )}
-                      </pre>
-                    </div>
-                  </details>
-                ))}
-              </div>
+                    </option>
+                  ))}
+                </select>
+                {current ? (
+                  <div className="min-h-0 flex-1 space-y-2 overflow-auto">
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      {t('agent.info_sent')}
+                    </p>
+                    <pre className="whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[10px]">
+                      {JSON.stringify(current.request, null, 2)}
+                    </pre>
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      {t('agent.info_received')}
+                    </p>
+                    <pre className="whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[10px]">
+                      {JSON.stringify(
+                        { content: current.responseText, tool_calls: current.toolCalls },
+                        null,
+                        2
+                      )}
+                    </pre>
+                  </div>
+                ) : null}
+              </>
             )}
           </TabsContent>
+
         </Tabs>
       </DialogContent>
     </Dialog>
@@ -336,9 +320,6 @@ export function DashboardAgentSidebar({
     systemPrompt,
     exchanges,
     turnStartedAt,
-    memoryNotes,
-    addMemoryNote,
-    removeMemoryNote,
     stats,
     pending,
     confirmPending,
@@ -416,12 +397,18 @@ export function DashboardAgentSidebar({
                 }
                 return (
                   <div key={entry.id}>
-                    <p className="whitespace-pre-wrap text-xs">
-                      {entry.text === 'reverted' ? t('agent.reverted') : entry.text}
-                      {entry.streaming ? (
+                    {entry.streaming ? (
+                      // Render plain while streaming: half-written markdown
+                      // (an unclosed ``` or table) would flicker between layouts.
+                      <p className="whitespace-pre-wrap text-xs">
+                        {entry.text}
                         <span className="ml-0.5 inline-block animate-pulse">▋</span>
-                      ) : null}
-                    </p>
+                      </p>
+                    ) : (
+                      <AssistantMarkdown
+                        text={entry.text === 'reverted' ? t('agent.reverted') : entry.text}
+                      />
+                    )}
                     {entry.durationMs != null && !entry.streaming ? (
                       <p className="mt-0.5 text-[10px] text-muted-foreground">
                         {clockTime(entry.at)} · {formatElapsed(entry.durationMs)}
@@ -521,9 +508,6 @@ export function DashboardAgentSidebar({
           endpoint={endpoint}
           systemPrompt={systemPrompt}
           exchanges={exchanges}
-          memoryNotes={memoryNotes}
-          addMemoryNote={addMemoryNote}
-          removeMemoryNote={removeMemoryNote}
           open={infoOpen}
           onOpenChange={setInfoOpen}
         />

@@ -286,7 +286,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     snapshotRef.current = null
     updateSession(dashboardId, { canUndo: false })
     push({ kind: 'assistant', text: 'reverted' })
-  }, [push])
+  }, [dashboardId, push, updateSession])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -300,7 +300,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     pendingRef.current = null
     setPending(null)
     resetSession(dashboardId)
-  }, [stop])
+  }, [dashboardId, resetSession, stop])
 
   /** Run a destructive call the user just approved. */
   const confirmPending = useCallback(() => {
@@ -322,7 +322,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
       ok: result.ok,
     })
     if (result.ok) updateSession(dashboardId, { canUndo: true })
-  }, [describe, push, t, toolContext])
+  }, [dashboardId, describe, push, t, toolContext, updateSession])
 
   const addMemoryNote = useCallback(
     (note: string) => {
@@ -512,7 +512,19 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
         setTurnStartedAt(null)
       }
     },
-    [buildPrompt, describe, endpoint, push, running, snapshot, toolContext]
+    [
+      buildPrompt,
+      dashboardId,
+      describe,
+      endpoint,
+      mutateSession,
+      push,
+      running,
+      session.history,
+      snapshot,
+      t,
+      toolContext,
+    ]
   )
 
   return {
