@@ -633,6 +633,18 @@ async function safeCount(
 // --- Parquet folder support ---
 
 /**
+ * A file name that carries no table identity of its own — the Hive/Spark
+ * convention where the table is the *directory* and files are numbered shards
+ * (`admissions/part-00000-xxx.parquet`, `chunk_3.parquet`, `0001.parquet`).
+ */
+function isShardFileName(baseName: string): boolean {
+  // `part-00000`, `part-00000-<uuid>-c000`, `chunk_3`, `data.1`, `0001`. The
+  // digits after the separator are what distinguish a shard from a real table
+  // that merely starts with one of these words (`data_quality`, `file_registry`).
+  return /^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$/.test(baseName) || /^\d+$/.test(baseName)
+}
+
+/**
  * Extract a table name from a file path.
  * If knownTables is provided, matches against that set.
  * Otherwise uses file/directory name heuristic.
@@ -640,6 +652,7 @@ async function safeCount(
 export function extractTableName(filePath: string, knownTables?: string[]): string {
   const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean)
   const knownSet = knownTables ? new Set(knownTables) : null
+  const baseName = parts[parts.length - 1].replace(/\.[^.]+$/, '').toLowerCase()
 
   if (knownSet) {
     // Walk segments from right to left, find the first known table name
@@ -649,12 +662,29 @@ export function extractTableName(filePath: string, knownTables?: string[]): stri
     }
   }
 
-  // Fallback: if the file is inside a directory, use the parent directory name
-  if (parts.length >= 2) {
+  // The file name is the table name (`admissions.parquet`), unless it is a
+  // numbered shard — only then does the parent directory carry the identity.
+  if (parts.length >= 2 && isShardFileName(baseName)) {
     return parts[parts.length - 2].toLowerCase()
   }
-  // Last resort: file name without extension
-  return parts[parts.length - 1].replace(/\.[^.]+$/, '').toLowerCase()
+  return baseName
+}
+
+/**
+ * Deepest directory shared by every path — what a folder picker selected.
+ * Returns '' when the paths are bare file names (no directory component).
+ */
+export function commonDirPrefix(paths: string[]): string {
+  if (paths.length === 0) return ''
+  const dirs = paths.map((p) => p.replace(/\\/g, '/').split('/').slice(0, -1))
+  let shared = dirs[0]
+  for (const d of dirs.slice(1)) {
+    let i = 0
+    while (i < shared.length && i < d.length && shared[i] === d[i]) i++
+    shared = shared.slice(0, i)
+    if (shared.length === 0) break
+  }
+  return shared.join('/')
 }
 
 /** Group StoredFile entries by table name. */

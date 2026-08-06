@@ -5,7 +5,7 @@ import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
-import { extractTableName, generateAlias } from '@/lib/duckdb/engine'
+import { commonDirPrefix, extractTableName, generateAlias } from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import type {
@@ -162,7 +162,7 @@ export function AddDatabaseDialog({
   const [importMode, setImportMode] = useState<'duckdb' | 'parquet'>('duckdb')
 
   // Schema preset
-  const [schemaPresetId, setSchemaPresetId] = useState<SchemaPresetId>('omop-5.4')
+  const [schemaPresetId, setSchemaPresetId] = useState<SchemaPresetId>('__none__')
 
   // File upload
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
@@ -196,7 +196,7 @@ export function AddDatabaseDialog({
     setUploadedFiles([])
     setFsHandles([])
     setImportMode('duckdb')
-    setSchemaPresetId('omop-5.4')
+    setSchemaPresetId('__none__')
     setDbEngine(defaultEngine)
     setDbHost('')
     setDbPort('')
@@ -399,7 +399,12 @@ export function AddDatabaseDialog({
     return !!(config.fileId || (config.fileIds && config.fileIds.length > 0))
   })()
 
-  const nameIsDuplicate = name.trim() && dataSources.some(ds => ds.name.toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
+  // Skipped while submitting: addDataSource inserts the row into the store
+  // before the slow part (upload / WASM mount) finishes and this dialog closes,
+  // so the check would match the row we just created and report the name we are
+  // importing under as already taken.
+  const nameIsDuplicate = !uploading && name.trim()
+    && dataSources.some(ds => ds.name.toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
 
   const isNameValid = !!name.trim() && !nameIsDuplicate
   const isConnectionValid =
@@ -452,6 +457,14 @@ export function AddDatabaseDialog({
         return extractTableName(path, schemaMapping?.knownTables)
       }))]
     : []
+
+  // Browsers never expose the absolute path (neither webkitRelativePath nor the
+  // FS Access picker), so the deepest shared directory is the most we can show.
+  const parquetFolderPath = isParquetMode && uploadedFiles.length > 0
+    ? commonDirPrefix(uploadedFiles.map(
+        (f) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+      ))
+    : ''
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -537,7 +550,7 @@ export function AddDatabaseDialog({
                 placeholder={t('databases.field_name_placeholder')}
                 autoFocus
               />
-              {name.trim() && dataSources.some(ds => ds.name.toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id) && (
+              {nameIsDuplicate && (
                 <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
               )}
             </div>
@@ -668,6 +681,7 @@ export function AddDatabaseDialog({
                       <FolderUploadArea
                         files={uploadedFiles}
                         tables={parquetTables}
+                        folderPath={parquetFolderPath}
                         inputRef={fileInputRef}
                         onFilesSelected={handleFilesSelected}
                         onFolderEntries={(entries) => {
@@ -953,6 +967,7 @@ async function readParquetFiles(dirHandle: FileSystemDirectoryHandle, prefix = '
 function FolderUploadArea({
   files,
   tables,
+  folderPath,
   inputRef,
   onFilesSelected,
   onFolderEntries,
@@ -961,6 +976,7 @@ function FolderUploadArea({
 }: {
   files: File[]
   tables: string[]
+  folderPath: string
   inputRef: React.RefObject<HTMLInputElement | null>
   onFilesSelected: (e: React.ChangeEvent<HTMLInputElement>) => void
   onFolderEntries: (entries: ParquetFileEntry[]) => void
@@ -1005,15 +1021,23 @@ function FolderUploadArea({
         </button>
       ) : (
         <div className="rounded-lg border bg-muted/30 px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <FolderOpen size={14} className="text-muted-foreground" />
-              <span className="text-xs font-medium">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              {folderPath && (
+                <div className="flex items-center gap-2">
+                  <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
+                  {/* Native title: the browser only surfaces it when the name is
+                      actually clipped, so no tooltip on short folder names. */}
+                  <span className="truncate text-xs font-medium" title={folderPath}>
+                    {folderPath}
+                  </span>
+                </div>
+              )}
+              <div className="mt-1 text-[11px] text-muted-foreground">
                 {t('databases.parquet_tables_found', { count: tables.length })}
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                ({files.length} files, {formatFileSize(files.reduce((s, f) => s + f.size, 0))})
-              </span>
+                {' · '}
+                {files.length} files, {formatFileSize(files.reduce((s, f) => s + f.size, 0))}
+              </div>
             </div>
             <button
               type="button"

@@ -408,9 +408,14 @@ def introspect_file(engine: str, path: str) -> list[dict]:
     return [{"name": name, "columns": cols} for name, cols in tables.items()]
 
 
+_SHARD_RE = re.compile(r"^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$|^\d+$")
+
+
 def _table_of(file_name: str, known: list[str]) -> str:
     """Table name for a Parquet file, mirroring the frontend's extractTableName:
-    prefer a known-table segment, else the parent dir, else the file stem."""
+    prefer a known-table segment, else the file stem — falling back to the parent
+    dir only for numbered shards (`admissions/part-00000.parquet`), where the
+    directory carries the table identity."""
     parts = [p for p in file_name.replace("\\", "/").split("/") if p]
     known_set = {k.lower() for k in known}
     if known_set:
@@ -418,9 +423,10 @@ def _table_of(file_name: str, known: list[str]) -> str:
             stem = re.sub(r"\.[^.]+$", "", seg).lower()
             if stem in known_set:
                 return stem
-    if len(parts) >= 2:
+    stem = re.sub(r"\.[^.]+$", "", parts[-1]).lower()
+    if len(parts) >= 2 and _SHARD_RE.match(stem):
         return parts[-2].lower()
-    return re.sub(r"\.[^.]+$", "", parts[-1]).lower()
+    return stem
 
 
 def _group_parquet(files: list[tuple[str, str]], known: list[str]) -> dict[str, list[str]]:
