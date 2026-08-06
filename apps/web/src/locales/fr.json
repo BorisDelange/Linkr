@@ -4353,6 +4353,9 @@
     "bench_depth": "Profondeur",
     "bench_depth_hint_quick": "Est-ce que ça marche : un cas par capacité. Suffisant pour vérifier un point d'accès et mesurer sa vitesse.",
     "bench_depth_hint_full": "Est-ce que c'est fiable : ajoute les graphiques à deux colonnes, plusieurs widgets en une demande, le calcul de mise en page et la capitalisation — là où les petits modèles échouent.",
-    "bench_lang_note": "Les tests utilisent la langue de l'application ({{lang}}), celle dans laquelle vous écrivez."
+    "bench_lang_note": "Les tests utilisent la langue de l'application ({{lang}}), celle dans laquelle vous écrivez.",
+    "bench_view_detail": "Détail",
+    "bench_view_matrix": "Tous les modèles",
+    "bench_case": "Test"
   }
 }

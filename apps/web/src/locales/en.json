@@ -4353,6 +4353,9 @@
     "bench_depth": "Depth",
     "bench_depth_hint_quick": "Does it work at all: one case per capability. Enough to check an endpoint and measure its speed.",
     "bench_depth_hint_full": "Is it good enough: adds two-column charts, several widgets in one request, layout arithmetic and title casing — where small models fail.",
-    "bench_lang_note": "Tests run in the app's language ({{lang}}), since that is what you type in."
+    "bench_lang_note": "Tests run in the app's language ({{lang}}), since that is what you type in.",
+    "bench_view_detail": "Detail",
+    "bench_view_matrix": "All models",
+    "bench_case": "Test"
   }
 }

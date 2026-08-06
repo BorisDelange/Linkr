@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BenchMultiSelect } from './BenchMultiSelect'
 import { cn } from '@/lib/utils'
 import { getPlugin } from '@/lib/plugins/registry'
@@ -43,7 +44,13 @@ export function AgentBenchTab() {
   const [available, setAvailable] = useState<string[]>([])
   const [models, setModels] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [selectedModel, setSelectedModel] = useState<string>('')
   const abortRef = useRef<AbortController | null>(null)
+
+  // Follow the newest report unless the user picked another, and never leave the
+  // selector pointing at a model whose report was just deleted.
+  const current =
+    reports.find((report) => report.model === selectedModel) ?? reports[0] ?? null
 
   // Offer the endpoint's models, defaulting to the configured one.
   useEffect(() => {
@@ -89,6 +96,7 @@ export function AgentBenchTab() {
               setProgress({ done: index + 1, total }),
           })
           setReports(saveReport(report))
+          setSelectedModel(report.model)
         }
       } catch (caught) {
         if ((caught as Error)?.name !== 'AbortError') {
@@ -170,14 +178,14 @@ export function AgentBenchTab() {
           </div>
 
           {running ? (
-            <Button size="sm" className="h-8" variant="destructive" onClick={stop}>
+            <Button size="sm" className="ml-auto h-8" variant="destructive" onClick={stop}>
               <Square size={13} />
               {t('agent.stop')}
             </Button>
           ) : (
             <Button
               size="sm"
-              className="h-8"
+              className="ml-auto h-8"
               onClick={() => start()}
               disabled={!models.length || !surfaces.length}
             >
@@ -205,30 +213,62 @@ export function AgentBenchTab() {
           </p>
         ) : null}
 
-        {reports.length > 1 ? (
-          <>
-            <ComparisonTable reports={reports} />
-            <div className="mt-2 flex justify-end">
+        {reports.length ? (
+          <div className="mt-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="h-8 min-w-48 rounded-md border bg-background px-2 text-xs"
+              >
+                {reports.map((report) => (
+                  <option key={report.model} value={report.model}>
+                    {report.model} — {report.passed}/{report.total} ·{' '}
+                    {report.tokensPerSecond.toFixed(1)} tok/s
+                  </option>
+                ))}
+              </select>
+
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setReports(clearReports())}
-                disabled={running}
+                className="h-8"
+                disabled={running || !current}
+                onClick={() => current && setReports(removeReport(current.model))}
               >
                 <Trash2 size={13} />
+                {t('agent.bench_remove')}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8"
+                disabled={running}
+                onClick={() => setReports(clearReports())}
+              >
                 {t('agent.bench_clear_all')}
               </Button>
             </div>
-          </>
+
+            <Tabs defaultValue="detail" className="mt-3">
+              <TabsList className="w-fit">
+                <TabsTrigger value="detail" className="text-xs">
+                  {t('agent.bench_view_detail')}
+                </TabsTrigger>
+                <TabsTrigger value="matrix" className="text-xs">
+                  {t('agent.bench_view_matrix')}
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="detail">
+                {current ? <ReportDetail report={current} /> : null}
+              </TabsContent>
+              <TabsContent value="matrix">
+                <MatrixTable reports={reports} />
+              </TabsContent>
+            </Tabs>
+          </div>
         ) : null}
-        {reports.map((report) => (
-          <ReportBlock
-            key={report.model}
-            report={report}
-            expanded={reports.length === 1}
-            onRemove={() => setReports(removeReport(report.model))}
-          />
-        ))}
 
         {!reports.length && !running ? (
           <p className="mt-4 text-xs text-muted-foreground">{t('agent.bench_empty')}</p>
@@ -238,40 +278,29 @@ export function AgentBenchTab() {
   )
 }
 
-function ComparisonTable({ reports }: { reports: BenchReport[] }) {
+/** One model's run: headline figures, then a row per case. */
+function ReportDetail({ report }: { report: BenchReport }) {
   const { t } = useTranslation()
-  const ranked = [...reports].sort(
-    (a, b) => b.passed / b.total - a.passed / a.total || b.tokensPerSecond - a.tokensPerSecond
-  )
+  const pct = Math.round((report.passed / report.total) * 100)
   return (
-    <div className="mt-4 overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead className="text-muted-foreground">
-          <tr className="border-b">
-            <th className="py-1 text-left font-medium">{t('agent.info_model')}</th>
-            <th className="py-1 text-right font-medium">{t('agent.bench_score')}</th>
-            <th className="py-1 text-right font-medium">{t('agent.bench_speed')}</th>
-            <th className="py-1 text-right font-medium">{t('agent.bench_per_case')}</th>
-            <th className="py-1 text-right font-medium">{t('agent.info_total_tokens')}</th>
-          </tr>
-        </thead>
+    <div className="mt-3">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <Badge variant={pct === 100 ? 'default' : pct >= 50 ? 'secondary' : 'destructive'}>
+          {report.passed}/{report.total}
+        </Badge>
+        <span className="text-xs text-muted-foreground">
+          {report.tokensPerSecond.toFixed(1)} tok/s ·{' '}
+          {(report.totalMs / report.total / 1000).toFixed(1)}s
+          {t('agent.bench_per_case_suffix')} ·{' '}
+          {(report.promptTokens + report.completionTokens).toLocaleString()}{' '}
+          {t('agent.bench_tokens')} · {new Date(report.startedAt).toLocaleString()}
+        </span>
+      </div>
+
+      <table className="mt-2 w-full text-xs">
         <tbody>
-          {ranked.map((report) => (
-            <tr key={report.model} className="border-b last:border-0">
-              <td className="py-1 font-medium">{report.model}</td>
-              <td className="py-1 text-right tabular-nums">
-                {report.passed}/{report.total}
-              </td>
-              <td className="py-1 text-right tabular-nums">
-                {report.tokensPerSecond.toFixed(1)} tok/s
-              </td>
-              <td className="py-1 text-right tabular-nums">
-                {(report.totalMs / report.total / 1000).toFixed(1)}s
-              </td>
-              <td className="py-1 text-right tabular-nums">
-                {(report.promptTokens + report.completionTokens).toLocaleString()}
-              </td>
-            </tr>
+          {report.cases.map((result) => (
+            <CaseRow key={result.id} result={result} />
           ))}
         </tbody>
       </table>
@@ -279,50 +308,79 @@ function ComparisonTable({ reports }: { reports: BenchReport[] }) {
   )
 }
 
-function ReportBlock({
-  report,
-  expanded,
-  onRemove,
-}: {
-  report: BenchReport
-  expanded: boolean
-  onRemove: () => void
-}) {
+/**
+ * Every model side by side, one row per case. This is the view that answers
+ * "which model should we run here" — a per-model score hides WHICH cases a model
+ * fails, and that is what decides whether it is usable.
+ */
+function MatrixTable({ reports }: { reports: BenchReport[] }) {
   const { t } = useTranslation()
-  const pct = Math.round((report.passed / report.total) * 100)
-  return (
-    <div className="mt-4">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span className="text-sm font-semibold">{report.model}</span>
-        <Badge variant={pct === 100 ? 'default' : pct >= 50 ? 'secondary' : 'destructive'}>
-          {report.passed}/{report.total}
-        </Badge>
-        <span className="text-xs text-muted-foreground">
-          {report.tokensPerSecond.toFixed(1)} tok/s ·{' '}
-          {(report.totalMs / report.total / 1000).toFixed(1)}s{t('agent.bench_per_case_suffix')} ·{' '}
-          {(report.promptTokens + report.completionTokens).toLocaleString()}{' '}
-          {t('agent.bench_tokens')} · {new Date(report.startedAt).toLocaleString()}
-        </span>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="ml-auto size-6"
-          onClick={onRemove}
-          title={t('agent.bench_remove')}
-        >
-          <Trash2 size={12} />
-        </Button>
-      </div>
+  const ranked = [...reports].sort(
+    (a, b) => b.passed / b.total - a.passed / a.total || b.tokensPerSecond - a.tokensPerSecond
+  )
+  // Union of case ids, so a model benched on a different depth still lines up.
+  const rows: { id: string; label: string }[] = []
+  for (const report of ranked) {
+    for (const result of report.cases) {
+      if (!rows.some((row) => row.id === result.id)) {
+        rows.push({ id: result.id, label: result.label })
+      }
+    }
+  }
 
-      {expanded ? (
-        <table className="mt-2 w-full text-xs">
-          <tbody>
-            {report.cases.map((result) => (
-              <CaseRow key={result.id} result={result} />
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b text-muted-foreground">
+            <th className="py-1 pr-2 text-left font-medium">{t('agent.bench_case')}</th>
+            {ranked.map((report) => (
+              <th key={report.model} className="px-2 py-1 text-center font-medium">
+                {report.model}
+              </th>
             ))}
-          </tbody>
-        </table>
-      ) : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id} className="border-b last:border-0">
+              <td className="py-1 pr-2">{row.label}</td>
+              {ranked.map((report) => {
+                const result = report.cases.find((item) => item.id === row.id)
+                return (
+                  <td key={report.model} className="px-2 py-1 text-center">
+                    {!result ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : result.ok ? (
+                      <Check size={13} className="mx-auto text-emerald-600" />
+                    ) : (
+                      <X size={13} className="mx-auto text-destructive" />
+                    )}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t font-medium">
+            <td className="py-1 pr-2">{t('agent.bench_score')}</td>
+            {ranked.map((report) => (
+              <td key={report.model} className="px-2 py-1 text-center tabular-nums">
+                {report.passed}/{report.total}
+              </td>
+            ))}
+          </tr>
+          <tr className="text-muted-foreground">
+            <td className="py-1 pr-2">{t('agent.bench_speed')}</td>
+            {ranked.map((report) => (
+              <td key={report.model} className="px-2 py-1 text-center tabular-nums">
+                {report.tokensPerSecond.toFixed(1)}
+              </td>
+            ))}
+          </tr>
+        </tfoot>
+      </table>
     </div>
   )
 }
