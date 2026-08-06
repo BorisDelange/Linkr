@@ -23,12 +23,13 @@ const DEFAULT_URL = process.env.OLLAMA_URL ?? 'http://localhost:11434/v1'
 
 function parseArgs(argv) {
   const models = []
-  const options = { runs: 1, json: null, mode: 'full', baseUrl: DEFAULT_URL, all: false }
+  const options = { runs: 1, json: null, mode: 'full', lang: 'en', baseUrl: DEFAULT_URL, all: false }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--runs') options.runs = Number(argv[++i])
     else if (arg === '--json') options.json = argv[++i]
     else if (arg === '--mode') options.mode = argv[++i]
+    else if (arg === '--lang') options.lang = argv[++i]
     else if (arg === '--url') options.baseUrl = argv[++i]
     else if (arg === '--all') options.all = true
     else models.push(arg)
@@ -60,7 +61,7 @@ let targets = models
 if (options.all || !targets.length) {
   const available = await listModels(options.baseUrl)
   if (!options.all) {
-    console.error('usage: node scripts/agent-bench/run.mjs <model> [...] [--runs N] [--mode quick|full] [--json out]')
+    console.error('usage: node scripts/agent-bench/run.mjs <model> [...] [--runs N] [--mode quick|full] [--lang fr|en] [--json out]')
     console.error(`\navailable: ${available.join(', ')}`)
     await server.close()
     process.exit(1)
@@ -81,10 +82,11 @@ for (const model of targets) {
       endpoint: { baseUrl: options.baseUrl, model },
       manifest,
       mode: options.mode,
+      lang: options.lang,
       signal: new AbortController().signal,
       onProgress: (result) => {
         const mark = result.ok ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m'
-        console.log(`  ${mark} ${result.id} ${DIM}(${(result.ms / 1000).toFixed(1)}s)${OFF}`)
+        console.log(`  ${mark} ${result.label} ${DIM}[${result.lang}] (${(result.ms / 1000).toFixed(1)}s)${OFF}`)
         if (!result.ok) {
           console.log(`      ${DIM}${result.detail}${OFF}`)
           if (result.calls.length) console.log(`      ${DIM}calls: ${result.calls.join(' → ')}${OFF}`)

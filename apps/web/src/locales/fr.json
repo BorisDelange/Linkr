@@ -3041,7 +3041,7 @@
     "vocab_script_updated": "Script pipeline mis à jour avec {{count}} alignements.",
     "vocab_import_error": "Échec de la création du script.",
     "vocab_invalid_csv": "CSV invalide — colonnes requises non trouvées (source_code, target_concept_id).",
-    "vocab_no_vocab_ds": "Aucune base de vocabulaire de référence configurée pour ce projet d'alignement. Importez le vocabulaire ATHENA dans l'onglet Concept Sets.",
+    "vocab_no_vocab_ds": "Aucune base de vocabulaire de référence configurée pour ce projet d'alignement. Ouvrez le projet d'alignement et importez le vocabulaire ATHENA depuis son onglet Concepts cibles.",
     "pipeline_tab_coming_soon": "Vue DAG du pipeline — bientôt disponible",
     "profiling_tab_coming_soon": "Profiling de la source — bientôt disponible",
     "new_file": "Nouveau fichier",
@@ -3170,7 +3170,9 @@
     "comparison_no_mappings": "Aucun alignement de concept trouvé. Lancez le pipeline ou vérifiez la table source_to_concept_map.",
     "comparison_mapping_concepts": "concepts",
     "run": "Exécuter",
-    "save": "Enregistrer"
+    "save": "Enregistrer",
+    "copy_prefix": "Copier le préfixe",
+    "copy_prefix_tooltip": "Copier le préfixe {{role}}. pour désigner cette base en SQL"
   },
   "sql_scripts": {
     "title": "Collections de scripts",
@@ -4349,7 +4351,8 @@
     "bench_surfaces": "Quoi tester",
     "bench_surfaces_placeholder": "Choisir les pages",
     "bench_depth": "Profondeur",
-    "bench_depth_hint_quick": "Est-ce que ça marche : un cas par capacité, en français seulement. Suffisant pour vérifier un point d'accès et mesurer sa vitesse.",
-    "bench_depth_hint_full": "Est-ce que c'est fiable : ajoute l'anglais, les graphiques à deux colonnes, plusieurs widgets en une demande et le calcul de mise en page — là où les petits modèles échouent."
+    "bench_depth_hint_quick": "Est-ce que ça marche : un cas par capacité. Suffisant pour vérifier un point d'accès et mesurer sa vitesse.",
+    "bench_depth_hint_full": "Est-ce que c'est fiable : ajoute les graphiques à deux colonnes, plusieurs widgets en une demande, le calcul de mise en page et la capitalisation — là où les petits modèles échouent.",
+    "bench_lang_note": "Les tests utilisent la langue de l'application ({{lang}}), celle dans laquelle vous écrivez."
   }
 }

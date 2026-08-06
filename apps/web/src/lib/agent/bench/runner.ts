@@ -17,13 +17,16 @@ import {
   benchFixture,
   selectCases,
   type BenchCase,
+  type BenchLang,
   type BenchState,
   type BenchSurface,
 } from './cases'
 
 export interface CaseResult {
   id: string
-  lang: 'fr' | 'en'
+  /** Localized name for display; the id stays the stable key. */
+  label: string
+  lang: BenchLang
   ok: boolean
   /** Why it failed, or null. */
   detail: string | null
@@ -39,6 +42,7 @@ export interface BenchReport {
   startedAt: number
   mode: 'quick' | 'full'
   surfaces: BenchSurface[]
+  lang: BenchLang
   passed: number
   total: number
   /** Milliseconds spent waiting on the model. */
@@ -136,6 +140,7 @@ async function runCase(
   benchCase: BenchCase,
   endpoint: LlmEndpoint,
   manifest: PluginManifest,
+  lang: BenchLang,
   signal: AbortSignal
 ): Promise<CaseResult> {
   const state = benchFixture()
@@ -160,10 +165,10 @@ async function runCase(
         options: DEFAULT_CONTEXT_OPTIONS,
       }),
     },
-    { role: 'user', content: benchCase.prompt },
+    { role: 'user', content: benchCase.prompt[lang] },
   ]
 
-  const allowed = new Set(selectToolNames(benchCase.prompt, false))
+  const allowed = new Set(selectToolNames(benchCase.prompt[lang], false))
   const tools = DASHBOARD_TOOLS.filter((tool) => allowed.has(tool.function.name))
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (endpoint.apiKey) headers.Authorization = `Bearer ${endpoint.apiKey}`
@@ -238,10 +243,11 @@ async function runCase(
     if (held) break
   }
 
-  const detail = benchCase.check(state)
+  const detail = benchCase.check(state, lang)
   return {
     id: benchCase.id,
-    lang: benchCase.lang,
+    label: benchCase.label[lang] ?? benchCase.label.en ?? benchCase.id,
+    lang,
     ok: detail === null,
     detail,
     ms: Date.now() - startedAt,
@@ -257,6 +263,8 @@ export interface RunBenchOptions {
   mode: 'quick' | 'full'
   /** Assistant surfaces to exercise; only 'dashboard' exists today. */
   surfaces?: BenchSurface[]
+  /** Prompt language — normally the app's, since that is what users type in. */
+  lang?: BenchLang
   signal: AbortSignal
   /** Called after each case so the UI can show progress as it goes. */
   onProgress?: (result: CaseResult, index: number, total: number) => void
@@ -267,6 +275,7 @@ export async function runBench({
   manifest,
   mode,
   surfaces = ['dashboard'],
+  lang = 'en',
   signal,
   onProgress,
 }: RunBenchOptions): Promise<BenchReport> {
@@ -277,12 +286,13 @@ export async function runBench({
   for (const [index, benchCase] of cases.entries()) {
     let result: CaseResult
     try {
-      result = await runCase(benchCase, endpoint, manifest, signal)
+      result = await runCase(benchCase, endpoint, manifest, lang, signal)
     } catch (error) {
       if ((error as Error)?.name === 'AbortError') throw error
       result = {
         id: benchCase.id,
-        lang: benchCase.lang,
+        label: benchCase.label[lang] ?? benchCase.label.en ?? benchCase.id,
+        lang,
         ok: false,
         detail: (error as Error).message,
         ms: 0,
@@ -302,6 +312,7 @@ export async function runBench({
     startedAt,
     mode,
     surfaces,
+    lang,
     passed: results.filter((r) => r.ok).length,
     total: results.length,
     totalMs,

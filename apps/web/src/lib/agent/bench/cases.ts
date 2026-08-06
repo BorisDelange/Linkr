@@ -1,16 +1,19 @@
 /**
  * The copilot's test battery, shared by the CLI bench and the in-app Tests tab.
  *
- * Each case is a user request plus a check on the resulting dashboard STATE, not
- * on which tools were called or in what order — several routes reach the same
- * result and all are correct, so asserting the route would fail good models for
- * cosmetic reasons.
+ * Each case is a CAPABILITY with the same request written in both languages, and
+ * a check on the resulting dashboard STATE — not on which tools were called or in
+ * what order, since several routes reach the same result and all are correct.
  *
- * Cases are drawn from failures actually observed: column references by name
- * instead of id, lowercase titles, models inventing a tool, ambiguous column
- * wording, and the same request in French and English.
+ * The language is chosen at run time (the app's current language by default)
+ * rather than baked into the case list: the app is FR/EN, a model can be markedly
+ * weaker in one of them, and what a user wants to know is "does it work in the
+ * language I type in".
+ *
+ * Cases come from failures actually observed: columns referenced by name instead
+ * of id, lowercase titles, models inventing a tool, and vague column wording.
  */
-import type { DatasetColumn } from '@/types'
+import type { DatasetColumn, LocalizedString } from '@/types'
 
 export interface BenchTab {
   id: string
@@ -51,16 +54,24 @@ export type BenchSurface = 'dashboard'
 
 export const BENCH_SURFACES: BenchSurface[] = ['dashboard']
 
+export type BenchLang = 'fr' | 'en'
+
 export interface BenchCase {
   id: string
   surface: BenchSurface
-  lang: 'fr' | 'en'
-  /** Included in the short "quick check" run. */
+  /** Human-readable name, shown in the results table. */
+  label: LocalizedString
+  /** The same request in each language. */
+  prompt: Record<BenchLang, string>
+  /**
+   * In the smoke run: one case per capability. The excluded cases are the ones
+   * needing a two-step plan (look something up, then act) or fine detail — which
+   * is exactly where small models fail, so they belong to the full run.
+   */
   quick?: boolean
-  prompt: string
   seed?: (state: BenchState) => void
   /** null = pass; a string explains the failure. */
-  check: (state: BenchState) => string | null
+  check: (state: BenchState, lang: BenchLang) => string | null
 }
 
 function column(
@@ -120,46 +131,52 @@ const widgetsIn = (state: BenchState, tabId: string) =>
 
 export const BENCH_CASES: BenchCase[] = [
   {
-    id: 'create-tab-fr',
+    id: 'create-tab',
     surface: 'dashboard',
-    lang: 'fr',
     quick: true,
-    prompt: 'Ajoute un onglet Cardiologie',
-    check: (state) => {
-      const tab = tabNamed(state, 'Cardiologie')
+    label: { en: 'Create a tab', fr: 'Créer un onglet' },
+    prompt: {
+      fr: 'Ajoute un onglet Cardiologie',
+      en: 'Add a tab called Cardiology',
+    },
+    check: (state, lang) => {
+      const expected = lang === 'fr' ? 'Cardiologie' : 'Cardiology'
+      const tab = tabNamed(state, expected)
       if (!tab) {
-        return `no tab named Cardiologie (got: ${state.tabs.map((t) => t.name).join(', ')})`
+        return `no tab named ${expected} (got: ${state.tabs.map((t) => t.name).join(', ')})`
       }
-      return tab.name === 'Cardiologie' ? null : `not capitalised: "${tab.name}"`
+      return tab.name === expected ? null : `not capitalised: "${tab.name}"`
     },
   },
   {
-    id: 'create-tab-en',
+    id: 'capitalise-title',
     surface: 'dashboard',
-    lang: 'en',
-    prompt: 'Add a tab called Cardiology',
-    check: (state) => (tabNamed(state, 'Cardiology') ? null : 'no tab named Cardiology'),
-  },
-  {
-    id: 'create-tab-lowercase',
-    surface: 'dashboard',
-    lang: 'fr',
-    prompt: 'crée un onglet nommé pneumologie',
-    check: (state) => {
-      const tab = tabNamed(state, 'pneumologie')
-      if (!tab) return 'no tab named pneumologie'
-      return tab.name === 'Pneumologie' ? null : `not capitalised: "${tab.name}"`
+    label: { en: 'Capitalise the title', fr: 'Mettre la majuscule' },
+    prompt: {
+      fr: 'crée un onglet nommé pneumologie',
+      en: 'create a tab named pulmonology',
+    },
+    check: (state, lang) => {
+      const typed = lang === 'fr' ? 'pneumologie' : 'pulmonology'
+      const tab = tabNamed(state, typed)
+      if (!tab) return `no tab named ${typed}`
+      const expected = typed.charAt(0).toUpperCase() + typed.slice(1)
+      return tab.name === expected ? null : `not capitalised: "${tab.name}"`
     },
   },
   {
-    id: 'tab-plus-widget-explicit-column',
+    id: 'tab-plus-widget',
     surface: 'dashboard',
-    lang: 'fr',
     quick: true,
-    prompt: 'Ajoute un onglet Néonatologie, avec un histogramme de la distribution de ga_weeks',
-    check: (state) => {
-      const tab = tabNamed(state, 'Néonatologie')
-      if (!tab) return 'no tab named Néonatologie'
+    label: { en: 'Tab with a histogram', fr: 'Onglet avec un histogramme' },
+    prompt: {
+      fr: 'Ajoute un onglet Néonatologie, avec un histogramme de la distribution de ga_weeks',
+      en: 'Add a tab called Neonatology, with a histogram of the ga_weeks distribution',
+    },
+    check: (state, lang) => {
+      const expected = lang === 'fr' ? 'Néonatologie' : 'Neonatology'
+      const tab = tabNamed(state, expected)
+      if (!tab) return `no tab named ${expected}`
       const widgets = widgetsIn(state, tab.id)
       if (!widgets.length) return 'no widget in the new tab'
       const config = widgets[0].config
@@ -170,12 +187,15 @@ export const BENCH_CASES: BenchCase[] = [
     },
   },
   {
-    id: 'widget-vague-column-fr',
+    id: 'vague-column',
     surface: 'dashboard',
-    lang: 'fr',
     quick: true,
-    // "âge gestationnel" matches the LABEL, not the column name.
-    prompt: "Ajoute un histogramme de l'âge gestationnel",
+    // The wording matches the column LABEL, not its name — the realistic case.
+    label: { en: 'Vaguely named column', fr: 'Colonne nommée vaguement' },
+    prompt: {
+      fr: "Ajoute un histogramme de l'âge gestationnel",
+      en: 'Add a histogram of gestational age',
+    },
     check: (state) => {
       if (!state.widgets.length) return 'no widget created'
       const config = state.widgets[0].config
@@ -183,21 +203,13 @@ export const BENCH_CASES: BenchCase[] = [
     },
   },
   {
-    id: 'widget-vague-column-en',
+    id: 'scatter-two-columns',
     surface: 'dashboard',
-    lang: 'en',
-    prompt: 'Add a histogram of gestational age',
-    check: (state) => {
-      if (!state.widgets.length) return 'no widget created'
-      const config = state.widgets[0].config
-      return config.xColumn === 'col_ga_weeks' ? null : `xColumn=${String(config.xColumn)}`
+    label: { en: 'Scatter of two columns', fr: 'Nuage de points à deux colonnes' },
+    prompt: {
+      fr: "Fais un nuage de points du poids de naissance en fonction de l'âge gestationnel",
+      en: 'Make a scatter plot of birth weight against gestational age',
     },
-  },
-  {
-    id: 'widget-scatter-two-columns',
-    surface: 'dashboard',
-    lang: 'fr',
-    prompt: "Fais un nuage de points du poids de naissance en fonction de l'âge gestationnel",
     check: (state) => {
       if (!state.widgets.length) return 'no widget created'
       const config = state.widgets[0].config
@@ -210,28 +222,34 @@ export const BENCH_CASES: BenchCase[] = [
     },
   },
   {
-    id: 'tab-plus-two-widgets',
+    id: 'two-widgets-one-request',
     surface: 'dashboard',
-    lang: 'fr',
-    prompt:
-      'Crée un onglet Qualité avec deux widgets : un histogramme du score Apgar à 5 minutes, et un histogramme du poids de naissance',
-    check: (state) => {
-      const tab = tabNamed(state, 'Qualité')
-      if (!tab) return 'no tab named Qualité'
+    label: { en: 'Two widgets at once', fr: 'Deux widgets d’un coup' },
+    prompt: {
+      fr: 'Crée un onglet Qualité avec deux widgets : un histogramme du score Apgar à 5 minutes, et un histogramme du poids de naissance',
+      en: 'Create a tab called Quality with two widgets: a histogram of the Apgar score at 5 minutes, and a histogram of birth weight',
+    },
+    check: (state, lang) => {
+      const expected = lang === 'fr' ? 'Qualité' : 'Quality'
+      const tab = tabNamed(state, expected)
+      if (!tab) return `no tab named ${expected}`
       const widgets = widgetsIn(state, tab.id)
       if (widgets.length < 2) return `only ${widgets.length} widget(s)`
       const columns = widgets.map((w) => w.config.xColumn).sort()
-      const expected = ['col_apgar_5min', 'col_birthweight_g']
-      return JSON.stringify(columns) === JSON.stringify(expected)
+      const wanted = ['col_apgar_5min', 'col_birthweight_g']
+      return JSON.stringify(columns) === JSON.stringify(wanted)
         ? null
         : `columns=${JSON.stringify(columns)}`
     },
   },
   {
-    id: 'widget-half-width',
+    id: 'half-width-layout',
     surface: 'dashboard',
-    lang: 'fr',
-    prompt: "Ajoute un histogramme de ga_weeks qui prend la moitié gauche de l'écran",
+    label: { en: 'Half-width layout', fr: 'Mise en page sur la moitié' },
+    prompt: {
+      fr: "Ajoute un histogramme de ga_weeks qui prend la moitié gauche de l'écran",
+      en: 'Add a histogram of ga_weeks taking the left half of the screen',
+    },
     check: (state) => {
       if (!state.widgets.length) return 'no widget created'
       const { layout } = state.widgets[0]
@@ -240,12 +258,15 @@ export const BENCH_CASES: BenchCase[] = [
     },
   },
   {
-    id: 'delete-tab-by-name',
+    id: 'delete-tab',
     surface: 'dashboard',
-    lang: 'fr',
     quick: true,
+    label: { en: 'Delete a tab', fr: 'Supprimer un onglet' },
     seed: (state) => state.tabs.push({ id: 'tab_seed', name: 'Test' }),
-    prompt: "Supprime l'onglet Test",
+    prompt: {
+      fr: "Supprime l'onglet Test",
+      en: 'Delete the Test tab',
+    },
     // A correct run stops at the confirmation rather than deleting.
     check: (state) => {
       if (state.pending?.tool === 'remove_tab') return null
@@ -255,7 +276,7 @@ export const BENCH_CASES: BenchCase[] = [
   {
     id: 'delete-widget',
     surface: 'dashboard',
-    lang: 'fr',
+    label: { en: 'Delete a widget', fr: 'Supprimer un widget' },
     seed: (state) => {
       state.tabs.push({ id: 'tab_seed', name: 'Labs' })
       state.widgets.push({
@@ -266,7 +287,10 @@ export const BENCH_CASES: BenchCase[] = [
         layout: { x: 0, y: 0, w: 12, h: 8 },
       })
     },
-    prompt: 'Supprime le widget Lactates',
+    prompt: {
+      fr: 'Supprime le widget Lactates',
+      en: 'Delete the Lactates widget',
+    },
     check: (state) =>
       state.pending?.tool === 'remove_widget'
         ? null
@@ -275,9 +299,12 @@ export const BENCH_CASES: BenchCase[] = [
   {
     id: 'refuse-out-of-scope',
     surface: 'dashboard',
-    lang: 'fr',
     quick: true,
-    prompt: 'Supprime tous les patients de plus de 80 ans de la base',
+    label: { en: 'Refuse an impossible request', fr: 'Refuser une demande impossible' },
+    prompt: {
+      fr: 'Supprime tous les patients de plus de 80 ans de la base',
+      en: 'Delete every patient older than 80 from the database',
+    },
     // Small models grab the nearest tool here; nothing must move.
     check: (state) => {
       if (state.tabs.length !== 1) return 'created or removed a tab'
@@ -287,10 +314,13 @@ export const BENCH_CASES: BenchCase[] = [
     },
   },
   {
-    id: 'ask-capabilities',
+    id: 'answer-question',
     surface: 'dashboard',
-    lang: 'fr',
-    prompt: 'Que peux-tu faire ?',
+    label: { en: 'Answer without acting', fr: 'Répondre sans agir' },
+    prompt: {
+      fr: 'Que peux-tu faire ?',
+      en: 'What can you do?',
+    },
     check: (state) => {
       if (state.tabs.length !== 1 || state.widgets.length) return 'changed the dashboard'
       return state.replyText.trim() ? null : 'no answer given'
@@ -298,7 +328,7 @@ export const BENCH_CASES: BenchCase[] = [
   },
 ]
 
-/** The short run: enough to prove the endpoint works and measure its speed. */
+/** The short run: one case per capability, skipping the two-step ones. */
 export const QUICK_CASES = BENCH_CASES.filter((benchCase) => benchCase.quick)
 
 /** Cases for the chosen surfaces, optionally limited to the quick subset. */

@@ -15,6 +15,7 @@ import { runBench, type BenchReport, type CaseResult } from '@/lib/agent/bench/r
 import {
   BENCH_SURFACES,
   selectCases,
+  type BenchLang,
   type BenchSurface,
 } from '@/lib/agent/bench/cases'
 import { clearReports, loadReports, removeReport, saveReport } from '@/lib/agent/bench/storage'
@@ -31,7 +32,9 @@ type Mode = 'quick' | 'full'
  * throughput both come out of the same run.
  */
 export function AgentBenchTab() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  // Test in the language the user actually types in.
+  const lang: BenchLang = i18n.language?.startsWith('fr') ? 'fr' : 'en'
   const [mode, setMode] = useState<Mode>('quick')
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
@@ -80,6 +83,7 @@ export function AgentBenchTab() {
             manifest: plugin.manifest,
             mode,
             surfaces,
+            lang,
             signal: controller.signal,
             onProgress: (_result, index, total) =>
               setProgress({ done: index + 1, total }),
@@ -96,7 +100,7 @@ export function AgentBenchTab() {
         setProgress(null)
       }
     },
-    [caseCount, models, mode, surfaces]
+    [caseCount, lang, models, mode, surfaces]
   )
 
 
@@ -191,7 +195,8 @@ export function AgentBenchTab() {
         </div>
 
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          {t(`agent.bench_depth_hint_${mode}`)}
+          {t(`agent.bench_depth_hint_${mode}`)}{' '}
+          {t('agent.bench_lang_note', { lang: lang.toUpperCase() })}
         </p>
 
         {error ? (
@@ -310,11 +315,13 @@ function ReportBlock({
       </div>
 
       {expanded ? (
-        <ul className="mt-2 space-y-1">
-          {report.cases.map((result) => (
-            <CaseRow key={result.id} result={result} />
-          ))}
-        </ul>
+        <table className="mt-2 w-full text-xs">
+          <tbody>
+            {report.cases.map((result) => (
+              <CaseRow key={result.id} result={result} />
+            ))}
+          </tbody>
+        </table>
       ) : null}
     </div>
   )
@@ -322,17 +329,16 @@ function ReportBlock({
 
 function CaseRow({ result }: { result: CaseResult }) {
   return (
-    <li className="flex items-start gap-2 text-xs">
-      {result.ok ? (
-        <Check size={13} className="mt-0.5 shrink-0 text-emerald-600" />
-      ) : (
-        <X size={13} className="mt-0.5 shrink-0 text-destructive" />
-      )}
-      <div className="min-w-0 flex-1">
-        <span className="font-mono">{result.id}</span>
-        <span className="ml-1.5 text-muted-foreground">
-          {(result.ms / 1000).toFixed(1)}s · {result.lang}
-        </span>
+    <tr className="border-b last:border-0 align-top">
+      <td className="py-1 pr-2 w-4">
+        {result.ok ? (
+          <Check size={13} className="text-emerald-600" />
+        ) : (
+          <X size={13} className="text-destructive" />
+        )}
+      </td>
+      <td className="py-1 pr-2">
+        {result.label}
         {result.detail ? (
           <p className="text-[11px] text-destructive">{result.detail}</p>
         ) : null}
@@ -341,7 +347,15 @@ function CaseRow({ result }: { result: CaseResult }) {
             {result.calls.join(' → ')}
           </p>
         ) : null}
-      </div>
-    </li>
+      </td>
+      <td className="w-12 py-1 pr-2 text-right">
+        <Badge variant="secondary" className="text-[10px] uppercase">
+          {result.lang}
+        </Badge>
+      </td>
+      <td className="w-16 py-1 text-right tabular-nums text-muted-foreground">
+        {(result.ms / 1000).toFixed(1)}s
+      </td>
+    </tr>
   )
 }

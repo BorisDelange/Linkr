@@ -3041,7 +3041,7 @@
     "vocab_script_updated": "Pipeline script updated with {{count}} mappings.",
     "vocab_import_error": "Script creation failed.",
     "vocab_invalid_csv": "Invalid CSV — required columns not found (source_code, target_concept_id).",
-    "vocab_no_vocab_ds": "No vocabulary reference database configured for this mapping project. Import ATHENA vocabulary in the Concept Sets tab first.",
+    "vocab_no_vocab_ds": "No vocabulary reference database configured for this mapping project. Open the mapping project and import the ATHENA vocabulary from its Target Concepts tab first.",
     "pipeline_tab_coming_soon": "Pipeline DAG view — coming soon",
     "profiling_tab_coming_soon": "Source profiling — coming soon",
     "new_file": "New file",
@@ -3170,7 +3170,9 @@
     "comparison_no_mappings": "No concept mappings found. Run the pipeline first or check the source_to_concept_map table.",
     "comparison_mapping_concepts": "concepts",
     "run": "Run",
-    "save": "Save"
+    "save": "Save",
+    "copy_prefix": "Copy prefix",
+    "copy_prefix_tooltip": "Copy the {{role}}. prefix to address that database in SQL"
   },
   "sql_scripts": {
     "title": "Script Collections",
@@ -4349,7 +4351,8 @@
     "bench_surfaces": "What to test",
     "bench_surfaces_placeholder": "Select surfaces",
     "bench_depth": "Depth",
-    "bench_depth_hint_quick": "Does it work at all: one case per capability, French only. Enough to check an endpoint and measure its speed.",
-    "bench_depth_hint_full": "Is it good enough: adds English, multi-column charts, several widgets in one request, and layout arithmetic — where small models fail."
+    "bench_depth_hint_quick": "Does it work at all: one case per capability. Enough to check an endpoint and measure its speed.",
+    "bench_depth_hint_full": "Is it good enough: adds two-column charts, several widgets in one request, layout arithmetic and title casing — where small models fail.",
+    "bench_lang_note": "Tests run in the app's language ({{lang}}), since that is what you type in."
   }
 }
