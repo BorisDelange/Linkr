@@ -62,15 +62,22 @@ export function useRoleSchemas(pipeline: EtlPipeline | undefined) {
       // prefix stays in the SQL and the error names the role, not a stale schema.
       const known = (id: string | undefined) =>
         id && dataSources.some((ds) => ds.id === id) ? schemaName(id) : undefined
-      const forRole = (id: string | undefined) => {
+      const managed = (id: string | undefined) =>
+        !!dataSources.find((ds) => ds.id === id && (ds.connectionConfig as { managed?: boolean })?.managed)
+      const forRole = (role: string, id: string | undefined) => {
         if (!id) return undefined
-        if (isServerMode()) return id === runningOnId ? '' : undefined
-        return known(id)
+        if (!isServerMode()) return known(id)
+        // Server, managed target: the ETL endpoint ATTACHes every role under its
+        // own name, so the role IS the schema and cross-database SQL works.
+        if (managed(runningOnId)) return role
+        // Otherwise the query goes to a single read-only source: only the
+        // database being queried is reachable, and unqualified.
+        return id === runningOnId ? '' : undefined
       }
       return {
-        source: forRole(pipeline?.sourceDataSourceId),
-        target: forRole(pipeline?.targetDataSourceId),
-        vocab: forRole(vocabDataSourceId),
+        source: forRole('source', pipeline?.sourceDataSourceId),
+        target: forRole('target', pipeline?.targetDataSourceId),
+        vocab: forRole('vocab', vocabDataSourceId),
       }
     },
     [dataSources, pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId, vocabDataSourceId],

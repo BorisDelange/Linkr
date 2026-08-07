@@ -5,6 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { SchemaBrowser } from './SchemaBrowser'
 
 /**
@@ -24,6 +25,11 @@ export function SchemaBrowserDialog({
   tableQualifier?: string
 }) {
   const { t } = useTranslation()
+  // Title the modal with the database being browsed; every caller already knows
+  // it is a schema browser, the useful part is WHICH database.
+  const dbName = useDataSourceStore(
+    (s) => s.dataSources.find((ds) => ds.id === dataSourceId)?.name,
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -32,7 +38,7 @@ export function SchemaBrowserDialog({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DialogHeader className="border-b px-4 py-3">
-          <DialogTitle>{t('etl.browse_schema')}</DialogTitle>
+          <DialogTitle className="text-sm">{dbName ?? t('etl.browse_schema')}</DialogTitle>
         </DialogHeader>
         <div className="min-h-0 flex-1">
           <SchemaBrowser dataSourceId={dataSourceId} tableQualifier={tableQualifier} />

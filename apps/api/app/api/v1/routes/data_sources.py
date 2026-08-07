@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,11 +18,13 @@ from app.schemas.concept_cache import (
     ConceptStatsSave,
 )
 from app.schemas.data_source import (
+    CreateFromDdlRequest,
     DataSourceCreate,
     DataSourceFileImportRequest,
     DataSourceFileResponse,
     DataSourceResponse,
     DataSourceUpdate,
+    EtlRunRequest,
     IntrospectedTable,
     QueryRequest,
     QueryResult,
@@ -34,7 +38,7 @@ from app.services import (
     data_source_service,
     stats_cache_service,
 )
-from app.services.data import concept_cache_fs
+from app.services.data import concept_cache_fs, managed_db
 
 router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 
@@ -206,6 +210,54 @@ async def query_data_source(
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return QueryResult(rows=rows)
+
+
+@router.post("/{source_id}/create-from-ddl", response_model=DataSourceResponse)
+async def create_from_ddl(
+    source_id: str,
+    body: CreateFromDdlRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Materialise a server-owned DuckDB file for this source and apply the DDL.
+
+    The browser builds the same schema in its own WASM database; in server mode
+    the tables must exist on disk, or every later query hits an empty catalog."""
+    source = await _load_source(db, source_id, user, "databases:write")
+    try:
+        await asyncio.to_thread(managed_db.create_from_ddl, source.id, body.ddl)
+    except Exception as e:  # noqa: BLE001 — a bad DDL is a client error
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    config = dict(source.connection_config or {})
+    config["managed"] = True
+    config.pop("inMemory", None)
+    return await data_source_service.update(
+        db, source, DataSourceUpdate(connection_config=config)
+    )
+
+
+@router.post("/{source_id}/etl-run", response_model=QueryResult)
+async def etl_run(
+    source_id: str,
+    body: EtlRunRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run ETL SQL: this source is the writable target, `roles` the databases
+    attached read-only alongside it so one statement can span several."""
+    target = await _load_source(db, source_id, user, "databases:write")
+    roles: dict[str, DataSource] = {}
+    for role, ds_id in (body.roles or {}).items():
+        if role == "target" or not ds_id:
+            continue
+        roles[role] = await _load_source(db, ds_id, user, "databases:read")
+    try:
+        rows = await data_source_service.run_etl(db, target, body.sql, roles)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except Exception as e:  # noqa: BLE001 — surface SQL errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return QueryResult(rows=rows)
 

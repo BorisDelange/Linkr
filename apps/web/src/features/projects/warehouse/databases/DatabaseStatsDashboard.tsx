@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { RefreshCw, Users, Activity } from 'lucide-react'
+import { RefreshCw, Users, Activity, BarChart3, Table } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, PieChart, Pie, Cell, Legend,
@@ -20,6 +20,9 @@ interface DatabaseStatsDashboardProps {
   dataSourceId: string
   schemaMapping: SchemaMapping
   sourceStatus?: string
+  /** False when no data model is attached: patient/visit figures cannot be
+   *  derived, but per-table row counts still can. */
+  hasMappedSchema?: boolean
 }
 
 // Shared across hook instances: the sheet mounts useDatabaseStats twice (summary
@@ -109,7 +112,12 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
   return { cache, isLoading, refresh }
 }
 
-export function DatabaseStatsDashboard({ dataSourceId, schemaMapping, sourceStatus }: DatabaseStatsDashboardProps) {
+export function DatabaseStatsDashboard({
+  dataSourceId,
+  schemaMapping,
+  sourceStatus,
+  hasMappedSchema = true,
+}: DatabaseStatsDashboardProps) {
   const { t, i18n } = useTranslation()
   const { cache, isLoading, refresh } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
@@ -141,7 +149,14 @@ export function DatabaseStatsDashboard({ dataSourceId, schemaMapping, sourceStat
         </Button>
       </div>
 
+      {/* Nothing computed yet: offer the same explicit trigger the overview tab
+          shows, so the tab is not an empty shell before the first run. */}
+      {!cache && !isLoading && <LoadStatisticsPrompt onLoad={refresh} />}
+
+      {!hasMappedSchema && <NoDataModelNotice />}
+
       {/* ── Section 1: Patients ── */}
+      {hasMappedSchema && (
       <section>
         <SectionHeader icon={Users} title={t('databases.stats_section_patients')} />
 
@@ -180,8 +195,10 @@ export function DatabaseStatsDashboard({ dataSourceId, schemaMapping, sourceStat
           </div>
         ) : null}
       </section>
+      )}
 
       {/* ── Section 2: Visits & visit units ── */}
+      {hasMappedSchema && (
       <section>
         <SectionHeader icon={Activity} title={t('databases.stats_section_visits')} />
 
@@ -240,6 +257,65 @@ export function DatabaseStatsDashboard({ dataSourceId, schemaMapping, sourceStat
           </div>
         ) : null}
       </section>
+      )}
+
+      {/* ── Section 3: Row counts per table ── */}
+      {cache && cache.tableCounts.length > 0 && (
+        <section>
+          <SectionHeader icon={Table} title={t('databases.stats_table_overview')} />
+          <div className="mt-4 space-y-1">
+            {cache.tableCounts.map(({ tableName, rowCount }) => (
+              <div
+                key={tableName}
+                className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-1.5"
+              >
+                <span className="text-xs font-mono">{tableName}</span>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {rowCount.toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
+
+/** Shown in the Statistics tab of a database with no data model attached: the
+ *  clinical figures cannot be derived, but the row counts above still can. */
+function NoDataModelNotice() {
+  const { t } = useTranslation()
+  return (
+    <div className="rounded-lg border border-dashed px-4 py-4">
+      <p className="text-xs font-medium">{t('databases.stats_no_data_model')}</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {t('databases.stats_no_data_model_hint')}
+      </p>
+    </div>
+  )
+}
+
+/** Explicit "run the stats now" prompt: COUNT(*) over every table can be slow,
+ *  so nothing is computed until asked. */
+export function LoadStatisticsPrompt({ onLoad }: { onLoad: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center">
+      <BarChart3 size={20} className="text-muted-foreground" />
+      <p className="text-xs text-muted-foreground">
+        {t('databases.load_statistics_hint')}
+        <br />
+        {t('databases.load_statistics_hint_2')}
+      </p>
+      <Button
+        size="sm"
+        onClick={onLoad}
+        className="gap-1.5 bg-foreground text-background hover:bg-foreground/90"
+      >
+        <BarChart3 size={14} />
+        {t('databases.load_statistics')}
+      </Button>
     </div>
   )
 }

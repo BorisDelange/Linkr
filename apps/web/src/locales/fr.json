@@ -640,6 +640,8 @@
     "stats_admission_timeline": "Chronologie des admissions",
     "stats_table_overview": "Aperçu des tables",
     "stats_no_data": "Aucune statistique disponible. Connectez d'abord la base.",
+    "stats_no_data_model": "Aucun modèle de données rattaché",
+    "stats_no_data_model_hint": "Les chiffres patients et hospitalisations ne peuvent pas être déterminés sans modèle de données. Rattachez-en un via Edit sur la carte de la base pour les afficher. Le nombre de lignes par table reste disponible ci-dessous.",
     "stats_age_mean": "Âge moyen à l'admission",
     "stats_age_median": "Âge médian à l'admission",
     "stats_age_range": "Étendue des âges",
@@ -679,7 +681,8 @@
     "load_statistics": "Charger les statistiques",
     "load_statistics_hint": "Les statistiques exécutent des requêtes COUNT sur la base.",
     "load_statistics_hint_2": "Sur de grosses bases cela peut être lent : elles ne sont donc calculées qu'à la demande.",
-    "creating_may_take_a_while": "Création de la base en cours — cela peut prendre un moment…"
+    "creating_may_take_a_while": "Création de la base en cours — cela peut prendre un moment…",
+    "created_from_schema_note": "Cette base a été créée à partir d'un schéma — ses tables sont gérées par Linkr, il n'y a ni fichier à importer ni connexion à configurer."
   },
   "reports": {
     "title": "Rapports",
@@ -3050,7 +3053,7 @@
     "run_file": "Exécuter le fichier courant",
     "run_all": "Exécuter tous les scripts",
     "stop": "Arrêter l'exécution",
-    "browse_schema": "Explorer le schéma source",
+    "browse_schema": "Explorer le schéma",
     "browse_schema_no_target": "Sélectionnez d'abord une base",
     "copy_schema_ref": "Copier la référence du schéma pour SQL",
     "copied": "Copié",
@@ -3196,7 +3199,7 @@
     "run_file": "Exécuter le script courant",
     "run_all": "Exécuter tous les scripts",
     "stop": "Arrêter l'exécution",
-    "browse_schema": "Parcourir le schéma de la base",
+    "browse_schema": "Explorer le schéma",
     "copy_schema_ref": "Copier la référence du schéma pour SQL",
     "copied": "Copié",
     "no_tables": "Aucune table trouvée",

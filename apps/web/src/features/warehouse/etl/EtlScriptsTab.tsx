@@ -70,8 +70,8 @@ import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShort
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import type { ShortcutActionId } from '@/types/shortcuts'
 import { EtlFileTree } from './EtlFileTree'
-import * as duckdbEngine from '@/lib/duckdb/engine'
 import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
+import { runPipelineSql } from './run-pipeline-sql'
 import type { EtlFile } from '@/types'
 
 /** Shortcut actions surfaced in the ETL editor (subset of the IDE's set;
@@ -286,7 +286,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
       const resolvedSql = resolveRolePrefixes(sql, roleSchemasFor(dsId))
       const start = Date.now()
       try {
-        const rows = await duckdbEngine.queryDataSource(dsId, resolvedSql)
+        const rows = await runPipelineSql(pipeline, dsId, resolvedSql)
         const duration = Date.now() - start
         addExecutionResult({
           id: `exec-${Date.now()}`,

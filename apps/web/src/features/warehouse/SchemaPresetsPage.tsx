@@ -786,7 +786,7 @@ function PresetEditor({
   return (
     <div className="space-y-4">
       {/* Name + description (bilingual, active language only) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 rounded-md border bg-muted/30 px-3 py-2.5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 rounded-md border bg-muted/30 px-3 py-2.5">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">{t('schemas.field_name')}<RequiredMark /></Label>
           <Input
@@ -802,6 +802,18 @@ function PresetEditor({
             onChange={(e) => onChange({ ...mapping, description: setLocalized(mapping.description ?? {}, language, e.target.value) })}
             className="h-8 text-sm"
             placeholder={t('schemas.field_description_placeholder')}
+          />
+        </div>
+        {/* Read-only: the id keys the store and every reference to this schema,
+            so it is fixed at creation — shown because it is what exports and git
+            use as the folder name. */}
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">{t('entity_id.label')}</Label>
+          <Input
+            value={mapping.presetId}
+            readOnly
+            disabled
+            className="h-8 font-mono text-xs"
           />
         </div>
       </div>
@@ -1374,13 +1386,16 @@ export function SchemaPresetsPage() {
     setShowCreateDialog(true)
   }
 
-  // A blank schema's identifier is optional (empty → random fallback); if the
-  // user typed one it must be valid and not collide with an existing preset id
-  // (the store upserts by presetId, so a dup would silently overwrite it).
-  const presetIdOk =
-    createTemplate !== 'blank' ||
-    newPresetId.trim() === '' ||
-    isEntityIdValid(newPresetId.trim(), [...BUILTIN_PRESET_IDS, ...customPresets.map((p) => p.presetId)])
+  // The identifier is optional (empty → derived at creation). A taken one is
+  // only a blocker when it differs from the slug the field auto-derives from the
+  // name: that default is replaced by a free id on submit, so blocking on it
+  // would stop the user creating a second schema from the same template.
+  // Only ids that a schema actually occupies. A built-in id with no schema
+  // behind it is free — reusing it is how a deleted default gets restored.
+  const takenIds = customPresets.map((p) => p.presetId)
+  // Optional: left empty, creation derives one. Typed, it must be valid and free.
+  const typedId = newPresetId.trim()
+  const presetIdOk = typedId === '' || isEntityIdValid(typedId, takenIds)
   /** Prefill helper: same base name, first free "(n)" suffix. */
   const freeSchemaName = (base: string) =>
     uniqueName(base, customPresets.map((p) => localized(p.mapping.presetLabel, language)))
@@ -1401,15 +1416,17 @@ export function SchemaPresetsPage() {
       ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: label, description }
       : undefined
 
-    // Built-in template keeps its own id (so a deleted default can be restored),
-    // unless that id is already taken — the store upserts by presetId, so reusing
-    // it would overwrite the existing schema instead of adding a second one.
-    // A blank schema uses the user-provided identifier, or a random fallback.
-    const presetId = createTemplate !== 'blank'
-      ? (customPresets.some((p) => p.presetId === createTemplate)
-          ? `${createTemplate}-${crypto.randomUUID().slice(0, 8)}`
-          : createTemplate)
-      : (newPresetId.trim() || `custom-${crypto.randomUUID().slice(0, 8)}`)
+    // What the user typed always wins. Otherwise a built-in template keeps its
+    // own id (so a deleted default can be restored), unless that id is taken —
+    // the store upserts by presetId, so reusing it would overwrite that schema
+    // rather than add a second one.
+    const fallbackId =
+      createTemplate !== 'blank'
+        ? (customPresets.some((p) => p.presetId === createTemplate)
+            ? `${createTemplate}-${crypto.randomUUID().slice(0, 8)}`
+            : createTemplate)
+        : `custom-${crypto.randomUUID().slice(0, 8)}`
+    const presetId = newPresetId.trim() || fallbackId
     const newMapping: SchemaMapping = templateMapping ?? {
       presetId,
       presetLabel: label,
@@ -1562,10 +1579,19 @@ export function SchemaPresetsPage() {
                         title={tpl.added ? t('schemas.template_already_added') : undefined}
                         onClick={() => {
                           setCreateTemplate(tpl.id)
+                          if (tpl.id === 'blank') {
+                            // Going back to blank clears what the template filled
+                            // in, so the form does not keep a name and an id that
+                            // describe a template no longer selected.
+                            setNewPresetName('')
+                            setNewPresetId('')
+                            return
+                          }
                           // Names must be unique, so a template already in the
                           // workspace is prefilled with a free "(2)", "(3)"… suffix
                           // rather than a name the Create button would reject.
-                          if (tpl.id !== 'blank') setNewPresetName(freeSchemaName(tpl.label))
+                          setNewPresetName(freeSchemaName(tpl.label))
+                          setNewPresetId('')
                         }}
                         className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
                           createTemplate === tpl.id
@@ -1609,17 +1635,17 @@ export function SchemaPresetsPage() {
                     placeholder={t('schemas.field_description_placeholder')}
                   />
                 </div>
-                {/* Identifier — only for blank schemas; a template reuses its own preset id. */}
-                {createTemplate === 'blank' && (
-                  <EntityIdField
-                    name={newPresetName}
-                    value={newPresetId}
-                    onChange={setNewPresetId}
-                    existingIds={[...BUILTIN_PRESET_IDS, ...customPresets.map(p => p.presetId)]}
-                    htmlId="schema-preset-id"
-                    placeholder="my-schema"
-                  />
-                )}
+                {/* Identifier — always shown: a template can be used more than
+                    once, so its own preset id is not a usable key past the first
+                    schema. Left empty, creation derives a free one. */}
+                <EntityIdField
+                  name={newPresetName}
+                  value={newPresetId}
+                  onChange={setNewPresetId}
+                  existingIds={takenIds}
+                  htmlId="schema-preset-id"
+                  placeholder="my-schema"
+                />
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>

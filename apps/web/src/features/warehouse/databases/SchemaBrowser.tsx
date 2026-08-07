@@ -25,6 +25,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { CopySelectButton } from '@/components/ui/copy-select-button'
 import { TypeBadge, TYPE_CONFIG, mapColumnType } from '@/components/ui/type-badge'
 import { cn } from '@/lib/utils'
+import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
+import { getStorage } from '@/lib/storage'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 
@@ -65,6 +67,48 @@ interface TableCacheEntry {
   loadedAt: number
 }
 
+/**
+ * One table in the left sidebar. The name is truncated with the full value on
+ * hover (only when actually clipped), and the row count is shown for tables
+ * already inspected — counting every table up front would mean a COUNT(*) per
+ * table, which is exactly what the cache exists to avoid.
+ */
+function TableRow({
+  table,
+  isActive,
+  rowCount,
+  onSelect,
+}: {
+  table: string
+  isActive: boolean
+  rowCount: number | null
+  onSelect: () => void
+}) {
+  const { ref, overflows, triggerProps } = useOverflowTooltip()
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onSelect}
+          {...triggerProps}
+          className={cn(
+            'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
+            isActive ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
+          )}
+        >
+          <span ref={ref} className="min-w-0 flex-1 truncate font-mono">{table}</span>
+          {rowCount != null && (
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+              {rowCount.toLocaleString()}
+            </span>
+          )}
+        </button>
+      </TooltipTrigger>
+      {overflows && <TooltipContent side="right">{table}</TooltipContent>}
+    </Tooltip>
+  )
+}
+
 const tableCache = new Map<string, TableCacheEntry>()
 const tableCacheKey = (dataSourceId: string, table: string) => `${dataSourceId}::${table}`
 
@@ -93,6 +137,10 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
 
   const [tables, setTables] = useState<string[]>([])
   const [selectedTable, setSelectedTable] = useState<string | null>(null)
+  // Row counts computed by "Load statistics" and shared through the persisted
+  // stats cache — the in-memory tableCache below only survives the session, so
+  // without this the sidebar would forget every count on reload.
+  const [persistedCounts, setPersistedCounts] = useState<Map<string, number>>(new Map())
   const [columns, setColumns] = useState<ColumnInfo[]>([])
   const [selectedColumn, setSelectedColumn] = useState<string | null>(null)
   const [columnStats, setColumnStats] = useState<ColumnStats | null>(null)
@@ -129,6 +177,17 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
       }
     }
     loadTables()
+    return () => { cancelled = true }
+  }, [dataSourceId])
+
+  useEffect(() => {
+    let cancelled = false
+    getStorage().databaseStatsCache.get(dataSourceId)
+      .then((cache) => {
+        if (cancelled || !cache?.tableCounts) return
+        setPersistedCounts(new Map(cache.tableCounts.map((t) => [t.tableName, t.rowCount])))
+      })
+      .catch(() => { /* no cache yet */ })
     return () => { cancelled = true }
   }, [dataSourceId])
 
@@ -458,21 +517,19 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
                           </p>
                         )
                       }
-                      return sorted.map((table) => {
-                        const isActive = table === selectedTable
-                        return (
-                          <button
-                            key={table}
-                            onClick={() => setSelectedTable(table)}
-                            className={cn(
-                              'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
-                              isActive ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
-                            )}
-                          >
-                            <span className="truncate font-mono">{table}</span>
-                          </button>
-                        )
-                      })
+                      return sorted.map((table) => (
+                        <TableRow
+                          key={table}
+                          table={table}
+                          isActive={table === selectedTable}
+                          rowCount={
+                            tableCache.get(tableCacheKey(dataSourceId, table))?.rowCount
+                            ?? persistedCounts.get(table)
+                            ?? null
+                          }
+                          onSelect={() => setSelectedTable(table)}
+                        />
+                      ))
                     })()}
                     {loading && tables.length === 0 && (
                       <div className="flex items-center justify-center py-6">

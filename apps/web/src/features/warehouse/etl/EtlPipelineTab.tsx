@@ -86,6 +86,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
 import { useRoleSchemas } from './use-role-schemas'
+import { runPipelineSql } from './run-pipeline-sql'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
@@ -187,7 +188,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
           if (roleId && roleId !== dsId) await testConnection(roleId)
         }
         const resolvedSql = resolveRolePrefixes(file.content, roleSchemasFor(dsId))
-        const rows = await duckdbEngine.queryDataSource(dsId, resolvedSql)
+        const rows = await runPipelineSql(pipeline, dsId, resolvedSql)
         const duration = Date.now() - start
         setScriptStatus(file.id, {
           id: `log-${file.id}-${Date.now()}`,

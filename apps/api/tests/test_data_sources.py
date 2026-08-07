@@ -342,3 +342,63 @@ async def test_live_postgres_query():
         db_connect.query_external, config, config.get("password"), "SELECT 1 AS one"
     )
     assert rows == [{"one": 1}]
+
+
+async def test_create_from_ddl_materialises_the_database(client, tmp_path, monkeypatch):
+    """Server mode must build the tables on disk: the browser path only creates
+    them in its own WASM database, leaving the server with an empty catalog."""
+    from app.config import settings
+    from app.services.data import managed_db
+
+    monkeypatch.setattr(type(settings), "data_path", property(lambda _: tmp_path))
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    created = (
+        await client.post(
+            f"{API}/data-sources",
+            headers=headers,
+            json={
+                "workspaceId": ws,
+                "alias": "omop",
+                "name": "OMOP",
+                "sourceType": "database",
+                "connectionConfig": {"engine": "duckdb"},
+            },
+        )
+    ).json()
+
+    ddl = (
+        "CREATE TABLE person (person_id BIGINT);"
+        "CREATE TABLE concept (concept_id BIGINT);"
+        # DuckDB rejects ADD CONSTRAINT; the OMOP DDL is full of them.
+        "ALTER TABLE person ADD CONSTRAINT fk FOREIGN KEY (person_id)"
+        " REFERENCES concept (concept_id);"
+    )
+    r = await client.post(
+        f"{API}/data-sources/{created['id']}/create-from-ddl",
+        headers=headers,
+        json={"ddl": ddl},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["connectionConfig"]["managed"] is True
+    assert managed_db.exists(created["id"])
+
+    rows = (
+        await client.post(
+            f"{API}/data-sources/{created['id']}/query",
+            headers=headers,
+            json={"sql": "SELECT count(*) AS n FROM person"},
+        )
+    ).json()["rows"]
+    assert rows == [{"n": 0}]
+
+    # The schema browser reads this endpoint: a managed database has no blob in
+    # the file store, so introspection must look at the managed file instead of
+    # reporting an empty schema.
+    schema = (
+        await client.get(
+            f"{API}/data-sources/{created['id']}/schema", headers=headers
+        )
+    ).json()
+    assert {t["name"] for t in schema} == {"person", "concept"}

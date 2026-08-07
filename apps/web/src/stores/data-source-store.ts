@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
+import { createFromDdlOnServer, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
@@ -497,10 +497,12 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
 
-    const connectionConfig: DatabaseConnectionConfig = {
-      engine: 'duckdb',
-      inMemory: true,
-    }
+    // Front-only keeps the tables in the browser's own DuckDB (in-memory).
+    // In server mode they must exist on disk, so the server materialises a
+    // managed file from the DDL below and flags the config `managed`.
+    const connectionConfig: DatabaseConnectionConfig = isServerMode()
+      ? { engine: 'duckdb', managed: true }
+      : { engine: 'duckdb', inMemory: true }
 
     // Generate unique alias
     const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
@@ -526,8 +528,12 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     set((s) => ({ dataSources: [...s.dataSources, newSource] }))
 
     try {
-      await withTimeout(engine.mountEmptyFromDDL(id, source.ddl, alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
-      mountedSources.add(id)
+      if (isServerMode()) {
+        await createFromDdlOnServer(id, source.ddl)
+      } else {
+        await withTimeout(engine.mountEmptyFromDDL(id, source.ddl, alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+        mountedSources.add(id)
+      }
       const stats = await withTimeout(engine.computeStats(id, source.schemaMapping), STATS_TIMEOUT, 'computeStats')
       const updated: Partial<DataSource> = { status: 'connected', stats, errorMessage: undefined }
       await getStorage().dataSources.update(id, updated)

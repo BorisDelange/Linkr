@@ -106,3 +106,18 @@ class QueryRequest(CamelModel):
 
 class QueryResult(CamelModel):
     rows: list[dict]
+
+
+class CreateFromDdlRequest(CamelModel):
+    """Create an empty, server-owned DuckDB file with the schema's DDL applied."""
+
+    ddl: str
+
+
+class EtlRunRequest(CamelModel):
+    """Run ETL SQL against a managed target, with the other role databases
+    attached read-only. `roles` maps a role name (source/vocab) to a data
+    source id; the target is the source this request is addressed to."""
+
+    sql: str
+    roles: dict[str, str] = {}

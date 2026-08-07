@@ -12,7 +12,12 @@ from app.schemas.data_source import (
     DataSourceUpdate,
 )
 from app.services import author_provenance, blob_store, concept_stats_cache_service
-from app.services.data import concept_cache_fs, connection_pool, db_connect
+from app.services.data import (
+    concept_cache_fs,
+    connection_pool,
+    db_connect,
+    managed_db,
+)
 
 # External network databases reached via DuckDB's ATTACH extensions.
 _EXTERNAL_ENGINES = ("postgresql", "mysql")
@@ -136,9 +141,14 @@ async def delete(db: AsyncSession, source: DataSource) -> None:
         )
     ).scalars().all()
     shas = {f.content_hash for f in files}
+    was_managed = is_managed(source)
+    source_id = source.id
     await db.delete(source)  # cascades to data_source_files via FK
     await db.commit()
-    connection_pool.invalidate(source.id)
+    connection_pool.invalidate(source_id)
+    # A managed file is owned by this source alone — nothing else references it.
+    if was_managed:
+        managed_db.delete(source_id)
     for sha in shas:
         if not await _sha_still_referenced(db, sha):
             await blob_store.delete(sha)
@@ -196,6 +206,77 @@ async def delete_file(db: AsyncSession, file: DataSourceFile) -> None:
         await blob_store.delete(sha)
 
 
+def is_managed(source: DataSource) -> bool:
+    """A server-owned, writable DuckDB file (created from a schema's DDL)."""
+    return bool((source.connection_config or {}).get("managed"))
+
+
+async def role_attachments(
+    db: AsyncSession, sources: dict[str, DataSource]
+) -> dict[str, dict]:
+    """Describe how to ATTACH each role database for an ETL run.
+
+    Shape mirrors `db_connect.run_etl_sql`'s `roles` argument. A role whose
+    source cannot be attached (no file uploaded yet) is skipped, so the script
+    fails naming that role rather than failing to open the connection at all.
+    """
+    out: dict[str, dict] = {}
+    for role, source in sources.items():
+        if source is None:
+            continue
+        config = dict(source.connection_config or {})
+        engine = config.get("engine")
+        if engine in _EXTERNAL_ENGINES:
+            out[role] = {
+                "kind": "external",
+                "config": config,
+                "password": connection_password(source),
+            }
+            continue
+        if is_managed(source):
+            path = managed_db.path_for(source.id)
+            if path.exists():
+                out[role] = {"kind": "file", "engine": "duckdb", "path": str(path)}
+            continue
+        if engine in _FILE_ENGINES:
+            files = await _source_files(db, source)
+            if not files:
+                continue
+            if _is_parquet_folder(config, files):
+                out[role] = {
+                    "kind": "parquet",
+                    "files": files,
+                    "known": _known_tables(source),
+                }
+            else:
+                out[role] = {
+                    "kind": "file",
+                    "engine": engine,
+                    "path": files[0][1],
+                }
+    return out
+
+
+async def run_etl(
+    db: AsyncSession,
+    target: DataSource,
+    sql: str,
+    roles: dict[str, DataSource],
+) -> list[dict]:
+    """Run ETL SQL with the target writable and the other roles attached read-only."""
+    if not is_managed(target):
+        raise ValueError(
+            "the pipeline target must be a database created from a schema"
+        )
+    target_path = managed_db.path_for(target.id)
+    if not target_path.exists():
+        raise ValueError("the target database file is missing; recreate it")
+    attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"})
+    return await asyncio.to_thread(
+        db_connect.run_etl_sql, str(target_path), sql, attachments
+    )
+
+
 # --- Live connection test (external databases) -----------------------------
 
 async def query(db: AsyncSession, source: DataSource, sql: str) -> list[dict]:
@@ -207,6 +288,14 @@ async def query(db: AsyncSession, source: DataSource, sql: str) -> list[dict]:
         password = connection_password(source)
         return await asyncio.to_thread(
             db_connect.query_external, config, password, sql, source.id
+        )
+    if is_managed(source):
+        # Server-owned file: nothing in the blob store, read it where it lives.
+        path = managed_db.path_for(source.id)
+        if not path.exists():
+            raise ValueError("the database file is missing; recreate it")
+        return await asyncio.to_thread(
+            db_connect.query_file, "duckdb", str(path), sql, source.id
         )
     if engine in _FILE_ENGINES:
         files = await _source_files(db, source)
@@ -256,6 +345,12 @@ async def introspect(db: AsyncSession, source: DataSource) -> list[dict]:
     if engine in _EXTERNAL_ENGINES:
         password = connection_password(source)
         return await asyncio.to_thread(db_connect.introspect_external, config, password)
+    if is_managed(source):
+        # Server-owned file: nothing in the blob store, introspect it in place.
+        path = managed_db.path_for(source.id)
+        if not path.exists():
+            return []
+        return await asyncio.to_thread(db_connect.introspect_file, "duckdb", str(path))
     if engine in _FILE_ENGINES:
         files = await _source_files(db, source)
         if not files:

@@ -227,6 +227,9 @@ export interface DatabaseConnectionConfig {
   useFileHandles?: boolean
   /** True when database is an in-memory DuckDB schema created from DDL (no files). */
   inMemory?: boolean
+  /** Server mode: a writable DuckDB file the server owns (created from a
+   *  schema's DDL), as opposed to an uploaded, read-only source file. */
+  managed?: boolean
   host?: string
   port?: number
   database?: string

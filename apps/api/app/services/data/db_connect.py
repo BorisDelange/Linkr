@@ -645,3 +645,85 @@ def introspect_external(config: dict, password: str | None) -> list[dict]:
             }
         )
     return [{"name": name, "columns": cols} for name, cols in tables.items()]
+
+
+# --- ETL runs (writable target + read-only role databases) ------------------
+
+def run_etl_sql(
+    target_path: str,
+    sql: str,
+    roles: dict[str, dict] | None = None,
+) -> list[dict]:
+    """Run an ETL script against a writable managed DuckDB file.
+
+    Scripts address databases by role (`target.`, `source.`, `vocab.`). Each role
+    is ATTACHed under its own name in ONE connection, so a statement may read one
+    database and write another — `INSERT INTO target.person SELECT ... FROM
+    source.patients` — which a per-source connection cannot express.
+
+    Only the target is writable; the others attach READ_ONLY so a script cannot
+    modify the data it is reading from.
+
+    `roles` maps a role name to its inputs:
+        {"source": {"kind": "file",    "path": "..."},
+         "vocab":  {"kind": "parquet", "files": [(name, path), ...],
+                    "known": [...]}}
+    """
+    # An in-memory hub, with every role ATTACHed onto it. Opening the target file
+    # directly would name that database after the file and make it impossible to
+    # also attach it as `target` (DuckDB refuses the same file twice).
+    con = duckdb.connect()
+    try:
+        con.execute(f"SET extension_directory = '{_ext_dir()}'")
+        con.execute(f"ATTACH '{target_path}' AS target")
+
+        for role, spec in (roles or {}).items():
+            if role == "target":
+                continue
+            _attach_role(con, role, spec)
+
+        # Unqualified names must not silently fall back to another attached
+        # database: keep the writable target first.
+        search_path = "target,memory"
+        return _run_statements(con, search_path, sql)
+    finally:
+        con.close()
+
+
+def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
+    """ATTACH one role database READ_ONLY under its role name."""
+    kind = spec.get("kind")
+    if kind == "parquet":
+        # A Parquet folder is not a database: expose its tables as views in a
+        # schema named after the role, which resolves `role.table` the same way.
+        # Attach a real (empty, in-memory) database named after the role and put
+        # the views in ITS main schema. A schema of the same name in `memory`
+        # would not resolve: `role.table` is looked up as schema-of-target first.
+        groups = _group_parquet(spec.get("files") or [], spec.get("known") or [])
+        con.execute(f'ATTACH \':memory:\' AS "{role}"')
+        for table, paths in groups.items():
+            con.execute(
+                f'CREATE OR REPLACE VIEW "{role}".main."{table}" '
+                f"AS SELECT * FROM {_reader(paths)}"
+            )
+        return
+    if kind == "file":
+        path = spec["path"]
+        if spec.get("engine") == "sqlite":
+            con.execute("INSTALL sqlite")
+            con.execute("LOAD sqlite")
+            con.execute(f"ATTACH '{path}' AS \"{role}\" (TYPE sqlite, READ_ONLY)")
+        else:
+            con.execute(f"ATTACH '{path}' AS \"{role}\" (READ_ONLY)")
+        return
+    if kind == "external":
+        spec_engine = _engine_spec(spec["config"])
+        con.execute(f"INSTALL {spec_engine['extension']}")
+        con.execute(f"LOAD {spec_engine['extension']}")
+        dsn_literal = _dsn(spec["config"], spec.get("password"))
+        con.execute(
+            f"ATTACH '{dsn_literal}' AS \"{role}\" "
+            f"(TYPE {spec_engine['type']}, READ_ONLY)"
+        )
+        return
+    raise ValueError(f"cannot attach role {role!r}: unknown kind {kind!r}")

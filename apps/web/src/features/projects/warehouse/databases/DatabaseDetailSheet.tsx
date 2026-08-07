@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { DataSource, DatabaseConnectionConfig, TableRowCount } from '@/types'
-import { Users, Table, Activity, BedDouble, BarChart3 } from 'lucide-react'
+import type { DataSource, DatabaseConnectionConfig, SchemaMapping, TableRowCount } from '@/types'
+import { Users, Table, Activity, BedDouble, Table2 } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
 import { Button } from '@/components/ui/button'
@@ -15,13 +16,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { DatabaseStatsDashboard, useDatabaseStats } from './DatabaseStatsDashboard'
+import {
+  DatabaseStatsDashboard,
+  LoadStatisticsPrompt,
+  useDatabaseStats,
+} from './DatabaseStatsDashboard'
+import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 
 interface DatabaseDetailSheetProps {
   source: DataSource | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }
+
+/** Stand-in for a source with no data model: every clinical table is unknown, so
+ *  only the table row counts can be computed. */
+const EMPTY_MAPPING: SchemaMapping = { presetId: 'none', presetLabel: { en: '', fr: '' } }
 
 const statusColors: Record<string, string> = {
   connected: 'bg-green-500',
@@ -48,6 +58,9 @@ export function DatabaseDetailSheet({
   if (!source) return null
 
   const hasMappedSchema = !!source.schemaMapping?.patientTable
+  // Without a data model there are no patient/visit tables to count, but table
+  // row counts still make sense — and that is where the refresh button lives.
+  const statsMapping = source.schemaMapping ?? EMPTY_MAPPING
 
   const formatDate = (iso: string) => {
     return new Date(iso).toLocaleString(i18n.language, {
@@ -76,15 +89,15 @@ export function DatabaseDetailSheet({
 
         <Tabs defaultValue="overview" className="flex flex-1 flex-col min-h-0">
           <div className="px-6 shrink-0">
-            <TabsList variant="line">
+            {/* Cancels the list's p-[3px] + the trigger's px-2 so the tab labels
+                line up with the section titles below ("Connection", …). */}
+            <TabsList variant="line" className="-ml-[11px]">
               <TabsTrigger value="overview">
                 {t('databases.detail_overview')}
               </TabsTrigger>
-              {hasMappedSchema && (
-                <TabsTrigger value="statistics">
-                  {t('databases.detail_statistics')}
-                </TabsTrigger>
-              )}
+              <TabsTrigger value="statistics">
+                {t('databases.detail_statistics')}
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -93,11 +106,14 @@ export function DatabaseDetailSheet({
               <OverviewTab source={source} formatDate={formatDate} />
             </TabsContent>
 
-            {hasMappedSchema && source.schemaMapping && (
-              <TabsContent value="statistics" className="mt-0 px-6 pb-6">
-                <DatabaseStatsDashboard dataSourceId={source.id} schemaMapping={source.schemaMapping} sourceStatus={source.status} />
-              </TabsContent>
-            )}
+            <TabsContent value="statistics" className="mt-0 px-6 pb-6">
+              <DatabaseStatsDashboard
+                dataSourceId={source.id}
+                schemaMapping={statsMapping}
+                sourceStatus={source.status}
+                hasMappedSchema={hasMappedSchema}
+              />
+            </TabsContent>
           </ScrollArea>
         </Tabs>
       </SheetContent>
@@ -113,6 +129,7 @@ function OverviewTab({
   formatDate: (iso: string) => string
 }) {
   const { t, i18n } = useTranslation()
+  const [schemaOpen, setSchemaOpen] = useState(false)
   const hasMappedSchema = !!source.schemaMapping?.patientTable
 
   return (
@@ -124,6 +141,26 @@ function OverviewTab({
           <p className="mt-1 text-xs text-destructive/80 font-mono break-all">{source.errorMessage}</p>
         </div>
       )}
+
+      {/* Browse every table of this database — same viewer the ETL pipeline and
+          the IDE use. Only meaningful once the source is connected. */}
+      {source.status === 'connected' && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full gap-2"
+          onClick={() => setSchemaOpen(true)}
+        >
+          <Table2 size={14} />
+          {t('etl.browse_schema')}
+        </Button>
+      )}
+
+      <SchemaBrowserDialog
+        open={schemaOpen}
+        onOpenChange={setSchemaOpen}
+        dataSourceId={source.id}
+      />
 
       {/* Connection info */}
       <Section title={t('databases.detail_connection')}>
@@ -220,7 +257,7 @@ function MappedSummaryCounts({ dataSourceId, schemaMapping, sourceStatus }: { da
   // Server mode never auto-runs COUNT(*): offer an explicit trigger instead of
   // showing empty cards, so a billion-row database is only scanned on request.
   if (isServerMode() && !cache && !isLoading) {
-    return <LoadStatisticsPrompt onLoad={refresh} t={t} />
+    return <LoadStatisticsPrompt onLoad={refresh} />
   }
 
   return (
@@ -275,31 +312,6 @@ function TableCountsSection({ dataSourceId, schemaMapping, sourceStatus }: { dat
         <TableCountsList data={cache.tableCounts} />
       ) : null}
       <Separator className="mt-6" />
-    </div>
-  )
-}
-
-/** Explicit "run the stats now" prompt shown for server sources before any
- *  COUNT(*) has been executed. */
-function LoadStatisticsPrompt({
-  onLoad,
-  t,
-}: {
-  onLoad: () => void
-  t: (key: string, opts?: Record<string, unknown>) => string
-}) {
-  return (
-    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center">
-      <BarChart3 size={20} className="text-muted-foreground" />
-      <p className="text-xs text-muted-foreground">
-        {t('databases.load_statistics_hint')}
-        <br />
-        {t('databases.load_statistics_hint_2')}
-      </p>
-      <Button size="sm" onClick={onLoad} className="gap-1.5 bg-foreground text-background hover:bg-foreground/90">
-        <BarChart3 size={14} />
-        {t('databases.load_statistics')}
-      </Button>
     </div>
   )
 }

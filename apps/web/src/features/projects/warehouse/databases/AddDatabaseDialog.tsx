@@ -383,7 +383,13 @@ export function AddDatabaseDialog({
     return '*'
   }
 
-  const needsFileUpload = selectedType === 'database' && isLocalEngine
+  // A database created from a schema owns its storage (a managed server file, or
+  // the browser's own DuckDB): there is no file to upload and no host to reach,
+  // so editing it must not demand either.
+  const isCreatedFromSchema =
+    isEditMode &&
+    !!(editingSource?.connectionConfig as DatabaseConnectionConfig | undefined)?.managed
+  const needsFileUpload = selectedType === 'database' && isLocalEngine && !isCreatedFromSchema
   const isMultiFile = isParquetMode
 
   const totalFileSize = uploadedFiles.reduce((s, f) => s + f.size, 0)
@@ -570,6 +576,9 @@ export function AddDatabaseDialog({
                   </Tooltip>
                 </TooltipProvider>
               </div>
+              {/* Fixed after creation: the alias is the DuckDB schema name
+                  (`ds_<alias>`), so changing it would orphan every script and
+                  saved query that addresses this database. */}
               <Input
                 value={alias}
                 onChange={(e) => {
@@ -578,6 +587,8 @@ export function AddDatabaseDialog({
                 }}
                 placeholder="mimic_iv_raw"
                 className="font-mono text-xs"
+                readOnly={isEditMode}
+                disabled={isEditMode}
               />
               <p className="text-[11px] text-muted-foreground">{t('databases.field_alias_hint')}</p>
             </div>
@@ -637,7 +648,11 @@ export function AddDatabaseDialog({
                   </Select>
                 </div>
 
-                {isLocalEngine ? (
+                {isCreatedFromSchema ? (
+                  <p className="rounded-md border bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
+                    {t('databases.created_from_schema_note')}
+                  </p>
+                ) : isLocalEngine ? (
                   <>
                     {/* Import mode toggle (only for DuckDB) */}
                     {dbEngine === 'duckdb' && (

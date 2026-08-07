@@ -49,6 +49,35 @@ export async function queryDataSourceOnServer(
   return res.rows
 }
 
+/**
+ * Materialise a server-owned DuckDB file for this source and apply a schema's
+ * DDL. Server-mode counterpart of the browser's mountEmptyFromDDL: without it
+ * the source exists in the database but has no tables anywhere.
+ */
+export function createFromDdlOnServer(dataSourceId: string, ddl: string): Promise<unknown> {
+  return apiRequest(`/data-sources/${dataSourceId}/create-from-ddl`, {
+    method: 'POST',
+    body: JSON.stringify({ ddl }),
+  })
+}
+
+/**
+ * Run ETL SQL server-side: `dataSourceId` is the writable target, `roles` maps
+ * a role name (source/vocab) to its data source id so one statement can read
+ * one database and write another.
+ */
+export async function runEtlOnServer(
+  dataSourceId: string,
+  sql: string,
+  roles: Record<string, string>,
+): Promise<Record<string, unknown>[]> {
+  const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
+    `/data-sources/${dataSourceId}/etl-run`,
+    { method: 'POST', body: JSON.stringify({ sql, roles }) },
+  )
+  return res.rows
+}
+
 /** Register an already-uploaded blob (by sha) as a file of a data source. */
 export function registerDataSourceFile(
   dataSourceId: string,
