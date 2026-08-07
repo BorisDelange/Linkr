@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { schemaName } from '@/lib/duckdb/engine'
@@ -57,7 +57,16 @@ export function computeRoleSchemas(input: RoleSchemaInput): RoleSchemas {
  */
 export function useRoleSchemas(pipeline: EtlPipeline | undefined) {
   const mappingProjects = useConceptMappingStore((s) => s.mappingProjects)
+  const mappingProjectsLoaded = useConceptMappingStore((s) => s.mappingProjectsLoaded)
+  const loadMappingProjects = useConceptMappingStore((s) => s.loadMappingProjects)
   const dataSources = useDataSourceStore((s) => s.dataSources)
+
+  // `vocab` resolves through the mapping project, so the projects must be there
+  // even when the user never opened the Vocabulary or Pipeline tab — otherwise
+  // `vocab.` silently stays unresolved in a script run from the Scripts tab.
+  useEffect(() => {
+    if (!mappingProjectsLoaded) loadMappingProjects()
+  }, [mappingProjectsLoaded, loadMappingProjects])
 
   const vocabDataSourceId = pipeline?.mappingProjectId
     ? mappingProjects.find((p) => p.id === pipeline.mappingProjectId)?.vocabularyDataSourceId

@@ -47,15 +47,25 @@ export async function runPipelineSql(
   if (pipeline?.sourceDataSourceId && pipeline.sourceDataSourceId !== targetId) {
     roles.source = pipeline.sourceDataSourceId
   }
-  const vocabId = vocabDataSourceId(pipeline)
+  const vocabId = await vocabDataSourceId(pipeline)
   if (vocabId && vocabId !== targetId) roles.vocab = vocabId
 
   return runEtlOnServer(targetId, sql, roles)
 }
 
-/** ATHENA reference of the pipeline's mapping project, if any. */
-function vocabDataSourceId(pipeline: EtlPipeline | undefined): string | undefined {
+/**
+ * ATHENA reference of the pipeline's mapping project, if any.
+ *
+ * The projects are loaded on demand: only the Vocabulary and Pipeline tabs
+ * populate that store, so running a script straight from the Scripts tab would
+ * otherwise find it empty and silently drop the `vocab` role.
+ */
+export async function vocabDataSourceId(
+  pipeline: EtlPipeline | undefined,
+): Promise<string | undefined> {
   if (!pipeline?.mappingProjectId) return undefined
+  const store = useConceptMappingStore.getState()
+  if (!store.mappingProjectsLoaded) await store.loadMappingProjects()
   const { mappingProjects } = useConceptMappingStore.getState()
   return mappingProjects.find((p) => p.id === pipeline.mappingProjectId)?.vocabularyDataSourceId
 }
