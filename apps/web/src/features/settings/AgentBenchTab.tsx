@@ -10,8 +10,7 @@ import { BenchMultiSelect } from './BenchMultiSelect'
 import { cn } from '@/lib/utils'
 import { getPlugin } from '@/lib/plugins/registry'
 import { PLOT_BUILDER_ID } from '@/lib/agent/dashboard-tools'
-import { resolveAgentEndpoint } from '@/lib/agent/settings'
-import { fetchAvailableModels } from '@/lib/agent/settings'
+import { fetchAvailableModels, resolveEndpointForSurface } from '@/lib/agent/settings'
 import { runBench, type BenchReport, type CaseResult } from '@/lib/agent/bench/runner'
 import {
   BENCH_SURFACES,
@@ -19,9 +18,21 @@ import {
   type BenchLang,
   type BenchSurface,
 } from '@/lib/agent/bench/cases'
-import { clearReports, loadReports, removeReport, saveReport } from '@/lib/agent/bench/storage'
+import {
+  clearReports,
+  loadReports,
+  removeReport,
+  saveReport,
+  type StoredBenchReport,
+} from '@/lib/agent/bench/storage'
 
 type Mode = 'quick' | 'full'
+
+interface AgentBenchTabProps {
+  workspaceId: string
+  /** Owner-only: running a bench writes a workspace-wide report. */
+  canWrite: boolean
+}
 
 /**
  * Runs the copilot's test battery against the configured model, from inside the
@@ -32,14 +43,14 @@ type Mode = 'quick' | 'full'
  * on a laptop and a hospital server, and wildly different in speed. Quality and
  * throughput both come out of the same run.
  */
-export function AgentBenchTab() {
+export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
   const { t, i18n } = useTranslation()
   // Test in the language the user actually types in.
   const lang: BenchLang = i18n.language?.startsWith('fr') ? 'fr' : 'en'
   const [mode, setMode] = useState<Mode>('quick')
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
-  const [reports, setReports] = useState<BenchReport[]>(() => loadReports())
+  const [reports, setReports] = useState<StoredBenchReport[]>([])
   const [surfaces, setSurfaces] = useState<BenchSurface[]>(['dashboard'])
   const [available, setAvailable] = useState<string[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -52,21 +63,42 @@ export function AgentBenchTab() {
   const current =
     reports.find((report) => report.model === selectedModel) ?? reports[0] ?? null
 
+  // Reports are workspace-wide in server mode, so an admin's evaluation shows up
+  // for everyone rather than only in the browser that ran it.
+  useEffect(() => {
+    let cancelled = false
+    loadReports(workspaceId).then((loaded) => {
+      if (!cancelled) setReports(loaded)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId])
+
   // Offer the endpoint's models, defaulting to the configured one.
   useEffect(() => {
-    const { endpoint } = resolveAgentEndpoint()
-    if (!endpoint) return
-    setModels([endpoint.model])
-    fetchAvailableModels(endpoint.baseUrl, endpoint.apiKey)
-      .then(setAvailable)
-      .catch(() => setAvailable([endpoint.model]))
-  }, [])
+    let cancelled = false
+    resolveEndpointForSurface(workspaceId, 'dashboard').then(({ endpoint }) => {
+      if (cancelled || !endpoint) return
+      setModels([endpoint.model])
+      fetchAvailableModels(endpoint.baseUrl, endpoint.apiKey)
+        .then((list) => {
+          if (!cancelled) setAvailable(list)
+        })
+        .catch(() => {
+          if (!cancelled) setAvailable([endpoint.model])
+        })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId])
 
   const caseCount = selectCases(surfaces, mode).length
 
   const start = useCallback(
     async () => {
-      const { endpoint } = resolveAgentEndpoint()
+      const { endpoint } = await resolveEndpointForSurface(workspaceId, 'dashboard')
       if (!endpoint) {
         setError('no_provider')
         return
@@ -95,7 +127,7 @@ export function AgentBenchTab() {
             onProgress: (_result, index, total) =>
               setProgress({ done: index + 1, total }),
           })
-          setReports(saveReport(report))
+          setReports(await saveReport(report, workspaceId))
           setSelectedModel(report.model)
         }
       } catch (caught) {
@@ -108,11 +140,20 @@ export function AgentBenchTab() {
         setProgress(null)
       }
     },
-    [caseCount, lang, models, mode, surfaces]
+    [caseCount, lang, models, mode, surfaces, workspaceId]
   )
 
 
   const stop = () => abortRef.current?.abort()
+
+  const handleRemove = useCallback(async () => {
+    if (!current) return
+    setReports(await removeReport(current.model, workspaceId))
+  }, [current, workspaceId])
+
+  const handleClearAll = useCallback(async () => {
+    setReports(await clearReports(workspaceId))
+  }, [workspaceId])
 
   return (
     <Card className="mt-4">
@@ -187,7 +228,7 @@ export function AgentBenchTab() {
               size="sm"
               className="ml-auto h-8"
               onClick={() => start()}
-              disabled={!models.length || !surfaces.length}
+              disabled={!models.length || !surfaces.length || !canWrite}
             >
               <Play size={13} />
               {t('agent.bench_run')}
@@ -246,8 +287,8 @@ export function AgentBenchTab() {
                     size="sm"
                     variant="ghost"
                     className="h-8"
-                    disabled={running || !current}
-                    onClick={() => current && setReports(removeReport(current.model))}
+                    disabled={running || !current || !canWrite}
+                    onClick={handleRemove}
                   >
                     <Trash2 size={13} />
                     {t('agent.bench_remove')}
@@ -256,8 +297,8 @@ export function AgentBenchTab() {
                     size="sm"
                     variant="ghost"
                     className="h-8"
-                    disabled={running}
-                    onClick={() => setReports(clearReports())}
+                    disabled={running || !canWrite}
+                    onClick={handleClearAll}
                   >
                     <Trash2 size={13} />
                     {t('agent.bench_clear_all')}
@@ -273,8 +314,8 @@ export function AgentBenchTab() {
                     size="sm"
                     variant="ghost"
                     className="h-8"
-                    disabled={running}
-                    onClick={() => setReports(clearReports())}
+                    disabled={running || !canWrite}
+                    onClick={handleClearAll}
                   >
                     <Trash2 size={13} />
                     {t('agent.bench_clear_all')}

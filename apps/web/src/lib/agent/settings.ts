@@ -2,11 +2,19 @@
  * Where the copilot's model lives, and the record that someone accepted the risk
  * of a remote one.
  *
- * Client-side settings for now: the LlmProvider table exists but its API does not
- * (plan batch 1), so this is the single place to swap when providers become
- * server-backed. The acknowledgement flow below is the part that must NOT move —
- * it is what stands between a clinical dashboard and an unnoticed data egress.
+ * Two backings, one contract. In server mode an admin configures providers for
+ * the whole workspace and approves each per surface, so a user picks from a
+ * vetted list and the API key never reaches a browser. A client-only (WASM)
+ * deployment has no backend, so it keeps the original localStorage settings.
+ *
+ * The acknowledgement rule holds in both: an unacknowledged remote endpoint
+ * resolves to null rather than being used silently. That is what stands between
+ * a clinical dashboard and an unnoticed data egress, so it is enforced here AND
+ * server-side — neither alone is enough, since WASM has no server and a server
+ * must not trust a client.
  */
+import { isServerMode } from '@/lib/api-client'
+import { listProviders, type AgentSurface, type LlmProvider } from '@/lib/api/llm'
 import type { LlmEndpoint } from './agent-loop'
 import { isLocalEndpoint } from './locality'
 
@@ -62,13 +70,6 @@ export function clearAgentSettings(): void {
 }
 
 /**
- * The endpoint the copilot should use, or null.
- *
- * A remote endpoint that was never acknowledged resolves to null rather than
- * being used silently: forgetting to confirm must disable the assistant, not
- * quietly send clinical context to a third party.
- */
-/**
  * Models the endpoint offers, via the standard OpenAI `GET /v1/models` route —
  * implemented by Ollama, LM Studio, vLLM, OpenAI and Mistral alike, so the model
  * field can be a picker rather than a string the user has to spell correctly.
@@ -94,6 +95,11 @@ export async function fetchAvailableModels(
     .sort((a, b) => a.localeCompare(b))
 }
 
+/**
+ * The endpoint the copilot should use, or null.
+ *
+ * Local (WASM) path only — see `resolveEndpointForSurface` for server mode.
+ */
 export function resolveAgentEndpoint(): ResolvedEndpoint {
   const settings = loadAgentSettings()
   if (!settings) return { endpoint: null, isRemote: false }
@@ -109,4 +115,61 @@ export function resolveAgentEndpoint(): ResolvedEndpoint {
     },
     isRemote: remote,
   }
+}
+
+/**
+ * Turn a stored provider into a usable endpoint, applying the same
+ * acknowledgement rule the server applies on write.
+ *
+ * A provider carries no `apiKey`: the server never returns it. A remote provider
+ * therefore only works through a server-side call path — which is the intent, as
+ * it keeps the secret off the browser entirely.
+ */
+export function endpointFromProvider(provider: LlmProvider): ResolvedEndpoint {
+  const remote = !provider.isLocal
+  if (remote && !provider.acknowledgedAt) return { endpoint: null, isRemote: true }
+  return {
+    endpoint: { baseUrl: provider.baseUrl, model: provider.model },
+    isRemote: remote,
+  }
+}
+
+/**
+ * Providers an admin approved for this surface, most recently configured first.
+ * Empty in WASM mode, where there is no server to hold them.
+ */
+export async function listApprovedProviders(
+  workspaceId: string,
+  surface: AgentSurface
+): Promise<LlmProvider[]> {
+  if (!isServerMode() || !workspaceId) return []
+  try {
+    return await listProviders(workspaceId, surface)
+  } catch {
+    // An unreachable or forbidding server means no approved model, not a crash
+    // in the page hosting the assistant.
+    return []
+  }
+}
+
+/**
+ * The endpoint for a surface: the chosen approved provider in server mode, the
+ * browser's own settings in WASM mode.
+ *
+ * `preferredModel` is the user's pick among the approved list; an unknown or
+ * absent one falls back to the first approved provider rather than to nothing,
+ * so a model being un-approved does not silently break the assistant.
+ */
+export async function resolveEndpointForSurface(
+  workspaceId: string,
+  surface: AgentSurface,
+  preferredModel?: string
+): Promise<ResolvedEndpoint> {
+  if (!isServerMode()) return resolveAgentEndpoint()
+
+  const providers = (await listApprovedProviders(workspaceId, surface)).filter((p) => p.enabled)
+  if (!providers.length) return { endpoint: null, isRemote: false }
+
+  const chosen = providers.find((p) => p.model === preferredModel) ?? providers[0]
+  return endpointFromProvider(chosen)
 }

@@ -1,11 +1,13 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearAgentSettings,
+  endpointFromProvider,
   fetchAvailableModels,
   loadAgentSettings,
   resolveAgentEndpoint,
   saveAgentSettings,
 } from './settings'
+import type { LlmProvider } from '@/lib/api/llm'
 
 // Tests run in a Node environment by design (docs/conventions.md), so stub the
 // bit of Web Storage this module uses rather than pulling in jsdom.
@@ -129,5 +131,74 @@ describe('fetchAvailableModels', () => {
   it('tolerates a payload with no data array', async () => {
     mockFetch({ json: async () => ({}) })
     await expect(fetchAvailableModels('http://localhost:11434/v1')).resolves.toEqual([])
+  })
+})
+
+describe('endpointFromProvider', () => {
+  function provider(overrides: Partial<LlmProvider> = {}): LlmProvider {
+    return {
+      id: 'p1',
+      workspaceId: 'ws1',
+      name: { en: 'Ollama' },
+      kind: 'local-openai-compatible',
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'qwen3.5:4b',
+      hasApiKey: false,
+      isLocal: true,
+      enabled: true,
+      surfaces: ['dashboard'],
+      acknowledgedById: null,
+      acknowledgedAt: null,
+      createdById: 1,
+      createdAt: '2026-08-07T10:00:00Z',
+      updatedAt: '2026-08-07T10:00:00Z',
+      ...overrides,
+    }
+  }
+
+  it('uses a local provider without any acknowledgement', () => {
+    const { endpoint, isRemote } = endpointFromProvider(provider())
+    expect(isRemote).toBe(false)
+    expect(endpoint?.model).toBe('qwen3.5:4b')
+  })
+
+  it('refuses an unacknowledged remote provider', () => {
+    // Same rule as the localStorage path: forgetting to confirm disables the
+    // assistant rather than silently shipping clinical context to a third party.
+    const { endpoint, isRemote } = endpointFromProvider(
+      provider({ isLocal: false, baseUrl: 'https://api.openai.com/v1' })
+    )
+    expect(endpoint).toBeNull()
+    expect(isRemote).toBe(true)
+  })
+
+  it('allows a remote provider once acknowledged', () => {
+    const { endpoint, isRemote } = endpointFromProvider(
+      provider({
+        isLocal: false,
+        baseUrl: 'https://api.openai.com/v1',
+        acknowledgedAt: '2026-08-07T10:00:00Z',
+      })
+    )
+    expect(isRemote).toBe(true)
+    expect(endpoint?.baseUrl).toBe('https://api.openai.com/v1')
+  })
+
+  it('never carries an API key, because the server does not return one', () => {
+    const { endpoint } = endpointFromProvider(
+      provider({ hasApiKey: true, acknowledgedAt: '2026-08-07T10:00:00Z' })
+    )
+    expect(endpoint).not.toBeNull()
+    expect(endpoint?.apiKey).toBeUndefined()
+  })
+
+  it('trusts the server-derived isLocal, not the URL shape', () => {
+    // The server decides locality; a provider flagged remote stays remote even
+    // if its URL looks local, so a crafted row cannot bypass the gate.
+    const { endpoint, isRemote } = endpointFromProvider(
+      provider({ isLocal: false, baseUrl: 'http://localhost:11434/v1' })
+    )
+    expect(isRemote).toBe(true)
+    expect(endpoint).toBeNull()
   })
 })

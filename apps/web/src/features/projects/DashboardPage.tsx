@@ -18,7 +18,7 @@ import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
 import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
 import { useDashboardPanelsStore } from '@/stores/dashboard-panels-store'
 import { DashboardAgentSidebar } from './dashboard/agent/DashboardAgentSidebar'
-import { resolveAgentEndpoint } from '@/lib/agent/settings'
+import { resolveEndpointForSurface, type ResolvedEndpoint } from '@/lib/agent/settings'
 import { DashboardSettingsDialog } from './dashboard/DashboardSettingsDialog'
 import { ExportDashboardDialog } from './dashboard/ExportDashboardDialog'
 import { isWidgetPluginStale } from './dashboard/plugin-drift'
@@ -46,12 +46,20 @@ export function DashboardPage() {
   const toggleAgentPanel = useDashboardPanelsStore((s) => s.toggleAgent)
   const setFilterOpen = useDashboardPanelsStore((s) => s.setFilterOpen)
   const setAgentOpen = useDashboardPanelsStore((s) => s.setAgentOpen)
-  // Read once per mount: settings live in Settings → Assistant, so a change there
-  // applies when the user comes back to the dashboard.
-  const { endpoint: agentEndpoint, isRemote: agentIsRemote } = useMemo(
-    () => resolveAgentEndpoint(),
-    []
-  )
+  // Resolved once per mount: in server mode this is whichever model an admin
+  // approved for dashboards, so a change in Settings → Assistant applies when the
+  // user comes back here.
+  const [agent, setAgent] = useState<ResolvedEndpoint>({ endpoint: null, isRemote: false })
+  useEffect(() => {
+    let cancelled = false
+    resolveEndpointForSurface(wsUid ?? '', 'dashboard').then((resolved) => {
+      if (!cancelled) setAgent(resolved)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [wsUid])
+  const { endpoint: agentEndpoint, isRemote: agentIsRemote } = agent
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [exportPreselectId, setExportPreselectId] = useState<string | null>(null)

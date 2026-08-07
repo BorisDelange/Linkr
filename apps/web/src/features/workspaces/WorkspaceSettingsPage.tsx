@@ -36,6 +36,9 @@ export function WorkspaceSettingsPage() {
   // Deleting needs owner (enforced server-side too).
   const { can } = useMyWorkspaceRole(wsUid)
   const canDelete = can('workspace-settings:delete')
+  // Owner-only, and enforced server-side too: pointing the assistant at an
+  // endpoint decides where prompts (possibly carrying clinical context) go.
+  const canConfigureLlm = can('llm-config:write')
   // 'organization' is no longer a tab here (moved to the Edit Workspace dialog);
   // redirect legacy deep-links, and gate the owner-only danger tab.
   const requestedTab = searchParams.get('tab') ?? 'members'
@@ -106,10 +109,10 @@ export function WorkspaceSettingsPage() {
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="config">
-                <AgentSettingsTab />
+                <AgentSettingsTab workspaceId={wsUid} canWrite={canConfigureLlm} />
               </TabsContent>
               <TabsContent value="tests">
-                <AgentBenchTab />
+                <AgentBenchTab workspaceId={wsUid} canWrite={canConfigureLlm} />
               </TabsContent>
             </Tabs>
           </div>
