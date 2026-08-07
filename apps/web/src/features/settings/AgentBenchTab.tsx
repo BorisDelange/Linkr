@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { BenchMultiSelect } from './BenchMultiSelect'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { cn } from '@/lib/utils'
 import { getPlugin } from '@/lib/plugins/registry'
 import { PLOT_BUILDER_ID } from '@/lib/agent/dashboard-tools'
@@ -108,6 +108,17 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
     [providers]
   )
 
+  const modelOptions = useMemo(
+    () => providers.map((p) => ({ value: p.model, label: providerName(p) })),
+    [providers]
+  )
+
+  // Surfaces are stored as ids ("dashboard") but shown translated.
+  const surfaceOptions = useMemo(
+    () => BENCH_SURFACES.map((s) => ({ value: s, label: t(`agent.surface_${s}`) })),
+    [t]
+  )
+
   const caseCount = selectCases(surfaces, mode).length
 
   const start = useCallback(
@@ -186,14 +197,16 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
             <Label className="text-[11px] text-muted-foreground">
               {t('agent.bench_models')}
             </Label>
-            <BenchMultiSelect
-              values={providers.map((p) => p.model)}
-              selected={models}
+            <MultiSelectFilter
+              value={models}
+              options={modelOptions}
               onChange={setModels}
-              labels={modelLabels}
               placeholder={t('agent.bench_models_placeholder')}
-              disabled={running}
-              className="w-56"
+              popoverWidthClass="w-64"
+              triggerClass={cn(
+                'h-8 w-56 rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary',
+                running && 'pointer-events-none opacity-50'
+              )}
             />
           </div>
 
@@ -201,13 +214,16 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
             <Label className="text-[11px] text-muted-foreground">
               {t('agent.bench_surfaces')}
             </Label>
-            <BenchMultiSelect
-              values={BENCH_SURFACES}
-              selected={surfaces}
+            <MultiSelectFilter
+              value={surfaces}
+              options={surfaceOptions}
               onChange={(next) => setSurfaces(next as BenchSurface[])}
               placeholder={t('agent.bench_surfaces_placeholder')}
-              disabled={running}
-              className="w-44"
+              popoverWidthClass="w-52"
+              triggerClass={cn(
+                'h-8 w-44 rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary',
+                running && 'pointer-events-none opacity-50'
+              )}
             />
           </div>
 
