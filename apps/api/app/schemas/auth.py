@@ -42,6 +42,7 @@ class MeResponse(BaseModel):
     affiliation: dict[str, str] | str | None = None
     profession: dict[str, str] | str | None = None
     orcid: str | None = None
+    preferences: dict = {}
 
     model_config = {"from_attributes": True}
 

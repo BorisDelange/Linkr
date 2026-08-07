@@ -108,6 +108,7 @@ async def _build_me(user: User, db: AsyncSession) -> MeResponse:
         affiliation=user.affiliation,
         profession=user.profession,
         orcid=user.orcid,
+        preferences=user.preferences or {},
     )
 
 

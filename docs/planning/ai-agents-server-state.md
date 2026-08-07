@@ -68,10 +68,23 @@ clearing all of them must both be available.
 - [x] tests: `tests/test_agent_conversations.py` (11) — a user cannot read,
       edit or delete another's, and neither can a workspace owner
 
-### 3. Backend — panel preferences
+### 3. Backend — panel preferences → **dropped, deliberately**
 
-- [ ] Reuse the existing user-preferences mechanism if there is one; otherwise a
-      small `user_preferences` key/value table. Do NOT invent a second one.
+Panel open/closed stays in `localStorage`. On inspection the store holds two
+booleans (`filterOpen`, `agentOpen`) and nothing else, and moving them server-side
+is wrong on three counts: every other UI preference (language, theme, sidebar)
+lives in `localStorage`, so this would create the second mechanism this step
+explicitly forbade; "which panel is open" is per-tab state, not identity, so
+syncing it pops the assistant open on one screen because it was opened on
+another; and it puts a network round-trip behind a toggle that must feel
+instant. Nothing is lost — the conversation itself is server-side.
+
+What *does* belong on the server is the assistant setting below.
+
+- [ ] `save_conversations` per user — a consent decision, so it must follow the
+      user across machines rather than being re-defaulted to "on" on a new
+      browser. `User.preferences` (a JSON column) already exists and is exposed
+      by no route yet; use it rather than adding a table.
 
 ### 4. Frontend
 
