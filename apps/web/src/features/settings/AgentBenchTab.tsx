@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Loader2, Play, Square, Trash2, X } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -10,7 +10,12 @@ import { BenchMultiSelect } from './BenchMultiSelect'
 import { cn } from '@/lib/utils'
 import { getPlugin } from '@/lib/plugins/registry'
 import { PLOT_BUILDER_ID } from '@/lib/agent/dashboard-tools'
-import { fetchAvailableModels, resolveEndpointForSurface } from '@/lib/agent/settings'
+import {
+  endpointFromProvider,
+  listConfiguredProviders,
+  providerName,
+} from '@/lib/agent/settings'
+import type { LlmProvider } from '@/lib/api/llm'
 import { runBench, type BenchReport, type CaseResult } from '@/lib/agent/bench/runner'
 import {
   BENCH_SURFACES,
@@ -52,7 +57,7 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [reports, setReports] = useState<StoredBenchReport[]>([])
   const [surfaces, setSurfaces] = useState<BenchSurface[]>(['dashboard'])
-  const [available, setAvailable] = useState<string[]>([])
+  const [providers, setProviders] = useState<LlmProvider[]>([])
   const [models, setModels] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [selectedModel, setSelectedModel] = useState<string>('')
@@ -75,31 +80,40 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
     }
   }, [workspaceId])
 
-  // Offer the endpoint's models, defaulting to the configured one.
+  // Offer the models configured in the Configuration tab, under the names the
+  // admin gave them. Benching an arbitrary model the endpoint happens to serve
+  // was of little use: what matters is whether the models people can actually
+  // be pointed at hold up.
   useEffect(() => {
     let cancelled = false
-    resolveEndpointForSurface(workspaceId, 'dashboard').then(({ endpoint }) => {
-      if (cancelled || !endpoint) return
-      setModels([endpoint.model])
-      fetchAvailableModels(endpoint.baseUrl, endpoint.apiKey)
-        .then((list) => {
-          if (!cancelled) setAvailable(list)
-        })
-        .catch(() => {
-          if (!cancelled) setAvailable([endpoint.model])
-        })
+    listConfiguredProviders(workspaceId).then((list) => {
+      if (cancelled) return
+      setProviders(list)
+      // Preselect everything: a small list, and the usual intent is "test them".
+      setModels(list.map((p) => p.model))
     })
     return () => {
       cancelled = true
     }
   }, [workspaceId])
 
+  // Model id → the name the admin gave it, so the picker and the results read
+  // as "Ollama Gemma 4B" rather than "gemma3:4b".
+  const modelLabels = useMemo(
+    () =>
+      Object.fromEntries(providers.map((p) => [p.model, providerName(p)])) as Record<
+        string,
+        string
+      >,
+    [providers]
+  )
+
   const caseCount = selectCases(surfaces, mode).length
 
   const start = useCallback(
     async () => {
-      const { endpoint } = await resolveEndpointForSurface(workspaceId, 'dashboard')
-      if (!endpoint) {
+      const selected = providers.filter((p) => models.includes(p.model))
+      if (!selected.length) {
         setError('no_provider')
         return
       }
@@ -115,10 +129,14 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
       abortRef.current = controller
 
       try {
-        for (const model of models) {
+        for (const provider of selected) {
+          // Each provider carries its own endpoint: two configured models may
+          // well live on different servers, so they cannot share one base URL.
+          const { endpoint } = endpointFromProvider(provider)
+          if (!endpoint) continue
           setProgress({ done: 0, total: caseCount })
           const report = await runBench({
-            endpoint: { ...endpoint, model },
+            endpoint,
             manifest: plugin.manifest,
             mode,
             surfaces,
@@ -140,7 +158,7 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
         setProgress(null)
       }
     },
-    [caseCount, lang, models, mode, surfaces, workspaceId]
+    [caseCount, lang, models, mode, providers, surfaces, workspaceId]
   )
 
 
@@ -169,9 +187,10 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
               {t('agent.bench_models')}
             </Label>
             <BenchMultiSelect
-              values={available}
+              values={providers.map((p) => p.model)}
               selected={models}
               onChange={setModels}
+              labels={modelLabels}
               placeholder={t('agent.bench_models_placeholder')}
               disabled={running}
               className="w-56"
@@ -277,7 +296,8 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
                   >
                     {reports.map((report) => (
                       <option key={report.model} value={report.model}>
-                        {report.model} — {report.passed}/{report.total} ·{' '}
+                        {modelLabels[report.model] || report.model} — {report.passed}/
+                        {report.total} ·{' '}
                         {report.tokensPerSecond.toFixed(1)} tok/s
                       </option>
                     ))}
@@ -321,7 +341,7 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
                     {t('agent.bench_clear_all')}
                   </Button>
                 </div>
-                <MatrixTable reports={reports} />
+                <MatrixTable reports={reports} labels={modelLabels} />
               </TabsContent>
             </Tabs>
           </div>
@@ -370,8 +390,15 @@ function ReportDetail({ report }: { report: BenchReport }) {
  * "which model should we run here" — a per-model score hides WHICH cases a model
  * fails, and that is what decides whether it is usable.
  */
-function MatrixTable({ reports }: { reports: BenchReport[] }) {
+function MatrixTable({
+  reports,
+  labels,
+}: {
+  reports: BenchReport[]
+  labels: Record<string, string>
+}) {
   const { t } = useTranslation()
+  const display = (model: string) => labels[model] || model
   const ranked = [...reports].sort(
     (a, b) => b.passed / b.total - a.passed / a.total || b.tokensPerSecond - a.tokensPerSecond
   )
@@ -393,7 +420,7 @@ function MatrixTable({ reports }: { reports: BenchReport[] }) {
             <th className="py-1 pr-2 text-left font-medium">{t('agent.bench_case')}</th>
             {ranked.map((report) => (
               <th key={report.model} className="px-2 py-1 text-center font-medium">
-                {report.model}
+                {display(report.model)}
               </th>
             ))}
           </tr>

@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { localized } from '@/lib/localized'
 import { isServerMode } from '@/lib/api-client'
 import { isLocalEndpoint } from '@/lib/agent/locality'
 import {
@@ -37,6 +38,7 @@ import {
   clearAgentSettings,
   fetchAvailableModels,
   loadAgentSettings,
+  providerName,
   saveAgentSettings,
 } from '@/lib/agent/settings'
 
@@ -44,6 +46,7 @@ type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; detail?: string }
 type ModelsState = { status: 'idle' | 'loading' | 'ok' | 'fail'; list: string[] }
 
 const SURFACES: AgentSurface[] = ['dashboard', 'ide']
+
 
 interface AgentSettingsTabProps {
   workspaceId: string
@@ -161,7 +164,9 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="truncate text-sm font-medium">{provider.model}</span>
+                      <span className="truncate text-sm font-medium">
+                        {providerName(provider)}
+                      </span>
                       {provider.isLocal ? (
                         <Badge variant="secondary" className="text-[10px]">
                           {t('agent.provider_local')}
@@ -177,8 +182,12 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
                         </Badge>
                       ) : null}
                     </div>
+                    {/* Keep the model id visible even under a custom name —
+                        otherwise "Ollama Gemma 4B" hides which model runs. */}
                     <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                      {provider.baseUrl}
+                      {providerName(provider) === provider.model
+                        ? provider.baseUrl
+                        : `${provider.model} · ${provider.baseUrl}`}
                     </p>
                   </div>
                   {canWrite ? (
@@ -255,6 +264,9 @@ function ProviderForm({
   const { t } = useTranslation()
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? DEFAULT_BASE_URL)
   const [model, setModel] = useState(provider?.model ?? '')
+  // Raw stored value, NOT providerName(): that falls back to the model id, which
+  // would pre-fill the field and turn "no custom name" into a name on next save.
+  const [displayName, setDisplayName] = useState(localized(provider?.name, 'en'))
   const [apiKey, setApiKey] = useState('')
   const [acknowledged, setAcknowledged] = useState(Boolean(provider?.acknowledgedAt))
   const [saving, setSaving] = useState(false)
@@ -298,8 +310,11 @@ function ProviderForm({
     setError(null)
     try {
       const acknowledgementText = remote ? t('agent.remote_acknowledge') : undefined
+      // Empty = no custom name; the list then shows the model id.
+      const name = { en: displayName.trim() }
       if (provider) {
         await updateProvider(provider.id, {
+          name,
           baseUrl: baseUrl.trim(),
           model: model.trim(),
           // Absent leaves the stored key alone; only send what the user typed.
@@ -309,7 +324,7 @@ function ProviderForm({
       } else {
         await createProvider({
           workspaceId,
-          name: { en: model.trim() },
+          name,
           baseUrl: baseUrl.trim(),
           model: model.trim(),
           apiKey: apiKey.trim() || undefined,
@@ -371,7 +386,20 @@ function ProviderForm({
 
   return (
     <div className="mt-4 rounded-md border bg-muted/30 p-3">
-      <div className="grid gap-3 sm:grid-cols-[1fr_16rem]">
+      <div className="space-y-1.5">
+        <Label htmlFor="agent-name">{t('agent.provider_name')}</Label>
+        <Input
+          id="agent-name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder={model.trim() || t('agent.provider_name_placeholder')}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          {t('agent.provider_name_hint')}
+        </p>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_16rem]">
         <div className="space-y-1.5">
           <Label htmlFor="agent-url">{t('agent.settings_base_url')}</Label>
           <Input
@@ -533,8 +561,14 @@ function ProviderForm({
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={handleSave} disabled={blocked || incomplete || saving}>
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-          {t('common.save')}
+          {saving ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : provider ? (
+            <Save size={14} />
+          ) : (
+            <Plus size={14} />
+          )}
+          {provider ? t('common.save') : t('agent.provider_add')}
         </Button>
         <Button size="sm" variant="ghost" onClick={onCancel}>
           <X size={14} />

@@ -14,6 +14,7 @@
  * must not trust a client.
  */
 import { isServerMode } from '@/lib/api-client'
+import { localized } from '@/lib/localized'
 import { listProviders, type AgentSurface, type LlmProvider } from '@/lib/api/llm'
 import type { LlmEndpoint } from './agent-loop'
 import { isLocalEndpoint } from './locality'
@@ -131,6 +132,34 @@ export function endpointFromProvider(provider: LlmProvider): ResolvedEndpoint {
   return {
     endpoint: { baseUrl: provider.baseUrl, model: provider.model },
     isRemote: remote,
+  }
+}
+
+/**
+ * The label an admin gave a provider ("Ollama Gemma 4B"), or the model id when
+ * they gave none.
+ *
+ * Stored under `en` and not translated: it names a specific deployment, so a
+ * per-language variant would be a different endpoint, not a translation.
+ */
+export function providerName(provider: LlmProvider | null): string {
+  if (!provider) return ''
+  return localized(provider.name, 'en') || provider.model
+}
+
+/**
+ * Every provider configured for the workspace, approved or not.
+ *
+ * The bench needs these rather than the approved subset: you evaluate a model in
+ * order to decide whether to approve it, so filtering by approval first would
+ * hide exactly the candidates worth testing.
+ */
+export async function listConfiguredProviders(workspaceId: string): Promise<LlmProvider[]> {
+  if (!isServerMode() || !workspaceId) return []
+  try {
+    return await listProviders(workspaceId)
+  } catch {
+    return []
   }
 }
 

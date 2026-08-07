@@ -13,6 +13,9 @@ interface Props {
   disabled?: boolean
   /** Below this many options the search box is noise. */
   searchThreshold?: number
+  /** Display name per value. A value with no entry shows itself, so callers
+   *  with nothing to rename (surfaces) can omit this entirely. */
+  labels?: Record<string, string>
   className?: string
 }
 
@@ -27,23 +30,32 @@ export function BenchMultiSelect({
   placeholder,
   disabled,
   searchThreshold = 5,
+  labels,
   className,
 }: Props) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
 
+  const display = (value: string) => labels?.[value] || value
+
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase()
     if (!query) return values
-    return values.filter((value) => value.toLowerCase().includes(query))
-  }, [values, search])
+    // Search the display name too, or a renamed model would be unfindable by
+    // the name the user gave it.
+    return values.filter(
+      (value) =>
+        value.toLowerCase().includes(query) ||
+        (labels?.[value] ?? '').toLowerCase().includes(query)
+    )
+  }, [values, search, labels])
 
   const label =
     selected.length === 0
       ? placeholder
       : selected.length === 1
-        ? selected[0]
+        ? display(selected[0])
         : `${selected.length} / ${values.length}`
 
   const toggle = (value: string) =>
@@ -133,7 +145,7 @@ export function BenchMultiSelect({
                   isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30'
                 )}
               >
-                <span className="min-w-0 flex-1 truncate">{value}</span>
+                <span className="min-w-0 flex-1 truncate">{display(value)}</span>
                 {isSelected ? <Check size={12} className="shrink-0" /> : null}
               </button>
             )

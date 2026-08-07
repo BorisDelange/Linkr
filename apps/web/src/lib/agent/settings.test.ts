@@ -4,6 +4,7 @@ import {
   endpointFromProvider,
   fetchAvailableModels,
   loadAgentSettings,
+  providerName,
   resolveAgentEndpoint,
   saveAgentSettings,
 } from './settings'
@@ -200,5 +201,41 @@ describe('endpointFromProvider', () => {
     )
     expect(isRemote).toBe(true)
     expect(endpoint).toBeNull()
+  })
+})
+
+describe('providerName', () => {
+  function provider(overrides: Partial<LlmProvider> = {}): LlmProvider {
+    return {
+      id: 'p1',
+      workspaceId: 'ws1',
+      name: {},
+      kind: 'local-openai-compatible',
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'gemma3:4b',
+      hasApiKey: false,
+      isLocal: true,
+      enabled: true,
+      surfaces: [],
+      acknowledgedById: null,
+      acknowledgedAt: null,
+      createdById: 1,
+      createdAt: '2026-08-07T10:00:00Z',
+      updatedAt: '2026-08-07T10:00:00Z',
+      ...overrides,
+    }
+  }
+
+  it('prefers the custom name an admin gave', () => {
+    expect(providerName(provider({ name: { en: 'Ollama Gemma 4B' } }))).toBe('Ollama Gemma 4B')
+  })
+
+  it('falls back to the model id when no name was given', () => {
+    expect(providerName(provider())).toBe('gemma3:4b')
+    expect(providerName(provider({ name: { en: '' } }))).toBe('gemma3:4b')
+  })
+
+  it('returns an empty string for no provider', () => {
+    expect(providerName(null)).toBe('')
   })
 })
