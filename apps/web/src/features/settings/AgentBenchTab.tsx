@@ -215,42 +215,7 @@ export function AgentBenchTab() {
 
         {reports.length ? (
           <div className="mt-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="h-8 min-w-48 rounded-md border bg-background px-2 text-xs"
-              >
-                {reports.map((report) => (
-                  <option key={report.model} value={report.model}>
-                    {report.model} — {report.passed}/{report.total} ·{' '}
-                    {report.tokensPerSecond.toFixed(1)} tok/s
-                  </option>
-                ))}
-              </select>
-
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8"
-                disabled={running || !current}
-                onClick={() => current && setReports(removeReport(current.model))}
-              >
-                <Trash2 size={13} />
-                {t('agent.bench_remove')}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8"
-                disabled={running}
-                onClick={() => setReports(clearReports())}
-              >
-                {t('agent.bench_clear_all')}
-              </Button>
-            </div>
-
-            <Tabs defaultValue="detail" className="mt-3">
+            <Tabs defaultValue="detail">
               <TabsList className="mx-auto w-fit">
                 <TabsTrigger value="detail" className="text-xs">
                   {t('agent.bench_view_detail')}
@@ -260,10 +225,61 @@ export function AgentBenchTab() {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="detail">
+              {/* Controls live inside each tab: picking a run only means
+                  something in Detail, where one run is shown at a time. */}
+              <TabsContent value="detail" className="mt-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={current?.model ?? ''}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="h-8 min-w-48 rounded-md border bg-background px-2 text-xs"
+                  >
+                    {reports.map((report) => (
+                      <option key={report.model} value={report.model}>
+                        {report.model} — {report.passed}/{report.total} ·{' '}
+                        {report.tokensPerSecond.toFixed(1)} tok/s
+                      </option>
+                    ))}
+                  </select>
+
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8"
+                    disabled={running || !current}
+                    onClick={() => current && setReports(removeReport(current.model))}
+                  >
+                    <Trash2 size={13} />
+                    {t('agent.bench_remove')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8"
+                    disabled={running}
+                    onClick={() => setReports(clearReports())}
+                  >
+                    <Trash2 size={13} />
+                    {t('agent.bench_clear_all')}
+                  </Button>
+                </div>
+
                 {current ? <ReportDetail report={current} /> : null}
               </TabsContent>
-              <TabsContent value="matrix">
+
+              <TabsContent value="matrix" className="mt-3">
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8"
+                    disabled={running}
+                    onClick={() => setReports(clearReports())}
+                  >
+                    <Trash2 size={13} />
+                    {t('agent.bench_clear_all')}
+                  </Button>
+                </div>
                 <MatrixTable reports={reports} />
               </TabsContent>
             </Tabs>
