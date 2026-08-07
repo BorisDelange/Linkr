@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { NoAccessNotice } from '@/components/ui/no-access-notice'
 import { useHasGlobalPermission } from '@/stores/auth-store'
@@ -10,8 +10,12 @@ import { RolesTab } from './RolesTab'
 import { OrganizationsTab } from './OrganizationsTab'
 import { SettingsBackupSyncTab } from './SettingsBackupSyncTab'
 
+const TABS = ['general', 'organizations', 'users', 'roles', 'catalog', 'backup-sync']
+
 export function SettingsPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { tab } = useParams()
   const [searchParams] = useSearchParams()
   // Tabs stay visible for everyone; a missing permission replaces the tab's
   // contents with a "no access" notice (the real gate is server-side).
@@ -21,7 +25,10 @@ export function SettingsPage() {
   // Settings versioning pushes/imports users + roles + organizations wholesale
   // (creating accounts) — admin-tier, so require all three management rights.
   const canVersionSettings = canManageUsers && canManageRoles && canManageOrgs
-  const defaultTab = searchParams.get('tab') ?? 'general'
+  // The active tab lives in the URL (/settings/users) so reload/back land on the
+  // same tab; ?tab= is still read for old links.
+  const requestedTab = tab ?? searchParams.get('tab') ?? 'general'
+  const activeTab = TABS.includes(requestedTab) ? requestedTab : 'general'
 
   return (
     <div className="h-full overflow-auto">
@@ -33,7 +40,11 @@ export function SettingsPage() {
           {t('settings.description')}
         </p>
 
-        <Tabs defaultValue={defaultTab} className="mt-6">
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => navigate(`/settings/${v}`, { replace: true })}
+          className="mt-6"
+        >
           <TabsList className="mx-auto w-fit">
             <TabsTrigger value="general">{t('settings.tab_general')}</TabsTrigger>
             <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>

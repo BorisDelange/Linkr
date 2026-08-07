@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { Trash2, Loader2 } from 'lucide-react'
@@ -32,6 +33,7 @@ export function WorkspaceSettingsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
+  const { tab } = useParams()
   const [searchParams] = useSearchParams()
   // Deleting needs owner (enforced server-side too).
   const { can } = useMyWorkspaceRole(wsUid)
@@ -39,12 +41,13 @@ export function WorkspaceSettingsPage() {
   // Owner-only, and enforced server-side too: pointing the assistant at an
   // endpoint decides where prompts (possibly carrying clinical context) go.
   const canConfigureLlm = can('llm-config:write')
-  // 'organization' is no longer a tab here (moved to the Edit Workspace dialog);
-  // redirect legacy deep-links, and gate the owner-only danger tab.
-  const requestedTab = searchParams.get('tab') ?? 'members'
-  const defaultTab = (requestedTab === 'danger' && !canDelete) || requestedTab === 'organization'
-    ? 'members'
-    : requestedTab
+  // The active tab lives in the URL (/settings/members) so reload/back land on
+  // the same tab; ?tab= is still read for old links. 'organization' is no longer
+  // a tab here (moved to the Edit Workspace dialog); gate the owner-only danger
+  // tab and the server-only environments tab.
+  const requestedTab = tab ?? searchParams.get('tab') ?? 'members'
+  const availableTabs = ['members', 'assistant', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
+  const activeTab = availableTabs.includes(requestedTab) ? requestedTab : 'members'
   const language = useAppStore((s) => s.language)
   const { _workspacesRaw, deleteWorkspace, closeWorkspace } = useWorkspaceStore()
 
@@ -76,7 +79,11 @@ export function WorkspaceSettingsPage() {
         </h1>
       </div>
 
-      <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-1 flex-col px-6">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => navigate(paths.workspaceSettings(wsUid, v), { replace: true })}
+        className="flex min-h-0 flex-1 flex-col px-6"
+      >
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           {isServerMode() && <TabsTrigger value="environments">{t('workspace_env.title')}</TabsTrigger>}

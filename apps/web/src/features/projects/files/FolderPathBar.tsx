@@ -20,11 +20,11 @@ export function FolderPathBar({ path }: { path: string }) {
   const location = useLocation()
 
   // Derive the project's Settings URL from the current path: everything up to and
-  // including `.../projects/:uid`, then `/settings?tab=folders`.
+  // including `.../projects/:uid`, then `/settings/folders`.
   const goToFolderSettings = () => {
     const m = location.pathname.match(/^(.*\/projects\/[^/]+)/)
     if (!m) return
-    navigate(`${m[1]}/settings?tab=folders`)
+    navigate(`${m[1]}/settings/folders`)
   }
 
   return (

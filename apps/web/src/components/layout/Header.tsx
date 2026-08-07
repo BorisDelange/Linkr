@@ -256,7 +256,7 @@ export function Header() {
     // Check project-level routes: /workspaces/:wsUid/projects/:uid/segment
     const projectMatch = pathname.match(/^\/workspaces\/[^/]+\/projects\/[^/]+\/(.+)$/)
     if (projectMatch) {
-      const segment = projectMatch[1]
+      const segment = projectMatch[1].replace(/^settings\/.+$/, 'settings')
 
       if (dashboardId) return dashboardName ?? t('project_nav.dashboards')
       if (cohortId) return cohortName ?? t('project_nav.cohorts')
@@ -268,7 +268,7 @@ export function Header() {
     // Check workspace-level routes: /workspaces/:wsUid/segment
     const wsMatch = pathname.match(/^\/workspaces\/[^/]+\/(.+)$/)
     if (wsMatch) {
-      const segment = wsMatch[1]
+      const segment = wsMatch[1].replace(/^settings\/.+$/, 'settings')
 
       if (etlId) return etlName ? localized(etlName, language) : t('app_warehouse.nav_etl')
       if (sqlId) return sqlName ? localized(sqlName, language) : t('app_warehouse.nav_sql_scripts')

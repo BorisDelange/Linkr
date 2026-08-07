@@ -31,14 +31,14 @@ const proj = (wsUid: string, projectUid: string) => `${ws(wsUid)}/projects/${sho
 export const paths = {
   workspace: (wsUid: string) => ws(wsUid),
   workspaceHome: (wsUid: string) => `${ws(wsUid)}/home`,
-  workspaceSettings: (wsUid: string) => `${ws(wsUid)}/settings`,
+  workspaceSettings: (wsUid: string, tab?: string) => `${ws(wsUid)}/settings${tab ? `/${tab}` : ''}`,
   workspaceVersioning: (wsUid: string, tab?: 'export' | 'git') =>
     `${ws(wsUid)}/versioning${tab ? `?tab=${tab}` : ''}`,
   projects: (wsUid: string) => `${ws(wsUid)}/projects`,
 
   project: (wsUid: string, projectUid: string) => proj(wsUid, projectUid),
   projectSummary: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/summary`,
-  projectSettings: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/settings`,
+  projectSettings: (wsUid: string, projectUid: string, tab?: string) => `${proj(wsUid, projectUid)}/settings${tab ? `/${tab}` : ''}`,
   projectVersioning: (wsUid: string, projectUid: string, tab?: 'export' | 'git') =>
     `${proj(wsUid, projectUid)}/versioning${tab ? `?tab=${tab}` : ''}`,
 

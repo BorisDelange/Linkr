@@ -186,6 +186,7 @@ const segmentsWithSubRoutes = new Set([
   'warehouse/catalog',
   'warehouse/cohorts',
   'lab/dashboards',
+  'settings',
 ])
 
 export function AppSidebar() {

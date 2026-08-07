@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { paths } from '@/lib/paths'
 import { useAppStore } from '@/stores/app-store'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -61,10 +62,13 @@ export function ProjectSettingsPage() {
 
   const project = projects.find((p) => p.uid === uid)
 
-  // The active tab is URL-driven (?tab=folders) so other pages can deep-link here
-  // — e.g. the IDE/Datasets folder-path bar links straight to the Folders tab.
-  const [searchParams, setSearchParams] = useSearchParams()
-  const requestedTab = searchParams.get('tab')
+  // The active tab lives in the URL (/settings/folders) so reload/back land on
+  // the same tab and other pages can deep-link here — e.g. the IDE/Datasets
+  // folder-path bar links straight to the Folders tab. ?tab= is still read for
+  // old links.
+  const { tab } = useParams()
+  const [searchParams] = useSearchParams()
+  const requestedTab = tab ?? searchParams.get('tab')
   const activeTab = requestedTab === 'folders' && showFolders
     ? 'folders'
     : requestedTab === 'danger' && canDelete
@@ -92,7 +96,7 @@ export function ProjectSettingsPage() {
 
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setSearchParams((p) => { p.set('tab', v); return p }, { replace: true })}
+        onValueChange={(v) => { if (wsUid && uid) navigate(paths.projectSettings(wsUid, uid, v), { replace: true }) }}
         className="flex min-h-0 flex-1 flex-col px-6"
       >
         <TabsList className="shrink-0 w-fit mx-auto">

@@ -187,7 +187,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                   <p>
                     {t('workspaces.org_create_hint')}{' '}
                     <Link
-                      to="/settings?tab=organizations"
+                      to="/settings/organizations"
                       className="font-medium underline underline-offset-2"
                       onClick={() => onOpenChange(false)}
                     >

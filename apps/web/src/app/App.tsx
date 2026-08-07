@@ -155,7 +155,7 @@ export function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/workspaces" element={<WorkspacesPage />} />
             <Route path="/catalog" element={<CatalogPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/:tab?" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
 
             {/* Workspace-level routes */}
@@ -183,7 +183,7 @@ export function App() {
             <Route path="/workspaces/:wsUid/warehouse/catalog" element={<WorkspaceGuard><DataCatalogPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/catalog/:catalogId" element={<WorkspaceGuard><DataCatalogPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/versioning" element={<WorkspaceGuard><AppVersioningPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/settings" element={<WorkspaceGuard><WorkspaceSettingsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/settings/:tab?" element={<WorkspaceGuard><WorkspaceSettingsPage /></WorkspaceGuard>} />
 
             {/* Project-level routes (nested under workspace) */}
             <Route path="/workspaces/:wsUid/projects/:uid" element={<WorkspaceGuard><ProjectGuard><Navigate to="summary" replace /></ProjectGuard></WorkspaceGuard>} />
@@ -206,7 +206,7 @@ export function App() {
 
             {/* Project common routes */}
             <Route path="/workspaces/:wsUid/projects/:uid/versioning" element={<WorkspaceGuard><ProjectGuard><VersioningPage /></ProjectGuard></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/settings" element={<WorkspaceGuard><ProjectGuard><ProjectSettingsPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/settings/:tab?" element={<WorkspaceGuard><ProjectGuard><ProjectSettingsPage /></ProjectGuard></WorkspaceGuard>} />
 
             {/* Legacy redirects */}
             <Route path="/projects" element={<Navigate to="/workspaces" replace />} />
