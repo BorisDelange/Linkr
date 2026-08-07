@@ -26,6 +26,9 @@ dependencies = [
     "python-multipart>=0.0.9",
     "structlog>=24.0",
     "duckdb>=1.0",
+    # Relays assistant requests to the model so a provider's API key can stay
+    # encrypted server-side instead of being shipped to a browser.
+    "httpx>=0.27",
 ]
 
 [tool.pytest.ini_options]

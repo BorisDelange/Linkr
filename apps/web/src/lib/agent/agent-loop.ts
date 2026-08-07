@@ -8,6 +8,7 @@
  * No SDK: a vendor SDK would tie the copilot to one provider, which is the
  * opposite of the "local first" requirement.
  */
+import { getApiBaseUrl } from '@/lib/api-client'
 import type { ToolDefinition } from './dashboard-tools'
 
 export interface ChatMessage {
@@ -40,6 +41,14 @@ export interface LlmEndpoint {
   baseUrl: string
   model: string
   apiKey?: string
+  /**
+   * Reach the model through Linkr rather than calling it directly.
+   *
+   * Set in server mode: the provider's API key is stored encrypted server-side
+   * and never returned, so the browser cannot authenticate to a hosted API (or a
+   * local endpoint behind auth) on its own. The server decrypts and forwards.
+   */
+  proxyProviderId?: string
 }
 
 /** A model that keeps calling tools must not loop forever. */
@@ -98,6 +107,27 @@ function chatUrl(baseUrl: string): string {
     : `${trimmed}/chat/completions`
 }
 
+/**
+ * Where to POST, and with what auth.
+ *
+ * Through the proxy the caller authenticates to Linkr with its own session, and
+ * the provider's key is added server-side — so no model credential is ever
+ * present in the browser.
+ */
+function requestTarget(endpoint: LlmEndpoint): { url: string; headers: Record<string, string> } {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (endpoint.proxyProviderId) {
+    const token = localStorage.getItem('linkr-access-token')
+    if (token) headers.Authorization = `Bearer ${token}`
+    return {
+      url: `${getApiBaseUrl()}/api/v1/llm-providers/${endpoint.proxyProviderId}/chat`,
+      headers,
+    }
+  }
+  if (endpoint.apiKey) headers.Authorization = `Bearer ${endpoint.apiKey}`
+  return { url: chatUrl(endpoint.baseUrl), headers }
+}
+
 /** Usage counters, when the model reports them. */
 export interface StepUsage {
   promptTokens: number
@@ -129,12 +159,11 @@ async function blockingStep(
   tools: ToolDefinition[],
   signal?: AbortSignal
 ): Promise<AgentStep> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (endpoint.apiKey) headers.Authorization = `Bearer ${endpoint.apiKey}`
+  const { url, headers } = requestTarget(endpoint)
 
   let response: Response
   try {
-    response = await fetch(chatUrl(endpoint.baseUrl), {
+    response = await fetch(url, {
       method: 'POST',
       headers,
       signal,
@@ -198,12 +227,11 @@ async function streamStep(
   signal: AbortSignal | undefined,
   onDelta: (chunk: string) => void
 ): Promise<AgentStep> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (endpoint.apiKey) headers.Authorization = `Bearer ${endpoint.apiKey}`
+  const { url, headers } = requestTarget(endpoint)
 
   let response: Response
   try {
-    response = await fetch(chatUrl(endpoint.baseUrl), {
+    response = await fetch(url, {
       method: 'POST',
       headers,
       signal,

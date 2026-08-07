@@ -122,15 +122,20 @@ export function resolveAgentEndpoint(): ResolvedEndpoint {
  * Turn a stored provider into a usable endpoint, applying the same
  * acknowledgement rule the server applies on write.
  *
- * A provider carries no `apiKey`: the server never returns it. A remote provider
- * therefore only works through a server-side call path — which is the intent, as
- * it keeps the secret off the browser entirely.
+ * A provider carries no `apiKey` — the server never returns it — so requests go
+ * through Linkr (`proxyProviderId`), which decrypts the key and forwards. That
+ * is what keeps the secret off the browser while still allowing a hosted API, or
+ * a local endpoint behind authentication.
  */
 export function endpointFromProvider(provider: LlmProvider): ResolvedEndpoint {
   const remote = !provider.isLocal
   if (remote && !provider.acknowledgedAt) return { endpoint: null, isRemote: true }
   return {
-    endpoint: { baseUrl: provider.baseUrl, model: provider.model },
+    endpoint: {
+      baseUrl: provider.baseUrl,
+      model: provider.model,
+      proxyProviderId: provider.id,
+    },
     isRemote: remote,
   }
 }

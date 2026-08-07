@@ -20,6 +20,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
@@ -74,6 +84,7 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
   const [providers, setProviders] = useState<LlmProvider[]>([])
   const [loading, setLoading] = useState(server)
   const [editing, setEditing] = useState<LlmProvider | 'new' | null>(null)
+  const [deleting, setDeleting] = useState<LlmProvider | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -101,8 +112,10 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
     await refresh()
   }
 
-  const remove = async (provider: LlmProvider) => {
-    await deleteProvider(provider.id)
+  const confirmRemove = async () => {
+    if (!deleting) return
+    await deleteProvider(deleting.id)
+    setDeleting(null)
     await refresh()
   }
 
@@ -204,7 +217,7 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
                         size="icon"
                         variant="ghost"
                         className="h-7 w-7"
-                        onClick={() => void remove(provider)}
+                        onClick={() => setDeleting(provider)}
                       >
                         <Trash2 size={13} />
                       </Button>
@@ -239,6 +252,31 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
             {t('agent.providers_read_only')}
           </p>
         ) : null}
+
+        <AlertDialog
+          open={!!deleting}
+          onOpenChange={(open) => {
+            if (!open) setDeleting(null)
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('agent.provider_delete_title')}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t('agent.provider_delete_confirm', { name: providerName(deleting) })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmRemove}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {t('common.delete')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   )
@@ -279,6 +317,20 @@ function ProviderForm({
   const remote = baseUrl.trim().length > 0 && !isLocalEndpoint(baseUrl)
   const blocked = remote && !acknowledged
   const incomplete = !baseUrl.trim() || !model.trim()
+
+  /**
+   * Picking a model fills the name with it, unless the user typed one.
+   *
+   * Tracked against the previous model rather than "is the field empty", so
+   * clearing the name deliberately and then switching model does not silently
+   * refill it — but the common case (pick a model, keep the default name) needs
+   * no typing.
+   */
+  const chooseModel = (next: string) => {
+    setDisplayName((current) => (current.trim() === model.trim() ? next : current))
+    setModel(next)
+    setTest({ status: 'idle' })
+  }
 
   const visibleModels = useMemo(() => {
     const query = modelSearch.trim().toLowerCase()
@@ -385,8 +437,17 @@ function ProviderForm({
   }
 
   return (
-    <div className="mt-4 rounded-md border bg-muted/30 p-3">
-      <div className="space-y-1.5">
+    <div className="relative mt-4 rounded-md border bg-muted/30 p-3">
+      <button
+        type="button"
+        onClick={onCancel}
+        aria-label={t('common.close')}
+        className="absolute right-2 top-2 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <X size={14} />
+      </button>
+
+      <div className="space-y-1.5 pr-8">
         <Label htmlFor="agent-name">{t('agent.provider_name')}</Label>
         <Input
           id="agent-name"
@@ -471,8 +532,7 @@ function ProviderForm({
                       <button
                         key={id}
                         onClick={() => {
-                          setModel(id)
-                          setTest({ status: 'idle' })
+                          chooseModel(id)
                           setPickerOpen(false)
                           setModelSearch('')
                         }}
@@ -494,10 +554,7 @@ function ProviderForm({
               <Input
                 id="agent-model"
                 value={model}
-                onChange={(e) => {
-                  setModel(e.target.value)
-                  setTest({ status: 'idle' })
-                }}
+                onChange={(e) => chooseModel(e.target.value)}
                 placeholder={t('agent.settings_model_placeholder')}
                 className="flex-1"
               />
@@ -524,6 +581,26 @@ function ProviderForm({
         </div>
       </div>
 
+      {/* Outside the remote warning on purpose: needing a token and sending data
+          off-site are different things. A local vLLM or LiteLLM behind a reverse
+          proxy wants a key with no warning; a remote endpoint may need none. */}
+      <div className="mt-3 space-y-1.5">
+        <Label htmlFor="agent-key">{t('agent.settings_api_key')}</Label>
+        <Input
+          id="agent-key"
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={
+            provider?.hasApiKey
+              ? t('agent.provider_key_set')
+              : t('agent.provider_key_placeholder')
+          }
+          autoComplete="off"
+        />
+        <p className="text-[11px] text-muted-foreground">{t('agent.provider_key_hint')}</p>
+      </div>
+
       {remote ? (
         <div className="mt-4 space-y-3 rounded-md border-2 border-destructive bg-destructive/5 p-3">
           <div className="flex items-start gap-2">
@@ -534,18 +611,6 @@ function ProviderForm({
               </p>
               <p className="text-xs text-foreground">{t('agent.remote_warning_body')}</p>
             </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="agent-key">{t('agent.settings_api_key')}</Label>
-            <Input
-              id="agent-key"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={provider?.hasApiKey ? t('agent.provider_key_set') : undefined}
-              autoComplete="off"
-            />
           </div>
 
           <label className="flex items-start gap-2 text-xs">
@@ -569,10 +634,6 @@ function ProviderForm({
             <Plus size={14} />
           )}
           {provider ? t('common.save') : t('agent.provider_add')}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          <X size={14} />
-          {t('common.cancel')}
         </Button>
         <Button
           size="sm"
