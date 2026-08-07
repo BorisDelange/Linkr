@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   FileCode,
+  FileText,
   Folder,
   FolderOpen,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   Pencil,
   Check,
   X,
+  Download,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -49,6 +51,15 @@ function getFileColor(file: EtlFile): string {
   if (ext === 'py') return 'text-yellow-500'
   if (ext === 'r' || ext === 'rmd') return 'text-sky-500'
   return 'text-muted-foreground'
+}
+
+/** Documentation files get the plain-document icon, as in the IDE file tree. */
+function FileTypeIcon({ file }: { file: EtlFile }) {
+  const isMarkdown = file.language === 'markdown' || file.name.toLowerCase().endsWith('.md')
+  const className = cn('shrink-0', getFileColor(file))
+  return isMarkdown
+    ? <FileText size={14} className={className} />
+    : <FileCode size={14} className={className} />
 }
 
 export function EtlFileTree() {
@@ -212,6 +223,17 @@ function EtlFileTreeItem({
     setEditing(true)
   }
 
+  const handleDownload = () => {
+    if (isFolder) return
+    const blob = new Blob([file.content ?? ''], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = file.name
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // An <input> nested in the row <button> is invalid HTML and lets the button
   // steal focus/keys; render the editing row as a plain div instead.
   if (editing) {
@@ -222,7 +244,7 @@ function EtlFileTreeItem({
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
           <span className="w-3 shrink-0" />
-          <FileCode size={14} className={cn('shrink-0', getFileColor(file))} />
+          <FileTypeIcon file={file} />
           <span
             className={cn(
               '-ml-0.5 flex h-5 min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
@@ -316,7 +338,7 @@ function EtlFileTreeItem({
             ) : (
               <>
                 <span className="w-3 shrink-0" />
-                <FileCode size={14} className={cn('shrink-0', getFileColor(file))} />
+                <FileTypeIcon file={file} />
               </>
             )}
             <span ref={nameRef} className="truncate">{file.name}</span>
@@ -328,6 +350,12 @@ function EtlFileTreeItem({
             <Pencil size={14} />
             {t('etl.rename')}
           </ContextMenuItem>
+          {!isFolder && (
+            <ContextMenuItem onClick={handleDownload}>
+              <Download size={14} />
+              {t('files.download')}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"

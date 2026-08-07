@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BookOpen, Upload, FileCode, Loader2, AlertCircle, Check } from 'lucide-react'
+import { BookOpen, FileCode, Loader2, AlertCircle, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
@@ -28,47 +28,6 @@ const STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked
 
 interface Props {
   pipelineId: string
-}
-
-/**
- * Parse a CSV string into rows matching source_to_concept_map columns.
- */
-function parseCsv(csv: string): ConceptMapping[] {
-  const lines = csv.split('\n').filter((l) => l.trim())
-  if (lines.length < 2) return []
-
-  const header = lines[0].split(',').map((h) => h.trim().toLowerCase())
-  const sourceCodeIdx = header.indexOf('source_code')
-  const sourceConceptIdIdx = header.indexOf('source_concept_id')
-  const sourceVocabIdx = header.indexOf('source_vocabulary_id')
-  const sourceDescIdx = header.indexOf('source_code_description')
-  const targetConceptIdIdx = header.indexOf('target_concept_id')
-  const targetVocabIdx = header.indexOf('target_vocabulary_id')
-
-  if (sourceCodeIdx < 0 || targetConceptIdIdx < 0) return []
-
-  return lines.slice(1).map((line, i) => {
-    const cols = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''))
-    return {
-      id: `csv-import-${i}`,
-      projectId: '',
-      sourceConceptId: Number(cols[sourceConceptIdIdx]) || 0,
-      sourceConceptName: cols[sourceDescIdx] ?? '',
-      sourceVocabularyId: cols[sourceVocabIdx] ?? '',
-      sourceDomainId: '',
-      sourceConceptCode: cols[sourceCodeIdx] ?? '',
-      targetConceptId: Number(cols[targetConceptIdIdx]) || 0,
-      targetConceptName: '',
-      targetVocabularyId: cols[targetVocabIdx] ?? '',
-      targetDomainId: '',
-      targetConceptCode: '',
-      mappingType: 'maps_to' as const,
-      equivalence: 'skos:exactMatch' as const,
-      status: 'approved' as const,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-  })
 }
 
 /**
@@ -227,7 +186,9 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     setResult(null)
 
     try {
-      const sql = buildVocabularyScript(filteredMappings, vocabSchema)
+      // The script says `vocab.` rather than the resolved schema, so it stays
+      // valid after an export/reimport (resolved at run time).
+      const sql = buildVocabularyScript(filteredMappings)
       const action = await upsertVocabScript(pipelineId, sql)
       setResult({ success: true, count: filteredMappings.length, action })
     } catch (err) {
@@ -237,44 +198,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       setCreating(false)
     }
   }, [selectedProjectId, filteredMappings, pipelineId, vocabSchema, t])
-
-  const handleCreateFromFile = useCallback(async () => {
-    if (!vocabSchema) {
-      setResult({ success: false, count: 0, error: t('etl.vocab_no_vocab_ds') })
-      return
-    }
-
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.csv'
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
-
-      setCreating(true)
-      setResult(null)
-
-      try {
-        const text = await file.text()
-        const parsed = parseCsv(text)
-
-        if (parsed.length === 0) {
-          setResult({ success: false, count: 0, error: t('etl.vocab_invalid_csv') })
-          return
-        }
-
-        const sql = buildVocabularyScript(parsed, vocabSchema)
-        const action = await upsertVocabScript(pipelineId, sql)
-        setResult({ success: true, count: parsed.length, action })
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        setResult({ success: false, count: 0, error: msg })
-      } finally {
-        setCreating(false)
-      }
-    }
-    input.click()
-  }, [pipelineId, vocabSchema, t])
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 overflow-auto p-8">
@@ -290,9 +213,9 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
         {/* Warning if no vocabulary data source */}
         {selectedProjectId && !vocabSchema && (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-            <span className="flex items-center gap-1.5">
-              <AlertCircle size={14} />
-              {t('etl.vocab_no_vocab_ds')}
+            <span className="flex items-start gap-2">
+              <AlertCircle size={16} className="mt-px shrink-0" />
+              <span>{t('etl.vocab_no_vocab_ds')}</span>
             </span>
           </div>
         )}
@@ -376,28 +299,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
           </Button>
         </div>
 
-        {/* Divider */}
-        <div className="flex items-center gap-3">
-          <div className="h-px flex-1 bg-border" />
-          <span className="text-[10px] uppercase text-muted-foreground">{t('etl.vocab_or')}</span>
-          <div className="h-px flex-1 bg-border" />
-        </div>
-
-        {/* Option 2: From CSV file */}
-        <div className="space-y-2">
-          <Label className="text-xs font-medium">{t('etl.vocab_from_file')}</Label>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={handleCreateFromFile}
-            disabled={!vocabSchema || creating || !canWrite}
-          >
-            <Upload size={14} />
-            {t('etl.vocab_upload_csv')}
-          </Button>
-          <p className="text-[10px] text-muted-foreground">{t('etl.vocab_csv_hint')}</p>
-        </div>
 
         {/* Result */}
         {result && (

@@ -811,7 +811,8 @@ export interface EtlFile {
   type: 'file' | 'folder'
   parentId: string | null
   content?: string
-  language?: 'sql' | 'python' | 'r'
+  /** 'markdown' is documentation only — the run filters select executable languages. */
+  language?: 'sql' | 'python' | 'r' | 'markdown'
   order: number
   dataSourceId?: string  // override: run against this DB instead of pipeline default
   disabled?: boolean     // skip this file during pipeline execution

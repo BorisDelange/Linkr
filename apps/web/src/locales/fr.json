@@ -678,7 +678,8 @@
     "coming_soon": "bientôt disponible",
     "load_statistics": "Charger les statistiques",
     "load_statistics_hint": "Les statistiques exécutent des requêtes COUNT sur la base.",
-    "load_statistics_hint_2": "Sur de grosses bases cela peut être lent : elles ne sont donc calculées qu'à la demande."
+    "load_statistics_hint_2": "Sur de grosses bases cela peut être lent : elles ne sont donc calculées qu'à la demande.",
+    "creating_may_take_a_while": "Création de la base en cours — cela peut prendre un moment…"
   },
   "reports": {
     "title": "Rapports",
@@ -2278,7 +2279,8 @@
     "erd_add_group": "Ajouter un groupe",
     "erd_reset_layout": "Réinitialiser la disposition",
     "erd_filter": "Filtrer",
-    "erd_ungrouped": "Non groupées"
+    "erd_ungrouped": "Non groupées",
+    "template_already_added": "Déjà ajouté à ce workspace"
   },
   "organization": {
     "title": "Organisation",
@@ -3033,14 +3035,9 @@
     "vocab_from_project": "Depuis un projet d'alignement de concepts",
     "vocab_select_project": "Sélectionner un projet…",
     "vocab_create_script": "Créer le script",
-    "vocab_or": "ou",
-    "vocab_from_file": "Depuis un fichier CSV",
-    "vocab_upload_csv": "Importer source_to_concept_map.csv",
-    "vocab_csv_hint": "Le CSV doit contenir les colonnes : source_code, source_concept_id, source_vocabulary_id, source_code_description, target_concept_id, target_vocabulary_id.",
     "vocab_script_created": "Script pipeline créé avec {{count}} alignements.",
     "vocab_script_updated": "Script pipeline mis à jour avec {{count}} alignements.",
     "vocab_import_error": "Échec de la création du script.",
-    "vocab_invalid_csv": "CSV invalide — colonnes requises non trouvées (source_code, target_concept_id).",
     "vocab_no_vocab_ds": "Aucune base de vocabulaire de référence configurée pour ce projet d'alignement. Ouvrez le projet d'alignement et importez le vocabulaire ATHENA depuis son onglet Concepts cibles.",
     "pipeline_tab_coming_soon": "Vue DAG du pipeline — bientôt disponible",
     "profiling_tab_coming_soon": "Profiling de la source — bientôt disponible",
@@ -3129,9 +3126,8 @@
     "profiling_filter_tables": "Filtrer les tables…",
     "profiling_no_match": "Aucune table correspondante",
     "pipeline_no_actions": "Aucune action disponible",
-    "script_db_default": "défaut",
     "script_db_label": "Base de données",
-    "script_db_override": "modifié",
+    "script_db_override": "hors rôle",
     "pipeline_list_view": "Vue liste",
     "sidebar_overview": "Vue d'ensemble",
     "sidebar_patients": "Patients",

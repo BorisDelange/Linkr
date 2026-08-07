@@ -82,9 +82,13 @@ const columnStatsKey = (dataSourceId: string, table: string, col: string) =>
 
 interface Props {
   dataSourceId: string
+  /** Qualifier prepended to the table in "Copy SELECT" (e.g. `source.`). ETL
+   *  pipelines pass a role prefix so the copied SQL is portable; other callers
+   *  omit it and get a bare table name. */
+  tableQualifier?: string
 }
 
-export function SchemaBrowser({ dataSourceId }: Props) {
+export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
   const { t, i18n } = useTranslation()
 
   const [tables, setTables] = useState<string[]>([])
@@ -338,8 +342,8 @@ export function SchemaBrowser({ dataSourceId }: Props) {
   const buildSelectSql = useCallback(() => {
     if (!selectedTable || columns.length === 0) return null
     const cols = columns.map((c) => `  ${c.column_name}`).join(',\n')
-    return `SELECT\n${cols}\nFROM ${selectedTable}\nLIMIT 100;`
-  }, [selectedTable, columns])
+    return `SELECT\n${cols}\nFROM ${tableQualifier ?? ''}${selectedTable}\nLIMIT 100;`
+  }, [selectedTable, columns, tableQualifier])
 
   return (
     <TooltipProvider delayDuration={300}>

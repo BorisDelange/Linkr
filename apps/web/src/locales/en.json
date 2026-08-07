@@ -678,7 +678,8 @@
     "coming_soon": "coming soon",
     "load_statistics": "Load statistics",
     "load_statistics_hint": "Statistics run COUNT queries on the database.",
-    "load_statistics_hint_2": "On large databases this can be slow, so they are only computed on request."
+    "load_statistics_hint_2": "On large databases this can be slow, so they are only computed on request.",
+    "creating_may_take_a_while": "Creating the database — this may take a moment…"
   },
   "reports": {
     "title": "Reports",
@@ -2278,7 +2279,8 @@
     "erd_add_group": "Add group",
     "erd_reset_layout": "Reset layout",
     "erd_filter": "Filter",
-    "erd_ungrouped": "Ungrouped"
+    "erd_ungrouped": "Ungrouped",
+    "template_already_added": "Already added to this workspace"
   },
   "organization": {
     "title": "Organization",
@@ -3033,14 +3035,9 @@
     "vocab_from_project": "From a concept mapping project",
     "vocab_select_project": "Select a mapping project…",
     "vocab_create_script": "Create script",
-    "vocab_or": "or",
-    "vocab_from_file": "From a CSV file",
-    "vocab_upload_csv": "Upload source_to_concept_map.csv",
-    "vocab_csv_hint": "CSV must have columns: source_code, source_concept_id, source_vocabulary_id, source_code_description, target_concept_id, target_vocabulary_id.",
     "vocab_script_created": "Pipeline script created with {{count}} mappings.",
     "vocab_script_updated": "Pipeline script updated with {{count}} mappings.",
     "vocab_import_error": "Script creation failed.",
-    "vocab_invalid_csv": "Invalid CSV — required columns not found (source_code, target_concept_id).",
     "vocab_no_vocab_ds": "No vocabulary reference database configured for this mapping project. Open the mapping project and import the ATHENA vocabulary from its Target Concepts tab first.",
     "pipeline_tab_coming_soon": "Pipeline DAG view — coming soon",
     "profiling_tab_coming_soon": "Source profiling — coming soon",
@@ -3129,9 +3126,8 @@
     "profiling_filter_tables": "Filter tables…",
     "profiling_no_match": "No matching tables",
     "pipeline_no_actions": "No actions available",
-    "script_db_default": "default",
     "script_db_label": "Database",
-    "script_db_override": "override",
+    "script_db_override": "off-role",
     "pipeline_list_view": "List view",
     "sidebar_overview": "Overview",
     "sidebar_patients": "Patients",

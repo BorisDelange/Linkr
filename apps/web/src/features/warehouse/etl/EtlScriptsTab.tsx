@@ -62,6 +62,8 @@ import { TableIcon, FileText, Copy, Code, Check, Database } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useEtlStore, type EtlOutputTab, type EtlExecutionResult } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
+import { useRoleSchemas } from './use-role-schemas'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
@@ -69,6 +71,7 @@ import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts
 import type { ShortcutActionId } from '@/types/shortcuts'
 import { EtlFileTree } from './EtlFileTree'
 import * as duckdbEngine from '@/lib/duckdb/engine'
+import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
 import type { EtlFile } from '@/types'
 
 /** Shortcut actions surfaced in the ETL editor (subset of the IDE's set;
@@ -86,7 +89,15 @@ const ETL_FILE_TYPES = [
   { id: 'sql', label: 'SQL', ext: '.sql', lang: 'sql' as const, icon: Database, iconColor: 'text-blue-500' },
   { id: 'py', label: 'Python', ext: '.py', lang: 'python' as const, icon: FileCode, iconColor: 'text-yellow-500' },
   { id: 'r', label: 'R', ext: '.R', lang: 'r' as const, icon: FileCode, iconColor: 'text-sky-500' },
+  { id: 'md', label: 'Markdown', ext: '.md', lang: 'markdown' as const, icon: FileText, iconColor: 'text-muted-foreground' },
 ]
+
+/** Documentation files (.md) have nothing to run: the editor sends file contents to
+ *  DuckDB, so running one would just raise a SQL parse error. Mirrors the SQL-only
+ *  filter the Run-all pass uses. */
+function isExecutable(file: EtlFile): boolean {
+  return file.language !== 'markdown' && !file.name.toLowerCase().endsWith('.md')
+}
 
 function getTabIcon(type: string) {
   switch (type) {
@@ -156,20 +167,47 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  // Show source + target + vocabulary databases in the per-file dropdown
-  const vocabDbs = dataSources.filter((ds) => ds.isVocabularyReference)
-  const pipelineDbIds = [pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId, ...vocabDbs.map((ds) => ds.id)].filter(Boolean) as string[]
-  const pipelineDbs = dataSources.filter((ds) => pipelineDbIds.includes(ds.id))
   const { updateFile } = useEtlStore()
 
-  // Resolve which data source a file should run against (default = target)
+  // Which data source a file runs against: its own override, else the pipeline
+  // target (where an ETL writes), else the source — a pipeline without a target
+  // can still be used to explore its input.
   const resolveFileDataSourceId = useCallback(
     (file: EtlFile | undefined): string | undefined => {
       if (file?.dataSourceId) return file.dataSourceId
-      return pipeline?.targetDataSourceId
+      return pipeline?.targetDataSourceId ?? pipeline?.sourceDataSourceId
     },
-    [pipeline?.targetDataSourceId],
+    [pipeline?.targetDataSourceId, pipeline?.sourceDataSourceId],
   )
+
+  const { roleSchemasFor, roleOf, dataSourceIdOf } = useRoleSchemas(pipeline)
+
+  /** Database a file runs against when it carries no override. */
+  const defaultDbId = pipeline?.targetDataSourceId ?? pipeline?.sourceDataSourceId
+
+  // Only the pipeline's own databases — its two roles plus the ATHENA reference
+  // of its mapping project. Unrelated vocabulary DBs of the workspace are not
+  // reachable from these scripts, so listing them would be misleading.
+  const pipelineDbs = [...new Set([
+    pipeline?.sourceDataSourceId,
+    pipeline?.targetDataSourceId,
+    dataSourceIdOf('vocab'),
+  ].filter(Boolean) as string[])]
+    .map((id) => dataSources.find((ds) => ds.id === id))
+    .filter((ds): ds is NonNullable<typeof ds> => !!ds)
+
+  const selectedFileRole = roleOf(resolveFileDataSourceId(selectedFile))
+
+  // Name shown on the picker button — tooltipped only when the button clips it.
+  // Empty when the pipeline has no database at all, rather than claiming a
+  // "Target" that does not exist.
+  const selectedDbLabel =
+    dataSources.find((ds) => ds.id === resolveFileDataSourceId(selectedFile))?.name ?? ''
+  const {
+    ref: selectedDbNameRef,
+    overflows: selectedDbNameOverflows,
+    triggerProps: selectedDbTriggerProps,
+  } = useOverflowTooltip()
 
   // Ensure source + target + vocabulary data sources are mounted in DuckDB when pipeline loads
   const ensurePipelineDbsMounted = useCallback(async () => {
@@ -188,11 +226,13 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   }, [ensurePipelineDbsMounted])
 
   // Infer language from file name
-  const inferLanguage = (name: string): 'sql' | 'python' | 'r' | undefined => {
+  const inferLanguage = (name: string): 'sql' | 'python' | 'r' | 'markdown' | undefined => {
     const ext = name.split('.').pop()?.toLowerCase()
     if (ext === 'sql') return 'sql'
     if (ext === 'py') return 'python'
+    // .Rmd stays R (it is an R notebook), so it must be tested before plain .md.
     if (ext === 'r' || ext === 'rmd') return 'r'
+    if (ext === 'md') return 'markdown'
     return undefined
   }
 
@@ -237,9 +277,16 @@ export function EtlScriptsTab({ pipelineId }: Props) {
       // Ensure the target data source is mounted
       const { testConnection } = useDataSourceStore.getState()
       await testConnection(dsId)
+      // A role qualifier only resolves once that database is mounted too — the
+      // dropdown mounts one, the script may reach all three.
+      for (const role of usedRoles(sql)) {
+        const roleId = dataSourceIdOf(role)
+        if (roleId && roleId !== dsId) await testConnection(roleId)
+      }
+      const resolvedSql = resolveRolePrefixes(sql, roleSchemasFor(dsId))
       const start = Date.now()
       try {
-        const rows = await duckdbEngine.queryDataSource(dsId, sql)
+        const rows = await duckdbEngine.queryDataSource(dsId, resolvedSql)
         const duration = Date.now() - start
         addExecutionResult({
           id: `exec-${Date.now()}`,
@@ -277,12 +324,12 @@ export function EtlScriptsTab({ pipelineId }: Props) {
         })
       }
     },
-    [pipeline?.targetDataSourceId, addExecutionResult, addOutputTab],
+    [pipeline?.targetDataSourceId, roleSchemasFor, dataSourceIdOf, addExecutionResult, addOutputTab],
   )
 
   // Run current file
   const handleRunFile = useCallback(async () => {
-    if (!selectedFile?.content) return
+    if (!selectedFile?.content || !isExecutable(selectedFile)) return
     setIsRunning(true)
     try {
       await executeSql(selectedFile.content, selectedFile.name, resolveFileDataSourceId(selectedFile))
@@ -293,7 +340,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
   // Cmd+Enter: run the selection if any, else the current line (RStudio-style).
   const handleRunSelectionOrLine = useCallback(async () => {
-    if (!selectedFile) return
+    if (!selectedFile || !isExecutable(selectedFile)) return
     const editor = editorRef.current
     const model = editor?.getModel()
     if (!editor || !model) return
@@ -458,37 +505,42 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
                 {editorVisible && selectedFile && (
                   <>
-                    <div className="mx-1 h-4 w-px bg-border" />
-                    {/* Run — split button (same UI as SQL script collections). */}
-                    {isRunning ? (
-                      <Button size="xs" variant="destructive" className="gap-1" onClick={() => setIsRunning(false)}>
-                        <Square size={12} />
-                        {t('etl.stop')}
-                      </Button>
-                    ) : (
-                      <div className="flex">
-                        <Button size="xs" className="gap-1 rounded-r-none" onClick={handleRunFile} disabled={!canWrite}>
-                          <Play size={12} />
-                          {t('etl.run')}
-                        </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button size="xs" className="rounded-l-none border-l border-primary-foreground/20 px-1" disabled={!canWrite}>
-                              <ChevronDown size={12} />
+                    {/* Run is hidden for documentation files — nothing to execute. */}
+                    {isExecutable(selectedFile) && (
+                      <>
+                        <div className="mx-1 h-4 w-px bg-border" />
+                        {/* Run — split button (same UI as SQL script collections). */}
+                        {isRunning ? (
+                          <Button size="xs" variant="destructive" className="gap-1" onClick={() => setIsRunning(false)}>
+                            <Square size={12} />
+                            {t('etl.stop')}
+                          </Button>
+                        ) : (
+                          <div className="flex">
+                            <Button size="xs" className="gap-1 rounded-r-none" onClick={handleRunFile} disabled={!canWrite}>
+                              <Play size={12} />
+                              {t('etl.run')}
                             </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={handleRunFile} className="gap-2 text-xs">
-                              <FileCode size={13} className="text-muted-foreground" />
-                              {t('etl.run_file')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={handleRunAll} className="gap-2 text-xs">
-                              <ListChecks size={13} className="text-muted-foreground" />
-                              {t('etl.run_all')}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="xs" className="rounded-l-none border-l border-primary-foreground/20 px-1" disabled={!canWrite}>
+                                  <ChevronDown size={12} />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuItem onClick={handleRunFile} className="gap-2 text-xs">
+                                  <FileCode size={13} className="text-muted-foreground" />
+                                  {t('etl.run_file')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={handleRunAll} className="gap-2 text-xs">
+                                  <ListChecks size={13} className="text-muted-foreground" />
+                                  {t('etl.run_all')}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        )}
+                      </>
                     )}
                     {/* Save current file (Cmd+S) — after Run */}
                     <Tooltip>
@@ -505,41 +557,56 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                       <TooltipContent>{t('etl.save')} (⌘S)</TooltipContent>
                     </Tooltip>
 
-                    {/* Per-file database selector — same picker UI as SQL scripts. */}
+                    {/* Per-file database selector — same picker UI as SQL scripts.
+                        Hidden entirely when the pipeline has no database yet:
+                        there would be nothing to pick and nothing to browse. */}
+                    {pipelineDbs.length > 0 && (
+                    <>
                     <div className="mx-1 h-4 w-px bg-border" />
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="xs" className="gap-1 max-w-[180px] text-[11px]">
-                          <Database
-                            size={11}
-                            className={cn('shrink-0', selectedFile.dataSourceId ? 'text-amber-500' : 'text-muted-foreground')}
-                          />
-                          <span className="truncate">
-                            {selectedFile.dataSourceId
-                              ? dataSources.find((ds) => ds.id === selectedFile.dataSourceId)?.name ?? t('etl.target')
-                              : pipeline?.targetDataSourceId
-                                ? dataSources.find((ds) => ds.id === pipeline.targetDataSourceId)?.name ?? t('etl.target')
-                                : t('etl.target')}
-                          </span>
-                          <ChevronDown size={10} className="shrink-0 opacity-50" />
-                        </Button>
-                      </DropdownMenuTrigger>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              className="gap-1 max-w-[180px] text-[11px]"
+                              {...selectedDbTriggerProps}
+                            >
+                              <Database
+                                size={11}
+                                className={cn('shrink-0', selectedFile.dataSourceId ? 'text-amber-500' : 'text-muted-foreground')}
+                              />
+                              <span ref={selectedDbNameRef} className="truncate">{selectedDbLabel}</span>
+                              <ChevronDown size={10} className="shrink-0 opacity-50" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </TooltipTrigger>
+                        {selectedDbNameOverflows && (
+                          <TooltipContent side="bottom">{selectedDbLabel}</TooltipContent>
+                        )}
+                      </Tooltip>
                       <DropdownMenuContent align="start" className="w-[220px]">
-                        <DropdownMenuItem
-                          onClick={() => updateFile(selectedFile.id, { dataSourceId: undefined })}
-                          className="gap-2 py-1 text-xs"
-                        >
-                          <Database size={12} className="shrink-0 text-muted-foreground" />
-                          <span className="truncate">
-                            {pipeline?.targetDataSourceId
-                              ? dataSources.find((ds) => ds.id === pipeline.targetDataSourceId)?.name ?? t('etl.target')
-                              : t('etl.target')}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">({t('etl.script_db_default')})</span>
-                          {!selectedFile.dataSourceId && <Check size={12} className="ml-auto shrink-0" />}
-                        </DropdownMenuItem>
+                        {/* The fallback entry names the database AND its role, so the
+                            list reads the same way as the others. Omitted when there
+                            is none: clearing the override would leave no database. */}
+                        {defaultDbId && (
+                          <DropdownMenuItem
+                            onClick={() => updateFile(selectedFile.id, { dataSourceId: undefined })}
+                            className="gap-2 py-1 text-xs"
+                          >
+                            <Database size={12} className="shrink-0 text-muted-foreground" />
+                            <span className="truncate">
+                              {dataSources.find((ds) => ds.id === defaultDbId)?.name}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              ({t(`etl.${roleOf(defaultDbId) ?? 'target'}`)})
+                            </span>
+                            {!selectedFile.dataSourceId && <Check size={12} className="ml-auto shrink-0" />}
+                          </DropdownMenuItem>
+                        )}
                         {pipelineDbs
-                          .filter((ds) => ds.id !== pipeline?.targetDataSourceId)
+                          .filter((ds) => ds.id !== defaultDbId)
                           .map((ds) => (
                             <DropdownMenuItem
                               key={ds.id}
@@ -549,11 +616,39 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                             >
                               <Database size={12} className="shrink-0 text-amber-500" />
                               <span className="truncate">{ds.name}</span>
+                              {roleOf(ds.id) && (
+                                <span className="shrink-0 text-[10px] text-muted-foreground">
+                                  ({t(`etl.${roleOf(ds.id)!}`)})
+                                </span>
+                              )}
                               {selectedFile.dataSourceId === ds.id && <Check size={12} className="ml-auto shrink-0" />}
                             </DropdownMenuItem>
                           ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
+
+                    {/* Copy the qualifier of the database picked in the dropdown.
+                        Only the two pipeline roles have one — a vocabulary DB has no
+                        role, so no prefix is offered for it (it stays addressable by
+                        its own schema). Resolved at run time (lib/duckdb/role-prefix). */}
+                    {selectedFileRole && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            className="gap-1 font-mono text-[10px]"
+                            onClick={() => void navigator.clipboard.writeText(`${selectedFileRole}.`)}
+                          >
+                            <Copy size={10} className="shrink-0" />
+                            {selectedFileRole}.
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t('etl.copy_prefix_tooltip', { role: selectedFileRole })}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
 
                     {/* Browse the schema of the database picked in the dropdown just
                         before (per-file override, else the pipeline target). */}
@@ -574,6 +669,8 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                           : t('etl.browse_schema_no_target')}
                       </TooltipContent>
                     </Tooltip>
+                    </>
+                    )}
                   </>
                 )}
 
@@ -939,6 +1036,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
           open={schemaDialogOpen}
           onOpenChange={setSchemaDialogOpen}
           dataSourceId={resolveFileDataSourceId(selectedFile)!}
+          tableQualifier={selectedFileRole ? `${selectedFileRole}.` : undefined}
         />
       )}
 

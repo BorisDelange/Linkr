@@ -15,10 +15,13 @@ export function SchemaBrowserDialog({
   open,
   onOpenChange,
   dataSourceId,
+  tableQualifier,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   dataSourceId: string
+  /** Forwarded to SchemaBrowser — see its `tableQualifier` prop. */
+  tableQualifier?: string
 }) {
   const { t } = useTranslation()
 
@@ -32,7 +35,7 @@ export function SchemaBrowserDialog({
           <DialogTitle>{t('etl.browse_schema')}</DialogTitle>
         </DialogHeader>
         <div className="min-h-0 flex-1">
-          <SchemaBrowser dataSourceId={dataSourceId} />
+          <SchemaBrowser dataSourceId={dataSourceId} tableQualifier={tableQualifier} />
         </div>
       </DialogContent>
     </Dialog>

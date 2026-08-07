@@ -5,6 +5,22 @@
 import type { ConceptMapping } from '@/types'
 import { escSql as esc } from '@/lib/format-helpers'
 
+/**
+ * The generated script addresses the ATHENA reference by ROLE, not by its
+ * `ds_<uuid>` schema: that schema is instance-local, so a hard-coded one broke
+ * the script as soon as the pipeline was exported and reimported elsewhere.
+ * Resolved at run time — see lib/duckdb/role-prefix.
+ */
+export const VOCAB_ROLE_PREFIX = 'vocab'
+
+/**
+ * The OMOP tables the script writes are on the pipeline target. They are
+ * qualified too: left bare they would resolve through the Run dropdown's
+ * search_path, so pointing it at another database would make a DELETE hit the
+ * wrong one — destructive on the ATHENA reference.
+ */
+const TARGET = 'target'
+
 /** Vocabularies from ATHENA that ETL scripts need (for concept lookups). */
 export const ETL_ATHENA_VOCABULARIES = [
   'NDC', 'RxNorm', 'RxNorm Extension',
@@ -39,7 +55,10 @@ export const ETL_FIXED_CONCEPT_IDS = [
  * 4. Copies concept_relationship, concept_ancestor
  * 5. Copies vocabulary metadata tables
  */
-export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: string): string {
+export function buildVocabularyScript(
+  mappings: ConceptMapping[],
+  vocabSchema = VOCAB_ROLE_PREFIX,
+): string {
   const vs = vocabSchema
   const parts: string[] = []
 
@@ -54,7 +73,7 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push('-- PART 1: source_to_concept_map')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push('DELETE FROM source_to_concept_map;')
+  parts.push(`DELETE FROM ${TARGET}.source_to_concept_map;`)
 
   if (mappings.length > 0) {
     const rows = mappings.map((m) => {
@@ -66,7 +85,7 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
     })
 
     parts.push('')
-    parts.push('INSERT INTO source_to_concept_map (source_code, source_concept_id, source_vocabulary_id, source_code_description, target_concept_id, target_vocabulary_id, valid_start_date, valid_end_date, invalid_reason)')
+    parts.push(`INSERT INTO ${TARGET}.source_to_concept_map (source_code, source_concept_id, source_vocabulary_id, source_code_description, target_concept_id, target_vocabulary_id, valid_start_date, valid_end_date, invalid_reason)`)
     parts.push('VALUES')
     parts.push(rows.join(',\n') + ';')
   }
@@ -79,17 +98,17 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push('-- PART 2: concept table')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push('DELETE FROM concept;')
+  parts.push(`DELETE FROM ${TARGET}.concept;`)
 
   // 2a. Target concepts from STCM
   parts.push('')
   parts.push('-- 2a. Target concepts referenced by source_to_concept_map')
-  parts.push(`INSERT INTO concept`)
+  parts.push(`INSERT INTO ${TARGET}.concept`)
   parts.push(`SELECT c.*`)
   parts.push(`FROM ${vs}.concept c`)
   parts.push(`WHERE c.concept_id IN (`)
   parts.push(`    SELECT DISTINCT target_concept_id`)
-  parts.push(`    FROM source_to_concept_map`)
+  parts.push(`    FROM ${TARGET}.source_to_concept_map`)
   parts.push(`    WHERE target_concept_id IS NOT NULL AND target_concept_id != 0`)
   parts.push(`);`)
 
@@ -106,37 +125,37 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
 
   parts.push('')
   parts.push('-- 2b. All concepts from ATHENA vocabularies needed by ETL scripts')
-  parts.push(`INSERT INTO concept`)
+  parts.push(`INSERT INTO ${TARGET}.concept`)
   parts.push(`SELECT c.*`)
   parts.push(`FROM ${vs}.concept c`)
   parts.push(`WHERE c.vocabulary_id IN (${vocabList})`)
-  parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM concept);`)
+  parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
 
   // 2c. Operator concepts (Meas Value Operator domain)
   parts.push('')
   parts.push('-- 2c. Operator concepts (<=, >=, <, >, =)')
-  parts.push(`INSERT INTO concept`)
+  parts.push(`INSERT INTO ${TARGET}.concept`)
   parts.push(`SELECT c.*`)
   parts.push(`FROM ${vs}.concept c`)
   parts.push(`WHERE c.domain_id = 'Meas Value Operator'`)
-  parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM concept);`)
+  parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
 
   // 2d. Hard-coded concept IDs
   const fixedIds = ETL_FIXED_CONCEPT_IDS.join(', ')
   parts.push('')
   parts.push('-- 2d. Hard-coded concept IDs (gender, type concepts, etc.)')
-  parts.push(`INSERT INTO concept`)
+  parts.push(`INSERT INTO ${TARGET}.concept`)
   parts.push(`SELECT c.*`)
   parts.push(`FROM ${vs}.concept c`)
   parts.push(`WHERE c.concept_id IN (${fixedIds})`)
-  parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM concept);`)
+  parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
 
   // 2e. Generate source concepts with concept_id > 2 000 000 000
   // domain_id is derived from the target concept (via STCM -> concept join)
   // concept_class_id is 'Clinical Observation' (OHDSI convention for custom source concepts)
   parts.push('')
   parts.push('-- 2e. Generate source concepts (concept_id > 2 000 000 000)')
-  parts.push(`INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
   parts.push(`    2000000000 + ROW_NUMBER() OVER (ORDER BY src.source_vocabulary_id, src.source_code) AS concept_id,`)
   parts.push(`    src.source_code_description AS concept_name,`)
@@ -150,17 +169,17 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push(`    NULL                        AS invalid_reason`)
   parts.push(`FROM (`)
   parts.push(`    SELECT DISTINCT source_vocabulary_id, source_code, source_code_description, target_concept_id`)
-  parts.push(`    FROM source_to_concept_map`)
+  parts.push(`    FROM ${TARGET}.source_to_concept_map`)
   parts.push(`    WHERE source_code IS NOT NULL`)
   parts.push(`) src`)
-  parts.push(`LEFT JOIN concept tc ON tc.concept_id = src.target_concept_id;`)
+  parts.push(`LEFT JOIN ${TARGET}.concept tc ON tc.concept_id = src.target_concept_id;`)
 
   // 2f. Update source_concept_id in STCM
   parts.push('')
   parts.push('-- 2f. Update source_to_concept_map.source_concept_id')
-  parts.push(`UPDATE source_to_concept_map`)
+  parts.push(`UPDATE ${TARGET}.source_to_concept_map`)
   parts.push(`SET source_concept_id = c.concept_id`)
-  parts.push(`FROM concept c`)
+  parts.push(`FROM ${TARGET}.concept c`)
   parts.push(`WHERE c.concept_code = source_to_concept_map.source_code`)
   parts.push(`  AND c.vocabulary_id = source_to_concept_map.source_vocabulary_id`)
   parts.push(`  AND c.concept_id > 2000000000;`)
@@ -168,9 +187,9 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   // 2g. Vocabulary concepts for custom source vocabularies
   parts.push('')
   parts.push('-- 2g. Vocabulary concepts for custom source vocabularies')
-  parts.push(`INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
-  parts.push(`    (SELECT MAX(concept_id) FROM concept WHERE concept_id >= 2000000000) + ROW_NUMBER() OVER (ORDER BY sv.source_vocabulary_id) AS concept_id,`)
+  parts.push(`    (SELECT MAX(concept_id) FROM ${TARGET}.concept WHERE concept_id >= 2000000000) + ROW_NUMBER() OVER (ORDER BY sv.source_vocabulary_id) AS concept_id,`)
   parts.push(`    sv.source_vocabulary_id     AS concept_name,`)
   parts.push(`    'Metadata'                  AS domain_id,`)
   parts.push(`    'Vocabulary'                AS vocabulary_id,`)
@@ -182,7 +201,7 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push(`    NULL                        AS invalid_reason`)
   parts.push(`FROM (`)
   parts.push(`    SELECT DISTINCT source_vocabulary_id`)
-  parts.push(`    FROM source_to_concept_map`)
+  parts.push(`    FROM ${TARGET}.source_to_concept_map`)
   parts.push(`    WHERE source_vocabulary_id NOT IN (`)
   parts.push(`        SELECT vocabulary_id FROM ${vs}.vocabulary`)
   parts.push(`    )`)
@@ -196,17 +215,17 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push('-- PART 3: concept_relationship')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push('DELETE FROM concept_relationship;')
-  parts.push(`INSERT INTO concept_relationship`)
+  parts.push(`DELETE FROM ${TARGET}.concept_relationship;`)
+  parts.push(`INSERT INTO ${TARGET}.concept_relationship`)
   parts.push(`SELECT cr.*`)
   parts.push(`FROM ${vs}.concept_relationship cr`)
-  parts.push(`WHERE cr.concept_id_1 IN (SELECT concept_id FROM concept)`)
-  parts.push(`  AND cr.concept_id_2 IN (SELECT concept_id FROM concept);`)
+  parts.push(`WHERE cr.concept_id_1 IN (SELECT concept_id FROM ${TARGET}.concept)`)
+  parts.push(`  AND cr.concept_id_2 IN (SELECT concept_id FROM ${TARGET}.concept);`)
 
   // 3b. Custom concept_relationship: "Maps to" and "Mapped from" for source concepts
   parts.push('')
   parts.push('-- 3b. Custom concept_relationship (Maps to + Mapped from) for source concepts')
-  parts.push(`INSERT INTO concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`INSERT INTO ${TARGET}.concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
   parts.push(`    stcm.source_concept_id AS concept_id_1,`)
   parts.push(`    stcm.target_concept_id AS concept_id_2,`)
@@ -214,12 +233,12 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push(`    DATE '1970-01-01'      AS valid_start_date,`)
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
-  parts.push(`FROM source_to_concept_map stcm`)
+  parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
   parts.push(`WHERE stcm.source_concept_id > 2000000000`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0;`)
   parts.push('')
-  parts.push(`INSERT INTO concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`INSERT INTO ${TARGET}.concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
   parts.push(`    stcm.target_concept_id AS concept_id_1,`)
   parts.push(`    stcm.source_concept_id AS concept_id_2,`)
@@ -227,7 +246,7 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push(`    DATE '1970-01-01'      AS valid_start_date,`)
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
-  parts.push(`FROM source_to_concept_map stcm`)
+  parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
   parts.push(`WHERE stcm.source_concept_id > 2000000000`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0;`)
@@ -240,12 +259,12 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push('-- PART 4: concept_ancestor')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push('DELETE FROM concept_ancestor;')
-  parts.push(`INSERT INTO concept_ancestor`)
+  parts.push(`DELETE FROM ${TARGET}.concept_ancestor;`)
+  parts.push(`INSERT INTO ${TARGET}.concept_ancestor`)
   parts.push(`SELECT ca.*`)
   parts.push(`FROM ${vs}.concept_ancestor ca`)
-  parts.push(`WHERE ca.ancestor_concept_id IN (SELECT concept_id FROM concept)`)
-  parts.push(`  AND ca.descendant_concept_id IN (SELECT concept_id FROM concept);`)
+  parts.push(`WHERE ca.ancestor_concept_id IN (SELECT concept_id FROM ${TARGET}.concept)`)
+  parts.push(`  AND ca.descendant_concept_id IN (SELECT concept_id FROM ${TARGET}.concept);`)
 
   // =========================================================================
   // PART 5: metadata tables
@@ -257,59 +276,59 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push('')
 
   // vocabulary
-  parts.push('DELETE FROM vocabulary;')
-  parts.push(`INSERT INTO vocabulary`)
+  parts.push(`DELETE FROM ${TARGET}.vocabulary;`)
+  parts.push(`INSERT INTO ${TARGET}.vocabulary`)
   parts.push(`SELECT v.*`)
   parts.push(`FROM ${vs}.vocabulary v`)
-  parts.push(`WHERE v.vocabulary_id IN (SELECT DISTINCT vocabulary_id FROM concept);`)
+  parts.push(`WHERE v.vocabulary_id IN (SELECT DISTINCT vocabulary_id FROM ${TARGET}.concept);`)
   parts.push('')
 
   // Custom vocabulary entries for source vocabularies
   parts.push('-- Custom vocabulary entries for source vocabularies (concept_id > 2B)')
-  parts.push(`INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, vocabulary_concept_id)`)
+  parts.push(`INSERT INTO ${TARGET}.vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, vocabulary_concept_id)`)
   parts.push(`SELECT`)
   parts.push(`    vc.concept_code     AS vocabulary_id,`)
   parts.push(`    vc.concept_code     AS vocabulary_name,`)
   parts.push(`    'Linkr ETL'         AS vocabulary_reference,`)
   parts.push(`    NULL                AS vocabulary_version,`)
   parts.push(`    vc.concept_id       AS vocabulary_concept_id`)
-  parts.push(`FROM concept vc`)
+  parts.push(`FROM ${TARGET}.concept vc`)
   parts.push(`WHERE vc.domain_id = 'Metadata'`)
   parts.push(`  AND vc.concept_class_id = 'Vocabulary'`)
   parts.push(`  AND vc.concept_id >= 2000000000`)
-  parts.push(`  AND vc.concept_code NOT IN (SELECT vocabulary_id FROM vocabulary);`)
+  parts.push(`  AND vc.concept_code NOT IN (SELECT vocabulary_id FROM ${TARGET}.vocabulary);`)
   parts.push('')
 
   // domain
-  parts.push('DELETE FROM domain;')
-  parts.push(`INSERT INTO domain`)
+  parts.push(`DELETE FROM ${TARGET}.domain;`)
+  parts.push(`INSERT INTO ${TARGET}.domain`)
   parts.push(`SELECT d.*`)
   parts.push(`FROM ${vs}.domain d`)
-  parts.push(`WHERE d.domain_id IN (SELECT DISTINCT domain_id FROM concept);`)
+  parts.push(`WHERE d.domain_id IN (SELECT DISTINCT domain_id FROM ${TARGET}.concept);`)
   parts.push('')
 
   // concept_class
-  parts.push('DELETE FROM concept_class;')
-  parts.push(`INSERT INTO concept_class`)
+  parts.push(`DELETE FROM ${TARGET}.concept_class;`)
+  parts.push(`INSERT INTO ${TARGET}.concept_class`)
   parts.push(`SELECT cc.*`)
   parts.push(`FROM ${vs}.concept_class cc`)
-  parts.push(`WHERE cc.concept_class_id IN (SELECT DISTINCT concept_class_id FROM concept);`)
+  parts.push(`WHERE cc.concept_class_id IN (SELECT DISTINCT concept_class_id FROM ${TARGET}.concept);`)
   parts.push('')
 
   // relationship
-  parts.push('DELETE FROM relationship;')
-  parts.push(`INSERT INTO relationship`)
+  parts.push(`DELETE FROM ${TARGET}.relationship;`)
+  parts.push(`INSERT INTO ${TARGET}.relationship`)
   parts.push(`SELECT r.*`)
   parts.push(`FROM ${vs}.relationship r`)
-  parts.push(`WHERE r.relationship_id IN (SELECT DISTINCT relationship_id FROM concept_relationship);`)
+  parts.push(`WHERE r.relationship_id IN (SELECT DISTINCT relationship_id FROM ${TARGET}.concept_relationship);`)
   parts.push('')
 
   // concept_synonym
-  parts.push('DELETE FROM concept_synonym;')
-  parts.push(`INSERT INTO concept_synonym`)
+  parts.push(`DELETE FROM ${TARGET}.concept_synonym;`)
+  parts.push(`INSERT INTO ${TARGET}.concept_synonym`)
   parts.push(`SELECT cs.*`)
   parts.push(`FROM ${vs}.concept_synonym cs`)
-  parts.push(`WHERE cs.concept_id IN (SELECT concept_id FROM concept);`)
+  parts.push(`WHERE cs.concept_id IN (SELECT concept_id FROM ${TARGET}.concept);`)
 
   return parts.join('\n')
 }
@@ -365,7 +384,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
     return `('${code}', 0, '${srcVocab}', '${name}', ${r.ti}, '${tgtVocab}', DATE '1970-01-01', DATE '2099-12-31', NULL)`
   })
 
-  parts.push('INSERT INTO source_to_concept_map (source_code, source_concept_id, source_vocabulary_id, source_code_description, target_concept_id, target_vocabulary_id, valid_start_date, valid_end_date, invalid_reason)')
+  parts.push(`INSERT INTO ${TARGET}.source_to_concept_map (source_code, source_concept_id, source_vocabulary_id, source_code_description, target_concept_id, target_vocabulary_id, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push('VALUES')
   parts.push(stcmValues.join(',\n') + ';')
 
@@ -377,9 +396,9 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push('')
 
   // Group by unique (source_vocabulary_id, concept_code) and derive domain from target
-  parts.push(`INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
-  parts.push(`    (SELECT COALESCE(MAX(concept_id), 2000000000) FROM concept WHERE concept_id >= 2000000000)`)
+  parts.push(`    (SELECT COALESCE(MAX(concept_id), 2000000000) FROM ${TARGET}.concept WHERE concept_id >= 2000000000)`)
   parts.push(`      + ROW_NUMBER() OVER (ORDER BY src.source_vocabulary_id, src.source_code) AS concept_id,`)
   parts.push(`    src.source_code_description AS concept_name,`)
   parts.push(`    COALESCE(tc.domain_id, 'Observation') AS domain_id,`)
@@ -392,13 +411,13 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`    NULL                        AS invalid_reason`)
   parts.push(`FROM (`)
   parts.push(`    SELECT DISTINCT source_vocabulary_id, source_code, source_code_description, target_concept_id`)
-  parts.push(`    FROM source_to_concept_map`)
+  parts.push(`    FROM ${TARGET}.source_to_concept_map`)
   parts.push(`    WHERE source_vocabulary_id NOT IN ('d_items', 'd_labitems')`)
   parts.push(`      AND source_code IS NOT NULL`)
   parts.push(`) src`)
-  parts.push(`LEFT JOIN concept tc ON tc.concept_id = src.target_concept_id`)
+  parts.push(`LEFT JOIN ${TARGET}.concept tc ON tc.concept_id = src.target_concept_id`)
   parts.push(`WHERE NOT EXISTS (`)
-  parts.push(`    SELECT 1 FROM concept c2`)
+  parts.push(`    SELECT 1 FROM ${TARGET}.concept c2`)
   parts.push(`    WHERE c2.concept_code = src.source_code`)
   parts.push(`      AND c2.vocabulary_id = src.source_vocabulary_id`)
   parts.push(`);`)
@@ -409,9 +428,9 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push('-- PART 3: Update source_concept_id for custom mappings')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push(`UPDATE source_to_concept_map`)
+  parts.push(`UPDATE ${TARGET}.source_to_concept_map`)
   parts.push(`SET source_concept_id = c.concept_id`)
-  parts.push(`FROM concept c`)
+  parts.push(`FROM ${TARGET}.concept c`)
   parts.push(`WHERE c.concept_code = source_to_concept_map.source_code`)
   parts.push(`  AND c.vocabulary_id = source_to_concept_map.source_vocabulary_id`)
   parts.push(`  AND c.concept_id > 2000000000`)
@@ -423,7 +442,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push('-- PART 4: concept_relationship (Maps to + Mapped from)')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push(`INSERT INTO concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`INSERT INTO ${TARGET}.concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
   parts.push(`    stcm.source_concept_id AS concept_id_1,`)
   parts.push(`    stcm.target_concept_id AS concept_id_2,`)
@@ -431,18 +450,18 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`    DATE '1970-01-01'      AS valid_start_date,`)
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
-  parts.push(`FROM source_to_concept_map stcm`)
+  parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
   parts.push(`WHERE stcm.source_concept_id > 2000000000`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0`)
   parts.push(`  AND NOT EXISTS (`)
-  parts.push(`    SELECT 1 FROM concept_relationship cr`)
+  parts.push(`    SELECT 1 FROM ${TARGET}.concept_relationship cr`)
   parts.push(`    WHERE cr.concept_id_1 = stcm.source_concept_id`)
   parts.push(`      AND cr.concept_id_2 = stcm.target_concept_id`)
   parts.push(`      AND cr.relationship_id = 'Maps to'`)
   parts.push(`  );`)
   parts.push('')
-  parts.push(`INSERT INTO concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`INSERT INTO ${TARGET}.concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
   parts.push(`    stcm.target_concept_id AS concept_id_1,`)
   parts.push(`    stcm.source_concept_id AS concept_id_2,`)
@@ -450,12 +469,12 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`    DATE '1970-01-01'      AS valid_start_date,`)
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
-  parts.push(`FROM source_to_concept_map stcm`)
+  parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
   parts.push(`WHERE stcm.source_concept_id > 2000000000`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0`)
   parts.push(`  AND NOT EXISTS (`)
-  parts.push(`    SELECT 1 FROM concept_relationship cr`)
+  parts.push(`    SELECT 1 FROM ${TARGET}.concept_relationship cr`)
   parts.push(`    WHERE cr.concept_id_1 = stcm.target_concept_id`)
   parts.push(`      AND cr.concept_id_2 = stcm.source_concept_id`)
   parts.push(`      AND cr.relationship_id = 'Mapped from'`)
@@ -467,7 +486,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push('-- PART 5: Custom vocabulary entries')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push(`INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, vocabulary_concept_id)`)
+  parts.push(`INSERT INTO ${TARGET}.vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, vocabulary_concept_id)`)
   parts.push(`SELECT`)
   parts.push(`    sv.source_vocabulary_id AS vocabulary_id,`)
   parts.push(`    sv.source_vocabulary_id AS vocabulary_name,`)
@@ -476,8 +495,8 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`    0                       AS vocabulary_concept_id`)
   parts.push(`FROM (`)
   parts.push(`    SELECT DISTINCT source_vocabulary_id`)
-  parts.push(`    FROM source_to_concept_map`)
-  parts.push(`    WHERE source_vocabulary_id NOT IN (SELECT vocabulary_id FROM vocabulary)`)
+  parts.push(`    FROM ${TARGET}.source_to_concept_map`)
+  parts.push(`    WHERE source_vocabulary_id NOT IN (SELECT vocabulary_id FROM ${TARGET}.vocabulary)`)
   parts.push(`) sv;`)
 
   return parts.join('\n')

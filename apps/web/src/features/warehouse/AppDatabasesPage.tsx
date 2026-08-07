@@ -7,7 +7,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
 import type { DataSource, CustomSchemaPreset } from '@/types'
-import { Database, Plus, FileCode, Search, Plug, ChevronDown } from 'lucide-react'
+import { Database, Plus, FileCode, Search, Plug, ChevronDown, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -47,7 +47,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { generateAlias } from '@/lib/duckdb/engine'
 import { getStorage } from '@/lib/storage'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
@@ -100,19 +99,18 @@ function CreateFromPresetDialog({
     if (open) loadPresets()
   }, [open, loadPresets])
 
-  // Collect all presets that have a DDL
-  const presetsWithDDL: { id: string; label: string; ddl: string; mapping: import('@/types/schema-mapping').SchemaMapping }[] = []
-  for (const presetId of BUILTIN_PRESET_IDS) {
-    const preset = SCHEMA_PRESETS[presetId]
-    if (preset?.ddl) {
-      presetsWithDDL.push({ id: presetId, label: localized(preset.presetLabel, language), ddl: preset.ddl, mapping: preset })
-    }
-  }
-  for (const cp of customPresets) {
-    if (cp.mapping.ddl) {
-      presetsWithDDL.push({ id: cp.presetId, label: localized(cp.mapping.presetLabel, language), ddl: cp.mapping.ddl, mapping: cp.mapping })
-    }
-  }
+  // Only the schemas the workspace actually holds — the same list the Schemas
+  // page shows. Offering the built-ins on top listed schemas that are not in
+  // the workspace, and duplicated any the user had added from a built-in
+  // (a custom preset keeps the built-in's presetId when it overrides it).
+  const presetsWithDDL = customPresets
+    .filter((cp) => cp.mapping.ddl)
+    .map((cp) => ({
+      id: cp.presetId,
+      label: localized(cp.mapping.presetLabel, language),
+      ddl: cp.mapping.ddl!,
+      mapping: cp.mapping,
+    }))
 
   const selectedPreset = presetsWithDDL.find((p) => p.id === selectedPresetId)
 
@@ -213,16 +211,29 @@ function CreateFromPresetDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            onClick={handleCreate}
-            disabled={!name.trim() || !selectedPreset || creating}
-          >
-            {t('common.create')}
-          </Button>
+        <DialogFooter className="sm:justify-between">
+          {/* Running the DDL can take a while on a large schema — say so, rather
+              than leaving a disabled button as the only feedback. */}
+          <span className="flex items-center gap-2 text-xs text-muted-foreground sm:mr-auto">
+            {creating && (
+              <>
+                <Loader2 size={13} className="shrink-0 animate-spin" />
+                {t('databases.creating_may_take_a_while')}
+              </>
+            )}
+          </span>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleCreate}
+              disabled={!name.trim() || !selectedPreset || creating}
+            >
+              {creating && <Loader2 size={14} className="animate-spin" />}
+              {t('common.create')}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

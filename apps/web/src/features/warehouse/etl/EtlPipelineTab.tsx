@@ -84,6 +84,8 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
+import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
+import { useRoleSchemas } from './use-role-schemas'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
@@ -110,6 +112,15 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
 
   const hasSource = !!pipeline?.sourceDataSourceId
   const hasTarget = !!pipeline?.targetDataSourceId
+
+  const { roleSchemasFor, dataSourceIdOf, roleOf } = useRoleSchemas(pipeline)
+
+  // "override" flags a script pinned to a database that has NO pipeline role:
+  // one of source/target/vocab is ordinary, so badging those was just noise.
+  const isOffRole = useCallback(
+    (file: EtlFile) => !!file.dataSourceId && !roleOf(file.dataSourceId),
+    [roleOf],
+  )
 
   const [sidebarVisible, setSidebarVisible] = useState(false)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -169,7 +180,14 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
       const start = Date.now()
       try {
         await testConnection(dsId)
-        const rows = await duckdbEngine.queryDataSource(dsId, file.content)
+        // Mount whichever role the script reaches for, then resolve the
+        // `source.`/`target.` qualifiers to real schemas (see lib/duckdb/role-prefix).
+        for (const role of usedRoles(file.content)) {
+          const roleId = dataSourceIdOf(role)
+          if (roleId && roleId !== dsId) await testConnection(roleId)
+        }
+        const resolvedSql = resolveRolePrefixes(file.content, roleSchemasFor(dsId))
+        const rows = await duckdbEngine.queryDataSource(dsId, resolvedSql)
         const duration = Date.now() - start
         setScriptStatus(file.id, {
           id: `log-${file.id}-${Date.now()}`,
@@ -203,7 +221,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
     }
 
     finishPipelineRun(hasError || abort?.signal.aborted ? 'error' : 'success')
-  }, [pipeline, sqlFiles, pipelineId, startPipelineRun, setScriptStatus, finishPipelineRun])
+  }, [pipeline, sqlFiles, pipelineId, startPipelineRun, setScriptStatus, finishPipelineRun, roleSchemasFor, dataSourceIdOf])
 
   // Get selected node info for sidebar
   const selectedNodeInfo = useMemo(() => {
@@ -214,8 +232,8 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
     const log = scriptStatuses.get(selectedNodeId)
     const fileDsId = file?.dataSourceId ?? pipeline?.targetDataSourceId
     const fileDs = dataSources.find((ds) => ds.id === fileDsId)
-    return file ? { type: 'script' as const, file, log, ds: fileDs, isOverride: !!file.dataSourceId } : null
-  }, [selectedNodeId, sourceDs, targetDs, files, scriptStatuses, dataSources, pipeline?.sourceDataSourceId])
+    return file ? { type: 'script' as const, file, log, ds: fileDs, isOverride: isOffRole(file) } : null
+  }, [selectedNodeId, sourceDs, targetDs, files, scriptStatuses, dataSources, pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId, isOffRole])
 
   // Empty state
   if (sqlFiles.length === 0 && !hasSource && !hasTarget) {
@@ -1594,6 +1612,7 @@ function ScriptOrderList({
   onSelectNode,
 }: ScriptOrderListProps) {
   const { t } = useTranslation()
+  const { roleOf } = useRoleSchemas(pipeline)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor),
@@ -1660,8 +1679,8 @@ function ScriptOrderList({
                     index={idx}
                     log={log}
                     fileDs={fileDs}
-                    isOverride={!!file.dataSourceId}
-                    isLast={idx === sqlFiles.length - 1 && !hasTarget}
+                    isOverride={!!file.dataSourceId && !roleOf(file.dataSourceId)}
+                    isLast={idx === sqlFiles.length - 1}
                     onSelectFile={onSelectFile}
                     onSelectNode={onSelectNode}
                     onToggleDisabled={(id) => updateFile(id, { disabled: !file.disabled })}
@@ -1804,10 +1823,12 @@ function SortableScriptRow({
           }
         </div>
 
-        {/* File info */}
+        {/* File info — click selects (sidebar details), double-click opens the
+            script in the Scripts tab, same as the "View code" button. */}
         <button
           className="min-w-0 flex-1 text-left"
           onClick={() => onSelectNode(file.id)}
+          onDoubleClick={() => onSelectFile?.(file.id)}
         >
           <div className="flex items-center gap-1.5">
             <span className={cn('truncate text-xs font-medium', isDisabled && 'line-through text-muted-foreground/60')} title={file.name}>{file.name}</span>
@@ -1873,10 +1894,11 @@ function SortableScriptRow({
         </Tooltip>
       </div>
 
-      {/* Connector line between items */}
+      {/* Connector between two scripts — shorter than the source/target ones,
+          which keep their full height to set those two apart from the chain. */}
       {!isLast && (
-        <div className="flex justify-center py-1">
-          <div className={cn('h-4 w-px', isDisabled ? 'bg-border/50' : 'bg-border')} />
+        <div className="flex justify-center py-0.5">
+          <div className={cn('h-2 w-px', isDisabled ? 'bg-border/50' : 'bg-border')} />
         </div>
       )}
     </>

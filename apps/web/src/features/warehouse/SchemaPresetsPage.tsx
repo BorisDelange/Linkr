@@ -52,6 +52,7 @@ import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import
 import { parseImportZip } from '@/lib/entity-io'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
+import { uniqueName } from '@/lib/unique-name'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
@@ -1380,6 +1381,10 @@ export function SchemaPresetsPage() {
     createTemplate !== 'blank' ||
     newPresetId.trim() === '' ||
     isEntityIdValid(newPresetId.trim(), [...BUILTIN_PRESET_IDS, ...customPresets.map((p) => p.presetId)])
+  /** Prefill helper: same base name, first free "(n)" suffix. */
+  const freeSchemaName = (base: string) =>
+    uniqueName(base, customPresets.map((p) => localized(p.mapping.presetLabel, language)))
+
   const nameDuplicate = customPresets.some(
     (p) => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase(),
   )
@@ -1396,10 +1401,14 @@ export function SchemaPresetsPage() {
       ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: label, description }
       : undefined
 
-    // Built-in template keeps its own id (so a deleted default can be restored);
-    // a blank schema uses the user-provided identifier, or a random fallback.
+    // Built-in template keeps its own id (so a deleted default can be restored),
+    // unless that id is already taken — the store upserts by presetId, so reusing
+    // it would overwrite the existing schema instead of adding a second one.
+    // A blank schema uses the user-provided identifier, or a random fallback.
     const presetId = createTemplate !== 'blank'
-      ? createTemplate
+      ? (customPresets.some((p) => p.presetId === createTemplate)
+          ? `${createTemplate}-${crypto.randomUUID().slice(0, 8)}`
+          : createTemplate)
       : (newPresetId.trim() || `custom-${crypto.randomUUID().slice(0, 8)}`)
     const newMapping: SchemaMapping = templateMapping ?? {
       presetId,
@@ -1537,17 +1546,26 @@ export function SchemaPresetsPage() {
                   <p className="text-[11px] text-muted-foreground">{t('schemas.template_hint')}</p>
                   <div className="grid grid-cols-2 gap-1.5">
                     {[
-                      { id: 'blank', label: t('schemas.template_blank') },
-                      ...BUILTIN_PRESET_IDS
-                        .filter(pid => !customPresets.some(cp => cp.presetId === pid))
-                        .map(pid => ({ id: pid, label: SCHEMA_PRESETS[pid]?.presetLabel ? localized(SCHEMA_PRESETS[pid]!.presetLabel, language) : pid })),
+                      { id: 'blank', label: t('schemas.template_blank'), added: false },
+                      ...BUILTIN_PRESET_IDS.map(pid => ({
+                        id: pid,
+                        label: SCHEMA_PRESETS[pid]?.presetLabel ? localized(SCHEMA_PRESETS[pid]!.presetLabel, language) : pid,
+                        // Marked, but still selectable: reusing a template creates a
+                        // second schema (confirmCreatePreset derives a fresh presetId
+                        // when the built-in's own id is taken).
+                        added: customPresets.some(cp => cp.presetId === pid),
+                      })),
                     ].map(tpl => (
                       <button
                         key={tpl.id}
                         type="button"
+                        title={tpl.added ? t('schemas.template_already_added') : undefined}
                         onClick={() => {
                           setCreateTemplate(tpl.id)
-                          if (tpl.id !== 'blank') setNewPresetName(tpl.label)
+                          // Names must be unique, so a template already in the
+                          // workspace is prefilled with a free "(2)", "(3)"… suffix
+                          // rather than a name the Create button would reject.
+                          if (tpl.id !== 'blank') setNewPresetName(freeSchemaName(tpl.label))
                         }}
                         className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
                           createTemplate === tpl.id
@@ -1555,7 +1573,9 @@ export function SchemaPresetsPage() {
                             : 'border-border hover:bg-accent'
                         }`}
                       >
-                        <Database size={14} className="shrink-0 text-muted-foreground" />
+                        {tpl.added
+                          ? <Check size={14} className="shrink-0 text-emerald-500" />
+                          : <Database size={14} className="shrink-0 text-muted-foreground" />}
                         <span className="truncate">{tpl.label}</span>
                       </button>
                     ))}

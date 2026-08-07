@@ -1059,8 +1059,9 @@ async function seedEtlScripts(config: SeedEtlScripts): Promise<void> {
     try {
       const mappings = await storage.conceptMappings.getByProject(config.mappingProjectId)
       if (mappings.length > 0) {
-        const vocabSchema = engine.schemaName(config.vocabularyDataSourceId)
-        vocabContent = buildVocabularyScript(mappings, vocabSchema)
+        // Defaults to the `vocab.` role prefix, resolved at run time — the seeded
+        // script must be as portable as one generated from the Vocabulary tab.
+        vocabContent = buildVocabularyScript(mappings)
       }
     } catch { /* ignore */ }
   }
