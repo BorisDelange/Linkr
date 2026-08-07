@@ -251,7 +251,7 @@ export function AgentBenchTab() {
             </div>
 
             <Tabs defaultValue="detail" className="mt-3">
-              <TabsList className="w-fit">
+              <TabsList className="mx-auto w-fit">
                 <TabsTrigger value="detail" className="text-xs">
                   {t('agent.bench_view_detail')}
                 </TabsTrigger>
