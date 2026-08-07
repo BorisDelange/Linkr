@@ -162,7 +162,7 @@ export function DatabaseStatsDashboard({
       {!hasMappedSchema && <NoDataModelNotice />}
 
       {/* ── Section 1: Patients ── */}
-      {hasMappedSchema && (
+      {hasMappedSchema && !neverLoaded && (
       <section>
         <SectionHeader icon={Users} title={t('databases.stats_section_patients')} />
 
@@ -204,7 +204,7 @@ export function DatabaseStatsDashboard({
       )}
 
       {/* ── Section 2: Visits & visit units ── */}
-      {hasMappedSchema && (
+      {hasMappedSchema && !neverLoaded && (
       <section>
         <SectionHeader icon={Activity} title={t('databases.stats_section_visits')} />
 
