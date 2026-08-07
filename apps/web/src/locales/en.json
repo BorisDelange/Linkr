@@ -3052,6 +3052,8 @@
     "delete_file": "Delete",
     "no_files": "No scripts yet. Click + to create one.",
     "run_file": "Run current file",
+    "run_selection": "Run selection",
+    "run_line": "Run current line",
     "run_all": "Run all scripts",
     "stop": "Stop execution",
     "browse_schema": "Browse schema",

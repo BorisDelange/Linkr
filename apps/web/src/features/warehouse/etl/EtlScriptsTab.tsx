@@ -18,12 +18,16 @@ import {
   Table2,
   Keyboard,
   ListChecks,
+  TextSelect,
+  CornerDownLeft,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -68,7 +72,9 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
-import type { ShortcutActionId } from '@/types/shortcuts'
+import { useShortcutStore } from '@/stores/shortcut-store'
+import { comboToString } from '@/lib/format-shortcut'
+import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import { EtlFileTree } from './EtlFileTree'
 import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
 import { runPipelineSql } from './run-pipeline-sql'
@@ -84,6 +90,10 @@ const ETL_EDITOR_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'run_file',
   'toggle_comment',
 ]
+
+/** Run-all lives outside the rebindable shortcut set, so its combo is declared
+ *  once here and used both to match the keypress and to label the menu item. */
+const RUN_ALL_COMBO: KeyCombo = { key: 'Enter', ctrlOrMeta: true, shift: true, alt: false }
 
 const ETL_FILE_TYPES = [
   { id: 'sql', label: 'SQL', ext: '.sql', lang: 'sql' as const, icon: Database, iconColor: 'text-blue-500' },
@@ -150,6 +160,14 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   const [isRunning, setIsRunning] = useState(false)
   const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+
+  // Same bindings the IDE's Run button shows, read from the shortcut store so a
+  // rebind is reflected in both places.
+  const runFileKey = useShortcutStore((s) => comboToString(s.shortcuts.run_file.binding))
+  const runLineKey = useShortcutStore((s) => comboToString(s.shortcuts.run_selection_or_line.binding))
+  // Run-all is an ETL-specific chord with no entry in the shortcut store; format
+  // it the same way so the menu reads consistently on Mac and Windows.
+  const runAllKey = comboToString(RUN_ALL_COMBO)
 
   // Tab scroll refs
   const fileTabScrollRef = useRef<HTMLDivElement>(null)
@@ -418,11 +436,12 @@ export function EtlScriptsTab({ pipelineId }: Props) {
     handleSaveFile()
   }, [handleSaveFile])
 
-  // Keyboard shortcut: Cmd+Shift+Enter = Run All (ETL-specific chord, outside the
-  // shared IDE action set — Monaco handles save/run/find/replace/comment).
+  // Run All (ETL-specific chord, outside the shared IDE action set — Monaco
+  // handles save/run/find/replace/comment). Matched against the same combo the
+  // menu displays, so the label cannot drift from the binding.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === RUN_ALL_COMBO.key) {
         e.preventDefault()
         handleRunAll()
       }
@@ -531,10 +550,27 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                                 <DropdownMenuItem onClick={handleRunFile} className="gap-2 text-xs">
                                   <FileCode size={13} className="text-muted-foreground" />
                                   {t('etl.run_file')}
+                                  {runFileKey && <DropdownMenuShortcut>{runFileKey}</DropdownMenuShortcut>}
                                 </DropdownMenuItem>
+                                {/* One chord (⌘Enter) covers both: selection when there
+                                    is one, else the current line — so it shows on both. */}
+                                <DropdownMenuItem onClick={handleRunSelectionOrLine} className="gap-2 text-xs">
+                                  <TextSelect size={13} className="text-muted-foreground" />
+                                  {t('etl.run_selection')}
+                                  {runLineKey && <DropdownMenuShortcut>{runLineKey}</DropdownMenuShortcut>}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={handleRunSelectionOrLine} className="gap-2 text-xs">
+                                  <CornerDownLeft size={13} className="text-muted-foreground" />
+                                  {t('etl.run_line')}
+                                  {runLineKey && <DropdownMenuShortcut>{runLineKey}</DropdownMenuShortcut>}
+                                </DropdownMenuItem>
+                                {/* Below the separator sits the whole-pipeline action,
+                                    where the IDE puts "run as background job". */}
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={handleRunAll} className="gap-2 text-xs">
                                   <ListChecks size={13} className="text-muted-foreground" />
                                   {t('etl.run_all')}
+                                  <DropdownMenuShortcut>{runAllKey}</DropdownMenuShortcut>
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>

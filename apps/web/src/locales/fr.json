@@ -3052,6 +3052,8 @@
     "delete_file": "Supprimer",
     "no_files": "Aucun script. Cliquez sur + pour en créer un.",
     "run_file": "Exécuter le fichier courant",
+    "run_selection": "Exécuter la sélection",
+    "run_line": "Exécuter la ligne",
     "run_all": "Exécuter tous les scripts",
     "stop": "Arrêter l'exécution",
     "browse_schema": "Explorer le schéma",
