@@ -123,13 +123,13 @@ passwords.
 `kind` ∈ `local-openai-compatible` (Ollama / LM Studio / llama.cpp / vLLM),
 `anthropic`, `openai`, `mistral`, `gemini`, `custom`.
 
-> **Known gap in the MVP**: the shipped settings UI lives in the GLOBAL
-> `/settings` page (Assistant tab), not per workspace, and stores to
-> `localStorage`. That is deliberate but temporary — a client-side setting is
-> per-browser, so putting it under a workspace tab would imply a shared setting
-> it is not. When `LlmProvider` gets its routes, the tab moves to the workspace
-> and is gated on `llm-config:write`; `lib/agent/settings.ts` is the single file
-> to swap.
+**Status: done.** `LlmProvider` has its routes, the settings tab lives under the
+workspace and is gated on `llm-config:write` (owner-only, enforced server-side),
+and providers are approved per surface. `lib/agent/settings.ts` picks its backing
+at call time: the server when there is one, `localStorage` for client-only (WASM)
+deployments, which have no backend to hold a provider list and nowhere safer to
+keep a key. The API key is never returned by the API — responses carry
+`hasApiKey`.
 
 ### The remote-model guardrail
 
@@ -466,15 +466,19 @@ Batches 1–2 are well-trodden. Batch 3 is the real decision point.
 
 ## 8. Deferred
 
-- **LLM-managed memory** — the copilot ships with no memory beyond the current
-  conversation. The intended design is a memory the MODEL maintains itself (it
-  decides what is worth keeping and writes it), exposed as an option rather than
-  always on. The groundwork exists in `lib/agent/memory.ts` (per-dashboard notes
-  injected into the prompt); the UI was removed until the design is settled.
+- **LLM-managed memory** — the copilot has no memory beyond the current
+  conversation. `lib/agent/memory.ts` and its `memoryNotes` plumbing were
+  deleted rather than left dormant: the UI was already gone, so it was a dead
+  path injecting into every prompt. The intended design remains a memory the
+  MODEL maintains itself, exposed as an option rather than always on, and it
+  starts from scratch when taken up.
   The reason to be careful: in a clinical setting an auto-written memory will
   eventually capture patient detail, and that record outlives the session and is
   re-sent to the model — a remote one included — on every later request. So
   whatever the model writes must stay visible and deletable.
+  Note this is NOT the same thing as conversation history, which is built:
+  a stored transcript is replayed for the user to read, never re-sent to the
+  model as context.
 - **Widening beyond plot-builder** — the derived plugin docs are only validated
   against one manifest so far.
 - **Other surfaces** — datasets, IDE, script collections share the endpoint
