@@ -128,30 +128,36 @@ export function DatabaseStatsDashboard({
     })
   }
 
+  // Before the first run the prompt below is the trigger, so the toolbar would
+  // be a second button for the same action right above it.
+  const neverLoaded = !cache && !isLoading
+
   return (
     <div className="space-y-8">
       {/* Header with timestamp and refresh */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">
-          {cache
-            ? t('databases.stats_last_refreshed', { date: formatDate(cache.computedAt) })
-            : '\u00A0'}
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={refresh}
-          disabled={isLoading}
-          className="gap-1.5 text-xs"
-        >
-          <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
-          {t('databases.stats_refresh')}
-        </Button>
-      </div>
+      {!neverLoaded && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">
+            {cache
+              ? t('databases.stats_last_refreshed', { date: formatDate(cache.computedAt) })
+              : '\u00A0'}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refresh}
+            disabled={isLoading}
+            className="gap-1.5 text-xs"
+          >
+            <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
+            {t('databases.stats_refresh')}
+          </Button>
+        </div>
+      )}
 
       {/* Nothing computed yet: offer the same explicit trigger the overview tab
           shows, so the tab is not an empty shell before the first run. */}
-      {!cache && !isLoading && <LoadStatisticsPrompt onLoad={refresh} />}
+      {neverLoaded && <LoadStatisticsPrompt onLoad={refresh} />}
 
       {!hasMappedSchema && <NoDataModelNotice />}
 
