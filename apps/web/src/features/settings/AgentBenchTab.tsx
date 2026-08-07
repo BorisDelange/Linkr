@@ -16,6 +16,7 @@ import {
   providerName,
 } from '@/lib/agent/settings'
 import type { LlmProvider } from '@/lib/api/llm'
+import { DEFAULT_SELECTION, useBenchUiStore } from '@/stores/bench-ui-store'
 import { runBench, type BenchReport, type CaseResult } from '@/lib/agent/bench/runner'
 import {
   BENCH_SURFACES,
@@ -32,6 +33,13 @@ import {
 } from '@/lib/agent/bench/storage'
 
 type Mode = 'quick' | 'full'
+
+/** Match <SelectTrigger size="sm">, so these read as ordinary form selects
+ *  rather than the inline dashed-border filters used inside table headers. */
+const SELECT_TRIGGER =
+  'flex h-8 items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 text-[13px] shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50'
+
+const DISABLED = 'pointer-events-none opacity-50'
 
 interface AgentBenchTabProps {
   workspaceId: string
@@ -52,15 +60,36 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
   const { t, i18n } = useTranslation()
   // Test in the language the user actually types in.
   const lang: BenchLang = i18n.language?.startsWith('fr') ? 'fr' : 'en'
-  const [mode, setMode] = useState<Mode>('quick')
+  // Selection lives in a store: switching sub-tabs unmounts this component, and
+  // losing four picked models each time is tedious.
+  const selection = useBenchUiStore((s) => s.byWorkspace[workspaceId] ?? DEFAULT_SELECTION)
+  const updateSelection = useBenchUiStore((s) => s.update)
+  const reconcileSelection = useBenchUiStore((s) => s.reconcile)
+  const { models, surfaces: storedSurfaces, mode, selectedModel } = selection
+  const surfaces = storedSurfaces as BenchSurface[]
+
+  const setModels = useCallback(
+    (next: string[]) => updateSelection(workspaceId, { models: next }),
+    [updateSelection, workspaceId]
+  )
+  const setSurfaces = useCallback(
+    (next: BenchSurface[]) => updateSelection(workspaceId, { surfaces: next }),
+    [updateSelection, workspaceId]
+  )
+  const setMode = useCallback(
+    (next: Mode) => updateSelection(workspaceId, { mode: next }),
+    [updateSelection, workspaceId]
+  )
+  const setSelectedModel = useCallback(
+    (next: string) => updateSelection(workspaceId, { selectedModel: next }),
+    [updateSelection, workspaceId]
+  )
+
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [reports, setReports] = useState<StoredBenchReport[]>([])
-  const [surfaces, setSurfaces] = useState<BenchSurface[]>(['dashboard'])
   const [providers, setProviders] = useState<LlmProvider[]>([])
-  const [models, setModels] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [selectedModel, setSelectedModel] = useState<string>('')
   const abortRef = useRef<AbortController | null>(null)
 
   // Follow the newest report unless the user picked another, and never leave the
@@ -89,13 +118,24 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
     listConfiguredProviders(workspaceId).then((list) => {
       if (cancelled) return
       setProviders(list)
-      // Preselect everything: a small list, and the usual intent is "test them".
-      setModels(list.map((p) => p.model))
+
+      const available = list.map((p) => p.model)
+      const { models: stored, touched } = useBenchUiStore.getState().get(workspaceId)
+      // Preselect everything on a first visit — a small list, and the usual
+      // intent is "test them". Afterwards keep the user's picks, minus any model
+      // that has since been removed, so the selection cannot name a provider
+      // that no longer exists.
+      const next = touched ? stored.filter((m) => available.includes(m)) : available
+      if (next.length !== stored.length || next.some((m, i) => m !== stored[i])) {
+        // reconcile, not update: the app is filling this in, so it must not
+        // count as the user having made a choice.
+        reconcileSelection(workspaceId, { models: next })
+      }
     })
     return () => {
       cancelled = true
     }
-  }, [workspaceId])
+  }, [workspaceId, reconcileSelection])
 
   // Model id → the name the admin gave it, so the picker and the results read
   // as "Ollama Gemma 4B" rather than "gemma3:4b".
@@ -169,7 +209,7 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
         setProgress(null)
       }
     },
-    [caseCount, lang, models, mode, providers, surfaces, workspaceId]
+    [caseCount, lang, models, mode, providers, setSelectedModel, surfaces, workspaceId]
   )
 
 
@@ -203,10 +243,8 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
               onChange={setModels}
               placeholder={t('agent.bench_models_placeholder')}
               popoverWidthClass="w-64"
-              triggerClass={cn(
-                'h-8 w-56 rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary',
-                running && 'pointer-events-none opacity-50'
-              )}
+              showChevron
+              triggerClass={cn(SELECT_TRIGGER, 'w-56', running && DISABLED)}
             />
           </div>
 
@@ -220,10 +258,8 @@ export function AgentBenchTab({ workspaceId, canWrite }: AgentBenchTabProps) {
               onChange={(next) => setSurfaces(next as BenchSurface[])}
               placeholder={t('agent.bench_surfaces_placeholder')}
               popoverWidthClass="w-52"
-              triggerClass={cn(
-                'h-8 w-44 rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary',
-                running && 'pointer-events-none opacity-50'
-              )}
+              showChevron
+              triggerClass={cn(SELECT_TRIGGER, 'w-44', running && DISABLED)}
             />
           </div>
 

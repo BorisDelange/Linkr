@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
@@ -287,9 +287,12 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+              {/* The shared destructive variant, not hand-written classes:
+                  there is no --destructive-foreground token, so spelling it out
+                  left the label black on red. */}
               <AlertDialogAction
                 onClick={confirmRemove}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                className={buttonVariants({ variant: 'destructive' })}
               >
                 {t('common.delete')}
               </AlertDialogAction>

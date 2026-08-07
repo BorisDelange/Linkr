@@ -1,6 +1,6 @@
 import { useState, useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Search } from 'lucide-react'
+import { Check, ChevronDown, Search } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 
@@ -30,6 +30,9 @@ interface MultiSelectFilterProps {
   /** Optional custom renderer for an option's content (e.g. a type badge before the label).
    *  When omitted, the label text is shown. */
   renderOption?: (option: { value: string; label: string }) => ReactNode
+  /** Show a chevron so the closed control reads as a normal form select rather
+   *  than an inline table filter. For selects sitting in a form, not in a header. */
+  showChevron?: boolean
 }
 
 /**
@@ -51,6 +54,7 @@ export function MultiSelectFilter({
   triggerClass,
   selectAllRespectsSearch = true,
   renderOption,
+  showChevron = false,
 }: MultiSelectFilterProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -103,11 +107,18 @@ export function MultiSelectFilter({
           className={cn(
             triggerClass ?? defaultTriggerClass,
             'flex items-center truncate',
-            isActive && 'border-primary text-foreground',
+            // The active accent marks a column filter as "filtering". A form
+            // select holding a value is just a select, so skip it there.
+            isActive && !showChevron && 'border-primary text-foreground',
           )}
           onClick={(e) => e.stopPropagation()}
         >
-          <span className="truncate">{triggerLabel}</span>
+          <span className={cn('truncate', !isActive && 'text-muted-foreground')}>
+            {triggerLabel}
+          </span>
+          {showChevron && (
+            <ChevronDown size={14} className="ml-auto shrink-0 opacity-50" />
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent
