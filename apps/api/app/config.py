@@ -38,6 +38,11 @@ class Settings(BaseSettings):
 
     # Code execution
     enable_code_execution: bool = True
+    # Whether a workspace may point the AI assistant at a REMOTE model. Off by
+    # default: a remote endpoint means prompts — which can carry clinical
+    # context — leave the institution, so an administrator must opt in rather
+    # than opt out. The per-provider acknowledgement is a second, separate gate.
+    allow_remote_llm: bool = False
     # Cap on a user's concurrent live server processes (R/Python kernels + PTY
     # shells). Renamed from MAX_SESSIONS_PER_USER (still read as a fallback so
     # existing deployments' env vars keep working) once "session" stopped meaning

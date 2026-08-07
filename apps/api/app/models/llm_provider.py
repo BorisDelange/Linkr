@@ -35,6 +35,11 @@ class LlmProvider(Base, UUIDPKMixin, TimestampMixin):
     # read) so the value that was true at acknowledgement time stays auditable.
     is_local: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    # Assistant surfaces this model is approved for ("dashboard", "ide", …), as
+    # decided by an admin after benching it. A model can be good at driving a
+    # dashboard and poor in the IDE, so approval is per surface rather than
+    # global. Empty list = configured but not offered anywhere yet.
+    surfaces: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
 
     # Decision trail for sending health data to an external API. Only set for
     # non-local providers; kept for audit, so it is deliberately not cleared when

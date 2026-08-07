@@ -45,6 +45,11 @@ WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     "data-quality": RWD,
     "catalog": RWD,
     "etl": RWD,
+    # Who may configure the AI assistant's models and approve them per surface.
+    # Deliberately owner-only by default (see _catalogue_perms): enabling a model
+    # decides whether prompts — possibly carrying clinical context — leave the
+    # institution, which is not an everyday editing decision.
+    "llm-config": ["read", "write"],
     # Project section (things scoped to a single project).
     # Manage THIS project: edit its settings (write) / delete it (delete). Mirrors
     # workspace-settings; distinct from the workspace-tier "projects" (create/list).
@@ -110,6 +115,11 @@ _LADDER = {
 # which holds PERMISSIONS, still can). An admin can grant these to a custom role.
 _MEMBER_RESOURCES = {"workspace-members", "project-members"}
 
+# Resources a default editor may READ but not WRITE. Same mechanism as
+# _MEMBER_RESOURCES: approving an LLM is an owner/admin responsibility because it
+# governs whether data can leave the deployment.
+_OWNER_WRITE_RESOURCES = {"llm-config"}
+
 
 def _catalogue_perms(max_action: str) -> list[str]:
     """Workspace permissions a default viewer/editor role gets: for each resource,
@@ -120,7 +130,9 @@ def _catalogue_perms(max_action: str) -> list[str]:
         f"{r}:{a}"
         for r, acts in WORKSPACE_CATALOGUE.items()
         for a in acts
-        if a in allowed and not (r in _MEMBER_RESOURCES and a != "read")
+        if a in allowed
+        and not (r in _MEMBER_RESOURCES and a != "read")
+        and not (r in _OWNER_WRITE_RESOURCES and a != "read")
     ]
 
 
