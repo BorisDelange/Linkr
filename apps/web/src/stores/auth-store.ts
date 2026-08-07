@@ -18,6 +18,9 @@ export interface AuthUser {
   affiliation?: string | null
   profession?: string | null
   orcid?: string | null
+  // Cross-device user choices (currently the assistant's save-conversations
+  // consent). Purely local UI state stays in localStorage instead.
+  preferences?: Record<string, unknown>
 }
 
 interface AuthState {
@@ -35,6 +38,9 @@ interface AuthState {
   logout: () => void
   validateToken: () => Promise<boolean>
   setTokens: (accessToken: string, refreshToken: string, user: AuthUser) => void
+  /** Persist a preference change and mirror it locally, so a toggle reflects
+   *  immediately rather than waiting for the next /auth/me. */
+  setPreference: (key: string, value: unknown) => Promise<void>
 }
 
 function loadStoredAuth(): { token: string | null; refreshToken: string | null; user: AuthUser | null } {
@@ -189,6 +195,31 @@ export const useAuthStore = create<AuthState>()((set, get) => {
       localStorage.setItem('linkr-refresh-token', refreshToken)
       localStorage.setItem('linkr-auth-user', JSON.stringify(user))
       set({ token: accessToken, refreshToken, user, loginError: null })
+    },
+
+    setPreference: async (key, value) => {
+      const { user, token } = get()
+      if (!user) return
+      // The server stores preferences as one JSON value and replaces it
+      // wholesale, so send the merged object — a partial PATCH would drop every
+      // other preference, including a consent flag.
+      const preferences = { ...(user.preferences ?? {}), [key]: value }
+      const next = { ...user, preferences }
+      set({ user: next })
+      localStorage.setItem('linkr-auth-user', JSON.stringify(next))
+      if (!isServerMode() || !token) return
+      try {
+        await fetch(`${getApiBaseUrl()}/api/v1/auth/me`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ preferences }),
+        })
+      } catch {
+        // Keep the optimistic value; the next /auth/me reconciles it.
+      }
     },
   }
 })

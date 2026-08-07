@@ -7,7 +7,7 @@
  * that as one thing they asked for. A general undo/redo stack would be a much
  * larger change to the store for no extra benefit here.
  */
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DashboardTab, DashboardWidget } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -39,7 +39,8 @@ import {
   type AgentSession,
   type TranscriptEntry,
 } from '@/stores/agent-session-store'
-import { loadMemory } from '@/lib/agent/memory'
+import { useAuthStore } from '@/stores/auth-store'
+import { persistConversation, savingEnabled } from '@/lib/agent/conversations'
 import { selectToolNames } from '@/lib/agent/tool-selection'
 import { datasetContext } from '@/lib/agent/dataset-context'
 import {
@@ -80,6 +81,7 @@ interface Snapshot {
 export interface DashboardAgentOptions {
   dashboardId: string
   projectUid: string
+  workspaceId: string
   endpoint: LlmEndpoint | null
 }
 
@@ -106,7 +108,12 @@ function toolLabel(
   return label || call.name
 }
 
-export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptions) {
+export function useDashboardAgent({
+  dashboardId,
+  projectUid,
+  workspaceId,
+  endpoint,
+}: DashboardAgentOptions) {
   const { t, i18n } = useTranslation()
   // The session lives in a store, not in this hook: closing the panel unmounts
   // the sidebar, and the conversation must survive that.
@@ -125,9 +132,35 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
   const [pending, setPending] = useState<PendingAction | null>(null)
   /** When the current turn started, for the live elapsed counter. */
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null)
-  // Notes are read for the prompt; there is no UI to edit them yet (see the
-  // plan's deferred section on model-managed memory).
-  const memoryNotes = useMemo(() => loadMemory(dashboardId), [dashboardId])
+  const preferences = useAuthStore((s) => s.user?.preferences)
+  const saveEnabled = savingEnabled(preferences)
+  // The id of the stored thread for THIS session, so later turns update it
+  // rather than filing a new conversation per message.
+  const conversationRef = useRef<string | null>(null)
+
+  // Persist after the transcript settles, not on every streamed chunk: a turn
+  // rewrites the last entry many times while the model is generating.
+  useEffect(() => {
+    if (!saveEnabled || running || !transcript.length) return
+    let cancelled = false
+    const timer = setTimeout(() => {
+      void persistConversation({
+        workspaceId,
+        projectUid,
+        dashboardId,
+        conversationId: conversationRef.current,
+        transcript,
+        enabled: saveEnabled,
+      }).then((id) => {
+        if (!cancelled && id) conversationRef.current = id
+      })
+    }, 600)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [transcript, running, saveEnabled, workspaceId, projectUid, dashboardId])
+
   const pendingRef = useRef<{
     call: ParsedToolCall
     action: PendingAction
@@ -187,10 +220,9 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
           rowCount: file.rowCount,
         })),
       pluginSummaries,
-      memoryNotes,
       options: contextOptions,
     })
-  }, [dashboardId, datasets, locale, pluginSummaries, contextOptions, memoryNotes])
+  }, [dashboardId, datasets, locale, pluginSummaries, contextOptions])
 
   const contextTokens = useMemo(
     () => estimateTokens(buildPrompt()),
@@ -310,8 +342,31 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     snapshotRef.current = null
     pendingRef.current = null
     setPending(null)
+    // Detach from the stored thread: starting over must file a NEW conversation,
+    // not overwrite the one the user just left in their history.
+    conversationRef.current = null
     resetSession(dashboardId)
   }, [dashboardId, resetSession, stop])
+
+  /**
+   * Replay a past conversation into the panel.
+   *
+   * The transcript is restored for reading; `history` (the model-facing message
+   * list) deliberately is not, so continuing types a fresh turn rather than
+   * re-sending an old context to a possibly different model.
+   */
+  const restore = useCallback(
+    (conversationId: string, entries: TranscriptEntry[]) => {
+      stop()
+      snapshotRef.current = null
+      pendingRef.current = null
+      setPending(null)
+      resetSession(dashboardId)
+      conversationRef.current = conversationId
+      updateSession(dashboardId, { transcript: entries })
+    },
+    [dashboardId, resetSession, stop, updateSession]
+  )
 
   /** Run a destructive call the user just approved. */
   const confirmPending = useCallback(() => {
@@ -558,5 +613,7 @@ export function useDashboardAgent({ dashboardId, endpoint }: DashboardAgentOptio
     stop,
     undo,
     reset,
+    restore,
+    saveEnabled,
   }
 }

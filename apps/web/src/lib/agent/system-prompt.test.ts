@@ -83,12 +83,6 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('describe_dashboard')
   })
 
-  it('includes user-written memory notes when present', () => {
-    const prompt = buildSystemPrompt(input({ memoryNotes: ['Always use histograms'] }))
-    expect(prompt).toContain('User preferences:')
-    expect(prompt).toContain('Always use histograms')
-  })
-
   it('omits the project context unless explicitly enabled', () => {
     // A README can carry cohort sizes and inclusion criteria, so it must never be
     // sent just because it exists.

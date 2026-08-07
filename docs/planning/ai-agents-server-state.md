@@ -86,27 +86,35 @@ What *does* belong on the server is the assistant setting below.
       browser. `User.preferences` (a JSON column) already exists and is exposed
       by no route yet; use it rather than adding a table.
 
-### 4. Frontend
+### 4. Frontend ✅
 
-- [ ] `lib/api/llm.ts` — typed client for providers, reports, conversations
-- [ ] `lib/agent/settings.ts` — read the server first, fall back to localStorage
-      (WASM mode). This file is the single swap point, as noted in its header.
-- [ ] `lib/agent/bench/storage.ts` — same treatment
-- [ ] `AgentSettingsTab` — provider list, per-surface approval checkboxes, gate
-      the whole tab on `llm-config:write`
-- [ ] `AgentBenchTab` — reports from the server
-- [ ] Dashboard sidebar — model picker limited to providers approved for
-      `dashboard`; hide it when only one is approved
-- [ ] Conversation history in the sidebar: list, open, delete, clear all, plus a
-      "save conversations" toggle
-- [ ] `stores/dashboard-panels-store.ts` — server-backed preference
+- [x] `lib/api/llm.ts` — typed client for providers, reports, conversations
+- [x] `lib/agent/settings.ts` — server first, localStorage fallback (WASM). The
+      acknowledgement rule is enforced on BOTH paths, and `endpointFromProvider`
+      trusts the server-derived `isLocal` rather than re-reading the URL.
+- [x] `lib/agent/bench/storage.ts` — same treatment; the API turned async, so its
+      three callers did too
+- [x] `AgentSettingsTab` — provider list + per-surface approval, gated on
+      `llm-config:write`. The old single-endpoint form survives as
+      `LocalEndpointForm` for WASM, where there is nowhere safer for a key.
+- [x] `AgentBenchTab` — reports from the server
+- [x] Conversation history in the sidebar: list, open, delete, clear all, plus a
+      "save conversations" toggle backed by `User.preferences`
+- [x] `stores/dashboard-panels-store.ts` — deliberately left in localStorage,
+      see step 3
 
-### 5. Cleanup
+Not done, and not needed yet: a **model picker** in the dashboard sidebar. With
+approval per surface the page resolves to the approved provider on its own;
+offering a choice only matters once a workspace approves several for the same
+surface. Revisit then.
 
-- [ ] delete `lib/agent/memory.ts`, its test, and the `memoryNotes` plumbing in
+### 5. Cleanup ✅
+
+- [x] deleted `lib/agent/memory.ts`, its test, and the `memoryNotes` plumbing in
       `use-dashboard-agent.ts` / `system-prompt.ts`
 - [ ] update `docs/planning/ai-agents-plan.md` (batch 1 done; memory dropped)
-- [ ] `npm run test`, `npx tsc -b`, `npx eslint`, `pytest`
+- [x] `npx vitest run` (733 pass), `npx tsc --noEmit`, `npx eslint`, `pytest`
+      (719 pass, 5 pre-existing failures unrelated to this work)
 
 ## Watch out
 

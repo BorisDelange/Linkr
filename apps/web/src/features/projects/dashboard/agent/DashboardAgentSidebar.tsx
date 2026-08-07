@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
   ChevronRight,
   CornerDownLeft,
+  History,
   Info,
   RotateCcw,
   Sparkles,
@@ -35,7 +36,18 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
+import {
+  SAVE_CONVERSATIONS_KEY,
+  clearOwnConversations,
+  listOwnConversations,
+  removeConversation,
+  type ConversationScopeArgs,
+} from '@/lib/agent/conversations'
+import { getConversation, type ConversationSummary } from '@/lib/api/llm'
+import type { TranscriptEntry as StoredTranscriptEntry } from '@/stores/agent-session-store'
 import type { LlmEndpoint } from '@/lib/agent/agent-loop'
 import {
   useDashboardAgent,
@@ -47,10 +59,128 @@ import {
 interface Props {
   dashboardId: string
   projectUid: string
+  workspaceId: string
   endpoint: LlmEndpoint | null
   /** True when the model is reached over a public API rather than locally. */
   isRemote: boolean
   onClose: () => void
+}
+
+/**
+ * Past conversations — the user's own only; the server has no route to anyone
+ * else's, so there is nothing to filter here.
+ *
+ * Saving can be turned off, in which case nothing new is written; existing
+ * threads stay until deleted, so switching it off is not a silent purge.
+ */
+function HistoryPanel({
+  scope,
+  saveEnabled,
+  onToggleSave,
+  onOpen,
+  onClose,
+}: {
+  scope: ConversationScopeArgs
+  saveEnabled: boolean
+  onToggleSave: (next: boolean) => void
+  onOpen: (id: string) => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [items, setItems] = useState<ConversationSummary[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async () => {
+    const loaded = await listOwnConversations(scope)
+    setItems(loaded)
+    setLoading(false)
+  }, [scope])
+
+  useEffect(() => {
+    let cancelled = false
+    listOwnConversations(scope).then((loaded) => {
+      if (cancelled) return
+      setItems(loaded)
+      setLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [scope])
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <History size={14} className="text-muted-foreground" />
+        <span className="text-xs font-medium">{t('agent.history_title')}</span>
+        <div className="ml-auto flex items-center gap-1">
+          <IconAction
+            label={t('agent.history_clear_all')}
+            onClick={async () => {
+              await clearOwnConversations(scope)
+              await refresh()
+            }}
+          >
+            <Trash2 size={12} />
+          </IconAction>
+          <IconAction label={t('common.close')} onClick={onClose}>
+            <X size={12} />
+          </IconAction>
+        </div>
+      </div>
+
+      <label className="flex items-start gap-2 border-b px-3 py-2 text-[11px]">
+        <Checkbox
+          checked={saveEnabled}
+          onCheckedChange={(value) => onToggleSave(value === true)}
+          className="mt-0.5"
+        />
+        <span className="text-muted-foreground">{t('agent.history_save_toggle')}</span>
+      </label>
+
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-2">
+          {loading ? (
+            <p className="px-1 py-2 text-xs text-muted-foreground">{t('common.loading')}</p>
+          ) : null}
+          {!loading && !items.length ? (
+            <p className="px-1 py-2 text-xs text-muted-foreground">
+              {t('agent.history_empty')}
+            </p>
+          ) : null}
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="group flex items-start gap-1 rounded-md px-1.5 py-1.5 hover:bg-accent/40"
+            >
+              <button
+                className="min-w-0 flex-1 text-left"
+                onClick={() => onOpen(item.id)}
+              >
+                <span className="block truncate text-xs">
+                  {item.title || t('agent.history_untitled')}
+                </span>
+                <span className="block text-[10px] text-muted-foreground">
+                  {new Date(item.updatedAt).toLocaleString()} ·{' '}
+                  {t('agent.history_messages', { count: item.messageCount })}
+                </span>
+              </button>
+              <button
+                className="shrink-0 p-1 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                onClick={async () => {
+                  await removeConversation(item.id)
+                  await refresh()
+                }}
+                aria-label={t('common.delete')}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
+  )
 }
 
 /** Dark tooltip, matching the app's icon-button convention. */
@@ -320,13 +450,20 @@ function SessionInfoDialog({
 export function DashboardAgentSidebar({
   dashboardId,
   projectUid,
+  workspaceId,
   endpoint,
   isRemote,
   onClose,
 }: Props) {
   const { t } = useTranslation()
   const [infoOpen, setInfoOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const setPreference = useAuthStore((s) => s.setPreference)
+  const scope = useMemo<ConversationScopeArgs>(
+    () => ({ workspaceId, projectUid, dashboardId }),
+    [workspaceId, projectUid, dashboardId]
+  )
 
   const {
     transcript,
@@ -347,7 +484,9 @@ export function DashboardAgentSidebar({
     stop,
     undo,
     reset,
-  } = useDashboardAgent({ dashboardId, projectUid, endpoint })
+    restore,
+    saveEnabled,
+  } = useDashboardAgent({ dashboardId, projectUid, workspaceId, endpoint })
 
   useEffect(() => {
     // ScrollArea doesn't forward a ref, so reach the Radix viewport from a
@@ -380,6 +519,12 @@ export function DashboardAgentSidebar({
             <IconAction label={t('agent.info_title')} onClick={() => setInfoOpen(true)}>
               <Info size={12} />
             </IconAction>
+            <IconAction
+              label={t('agent.history_title')}
+              onClick={() => setHistoryOpen((open) => !open)}
+            >
+              <History size={12} />
+            </IconAction>
             <IconAction label={t('agent.reset')} onClick={reset}>
               <RotateCcw size={12} />
             </IconAction>
@@ -389,6 +534,19 @@ export function DashboardAgentSidebar({
           </div>
         </div>
 
+        {historyOpen ? (
+          <HistoryPanel
+            scope={scope}
+            saveEnabled={saveEnabled}
+            onToggleSave={(next) => void setPreference(SAVE_CONVERSATIONS_KEY, next)}
+            onOpen={async (id) => {
+              const conversation = await getConversation(id)
+              restore(id, conversation.messages as unknown as StoredTranscriptEntry[])
+              setHistoryOpen(false)
+            }}
+            onClose={() => setHistoryOpen(false)}
+          />
+        ) : (
         <div ref={scrollRef} className="min-h-0 flex-1">
           <ScrollArea className="h-full">
             <div className="space-y-3 p-3">
@@ -478,8 +636,9 @@ export function DashboardAgentSidebar({
             </div>
           </ScrollArea>
         </div>
+        )}
 
-        {canUndo && !running ? (
+        {canUndo && !running && !historyOpen ? (
           <div className="border-t px-3 py-2">
             <Button
               variant="outline"
@@ -493,7 +652,7 @@ export function DashboardAgentSidebar({
           </div>
         ) : null}
 
-        <div className="border-t p-2">
+        <div className={cn('border-t p-2', historyOpen && 'hidden')}>
           <div className="relative">
             <Textarea
               value={draft}

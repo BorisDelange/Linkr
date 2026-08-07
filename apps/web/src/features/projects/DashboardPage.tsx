@@ -457,6 +457,7 @@ export function DashboardPage() {
           <DashboardAgentSidebar
             dashboardId={dashboard.id}
             projectUid={projectUid}
+            workspaceId={wsUid ?? ''}
             endpoint={agentEndpoint}
             isRemote={agentIsRemote}
             onClose={() => setAgentOpen(false)}

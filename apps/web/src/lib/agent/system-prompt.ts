@@ -7,7 +7,6 @@
  * — unlike dataset schemas and plugin summaries, which carry no patient data.
  */
 import { datasetsSummary, type DatasetContextInput } from './dataset-context'
-import { memoryContext } from './memory'
 
 export interface ContextOptions {
   /** Column names, types, labels, descriptions. No rows, ever. */
@@ -36,8 +35,6 @@ export interface SystemPromptInput {
   datasets: DatasetContextInput[]
   pluginSummaries: string[]
   projectContext?: string
-  /** User-written preferences, never inferred. See lib/agent/memory.ts. */
-  memoryNotes?: string[]
   options: ContextOptions
 }
 
@@ -112,9 +109,6 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   if (options.includeProjectContext && projectContext?.trim()) {
     sections.push(`Project context:\n${projectContext.trim()}`)
   }
-  const memory = memoryContext(input.memoryNotes ?? [])
-  if (memory) sections.push(memory)
-
   return sections.join('\n\n')
 }
 
