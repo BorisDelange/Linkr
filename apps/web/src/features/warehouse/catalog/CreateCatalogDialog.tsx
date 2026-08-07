@@ -137,8 +137,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
               autoFocus
             />
           </div>
-          {!isEdit && (
-            <EntityIdField
+                      <EntityIdField
               name={name}
               value={entityId}
               onChange={setEntityId}
@@ -146,8 +145,8 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
               htmlId="catalog-id"
               placeholder="my-catalog"
               required
+              readOnly={isEdit}
             />
-          )}
           <div>
             <Label className="text-xs">{t('data_catalog.field_description')}</Label>
             <Input

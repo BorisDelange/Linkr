@@ -141,8 +141,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               className="mt-1"
             />
           </div>
-          {!isEdit && (
-            <EntityIdField
+                      <EntityIdField
               name={name}
               value={entityId}
               onChange={setEntityId}
@@ -150,8 +149,8 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               htmlId="dq-ruleset-id"
               placeholder="my-rule-set"
               required
+              readOnly={isEdit}
             />
-          )}
           <div>
             <Label className="text-xs">{t('data_quality.rs_database')}</Label>
             <Select value={dataSourceId} onValueChange={setDataSourceId}>

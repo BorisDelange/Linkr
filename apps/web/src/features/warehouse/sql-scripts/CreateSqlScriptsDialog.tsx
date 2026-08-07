@@ -176,8 +176,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
             />
           </div>
 
-          {!isEditing && (
-            <EntityIdField
+                      <EntityIdField
               name={name}
               value={entityId}
               onChange={setEntityId}
@@ -185,8 +184,8 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
               htmlId="sql-collection-id"
               placeholder="my-collection"
               required
+              readOnly={isEditing}
             />
-          )}
 
           <div className="space-y-2">
             <Label>{t('common.description')}</Label>

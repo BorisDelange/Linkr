@@ -57,7 +57,9 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
   useEffect(() => {
     if (open) {
       setName(editingProject ? localized(editingProject.name, language) : '')
-      setEntityId('')
+      // In edit mode the field is read-only, so show the real identifier rather
+      // than an empty box.
+      setEntityId(editingProject?.projectId ?? '')
       setDescription(editingProject ? localized(editingProject.description, language) : '')
       setStatus(editingProject?.status ?? 'active')
       setBadges(editingProject?.badges ?? [])
@@ -141,8 +143,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 autoFocus
               />
             </div>
-            {!isEditing && (
-              <EntityIdField
+                          <EntityIdField
                 name={name}
                 value={entityId}
                 onChange={setEntityId}
@@ -150,8 +151,8 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 htmlId="project-id"
                 placeholder="my-project"
                 required
+                readOnly={isEditing}
               />
-            )}
             <div className="space-y-2">
               <Label htmlFor="project-description">{t('projects.field_description')}</Label>
               <Input

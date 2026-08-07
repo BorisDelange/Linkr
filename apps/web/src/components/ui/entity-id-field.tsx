@@ -24,6 +24,10 @@ interface EntityIdFieldProps {
   placeholder?: string
   /** Show a required marker next to the label (when the id gates submit) */
   required?: boolean
+  /** Display the id without allowing edits — the identifier is permanent, so an
+   *  edit form shows it for reference (exports and git use it as folder name)
+   *  rather than hiding it. */
+  readOnly?: boolean
 }
 
 /**
@@ -39,16 +43,18 @@ export function EntityIdField({
   htmlId = 'entity-id',
   placeholder = 'my-entity',
   required = false,
+  readOnly = false,
 }: EntityIdFieldProps) {
   const { t } = useTranslation()
   const [touched, setTouched] = useState(false)
 
-  // Auto-generate from name until user edits manually
+  // Auto-generate from name until user edits manually. Never when read-only:
+  // the id already exists and must not follow a rename.
   useEffect(() => {
-    if (!touched) {
+    if (!touched && !readOnly) {
       onChange(slugifyId(name))
     }
-  }, [name, touched, onChange])
+  }, [name, touched, onChange, readOnly])
 
   const idValid = value.length === 0 || (value.length >= 2 && value.length <= 50 && ID_PATTERN.test(value))
   const idDuplicate = value.length > 0 && existingIds.includes(value)
@@ -68,19 +74,23 @@ export function EntityIdField({
           </Tooltip>
         </TooltipProvider>
       </Label>
-      <IdInput
-        htmlId={htmlId}
-        value={value}
-        onChange={(v) => { setTouched(true); onChange(v) }}
-        placeholder={placeholder}
-      />
+      {readOnly ? (
+        <Input id={htmlId} value={value} readOnly disabled className="font-mono text-xs" />
+      ) : (
+        <IdInput
+          htmlId={htmlId}
+          value={value}
+          onChange={(v) => { setTouched(true); onChange(v) }}
+          placeholder={placeholder}
+        />
+      )}
       <p className="text-[11px] text-muted-foreground">
         {t('entity_id.hint')}
       </p>
-      {idDuplicate && (
+      {!readOnly && idDuplicate && (
         <p className="text-[11px] text-destructive">{t('entity_id.duplicate')}</p>
       )}
-      {!idValid && value.length > 0 && (
+      {!readOnly && !idValid && value.length > 0 && (
         <p className="text-[11px] text-destructive">{t('entity_id.invalid')}</p>
       )}
     </div>

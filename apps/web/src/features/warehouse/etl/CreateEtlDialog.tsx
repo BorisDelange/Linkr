@@ -149,8 +149,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
             />
           </div>
 
-          {!isEditing && (
-            <EntityIdField
+                      <EntityIdField
               name={name}
               value={entityId}
               onChange={setEntityId}
@@ -158,8 +157,8 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
               htmlId="etl-pipeline-id"
               placeholder="my-etl-pipeline"
               required
+              readOnly={isEditing}
             />
-          )}
 
           <div className="space-y-2">
             <Label className="text-xs">{t('etl.source_database')}</Label>

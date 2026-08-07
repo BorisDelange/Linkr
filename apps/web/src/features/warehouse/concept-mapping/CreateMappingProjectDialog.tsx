@@ -1102,8 +1102,7 @@ export function CreateMappingProjectDialog({
                   placeholder={t('concept_mapping.project_name_placeholder')}
                 />
               </div>
-              {!isEdit && (
-                <EntityIdField
+                              <EntityIdField
                   name={name}
                   value={entityId}
                   onChange={setEntityId}
@@ -1111,8 +1110,8 @@ export function CreateMappingProjectDialog({
                   htmlId="mp-entity-id"
                   placeholder="my-mapping-project"
                   required
+                  readOnly={isEdit}
                 />
-              )}
               <div className="grid gap-2">
                 <Label htmlFor="mp-desc">{t('common.description')}</Label>
                 <Input
