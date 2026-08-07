@@ -640,6 +640,7 @@
     "stats_admission_timeline": "Chronologie des admissions",
     "stats_table_overview": "Aperçu des tables",
     "stats_no_data": "Aucune statistique disponible. Connectez d'abord la base.",
+    "stats_no_data_model_short": "Les chiffres patients et séjours nécessitent un modèle de données.",
     "stats_no_data_model": "Aucun modèle de données rattaché",
     "stats_no_data_model_hint": "Les chiffres patients et hospitalisations ne peuvent pas être déterminés sans modèle de données. Rattachez-en un via Edit sur la carte de la base pour les afficher. Le nombre de lignes par table reste disponible ci-dessous.",
     "stats_age_mean": "Âge moyen à l'admission",

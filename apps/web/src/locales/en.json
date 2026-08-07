@@ -640,6 +640,7 @@
     "stats_admission_timeline": "Admission timeline",
     "stats_table_overview": "Table overview",
     "stats_no_data": "No statistics available. Connect the database first.",
+    "stats_no_data_model_short": "Patient and stay figures need a data model.",
     "stats_no_data_model": "No data model attached",
     "stats_no_data_model_hint": "Patient and hospitalization figures cannot be determined without a data model. Attach one with Edit on the database card to see them. Row counts per table are still available below.",
     "stats_age_mean": "Mean age at admission",

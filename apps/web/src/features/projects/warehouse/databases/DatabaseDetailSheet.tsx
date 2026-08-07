@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { DataSource, DatabaseConnectionConfig, SchemaMapping, TableRowCount } from '@/types'
+import type { DataSource, DatabaseConnectionConfig, SchemaMapping } from '@/types'
 import { Users, Table, Activity, BedDouble, Table2 } from 'lucide-react'
-import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
 import { Button } from '@/components/ui/button'
 import {
@@ -103,7 +102,12 @@ export function DatabaseDetailSheet({
 
           <ScrollArea className="flex-1 min-h-0">
             <TabsContent value="overview" className="mt-0 px-6 pb-6">
-              <OverviewTab source={source} formatDate={formatDate} />
+              <OverviewTab
+                source={source}
+                formatDate={formatDate}
+                statsMapping={statsMapping}
+                hasMappedSchema={hasMappedSchema}
+              />
             </TabsContent>
 
             <TabsContent value="statistics" className="mt-0 px-6 pb-6">
@@ -124,13 +128,16 @@ export function DatabaseDetailSheet({
 function OverviewTab({
   source,
   formatDate,
+  statsMapping,
+  hasMappedSchema,
 }: {
   source: DataSource
   formatDate: (iso: string) => string
+  statsMapping: SchemaMapping
+  hasMappedSchema: boolean
 }) {
   const { t, i18n } = useTranslation()
   const [schemaOpen, setSchemaOpen] = useState(false)
-  const hasMappedSchema = !!source.schemaMapping?.patientTable
 
   return (
     <div className="space-y-6 pt-4">
@@ -207,30 +214,18 @@ function OverviewTab({
         </>
       )}
 
-      {/* Summary counts for mapped schemas */}
-      {hasMappedSchema && source.schemaMapping && (
-        <>
-          <MappedSummaryCounts dataSourceId={source.id} schemaMapping={source.schemaMapping} sourceStatus={source.status} />
-          <Separator />
-        </>
-      )}
+      {/* Headline figures. The per-table breakdown deliberately lives in the
+          Statistics tab only — showing it in both made the split arbitrary. */}
+      <Section title={t('databases.detail_statistics')}>
+        <SummaryCounts
+          dataSourceId={source.id}
+          schemaMapping={statsMapping}
+          sourceStatus={source.status}
+          hasMappedSchema={hasMappedSchema}
+        />
+      </Section>
 
-      {/* Non-mapped stats */}
-      {!hasMappedSchema && source.stats && (
-        <>
-          <div className="grid grid-cols-2 gap-3">
-            {source.stats.tableCount != null && (
-              <MiniStatCard label={t('databases.detail_tables')} value={source.stats.tableCount} />
-            )}
-          </div>
-          <Separator />
-        </>
-      )}
-
-      {/* Table counts for mapped schemas */}
-      {hasMappedSchema && source.schemaMapping && (
-        <TableCountsSection dataSourceId={source.id} schemaMapping={source.schemaMapping} sourceStatus={source.status} />
-      )}
+      <Separator />
 
       {/* Timestamps */}
       <Section title="">
@@ -249,14 +244,26 @@ function OverviewTab({
   )
 }
 
-/** Summary count cards using cached database stats. */
-function MappedSummaryCounts({ dataSourceId, schemaMapping, sourceStatus }: { dataSourceId: string; schemaMapping: import('@/types').SchemaMapping; sourceStatus?: string }) {
+/** Headline figures for the Overview tab. Table count is always meaningful;
+ *  the clinical figures need a data model, so without one they are replaced by
+ *  a pointer to the Statistics tab rather than shown as a misleading zero. */
+function SummaryCounts({
+  dataSourceId,
+  schemaMapping,
+  sourceStatus,
+  hasMappedSchema,
+}: {
+  dataSourceId: string
+  schemaMapping: SchemaMapping
+  sourceStatus?: string
+  hasMappedSchema: boolean
+}) {
   const { t } = useTranslation()
   const { cache, isLoading, refresh } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
-  // Server mode never auto-runs COUNT(*): offer an explicit trigger instead of
-  // showing empty cards, so a billion-row database is only scanned on request.
-  if (isServerMode() && !cache && !isLoading) {
+  // Nothing computed yet: an explicit trigger rather than a grid of zeros, so a
+  // billion-row database is only scanned on request.
+  if (!cache && !isLoading) {
     return <LoadStatisticsPrompt onLoad={refresh} />
   }
 
@@ -268,50 +275,34 @@ function MappedSummaryCounts({ dataSourceId, schemaMapping, sourceStatus }: { da
         value={cache?.summary.tableCount}
         loading={isLoading}
       />
-      <StatCard
-        icon={Users}
-        label={t('databases.detail_patients')}
-        value={cache?.summary.patientCount}
-        loading={isLoading}
-      />
-      <StatCard
-        icon={Activity}
-        label={t('databases.detail_visits')}
-        value={cache?.summary.visitCount}
-        loading={isLoading}
-      />
-      <StatCard
-        icon={BedDouble}
-        label={t('databases.detail_visit_units')}
-        value={cache?.summary.visitDetailCount}
-        loading={isLoading}
-      />
-    </div>
-  )
-}
-
-/** Table counts section using cached database stats. */
-function TableCountsSection({ dataSourceId, schemaMapping, sourceStatus }: { dataSourceId: string; schemaMapping: import('@/types').SchemaMapping; sourceStatus?: string }) {
-  const { t } = useTranslation()
-  const { cache, isLoading } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
-
-  // In server mode this section stays empty until stats are loaded (the prompt
-  // lives in the summary section above, which shares the same computation).
-  if (isServerMode() && !cache && !isLoading) return null
-
-  return (
-    <div>
-      <h3 className="mb-3 text-sm font-medium">{t('databases.stats_table_overview')}</h3>
-      {isLoading && !cache ? (
-        <div className="space-y-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-8 w-full" />
-          ))}
+      {hasMappedSchema ? (
+        <>
+          <StatCard
+            icon={Users}
+            label={t('databases.detail_patients')}
+            value={cache?.summary.patientCount}
+            loading={isLoading}
+          />
+          <StatCard
+            icon={Activity}
+            label={t('databases.detail_visits')}
+            value={cache?.summary.visitCount}
+            loading={isLoading}
+          />
+          <StatCard
+            icon={BedDouble}
+            label={t('databases.detail_visit_units')}
+            value={cache?.summary.visitDetailCount}
+            loading={isLoading}
+          />
+        </>
+      ) : (
+        <div className="rounded-lg border border-dashed p-4">
+          <p className="text-xs text-muted-foreground">
+            {t('databases.stats_no_data_model_short')}
+          </p>
         </div>
-      ) : cache ? (
-        <TableCountsList data={cache.tableCounts} />
-      ) : null}
-      <Separator className="mt-6" />
+      )}
     </div>
   )
 }
@@ -340,15 +331,6 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function MiniStatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border bg-card p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-bold tabular-nums">{value.toLocaleString()}</p>
-    </div>
-  )
-}
-
 function StatCard({
   icon: Icon,
   label,
@@ -373,24 +355,6 @@ function StatCard({
           {(value ?? 0).toLocaleString()}
         </p>
       )}
-    </div>
-  )
-}
-
-function TableCountsList({ data }: { data: TableRowCount[] }) {
-  return (
-    <div className="space-y-1">
-      {data.map(({ tableName, rowCount }) => (
-        <div
-          key={tableName}
-          className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-1.5"
-        >
-          <span className="text-xs font-mono">{tableName}</span>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {rowCount.toLocaleString()}
-          </span>
-        </div>
-      ))}
     </div>
   )
 }

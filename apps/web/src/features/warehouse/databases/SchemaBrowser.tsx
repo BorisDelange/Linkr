@@ -9,6 +9,9 @@ import {
   Loader2,
   Search,
   RefreshCw,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUpDown,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -65,6 +68,40 @@ interface TableCacheEntry {
   rowCount: number | null
   nullCounts: NullCounts
   loadedAt: number
+}
+
+type TableSort = { key: 'name' | 'rows'; dir: 'asc' | 'desc' }
+
+/** Clickable column header for the sidebar's name/rows sort. */
+function SortHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string
+  sortKey: TableSort['key']
+  sort: TableSort
+  onSort: (key: TableSort['key']) => void
+  className?: string
+}) {
+  const active = sort.key === sortKey
+  return (
+    <button
+      onClick={() => onSort(sortKey)}
+      className={cn(
+        'flex items-center gap-0.5 text-[10px] font-medium uppercase tracking-wider transition-colors',
+        active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+        className,
+      )}
+    >
+      {label}
+      {active
+        ? (sort.dir === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />)
+        : <ChevronsUpDown size={10} className="opacity-40" />}
+    </button>
+  )
 }
 
 /**
@@ -151,6 +188,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
   const [rowCount, setRowCount] = useState<number | null>(null)
   const [columnNullCounts, setColumnNullCounts] = useState<Map<string, { nullCount: number; total: number; distinct: number }>>(new Map())
   const [tableSearch, setTableSearch] = useState('')
+  const [tableSort, setTableSort] = useState<TableSort>({ key: 'name', dir: 'asc' })
   // Stats are opt-in and computed lazily: on a source with billions of rows the
   // COUNT/DISTINCT scans are expensive, so nothing runs until the user asks.
   const [statsEnabled, setStatsEnabled] = useState(true)
@@ -398,6 +436,21 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
     setStatsVisible(true)
   }, [])
 
+  // Two sources, same answer: a table inspected this session, or a count from
+  // the persisted stats cache. null means "never counted".
+  const countOf = useCallback((table: string): number | null => (
+    tableCache.get(tableCacheKey(dataSourceId, table))?.rowCount
+      ?? persistedCounts.get(table)
+      ?? null
+  ), [dataSourceId, persistedCounts])
+
+  const toggleSort = useCallback((key: TableSort['key']) => {
+    setTableSort((prev) => prev.key === key
+      ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+      // Row counts are most useful largest-first; names alphabetically.
+      : { key, dir: key === 'rows' ? 'desc' : 'asc' })
+  }, [])
+
   const buildSelectSql = useCallback(() => {
     if (!selectedTable || columns.length === 0) return null
     const cols = columns.map((c) => `  ${c.column_name}`).join(',\n')
@@ -486,10 +539,21 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
             {/* Table list sidebar */}
             <Allotment.Pane preferredSize={220} minSize={140} maxSize={360} visible={tablesVisible}>
               <div className="flex h-full flex-col border-r">
-                <div className="flex items-center border-b px-3 py-2">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {t('etl.profiling_tables')} ({tables.length})
-                  </span>
+                <div className="flex items-center gap-2 border-b px-3 py-2">
+                  <SortHeader
+                    label={`${t('etl.profiling_tables')} (${tables.length})`}
+                    sortKey="name"
+                    sort={tableSort}
+                    onSort={toggleSort}
+                    className="min-w-0 flex-1"
+                  />
+                  <SortHeader
+                    label={t('etl.profiling_rows')}
+                    sortKey="rows"
+                    sort={tableSort}
+                    onSort={toggleSort}
+                    className="shrink-0"
+                  />
                 </div>
                 <div className="border-b px-2 py-1.5">
                   <div className="relative">
@@ -509,7 +573,18 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
                       const filtered = tables.filter((tbl) =>
                         !tableSearch || tbl.toLowerCase().includes(tableSearch.toLowerCase())
                       )
-                      const sorted = [...filtered].sort((a, b) => a.localeCompare(b))
+                      const sign = tableSort.dir === 'asc' ? 1 : -1
+                      const sorted = [...filtered].sort((a, b) => {
+                        if (tableSort.key === 'name') return sign * a.localeCompare(b)
+                        // Uncounted tables have no rank, so they sink to the
+                        // bottom either way rather than sorting as zero.
+                        const ca = countOf(a)
+                        const cb = countOf(b)
+                        if (ca == null && cb == null) return a.localeCompare(b)
+                        if (ca == null) return 1
+                        if (cb == null) return -1
+                        return ca === cb ? a.localeCompare(b) : sign * (ca - cb)
+                      })
                       if (sorted.length === 0 && !loading) {
                         return (
                           <p className="px-3 py-4 text-center text-[10px] text-muted-foreground">
@@ -522,11 +597,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
                           key={table}
                           table={table}
                           isActive={table === selectedTable}
-                          rowCount={
-                            tableCache.get(tableCacheKey(dataSourceId, table))?.rowCount
-                            ?? persistedCounts.get(table)
-                            ?? null
-                          }
+                          rowCount={countOf(table)}
                           onSelect={() => setSelectedTable(table)}
                         />
                       ))
