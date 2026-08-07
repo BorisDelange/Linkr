@@ -301,6 +301,9 @@ export function EtlScriptsTab({ pipelineId }: Props) {
         const roleId = dataSourceIdOf(role)
         if (roleId && roleId !== dsId) await testConnection(roleId)
       }
+      // `source.` / `target.` / `vocab.` come from the pipeline's roles and the
+      // Vocabulary tab — never from the picker next to Run, which only chooses
+      // which database the bare (unqualified) statement is aimed at.
       const resolvedSql = resolveRolePrefixes(sql, roleSchemasFor(dsId))
       const start = Date.now()
       try {
