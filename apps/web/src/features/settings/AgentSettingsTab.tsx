@@ -87,9 +87,10 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
   const [deleting, setDeleting] = useState<LlmProvider | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  /** Re-read the list. The spinner belongs to the first load only — showing it
+   *  again after an edit blanks a list the user is already looking at. */
   const refresh = useCallback(async () => {
     if (!server || !workspaceId) return
-    setLoading(true)
     try {
       setProviders(await listProviders(workspaceId))
       setError(null)
@@ -104,12 +105,30 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
     void refresh()
   }, [refresh])
 
+  /**
+   * Ticking a surface patches just that row.
+   *
+   * Deliberately NOT a full refresh: that flips the list back to its loading
+   * state, so the whole card blanks and reflows on every click. The new value is
+   * known up front, so apply it immediately and reconcile with what the server
+   * echoes back; only a failure needs the row put back as it was.
+   */
   const toggleSurface = async (provider: LlmProvider, surface: AgentSurface) => {
     const next = provider.surfaces.includes(surface)
       ? provider.surfaces.filter((s) => s !== surface)
       : [...provider.surfaces, surface]
-    await updateProvider(provider.id, { surfaces: next })
-    await refresh()
+
+    const replace = (row: LlmProvider) =>
+      setProviders((rows) => rows.map((r) => (r.id === row.id ? row : r)))
+
+    replace({ ...provider, surfaces: next })
+    try {
+      replace(await updateProvider(provider.id, { surfaces: next }))
+      setError(null)
+    } catch (caught) {
+      replace(provider)
+      setError((caught as Error)?.message ?? 'error')
+    }
   }
 
   const confirmRemove = async () => {
