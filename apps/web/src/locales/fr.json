@@ -3632,7 +3632,7 @@
     "filter_ignored": "Ignorés",
     "filter_reset": "Réinitialiser les filtres",
     "vocab_import_select_folder": "Sélectionner un dossier",
-    "vocab_import_hint": "Sélectionnez les fichiers vocabulaire OHDSI (CSV, TSV ou Parquet). Seul CONCEPT est requis. Vous pouvez aussi inclure CONCEPT_ANCESTOR et CONCEPT_RELATIONSHIP pour activer l'expansion des concept sets (descendants et concepts liés), et CONCEPT_SYNONYM pour afficher les synonymes dans la fiche d'un concept.",
+    "vocab_import_hint": "Sélectionnez un dossier vocabulaire OHDSI (CSV, TSV ou Parquet). Seul CONCEPT est requis ; conservez les autres pour activer l'expansion des concept sets et les synonymes ici, et pour qu'un pipeline ETL puisse copier le vocabulaire dans sa cible OMOP.",
     "vocab_import_required": "Requis",
     "vocab_import_importing": "Import en cours…",
     "vocab_import_success": "Vocabulaire de référence importé",

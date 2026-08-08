@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -64,21 +66,19 @@ import type { MappingProject, DataSource, ConceptSet, SchemaMapping, SchemaPrese
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { localized } from '@/lib/localized'
 import { buildStandardConceptSearchQuery, buildStandardConceptSearchCountQuery } from '@/lib/concept-mapping/mapping-queries'
+import {
+  compareVocabFiles,
+  isConceptFile,
+  isVocabFile,
+  tableNameOf,
+  VOCAB_TABLES,
+} from '@/lib/concept-mapping/vocab-files'
 
 // ---------------------------------------------------------------------------
 // ATHENA vocabulary schema mapping
 // ---------------------------------------------------------------------------
 
-// Only `concept` is required (target search uses it). The others are optional and
-// imported only if present in the selected folder: `concept_ancestor` /
-// `concept_relationship` enable concept-set descendant/mapped expansion, and
-// `concept_synonym` powers the Synonyms tab in the
-// concept detail sheet. The remaining Athena tables (concept_class, domain,
-// drug_strength, relationship, vocabulary) are not read by the mapping UI and stay
-// out of the accepted list to keep the IDB footprint down.
-const ATHENA_KNOWN_TABLES = [
-  'concept', 'concept_ancestor', 'concept_relationship', 'concept_synonym',
-]
+const ATHENA_KNOWN_TABLES = [...VOCAB_TABLES]
 
 const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
   presetId: 'omop-cdm-5.4' as SchemaPresetId,
@@ -99,19 +99,6 @@ const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
   knownTables: ATHENA_KNOWN_TABLES,
 }
 
-/** Check if a file is an ATHENA vocabulary file (CSV, TSV, or Parquet). */
-function isVocabFile(name: string): boolean {
-  const lower = name.toLowerCase()
-  const base = lower.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '')
-  return ATHENA_KNOWN_TABLES.includes(base)
-}
-
-/** Check if a file is the required CONCEPT table. */
-function isConceptFile(name: string): boolean {
-  const lower = name.toLowerCase()
-  const base = lower.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '')
-  return base === 'concept'
-}
 
 const BROWSE_PAGE_SIZE = 25
 
@@ -186,6 +173,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   // Vocabulary reference import
   const vocabInputRef = useRef<HTMLInputElement>(null)
   const [vocabFiles, setVocabFiles] = useState<File[]>([])
+  // Files the user unticked. Kept as the exclusion set rather than the inclusion
+  // one so a newly detected file is imported by default.
+  const [vocabExcluded, setVocabExcluded] = useState<Set<string>>(new Set())
   const [vocabImporting, setVocabImporting] = useState(false)
   const [vocabError, setVocabError] = useState<string | null>(null)
   const [vocabRemoveOpen, setVocabRemoveOpen] = useState(false)
@@ -729,12 +719,27 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     const files = Array.from(e.target.files ?? [])
     const vocabOnly = files.filter((f) => isVocabFile(f.name))
     setVocabFiles(vocabOnly)
+    setVocabExcluded(new Set())
     setVocabError(null)
   }
 
+  /** Files that will actually be imported (everything ticked). */
+  const vocabSelected = vocabFiles.filter((f) => !vocabExcluded.has(f.name))
+
+  const toggleVocabFile = (name: string) => {
+    // CONCEPT is mandatory, so its checkbox is disabled rather than silently
+    // re-added here.
+    setVocabExcluded((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
   const handleVocabImport = async () => {
-    if (vocabFiles.length === 0) return
-    if (!vocabFiles.some((f) => isConceptFile(f.name))) {
+    if (vocabSelected.length === 0) return
+    if (!vocabSelected.some((f) => isConceptFile(f.name))) {
       setVocabError(t('concept_mapping.vocab_import_missing_concept'))
       return
     }
@@ -746,12 +751,19 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         description: 'OHDSI ATHENA vocabulary reference for concept mapping.',
         sourceType: 'database',
         connectionConfig: { engine: 'duckdb' as const },
-        schemaMapping: ATHENA_SCHEMA_MAPPING,
-        files: vocabFiles,
+        // knownTables must describe what this reference HOLDS, not what the app
+        // accepts: the ETL script generator reads it to decide which parts it
+        // can emit.
+        schemaMapping: {
+          ...ATHENA_SCHEMA_MAPPING,
+          knownTables: vocabSelected.map((f) => tableNameOf(f.name)),
+        },
+        files: vocabSelected,
         isVocabularyReference: true,
       })
       await updateMappingProject(project.id, { vocabularyDataSourceId: dsId })
       setVocabFiles([])
+      setVocabExcluded(new Set())
       if (vocabInputRef.current) vocabInputRef.current.value = ''
     } catch (err) {
       console.error('Failed to import vocabulary:', err)
@@ -1706,21 +1718,43 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                     {t('concept_mapping.vocab_import_hint')}
                   </p>
 
-                  {/* File list preview */}
+                  {/* Detected files, each one opt-out except CONCEPT. */}
                   {vocabFiles.length > 0 && (
                     <div className="mt-4 w-full max-w-sm rounded-md border p-3">
                       <p className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                         {t('concept_mapping.vocab_import_tables_found', { count: vocabFiles.length })}
                       </p>
                       <div className="space-y-1">
-                        {vocabFiles.map((f) => (
-                          <div key={f.name} className="flex items-center gap-2 text-xs">
-                            <span className="truncate flex-1">{f.name}</span>
-                            <span className="text-[10px] text-muted-foreground">
-                              {(f.size / 1024 / 1024).toFixed(1)} MB
-                            </span>
-                          </div>
-                        ))}
+                        {[...vocabFiles]
+                          .sort((a, b) => compareVocabFiles(a.name, b.name))
+                          .map((f) => {
+                            const required = isConceptFile(f.name)
+                            return (
+                              <label
+                                key={f.name}
+                                className={cn(
+                                  'flex items-center gap-2 text-xs',
+                                  required ? 'cursor-default' : 'cursor-pointer',
+                                )}
+                              >
+                                <Checkbox
+                                  className="size-3.5"
+                                  checked={required || !vocabExcluded.has(f.name)}
+                                  disabled={required}
+                                  onCheckedChange={() => toggleVocabFile(f.name)}
+                                />
+                                <span className="truncate flex-1">{tableNameOf(f.name)}</span>
+                                {required && (
+                                  <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] text-primary">
+                                    {t('concept_mapping.vocab_import_required')}
+                                  </span>
+                                )}
+                                <span className="shrink-0 text-[10px] text-muted-foreground">
+                                  {(f.size / 1024 / 1024).toFixed(1)} MB
+                                </span>
+                              </label>
+                            )
+                          })}
                       </div>
                     </div>
                   )}
@@ -1750,7 +1784,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                     </Button>
                     <Button
                       onClick={handleVocabImport}
-                      disabled={vocabFiles.length === 0 || vocabImporting}
+                      disabled={vocabSelected.length === 0 || vocabImporting}
                     >
                       {vocabImporting ? (
                         <Loader2 size={14} className="animate-spin" />
