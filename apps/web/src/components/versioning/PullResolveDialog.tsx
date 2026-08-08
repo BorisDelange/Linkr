@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { humanBytes } from '@/lib/format-helpers'
 import { prepareMappingProjectPull, type PullResolution, type PreparedPull } from '@/lib/concept-mapping/pull'
 import type { MappingProjectMerge } from '@/lib/concept-mapping/merge'
 import { PullMappingsTable } from './PullMappingsTable'
@@ -37,13 +38,6 @@ interface PullDraft {
 }
 const _draftCache = new Map<string, PullDraft>()
 const draftKey = (projectId: string, branch: string) => `${projectId}|${branch}`
-
-function humanBytes(n?: number): string {
-  if (!n) return ''
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
-}
 
 /**
  * Entity-level pull resolution. Mappings are summarised (counts by change type)

@@ -6,6 +6,7 @@ import {
   columnLabel,
   capitalize,
   daysBetween,
+  humanBytes,
 } from './format-helpers'
 
 // These are security-critical: escSql / isSafeIdentifier / validateIntegerIds
@@ -95,6 +96,26 @@ describe('capitalize', () => {
 
   it('handles empty string', () => {
     expect(capitalize('')).toBe('')
+  })
+})
+
+describe('humanBytes', () => {
+  it('scales the unit so a small file does not read as empty', () => {
+    // The OMOP metadata tables are tens of KB; in MB they showed "0.0 MB".
+    expect(humanBytes(30_000)).toBe('29 KB')
+    expect(humanBytes(1_000)).toBe('1000 B')
+  })
+
+  it('uses MB from a megabyte up', () => {
+    expect(humanBytes(64_500_000)).toBe('61.5 MB')
+  })
+
+  it('returns an empty string when the size is unknown', () => {
+    expect(humanBytes(undefined)).toBe('')
+  })
+
+  it('distinguishes a genuinely empty file from an unknown size', () => {
+    expect(humanBytes(0)).toBe('0 B')
   })
 })
 

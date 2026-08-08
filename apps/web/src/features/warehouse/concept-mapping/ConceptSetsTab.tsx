@@ -68,11 +68,13 @@ import { localized } from '@/lib/localized'
 import { buildStandardConceptSearchQuery, buildStandardConceptSearchCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import {
   compareVocabFiles,
+  displayTableNameOf,
   isConceptFile,
   isVocabFile,
   tableNameOf,
   VOCAB_TABLES,
 } from '@/lib/concept-mapping/vocab-files'
+import { humanBytes } from '@/lib/format-helpers'
 
 // ---------------------------------------------------------------------------
 // ATHENA vocabulary schema mapping
@@ -1743,14 +1745,16 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                                   disabled={required}
                                   onCheckedChange={() => toggleVocabFile(f.name)}
                                 />
-                                <span className="truncate flex-1">{tableNameOf(f.name)}</span>
+                                <span className="truncate flex-1 font-mono">
+                                  {displayTableNameOf(f.name)}
+                                </span>
                                 {required && (
                                   <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] text-primary">
                                     {t('concept_mapping.vocab_import_required')}
                                   </span>
                                 )}
-                                <span className="shrink-0 text-[10px] text-muted-foreground">
-                                  {(f.size / 1024 / 1024).toFixed(1)} MB
+                                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                                  {humanBytes(f.size)}
                                 </span>
                               </label>
                             )

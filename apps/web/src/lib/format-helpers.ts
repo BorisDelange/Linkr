@@ -112,6 +112,17 @@ export function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
+/**
+ * Human-readable byte size, scaling the unit to the value: a 30 KB file shown in
+ * MB rounds to "0.0 MB" and reads as empty.
+ */
+export function humanBytes(n: number | undefined): string {
+  if (n == null) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
 // ---------------------------------------------------------------------------
 // SQL escaping
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   compareVocabFiles,
+  displayTableNameOf,
   isConceptFile,
   isVocabFile,
   tableNameOf,
@@ -12,6 +13,22 @@ describe('tableNameOf', () => {
     expect(tableNameOf('INDICATE_PARQUET/CONCEPT.parquet')).toBe('concept')
     expect(tableNameOf('CONCEPT_RELATIONSHIP.csv')).toBe('concept_relationship')
     expect(tableNameOf('a\\b\\DOMAIN.tsv')).toBe('domain')
+  })
+})
+
+describe('displayTableNameOf', () => {
+  it('keeps the case ATHENA ships, so the list matches the folder', () => {
+    expect(displayTableNameOf('INDICATE_PARQUET/CONCEPT.parquet')).toBe('CONCEPT')
+    expect(displayTableNameOf('CONCEPT_ANCESTOR.parquet')).toBe('CONCEPT_ANCESTOR')
+  })
+
+  it('leaves a lowercase export lowercase', () => {
+    expect(displayTableNameOf('vocab/concept_synonym.csv')).toBe('concept_synonym')
+  })
+
+  it('still lowercases for the stored table name', () => {
+    // knownTables feeds the ETL script generator, which matches lowercase.
+    expect(tableNameOf('CONCEPT.parquet')).toBe('concept')
   })
 })
 

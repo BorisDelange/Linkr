@@ -29,6 +29,15 @@ export function tableNameOf(name: string): string {
   return name.toLowerCase().replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '')
 }
 
+/**
+ * Table name as written on disk, for display: `INDICATE/CONCEPT.parquet` ->
+ * `CONCEPT`. ATHENA ships uppercase filenames, and showing them lowercased made
+ * the list look like it had renamed them.
+ */
+export function displayTableNameOf(name: string): string {
+  return name.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '')
+}
+
 /** Whether a file is one of the accepted vocabulary tables. */
 export function isVocabFile(name: string): boolean {
   return (VOCAB_TABLES as readonly string[]).includes(tableNameOf(name))
