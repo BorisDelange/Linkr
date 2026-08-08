@@ -21,6 +21,42 @@ export const VOCAB_ROLE_PREFIX = 'vocab'
  */
 const TARGET = 'target'
 
+/**
+ * OMOP columns of the ATHENA tables copied wholesale into the target, in DDL
+ * order. Needed because `SELECT *` copies positionally, and ATHENA's CSV-derived
+ * parquet often types the date columns as BIGINT (`20100401`) rather than DATE —
+ * DuckDB then refuses the implicit BIGINT -> DATE cast on INSERT.
+ */
+const ATHENA_COLUMNS: Record<string, string[]> = {
+  concept: [
+    'concept_id', 'concept_name', 'domain_id', 'vocabulary_id', 'concept_class_id',
+    'standard_concept', 'concept_code', 'valid_start_date', 'valid_end_date', 'invalid_reason',
+  ],
+  concept_relationship: [
+    'concept_id_1', 'concept_id_2', 'relationship_id',
+    'valid_start_date', 'valid_end_date', 'invalid_reason',
+  ],
+}
+
+/** OMOP date columns that ATHENA may deliver as a YYYYMMDD integer. */
+const DATE_COLUMNS = new Set(['valid_start_date', 'valid_end_date'])
+
+/**
+ * Explicit select list for an ATHENA table, normalising the date columns.
+ *
+ * `try_strptime` returns NULL instead of raising when the text is not YYYYMMDD,
+ * so the COALESCE falls through to a plain cast: a vocabulary exported with real
+ * DATE columns works from the same script as one exported with integers.
+ */
+export function athenaSelectList(table: string, alias: string): string {
+  const cols = ATHENA_COLUMNS[table]
+  if (!cols) return `${alias}.*`
+  const asDate = (c: string) =>
+    `COALESCE(try_strptime(CAST(${alias}.${c} AS VARCHAR), '%Y%m%d')::DATE,`
+    + ` TRY_CAST(${alias}.${c} AS DATE)) AS ${c}`
+  return cols.map((c) => (DATE_COLUMNS.has(c) ? asDate(c) : `${alias}.${c}`)).join(', ')
+}
+
 /** Vocabularies from ATHENA that ETL scripts need (for concept lookups). */
 export const ETL_ATHENA_VOCABULARIES = [
   'NDC', 'RxNorm', 'RxNorm Extension',
@@ -104,7 +140,7 @@ export function buildVocabularyScript(
   parts.push('')
   parts.push('-- 2a. Target concepts referenced by source_to_concept_map')
   parts.push(`INSERT INTO ${TARGET}.concept`)
-  parts.push(`SELECT c.*`)
+  parts.push(`SELECT ${athenaSelectList('concept', 'c')}`)
   parts.push(`FROM ${vs}.concept c`)
   parts.push(`WHERE c.concept_id IN (`)
   parts.push(`    SELECT DISTINCT target_concept_id`)
@@ -126,7 +162,7 @@ export function buildVocabularyScript(
   parts.push('')
   parts.push('-- 2b. All concepts from ATHENA vocabularies needed by ETL scripts')
   parts.push(`INSERT INTO ${TARGET}.concept`)
-  parts.push(`SELECT c.*`)
+  parts.push(`SELECT ${athenaSelectList('concept', 'c')}`)
   parts.push(`FROM ${vs}.concept c`)
   parts.push(`WHERE c.vocabulary_id IN (${vocabList})`)
   parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
@@ -135,7 +171,7 @@ export function buildVocabularyScript(
   parts.push('')
   parts.push('-- 2c. Operator concepts (<=, >=, <, >, =)')
   parts.push(`INSERT INTO ${TARGET}.concept`)
-  parts.push(`SELECT c.*`)
+  parts.push(`SELECT ${athenaSelectList('concept', 'c')}`)
   parts.push(`FROM ${vs}.concept c`)
   parts.push(`WHERE c.domain_id = 'Meas Value Operator'`)
   parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
@@ -145,7 +181,7 @@ export function buildVocabularyScript(
   parts.push('')
   parts.push('-- 2d. Hard-coded concept IDs (gender, type concepts, etc.)')
   parts.push(`INSERT INTO ${TARGET}.concept`)
-  parts.push(`SELECT c.*`)
+  parts.push(`SELECT ${athenaSelectList('concept', 'c')}`)
   parts.push(`FROM ${vs}.concept c`)
   parts.push(`WHERE c.concept_id IN (${fixedIds})`)
   parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
@@ -217,7 +253,7 @@ export function buildVocabularyScript(
   parts.push('')
   parts.push(`DELETE FROM ${TARGET}.concept_relationship;`)
   parts.push(`INSERT INTO ${TARGET}.concept_relationship`)
-  parts.push(`SELECT cr.*`)
+  parts.push(`SELECT ${athenaSelectList('concept_relationship', 'cr')}`)
   parts.push(`FROM ${vs}.concept_relationship cr`)
   parts.push(`WHERE cr.concept_id_1 IN (SELECT concept_id FROM ${TARGET}.concept)`)
   parts.push(`  AND cr.concept_id_2 IN (SELECT concept_id FROM ${TARGET}.concept);`)

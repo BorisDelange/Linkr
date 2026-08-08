@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildVocabularyScript, buildCustomVocabularyScript } from './build-vocabulary-script'
+import {
+  athenaSelectList,
+  buildCustomVocabularyScript,
+  buildVocabularyScript,
+} from './build-vocabulary-script'
 import type { ConceptMapping } from '@/types'
 
 const MAPPING: ConceptMapping = {
@@ -58,6 +62,38 @@ describe('buildVocabularyScript', () => {
   it('leaves column names containing a table name alone', () => {
     expect(sql).toContain('concept_id')
     expect(sql).toContain('vocabulary_id')
+  })
+})
+
+describe('ATHENA date columns', () => {
+  const sql = buildVocabularyScript([MAPPING])
+
+  it('never copies the ATHENA tables positionally', () => {
+    // `SELECT c.*` put a YYYYMMDD BIGINT into a DATE column, which DuckDB
+    // refuses ("Unimplemented type for cast (BIGINT -> DATE)").
+    expect(sql).not.toContain('SELECT c.*')
+    expect(sql).not.toContain('SELECT cr.*')
+  })
+
+  it('converts the date columns of every copied table', () => {
+    for (const col of ['valid_start_date', 'valid_end_date']) {
+      expect(sql).toContain(`try_strptime(CAST(c.${col} AS VARCHAR), '%Y%m%d')`)
+      expect(sql).toContain(`try_strptime(CAST(cr.${col} AS VARCHAR), '%Y%m%d')`)
+    }
+  })
+
+  it('falls back to a plain cast so real DATE columns still work', () => {
+    expect(sql).toContain('TRY_CAST(c.valid_start_date AS DATE)')
+  })
+
+  it('lists the concept columns explicitly, in DDL order', () => {
+    expect(athenaSelectList('concept', 'c')).toMatch(
+      /^c\.concept_id, c\.concept_name, c\.domain_id, c\.vocabulary_id, c\.concept_class_id, c\.standard_concept, c\.concept_code, COALESCE/,
+    )
+  })
+
+  it('leaves a table it has no column list for as a star select', () => {
+    expect(athenaSelectList('concept_ancestor', 'ca')).toBe('ca.*')
   })
 })
 
