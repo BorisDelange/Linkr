@@ -1723,9 +1723,35 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                   {/* Detected files, each one opt-out except CONCEPT. */}
                   {vocabFiles.length > 0 && (
                     <div className="mt-4 w-full max-w-sm rounded-md border p-3">
-                      <p className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      <p className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                         {t('concept_mapping.vocab_import_tables_found', { count: vocabFiles.length })}
                       </p>
+                      {/* Same All / None + count affordance as MultiSelectFilter. */}
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setVocabExcluded(new Set())}
+                            className="text-[10px] text-muted-foreground hover:text-foreground"
+                          >
+                            {t('common.select_all')}
+                          </button>
+                          <span className="text-[10px] text-muted-foreground">/</span>
+                          <button
+                            type="button"
+                            onClick={() => setVocabExcluded(
+                              // CONCEPT is required, so "none" still keeps it.
+                              new Set(vocabFiles.filter((f) => !isConceptFile(f.name)).map((f) => f.name)),
+                            )}
+                            className="text-[10px] text-muted-foreground hover:text-foreground"
+                          >
+                            {t('common.select_none')}
+                          </button>
+                        </div>
+                        <span className="text-[10px] tabular-nums text-muted-foreground">
+                          {vocabSelected.length}/{vocabFiles.length}
+                        </span>
+                      </div>
                       <div className="space-y-1">
                         {[...vocabFiles]
                           .sort((a, b) => compareVocabFiles(a.name, b.name))
