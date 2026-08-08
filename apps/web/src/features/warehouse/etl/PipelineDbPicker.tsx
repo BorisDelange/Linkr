@@ -43,6 +43,7 @@ export function PipelineDbPicker({
   const ordered = [...databases].sort((a, b) => compareByRole(a.id, b.id, roleOf))
   const selected = databases.find((ds) => ds.id === selectedId)
   const label = selected?.name ?? placeholder ?? ''
+  const selectedRole = roleOf(selectedId)
 
   if (databases.length === 0) return null
 
@@ -54,21 +55,26 @@ export function PipelineDbPicker({
             <Button
               variant="outline"
               size="xs"
-              className="gap-1 max-w-[180px] text-[11px]"
+              className="gap-1 max-w-[260px] text-[11px]"
               {...triggerProps}
             >
               <Database
                 size={11}
-                className={cn('shrink-0', roleIconColor(roleOf(selectedId)))}
+                className={cn('shrink-0', roleIconColor(selectedRole))}
               />
               <span ref={ref} className="truncate">{label}</span>
+              {selectedRole && (
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  ({t(`etl.${selectedRole}`)})
+                </span>
+              )}
               <ChevronDown size={10} className="shrink-0 opacity-50" />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         {overflows && <TooltipContent side="bottom">{label}</TooltipContent>}
       </Tooltip>
-      <DropdownMenuContent align="start" className="w-[220px]">
+      <DropdownMenuContent align="start" className="w-[280px]">
         {ordered.map((ds) => {
           const role = roleOf(ds.id)
           return (

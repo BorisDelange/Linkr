@@ -26,7 +26,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import { CopySelectButton } from '@/components/ui/copy-select-button'
-import { TypeBadge, TYPE_CONFIG, mapColumnType } from '@/components/ui/type-badge'
+import { TypeBadge, mapColumnType } from '@/components/ui/type-badge'
 import { cn } from '@/lib/utils'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { getStorage } from '@/lib/storage'
@@ -792,6 +792,22 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
 
 // --- Column stats detail sidebar ---
 
+/**
+ * A min/max date coming back from DuckDB, formatted for the reader's locale.
+ * Values arrive as raw ISO strings ("2110-01-14T18:37:00"); the time is kept only
+ * when it is not midnight, so a pure DATE column stays a date.
+ */
+function formatStatDate(value: string | null, lang: string): string {
+  if (!value) return '—'
+  const dt = new Date(value)
+  if (Number.isNaN(dt.getTime())) return value
+  const midnight = dt.getHours() === 0 && dt.getMinutes() === 0 && dt.getSeconds() === 0
+  return dt.toLocaleString(lang, {
+    dateStyle: 'medium',
+    ...(midnight ? {} : { timeStyle: 'short' }),
+  })
+}
+
 function StatRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="flex items-center justify-between gap-2">
@@ -812,7 +828,7 @@ function ColumnStatsDetail({
   stats: ColumnStats | null
   loading: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   if (!column) {
     return (
@@ -824,16 +840,13 @@ function ColumnStatsDetail({
   }
 
   const mappedType = mapColumnType(column.data_type)
-  const typeConfig = TYPE_CONFIG[mappedType] ?? TYPE_CONFIG.unknown
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Header */}
       <div className="shrink-0 border-b px-3 py-2">
         <div className="flex items-center gap-1.5">
-          <span className={cn('inline-flex items-center gap-0.5 rounded font-mono font-semibold leading-none shrink-0 px-1.5 py-0.5 text-[10px]', typeConfig.color)}>
-            {typeConfig.icon}
-          </span>
+          <TypeBadge type={column.data_type} />
           <h3 className="truncate text-xs font-medium">{column.column_name}</h3>
         </div>
         <p className="mt-0.5 text-[10px] text-muted-foreground">{column.data_type}</p>
@@ -886,8 +899,8 @@ function ColumnStatsDetail({
               {/* Date stats */}
               {mappedType === 'date' && stats.minValue && (
                 <div className="space-y-1 border-t pt-3">
-                  <StatRow label={t('etl.profiling_earliest')} value={stats.minValue} />
-                  <StatRow label={t('etl.profiling_latest')} value={stats.maxValue ?? ''} />
+                  <StatRow label={t('etl.profiling_earliest')} value={formatStatDate(stats.minValue, i18n.language)} />
+                  <StatRow label={t('etl.profiling_latest')} value={formatStatDate(stats.maxValue, i18n.language)} />
                 </div>
               )}
 

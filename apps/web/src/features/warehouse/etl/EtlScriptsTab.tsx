@@ -66,9 +66,9 @@ import { TableIcon, FileText, Copy, Code, Check, Database } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useEtlStore, type EtlOutputTab, type EtlExecutionResult } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useRoleSchemas } from './use-role-schemas'
-import { compareByRole, roleIconColor } from './role-presentation'
+import { compareByRole } from './role-presentation'
+import { PipelineDbPicker } from './PipelineDbPicker'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
@@ -186,23 +186,8 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const { updateFile } = useEtlStore()
-
-  // Which data source a file runs against: its own override, else the pipeline
-  // target (where an ETL writes), else the source — a pipeline without a target
-  // can still be used to explore its input.
-  const resolveFileDataSourceId = useCallback(
-    (file: EtlFile | undefined): string | undefined => {
-      if (file?.dataSourceId) return file.dataSourceId
-      return pipeline?.targetDataSourceId ?? pipeline?.sourceDataSourceId
-    },
-    [pipeline?.targetDataSourceId, pipeline?.sourceDataSourceId],
-  )
 
   const { roleSchemasFor, roleOf, dataSourceIdOf } = useRoleSchemas(pipeline)
-
-  /** Database a file runs against when it carries no override. */
-  const defaultDbId = pipeline?.targetDataSourceId ?? pipeline?.sourceDataSourceId
 
   // Only the pipeline's own databases — its two roles plus the ATHENA reference
   // of its mapping project. Unrelated vocabulary DBs of the workspace are not
@@ -217,18 +202,22 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     // source, target, vocab — same order as the Schemas tab picker.
     .sort((a, b) => compareByRole(a.id, b.id, roleOf))
 
-  const selectedFileRole = roleOf(resolveFileDataSourceId(selectedFile))
+  // Where an unqualified statement is aimed. Since roles carry the addressing
+  // (`source.` / `target.` / `vocab.` resolve from the pipeline), this is just a
+  // convenience for the current session: not stored per file, and reset to the
+  // source each time the pipeline is opened.
+  const [runOnId, setRunOnId] = useState<string | undefined>(undefined)
+  const activeDbId = [runOnId, pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId]
+    .find((id) => id && pipelineDbs.some((ds) => ds.id === id))
+    ?? pipelineDbs[0]?.id
 
-  // Name shown on the picker button — tooltipped only when the button clips it.
-  // Empty when the pipeline has no database at all, rather than claiming a
-  // "Target" that does not exist.
-  const selectedDbLabel =
-    dataSources.find((ds) => ds.id === resolveFileDataSourceId(selectedFile))?.name ?? ''
-  const {
-    ref: selectedDbNameRef,
-    overflows: selectedDbNameOverflows,
-    triggerProps: selectedDbTriggerProps,
-  } = useOverflowTooltip()
+  const resolveFileDataSourceId = useCallback(
+    (_file: EtlFile | undefined): string | undefined => activeDbId,
+    [activeDbId],
+  )
+
+  const selectedFileRole = roleOf(activeDbId)
+
 
   // Ensure source + target + vocabulary data sources are mounted in DuckDB when pipeline loads
   const ensurePipelineDbsMounted = useCallback(async () => {
@@ -599,81 +588,17 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                       <TooltipContent>{t('etl.save')} (⌘S)</TooltipContent>
                     </Tooltip>
 
-                    {/* Per-file database selector — same picker UI as SQL scripts.
-                        Hidden entirely when the pipeline has no database yet:
-                        there would be nothing to pick and nothing to browse. */}
+                    {/* Which database an unqualified statement is aimed at. Session
+                        state, not saved per file — the roles carry the addressing. */}
                     {pipelineDbs.length > 0 && (
                     <>
                     <div className="mx-1 h-4 w-px bg-border" />
-                    <DropdownMenu>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="xs"
-                              className="gap-1 max-w-[180px] text-[11px]"
-                              {...selectedDbTriggerProps}
-                            >
-                              <Database
-                                size={11}
-                                className={cn('shrink-0', roleIconColor(selectedFileRole))}
-                              />
-                              <span ref={selectedDbNameRef} className="truncate">{selectedDbLabel}</span>
-                              <ChevronDown size={10} className="shrink-0 opacity-50" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                        </TooltipTrigger>
-                        {selectedDbNameOverflows && (
-                          <TooltipContent side="bottom">{selectedDbLabel}</TooltipContent>
-                        )}
-                      </Tooltip>
-                      <DropdownMenuContent align="start" className="w-[220px]">
-                        {/* The fallback entry names the database AND its role, so the
-                            list reads the same way as the others. Omitted when there
-                            is none: clearing the override would leave no database. */}
-                        {defaultDbId && (
-                          <DropdownMenuItem
-                            onClick={() => updateFile(selectedFile.id, { dataSourceId: undefined })}
-                            className="gap-2 py-1 text-xs"
-                          >
-                            <Database
-                              size={12}
-                              className={cn('shrink-0', roleIconColor(roleOf(defaultDbId)))}
-                            />
-                            <span className="truncate">
-                              {dataSources.find((ds) => ds.id === defaultDbId)?.name}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground">
-                              ({t(`etl.${roleOf(defaultDbId) ?? 'target'}`)})
-                            </span>
-                            {!selectedFile.dataSourceId && <Check size={12} className="ml-auto shrink-0" />}
-                          </DropdownMenuItem>
-                        )}
-                        {pipelineDbs
-                          .filter((ds) => ds.id !== defaultDbId)
-                          .map((ds) => (
-                            <DropdownMenuItem
-                              key={ds.id}
-                              onClick={() => updateFile(selectedFile.id, { dataSourceId: ds.id })}
-                              className="gap-2 py-1 text-xs"
-                              title={ds.name}
-                            >
-                              <Database
-                                size={12}
-                                className={cn('shrink-0', roleIconColor(roleOf(ds.id)))}
-                              />
-                              <span className="truncate">{ds.name}</span>
-                              {roleOf(ds.id) && (
-                                <span className="shrink-0 text-[10px] text-muted-foreground">
-                                  ({t(`etl.${roleOf(ds.id)!}`)})
-                                </span>
-                              )}
-                              {selectedFile.dataSourceId === ds.id && <Check size={12} className="ml-auto shrink-0" />}
-                            </DropdownMenuItem>
-                          ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <PipelineDbPicker
+                      databases={pipelineDbs}
+                      selectedId={activeDbId}
+                      onSelect={setRunOnId}
+                      roleOf={roleOf}
+                    />
 
                     {/* Copy the qualifier of the database picked in the dropdown.
                         Only the two pipeline roles have one — a vocabulary DB has no

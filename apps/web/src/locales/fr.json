@@ -3109,6 +3109,7 @@
     "profiling_tables": "Tables",
     "source": "Source",
     "target": "Cible",
+    "vocab": "Vocabulaire",
     "pipeline_empty": "Aucun script à visualiser",
     "pipeline_empty_hint": "Ajoutez des scripts SQL dans l'onglet Scripts pour voir le DAG du pipeline.",
     "run_pipeline": "Exécuter le pipeline",
