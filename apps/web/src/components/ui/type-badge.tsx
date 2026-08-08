@@ -25,7 +25,9 @@ export function TypeBadge({ type }: { type: string }) {
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 font-mono text-[9px] font-semibold leading-none',
+        // Fixed width, centred: the glyphs differ in width ('Aa' vs '#'), which
+        // shifted every column name in a schema listing out of alignment.
+        'inline-flex w-5 shrink-0 items-center justify-center rounded py-0.5 font-mono text-[9px] font-semibold leading-none',
         config.color,
       )}
     >

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, ArrowRight, Code, Workflow, BarChart3, Database, BookOpen } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Code, Workflow, Table2, Database, BookOpen } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
@@ -18,15 +18,15 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { EtlScriptsTab } from './EtlScriptsTab'
 import { EtlPipelineTab } from './EtlPipelineTab'
-import { EtlProfilingTab } from './EtlProfilingTab'
+import { EtlSchemasTab } from './EtlSchemasTab'
 import { EtlVocabularyTab } from './EtlVocabularyTab'
 
-type TabId = 'scripts' | 'pipeline' | 'profiling' | 'vocabulary'
+type TabId = 'scripts' | 'pipeline' | 'schemas' | 'vocabulary'
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'pipeline', labelKey: 'etl.tab_pipeline', icon: Workflow },
   { id: 'scripts', labelKey: 'etl.tab_scripts', icon: Code },
-  { id: 'profiling', labelKey: 'etl.tab_profiling', icon: BarChart3 },
+  { id: 'schemas', labelKey: 'etl.tab_schemas', icon: Table2 },
   { id: 'vocabulary', labelKey: 'etl.tab_vocabulary', icon: BookOpen },
 ]
 
@@ -43,6 +43,9 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [activeTab, setActiveTab] = useState<TabId>('pipeline')
+  // Database the schemas tab should open on when the scripts tab sends the user
+  // there ("Browse schema"), rather than its own default.
+  const [schemasDbId, setSchemasDbId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     if (!etlPipelinesLoaded) loadEtlPipelines()
@@ -62,6 +65,13 @@ export function EtlPipelinePage({ pipelineId }: Props) {
     const { selectFile } = useEtlStore.getState()
     selectFile(fileId)
     setActiveTab('scripts')
+  }, [])
+
+  /** "Browse schema" in the scripts editor: same view as the Schemas tab, so go
+   *  there on the right database instead of opening a modal over the editor. */
+  const handleBrowseSchema = useCallback((dataSourceId: string) => {
+    setSchemasDbId(dataSourceId)
+    setActiveTab('schemas')
   }, [])
 
   if (!etlPipelinesLoaded) return null
@@ -141,11 +151,15 @@ export function EtlPipelinePage({ pipelineId }: Props) {
 
       {/* Tab content — full remaining space */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === 'scripts' && <EtlScriptsTab pipelineId={pipeline.id} />}
+        {activeTab === 'scripts' && (
+          <EtlScriptsTab pipelineId={pipeline.id} onBrowseSchema={handleBrowseSchema} />
+        )}
         {activeTab === 'pipeline' && (
           <EtlPipelineTab pipelineId={pipeline.id} onSelectFile={handleSelectFile} />
         )}
-        {activeTab === 'profiling' && <EtlProfilingTab pipelineId={pipeline.id} />}
+        {activeTab === 'schemas' && (
+          <EtlSchemasTab pipelineId={pipeline.id} initialDataSourceId={schemasDbId} />
+        )}
         {activeTab === 'vocabulary' && <EtlVocabularyTab pipelineId={pipeline.id} />}
       </div>
     </div>

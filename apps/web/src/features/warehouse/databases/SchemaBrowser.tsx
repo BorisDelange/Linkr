@@ -167,9 +167,12 @@ interface Props {
    *  pipelines pass a role prefix so the copied SQL is portable; other callers
    *  omit it and get a bare table name. */
   tableQualifier?: string
+  /** Rendered in the toolbar, after the table-list toggle. The ETL tab puts its
+   *  database picker here so the browser itself stays source-agnostic. */
+  toolbarExtra?: React.ReactNode
 }
 
-export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
+export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Props) {
   const { t, i18n } = useTranslation()
 
   const [tables, setTables] = useState<string[]>([])
@@ -444,6 +447,68 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
       ?? null
   ), [dataSourceId, persistedCounts])
 
+  // Count every table at once. Rows change as scripts run, so the per-table
+  // counts gathered by opening tables one by one go stale; this refreshes the lot
+  // and persists them, which is also what the sidebar reads on a later session.
+  const [countingAll, setCountingAll] = useState(false)
+  const [countProgress, setCountProgress] = useState(0)
+  const countAllTables = useCallback(async () => {
+    if (tables.length === 0) return
+    setCountingAll(true)
+    setCountProgress(0)
+    try {
+      const counts = new Map(persistedCounts)
+      const BATCH = 6
+      for (let i = 0; i < tables.length; i += BATCH) {
+        const batch = tables.slice(i, i + BATCH)
+        const rows = await Promise.all(batch.map(async (table) => {
+          try {
+            const r = await duckdbEngine.queryDataSource(
+              dataSourceId, `SELECT COUNT(*) as cnt FROM "${table}"`,
+            )
+            return [table, Number(r[0]?.cnt ?? 0)] as const
+          } catch {
+            return null
+          }
+        }))
+        for (const row of rows) if (row) counts.set(row[0], row[1])
+        setPersistedCounts(new Map(counts))
+        setCountProgress(Math.min(i + BATCH, tables.length))
+        // A table already open in this session keeps its own cached count, which
+        // would otherwise win over the fresh one in the sidebar.
+        for (const [table, n] of counts) {
+          const entry = tableCache.get(tableCacheKey(dataSourceId, table))
+          if (entry) entry.rowCount = n
+        }
+      }
+      const existing = await getStorage().databaseStatsCache.get(dataSourceId)
+      await getStorage().databaseStatsCache.save({
+        // Only the row counts are ours to fill; the clinical figures belong to the
+        // Statistics tab, so an entry created here leaves them empty rather than
+        // claiming zeros.
+        ...(existing ?? {
+          dataSourceId,
+          summary: { patientCount: 0, visitCount: 0, visitDetailCount: 0, tableCount: tables.length },
+          genderDistribution: { male: 0, female: 0, other: 0 },
+          agePyramid: [],
+          admissionTimeline: [],
+          descriptiveStats: {},
+          tableCounts: [],
+        }),
+        summary: {
+          ...(existing?.summary ?? { patientCount: 0, visitCount: 0, visitDetailCount: 0 }),
+          tableCount: tables.length,
+        },
+        computedAt: new Date().toISOString(),
+        tableCounts: [...counts]
+          .map(([tableName, rowCount]) => ({ tableName, rowCount }))
+          .sort((a, b) => b.rowCount - a.rowCount),
+      })
+    } finally {
+      setCountingAll(false)
+    }
+  }, [dataSourceId, tables, persistedCounts])
+
   const toggleSort = useCallback((key: TableSort['key']) => {
     setTableSort((prev) => prev.key === key
       ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
@@ -474,6 +539,8 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
             </TooltipTrigger>
             <TooltipContent>{t('etl.profiling_toggle_tables')}</TooltipContent>
           </Tooltip>
+
+          {toolbarExtra}
 
           {selectedTable && (
             <span className="text-xs font-medium">{selectedTable}</span>
@@ -554,6 +621,24 @@ export function SchemaBrowser({ dataSourceId, tableQualifier }: Props) {
                     onSort={toggleSort}
                     className="shrink-0"
                   />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="-mr-1 size-5 shrink-0"
+                        onClick={countAllTables}
+                        disabled={countingAll || tables.length === 0}
+                      >
+                        <RefreshCw size={11} className={countingAll ? 'animate-spin' : ''} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {countingAll
+                        ? t('etl.counting_rows_progress', { done: countProgress, total: tables.length })
+                        : t('etl.count_all_rows')}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
                 <div className="border-b px-2 py-1.5">
                   <div className="relative">

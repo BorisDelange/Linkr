@@ -68,8 +68,8 @@ import { useEtlStore, type EtlOutputTab, type EtlExecutionResult } from '@/store
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useRoleSchemas } from './use-role-schemas'
+import { compareByRole, roleIconColor } from './role-presentation'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import { useShortcutStore } from '@/stores/shortcut-store'
@@ -120,9 +120,11 @@ function getTabIcon(type: string) {
 
 interface Props {
   pipelineId: string
+  /** Show a database's tables in the Schemas tab (same view, no modal). */
+  onBrowseSchema?: (dataSourceId: string) => void
 }
 
-export function EtlScriptsTab({ pipelineId }: Props) {
+export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
   const {
@@ -158,7 +160,6 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   const [newFileType, setNewFileType] = useState('sql')
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
-  const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   // Same bindings the IDE's Run button shows, read from the shortcut store so a
@@ -213,6 +214,8 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   ].filter(Boolean) as string[])]
     .map((id) => dataSources.find((ds) => ds.id === id))
     .filter((ds): ds is NonNullable<typeof ds> => !!ds)
+    // source, target, vocab — same order as the Schemas tab picker.
+    .sort((a, b) => compareByRole(a.id, b.id, roleOf))
 
   const selectedFileRole = roleOf(resolveFileDataSourceId(selectedFile))
 
@@ -614,7 +617,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                             >
                               <Database
                                 size={11}
-                                className={cn('shrink-0', selectedFile.dataSourceId ? 'text-amber-500' : 'text-muted-foreground')}
+                                className={cn('shrink-0', roleIconColor(selectedFileRole))}
                               />
                               <span ref={selectedDbNameRef} className="truncate">{selectedDbLabel}</span>
                               <ChevronDown size={10} className="shrink-0 opacity-50" />
@@ -634,7 +637,10 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                             onClick={() => updateFile(selectedFile.id, { dataSourceId: undefined })}
                             className="gap-2 py-1 text-xs"
                           >
-                            <Database size={12} className="shrink-0 text-muted-foreground" />
+                            <Database
+                              size={12}
+                              className={cn('shrink-0', roleIconColor(roleOf(defaultDbId)))}
+                            />
                             <span className="truncate">
                               {dataSources.find((ds) => ds.id === defaultDbId)?.name}
                             </span>
@@ -653,7 +659,10 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                               className="gap-2 py-1 text-xs"
                               title={ds.name}
                             >
-                              <Database size={12} className="shrink-0 text-amber-500" />
+                              <Database
+                                size={12}
+                                className={cn('shrink-0', roleIconColor(roleOf(ds.id)))}
+                              />
                               <span className="truncate">{ds.name}</span>
                               {roleOf(ds.id) && (
                                 <span className="shrink-0 text-[10px] text-muted-foreground">
@@ -689,15 +698,18 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                       </Tooltip>
                     )}
 
-                    {/* Browse the schema of the database picked in the dropdown just
-                        before (per-file override, else the pipeline target). */}
+                    {/* Opens the Schemas tab on this database rather than a modal
+                        over the editor — it is the same browser either way. */}
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          onClick={() => setSchemaDialogOpen(true)}
-                          disabled={!resolveFileDataSourceId(selectedFile)}
+                          onClick={() => {
+                            const dsId = resolveFileDataSourceId(selectedFile)
+                            if (dsId) onBrowseSchema?.(dsId)
+                          }}
+                          disabled={!resolveFileDataSourceId(selectedFile) || !onBrowseSchema}
                         >
                           <Table2 size={13} />
                         </Button>
@@ -1067,17 +1079,6 @@ export function EtlScriptsTab({ pipelineId }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Database schema browser — shared with SQL scripts, the IDE and ETL profiling.
-          Opens the database picked in the toolbar dropdown (per-file override, else target). */}
-      {resolveFileDataSourceId(selectedFile) && (
-        <SchemaBrowserDialog
-          open={schemaDialogOpen}
-          onOpenChange={setSchemaDialogOpen}
-          dataSourceId={resolveFileDataSourceId(selectedFile)!}
-          tableQualifier={selectedFileRole ? `${selectedFileRole}.` : undefined}
-        />
-      )}
 
       {/* Keyboard shortcuts dialog — same customizable dialog as the IDE,
           filtered to the actions relevant in the ETL editor. */}
