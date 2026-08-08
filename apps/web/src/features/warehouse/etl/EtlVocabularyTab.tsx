@@ -176,6 +176,15 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     return schemaName(vocabDsId)
   }, [selectedProjectId, mappingProjects, dataSources])
 
+  // Which tables the reference actually holds: an ATHENA import keeps only the
+  // four the mapping UI needs, so the metadata parts must be skipped rather
+  // than emitted and left to fail on a missing table.
+  const vocabTables = useMemo(() => {
+    const project = mappingProjects.find((p) => p.id === selectedProjectId)
+    const vocabDs = dataSources.find((ds) => ds.id === project?.vocabularyDataSourceId)
+    return vocabDs?.schemaMapping?.knownTables ?? undefined
+  }, [selectedProjectId, mappingProjects, dataSources])
+
   const handleCreateFromProject = useCallback(async () => {
     if (!selectedProjectId || filteredMappings.length === 0) return
     if (!vocabSchema) {
@@ -188,7 +197,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     try {
       // The script says `vocab.` rather than the resolved schema, so it stays
       // valid after an export/reimport (resolved at run time).
-      const sql = buildVocabularyScript(filteredMappings)
+      const sql = buildVocabularyScript(filteredMappings, undefined, vocabTables)
       const action = await upsertVocabScript(pipelineId, sql)
       setResult({ success: true, count: filteredMappings.length, action })
     } catch (err) {
@@ -197,7 +206,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     } finally {
       setCreating(false)
     }
-  }, [selectedProjectId, filteredMappings, pipelineId, vocabSchema, t])
+  }, [selectedProjectId, filteredMappings, pipelineId, vocabSchema, vocabTables, t])
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 overflow-auto p-8">

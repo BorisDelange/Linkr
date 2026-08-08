@@ -97,6 +97,51 @@ describe('ATHENA date columns', () => {
   })
 })
 
+describe('vocabulary references missing the metadata tables', () => {
+  // An ATHENA import keeps only the four tables the mapping UI needs, so the
+  // metadata parts have to be skipped rather than left to fail at run time
+  // ("Table with name vocabulary does not exist").
+  const CORE = ['concept', 'concept_ancestor', 'concept_relationship', 'concept_synonym']
+  const sql = buildVocabularyScript([MAPPING], undefined, CORE)
+
+  it('never reads a table the reference does not have', () => {
+    // Comments still name the skipped table, so assert on executable lines only.
+    const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+    for (const t of ['vocabulary', 'domain', 'concept_class', 'relationship']) {
+      expect(code).not.toContain(`vocab.${t}`)
+    }
+  })
+
+  it('still copies the tables it does have', () => {
+    expect(sql).toContain('FROM vocab.concept ')
+    expect(sql).toContain('FROM vocab.concept_synonym ')
+  })
+
+  it('drops the ATHENA filter from the custom-vocabulary insert', () => {
+    // Without vocab.vocabulary every source vocabulary is custom by definition.
+    expect(sql).not.toContain('SELECT vocabulary_id FROM vocab.vocabulary')
+    expect(sql).toContain("'Linkr ETL'")
+  })
+
+  it('still clears target.vocabulary before inserting the custom entries', () => {
+    // Otherwise re-running the script would duplicate them.
+    expect(sql).toContain('DELETE FROM target.vocabulary;')
+  })
+
+  it('says which parts were skipped', () => {
+    expect(sql).toContain('-- Skipped: vocab.vocabulary is not part of this vocabulary reference.')
+  })
+
+  it('emits every part when the reference is complete', () => {
+    const full = buildVocabularyScript([MAPPING], undefined, [
+      ...CORE, 'vocabulary', 'domain', 'concept_class', 'relationship',
+    ])
+    expect(full).toContain('FROM vocab.vocabulary v')
+    expect(full).toContain('FROM vocab.domain d')
+    expect(full).not.toContain('-- Skipped:')
+  })
+})
+
 describe('buildCustomVocabularyScript', () => {
   const sql = buildCustomVocabularyScript([
     { n: 'Foo', ci: 1, sv: 'mimiciv_drug', sd: 'Drug', cc: 'X1', ti: 42, tv: 'RxNorm' },
