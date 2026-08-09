@@ -12,6 +12,10 @@ import {
   Check,
   X,
   Download,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  MinusCircle,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -342,6 +346,9 @@ function EtlFileTreeItem({
               </>
             )}
             <span ref={nameRef} className="truncate">{file.name}</span>
+            {/* Where the run is: the tree is where the scripts are listed, so the
+                status belongs here and not only in the Pipeline tab's DAG. */}
+            <ScriptRunStatus fileId={file.id} />
           </button>
           </TooltipTrigger>
         </ContextMenuTrigger>
@@ -390,4 +397,25 @@ function EtlFileTreeItem({
       ))}
     </div>
   )
+}
+
+/**
+ * Run status of one script, shown inline in the tree while a pipeline runs.
+ * Subscribes to just this file's entry, so a status change re-renders one row.
+ */
+function ScriptRunStatus({ fileId }: { fileId: string }) {
+  const log = useEtlStore((s) => s.scriptStatuses.get(fileId))
+  if (!log) return null
+  switch (log.status) {
+    case 'running':
+      return <Loader2 size={11} className="ml-auto shrink-0 animate-spin text-blue-500" />
+    case 'success':
+      return <CheckCircle2 size={11} className="ml-auto shrink-0 text-emerald-500" />
+    case 'error':
+      return <AlertCircle size={11} className="ml-auto shrink-0 text-red-500" />
+    case 'skipped':
+      return <MinusCircle size={11} className="ml-auto shrink-0 text-muted-foreground/40" />
+    default:
+      return null
+  }
 }

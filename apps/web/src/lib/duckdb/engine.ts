@@ -31,7 +31,7 @@ const duckdb_eh_worker = duckdbAsset('duckdb-browser-eh.worker.js')
  * string literals and `--` line comments so that semicolons inside strings
  * (e.g. `'Sodium Chloride 23.4%;30ML V'`) are not treated as separators.
  */
-function splitSqlStatements(sql: string): string[] {
+export function splitSqlStatements(sql: string): string[] {
   const stmts: string[] = []
   let current = ''
   let i = 0

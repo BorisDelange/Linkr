@@ -25,20 +25,56 @@ function isManaged(ds: DataSource | undefined): boolean {
  * next to Run. It deliberately does not decide the endpoint: a script pointed
  * at the source still needs `target.` to resolve.
  */
+export interface RunOptions {
+  /** Reports statements finished / total, so a long script shows progress
+   *  instead of an opaque "running". */
+  onProgress?: (done: number, total: number) => void
+  /** Stops between statements when the user hits Stop. A statement already in
+   *  flight runs to completion — DuckDB has no mid-query cancellation here. */
+  signal?: AbortSignal
+}
+
 export async function runPipelineSql(
   pipeline: EtlPipeline | undefined,
   dataSourceId: string,
   sql: string,
+  options: RunOptions = {},
 ): Promise<Record<string, unknown>[]> {
+  const { onProgress, signal } = options
+
+  // Statement by statement, so progress is real rather than interpolated: the
+  // server splits the batch the same way (db_connect._split_statements), so
+  // sending them one at a time changes nothing but the reporting.
+  const statements = duckdbEngine.splitSqlStatements(sql)
+  const total = statements.length
+  const run = await statementRunner(pipeline, dataSourceId)
+
+  let last: Record<string, unknown>[] = []
+  for (const [i, stmt] of statements.entries()) {
+    if (signal?.aborted) break
+    last = await run(stmt)
+    onProgress?.(i + 1, total)
+  }
+  return last
+}
+
+/**
+ * Pick how a single statement reaches the database, once per script rather than
+ * once per statement — the role lookup can hit the store and the network.
+ */
+async function statementRunner(
+  pipeline: EtlPipeline | undefined,
+  dataSourceId: string,
+): Promise<(sql: string) => Promise<Record<string, unknown>[]>> {
   if (!isServerMode()) {
-    return duckdbEngine.queryDataSource(dataSourceId, sql)
+    return (stmt) => duckdbEngine.queryDataSource(dataSourceId, stmt)
   }
 
   const { dataSources } = useDataSourceStore.getState()
   const targetId = pipeline?.targetDataSourceId
   const target = dataSources.find((ds) => ds.id === targetId)
   if (!targetId || !isManaged(target)) {
-    return duckdbEngine.queryDataSource(dataSourceId, sql)
+    return (stmt) => duckdbEngine.queryDataSource(dataSourceId, stmt)
   }
 
   // The endpoint runs against the target; every other role is attached beside
@@ -50,7 +86,7 @@ export async function runPipelineSql(
   const vocabId = await vocabDataSourceId(pipeline)
   if (vocabId && vocabId !== targetId) roles.vocab = vocabId
 
-  return runEtlOnServer(targetId, sql, roles)
+  return (stmt) => runEtlOnServer(targetId, stmt, roles)
 }
 
 /**

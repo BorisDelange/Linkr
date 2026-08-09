@@ -3054,6 +3054,7 @@
     "run_file": "Run current file",
     "run_selection": "Run selection",
     "run_line": "Run current line",
+    "run_statement_progress": "stmt {{done}}/{{total}}",
     "run_all": "Run all scripts",
     "stop": "Stop execution",
     "browse_schema": "Browse schema",

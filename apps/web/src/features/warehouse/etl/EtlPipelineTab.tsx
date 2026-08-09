@@ -84,9 +84,8 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
-import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
 import { useRoleSchemas } from './use-role-schemas'
-import { runPipelineSql } from './run-pipeline-sql'
+import { usePipelineRunner } from './use-pipeline-runner'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
@@ -104,7 +103,7 @@ interface Props {
 export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
-  const { etlPipelines, files, pipelineRunning, scriptStatuses, runHistory, startPipelineRun, stopPipelineRun, setScriptStatus, finishPipelineRun, updateFile, updatePipeline } = useEtlStore()
+  const { etlPipelines, files, pipelineRunning, scriptStatuses, runHistory, stopPipelineRun, updateFile, updatePipeline } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
@@ -114,7 +113,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
   const hasSource = !!pipeline?.sourceDataSourceId
   const hasTarget = !!pipeline?.targetDataSourceId
 
-  const { roleSchemasFor, dataSourceIdOf, roleOf } = useRoleSchemas(pipeline)
+  const { roleOf } = useRoleSchemas(pipeline)
 
   // "override" flags a script pinned to a database that has NO pipeline role:
   // one of source/target/vocab is ordinary, so badging those was just noise.
@@ -125,6 +124,14 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
 
   const [sidebarVisible, setSidebarVisible] = useState(false)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+
+  // Reveal the script that failed, so the error is not buried in the DAG.
+  const revealFailedScript = useCallback((fileId: string) => {
+    setSelectedNodeId(fileId)
+    setSidebarVisible(true)
+  }, [])
+
+  const { runScripts } = usePipelineRunner(pipeline, { onScriptError: revealFailedScript })
   const [showHistory, setShowHistory] = useState(false)
   const [showComparison, setShowComparison] = useState(false)
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
@@ -138,91 +145,9 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
 
   // Run pipeline — execute scripts sequentially
   const handleRunPipeline = useCallback(async () => {
-    if (!pipeline?.targetDataSourceId || sqlFiles.length === 0) return
-    startPipelineRun()
-    const abort = useEtlStore.getState().pipelineRunAbort
-    const { testConnection } = useDataSourceStore.getState()
-
-    // Ensure source + target + vocabulary databases are mounted
-    if (pipeline.sourceDataSourceId) await testConnection(pipeline.sourceDataSourceId)
-    await testConnection(pipeline.targetDataSourceId)
-
-    // Mount any vocabulary reference databases (needed by 00a_vocabulary_tables)
-    const allDs = useDataSourceStore.getState().dataSources
-    const vocabSources = allDs.filter((ds) => ds.isVocabularyReference && ds.status === 'connected')
-    for (const vs of vocabSources) {
-      await testConnection(vs.id)
-    }
-
-    let hasError = false
-    for (const file of sqlFiles) {
-      if (abort?.signal.aborted) break
-      if (file.disabled || !file.content) {
-        setScriptStatus(file.id, {
-          id: `log-${file.id}-${Date.now()}`,
-          pipelineId,
-          fileId: file.id,
-          status: 'skipped',
-        })
-        continue
-      }
-
-      // Resolve per-file data source or fallback to pipeline target
-      const dsId = file.dataSourceId ?? pipeline.targetDataSourceId
-
-      setScriptStatus(file.id, {
-        id: `log-${file.id}-${Date.now()}`,
-        pipelineId,
-        fileId: file.id,
-        status: 'running',
-        startedAt: new Date().toISOString(),
-      })
-
-      const start = Date.now()
-      try {
-        await testConnection(dsId)
-        // Mount whichever role the script reaches for, then resolve the
-        // `source.`/`target.` qualifiers to real schemas (see lib/duckdb/role-prefix).
-        for (const role of usedRoles(file.content)) {
-          const roleId = dataSourceIdOf(role)
-          if (roleId && roleId !== dsId) await testConnection(roleId)
-        }
-        const resolvedSql = resolveRolePrefixes(file.content, roleSchemasFor(dsId))
-        const rows = await runPipelineSql(pipeline, dsId, resolvedSql)
-        const duration = Date.now() - start
-        setScriptStatus(file.id, {
-          id: `log-${file.id}-${Date.now()}`,
-          pipelineId,
-          fileId: file.id,
-          status: 'success',
-          startedAt: new Date(start).toISOString(),
-          completedAt: new Date().toISOString(),
-          durationMs: duration,
-          rowsAffected: rows.length,
-          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} in ${duration}ms`,
-        })
-      } catch (err) {
-        const duration = Date.now() - start
-        hasError = true
-        setScriptStatus(file.id, {
-          id: `log-${file.id}-${Date.now()}`,
-          pipelineId,
-          fileId: file.id,
-          status: 'error',
-          startedAt: new Date(start).toISOString(),
-          completedAt: new Date().toISOString(),
-          durationMs: duration,
-          error: err instanceof Error ? err.message : String(err),
-        })
-        // Auto-select the failed node and open sidebar
-        setSelectedNodeId(file.id)
-        setSidebarVisible(true)
-        break
-      }
-    }
-
-    finishPipelineRun(hasError || abort?.signal.aborted ? 'error' : 'success')
-  }, [pipeline, sqlFiles, pipelineId, startPipelineRun, setScriptStatus, finishPipelineRun, roleSchemasFor, dataSourceIdOf])
+    if (!pipeline?.targetDataSourceId) return
+    await runScripts(sqlFiles)
+  }, [pipeline?.targetDataSourceId, sqlFiles, runScripts])
 
   // Get selected node info for sidebar
   const selectedNodeInfo = useMemo(() => {

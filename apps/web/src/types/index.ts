@@ -833,6 +833,11 @@ export interface EtlRunLog {
   rowsAffected?: number
   error?: string
   output?: string
+  /** Statements finished so far, while the script is running. A vocabulary
+   *  script is ~20 statements and some take minutes, so "running" alone does not
+   *  say whether it is progressing. */
+  statementsDone?: number
+  statementsTotal?: number
 }
 
 export interface EtlColumnProfile {

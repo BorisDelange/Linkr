@@ -67,6 +67,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { useEtlStore, type EtlOutputTab, type EtlExecutionResult } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useRoleSchemas } from './use-role-schemas'
+import { usePipelineRunner } from './use-pipeline-runner'
+import { RunProgressBar } from './RunProgressBar'
 import { compareByRole } from './role-presentation'
 import { PipelineDbPicker } from './PipelineDbPicker'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -188,6 +190,18 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const { roleSchemasFor, roleOf, dataSourceIdOf } = useRoleSchemas(pipeline)
+  const { runScripts, stop: stopRun, running: pipelineRunning } = usePipelineRunner(pipeline)
+
+  /** The scripts a Run-all covers, in execution order. Disabled ones stay in so
+   *  the run log records them as skipped rather than dropping them silently. */
+  const orderedSqlFiles = useMemo(() => (
+    files
+      .filter((f) => f.type === 'file' && (f.language === 'sql' || f.name.endsWith('.sql')))
+      .sort((a, b) => a.order - b.order)
+  ), [files])
+  // One script (local state) or the whole set (store state) — either way the
+  // toolbar shows Stop rather than an enabled Run.
+  const busy = isRunning || pipelineRunning
 
   // Only the pipeline's own databases — its two roles plus the ATHENA reference
   // of its mapping project. Unrelated vocabulary DBs of the workspace are not
@@ -378,22 +392,12 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     }
   }, [selectedFile, executeSql, resolveFileDataSourceId])
 
-  // Run all files sequentially (skip disabled)
+  // Run every script, through the same runner as the Pipeline tab: this used to
+  // be a silent local loop, so a Run-all here showed a spinner and nothing else.
   const handleRunAll = useCallback(async () => {
-    const sqlFiles = files
-      .filter((f) => f.type === 'file' && (f.language === 'sql' || f.name.endsWith('.sql')) && !f.disabled)
-      .sort((a, b) => a.order - b.order)
-    if (sqlFiles.length === 0) return
-    setIsRunning(true)
-    try {
-      for (const file of sqlFiles) {
-        if (!file.content) continue
-        await executeSql(file.content, file.name, resolveFileDataSourceId(file))
-      }
-    } finally {
-      setIsRunning(false)
-    }
-  }, [files, executeSql, resolveFileDataSourceId])
+    if (orderedSqlFiles.length === 0) return
+    await runScripts(orderedSqlFiles)
+  }, [orderedSqlFiles, runScripts])
 
   // Save file
   const handleSaveFile = useCallback(() => {
@@ -524,8 +528,16 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                       <>
                         <div className="mx-1 h-4 w-px bg-border" />
                         {/* Run — split button (same UI as SQL script collections). */}
-                        {isRunning ? (
-                          <Button size="xs" variant="destructive" className="gap-1" onClick={() => setIsRunning(false)}>
+                        {busy ? (
+                          <Button
+                            size="xs"
+                            variant="destructive"
+                            className="gap-1"
+                            onClick={stopRun}
+                            // A single statement cannot be cancelled mid-flight;
+                            // Stop only ends a multi-script run between scripts.
+                            disabled={!pipelineRunning}
+                          >
                             <Square size={12} />
                             {t('etl.stop')}
                           </Button>
@@ -571,6 +583,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                             </DropdownMenu>
                           </div>
                         )}
+                        <RunProgressBar files={orderedSqlFiles} />
                       </>
                     )}
                     {/* Save current file (Cmd+S) — after Run */}
