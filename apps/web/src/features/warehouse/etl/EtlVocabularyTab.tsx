@@ -17,7 +17,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { schemaName } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
-import { buildVocabularyScript } from './build-vocabulary-script'
+import { buildVocabularyScriptWithIds } from './build-vocabulary-script'
 import type { ConceptMapping, EtlFile, MappingStatus } from '@/types'
 
 const VOCAB_SCRIPT_NAME = '00_vocabulary.sql'
@@ -95,7 +95,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
   const { etlPipelines, updatePipeline } = useEtlStore()
-  const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings } = useConceptMappingStore()
+  const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings, updateMapping } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
@@ -197,7 +197,16 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     try {
       // The script says `vocab.` rather than the resolved schema, so it stays
       // valid after an export/reimport (resolved at run time).
-      const sql = buildVocabularyScript(filteredMappings, undefined, vocabTables)
+      const { sql, idsToPersist } = buildVocabularyScriptWithIds(
+        filteredMappings, undefined, vocabTables, projectMappings,
+      )
+      // Store the source-concept ids this run settled on, so the next generation
+      // reuses them instead of allocating new ones. Done before writing the
+      // script: if this fails, the script that would reference unsaved ids is
+      // not created either.
+      for (const [mappingId, sourceConceptId] of idsToPersist) {
+        await updateMapping(mappingId, { sourceConceptId })
+      }
       const action = await upsertVocabScript(pipelineId, sql)
       setResult({ success: true, count: filteredMappings.length, action })
     } catch (err) {
@@ -206,7 +215,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     } finally {
       setCreating(false)
     }
-  }, [selectedProjectId, filteredMappings, pipelineId, vocabSchema, vocabTables, t])
+  }, [selectedProjectId, filteredMappings, projectMappings, pipelineId, vocabSchema, vocabTables, updateMapping, t])
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 overflow-auto p-8">

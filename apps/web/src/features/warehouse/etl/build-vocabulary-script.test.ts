@@ -3,6 +3,7 @@ import {
   athenaSelectList,
   buildCustomVocabularyScript,
   buildVocabularyScript,
+  buildVocabularyScriptWithIds,
 } from './build-vocabulary-script'
 import type { ConceptMapping } from '@/types'
 
@@ -45,10 +46,11 @@ describe('buildVocabularyScript', () => {
     for (const table of TARGET_TABLES) {
       expect(sql).not.toMatch(new RegExp(`DELETE FROM ${table}\\b`))
       expect(sql).not.toMatch(new RegExp(`INSERT INTO ${table}\\b`))
+      expect(sql).not.toMatch(new RegExp(`UPDATE ${table}\\b`))
     }
     expect(sql).toContain('DELETE FROM target.concept;')
     expect(sql).toContain('INSERT INTO target.concept_ancestor')
-    expect(sql).toContain('UPDATE target.source_to_concept_map')
+    expect(sql).toContain('INSERT INTO target.source_to_concept_map')
   })
 
   it('qualifies target tables read in subqueries too', () => {
@@ -94,6 +96,57 @@ describe('ATHENA date columns', () => {
 
   it('leaves a table it has no column list for as a star select', () => {
     expect(athenaSelectList('concept_ancestor', 'ca')).toBe('ca.*')
+  })
+})
+
+describe('source concept ids', () => {
+  it('writes the stored id into source_to_concept_map, not 0', () => {
+    const { sql } = buildVocabularyScriptWithIds([
+      { ...MAPPING, sourceConceptId: 2_000_000_042 },
+    ])
+    expect(sql).toContain("('50983', 2000000042,")
+  })
+
+  it('never renumbers with ROW_NUMBER', () => {
+    // Row-numbering at generation time made every id shift whenever a mapping
+    // was added or removed.
+    const { sql } = buildVocabularyScriptWithIds([MAPPING])
+    expect(sql).not.toContain('ROW_NUMBER() OVER (ORDER BY src.')
+  })
+
+  it('reports a newly allocated id so the caller can persist it', () => {
+    const { idsToPersist } = buildVocabularyScriptWithIds([MAPPING])
+    expect(idsToPersist.get(MAPPING.id)).toBeGreaterThan(2_000_000_000)
+  })
+
+  it('persists nothing when every mapping already has an id', () => {
+    const { idsToPersist } = buildVocabularyScriptWithIds([
+      { ...MAPPING, sourceConceptId: 2_000_000_007 },
+    ])
+    expect(idsToPersist.size).toBe(0)
+  })
+
+  it('inserts the source concept with the same id it wrote in the STCM', () => {
+    const { sql } = buildVocabularyScriptWithIds([
+      { ...MAPPING, sourceConceptId: 2_000_000_123 },
+    ])
+    expect(sql).toContain('(2000000123,')
+    expect(sql).toContain("('50983', 2000000123,")
+  })
+
+  it('allocates against the whole project, not just the filtered subset', () => {
+    // A mapping hidden by the status filter still owns its id; reusing it for a
+    // different source concept would collide once the filter changes.
+    const hidden = { ...MAPPING, id: 'm2', sourceConceptCode: '99999', sourceConceptId: 2_000_000_500 }
+    const { idsToPersist } = buildVocabularyScriptWithIds(
+      [MAPPING], undefined, undefined, [MAPPING, hidden],
+    )
+    expect(idsToPersist.get(MAPPING.id)).toBeGreaterThan(2_000_000_500)
+  })
+
+  it('explains in the script why the ids are stable', () => {
+    const { sql } = buildVocabularyScriptWithIds([MAPPING])
+    expect(sql).toContain('come from the mapping project')
   })
 })
 

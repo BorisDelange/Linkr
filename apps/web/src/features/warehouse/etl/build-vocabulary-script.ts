@@ -4,6 +4,7 @@
  */
 import type { ConceptMapping } from '@/types'
 import { escSql as esc } from '@/lib/format-helpers'
+import { assignSourceConceptIds, sourceConceptKey } from '@/lib/concept-mapping/source-concept-ids'
 
 /**
  * The generated script addresses the ATHENA reference by ROLE, not by its
@@ -110,8 +111,28 @@ export function buildVocabularyScript(
   vocabSchema = VOCAB_ROLE_PREFIX,
   availableTables?: Iterable<string>,
 ): string {
+  return buildVocabularyScriptWithIds(mappings, vocabSchema, availableTables).sql
+}
+
+/**
+ * Same script, plus the source-concept ids that still have to be written back to
+ * the mapping project. The Vocabulary tab uses this form; `buildVocabularyScript`
+ * stays available for callers that only need the SQL (the seed loader).
+ */
+export function buildVocabularyScriptWithIds(
+  mappings: ConceptMapping[],
+  vocabSchema = VOCAB_ROLE_PREFIX,
+  availableTables?: Iterable<string>,
+  /**
+   * Every mapping of the project, when `mappings` is a filtered subset. Ids are
+   * allocated against the whole project so a mapping currently excluded by the
+   * status filter cannot later be handed an id that is already in use.
+   */
+  allProjectMappings?: ConceptMapping[],
+): { sql: string; idsToPersist: Map<string, number> } {
   const vs = vocabSchema
   const parts: string[] = []
+  const sourceIds = assignSourceConceptIds(allProjectMappings ?? mappings)
   const available = availableTables
     ? new Set([...availableTables].map((t) => t.toLowerCase()))
     : new Set<string>(VOCAB_CORE_TABLES)
@@ -136,7 +157,8 @@ export function buildVocabularyScript(
       const sourceDesc = esc(m.sourceConceptName)
       const targetVocab = esc(m.targetVocabularyId)
       const sourceVocab = esc(m.sourceVocabularyId)
-      return `('${sourceCode}', 0, '${sourceVocab}', '${sourceDesc}', ${m.targetConceptId}, '${targetVocab}', DATE '1970-01-01', DATE '2099-12-31', NULL)`
+      const sourceConceptId = sourceIds.byKey.get(sourceConceptKey(m)) ?? 0
+      return `('${sourceCode}', ${sourceConceptId}, '${sourceVocab}', '${sourceDesc}', ${m.targetConceptId}, '${targetVocab}', DATE '1970-01-01', DATE '2099-12-31', NULL)`
     })
 
     parts.push('')
@@ -205,39 +227,45 @@ export function buildVocabularyScript(
   parts.push(`WHERE c.concept_id IN (${fixedIds})`)
   parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
 
-  // 2e. Generate source concepts with concept_id > 2 000 000 000
-  // domain_id is derived from the target concept (via STCM -> concept join)
-  // concept_class_id is 'Clinical Observation' (OHDSI convention for custom source concepts)
+  // 2e. Source concepts, with the ids the mapping project holds.
+  //
+  // These used to be numbered at generation time
+  // (`2000000000 + ROW_NUMBER() OVER (ORDER BY …)`), which meant adding or
+  // removing a single mapping renumbered every source concept: ids drifted
+  // between runs, and data already loaded with the previous ones silently
+  // referenced the wrong concept. They are assigned once, stored on the mapping
+  // and reused here — see lib/concept-mapping/source-concept-ids.
   parts.push('')
-  parts.push('-- 2e. Generate source concepts (concept_id > 2 000 000 000)')
-  parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
-  parts.push(`SELECT`)
-  parts.push(`    2000000000 + ROW_NUMBER() OVER (ORDER BY src.source_vocabulary_id, src.source_code) AS concept_id,`)
-  parts.push(`    src.source_code_description AS concept_name,`)
-  parts.push(`    COALESCE(tc.domain_id, 'Observation') AS domain_id,`)
-  parts.push(`    src.source_vocabulary_id    AS vocabulary_id,`)
-  parts.push(`    'Clinical Observation'      AS concept_class_id,`)
-  parts.push(`    NULL                        AS standard_concept,`)
-  parts.push(`    src.source_code             AS concept_code,`)
-  parts.push(`    DATE '1970-01-01'           AS valid_start_date,`)
-  parts.push(`    DATE '2099-12-31'           AS valid_end_date,`)
-  parts.push(`    NULL                        AS invalid_reason`)
-  parts.push(`FROM (`)
-  parts.push(`    SELECT DISTINCT source_vocabulary_id, source_code, source_code_description, target_concept_id`)
-  parts.push(`    FROM ${TARGET}.source_to_concept_map`)
-  parts.push(`    WHERE source_code IS NOT NULL`)
-  parts.push(`) src`)
-  parts.push(`LEFT JOIN ${TARGET}.concept tc ON tc.concept_id = src.target_concept_id;`)
+  parts.push('-- 2e. Source concepts (concept_id > 2 000 000 000)')
+  parts.push('--')
+  parts.push('-- The ids below come from the mapping project, which keeps them for the life')
+  parts.push('-- of the project: re-generating this script after adding or removing mappings')
+  parts.push('-- leaves the existing ones untouched, so data already loaded stays valid.')
+  parts.push('-- Only genuinely new source concepts get a newly allocated id.')
 
-  // 2f. Update source_concept_id in STCM
-  parts.push('')
-  parts.push('-- 2f. Update source_to_concept_map.source_concept_id')
-  parts.push(`UPDATE ${TARGET}.source_to_concept_map`)
-  parts.push(`SET source_concept_id = c.concept_id`)
-  parts.push(`FROM ${TARGET}.concept c`)
-  parts.push(`WHERE c.concept_code = source_to_concept_map.source_code`)
-  parts.push(`  AND c.vocabulary_id = source_to_concept_map.source_vocabulary_id`)
-  parts.push(`  AND c.concept_id > 2000000000;`)
+  // One row per source concept, not per mapping: an N:1 mapping repeats the same
+  // source code against several targets.
+  const sourceConcepts = new Map<string, { id: number; m: ConceptMapping }>()
+  for (const m of mappings) {
+    const key = sourceConceptKey(m)
+    const id = sourceIds.byKey.get(key)
+    if (id == null || sourceConcepts.has(key)) continue
+    sourceConcepts.set(key, { id, m })
+  }
+
+  if (sourceConcepts.size > 0) {
+    const rows = [...sourceConcepts.values()].map(({ id, m }) => (
+      `(${id}, '${esc(m.sourceConceptName)}', '${esc(m.sourceDomainId || 'Observation')}',`
+      + ` '${esc(m.sourceVocabularyId)}', 'Clinical Observation', NULL,`
+      + ` '${esc(m.sourceConceptCode)}', DATE '1970-01-01', DATE '2099-12-31', NULL)`
+    ))
+    parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
+    parts.push('VALUES')
+    parts.push(rows.join(',\n') + ';')
+  }
+
+  // 2f. source_to_concept_map already carries these ids (PART 1 writes them), so
+  // there is nothing left to back-fill here.
 
   // 2g. Vocabulary concepts for custom source vocabularies
   parts.push('')
@@ -413,7 +441,7 @@ export function buildVocabularyScript(
     parts.push(skipped('concept_synonym', vs))
   }
 
-  return parts.join('\n')
+  return { sql: parts.join('\n'), idsToPersist: sourceIds.toPersist }
 }
 
 /** Comment standing in for a part the vocabulary reference cannot satisfy. */
