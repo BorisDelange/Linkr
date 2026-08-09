@@ -17,6 +17,7 @@ import {
   AlertCircle,
   MinusCircle,
   Square,
+  GitCommitVertical,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -371,6 +372,16 @@ function EtlFileTreeItem({
               </>
             )}
             <span ref={nameRef} className="truncate">{file.name}</span>
+            {/* Same marker as the IDE (FileTreeItem): shown on every file git
+                will commit, whether that is a script by default or a data file
+                the user marked. */}
+            {!isFolder && versioned && (
+              <GitCommitVertical
+                size={11}
+                className="shrink-0 text-primary"
+                aria-label={t('datasets.versioned_badge')}
+              />
+            )}
             {/* Where the run is: the tree is where the scripts are listed, so the
                 status belongs here and not only in the Pipeline tab's DAG. */}
             <ScriptRunStatus fileId={file.id} />
@@ -391,11 +402,13 @@ function EtlFileTreeItem({
           {!isFolder && (
             <>
               <ContextMenuSeparator />
-              {/* Data files are gitignored by default, code files versioned by
-                  default; this is the per-file exception either way. */}
+              {/* Same wording, icon and badge as the project IDE — the marking
+                  means the same thing, so it must not look like a different
+                  feature. Data files are gitignored by default and code files
+                  versioned by default; this is the per-file exception either way. */}
               <ContextMenuItem onClick={handleToggleVersioned} disabled={!canWrite}>
-                {versioned ? <Check size={14} /> : <span className="w-3.5" />}
-                {t('etl.version_this_file')}
+                <GitCommitVertical size={14} />
+                {versioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned')}
               </ContextMenuItem>
             </>
           )}

@@ -3057,7 +3057,6 @@
     "rename": "Renommer",
     "name_exists": "« {{name}} » existe déjà ici.",
     "delete_file": "Supprimer",
-    "version_this_file": "Versionner ce fichier",
     "no_files": "Aucun script. Cliquez sur + pour en créer un.",
     "run_file": "Exécuter le fichier courant",
     "run_selection": "Exécuter la sélection",

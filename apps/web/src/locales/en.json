@@ -3057,7 +3057,6 @@
     "rename": "Rename",
     "name_exists": "\"{{name}}\" already exists here.",
     "delete_file": "Delete",
-    "version_this_file": "Version this file",
     "no_files": "No scripts yet. Click + to create one.",
     "run_file": "Run current file",
     "run_selection": "Run selection",
