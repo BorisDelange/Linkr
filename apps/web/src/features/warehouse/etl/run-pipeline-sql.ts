@@ -27,8 +27,9 @@ function isManaged(ds: DataSource | undefined): boolean {
  */
 export interface RunOptions {
   /** Reports statements finished / total, so a long script shows progress
-   *  instead of an opaque "running". */
-  onProgress?: (done: number, total: number) => void
+   *  instead of an opaque "running". `next` is the statement about to run, so the
+   *  counter can name what it is waiting on. */
+  onProgress?: (done: number, total: number, next?: string) => void
   /** Stops between statements when the user hits Stop. A statement already in
    *  flight runs to completion — DuckDB has no mid-query cancellation here. */
   signal?: AbortSignal
@@ -52,8 +53,11 @@ export async function runPipelineSql(
   let last: Record<string, unknown>[] = []
   for (const [i, stmt] of statements.entries()) {
     if (signal?.aborted) break
+    // Reported before running, so the label names the statement being waited on
+    // rather than the one that just finished.
+    onProgress?.(i, total, stmt)
     last = await run(stmt)
-    onProgress?.(i + 1, total)
+    onProgress?.(i + 1, total, statements[i + 1])
   }
   return last
 }

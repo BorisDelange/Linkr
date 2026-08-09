@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEtlStore } from '@/stores/etl-store'
 import type { EtlFile } from '@/types'
 
@@ -44,12 +45,24 @@ export function RunProgressBar({ files }: Props) {
         </span>
         {current && <span className="truncate font-medium">{current.name}</span>}
         {log?.statementsTotal != null && log.statementsTotal > 1 && (
-          <span className="shrink-0 tabular-nums text-muted-foreground">
-            · {t('etl.run_statement_progress', {
-              done: log.statementsDone ?? 0,
-              total: log.statementsTotal,
-            })}
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="shrink-0 cursor-default tabular-nums text-muted-foreground">
+                · {t('etl.run_statement_progress', {
+                  done: log.statementsDone ?? 0,
+                  total: log.statementsTotal,
+                })}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[420px]">
+              <span className="font-mono text-[10px] leading-relaxed">
+                {statementPreview(log.currentStatement) ?? t('etl.run_statement_progress', {
+                  done: log.statementsDone ?? 0,
+                  total: log.statementsTotal,
+                })}
+              </span>
+            </TooltipContent>
+          </Tooltip>
         )}
         {elapsed && (
           <span className="shrink-0 tabular-nums text-muted-foreground">· {elapsed}</span>
@@ -65,6 +78,23 @@ export function RunProgressBar({ files }: Props) {
       </div>
     </div>
   )
+}
+
+/**
+ * Opening of the statement being waited on, for the counter's tooltip. Comments
+ * are dropped and whitespace collapsed: a generated script often starts a
+ * statement with several comment lines, which would fill the tooltip with nothing.
+ */
+export function statementPreview(sql: string | undefined, max = 220): string | null {
+  if (!sql) return null
+  const code = sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!code) return null
+  return code.length > max ? `${code.slice(0, max)}…` : code
 }
 
 /** Ticking "1m 04s" since `startedAt`, while a run is in progress. */

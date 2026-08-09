@@ -838,6 +838,8 @@ export interface EtlRunLog {
    *  say whether it is progressing. */
   statementsDone?: number
   statementsTotal?: number
+  /** Opening of the statement in flight, so the counter can say which one. */
+  currentStatement?: string
 }
 
 export interface EtlColumnProfile {

@@ -79,12 +79,13 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
         const resolvedSql = resolveRolePrefixes(file.content, roleSchemasFor(dsId))
         const rows = await runPipelineSql(pipeline, dsId, resolvedSql, {
           signal: abort?.signal,
-          onProgress: (done, total) => {
+          onProgress: (done, total, next) => {
             log(file.id, {
               status: 'running',
               startedAt: new Date(start).toISOString(),
               statementsDone: done,
               statementsTotal: total,
+              currentStatement: next,
             })
           },
         })
@@ -158,7 +159,9 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
       const resolved = resolveRolePrefixes(sql, roleSchemasFor(dataSourceId))
       const rows = await runPipelineSql(pipeline, dataSourceId, resolved, {
         signal: abort?.signal,
-        onProgress: (done, total) => log({ statementsDone: done, statementsTotal: total }),
+        onProgress: (done, total, next) => log({
+          statementsDone: done, statementsTotal: total, currentStatement: next,
+        }),
       })
       const durationMs = Date.now() - start
       log({
