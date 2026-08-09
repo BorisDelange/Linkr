@@ -355,8 +355,10 @@ function NodeDetailSidebar({ info, onViewCode }: { info: NodeInfo | null; onView
           {log && <RunStatusIcon status={log.status} />}
         </div>
       </div>
-      <ScrollArea className="flex-1">
-        <div className="space-y-3 p-3 text-xs">
+      {/* The viewport must be allowed to be narrower than its content, or a long
+          unbreakable line pushes the whole pane past the edge of the screen. */}
+      <ScrollArea className="min-w-0 flex-1 [&>[data-slot=scroll-area-viewport]]:min-w-0">
+        <div className="min-w-0 space-y-3 p-3 text-xs">
           <DetailRow label={t('etl.pipeline_script_order')} value={String(file.order)} />
           <DetailRow label={t('etl.pipeline_script_lang')} value={file.language ?? 'sql'} />
 
@@ -373,14 +375,18 @@ function NodeDetailSidebar({ info, onViewCode }: { info: NodeInfo | null; onView
                 <DetailRow label={t('etl.pipeline_run_rows')} value={log.rowsAffected.toLocaleString()} />
               )}
               {log.error && (
-                <div className="rounded-md bg-red-500/10 p-2 text-red-600 dark:text-red-400">
+                <div className="min-w-0 rounded-md bg-red-500/10 p-2 text-red-600 dark:text-red-400">
                   <p className="text-[10px] font-medium">{t('etl.status_error')}</p>
-                  <p className="mt-0.5 font-mono text-[10px]">{log.error}</p>
+                  {/* A SQL error is one long unbroken string with no spaces to
+                      wrap at, so it widened the pane instead of fitting in it. */}
+                  <p className="mt-0.5 break-all font-mono text-[10px] whitespace-pre-wrap">
+                    {log.error}
+                  </p>
                 </div>
               )}
               {log.output && !log.error && (
-                <div className="rounded-md bg-muted p-2">
-                  <p className="text-[10px] text-muted-foreground">{log.output}</p>
+                <div className="min-w-0 rounded-md bg-muted p-2">
+                  <p className="break-all text-[10px] text-muted-foreground">{log.output}</p>
                 </div>
               )}
             </div>
@@ -404,7 +410,9 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-2">
       <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="text-right">{value}</span>
+      {/* min-w-0 + break-words: a long value (a path, a schema name) would
+          otherwise set the row's width and widen the whole sidebar. */}
+      <span className="min-w-0 break-words text-right">{value}</span>
     </div>
   )
 }
@@ -1489,9 +1497,14 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
                     )
                   })}
                   {run.scripts.some((s) => s.error) && (
-                    <div className="mt-2 rounded bg-red-500/10 p-2">
+                    <div className="mt-2 min-w-0 rounded bg-red-500/10 p-2">
                       {run.scripts.filter((s) => s.error).map((s) => (
-                        <p key={s.id} className="font-mono text-[10px] text-red-600 dark:text-red-400">{s.error}</p>
+                        <p
+                          key={s.id}
+                          className="break-all font-mono text-[10px] whitespace-pre-wrap text-red-600 dark:text-red-400"
+                        >
+                          {s.error}
+                        </p>
                       ))}
                     </div>
                   )}
