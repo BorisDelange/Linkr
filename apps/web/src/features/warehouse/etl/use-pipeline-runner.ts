@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
-import { runPipelineSql } from './run-pipeline-sql'
+import { RunAbortedError, runPipelineSql } from './run-pipeline-sql'
 import { useRoleSchemas } from './use-role-schemas'
 import type { EtlFile, EtlPipeline } from '@/types'
 
@@ -99,6 +99,9 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
           output: `${rows.length} row${rows.length !== 1 ? 's' : ''} in ${durationMs}ms`,
         })
       } catch (err) {
+        // A stop is not a failure: stopPipelineRun already relabels the script
+        // in flight as "stopped", so leave that status alone and just end the run.
+        if (err instanceof RunAbortedError) break
         hasError = true
         log(file.id, {
           status: 'error',
@@ -174,6 +177,9 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
       useEtlStore.getState().finishPipelineRun('success')
       return rows
     } catch (err) {
+      // A stop leaves the "stopped" status stopPipelineRun already set, but still
+      // propagates: the caller must not treat the partial rows as a result.
+      if (err instanceof RunAbortedError) throw err
       log({
         status: 'error',
         completedAt: new Date().toISOString(),

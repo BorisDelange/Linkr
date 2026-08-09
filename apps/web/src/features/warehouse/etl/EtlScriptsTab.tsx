@@ -68,6 +68,7 @@ import { useEtlStore, type EtlOutputTab, type EtlExecutionResult } from '@/store
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useRoleSchemas } from './use-role-schemas'
 import { usePipelineRunner } from './use-pipeline-runner'
+import { RunAbortedError } from './run-pipeline-sql'
 import { RunProgressBar } from './RunProgressBar'
 import { compareByRole } from './role-presentation'
 import { PipelineDbPicker } from './PipelineDbPicker'
@@ -328,8 +329,12 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
           language: 'sql',
           timestamp: start,
           duration,
+          // A stop is reported as such rather than as a SQL failure, and never
+          // opens a Result tab: the rows of a half-run script are not the answer.
           success: false,
-          output: err instanceof Error ? err.message : String(err),
+          output: err instanceof RunAbortedError
+            ? t('etl.run_stopped')
+            : err instanceof Error ? err.message : String(err),
           code: sql,
         })
       }

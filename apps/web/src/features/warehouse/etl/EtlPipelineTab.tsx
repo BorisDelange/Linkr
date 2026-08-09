@@ -85,6 +85,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { usePipelineRunner } from './use-pipeline-runner'
+import { RunProgressBar } from './RunProgressBar'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
@@ -192,12 +193,10 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
             {sqlFiles.filter((f) => !f.disabled).length}/{sqlFiles.length} {t('etl.pipeline_scripts_count')}
           </span>
 
-          {pipelineRunning && (
-            <span className="flex items-center gap-1 text-xs text-blue-500">
-              <Loader2 size={12} className="animate-spin" />
-              {t('etl.status_running')}
-            </span>
-          )}
+          {/* Replaces a bare "Running…": which script, how far through the set and
+              how long it has been going — the same readout as the Scripts tab. */}
+          <RunProgressBar files={sqlFiles} />
+
 
           <div className="ml-auto flex items-center gap-1">
             <Button

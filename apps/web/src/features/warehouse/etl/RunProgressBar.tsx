@@ -49,7 +49,7 @@ export function RunProgressBar({ files }: Props) {
             <TooltipTrigger asChild>
               <span className="shrink-0 cursor-default tabular-nums text-muted-foreground">
                 · {t('etl.run_statement_progress', {
-                  done: log.statementsDone ?? 0,
+                  done: currentStatementNumber(log),
                   total: log.statementsTotal,
                 })}
               </span>
@@ -57,7 +57,7 @@ export function RunProgressBar({ files }: Props) {
             <TooltipContent side="bottom" className="max-w-[420px]">
               <span className="font-mono text-[10px] leading-relaxed">
                 {statementPreview(log.currentStatement) ?? t('etl.run_statement_progress', {
-                  done: log.statementsDone ?? 0,
+                  done: currentStatementNumber(log),
                   total: log.statementsTotal,
                 })}
               </span>
@@ -78,6 +78,20 @@ export function RunProgressBar({ files }: Props) {
       </div>
     </div>
   )
+}
+
+/**
+ * Rank of the statement currently running, 1-based.
+ *
+ * `statementsDone` counts the ones that FINISHED, so while statement 2 is in
+ * flight it holds 1 — the counter read "query 1/26" while its own tooltip showed
+ * statement 2. Naming the statement being waited on matches the tooltip, and is
+ * what "query n/m" is taken to mean.
+ */
+function currentStatementNumber(log: { statementsDone?: number; statementsTotal?: number }): number {
+  const done = log.statementsDone ?? 0
+  const total = log.statementsTotal ?? 0
+  return Math.min(done + 1, total)
 }
 
 /**

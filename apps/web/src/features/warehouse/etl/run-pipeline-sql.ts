@@ -35,6 +35,14 @@ export interface RunOptions {
   signal?: AbortSignal
 }
 
+/** Thrown when a run is stopped, so callers can tell it from a completed one. */
+export class RunAbortedError extends Error {
+  constructor() {
+    super('Run stopped')
+    this.name = 'RunAbortedError'
+  }
+}
+
 export async function runPipelineSql(
   pipeline: EtlPipeline | undefined,
   dataSourceId: string,
@@ -52,13 +60,19 @@ export async function runPipelineSql(
 
   let last: Record<string, unknown>[] = []
   for (const [i, stmt] of statements.entries()) {
-    if (signal?.aborted) break
+    // Raise rather than return: a stopped run has no result, and returning the
+    // rows of the statements that did run made the caller post them as the
+    // script's output — a half-executed script looking like a successful one.
+    if (signal?.aborted) throw new RunAbortedError()
     // Reported before running, so the label names the statement being waited on
     // rather than the one that just finished.
     onProgress?.(i, total, stmt)
     last = await run(stmt)
     onProgress?.(i + 1, total, statements[i + 1])
   }
+  // The last statement may have finished after Stop was pressed; it still counts
+  // as stopped, since the user asked for no further output.
+  if (signal?.aborted) throw new RunAbortedError()
   return last
 }
 
