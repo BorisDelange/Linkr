@@ -41,6 +41,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { compareEtlFilesByName } from './etl-file-language'
 import type { EtlFile } from '@/types'
 
 const LANGUAGE_COLORS: Record<string, string> = {
@@ -101,9 +102,11 @@ export function EtlFileTree() {
       (f) => f.parentId === parentId && f.id !== exceptId && f.name.toLowerCase() === name.toLowerCase(),
     )
 
+  // By name, not by `order`: order is the Pipeline tab's execution sequence, and
+  // using it here listed 35_… before 10_… simply because it was created first.
   const rootFiles = files.filter((f) => f.parentId === null)
   const getChildren = (parentId: string) =>
-    files.filter((f) => f.parentId === parentId).sort((a, b) => a.order - b.order)
+    files.filter((f) => f.parentId === parentId).sort(compareEtlFilesByName)
 
   if (files.length === 0) {
     return (
@@ -118,7 +121,7 @@ export function EtlFileTree() {
     <>
       <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="py-1">
-          {rootFiles.sort((a, b) => a.order - b.order).map((file) => (
+          {[...rootFiles].sort(compareEtlFilesByName).map((file) => (
             <EtlFileTreeItem
               key={file.id}
               file={file}

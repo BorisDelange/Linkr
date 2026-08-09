@@ -11,6 +11,12 @@
  * reuses the shared git-clone-to-ZIP path (see components/ui/import-source-dialog).
  */
 
+import { naturalCompare } from '@/lib/format-helpers'
+
+// Re-exported: this module was its original home, and it is part of the API
+// callers here already import.
+export { naturalCompare }
+
 /** Where the concept sets of a dictionary live, by convention. */
 export const CONCEPT_SETS_DIR = 'concept_sets'
 
@@ -75,13 +81,7 @@ export function pickConceptSetEntries(paths: string[], only?: string | null): st
   return (inConceptSets.length > 0 ? inConceptSets : jsons).sort(naturalCompare)
 }
 
-/**
- * Sort so `2.json` precedes `10.json` — dictionary files are numbered, and a
- * plain string sort scrambles them.
- */
-export function naturalCompare(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
-}
+
 
 /** Repo name from a clone URL, for labelling the import batch. */
 export function repoLabelOf(url: string): string {

@@ -164,3 +164,11 @@ export function isSafeIdentifier(name: string): boolean {
 export function validateIntegerIds(ids: number[]): boolean {
   return ids.every((id) => Number.isFinite(id) && Number.isInteger(id))
 }
+
+/**
+ * Sort so `2_x` precedes `10_x` — script and dictionary files are numbered, and
+ * a plain string sort scrambles them (`10` before `2`).
+ */
+export function naturalCompare(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+}

@@ -1,3 +1,4 @@
+import { naturalCompare } from '@/lib/format-helpers'
 import type { EtlFile } from '@/types'
 
 /** Language of an ETL file from its name, or undefined when nothing fits. */
@@ -43,4 +44,23 @@ export function uniqueEtlFileName(name: string, existing: Iterable<string>): str
     const candidate = `${stem}-${i}${ext}`
     if (!taken.has(candidate.toLowerCase())) return candidate
   }
+}
+
+/**
+ * Display order for the Scripts explorer: folders first, then by name.
+ *
+ * Natural comparison, so the numeric prefixes a pipeline conventionally uses
+ * (`00_`, `10_`, `35_`) read in their intended order — a plain string sort puts
+ * `10_` before `2_`.
+ *
+ * This is DISPLAY order only. The Pipeline tab keeps sorting by `order`, which
+ * is the user's own execution sequence: the two are deliberately independent, so
+ * renaming a script cannot silently change what runs when.
+ */
+export function compareEtlFilesByName(
+  a: Pick<EtlFile, 'name' | 'type'>,
+  b: Pick<EtlFile, 'name' | 'type'>,
+): number {
+  if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
+  return naturalCompare(a.name, b.name)
 }
