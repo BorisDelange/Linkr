@@ -87,10 +87,18 @@ export function RunProgressBar({ files }: Props) {
  * flight it holds 1 — the counter read "query 1/26" while its own tooltip showed
  * statement 2. Naming the statement being waited on matches the tooltip, and is
  * what "query n/m" is taken to mean.
+ *
+ * Once nothing is pending (`currentStatement` cleared) the count is already
+ * final: adding one would overshoot the total on the last report.
  */
-function currentStatementNumber(log: { statementsDone?: number; statementsTotal?: number }): number {
+export function currentStatementNumber(log: {
+  statementsDone?: number
+  statementsTotal?: number
+  currentStatement?: string
+}): number {
   const done = log.statementsDone ?? 0
   const total = log.statementsTotal ?? 0
+  if (!log.currentStatement) return Math.min(done, total)
   return Math.min(done + 1, total)
 }
 

@@ -20,6 +20,7 @@ import {
   ListChecks,
   TextSelect,
   CornerDownLeft,
+  Upload,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -69,6 +70,8 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useRoleSchemas } from './use-role-schemas'
 import { usePipelineRunner } from './use-pipeline-runner'
 import { RunAbortedError } from './run-pipeline-sql'
+import { EtlUploadDialog } from './EtlUploadDialog'
+import { inferEtlLanguage } from './etl-file-language'
 import { RunProgressBar } from './RunProgressBar'
 import { compareByRole } from './role-presentation'
 import { PipelineDbPicker } from './PipelineDbPicker'
@@ -157,6 +160,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   const [explorerVisible, setExplorerVisible] = useState(true)
   const [editorVisible, setEditorVisible] = useState(true)
   const [createFileOpen, setCreateFileOpen] = useState(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [newFileName, setNewFileName] = useState('')
   const [newFileType, setNewFileType] = useState('sql')
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
@@ -244,21 +248,10 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     ensurePipelineDbsMounted()
   }, [ensurePipelineDbsMounted])
 
-  // Infer language from file name
-  const inferLanguage = (name: string): 'sql' | 'python' | 'r' | 'markdown' | undefined => {
-    const ext = name.split('.').pop()?.toLowerCase()
-    if (ext === 'sql') return 'sql'
-    if (ext === 'py') return 'python'
-    // .Rmd stays R (it is an R notebook), so it must be tested before plain .md.
-    if (ext === 'r' || ext === 'rmd') return 'r'
-    if (ext === 'md') return 'markdown'
-    return undefined
-  }
-
   const editorLanguage = useMemo(() => {
     if (!selectedFile) return 'plaintext'
     if (selectedFile.language) return selectedFile.language
-    return inferLanguage(selectedFile.name) ?? 'plaintext'
+    return inferEtlLanguage(selectedFile.name) ?? 'plaintext'
   }, [selectedFile])
 
   // Create new file
@@ -268,7 +261,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     const selectedType = ETL_FILE_TYPES.find((ft) => ft.id === newFileType) ?? ETL_FILE_TYPES[0]
     // Auto-add extension if the name doesn't already have one
     if (!name.includes('.')) name = `${name}${selectedType.ext}`
-    const lang = inferLanguage(name) ?? selectedType.lang
+    const lang = inferEtlLanguage(name) ?? selectedType.lang
     const now = new Date().toISOString()
     const file: EtlFile = {
       id: crypto.randomUUID(),
@@ -458,6 +451,14 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{t('etl.new_file')}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={() => setUploadOpen(true)}>
+                        <Upload size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('etl.upload_files')}</TooltipContent>
                   </Tooltip>
                 </div>
                 <Tooltip>
@@ -919,6 +920,12 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
       </div>
 
       {/* Create file dialog */}
+      <EtlUploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        pipelineId={pipelineId}
+      />
+
       <Dialog open={createFileOpen} onOpenChange={setCreateFileOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>

@@ -108,12 +108,16 @@ async function runStatements(
     // rows of the statements that did run made the caller post them as the
     // script's output — a half-executed script looking like a successful one.
     if (signal?.aborted) throw new RunAbortedError()
-    // Reported before running, so the label names the statement being waited on
-    // rather than the one that just finished.
+    // One report per statement, before it runs: `done` and `next` then always
+    // describe the SAME statement — the one being waited on. Reporting again
+    // afterwards made them disagree (done=i+1 with the text of statement i+1,
+    // which the display reads as statement i+2), so the tooltip appeared to lag
+    // the counter by one.
     onProgress?.(i, total, stmt)
     last = await run(stmt)
-    onProgress?.(i + 1, total, statements[i + 1])
   }
+  // Completion, with no statement pending.
+  onProgress?.(total, total, undefined)
   // The last statement may have finished after Stop was pressed; it still counts
   // as stopped, since the user asked for no further output.
   if (signal?.aborted) throw new RunAbortedError()
