@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Activity,
@@ -13,13 +13,6 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
   ConceptDataTable,
@@ -27,14 +20,12 @@ import {
   type ConceptColumn,
 } from '@/components/ui/concept-data-table'
 import { cn } from '@/lib/utils'
-import { localized } from '@/lib/localized'
 import { isServerMode } from '@/lib/api-client'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { validateIntegerIds } from '@/lib/format-helpers'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import {
   classifyDiff,
   CLINICAL_TABLES,
@@ -60,8 +51,8 @@ interface Props {
  * against what came out mapped to a standard one.
  */
 export function EtlQualityTab({ pipelineId }: Props) {
-  const { t, i18n } = useTranslation()
-  const { etlPipelines, updatePipeline } = useEtlStore()
+  const { t } = useTranslation()
+  const { etlPipelines } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const [activeTab, setActiveTab] = useState<QualityTab>('statistics')
 
@@ -69,28 +60,9 @@ export function EtlQualityTab({ pipelineId }: Props) {
   const sourceDs = dataSources.find((ds) => ds.id === pipeline?.sourceDataSourceId)
   const targetDs = dataSources.find((ds) => ds.id === pipeline?.targetDataSourceId)
 
-  const { mappingProjects, mappingProjectsLoaded, loadMappingProjects } = useConceptMappingStore()
-  useEffect(() => {
-    if (!mappingProjectsLoaded) loadMappingProjects()
-  }, [mappingProjectsLoaded, loadMappingProjects])
-
-  const workspaceId = pipeline?.workspaceId
-  const availableProjects = useMemo(
-    () => mappingProjects.filter((p) => !workspaceId || p.workspaceId === workspaceId),
-    [mappingProjects, workspaceId],
-  )
-
-  const mappingProjectId = pipeline?.mappingProjectId
-  const setMappingProjectId = useCallback((id: string) => {
-    if (pipeline) updatePipeline(pipeline.id, { mappingProjectId: id || undefined })
-  }, [pipeline, updatePipeline])
-
-  useEffect(() => {
-    if (!mappingProjectId && availableProjects.length > 0) {
-      setMappingProjectId(availableProjects[0].id)
-    }
-  }, [mappingProjectId, availableProjects, setMappingProjectId])
-
+  // No mapping-project picker here: a pipeline has ONE mapping project, chosen in
+  // the Vocabulary tab. A second control for the same field invited the two views
+  // to disagree about which dictionary the check was against.
   if (!sourceDs && !targetDs) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -117,23 +89,6 @@ export function EtlQualityTab({ pipelineId }: Props) {
               {t(`etl.comparison_tab_${tab}`)}
             </button>
           ))}
-
-          {activeTab === 'concepts' && availableProjects.length > 0 && (
-            <div className="ml-auto">
-              <Select value={mappingProjectId ?? ''} onValueChange={setMappingProjectId}>
-                <SelectTrigger className="h-6 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
-                  <SelectValue placeholder={t('etl.vocab_select_project')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableProjects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {localized(p.name, i18n.language)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
         </div>
 
         <div className="min-h-0 min-w-0 flex-1">
@@ -243,6 +198,19 @@ function StatsColumn({
         </div>
       )}
 
+      {/* Without this the card was a bare "Source — MIMIC-IV" and nothing else,
+          which reads as a rendering fault rather than "not computed". Server mode
+          never auto-counts, and a database with no data model has nothing to count. */}
+      {!loading && !stats && (
+        <p className="py-1 text-[11px] text-muted-foreground">
+          {isServerMode()
+            ? t('etl.quality_stats_server')
+            : ds.schemaMapping
+              ? t('etl.quality_stats_unavailable')
+              : t('etl.quality_stats_no_model')}
+        </p>
+      )}
+
       {stats && (
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-2">
@@ -285,31 +253,48 @@ function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number;
 // Concepts — per-concept source vs target counts
 // ---------------------------------------------------------------------------
 
+/**
+ * Rows already computed, per target database.
+ *
+ * Module-level rather than component state: switching tabs unmounts this view,
+ * and re-running a dozen COUNT queries every time is both slow and a silent
+ * reset of whatever the user had filtered. Refresh re-reads deliberately.
+ */
+const conceptRowsCache = new Map<string, QualityConceptRow[]>()
+
 function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) {
-  const { t } = useTranslation()
-  const [rows, setRows] = useState<QualityConceptRow[]>([])
+  const { t, i18n } = useTranslation()
+  const language = i18n.language
+  // `t` through a ref: the column array must not be rebuilt on every render (see
+  // the memo below), but it must still translate with the current language.
+  const tRef = useRef(t)
+  tRef.current = t
+  const targetId = targetDs?.id
+  const [rows, setRows] = useState<QualityConceptRow[]>(
+    () => (targetId ? conceptRowsCache.get(targetId) ?? [] : []),
+  )
   const [loading, setLoading] = useState(false)
   const [diffFilter, setDiffFilter] = useState<QualityDiff | null>(null)
-  const [reloadKey, setReloadKey] = useState(0)
 
-  useEffect(() => {
-    if (!targetDs?.id) return
-    let cancelled = false
-    setLoading(true)
-
-    const load = async () => {
-      try {
-        const loaded = await loadConceptQuality(targetDs.id)
-        if (!cancelled) setRows(loaded)
-      } catch {
-        if (!cancelled) setRows([])
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+  const load = useCallback(async (force: boolean) => {
+    if (!targetId) return
+    if (!force && conceptRowsCache.has(targetId)) {
+      setRows(conceptRowsCache.get(targetId) ?? [])
+      return
     }
-    void load()
-    return () => { cancelled = true }
-  }, [targetDs?.id, reloadKey])
+    setLoading(true)
+    try {
+      const loaded = await loadConceptQuality(targetId)
+      conceptRowsCache.set(targetId, loaded)
+      setRows(loaded)
+    } catch {
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }, [targetId])
+
+  useEffect(() => { void load(false) }, [load])
 
   const counts = useMemo(() => countByDiff(rows), [rows])
   const shown = useMemo(
@@ -320,31 +305,37 @@ function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) 
   const columns = useMemo((): ConceptColumn<QualityConceptRow>[] => [
     {
       id: 'diff',
-      header: t('etl.comparison_status'),
+      header: tRef.current('etl.comparison_status'),
       accessor: (r) => r.diff,
       cell: (r) => <DiffBadge diff={r.diff} />,
       filter: 'select',
-      selectOptionLabel: (v) => t(`etl.comparison_${v}`, { defaultValue: v }),
+      selectOptionLabel: (v) => tRef.current(`etl.comparison_${v}`, { defaultValue: v }),
       size: 90,
       center: true,
     },
-    { id: 'sourceVocabularyId', header: t('etl.comparison_source_vocab'), accessor: (r) => r.sourceVocabularyId, filter: 'select', size: 150 },
-    { id: 'sourceCode', header: t('etl.comparison_source_code'), accessor: (r) => r.sourceCode, filter: 'text', size: 120 },
+    { id: 'sourceVocabularyId', header: tRef.current('etl.comparison_source_vocab'), accessor: (r) => r.sourceVocabularyId, filter: 'select', size: 150 },
+    { id: 'sourceCode', header: tRef.current('etl.comparison_source_code'), accessor: (r) => r.sourceCode, filter: 'text', size: 120 },
     {
       id: 'sourceDescription',
-      header: t('etl.comparison_description'),
+      header: tRef.current('etl.comparison_description'),
       accessor: (r) => r.sourceDescription,
       cell: (r) => <TruncatedText>{r.sourceDescription}</TruncatedText>,
       filter: 'text',
       size: 260,
     },
-    { id: 'sourcePatients', header: t('etl.comparison_source_patients'), accessor: (r) => r.sourcePatients, cell: (r) => num(r.sourcePatients), filter: 'number', size: 110 },
-    { id: 'sourceRows', header: t('etl.comparison_source_rows'), accessor: (r) => r.sourceRows, cell: (r) => num(r.sourceRows), filter: 'number', size: 110 },
-    { id: 'targetConceptId', header: t('etl.comparison_target_id'), accessor: (r) => r.targetConceptId, filter: 'number', size: 130 },
-    { id: 'targetVocabularyId', header: t('etl.comparison_target_vocab'), accessor: (r) => r.targetVocabularyId, filter: 'select', size: 130 },
-    { id: 'targetPatients', header: t('etl.comparison_target_patients'), accessor: (r) => r.targetPatients, cell: (r) => num(r.targetPatients), filter: 'number', size: 110 },
-    { id: 'targetRows', header: t('etl.comparison_target_rows'), accessor: (r) => r.targetRows, cell: (r) => num(r.targetRows), filter: 'number', size: 110 },
-  ], [t])
+    { id: 'sourcePatients', header: tRef.current('etl.comparison_source_patients'), accessor: (r) => r.sourcePatients, cell: (r) => num(r.sourcePatients), filter: 'number', size: 110 },
+    { id: 'sourceRows', header: tRef.current('etl.comparison_source_rows'), accessor: (r) => r.sourceRows, cell: (r) => num(r.sourceRows), filter: 'number', size: 110 },
+    { id: 'targetConceptId', header: tRef.current('etl.comparison_target_id'), accessor: (r) => r.targetConceptId, filter: 'number', size: 130 },
+    { id: 'targetVocabularyId', header: tRef.current('etl.comparison_target_vocab'), accessor: (r) => r.targetVocabularyId, filter: 'select', size: 130 },
+    { id: 'targetPatients', header: tRef.current('etl.comparison_target_patients'), accessor: (r) => r.targetPatients, cell: (r) => num(r.targetPatients), filter: 'number', size: 110 },
+    { id: 'targetRows', header: tRef.current('etl.comparison_target_rows'), accessor: (r) => r.targetRows, cell: (r) => num(r.targetRows), filter: 'number', size: 110 },
+    // Keyed on the LANGUAGE, not on `t`: useTranslation returns a new `t` on every
+    // render, so depending on it rebuilt this array each time — invalidating the
+    // table's own memos and re-sorting all 1394 rows per render. That is what made
+    // clicking a column header slow. `t` is read through a ref so the array stays
+    // stable while still producing current translations.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [language])
 
   if (loading) {
     return (
@@ -359,7 +350,7 @@ function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) 
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
         <p className="text-sm text-muted-foreground">{t('etl.comparison_no_mappings')}</p>
-        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => setReloadKey((k) => k + 1)}>
+        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => void load(true)}>
           <RefreshCw size={12} />
           {t('common.refresh')}
         </Button>
@@ -401,7 +392,7 @@ function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) 
           variant="ghost"
           size="icon-xs"
           className="ml-auto"
-          onClick={() => setReloadKey((k) => k + 1)}
+          onClick={() => void load(true)}
           title={t('common.refresh')}
         >
           <RefreshCw size={12} />
