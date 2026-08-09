@@ -140,7 +140,12 @@ export function humanBytes(n: number | undefined): string {
   if (n == null) return ''
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
+  // A tenth of a MB is a meaningful difference; a tenth of a GB is not, so the
+  // larger unit keeps a decimal only below 10.
+  const mb = n / 1024 / 1024
+  if (mb < 1024) return `${mb.toFixed(1)} MB`
+  const gb = mb / 1024
+  return `${gb < 10 ? gb.toFixed(1) : gb.toFixed(0)} GB`
 }
 
 // ---------------------------------------------------------------------------

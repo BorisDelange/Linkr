@@ -1466,7 +1466,9 @@
     "close_all": "Close all",
     "close_others": "Close others",
     "save": "Save",
-    "root_folder": "scripts (root)"
+    "root_folder": "scripts (root)",
+    "column_name": "Name",
+    "column_size": "Size"
   },
   "pipeline": {
     "title": "Pipeline",

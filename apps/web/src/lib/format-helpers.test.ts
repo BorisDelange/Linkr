@@ -143,6 +143,14 @@ describe('humanBytes', () => {
     expect(humanBytes(64_500_000)).toBe('61.5 MB')
   })
 
+  it('uses GB past a gigabyte, so a big export does not read as 5000 MB', () => {
+    expect(humanBytes(2.5 * 1024 ** 3)).toBe('2.5 GB')
+  })
+
+  it('drops the decimal on large GB values, where a tenth means nothing', () => {
+    expect(humanBytes(42 * 1024 ** 3)).toBe('42 GB')
+  })
+
   it('returns an empty string when the size is unknown', () => {
     expect(humanBytes(undefined)).toBe('')
   })

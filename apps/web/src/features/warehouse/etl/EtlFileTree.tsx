@@ -42,8 +42,10 @@ import {
 import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { compareEtlFilesByName } from './etl-file-language'
 import { isVersioned, toggleVersioned } from './etl-versioning'
+import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
+import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
+import { humanBytes } from '@/lib/format-helpers'
 import { treeNodePath } from '@/lib/entity-tree'
 import type { EtlFile } from '@/types'
 
@@ -74,6 +76,7 @@ function FileTypeIcon({ file }: { file: EtlFile }) {
 export function EtlFileTree() {
   const { t } = useTranslation()
   const { files, selectedFileId, selectFile, deleteFile, updateFile } = useEtlStore()
+  const [sort, setSort] = useState<FileTreeSort>({ key: 'name', desc: false })
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [deleteConfirmFileId, setDeleteConfirmFileId] = useState<string | null>(null)
 
@@ -105,11 +108,16 @@ export function EtlFileTree() {
       (f) => f.parentId === parentId && f.id !== exceptId && f.name.toLowerCase() === name.toLowerCase(),
     )
 
-  // By name, not by `order`: order is the Pipeline tab's execution sequence, and
-  // using it here listed 35_… before 10_… simply because it was created first.
+  // Not by `order`: that is the Pipeline tab's execution sequence, and using it
+  // here listed 35_… before 10_… simply because it was created first.
+  const compare = (a: EtlFile, b: EtlFile) => compareTreeNodes(
+    { name: a.name, type: a.type, size: contentSize(a.content) },
+    { name: b.name, type: b.type, size: contentSize(b.content) },
+    sort,
+  )
   const rootFiles = files.filter((f) => f.parentId === null)
   const getChildren = (parentId: string) =>
-    files.filter((f) => f.parentId === parentId).sort(compareEtlFilesByName)
+    files.filter((f) => f.parentId === parentId).sort(compare)
 
   if (files.length === 0) {
     return (
@@ -122,9 +130,10 @@ export function EtlFileTree() {
 
   return (
     <>
+      <FileTreeHeader sort={sort} onChange={setSort} />
       <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="py-1">
-          {[...rootFiles].sort(compareEtlFilesByName).map((file) => (
+          {[...rootFiles].sort(compare).map((file) => (
             <EtlFileTreeItem
               key={file.id}
               file={file}
@@ -247,6 +256,7 @@ function EtlFileTreeItem({
   // Versioning is decided by the file's PATH inside the pipeline, which is what
   // the export tree and the .gitignore exceptions key on — not by its id.
   const treePath = filePath(file.id)
+  const size = contentSize(file.content)
   const versioned = isVersioned(treePath, pipelineConfig)
   const handleToggleVersioned = () => {
     if (!pipelineId) return
@@ -385,6 +395,13 @@ function EtlFileTreeItem({
             {/* Where the run is: the tree is where the scripts are listed, so the
                 status belongs here and not only in the Pipeline tab's DAG. */}
             <ScriptRunStatus fileId={file.id} />
+            {/* Discreet, and last: the size answers "which file is the big one"
+                without competing with the name for attention. */}
+            {!isFolder && size != null && (
+              <span className="ml-auto shrink-0 pl-1 text-[10px] tabular-nums text-muted-foreground/60">
+                {humanBytes(size)}
+              </span>
+            )}
           </button>
           </TooltipTrigger>
         </ContextMenuTrigger>
