@@ -118,12 +118,18 @@ export function capitalize(s: string): string {
  */
 export function compactCount(n: number): string {
   if (n < 1_000) return String(n)
-  if (n < 1_000_000) {
-    const k = n / 1_000
-    return `${k < 10 ? k.toFixed(1) : Math.round(k)}k`
+  // Decide the unit AFTER rounding, so 999_500 becomes "1.0M" not the wider
+  // "1000k", and 9_999 becomes "10k" not "10.0k" (the .toFixed(1) path was chosen
+  // on the un-rounded 9.999).
+  const scaled = (value: number, suffix: string): string => {
+    const oneDp = Math.round(value * 10) / 10
+    return `${oneDp < 10 ? oneDp.toFixed(1) : Math.round(value)}${suffix}`
   }
-  const m = n / 1_000_000
-  return `${m < 10 ? m.toFixed(1) : Math.round(m)}M`
+  const k = n / 1_000
+  // The printed value is the integer round when ≥10; if that reaches 1000 it
+  // would read "1000k", so promote to millions.
+  if (Math.round(k) < 1_000) return scaled(k, 'k')
+  return scaled(n / 1_000_000, 'M')
 }
 
 /**
@@ -155,6 +161,16 @@ export function escSql(value: string): string {
  */
 export function isSafeIdentifier(name: string): boolean {
   return /^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(name)
+}
+
+/**
+ * Quote an identifier (table/column name) for DuckDB, escaping embedded double
+ * quotes. Use for names that come from a database catalog or an uploaded file,
+ * where `isSafeIdentifier` would reject legitimate names (spaces, dots) — a `"`
+ * in the name is doubled so it cannot break out of the quoting.
+ */
+export function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`
 }
 
 /**

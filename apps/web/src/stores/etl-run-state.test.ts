@@ -89,4 +89,23 @@ describe('ETL run state', () => {
   it('stopping without a run in progress is harmless', () => {
     expect(() => useEtlStore.getState().stopPipelineRun()).not.toThrow()
   })
+
+  it('a late progress callback cannot flip a stopped script back to running', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun()
+    store.setScriptStatus('f1', RUNNING)
+    useEtlStore.getState().stopPipelineRun()
+    expect(useEtlStore.getState().scriptStatuses.get('f1')?.status).toBe('stopped')
+    // The in-flight statement's next progress tick arrives AFTER the stop.
+    useEtlStore.getState().setScriptStatus('f1', RUNNING)
+    expect(useEtlStore.getState().scriptStatuses.get('f1')?.status).toBe('stopped')
+  })
+
+  it('refuses a second run while one is in progress', () => {
+    expect(useEtlStore.getState().startPipelineRun()).toBe(true)
+    const firstAbort = useEtlStore.getState().pipelineRunAbort
+    // A second Run (e.g. from another tab) must not replace the live controller.
+    expect(useEtlStore.getState().startPipelineRun()).toBe(false)
+    expect(useEtlStore.getState().pipelineRunAbort).toBe(firstAbort)
+  })
 })

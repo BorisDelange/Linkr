@@ -116,8 +116,17 @@ describe('compactCount', () => {
     expect(compactCount(33_278_686)).toBe('33M')
   })
 
+  it('rounds up across the unit boundary instead of widening', () => {
+    // Was "1000k" (wider than the number it shortens) — must roll into millions.
+    expect(compactCount(999_500)).toBe('1.0M')
+    expect(compactCount(999_999)).toBe('1.0M')
+    expect(compactCount(999_500_000)).toBe('1000M')
+    // Was "10.0k": the decimal path was chosen on the un-rounded 9.999.
+    expect(compactCount(9_999)).toBe('10k')
+  })
+
   it('stays narrow enough for a sidebar column', () => {
-    for (const n of [0, 999, 1_234, 37_100, 3_860_220, 33_278_686, 999_999_999]) {
+    for (const n of [0, 999, 1_234, 9_999, 37_100, 999_500, 999_999, 3_860_220, 33_278_686, 999_999_999]) {
       expect(compactCount(n).length).toBeLessThanOrEqual(5)
     }
   })

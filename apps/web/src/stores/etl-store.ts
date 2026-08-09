@@ -65,7 +65,8 @@ interface EtlState {
   pipelineRunAbort: AbortController | null
   scriptStatuses: Map<string, EtlRunLog>
   runHistory: { id: string; startedAt: string; completedAt?: string; status: 'running' | 'success' | 'error'; scripts: EtlRunLog[] }[]
-  startPipelineRun: () => void
+  /** Returns false when a run is already in progress (the caller must not proceed). */
+  startPipelineRun: () => boolean
   stopPipelineRun: () => void
   setScriptStatus: (fileId: string, log: EtlRunLog) => void
   finishPipelineRun: (status: 'success' | 'error') => void
@@ -361,6 +362,11 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   runHistory: [],
 
   startPipelineRun: () => {
+    // Re-entrancy guard: the store is shared across tabs, so a Run in the Scripts
+    // tab while the Pipeline tab is mid-run would otherwise replace the live
+    // AbortController — Stop would then only reach the second run and the first
+    // would keep executing against the target with no way to stop it.
+    if (get().pipelineRunning) return false
     const abort = new AbortController()
     const runId = `run-${Date.now()}`
     set((s) => ({
@@ -372,6 +378,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
         ...s.runHistory,
       ].slice(0, 50),
     }))
+    return true
   },
 
   stopPipelineRun: () => {
@@ -409,6 +416,13 @@ export const useEtlStore = create<EtlState>((set, get) => ({
 
   setScriptStatus: (fileId, log) => {
     set((s) => {
+      // A statement already in flight when Stop was pressed keeps running and its
+      // next progress callback would otherwise flip the script back from 'stopped'
+      // to 'running' (stopped → running → stopped flicker). A terminal status wins.
+      const prev = s.scriptStatuses.get(fileId)
+      if (prev && prev.status !== 'running' && log.status === 'running') {
+        return s
+      }
       const newStatuses = new Map(s.scriptStatuses)
       newStatuses.set(fileId, log)
       const history = [...s.runHistory]

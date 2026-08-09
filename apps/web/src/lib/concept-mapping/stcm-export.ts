@@ -77,11 +77,15 @@ export function buildStcmCsv(
 }
 
 /**
- * Quote a CSV field when it contains a separator, a quote or a newline. Concept
- * names routinely contain commas ("Sodium [Moles/volume] in Serum, Plasma").
+ * Quote a CSV field when it needs it. Beyond the usual separator / quote /
+ * newline (concept names routinely contain commas, "Sodium [Moles/volume] in
+ * Serum, Plasma"), also quote a value that starts with a spreadsheet
+ * formula-trigger (`= + - @`, tab, CR) or has leading/trailing whitespace:
+ * quoting is lossless on the DuckDB `read_csv` round-trip, and keeps the field
+ * from being interpreted as a formula if the CSV is opened in Excel.
  */
 export function csvField(value: string | undefined): string {
   const s = value ?? ''
-  if (!/[",\n\r]/.test(s)) return s
+  if (!/[",\n\r]/.test(s) && !/^[=+\-@\t\r]/.test(s) && !/^\s|\s$/.test(s)) return s
   return `"${s.replace(/"/g, '""')}"`
 }

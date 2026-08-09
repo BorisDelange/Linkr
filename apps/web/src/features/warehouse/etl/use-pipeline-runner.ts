@@ -53,7 +53,9 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
   const runScripts = useCallback(async (files: EtlFile[]) => {
     if (!pipeline || files.length === 0) return
     const store = useEtlStore.getState()
-    store.startPipelineRun()
+    // A run is already in flight (possibly started from another tab): don't start
+    // a second one that would orphan the first's AbortController.
+    if (!store.startPipelineRun()) return
     const abort = useEtlStore.getState().pipelineRunAbort
     const { testConnection } = useDataSourceStore.getState()
     const pipelineId = pipeline.id
@@ -157,7 +159,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
   ): Promise<Record<string, unknown>[]> => {
     if (!pipeline) return []
     const store = useEtlStore.getState()
-    store.startPipelineRun()
+    if (!store.startPipelineRun()) return []
     const abort = useEtlStore.getState().pipelineRunAbort
     const pipelineId = pipeline.id
     const start = Date.now()

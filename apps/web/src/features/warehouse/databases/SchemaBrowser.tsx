@@ -30,7 +30,7 @@ import { TypeBadge, mapColumnType } from '@/components/ui/type-badge'
 import { cn } from '@/lib/utils'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { getStorage } from '@/lib/storage'
-import { compactCount } from '@/lib/format-helpers'
+import { compactCount, escSql, quoteIdent } from '@/lib/format-helpers'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 
@@ -272,7 +272,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
     try {
       const colRows = await duckdbEngine.queryDataSource(
         dataSourceId,
-        `SELECT column_name, data_type, ordinal_position FROM information_schema.columns WHERE table_name = '${table}' ORDER BY ordinal_position`,
+        `SELECT column_name, data_type, ordinal_position FROM information_schema.columns WHERE table_name = '${escSql(table)}' ORDER BY ordinal_position`,
       )
       const cols: ColumnInfo[] = colRows.map((r) => ({
         column_name: String(r.column_name),
@@ -283,13 +283,13 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
       let total: number | null = null
       const map: NullCounts = new Map()
       if (withStats) {
-        const countRows = await duckdbEngine.queryDataSource(dataSourceId, `SELECT COUNT(*) as cnt FROM "${table}"`)
+        const countRows = await duckdbEngine.queryDataSource(dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteIdent(table)}`)
         total = Number(countRows[0]?.cnt ?? 0)
 
         // Null + distinct counts per column, in one batched round-trip.
         if (cols.length > 0 && total > 0) {
           const parts = cols.map((c) =>
-            `SELECT '${c.column_name}' as col, COUNT(*) - COUNT("${c.column_name}") as null_count, COUNT(DISTINCT "${c.column_name}") as distinct_count FROM "${table}"`
+            `SELECT '${escSql(c.column_name)}' as col, COUNT(*) - COUNT(${quoteIdent(c.column_name)}) as null_count, COUNT(DISTINCT ${quoteIdent(c.column_name)}) as distinct_count FROM ${quoteIdent(table)}`
           )
           const batchRows = await duckdbEngine.queryDataSource(dataSourceId, parts.join(' UNION ALL '))
           for (const row of batchRows) {
@@ -352,15 +352,23 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
       return
     }
 
+    // Non-null within this effect (guarded above); captured so the closure keeps
+    // the narrowing.
+    const colName = selectedColumn
+    const tableName = selectedTable
     async function loadStats() {
       setStatsLoading(true)
       try {
         const total = rowCount ?? 0
         const mappedType = mapColumnType(col!.data_type)
+        // Catalog-derived names (quoted + escaped): a `"` in a table/column name
+        // cannot break out of the identifier quoting.
+        const c = quoteIdent(colName)
+        const tbl = quoteIdent(tableName)
 
         const basicRows = await duckdbEngine.queryDataSource(
           dataSourceId,
-          `SELECT COUNT(*) - COUNT("${selectedColumn}") as null_count, COUNT(DISTINCT "${selectedColumn}") as distinct_count FROM "${selectedTable}"`,
+          `SELECT COUNT(*) - COUNT(${c}) as null_count, COUNT(DISTINCT ${c}) as distinct_count FROM ${tbl}`,
         )
         if (cancelled) return
         const nullCount = Number(basicRows[0]?.null_count ?? 0)
@@ -375,7 +383,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
         if (mappedType === 'number') {
           const numRows = await duckdbEngine.queryDataSource(
             dataSourceId,
-            `SELECT MIN("${selectedColumn}") as min_val, MAX("${selectedColumn}") as max_val, AVG("${selectedColumn}")::DOUBLE as mean_val FROM "${selectedTable}" WHERE "${selectedColumn}" IS NOT NULL`,
+            `SELECT MIN(${c}) as min_val, MAX(${c}) as max_val, AVG(${c})::DOUBLE as mean_val FROM ${tbl} WHERE ${c} IS NOT NULL`,
           )
           if (cancelled) return
           minValue = String(numRows[0]?.min_val ?? '')
@@ -385,8 +393,8 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
           try {
             const histRows = await duckdbEngine.queryDataSource(
               dataSourceId,
-              `WITH bounds AS (SELECT MIN("${selectedColumn}")::DOUBLE as lo, MAX("${selectedColumn}")::DOUBLE as hi FROM "${selectedTable}" WHERE "${selectedColumn}" IS NOT NULL),
-               bins AS (SELECT width_bucket("${selectedColumn}"::DOUBLE, lo, hi + 0.0001, 15) as bin, COUNT(*) as cnt FROM "${selectedTable}", bounds WHERE "${selectedColumn}" IS NOT NULL GROUP BY bin ORDER BY bin)
+              `WITH bounds AS (SELECT MIN(${c})::DOUBLE as lo, MAX(${c})::DOUBLE as hi FROM ${tbl} WHERE ${c} IS NOT NULL),
+               bins AS (SELECT width_bucket(${c}::DOUBLE, lo, hi + 0.0001, 15) as bin, COUNT(*) as cnt FROM ${tbl}, bounds WHERE ${c} IS NOT NULL GROUP BY bin ORDER BY bin)
                SELECT bin, cnt FROM bins`,
             )
             if (!cancelled) {
@@ -402,7 +410,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
         } else if (mappedType === 'date') {
           const dateRows = await duckdbEngine.queryDataSource(
             dataSourceId,
-            `SELECT MIN("${selectedColumn}") as min_val, MAX("${selectedColumn}") as max_val FROM "${selectedTable}" WHERE "${selectedColumn}" IS NOT NULL`,
+            `SELECT MIN(${c}) as min_val, MAX(${c}) as max_val FROM ${tbl} WHERE ${c} IS NOT NULL`,
           )
           if (cancelled) return
           minValue = String(dateRows[0]?.min_val ?? '')
@@ -412,7 +420,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
         try {
           const topRows = await duckdbEngine.queryDataSource(
             dataSourceId,
-            `SELECT "${selectedColumn}"::VARCHAR as val, COUNT(*) as cnt FROM "${selectedTable}" WHERE "${selectedColumn}" IS NOT NULL GROUP BY "${selectedColumn}" ORDER BY cnt DESC LIMIT 20`,
+            `SELECT ${c}::VARCHAR as val, COUNT(*) as cnt FROM ${tbl} WHERE ${c} IS NOT NULL GROUP BY ${c} ORDER BY cnt DESC LIMIT 20`,
           )
           if (!cancelled) {
             const nonNull = total - nullCount
@@ -478,7 +486,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
         const rows = await Promise.all(batch.map(async (table) => {
           try {
             const r = await duckdbEngine.queryDataSource(
-              dataSourceId, `SELECT COUNT(*) as cnt FROM "${table}"`,
+              dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteIdent(table)}`,
             )
             return [table, Number(r[0]?.cnt ?? 0)] as const
           } catch {
@@ -491,8 +499,11 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
         // A table already open in this session keeps its own cached count, which
         // would otherwise win over the fresh one in the sidebar.
         for (const [table, n] of counts) {
-          const entry = tableCache.get(tableCacheKey(dataSourceId, table))
-          if (entry) entry.rowCount = n
+          const key = tableCacheKey(dataSourceId, table)
+          const entry = tableCache.get(key)
+          // Replace, don't mutate in place: a held reference to the old value
+          // must not change without a re-render.
+          if (entry) tableCache.set(key, { ...entry, rowCount: n })
         }
       }
       const existing = await getStorage().databaseStatsCache.get(dataSourceId)

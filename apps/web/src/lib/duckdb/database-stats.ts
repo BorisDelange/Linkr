@@ -1,4 +1,5 @@
 import { queryDataSource, discoverTables } from './engine'
+import { escSql, quoteIdent } from '@/lib/format-helpers'
 import type {
   DatabaseStatsCache,
   AgePyramidBucket,
@@ -42,7 +43,7 @@ export async function computeDatabaseStats(
 
 async function safeQueryCount(dsId: string, table: string): Promise<number> {
   try {
-    const rows = await queryDataSource(dsId, `SELECT COUNT(*) as cnt FROM "${table}"`)
+    const rows = await queryDataSource(dsId, `SELECT COUNT(*) as cnt FROM ${quoteIdent(table)}`)
     return Number(rows[0]?.cnt ?? 0)
   } catch {
     return 0
@@ -81,9 +82,9 @@ async function computeGenderDistribution(
   try {
     const sql = `
       SELECT
-        SUM(CASE WHEN "${pt.genderColumn}" = '${gv.male}' THEN 1 ELSE 0 END)::INTEGER as male,
-        SUM(CASE WHEN "${pt.genderColumn}" = '${gv.female}' THEN 1 ELSE 0 END)::INTEGER as female,
-        SUM(CASE WHEN "${pt.genderColumn}" NOT IN ('${gv.male}', '${gv.female}') THEN 1 ELSE 0 END)::INTEGER as other
+        SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.male)}' THEN 1 ELSE 0 END)::INTEGER as male,
+        SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.female)}' THEN 1 ELSE 0 END)::INTEGER as female,
+        SUM(CASE WHEN "${pt.genderColumn}" NOT IN ('${escSql(gv.male)}', '${escSql(gv.female)}') THEN 1 ELSE 0 END)::INTEGER as other
       FROM "${pt.table}"
     `
     const rows = await queryDataSource(dsId, sql)
@@ -131,8 +132,8 @@ async function computeAgePyramid(
 
   const sql = `
     SELECT age_group,
-           SUM(CASE WHEN "${pt.genderColumn}" = '${gv.male}' THEN 1 ELSE 0 END)::INTEGER as male,
-           SUM(CASE WHEN "${pt.genderColumn}" = '${gv.female}' THEN 1 ELSE 0 END)::INTEGER as female
+           SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.male)}' THEN 1 ELSE 0 END)::INTEGER as male,
+           SUM(CASE WHEN "${pt.genderColumn}" = '${escSql(gv.female)}' THEN 1 ELSE 0 END)::INTEGER as female
     FROM (
       SELECT
         CASE
