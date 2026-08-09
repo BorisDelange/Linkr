@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { ArrowUpDown, ArrowUp, ArrowDown, Settings2 } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
@@ -29,6 +29,17 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { cn } from '@/lib/utils'
+
+/** Pages needed for `total` rows; 1 when unpaginated, so callers can be uniform. */
+export function pageCountOf(total: number, pageSize?: number): number {
+  if (!pageSize) return 1
+  return Math.max(1, Math.ceil(total / pageSize))
+}
+
+/** A page index that exists: filtering can shrink the set under the current page. */
+export function clampPage(page: number, pageCount: number): number {
+  return Math.min(Math.max(0, page), Math.max(0, pageCount - 1))
+}
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
@@ -105,6 +116,12 @@ interface ConceptDataTableProps<T> {
   onRowClick?: (row: T) => void
   /** Key of the currently selected row — highlighted when set. */
   selectedRowKey?: string | number | null
+  /**
+   * Rows per page. Omit to render every row, which is right for the short lists
+   * most callers pass; set it when the data can run to thousands, where a row per
+   * DOM node makes sorting and resizing visibly slow.
+   */
+  pageSize?: number
 }
 
 /**
@@ -112,10 +129,11 @@ interface ConceptDataTableProps<T> {
  * (text / number / multi-select), column-visibility menu and a results count.
  * Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize }: ConceptDataTableProps<T>) {
   const { t } = useTranslation()
   const [sorting, setSorting] = useState<Sorting>(null)
   const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>({})
+  const [page, setPage] = useState(0)
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
     () => Object.fromEntries(cols.filter((c) => c.hidden).map((c) => [c.id, false])),
@@ -171,6 +189,15 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     return rows
   }, [data, cols, filters, sorting, colById])
 
+  const pageCount = pageCountOf(filtered.length, pageSize)
+  // Clamped, not reset to 0: narrowing a filter should not throw away the user's
+  // position when the page they are on still exists.
+  const safePage = clampPage(page, pageCount)
+  const paged = useMemo(
+    () => (pageSize ? filtered.slice(safePage * pageSize, (safePage + 1) * pageSize) : filtered),
+    [filtered, pageSize, safePage],
+  )
+
   const renderFilter = (columnId: string) => {
     const col = colById.get(columnId)
     if (!col || !col.filter || col.filter === 'none') return null
@@ -218,7 +245,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
   })), [cols])
 
   const table = useReactTable({
-    data: filtered,
+    data: paged,
     columns,
     state: { columnVisibility, columnSizing },
     onColumnVisibilityChange: setColumnVisibility,
@@ -329,6 +356,31 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
           <span className="text-[10px] text-muted-foreground">
             {filtered.length} / {data.length} {t('common.results').toLowerCase()}
           </span>
+          {pageSize && pageCount > 1 && (
+            <div className="ml-1 flex items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setPage(safePage - 1)}
+                disabled={safePage === 0}
+                aria-label={t('common.previous')}
+              >
+                <ChevronLeft size={12} />
+              </Button>
+              <span className="text-[10px] tabular-nums text-muted-foreground">
+                {safePage + 1} / {pageCount}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setPage(safePage + 1)}
+                disabled={safePage >= pageCount - 1}
+                aria-label={t('common.next')}
+              >
+                <ChevronRight size={12} />
+              </Button>
+            </div>
+          )}
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>

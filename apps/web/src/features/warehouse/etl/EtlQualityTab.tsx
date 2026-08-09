@@ -39,6 +39,9 @@ import type { DatabaseStatsCache, DataSource } from '@/types'
 
 type QualityTab = 'statistics' | 'concepts'
 
+/** Sub-tab last looked at, so leaving and coming back lands where you were. */
+let lastQualityTab: QualityTab = 'statistics'
+
 interface Props {
   pipelineId: string
 }
@@ -54,7 +57,11 @@ export function EtlQualityTab({ pipelineId }: Props) {
   const { t } = useTranslation()
   const { etlPipelines } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const [activeTab, setActiveTab] = useState<QualityTab>('statistics')
+  const [activeTab, setActiveTab] = useState<QualityTab>(lastQualityTab)
+  const selectTab = useCallback((tab: QualityTab) => {
+    lastQualityTab = tab
+    setActiveTab(tab)
+  }, [])
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
   const sourceDs = dataSources.find((ds) => ds.id === pipeline?.sourceDataSourceId)
@@ -78,7 +85,7 @@ export function EtlQualityTab({ pipelineId }: Props) {
           {(['statistics', 'concepts'] as const).map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => selectTab(tab)}
               className={cn(
                 'rounded-md px-3 py-1 text-xs font-medium transition-colors',
                 activeTab === tab
@@ -262,6 +269,7 @@ function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number;
  */
 const conceptRowsCache = new Map<string, QualityConceptRow[]>()
 
+
 function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) {
   const { t, i18n } = useTranslation()
   const language = i18n.language
@@ -405,6 +413,9 @@ function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) 
           columns={columns}
           rowKey={(r) => `${r.sourceVocabularyId}|${r.sourceCode}|${r.targetConceptId}`}
           emptyMessage={t('etl.comparison_no_mappings')}
+          // A dictionary runs to thousands of mappings; rendering a DOM row for
+          // each is what made sorting and resizing crawl.
+          pageSize={100}
         />
       </div>
     </div>

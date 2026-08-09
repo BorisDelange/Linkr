@@ -2807,6 +2807,8 @@
     "close": "Close",
     "clear": "Clear",
     "page": "Page",
+    "previous": "Previous",
+    "next": "Next",
     "settings": "Settings",
     "name_already_exists": "This name is already taken.",
     "duplicate": "Duplicate",
