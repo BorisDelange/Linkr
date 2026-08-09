@@ -90,6 +90,18 @@ arbitrated 2026-08-05; `xl-*` exporters are GPL-3.0 (compatible, no commercial l
 | 🔜 | 6. Presentation mode (port `splitBlocksIntoSlides` + `computeFitScale`, overlay, shortcuts) | M |
 | 🔜 | 7. Exports (md/HTML → DOCX/ODT/PDF via XL → PPTX via `pptxgenjs`) | L |
 
+## README + licence par entité — [readme-license-plan.md](readme-license-plan.md)
+
+README + LICENSE (12 standards + custom) sur tous les contenus versionnables ; attachments
+généralisés `(ownerType, ownerId)` ; export `README.md`/`LICENSE.md`/`attachments/` par entité ;
+dq/catalogs/schemas deviennent des dossiers dans l'export workspace (VERSION → 2.3.0).
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Phase A — types, registre licences, storage attachments owner-based, backend + alembic | M |
+| 🔜 | Phase B — export/import front + miroirs serveur, seed loader, git-file-meta, goldens | M |
+| 🔜 | Phase C — LicenseEditor + EntityDocsDialog + menus, onglets Licence, noms réservés, i18n | M |
+
 ## Permissions — [users-authorizations-audit.md](users-authorizations-audit.md)
 
 | St | Item | Effort |
