@@ -174,6 +174,41 @@ async def test_switching_a_local_provider_to_remote_is_gated_too(client):
     assert r.status_code == 403
 
 
+async def test_repointing_a_remote_to_a_different_url_needs_a_fresh_acknowledgement(
+    client, monkeypatch
+):
+    """The stored acknowledgement was given for one endpoint. Carrying it over to
+    a different remote URL would let an admin silently re-point an approved
+    provider at a third party."""
+    monkeypatch.setattr(settings, "allow_remote_llm", True)
+    headers = await _admin(client)
+    ws = await _workspace(client, headers)
+    pid = (
+        await _create(client, headers, ws, baseUrl=REMOTE, acknowledgementText="I accept")
+    ).json()["id"]
+
+    other = "https://api.mistral.ai/v1"
+    # A different remote URL with no fresh acknowledgement is refused.
+    r = await client.patch(
+        f"{API}/llm-providers/{pid}", headers=headers, json={"baseUrl": other}
+    )
+    assert r.status_code == 400
+
+    # The same URL keeps its acknowledgement (a model rename must not re-prompt).
+    r = await client.patch(
+        f"{API}/llm-providers/{pid}", headers=headers, json={"model": "renamed"}
+    )
+    assert r.status_code == 200
+
+    # A different remote URL WITH a fresh acknowledgement is accepted and re-stamps.
+    r = await client.patch(
+        f"{API}/llm-providers/{pid}",
+        headers=headers,
+        json={"baseUrl": other, "acknowledgementText": "I accept again"},
+    )
+    assert r.status_code == 200
+
+
 async def test_editor_cannot_write_but_owner_can(client, db):
     """llm-config:write is owner-only — an editor may see which models exist
     without being able to point the assistant at an endpoint of their choosing."""

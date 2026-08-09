@@ -18,6 +18,14 @@ router = APIRouter(tags=["llm"])
 
 _BASE = "/agent-conversations"
 
+# Mirrors SAVE_CONVERSATIONS_KEY in apps/web/src/lib/agent/conversations.ts.
+# Consent is opt-out: absent means "save", only an explicit False disables it.
+_SAVE_CONSENT_KEY = "saveConversations"
+
+
+def _saving_allowed(user: User) -> bool:
+    return (user.preferences or {}).get(_SAVE_CONSENT_KEY) is not False
+
 
 def _summary(row: AgentConversation) -> dict:
     return {
@@ -95,6 +103,13 @@ async def create_conversation(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, payload.workspace_id, user, "dashboards:read")
+    # Consent is enforced here, not only in the browser: a stale tab or a direct
+    # API call must not persist clinical context after the user opted out.
+    if not _saving_allowed(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Saving conversations is disabled in your preferences.",
+        )
     # user_id comes from the token, never from the payload: a client must not be
     # able to file a conversation under someone else's name.
     row = AgentConversation(**payload.model_dump(), user_id=user.id)
@@ -112,6 +127,11 @@ async def update_conversation(
     db: AsyncSession = Depends(get_db),
 ):
     row = await _own(db, conversation_id, user)
+    if not _saving_allowed(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Saving conversations is disabled in your preferences.",
+        )
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(row, field, value)
     await db.commit()
@@ -141,6 +161,7 @@ async def clear_conversations(
 ):
     """Clear all — scoped to the caller's own threads, so one user emptying their
     history can never touch another's."""
+    await check_workspace_permission(db, workspace_id, user, "dashboards:read")
     stmt = delete(AgentConversation).where(
         AgentConversation.workspace_id == workspace_id,
         AgentConversation.user_id == user.id,

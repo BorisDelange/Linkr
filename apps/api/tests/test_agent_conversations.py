@@ -251,3 +251,39 @@ async def test_conversations_are_scoped_to_their_workspace(client):
     assert (
         await client.get(f"{API}/agent-conversations?workspaceId={ws_b}", headers=headers)
     ).json() == []
+
+
+async def test_saving_is_refused_when_the_user_opted_out(client, db):
+    """Consent is server-enforced: with saveConversations=False, a create is
+    refused even though the same call would succeed for a default user."""
+    from sqlalchemy import select
+
+    admin = await _admin(client)
+    ws = await _workspace(client, admin)
+    uid, headers = await _make_user(db, client, "carol")
+    await _member(client, admin, ws, uid)
+
+    user = (await db.scalars(select(User).where(User.id == uid))).one()
+    user.preferences = {"saveConversations": False}
+    await db.commit()
+
+    r = await _create(client, headers, ws)
+    assert r.status_code == 403
+
+
+async def test_a_non_member_cannot_clear_conversations(client, db):
+    admin = await _admin(client)
+    ws = await _workspace(client, admin)
+    _uid, outsider = await _make_user(db, client, "dave")
+
+    r = await client.delete(f"{API}/agent-conversations?workspaceId={ws}", headers=outsider)
+    assert r.status_code == 403
+
+
+async def test_too_many_messages_is_rejected(client):
+    admin = await _admin(client)
+    ws = await _workspace(client, admin)
+    r = await _create(
+        client, admin, ws, messages=[{"role": "user", "content": "x"}] * 1001
+    )
+    assert r.status_code == 422

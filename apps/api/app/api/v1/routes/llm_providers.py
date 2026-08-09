@@ -19,7 +19,7 @@ from app.schemas.llm_provider import (
     LlmProviderResponse,
     LlmProviderUpdate,
 )
-from app.services.llm.endpoint_locality import is_local_endpoint
+from app.services.llm.endpoint_locality import is_blocked_endpoint, is_local_endpoint
 
 router = APIRouter(tags=["llm"])
 
@@ -58,6 +58,16 @@ def _guard_remote(base_url: str, acknowledgement: str | None) -> bool:
     acknowledgement must fail closed — silently accepting one would let clinical
     context reach a third party by omission.
     """
+    scheme = base_url.split("://", 1)[0].lower() if "://" in base_url else ""
+    if scheme and scheme not in ("http", "https"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Only http(s) endpoints are supported."
+        )
+    if is_blocked_endpoint(base_url):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This endpoint (metadata / link-local / reserved address) is not allowed.",
+        )
     local = is_local_endpoint(base_url)
     if local:
         return True
@@ -145,13 +155,21 @@ async def update_provider(
     data = payload.model_dump(exclude_unset=True)
 
     if "base_url" in data:
-        local = _guard_remote(
-            data["base_url"], data.get("acknowledgement_text") or provider.acknowledgement_text
-        )
+        new_url = data["base_url"]
+        url_changed = new_url != provider.base_url
+        # A changed remote URL needs a FRESH acknowledgement: the stored one was
+        # given for the old endpoint, so carrying it over would let an admin
+        # silently re-point an approved provider at a third party. Only an
+        # unchanged URL may keep its existing acknowledgement.
+        ack = data.get("acknowledgement_text")
+        if not ack and not url_changed:
+            ack = provider.acknowledgement_text
+        local = _guard_remote(new_url, ack)
         provider.is_local = local
-        if not local and data.get("acknowledgement_text"):
+        if not local:
             provider.acknowledged_by_id = user.id
             provider.acknowledged_at = datetime.now(timezone.utc)
+            provider.acknowledgement_text = ack
 
     if "api_key" in data:
         # "" clears the key; a value replaces it; absent leaves it untouched.
@@ -160,7 +178,9 @@ async def update_provider(
     for field in ("name", "kind", "base_url", "model", "enabled", "surfaces"):
         if field in data:
             setattr(provider, field, data[field])
-    if "acknowledgement_text" in data:
+    # A bare acknowledgement edit (no URL change) just updates the stored text;
+    # the URL-change branch above already owns the ack when base_url is present.
+    if "acknowledgement_text" in data and "base_url" not in data:
         provider.acknowledgement_text = data["acknowledgement_text"]
 
     await db.commit()

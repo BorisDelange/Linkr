@@ -224,3 +224,55 @@ async def test_anonymous_request_is_rejected(client, upstream):
     r = await client.post(f"{API}/llm-providers/whatever/chat", json={"messages": []})
     assert r.status_code in (401, 403)
     assert not upstream
+
+
+async def test_a_stored_url_pointed_at_metadata_is_refused_at_proxy_time(client, db, upstream):
+    """The write-time guard blocks IMDS, but the URL could be edited around it or
+    predate the check. The proxy re-validates, so the SSRF target is never hit."""
+    from sqlalchemy import select
+
+    from app.models.llm_provider import LlmProvider
+
+    headers = await _admin(client)
+    ws = await _workspace(client, headers)
+    provider = await _provider(client, headers, ws)
+
+    row = (
+        await db.scalars(select(LlmProvider).where(LlmProvider.id == provider["id"]))
+    ).one()
+    row.base_url = "http://169.254.169.254/latest/meta-data"
+    await db.commit()
+
+    r = await client.post(
+        f"{API}/llm-providers/{provider['id']}/chat", headers=headers, json={"messages": []}
+    )
+    assert r.status_code == 403
+    assert not upstream
+
+
+async def test_a_non_object_body_is_a_400_not_a_500(client, upstream):
+    headers = await _admin(client)
+    ws = await _workspace(client, headers)
+    provider = await _provider(client, headers, ws)
+
+    r = await client.post(
+        f"{API}/llm-providers/{provider['id']}/chat", headers=headers, json="hi"
+    )
+    assert r.status_code == 400
+    assert not upstream
+
+
+async def test_creating_a_metadata_provider_is_rejected(client):
+    headers = await _admin(client)
+    ws = await _workspace(client, headers)
+    r = await client.post(
+        f"{API}/llm-providers",
+        headers=headers,
+        json={
+            "workspaceId": ws,
+            "baseUrl": "http://169.254.169.254/latest/meta-data",
+            "model": "x",
+            "surfaces": ["dashboard"],
+        },
+    )
+    assert r.status_code == 400
