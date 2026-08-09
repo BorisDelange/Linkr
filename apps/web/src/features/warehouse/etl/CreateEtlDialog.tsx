@@ -43,7 +43,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const { t } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { createPipeline, updatePipeline } = useEtlStore()
+  const { createPipeline, updatePipeline, createFile } = useEtlStore()
   const language = useAppStore((s) => s.language)
 
   const [name, setName] = useState('')
@@ -89,10 +89,11 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
     setSaving(true)
     try {
       if (isEditing && editingPipeline) {
+        // The two databases are deliberately not written here: they belong to the
+        // pipeline header's pickers, and re-saving a value this dialog captured
+        // when it opened would undo a change made there in the meantime.
         await updatePipeline(editingPipeline.id, {
           name: setLocalized(editingPipeline.name, language, name.trim()),
-          sourceDataSourceId: sourceId,
-          targetDataSourceId: targetId || undefined,
           badges,
           version: version.trim() || '0.1.0',
           ...authoring,
@@ -117,6 +118,20 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           updatedAt: now,
         }
         await createPipeline(pipeline)
+        // A README from the start, as SQL script collections do: the pipeline is
+        // git-versionable, and a repo whose first file is a numbered SQL script
+        // says nothing about what the pipeline is for.
+        await createFile({
+          id: crypto.randomUUID(),
+          pipelineId: pipeline.id,
+          name: 'README.md',
+          type: 'file',
+          parentId: null,
+          content: `# ${name.trim()}\n`,
+          language: 'markdown',
+          order: -100,
+          createdAt: now,
+        })
         onOpenChange(false)
         setName('')
         setSourceId('')
@@ -160,41 +175,48 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
               readOnly={isEditing}
             />
 
-          <div className="space-y-2">
-            <Label className="text-xs">{t('etl.source_database')}</Label>
-            <Select value={sourceId} onValueChange={setSourceId}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('etl.select_source')} />
-              </SelectTrigger>
-              <SelectContent>
-                {dbSources.map((ds) => (
-                  <SelectItem key={ds.id} value={ds.id}>
-                    {ds.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {dbSources.length === 0 && (
-              <p className="text-xs text-muted-foreground">{t('etl.no_databases_available')}</p>
-            )}
-          </div>
+          {/* Only on create: once the pipeline exists, its two databases are set
+              from the pickers in the pipeline header, and a second pair of
+              dropdowns here just invites the two to disagree. */}
+          {!isEditing && (
+            <>
+              <div className="space-y-2">
+                <Label className="text-xs">{t('etl.source_database')}</Label>
+                <Select value={sourceId} onValueChange={setSourceId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('etl.select_source')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dbSources.map((ds) => (
+                      <SelectItem key={ds.id} value={ds.id}>
+                        {ds.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {dbSources.length === 0 && (
+                  <p className="text-xs text-muted-foreground">{t('etl.no_databases_available')}</p>
+                )}
+              </div>
 
-          <div className="space-y-2">
-            <Label className="text-xs">{t('etl.target_database')}</Label>
-            <Select value={targetId} onValueChange={setTargetId}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('etl.select_target')} />
-              </SelectTrigger>
-              <SelectContent>
-                {dbSources.map((ds) => (
-                  <SelectItem key={ds.id} value={ds.id}>
-                    {ds.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">{t('etl.target_database_hint')}</p>
-          </div>
+              <div className="space-y-2">
+                <Label className="text-xs">{t('etl.target_database')}</Label>
+                <Select value={targetId} onValueChange={setTargetId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('etl.select_target')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dbSources.map((ds) => (
+                      <SelectItem key={ds.id} value={ds.id}>
+                        {ds.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t('etl.target_database_hint')}</p>
+              </div>
+            </>
+          )}
 
           <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
 
