@@ -1,6 +1,11 @@
+import re
 from datetime import datetime
 
+from pydantic import field_validator
+
 from app.schemas.base import CamelModel
+
+_ROLE_NAME = re.compile(r"[a-z_][a-z0-9_]*", re.IGNORECASE)
 
 
 class DataSourceCreate(CamelModel):
@@ -126,3 +131,16 @@ class EtlRunRequest(CamelModel):
     # travel with the request instead of being written into the versioned
     # script; the server materialises each as a temp file for the run.
     mapping_data: dict[str, str] = {}
+
+    @field_validator("roles")
+    @classmethod
+    def _normalise_roles(cls, value: dict[str, str]) -> dict[str, str]:
+        """Role names are interpolated into ATTACH identifiers downstream, so they
+        must be plain identifiers, and they are lowercased once here so the
+        `target` reservation can't be dodged with `Target`/`TARGET`."""
+        out: dict[str, str] = {}
+        for role, ds_id in value.items():
+            if _ROLE_NAME.fullmatch(role) is None:
+                raise ValueError(f"invalid role name: {role!r}")
+            out[role.lower()] = ds_id
+        return out

@@ -10,16 +10,18 @@ needs a stable, mutable file of its own. That is what this module owns:
 from __future__ import annotations
 
 import re
+import uuid
 from pathlib import Path
 
 import duckdb
 
 from app.config import settings
 
-# A managed file is named after the source id, which is a UUID. Validate rather
-# than trust it: the id reaches here from the API layer and is used to build a
-# filesystem path.
-_SAFE_ID = re.compile(r"^[0-9a-fA-F-]{1,64}$")
+# A managed file is named after the source id. It is a UUID everywhere in the
+# app; validate it as one rather than trust it, because it reaches here from the
+# API layer and becomes a filesystem path. A strict UUID also rules out the
+# case-insensitive-filesystem collision a loose hex pattern allowed (`abc`/`ABC`
+# → same file on macOS).
 
 # DuckDB has no ADD CONSTRAINT; the OMOP DDL is full of foreign keys.
 _ALTER_TABLE = re.compile(r"^\s*ALTER\s+TABLE\s", re.IGNORECASE)
@@ -33,9 +35,11 @@ def _databases_dir() -> Path:
 
 def path_for(source_id: str) -> Path:
     """Filesystem path of a managed database (may not exist yet)."""
-    if not _SAFE_ID.match(source_id):
-        raise ValueError(f"invalid data source id: {source_id!r}")
-    return _databases_dir() / f"{source_id}.duckdb"
+    try:
+        canonical = str(uuid.UUID(str(source_id)))
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise ValueError(f"invalid data source id: {source_id!r}") from exc
+    return _databases_dir() / f"{canonical}.duckdb"
 
 
 def exists(source_id: str) -> bool:
@@ -83,7 +87,10 @@ def delete(source_id: str) -> None:
 def _ext_dir() -> str:
     d = settings.data_path / "_duckdb_ext"
     d.mkdir(parents=True, exist_ok=True)
-    return str(d)
+    # Escaped for the single-quoted SQL literal it is interpolated into. The path
+    # is operator config, not user input, but a data dir with a quote in it would
+    # otherwise break the statement.
+    return str(d).replace("'", "''")
 
 
 def _split(sql: str) -> list[str]:

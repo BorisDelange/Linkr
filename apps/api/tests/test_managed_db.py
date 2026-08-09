@@ -69,6 +69,16 @@ def test_foreign_key_constraints_are_skipped(data_dir):
 def test_path_rejects_an_id_that_is_not_a_uuid(data_dir):
     with pytest.raises(ValueError):
         managed_db.path_for("../../etc/passwd")
+    with pytest.raises(ValueError):
+        managed_db.path_for("not-a-uuid")
+
+
+def test_path_is_canonical_so_case_cannot_collide(data_dir):
+    """Two ids differing only in case must map to the same file (they are the same
+    UUID) rather than two files that clash on a case-insensitive filesystem."""
+    upper = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+    lower = upper.lower()
+    assert managed_db.path_for(upper) == managed_db.path_for(lower)
 
 
 def test_delete_removes_the_file(data_dir):
@@ -160,3 +170,28 @@ def test_a_parquet_role_is_reachable_by_role_name(data_dir):
         },
     )
     assert rows == [{"label": "HR"}]
+
+
+def test_etl_sql_cannot_install_extensions_or_read_the_filesystem(data_dir):
+    """The client SQL runs with extensions locked and, when no file-backed role is
+    attached, external access disabled — so it cannot pull httpfs to exfiltrate or
+    read arbitrary paths off the server."""
+    sid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    target = managed_db.create_from_ddl(sid, DDL)
+    with pytest.raises(Exception):
+        db_connect.run_etl_sql(target, "INSTALL httpfs;")
+    with pytest.raises(Exception):
+        db_connect.run_etl_sql(
+            target, "SELECT * FROM read_csv_auto('/etc/passwd');"
+        )
+
+
+def test_etl_rejects_a_role_name_that_is_not_an_identifier(data_dir):
+    sid = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    target = managed_db.create_from_ddl(sid, DDL)
+    with pytest.raises(Exception):
+        db_connect.run_etl_sql(
+            target,
+            "SELECT 1;",
+            {'x" AS y; ATTACH \'evil\' AS "z': {"kind": "file", "path": "/tmp/x"}},
+        )

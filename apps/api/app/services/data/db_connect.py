@@ -49,6 +49,24 @@ def _ext_dir() -> str:
     return d.as_posix()
 
 
+# A DuckDB catalog / schema / table identifier we are willing to interpolate
+# into SQL. Role names come from client `roles` keys and table names from
+# uploaded Parquet filenames, so both are untrusted and must match this before
+# being quoted into ATTACH / CREATE VIEW.
+_SAFE_IDENT = re.compile(r"[a-z_][a-z0-9_]*", re.IGNORECASE)
+
+
+def _require_ident(value: str, what: str) -> str:
+    if not isinstance(value, str) or _SAFE_IDENT.fullmatch(value) is None:
+        raise ValueError(f"invalid {what}: {value!r}")
+    return value
+
+
+def _sql_path(path: str) -> str:
+    """A filesystem path escaped for a single-quoted SQL literal."""
+    return str(path).replace("'", "''")
+
+
 def _lock_down_user_sql(con: duckdb.DuckDBPyConnection) -> None:
     """Harden a DuckDB connection that is about to run arbitrary client SQL:
     forbid auto-installing/loading unknown or community extensions, then lock the
@@ -435,7 +453,13 @@ def _group_parquet(files: list[tuple[str, str]], known: list[str]) -> dict[str, 
     for file_name, path in files:
         if not file_name.lower().endswith((".parquet", ".pq")):
             continue
-        groups.setdefault(_table_of(file_name, known), []).append(path)
+        table = _table_of(file_name, known)
+        # The table name is interpolated into a quoted identifier; a filename that
+        # doesn't yield a plain identifier is skipped rather than risking a broken
+        # (or injected) CREATE VIEW.
+        if _SAFE_IDENT.fullmatch(table) is None:
+            continue
+        groups.setdefault(table, []).append(path)
     return groups
 
 
@@ -682,15 +706,31 @@ def run_etl_sql(
     con = duckdb.connect()
     with tempfile.TemporaryDirectory(prefix="linkr-mapping-") as tmp:
         try:
-            con.execute(f"SET extension_directory = '{_ext_dir()}'")
-            con.execute(f"ATTACH '{target_path}' AS target")
+            con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
+            con.execute(f"ATTACH '{_sql_path(target_path)}' AS target")
 
+            # A parquet role reads its .parquet files lazily at query time, and a
+            # mapping.<name> ref is a CSV read from tmp — both need local file
+            # access, so external access can only be cut when neither is present.
+            needs_file_access = bool(mapping_data)
             for role, spec in (roles or {}).items():
-                if role == "target":
+                if role.lower() == "target":
                     continue
                 _attach_role(con, role, spec)
+                if spec.get("kind") in ("parquet", "external"):
+                    needs_file_access = True
 
             sql = _resolve_mapping_refs(sql, mapping_data or {}, tmp)
+
+            # The role databases (sqlite/postgres/mysql) needed their extensions
+            # loaded above; now that every legitimate attach is done, forbid the
+            # client SQL from installing/loading anything else and lock the config
+            # so it can't reopen the door (e.g. httpfs to read /etc or exfiltrate).
+            if not needs_file_access:
+                # Nothing legitimate needs the filesystem/network → deny it so the
+                # script can't read arbitrary paths. Must precede lock_configuration.
+                con.execute("SET enable_external_access=false")
+            _lock_down_user_sql(con)
 
             # Unqualified names must not silently fall back to another attached
             # database: keep the writable target first.
@@ -729,7 +769,12 @@ def _resolve_mapping_refs(sql: str, data: dict[str, str], tmp_dir: str) -> str:
 
 
 def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
-    """ATTACH one role database READ_ONLY under its role name."""
+    """ATTACH one role database READ_ONLY under its role name.
+
+    `role` comes from client `roles` keys and table names from uploaded Parquet
+    filenames, so both are validated as identifiers before being quoted in, and
+    every path goes through a single-quote escape."""
+    role = _require_ident(role, "role name")
     kind = spec.get("kind")
     if kind == "parquet":
         # A Parquet folder is not a database: expose its tables as views in a
@@ -740,13 +785,14 @@ def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
         groups = _group_parquet(spec.get("files") or [], spec.get("known") or [])
         con.execute(f'ATTACH \':memory:\' AS "{role}"')
         for table, paths in groups.items():
+            safe_table = _require_ident(table, "parquet table name")
             con.execute(
-                f'CREATE OR REPLACE VIEW "{role}".main."{table}" '
+                f'CREATE OR REPLACE VIEW "{role}".main."{safe_table}" '
                 f"AS SELECT * FROM {_reader(paths)}"
             )
         return
     if kind == "file":
-        path = spec["path"]
+        path = _sql_path(spec["path"])
         if spec.get("engine") == "sqlite":
             con.execute("INSTALL sqlite")
             con.execute("LOAD sqlite")
