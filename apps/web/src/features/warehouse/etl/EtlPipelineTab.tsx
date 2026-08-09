@@ -662,16 +662,32 @@ function GenderBar({ distribution }: { distribution: { male: number; female: num
   )
 }
 
+/**
+ * Status of one script or run. Every state carries a tooltip — a coloured glyph
+ * alone does not say why a script is amber rather than green.
+ */
 function RunStatusIcon({ status }: { status: string }) {
-  switch (status) {
-    case 'success': return <CheckCircle2 size={12} className="text-emerald-500" />
-    case 'error': return <AlertCircle size={12} className="text-red-500" />
-    case 'running': return <Loader2 size={12} className="animate-spin text-blue-500" />
-    case 'pending': return <Clock size={12} className="text-muted-foreground/50" />
-    case 'skipped': return <AlertCircle size={12} className="text-amber-500" />
-    case 'stopped': return <Square size={12} className="text-amber-500" />
-    default: return null
-  }
+  const { t } = useTranslation()
+  const icon = (() => {
+    switch (status) {
+      case 'success': return <CheckCircle2 size={12} className="text-emerald-500" />
+      case 'error': return <AlertCircle size={12} className="text-red-500" />
+      case 'running': return <Loader2 size={12} className="animate-spin text-blue-500" />
+      case 'pending': return <Clock size={12} className="text-muted-foreground/50" />
+      case 'skipped': return <AlertCircle size={12} className="text-amber-500" />
+      case 'stopped': return <Square size={12} className="text-amber-500" />
+      default: return null
+    }
+  })()
+  if (!icon) return null
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex shrink-0">{icon}</span>
+      </TooltipTrigger>
+      <TooltipContent>{t(`etl.run_status_${status}`)}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 // ---------------------------------------------------------------------------

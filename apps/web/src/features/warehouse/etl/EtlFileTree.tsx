@@ -405,20 +405,28 @@ function EtlFileTreeItem({
  * Subscribes to just this file's entry, so a status change re-renders one row.
  */
 function ScriptRunStatus({ fileId }: { fileId: string }) {
+  const { t } = useTranslation()
   const log = useEtlStore((s) => s.scriptStatuses.get(fileId))
   if (!log) return null
-  switch (log.status) {
-    case 'running':
-      return <Loader2 size={11} className="ml-auto shrink-0 animate-spin text-blue-500" />
-    case 'success':
-      return <CheckCircle2 size={11} className="ml-auto shrink-0 text-emerald-500" />
-    case 'error':
-      return <AlertCircle size={11} className="ml-auto shrink-0 text-red-500" />
-    case 'skipped':
-      return <MinusCircle size={11} className="ml-auto shrink-0 text-muted-foreground/40" />
-    case 'stopped':
-      return <Square size={11} className="ml-auto shrink-0 text-amber-500" />
-    default:
-      return null
-  }
+
+  const cls = 'ml-auto shrink-0'
+  const icon = (() => {
+    switch (log.status) {
+      case 'running': return <Loader2 size={11} className={cn(cls, 'animate-spin text-blue-500')} />
+      case 'success': return <CheckCircle2 size={11} className={cn(cls, 'text-emerald-500')} />
+      case 'error': return <AlertCircle size={11} className={cn(cls, 'text-red-500')} />
+      case 'skipped': return <MinusCircle size={11} className={cn(cls, 'text-muted-foreground/40')} />
+      case 'stopped': return <Square size={11} className={cn(cls, 'text-amber-500')} />
+      default: return null
+    }
+  })()
+  if (!icon) return null
+
+  // A native title, not a Tooltip: the row already wraps one for the file name,
+  // and nesting two triggers on the same element fights over the hover.
+  return (
+    <span className="ml-auto inline-flex shrink-0" title={t(`etl.run_status_${log.status}`)}>
+      {icon}
+    </span>
+  )
 }

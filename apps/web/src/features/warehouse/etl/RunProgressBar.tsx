@@ -36,19 +36,23 @@ export function RunProgressBar({ files }: Props) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       <Loader2 size={12} className="shrink-0 animate-spin text-blue-500" />
+      {/* Explicit separators: at this size the flex gap alone ran the values
+          together ("stmt 4/26" + "7s" read as "stmt 4/267s"). */}
       <div className="flex min-w-0 items-baseline gap-1.5 text-[11px]">
-        <span className="tabular-nums text-muted-foreground">{done}/{files.length}</span>
+        <span className="shrink-0 tabular-nums text-muted-foreground">
+          {done}/{files.length}
+        </span>
         {current && <span className="truncate font-medium">{current.name}</span>}
         {log?.statementsTotal != null && log.statementsTotal > 1 && (
           <span className="shrink-0 tabular-nums text-muted-foreground">
-            {t('etl.run_statement_progress', {
+            · {t('etl.run_statement_progress', {
               done: log.statementsDone ?? 0,
               total: log.statementsTotal,
             })}
           </span>
         )}
         {elapsed && (
-          <span className="shrink-0 tabular-nums text-muted-foreground">{elapsed}</span>
+          <span className="shrink-0 tabular-nums text-muted-foreground">· {elapsed}</span>
         )}
       </div>
       {/* Progress across the set; the current script's own statements move the
