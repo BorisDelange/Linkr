@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, ArrowRight, Code, Workflow, Table2, Database, BookOpen } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Code, Workflow, Table2, Database, BookOpen, GitCompare } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
@@ -20,14 +20,16 @@ import { EtlScriptsTab } from './EtlScriptsTab'
 import { EtlPipelineTab } from './EtlPipelineTab'
 import { EtlSchemasTab } from './EtlSchemasTab'
 import { EtlVocabularyTab } from './EtlVocabularyTab'
+import { EtlQualityTab } from './EtlQualityTab'
 
-type TabId = 'scripts' | 'pipeline' | 'schemas' | 'vocabulary'
+type TabId = 'scripts' | 'pipeline' | 'schemas' | 'vocabulary' | 'quality'
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'pipeline', labelKey: 'etl.tab_pipeline', icon: Workflow },
   { id: 'scripts', labelKey: 'etl.tab_scripts', icon: Code },
   { id: 'schemas', labelKey: 'etl.tab_schemas', icon: Table2 },
   { id: 'vocabulary', labelKey: 'etl.tab_vocabulary', icon: BookOpen },
+  { id: 'quality', labelKey: 'etl.tab_quality', icon: GitCompare },
 ]
 
 interface Props {
@@ -161,6 +163,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
           <EtlSchemasTab pipelineId={pipeline.id} initialDataSourceId={schemasDbId} />
         )}
         {activeTab === 'vocabulary' && <EtlVocabularyTab pipelineId={pipeline.id} />}
+        {activeTab === 'quality' && <EtlQualityTab pipelineId={pipeline.id} />}
       </div>
     </div>
   )
