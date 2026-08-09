@@ -3142,8 +3142,6 @@
     "profiling_filter_tables": "Filtrer les tables…",
     "profiling_no_match": "Aucune table correspondante",
     "pipeline_no_actions": "Aucune action disponible",
-    "script_db_label": "Base de données",
-    "script_db_override": "hors rôle",
     "pipeline_list_view": "Vue liste",
     "sidebar_overview": "Vue d'ensemble",
     "sidebar_patients": "Patients",

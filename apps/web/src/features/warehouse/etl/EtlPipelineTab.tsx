@@ -84,7 +84,6 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
-import { useRoleSchemas } from './use-role-schemas'
 import { usePipelineRunner } from './use-pipeline-runner'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
@@ -113,14 +112,6 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
   const hasSource = !!pipeline?.sourceDataSourceId
   const hasTarget = !!pipeline?.targetDataSourceId
 
-  const { roleOf } = useRoleSchemas(pipeline)
-
-  // "override" flags a script pinned to a database that has NO pipeline role:
-  // one of source/target/vocab is ordinary, so badging those was just noise.
-  const isOffRole = useCallback(
-    (file: EtlFile) => !!file.dataSourceId && !roleOf(file.dataSourceId),
-    [roleOf],
-  )
 
   const [sidebarVisible, setSidebarVisible] = useState(false)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -156,10 +147,8 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
     if (selectedNodeId === '__target__') return { type: 'target' as const, ds: targetDs }
     const file = files.find((f) => f.id === selectedNodeId)
     const log = scriptStatuses.get(selectedNodeId)
-    const fileDsId = file?.dataSourceId ?? pipeline?.targetDataSourceId
-    const fileDs = dataSources.find((ds) => ds.id === fileDsId)
-    return file ? { type: 'script' as const, file, log, ds: fileDs, isOverride: isOffRole(file) } : null
-  }, [selectedNodeId, sourceDs, targetDs, files, scriptStatuses, dataSources, pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId, isOffRole])
+    return file ? { type: 'script' as const, file, log } : null
+  }, [selectedNodeId, sourceDs, targetDs, files, scriptStatuses, pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId])
 
   // Empty state
   if (sqlFiles.length === 0 && !hasSource && !hasTarget) {
@@ -298,8 +287,6 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
                   sqlFiles={sqlFiles}
                   sourceDs={sourceDs}
                   targetDs={targetDs}
-                  dataSources={dataSources}
-                  pipeline={pipeline}
                   scriptStatuses={scriptStatuses}
                   hasSource={hasSource}
                   hasTarget={hasTarget}
@@ -333,7 +320,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
 type NodeInfo =
   | { type: 'source'; ds: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined }
   | { type: 'target'; ds: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined }
-  | { type: 'script'; file: import('@/types').EtlFile; log: import('@/types').EtlRunLog | undefined; ds: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined; isOverride: boolean }
+  | { type: 'script'; file: import('@/types').EtlFile; log: import('@/types').EtlRunLog | undefined }
 
 function NodeDetailSidebar({ info, onViewCode }: { info: NodeInfo | null; onViewCode?: (fileId: string) => void }) {
   const { t } = useTranslation()
@@ -358,7 +345,7 @@ function NodeDetailSidebar({ info, onViewCode }: { info: NodeInfo | null; onView
   }
 
   // Script node
-  const { file, log, ds: scriptDs, isOverride } = info
+  const { file, log } = info
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-3 py-2.5">
@@ -372,17 +359,6 @@ function NodeDetailSidebar({ info, onViewCode }: { info: NodeInfo | null; onView
         <div className="space-y-3 p-3 text-xs">
           <DetailRow label={t('etl.pipeline_script_order')} value={String(file.order)} />
           <DetailRow label={t('etl.pipeline_script_lang')} value={file.language ?? 'sql'} />
-          <div className="flex items-start justify-between gap-2">
-            <span className="shrink-0 text-muted-foreground">{t('etl.script_db_label')}</span>
-            <span className="flex items-center gap-1 text-right">
-              {scriptDs?.name ?? '—'}
-              {isOverride && (
-                <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] text-amber-600 dark:text-amber-400">
-                  {t('etl.script_db_override')}
-                </span>
-              )}
-            </span>
-          </div>
 
           {log && (
             <div className="space-y-2 border-t pt-3">
@@ -1531,8 +1507,6 @@ interface ScriptOrderListProps {
   sqlFiles: EtlFile[]
   sourceDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
   targetDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
-  dataSources: ReturnType<typeof useDataSourceStore.getState>['dataSources']
-  pipeline: import('@/types').EtlPipeline | undefined
   scriptStatuses: Map<string, import('@/types').EtlRunLog>
   hasSource: boolean
   hasTarget: boolean
@@ -1545,8 +1519,6 @@ function ScriptOrderList({
   sqlFiles,
   sourceDs,
   targetDs,
-  dataSources,
-  pipeline,
   scriptStatuses,
   hasSource,
   hasTarget,
@@ -1555,7 +1527,6 @@ function ScriptOrderList({
   onSelectNode,
 }: ScriptOrderListProps) {
   const { t } = useTranslation()
-  const { roleOf } = useRoleSchemas(pipeline)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor),
@@ -1613,16 +1584,12 @@ function ScriptOrderList({
             <SortableContext items={sqlFiles.map((f) => f.id)} strategy={verticalListSortingStrategy}>
               {sqlFiles.map((file, idx) => {
                 const log = scriptStatuses.get(file.id)
-                const fileDsId = file.dataSourceId ?? pipeline?.targetDataSourceId
-                const fileDs = dataSources.find((ds) => ds.id === fileDsId)
                 return (
                   <SortableScriptRow
                     key={file.id}
                     file={file}
                     index={idx}
                     log={log}
-                    fileDs={fileDs}
-                    isOverride={!!file.dataSourceId && !roleOf(file.dataSourceId)}
                     isLast={idx === sqlFiles.length - 1}
                     onSelectFile={onSelectFile}
                     onSelectNode={onSelectNode}
@@ -1668,8 +1635,6 @@ function SortableScriptRow({
   file,
   index,
   log,
-  fileDs,
-  isOverride,
   isLast,
   onSelectFile,
   onSelectNode,
@@ -1678,8 +1643,6 @@ function SortableScriptRow({
   file: EtlFile
   index: number
   log: import('@/types').EtlRunLog | undefined
-  fileDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
-  isOverride: boolean
   isLast: boolean
   onSelectFile?: (fileId: string) => void
   onSelectNode: (id: string) => void
@@ -1783,18 +1746,11 @@ function SortableScriptRow({
               </span>
             )}
           </div>
+          {/* No database here: scripts no longer carry a per-file override, so
+              this only ever repeated the pipeline target on every single card. The
+              roles (source./target./vocab.) decide what a script reaches, and the
+              target is shown once in the header. */}
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-            {fileDs && !isDisabled && (
-              <span className="flex items-center gap-1">
-                <Database size={9} />
-                {fileDs.name}
-                {isOverride && (
-                  <span className="rounded bg-amber-500/15 px-1 text-[8px] text-amber-600 dark:text-amber-400">
-                    {t('etl.script_db_override')}
-                  </span>
-                )}
-              </span>
-            )}
             {log?.durationMs != null && !isDisabled && (
               <span>{log.durationMs < 1000 ? `${log.durationMs}ms` : `${(log.durationMs / 1000).toFixed(1)}s`}</span>
             )}
