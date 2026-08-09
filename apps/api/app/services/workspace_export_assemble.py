@@ -42,6 +42,7 @@ from app.schemas.source_concept_id import SourceConceptIdRangeResponse
 from app.schemas.sql_script import SqlScriptCollectionResponse, SqlScriptFileResponse
 from app.schemas.user_plugin import UserPluginResponse
 from app.schemas.attachment import WikiAttachmentResponse
+from app.services.project_export import _gitignore_escape, _is_data_ext
 from app.schemas.wiki_page import WikiPageResponse
 from app.schemas.workspace import WorkspaceResponse
 from app.services import (
@@ -339,8 +340,23 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
         for f in await etl_pipeline_service.list_files(db, pipeline.id)
     ]
     by_id = {f["id"]: f for f in files}
-    tree["_tree.json"] = _json(_to_path_tree(files, "pipelineId"))
-    for f in files:
+
+    # Per-file versioning marks (pipeline.config), mirroring buildEtlPipelineFolder:
+    # an excluded CODE file leaves neither the tree nor the files, since a
+    # _tree.json naming a file that is not there would break re-import.
+    config = getattr(pipeline, "config", None) or {}
+    excluded = set(config.get("excludedFiles") or [])
+    kept = [
+        f
+        for f in files
+        if not (
+            f["type"] == "file"
+            and not _is_data_ext(_tree_path(f, by_id))
+            and _tree_path(f, by_id) in excluded
+        )
+    ]
+    tree["_tree.json"] = _json(_to_path_tree(kept, "pipelineId"))
+    for f in kept:
         if f["type"] == "file" and f.get("content") is not None:
             tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
     return tree
@@ -614,7 +630,19 @@ async def build_etl_pipeline_tree(db: AsyncSession, pipeline) -> dict[str, bytes
     # Standalone repo only (the workspace export's root .gitignore already covers
     # these). Matters most for mapping/*.csv: a mapping project's own dictionary,
     # kept out of the generated script precisely so it is not committed.
-    tree[".gitignore"] = _DATA_FILE_GITIGNORE
+    #
+    # A data file the user marked is re-included by a `!path` exception AFTER the
+    # ignore rules — git honours the last match. Byte-faithful to
+    # buildEtlPipelineFolder's block.
+    config = getattr(pipeline, "config", None) or {}
+    marked = [
+        p
+        for p in (config.get("versionedDataFiles") or [])
+        if p in tree and _is_data_ext(p)
+    ]
+    lines = _DATA_FILE_GITIGNORE.decode("utf-8").rstrip("\n").split("\n")
+    lines.extend(f"!{_gitignore_escape(p)}" for p in marked)
+    tree[".gitignore"] = ("\n".join(lines) + "\n").encode("utf-8")
     await _attach_org(db, tree, "_pipeline.json", pipeline)
     return tree
 

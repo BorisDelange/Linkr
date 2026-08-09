@@ -54,6 +54,37 @@ async def test_pipeline_crud(client):
     assert (await client.get(f"{API}/etl-pipelines/{p['id']}", headers=headers)).status_code == 404
 
 
+async def test_versioning_marks_round_trip(client):
+    """Per-file versioning marks survive a PATCH and a re-read.
+
+    They decide what the git export commits — a pipeline's data files hold a
+    mapping dictionary that may be private — so losing them silently would
+    publish rows the user marked as not-for-git."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+    # Absent by default: an unmarked pipeline behaves exactly as before.
+    assert p.get("config") is None
+
+    config = {
+        "versionedDataFiles": ["mapping/source_to_concept_map.csv"],
+        "excludedFiles": ["scratch.sql"],
+    }
+    r = await client.patch(
+        f"{API}/etl-pipelines/{p['id']}", headers=headers, json={"config": config}
+    )
+    assert r.status_code == 200
+    assert r.json()["config"] == config
+
+    reread = (await client.get(f"{API}/etl-pipelines/{p['id']}", headers=headers)).json()
+    assert reread["config"] == config
+
+    # An unrelated PATCH must not drop them (exclude_unset).
+    await client.patch(f"{API}/etl-pipelines/{p['id']}", headers=headers, json={"status": "ready"})
+    kept = (await client.get(f"{API}/etl-pipelines/{p['id']}", headers=headers)).json()
+    assert kept["config"] == config
+
+
 async def test_list_all_without_workspace_filter(client):
     # The store loads pipelines app-wide (no workspaceId) — must not 422.
     headers = await _admin_headers(client)

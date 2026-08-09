@@ -615,29 +615,6 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                       roleOf={roleOf}
                     />
 
-                    {/* Copy the qualifier of the database picked in the dropdown.
-                        Only the two pipeline roles have one — a vocabulary DB has no
-                        role, so no prefix is offered for it (it stays addressable by
-                        its own schema). Resolved at run time (lib/duckdb/role-prefix). */}
-                    {selectedFileRole && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            className="gap-1 font-mono text-[10px]"
-                            onClick={() => void navigator.clipboard.writeText(`${selectedFileRole}.`)}
-                          >
-                            <Copy size={10} className="shrink-0" />
-                            {selectedFileRole}.
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {t('etl.copy_prefix_tooltip', { role: selectedFileRole })}
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-
                     {/* Opens the Schemas tab on this database rather than a modal
                         over the editor — it is the same browser either way. */}
                     <Tooltip>
@@ -660,6 +637,29 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                           : t('etl.browse_schema_no_target')}
                       </TooltipContent>
                     </Tooltip>
+
+                    {/* Copy the qualifier of the database picked in the dropdown.
+                        Only the two pipeline roles have one — a vocabulary DB has no
+                        role, so no prefix is offered for it (it stays addressable by
+                        its own schema). Resolved at run time (lib/duckdb/role-prefix). */}
+                    {selectedFileRole && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            className="gap-1 font-mono text-[10px]"
+                            onClick={() => void navigator.clipboard.writeText(`${selectedFileRole}.`)}
+                          >
+                            <Copy size={10} className="shrink-0" />
+                            {selectedFileRole}.
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t('etl.copy_prefix_tooltip', { role: selectedFileRole })}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                     </>
                     )}
                   </>

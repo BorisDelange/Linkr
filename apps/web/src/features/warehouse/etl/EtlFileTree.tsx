@@ -42,6 +42,8 @@ import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { compareEtlFilesByName } from './etl-file-language'
+import { isVersioned, toggleVersioned } from './etl-versioning'
+import { treeNodePath } from '@/lib/entity-tree'
 import type { EtlFile } from '@/types'
 
 const LANGUAGE_COLORS: Record<string, string> = {
@@ -196,6 +198,16 @@ function EtlFileTreeItem({
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
   const canDelete = useMyWorkspaceRole().can('etl:delete')
+  // Read from the store rather than threaded through props: the tree recurses,
+  // and every level would otherwise have to forward state it does not use.
+  const { files, etlPipelines, updatePipeline } = useEtlStore()
+  const pipelineId = file.pipelineId
+  const pipelineConfig = etlPipelines.find((p) => p.id === pipelineId)?.config
+  const filePath = (id: string) => {
+    const own = files.filter((f) => f.pipelineId === pipelineId)
+    const node = own.find((f) => f.id === id)
+    return node ? treeNodePath(node, new Map(own.map((f) => [f.id, f]))) : ''
+  }
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(file.name)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -229,6 +241,15 @@ function EtlFileTreeItem({
   const handleStartRename = () => {
     setEditName(file.name)
     setEditing(true)
+  }
+
+  // Versioning is decided by the file's PATH inside the pipeline, which is what
+  // the export tree and the .gitignore exceptions key on — not by its id.
+  const treePath = filePath(file.id)
+  const versioned = isVersioned(treePath, pipelineConfig)
+  const handleToggleVersioned = () => {
+    if (!pipelineId) return
+    updatePipeline(pipelineId, { config: toggleVersioned(treePath, pipelineConfig) })
   }
 
   const handleDownload = () => {
@@ -366,6 +387,17 @@ function EtlFileTreeItem({
               <Download size={14} />
               {t('files.download')}
             </ContextMenuItem>
+          )}
+          {!isFolder && (
+            <>
+              <ContextMenuSeparator />
+              {/* Data files are gitignored by default, code files versioned by
+                  default; this is the per-file exception either way. */}
+              <ContextMenuItem onClick={handleToggleVersioned} disabled={!canWrite}>
+                {versioned ? <Check size={14} /> : <span className="w-3.5" />}
+                {t('etl.version_this_file')}
+              </ContextMenuItem>
+            </>
           )}
           <ContextMenuSeparator />
           <ContextMenuItem

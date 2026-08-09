@@ -803,8 +803,24 @@ export interface EtlPipeline extends Seedable, Authored, Lineaged {
   organization?: OrganizationInfo
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
   version?: string
+  /** Per-file versioning marks — see EtlPipelineConfig. */
+  config?: EtlPipelineConfig
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * What a pipeline overrides about which of its files git tracks.
+ *
+ * Data files are gitignored by default (a pipeline's mapping export holds a
+ * possibly private dictionary) and code files are versioned by default; both
+ * lists hold the exceptions, keyed by the file's path inside the pipeline.
+ */
+export interface EtlPipelineConfig {
+  /** Data files to include despite the default ignore. */
+  versionedDataFiles?: string[]
+  /** Code files to leave out despite being versioned by default. */
+  excludedFiles?: string[]
 }
 
 export interface EtlFile {

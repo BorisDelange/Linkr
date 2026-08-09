@@ -1979,12 +1979,26 @@ export async function buildEtlPipelineFolder(
   zip.file(`${prefix}_pipeline.json`, json(stripInstanceFields(pipeline)))
   const files = await storage.etlFiles.getByPipeline(pipeline.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
-  zip.file(`${prefix}_tree.json`, json(toPathTree(files, 'pipelineId')))
-  for (const f of files) {
-    if (f.type === 'file' && f.content != null) {
-      zip.file(`${prefix}${treeNodePath(f, byId)}`, f.content)
+
+  // Per-file versioning marks (pipeline.config): a code file the user excluded
+  // never leaves the machine, so it is dropped from the tree as well as the
+  // files — a _tree.json naming a file that is not there would break re-import.
+  const excluded = new Set(pipeline.config?.excludedFiles ?? [])
+  const isExcludedCode = (path: string) => !isDataExtension(path) && excluded.has(path)
+  const kept = files.filter((f) => !(f.type === 'file' && isExcludedCode(treeNodePath(f, byId))))
+  zip.file(`${prefix}_tree.json`, json(toPathTree(kept, 'pipelineId')))
+
+  const includedDataPaths: string[] = []
+  for (const f of kept) {
+    if (f.type !== 'file' || f.content == null) continue
+    const path = treeNodePath(f, byId)
+    zip.file(`${prefix}${path}`, f.content)
+    // A data file is gitignored by default; the mark re-includes it below.
+    if (isDataExtension(path) && (pipeline.config?.versionedDataFiles ?? []).includes(path)) {
+      includedDataPaths.push(path)
     }
   }
+
   // Standalone pipeline repo only: inside a workspace export the root .gitignore
   // already covers these, and a nested copy would just be noise.
   //
@@ -1993,7 +2007,10 @@ export async function buildEtlPipelineFolder(
   // dictionary, kept out of the generated script precisely so they are not
   // committed — writing them here would put them back in the repo.
   if (!prefix) {
-    zip.file('.gitignore', `${DATA_FILE_EXTENSIONS.map((e) => `**/*${e}`).join('\n')}\n`)
+    const lines = DATA_FILE_EXTENSIONS.map((e) => `**/*${e}`)
+    // After the ignores: git honours the last matching rule.
+    lines.push(...includedDataPaths.map((p) => `!${gitignoreEscapePath(p)}`))
+    zip.file('.gitignore', `${lines.join('\n')}\n`)
   }
 }
 

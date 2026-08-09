@@ -24,6 +24,8 @@ class EtlPipelineCreate(CamelModel):
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
+    # Per-file versioning marks: {"versionedDataFiles": [...], "excludedFiles": [...]}
+    config: dict | None = None
     # Creation date preserved on import round-trip; absent → server_default now.
     created_at: datetime | None = None
     version: str = "0.1.0"
@@ -49,6 +51,7 @@ class EtlPipelineUpdate(CamelModel):
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
     version: str | None = None
+    config: dict | None = None
     # Restored on import/clone so the original creation date survives a git
     # round-trip; a normal PATCH never sends it (exclude_unset leaves it alone).
     created_at: datetime | None = None
@@ -75,6 +78,7 @@ class EtlPipelineResponse(CamelModel):
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
+    config: dict | None = None
     created_at: datetime
     updated_at: datetime
     version: str
