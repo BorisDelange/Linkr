@@ -2853,12 +2853,6 @@
   "catalog": {
     "title": "Catalogue",
     "description": "Parcourez et installez des projets, outils et alignements partagés par des équipes de recherche.",
-    "visibility": "Visibilité dans le catalogue",
-    "visibility_description": "Contrôle si cet élément apparaît dans le catalogue communautaire.",
-    "listed": "Référencé",
-    "listed_description": "Visible dans le catalogue communautaire une fois publié.",
-    "unlisted": "Non référencé",
-    "unlisted_description": "Publié sur git mais masqué dans le catalogue.",
     "load": "Charger le catalogue",
     "not_loaded": "Catalogue non chargé",
     "not_loaded_description": "Chargez le catalogue communautaire pour parcourir les contenus publiés par les équipes de recherche. Cela contacte {{host}}.",
@@ -2876,7 +2870,6 @@
     "install_title": "Installer depuis le catalogue",
     "install_workspace": "Installer dans le workspace",
     "install_workspace_placeholder": "Sélectionner un workspace",
-    "install_no_workspace": "Créez d'abord un workspace — chaque élément du catalogue s'installe dans un workspace.",
     "install_requires_server": "L'installation depuis le catalogue clone un dépôt Git, ce qui nécessite le serveur Linkr. La consultation fonctionne sans.",
     "install_requires_server_short": "Indisponible en mode client : l'installation clone un dépôt Git, ce qui nécessite le serveur Linkr.",
     "install_failed": "Échec de l'installation",
@@ -4289,7 +4282,8 @@
     "open": "Assistant",
     "error": {
       "no_provider": "Aucun fournisseur LLM configuré pour cet espace de travail.",
-      "unexpected_error": "Une erreur est survenue. Vérifiez que le modèle est accessible."
+      "unexpected_error": "Une erreur est survenue. Vérifiez que le modèle est accessible.",
+      "max_turns": "L'assistant a atteint sa limite d'étapes avant de terminer. Essayez une demande plus simple."
     },
     "settings_title": "Assistant IA",
     "settings_description": "Le modèle de langage utilisé par les assistants de Linkr — tableaux de bord, jeux de données, IDE et collections de scripts. Un modèle local (Ollama, LM Studio, llama.cpp) garde toutes les données sur votre infrastructure.",
@@ -4367,7 +4361,11 @@
       "remove_widget": "Widget supprimé",
       "remove_widget_failed": "Impossible de supprimer le widget",
       "describe_plugin": "Documentation du plugin consultée",
-      "describe_plugin_failed": "Plugin inconnu"
+      "describe_plugin_failed": "Plugin inconnu",
+      "describe_dataset": "Schéma du jeu de données consulté",
+      "describe_dataset_failed": "Lecture du jeu de données impossible",
+      "describe_dashboard": "Structure du tableau de bord consultée",
+      "describe_dashboard_failed": "Lecture du tableau de bord impossible"
     },
     "info_tab_stats": "Statistiques",
     "info_tab_context": "Contexte envoyé",

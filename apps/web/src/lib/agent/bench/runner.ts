@@ -12,7 +12,13 @@ import { buildSystemPrompt, DEFAULT_CONTEXT_OPTIONS } from '../system-prompt'
 import { datasetContext } from '../dataset-context'
 import { pluginDoc, pluginSummary } from '../plugin-context'
 import { selectToolNames } from '../tool-selection'
-import type { LlmEndpoint } from '../agent-loop'
+import {
+  assistantToolMessage,
+  requestStep,
+  toolResultMessage,
+  type ChatMessage,
+  type LlmEndpoint,
+} from '../agent-loop'
 import {
   benchFixture,
   selectCases,
@@ -130,11 +136,6 @@ function benchToolContext(state: BenchState): ToolContext {
   }
 }
 
-interface RawToolCall {
-  id?: string
-  function: { name: string; arguments: string | Record<string, unknown> }
-}
-
 /** Run one case to completion, mutating `state` exactly as the app would. */
 async function runCase(
   benchCase: BenchCase,
@@ -150,7 +151,7 @@ async function runCase(
   let promptTokens = 0
   let completionTokens = 0
 
-  const messages: Record<string, unknown>[] = [
+  const messages: ChatMessage[] = [
     {
       role: 'system',
       content: buildSystemPrompt({
@@ -170,66 +171,25 @@ async function runCase(
 
   const allowed = new Set(selectToolNames(benchCase.prompt[lang], false))
   const tools = DASHBOARD_TOOLS.filter((tool) => allowed.has(tool.function.name))
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (endpoint.apiKey) headers.Authorization = `Bearer ${endpoint.apiKey}`
-  const url = `${endpoint.baseUrl.replace(/\/+$/, '')}/chat/completions`
 
+  // Go through the shared request path (requestStep) so the bench uses the exact
+  // proxy routing the app does: in server mode the key stays server-side and is
+  // never present in the browser. A hand-rolled fetch here would post
+  // unauthenticated and defeat that guarantee.
   for (let turn = 0; turn < 6; turn++) {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      signal,
-      body: JSON.stringify({
-        model: endpoint.model,
-        messages,
-        tools,
-        temperature: 0,
-        stream: false,
-      }),
-    })
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      throw new Error(`HTTP ${response.status} ${detail.slice(0, 160)}`)
-    }
-    const payload = (await response.json()) as {
-      choices?: { message?: { content?: string; tool_calls?: RawToolCall[] } }[]
-      usage?: { prompt_tokens?: number; completion_tokens?: number }
-    }
-    promptTokens += payload.usage?.prompt_tokens ?? 0
-    completionTokens += payload.usage?.completion_tokens ?? 0
+    const step = await requestStep(endpoint, messages, tools, signal)
+    promptTokens += step.usage?.promptTokens ?? 0
+    completionTokens += step.usage?.completionTokens ?? 0
 
-    const message = payload.choices?.[0]?.message ?? {}
-    const text = (message.content ?? '').trim()
-    const parsed = (message.tool_calls ?? []).map((call, index) => {
-      let args: Record<string, unknown> = {}
-      try {
-        args =
-          typeof call.function.arguments === 'string'
-            ? (JSON.parse(call.function.arguments) as Record<string, unknown>)
-            : call.function.arguments ?? {}
-      } catch {
-        args = {}
-      }
-      return { id: call.id ?? `call_${index}`, name: call.function.name, args }
-    })
-
-    if (!parsed.length) {
-      state.replyText = text
+    if (!step.calls.length) {
+      state.replyText = step.text
       break
     }
 
-    messages.push({
-      role: 'assistant',
-      content: text,
-      tool_calls: parsed.map((call) => ({
-        id: call.id,
-        type: 'function',
-        function: { name: call.name, arguments: JSON.stringify(call.args) },
-      })),
-    })
+    messages.push(assistantToolMessage(step))
 
     let held = false
-    for (const call of parsed) {
+    for (const call of step.calls) {
       calls.push(call.name)
       const result = runDashboardTool(call.name, call.args, benchToolContext(state), () =>
         pluginDoc(manifest)
@@ -238,7 +198,7 @@ async function runCase(
         state.pending = { tool: result.needsConfirmation.tool }
         held = true
       }
-      messages.push({ role: 'tool', tool_call_id: call.id, content: result.message })
+      messages.push(toolResultMessage(call, result.message))
     }
     if (held) break
   }

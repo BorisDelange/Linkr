@@ -2853,12 +2853,6 @@
   "catalog": {
     "title": "Catalog",
     "description": "Browse and install projects, tools and mappings shared by research teams.",
-    "visibility": "Catalog visibility",
-    "visibility_description": "Control whether this item appears in the community catalog.",
-    "listed": "Listed",
-    "listed_description": "Visible in the community catalog when published.",
-    "unlisted": "Unlisted",
-    "unlisted_description": "Published to git but hidden from the catalog browser.",
     "load": "Load catalog",
     "not_loaded": "Catalog not loaded",
     "not_loaded_description": "Load the community catalog to browse content published by research teams. This contacts {{host}}.",
@@ -2876,7 +2870,6 @@
     "install_title": "Install from catalog",
     "install_workspace": "Install into workspace",
     "install_workspace_placeholder": "Select a workspace",
-    "install_no_workspace": "Create a workspace first — every catalog item is installed into one.",
     "install_requires_server": "Installing from the catalog clones a Git repository, which requires the Linkr server. Browsing works without it.",
     "install_requires_server_short": "Not available in client-only mode: installing clones a Git repository, which needs the Linkr server.",
     "install_failed": "Installation failed",
@@ -4289,7 +4282,8 @@
     "open": "Assistant",
     "error": {
       "no_provider": "No LLM provider configured for this workspace.",
-      "unexpected_error": "Something went wrong. Check the model is reachable."
+      "unexpected_error": "Something went wrong. Check the model is reachable.",
+      "max_turns": "The assistant reached its step limit before finishing. Try a smaller request."
     },
     "settings_title": "AI assistant",
     "settings_description": "The language model used by Linkr's assistants — dashboards, datasets, the IDE and script collections. A local model (Ollama, LM Studio, llama.cpp) keeps all data on your infrastructure.",
@@ -4367,7 +4361,11 @@
       "remove_widget": "Deleted the widget",
       "remove_widget_failed": "Could not delete the widget",
       "describe_plugin": "Read the plugin documentation",
-      "describe_plugin_failed": "Unknown plugin"
+      "describe_plugin_failed": "Unknown plugin",
+      "describe_dataset": "Read the dataset schema",
+      "describe_dataset_failed": "Could not read the dataset",
+      "describe_dashboard": "Read the dashboard layout",
+      "describe_dashboard_failed": "Could not read the dashboard"
     },
     "info_tab_stats": "Stats",
     "info_tab_context": "Context sent",

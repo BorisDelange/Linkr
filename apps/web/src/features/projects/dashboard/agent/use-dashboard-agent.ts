@@ -126,6 +126,10 @@ export function useDashboardAgent({
   const { transcript, exchanges, stats, canUndo, draft } = session
 
   const [running, setRunning] = useState(false)
+  // Checked-and-set synchronously at the top of `send`: `setRunning` is async, so
+  // two fast Enter presses in one render both read `running === false` and would
+  // otherwise both start a turn, orphaning the first AbortController.
+  const runningRef = useRef(false)
   const [contextOptions, setContextOptions] = useState<ContextOptions>(
     DEFAULT_CONTEXT_OPTIONS
   )
@@ -169,6 +173,18 @@ export function useDashboardAgent({
 
   const snapshotRef = useRef<Snapshot | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // The route reuses one DashboardPage (no `key`), so navigating A → B keeps this
+  // hook instance and its in-flight `send` closure, which captured dashboard A.
+  // Abort on a dashboard change so a running turn cannot keep writing into — and
+  // mutating — the dashboard the user just left.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+      abortRef.current = null
+      runningRef.current = false
+    }
+  }, [dashboardId])
 
   const locale = i18n.language?.slice(0, 2) || 'en'
   const datasets = useDatasetStore((s) => s.files)
@@ -334,6 +350,7 @@ export function useDashboardAgent({
   const stop = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
+    runningRef.current = false
     setRunning(false)
   }, [])
 
@@ -410,13 +427,16 @@ export function useDashboardAgent({
   const send = useCallback(
     async (userText: string) => {
       const text = userText.trim()
-      if (!text || running) return
+      // Synchronous guard: two fast submits in one render both see running===false
+      // via state; the ref is set immediately so the second is dropped.
+      if (!text || runningRef.current) return
       if (!endpoint) {
         push({ kind: 'error', text: 'no_provider' })
         return
       }
 
       push({ kind: 'user', text })
+      runningRef.current = true
       setRunning(true)
       setTurnStartedAt(Date.now())
       // Snapshot before any mutation so [Undo] restores the pre-turn dashboard.
@@ -436,8 +456,12 @@ export function useDashboardAgent({
       const allowed = new Set(selectToolNames(text, session.history.length > 0))
       const tools = DASHBOARD_TOOLS.filter((tool) => allowed.has(tool.function.name))
 
+      // The entry currently streaming, so an abort can clear its blinking cursor.
+      let liveEntryId: string | null = null
       try {
         let mutated = false
+        let finished = false
+        let lastAssistantText = ''
         for (let turn = 0; turn < MAX_TURNS; turn++) {
           const startedAt = Date.now()
           // Stream into a single entry so the user watches the reply form rather
@@ -453,6 +477,7 @@ export function useDashboardAgent({
               mutateSession(dashboardId, (current) => {
                 if (!streamed) {
                   streamed = true
+                  liveEntryId = entryId
                   return {
                     transcript: [
                       ...current.transcript,
@@ -512,20 +537,25 @@ export function useDashboardAgent({
                   : entry
               ),
             }))
+            liveEntryId = null
           } else if (step.text) {
             push({ kind: 'assistant', text: step.text, durationMs: elapsed })
           }
+          if (step.text) lastAssistantText = step.text
 
           // A model that printed a tool call as prose instead of emitting it
-          // properly would otherwise do nothing at all, silently.
+          // properly would otherwise do nothing at all, silently. Only salvage a
+          // call whose tool was actually offered this turn — text the model merely
+          // quoted (a column description, a widget name) must not become an action.
           const calls = step.calls.length
             ? step.calls
             : [salvageTextToolCall(step.text)].filter(
-                (call): call is ParsedToolCall => call !== null
+                (call): call is ParsedToolCall => call !== null && allowed.has(call.name)
               )
 
           if (!calls.length) {
             messages.push({ role: 'assistant', content: step.text })
+            finished = true
             break
           }
 
@@ -551,16 +581,31 @@ export function useDashboardAgent({
             })
             messages.push(toolResultMessage(call, result.message))
           }
-          if (awaitingConfirmation) break
+          if (awaitingConfirmation) {
+            // A held confirmation is a deliberate pause, not exhaustion — the loop
+            // ends here and the turn is considered complete.
+            finished = true
+            break
+          }
         }
-        // Keep only the user/assistant exchange in history: replaying tool calls
-        // on the next turn would re-describe stale ids, and the fresh system
-        // prompt already carries the current state.
+        // The loop fell out the bottom still wanting tool rounds: say so rather
+        // than leaving the panel silent, which reads as success.
+        if (!finished) {
+          push({ kind: 'error', text: 'max_turns' })
+        }
+        // Keep the user turn AND the assistant's reply in history: consecutive
+        // user turns with no assistant between them lose all multi-turn context
+        // ("make it wider" after "add a histogram"). Tool calls are still dropped
+        // — replaying them would re-describe stale ids and the fresh system prompt
+        // already carries the current state.
         mutateSession(dashboardId, (current) => ({
           canUndo: mutated,
           history: [
             ...current.history,
             { role: 'user' as const, content: text },
+            ...(lastAssistantText
+              ? [{ role: 'assistant' as const, content: lastAssistantText }]
+              : []),
           ].slice(-8),
         }))
       } catch (error) {
@@ -569,9 +614,19 @@ export function useDashboardAgent({
             kind: 'error',
             text: error instanceof AgentError ? error.message : 'unexpected_error',
           })
+        } else if (liveEntryId) {
+          // Stop mid-stream: drop the blinking cursor on the abandoned entry so it
+          // doesn't render as a live reply forever.
+          const stoppedId = liveEntryId
+          mutateSession(dashboardId, (current) => ({
+            transcript: current.transcript.map((entry) =>
+              entry.id === stoppedId ? { ...entry, streaming: false } : entry
+            ),
+          }))
         }
       } finally {
         abortRef.current = null
+        runningRef.current = false
         setRunning(false)
         setTurnStartedAt(null)
       }
