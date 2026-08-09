@@ -53,7 +53,7 @@ export function ProjectSettingsPage() {
   } = useAppStore()
 
   // Deleting needs owner (enforced server-side too).
-  const { can } = useMyProjectRole(uid)
+  const { can, loaded: roleLoaded } = useMyProjectRole(uid)
   const canDelete = can('project-settings:delete')
   // Folder bindings are a server-mode, project-settings:write concern. Non-writers
   // still see the tab (read-only current paths) so it renders whenever server mode.
@@ -73,7 +73,11 @@ export function ProjectSettingsPage() {
     ? 'folders'
     : requestedTab === 'danger' && canDelete
       ? 'danger'
-      : 'members'
+      // Hold on 'danger' until the role loads, so a deep-link to it doesn't snap
+      // to 'members' for the owner while /my-role is still in flight.
+      : requestedTab === 'danger' && !roleLoaded
+        ? 'danger'
+        : 'members'
 
   const [deleteConfirm, setDeleteConfirm] = useState('')
 

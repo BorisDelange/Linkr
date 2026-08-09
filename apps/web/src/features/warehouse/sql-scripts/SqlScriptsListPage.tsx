@@ -28,14 +28,17 @@ export function SqlScriptsListPage() {
   const { activeWorkspaceId } = useWorkspaceStore()
   const { atLeast } = useMyWorkspaceRole()
   const language = useAppStore((s) => s.language)
-  const { collectionsLoaded, loadCollections, getWorkspaceCollections } = useSqlScriptsStore()
+  const { collectionsLoaded, loadCollections, collections: allCollections } = useSqlScriptsStore()
   const sqlActions = useSqlCollectionActions()
 
   useEffect(() => {
     if (!collectionsLoaded) loadCollections()
   }, [collectionsLoaded, loadCollections])
 
-  const collections = activeWorkspaceId ? getWorkspaceCollections(activeWorkspaceId) : []
+  const collections = useMemo(
+    () => (activeWorkspaceId ? allCollections.filter((c) => c.workspaceId === activeWorkspaceId) : []),
+    [allCollections, activeWorkspaceId],
+  )
 
   const [searchQuery, setSearchQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)

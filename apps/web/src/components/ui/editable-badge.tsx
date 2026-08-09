@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Check, Pencil, X } from 'lucide-react'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { getBadgeClasses, getBadgeStyle } from '@/lib/badge-colors'
 import type { BadgeColor } from '@/types'
 
 interface EditableBadgeProps {

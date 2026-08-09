@@ -123,7 +123,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
     const file = files.find((f) => f.id === selectedNodeId)
     const log = scriptStatuses.get(selectedNodeId)
     return file ? { type: 'script' as const, file, log } : null
-  }, [selectedNodeId, sourceDs, targetDs, files, scriptStatuses, pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId])
+  }, [selectedNodeId, sourceDs, targetDs, files, scriptStatuses])
 
   // Empty state
   if (sqlFiles.length === 0 && !hasSource && !hasTarget) {

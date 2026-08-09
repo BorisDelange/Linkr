@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currentStatementNumber, statementPreview } from './RunProgressBar'
+import { currentStatementNumber, statementPreview } from './statement-preview'
 import { splitSqlStatements } from '@/lib/duckdb/engine'
 
 describe('statementPreview', () => {

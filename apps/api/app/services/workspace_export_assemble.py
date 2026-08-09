@@ -98,6 +98,18 @@ def _dump(schema, row) -> dict:
     return schema.model_validate(row).model_dump(by_alias=True, mode="json")
 
 
+def _badged_dump(schema, row) -> dict:
+    """_dump for scopes whose client rows carry ``badges`` only once set (sql
+    collections, ETL pipelines, DQ rule sets, data catalogs): the client export
+    omits the absent field entirely (JSON.stringify skips undefined) while
+    Pydantic always emits an explicit null — drop it for byte-parity. Projects
+    and workspaces store the field explicitly, so their null must be kept."""
+    data = _dump(schema, row)
+    if data.get("badges") is None:
+        data.pop("badges", None)
+    return data
+
+
 def _resolve_git_remote(cfg: dict | None) -> dict | None:
     """Port of ``resolveGitRemote`` (entity-io.ts:1374): a remote with a URL, else
     None. The legacy ``gitUrl`` field never reaches the server schemas, so only the
@@ -301,7 +313,7 @@ async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, by
     its real path."""
     tree: dict[str, bytes] = {}
     tree["_collection.json"] = _json(
-        _strip_instance_fields(_dump(SqlScriptCollectionResponse, collection))
+        _strip_instance_fields(_badged_dump(SqlScriptCollectionResponse, collection))
     )
     files = [
         _dump(SqlScriptFileResponse, f)
@@ -320,7 +332,7 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
     _pipeline.json (stripped) + _tree.json + each file at its real path."""
     tree: dict[str, bytes] = {}
     tree["_pipeline.json"] = _json(
-        _strip_instance_fields(_dump(EtlPipelineResponse, pipeline))
+        _strip_instance_fields(_badged_dump(EtlPipelineResponse, pipeline))
     )
     files = [
         _dump(EtlFileResponse, f)
@@ -452,7 +464,7 @@ async def build_workspace_tree_from_db(
             if options.exclude_entities.get(c.id):
                 continue
             git = _resolve_git_remote(c.git_remote_config)
-            meta = _dump(SqlScriptCollectionResponse, c)
+            meta = _badged_dump(SqlScriptCollectionResponse, c)
             entry: dict = {"meta": meta, "git": git, "folder": _eid(meta)}
             if not git and options.include_entity_data.get(c.id):
                 entry["sub_tree"] = await _sql_collection_sub_tree(db, c)
@@ -465,7 +477,7 @@ async def build_workspace_tree_from_db(
             if options.exclude_entities.get(p.id):
                 continue
             git = _resolve_git_remote(p.git_remote_config)
-            meta = _dump(EtlPipelineResponse, p)
+            meta = _badged_dump(EtlPipelineResponse, p)
             entry = {"meta": meta, "git": git, "folder": _eid(meta)}
             if not git and options.include_entity_data.get(p.id):
                 entry["sub_tree"] = await _etl_pipeline_sub_tree(db, p)
@@ -481,7 +493,7 @@ async def build_workspace_tree_from_db(
                 _dump(DqCustomCheckResponse, c)
                 for c in await dq_rule_set_service.list_checks(db, rs.id)
             ]
-            meta = _dump(DqRuleSetResponse, rs)
+            meta = _badged_dump(DqRuleSetResponse, rs)
             dq_rule_sets.append(
                 {
                     "meta": meta,
@@ -507,7 +519,7 @@ async def build_workspace_tree_from_db(
                 continue
             catalogs.append(
                 {
-                    "meta": _dump(DataCatalogResponse, cat),
+                    "meta": _badged_dump(DataCatalogResponse, cat),
                     "git": _resolve_git_remote(cat.git_remote_config),
                 }
             )
@@ -612,7 +624,7 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
     # (stripped) + checks.json (verbatim, only when non-empty). Note this differs
     # from the workspace layout, which bundles {ruleSet, checks} in _ruleset.json.
     tree: dict[str, bytes] = {}
-    tree["rule-set.json"] = _json(_strip_instance_fields(_dump(DqRuleSetResponse, rule_set)))
+    tree["rule-set.json"] = _json(_strip_instance_fields(_badged_dump(DqRuleSetResponse, rule_set)))
     checks = [_dump(DqCustomCheckResponse, c) for c in await dq_rule_set_service.list_checks(db, rule_set.id)]
     if checks:
         tree["checks.json"] = _json(checks)
@@ -622,7 +634,7 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
 
 async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]:
     tree: dict[str, bytes] = {}
-    tree["catalog.json"] = _json(_strip_instance_fields(_dump(DataCatalogResponse, catalog)))
+    tree["catalog.json"] = _json(_strip_instance_fields(_badged_dump(DataCatalogResponse, catalog)))
     await _attach_org(db, tree, "catalog.json", catalog)
     return tree
 

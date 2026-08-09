@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { getBadgeClasses, getBadgeStyle } from '@/lib/badge-colors'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
 import type { ProjectBadge } from '@/types'

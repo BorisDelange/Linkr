@@ -332,7 +332,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
         })
       }
     },
-    [pipeline?.targetDataSourceId, runOne, addExecutionResult, addOutputTab],
+    [pipeline?.targetDataSourceId, runOne, addExecutionResult, addOutputTab, t],
   )
 
   // Run current file

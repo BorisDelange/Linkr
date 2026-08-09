@@ -126,12 +126,8 @@ function StatisticsView({
 
   useEffect(() => {
     // Server mode: never auto-run COUNT(*) on potentially huge databases.
-    if (isServerMode()) {
-      setSourceStats(null)
-      setTargetStats(null)
-      setLoading(false)
-      return
-    }
+    // The stats states keep their initial null/false — nothing else sets them.
+    if (isServerMode()) return
     let cancelled = false
     setLoading(true)
 

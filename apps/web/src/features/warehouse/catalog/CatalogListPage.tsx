@@ -28,7 +28,7 @@ export function CatalogListPage() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { atLeast } = useMyWorkspaceRole()
-  const { catalogsLoaded, loadCatalogs, getWorkspaceCatalogs } = useCatalogStore()
+  const { catalogsLoaded, loadCatalogs, catalogs: allCatalogs } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const catalogActions = useCatalogActions()
 
@@ -36,7 +36,10 @@ export function CatalogListPage() {
     if (!catalogsLoaded) loadCatalogs()
   }, [catalogsLoaded, loadCatalogs])
 
-  const catalogs = activeWorkspaceId ? getWorkspaceCatalogs(activeWorkspaceId) : []
+  const catalogs = useMemo(
+    () => (activeWorkspaceId ? allCatalogs.filter((c) => c.workspaceId === activeWorkspaceId) : []),
+    [allCatalogs, activeWorkspaceId],
+  )
 
   const [searchQuery, setSearchQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)

@@ -6,6 +6,13 @@ const RANK: Record<string, number> = { viewer: 0, editor: 1, owner: 2 }
 
 export interface ContextRole {
   role: MemberRole | null
+  /**
+   * Whether the role has finished loading. In client mode there is nothing to
+   * load, so it is always true. In server mode it is false until the `/my-role`
+   * fetch resolves — a permission gate that must not flicker (or mis-route a
+   * deep-link) should wait on this rather than treat "not yet loaded" as "denied".
+   */
+  loaded: boolean
   /** True if the effective role is at least `min` (front-only mode → always true). */
   atLeast: (min: MemberRole) => boolean
   /**
@@ -21,6 +28,7 @@ function make(role: MemberRole | null, permissions: string[]): ContextRole {
   const serverMode = isServerMode()
   return {
     role,
+    loaded: !serverMode || role != null,
     atLeast: (min: MemberRole) =>
       !serverMode || (role != null && RANK[role] >= RANK[min]),
     can: (permission: string) => !serverMode || permissions.includes(permission),

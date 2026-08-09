@@ -36,7 +36,7 @@ export function WorkspaceSettingsPage() {
   const { tab } = useParams()
   const [searchParams] = useSearchParams()
   // Deleting needs owner (enforced server-side too).
-  const { can } = useMyWorkspaceRole(wsUid)
+  const { can, loaded: roleLoaded } = useMyWorkspaceRole(wsUid)
   const canDelete = can('workspace-settings:delete')
   // Owner-only, and enforced server-side too: pointing the assistant at an
   // endpoint decides where prompts (possibly carrying clinical context) go.
@@ -47,7 +47,14 @@ export function WorkspaceSettingsPage() {
   // tab and the server-only environments tab.
   const requestedTab = tab ?? searchParams.get('tab') ?? 'members'
   const availableTabs = ['members', 'assistant', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
-  const activeTab = availableTabs.includes(requestedTab) ? requestedTab : 'members'
+  // Hold the requested tab until the role is known: 'danger' is gated on canDelete,
+  // which is false while /my-role loads, so a deep-link to it would otherwise snap
+  // to 'members' permanently even for the owner.
+  const activeTab = availableTabs.includes(requestedTab)
+    ? requestedTab
+    : roleLoaded
+      ? 'members'
+      : requestedTab
   const language = useAppStore((s) => s.language)
   const { _workspacesRaw, deleteWorkspace, closeWorkspace } = useWorkspaceStore()
 

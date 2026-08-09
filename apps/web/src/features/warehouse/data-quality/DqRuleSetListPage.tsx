@@ -36,7 +36,7 @@ export function DqRuleSetListPage() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { atLeast } = useMyWorkspaceRole()
-  const { dqRuleSetsLoaded, loadDqRuleSets, getWorkspaceRuleSets } = useDqStore()
+  const { dqRuleSetsLoaded, loadDqRuleSets, dqRuleSets } = useDqStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dqActions = useDqRuleSetActions()
 
@@ -44,7 +44,10 @@ export function DqRuleSetListPage() {
     if (!dqRuleSetsLoaded) loadDqRuleSets()
   }, [dqRuleSetsLoaded, loadDqRuleSets])
 
-  const ruleSets = activeWorkspaceId ? getWorkspaceRuleSets(activeWorkspaceId) : []
+  const ruleSets = useMemo(
+    () => (activeWorkspaceId ? dqRuleSets.filter((s) => s.workspaceId === activeWorkspaceId) : []),
+    [dqRuleSets, activeWorkspaceId],
+  )
 
   const [searchQuery, setSearchQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)

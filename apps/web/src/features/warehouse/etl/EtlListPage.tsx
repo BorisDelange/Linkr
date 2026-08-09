@@ -29,7 +29,7 @@ export function EtlListPage() {
   const { activeWorkspaceId } = useWorkspaceStore()
   const { atLeast } = useMyWorkspaceRole()
   const language = useAppStore((s) => s.language)
-  const { etlPipelinesLoaded, loadEtlPipelines, getWorkspacePipelines } = useEtlStore()
+  const { etlPipelinesLoaded, loadEtlPipelines, etlPipelines } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const etlActions = useEtlActions()
 
@@ -37,7 +37,10 @@ export function EtlListPage() {
     if (!etlPipelinesLoaded) loadEtlPipelines()
   }, [etlPipelinesLoaded, loadEtlPipelines])
 
-  const pipelines = activeWorkspaceId ? getWorkspacePipelines(activeWorkspaceId) : []
+  const pipelines = useMemo(
+    () => (activeWorkspaceId ? etlPipelines.filter((p) => p.workspaceId === activeWorkspaceId) : []),
+    [etlPipelines, activeWorkspaceId],
+  )
 
   const [searchQuery, setSearchQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)

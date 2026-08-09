@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { getBadgeClasses, getBadgeStyle } from '@/lib/badge-colors'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import type { BadgeColor, ProjectBadge } from '@/types'
@@ -83,7 +83,7 @@ export function BadgeEditor({ value, onChange, suggestions = [], label }: BadgeE
     if (!trimmed || attached.has(trimmed.toLowerCase())) return
     onChange([
       ...value,
-      { ...badge, id: `b-${Date.now()}`, label: setLocalized(badge.label, language, trimmed) },
+      { ...badge, id: crypto.randomUUID(), label: setLocalized(badge.label, language, trimmed) },
     ])
     setNewLabel('')
   }
