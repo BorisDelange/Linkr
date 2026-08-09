@@ -1,7 +1,7 @@
 import { useEffect, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
-import { Routes, Route, Navigate } from 'react-router'
+import { Routes, Route, Navigate, useLocation } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
@@ -126,6 +126,22 @@ export function App() {
     const id = setTimeout(() => recordVisit('project', activeProjectUid), 400)
     return () => clearTimeout(id)
   }, [activeProjectUid, recordVisit])
+
+  // The guards open the workspace/project matching the URL, but only explicit
+  // actions (back buttons, logo) closed them — so a browser back/forward out of
+  // a project or workspace left the sidebar on the deeper level. Close whatever
+  // the URL no longer contains. Stores are read via getState() so this only
+  // fires on URL changes, not on openProject() calls that precede a navigate().
+  const location = useLocation()
+  useEffect(() => {
+    const pathname = location.pathname
+    if (useAppStore.getState().activeProjectUid && !/^\/workspaces\/[^/]+\/projects\/[^/]+/.test(pathname)) {
+      useAppStore.getState().closeProject()
+    }
+    if (useWorkspaceStore.getState().activeWorkspaceId && !/^\/workspaces\/[^/]+/.test(pathname)) {
+      useWorkspaceStore.getState().closeWorkspace()
+    }
+  }, [location.pathname])
 
   if (!organizationsLoaded || !workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded || !catalogsLoaded || !serviceMappingsLoaded) {
     return (
