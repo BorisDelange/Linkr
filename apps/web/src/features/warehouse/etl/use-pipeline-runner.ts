@@ -116,7 +116,73 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
     )
   }, [pipeline, roleSchemasFor, dataSourceIdOf, onScriptError])
 
+  /**
+   * Run one ad-hoc chunk of SQL (a file, a selection, a line) through the same
+   * store state as a full run, so the toolbar can stop it and the button does not
+   * revert to "Run" when the tab is unmounted and remounted.
+   *
+   * `fileId` scopes the status to the script it came from; a selection reports
+   * against its own file.
+   */
+  const runOne = useCallback(async (
+    fileId: string,
+    sql: string,
+    dataSourceId: string,
+  ): Promise<Record<string, unknown>[]> => {
+    if (!pipeline) return []
+    const store = useEtlStore.getState()
+    store.startPipelineRun()
+    const abort = useEtlStore.getState().pipelineRunAbort
+    const pipelineId = pipeline.id
+    const start = Date.now()
+
+    const log = (patch: Partial<import('@/types').EtlRunLog>) => {
+      useEtlStore.getState().setScriptStatus(fileId, {
+        id: `log-${fileId}-${Date.now()}`,
+        pipelineId,
+        fileId,
+        status: 'running',
+        startedAt: new Date(start).toISOString(),
+        ...patch,
+      })
+    }
+
+    log({ status: 'running' })
+    try {
+      const { testConnection } = useDataSourceStore.getState()
+      await testConnection(dataSourceId)
+      for (const role of usedRoles(sql)) {
+        const roleId = dataSourceIdOf(role)
+        if (roleId && roleId !== dataSourceId) await testConnection(roleId)
+      }
+      const resolved = resolveRolePrefixes(sql, roleSchemasFor(dataSourceId))
+      const rows = await runPipelineSql(pipeline, dataSourceId, resolved, {
+        signal: abort?.signal,
+        onProgress: (done, total) => log({ statementsDone: done, statementsTotal: total }),
+      })
+      const durationMs = Date.now() - start
+      log({
+        status: 'success',
+        completedAt: new Date().toISOString(),
+        durationMs,
+        rowsAffected: rows.length,
+        output: `${rows.length} row${rows.length !== 1 ? 's' : ''} in ${durationMs}ms`,
+      })
+      useEtlStore.getState().finishPipelineRun('success')
+      return rows
+    } catch (err) {
+      log({
+        status: 'error',
+        completedAt: new Date().toISOString(),
+        durationMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      useEtlStore.getState().finishPipelineRun('error')
+      throw err
+    }
+  }, [pipeline, roleSchemasFor, dataSourceIdOf])
+
   const stop = useCallback(() => useEtlStore.getState().stopPipelineRun(), [])
 
-  return { runScripts, stop, running: pipelineRunning }
+  return { runScripts, runOne, stop, running: pipelineRunning }
 }

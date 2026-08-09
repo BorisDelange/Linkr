@@ -382,7 +382,28 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       if (history.length > 0 && history[0].status === 'running') {
         history[0] = { ...history[0], status: 'error', completedAt: new Date().toISOString() }
       }
-      return { pipelineRunning: false, pipelineRunAbort: null, runHistory: history }
+      // The script in flight keeps its own status, which would otherwise stay
+      // "running" for good — the abort only stops the loop, it cannot interrupt a
+      // statement already sent, so the honest label is "stopped", not "error".
+      const statuses = new Map(s.scriptStatuses)
+      for (const [fileId, log] of statuses) {
+        if (log.status === 'running') {
+          statuses.set(fileId, {
+            ...log,
+            status: 'stopped',
+            completedAt: new Date().toISOString(),
+            durationMs: log.startedAt
+              ? Date.now() - new Date(log.startedAt).getTime()
+              : undefined,
+          })
+        }
+      }
+      return {
+        pipelineRunning: false,
+        pipelineRunAbort: null,
+        runHistory: history,
+        scriptStatuses: statuses,
+      }
     })
   },
 

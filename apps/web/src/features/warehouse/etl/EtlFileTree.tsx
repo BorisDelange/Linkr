@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   AlertCircle,
   MinusCircle,
+  Square,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -415,6 +416,8 @@ function ScriptRunStatus({ fileId }: { fileId: string }) {
       return <AlertCircle size={11} className="ml-auto shrink-0 text-red-500" />
     case 'skipped':
       return <MinusCircle size={11} className="ml-auto shrink-0 text-muted-foreground/40" />
+    case 'stopped':
+      return <Square size={11} className="ml-auto shrink-0 text-amber-500" />
     default:
       return null
   }

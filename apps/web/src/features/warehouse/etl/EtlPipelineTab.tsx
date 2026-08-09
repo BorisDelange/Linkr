@@ -669,6 +669,7 @@ function RunStatusIcon({ status }: { status: string }) {
     case 'running': return <Loader2 size={12} className="animate-spin text-blue-500" />
     case 'pending': return <Clock size={12} className="text-muted-foreground/50" />
     case 'skipped': return <AlertCircle size={12} className="text-amber-500" />
+    case 'stopped': return <Square size={12} className="text-amber-500" />
     default: return null
   }
 }

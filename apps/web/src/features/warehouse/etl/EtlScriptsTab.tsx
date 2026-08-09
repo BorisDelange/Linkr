@@ -78,8 +78,6 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 import { comboToString } from '@/lib/format-shortcut'
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import { EtlFileTree } from './EtlFileTree'
-import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
-import { runPipelineSql } from './run-pipeline-sql'
 import type { EtlFile } from '@/types'
 
 /** Shortcut actions surfaced in the ETL editor (subset of the IDE's set;
@@ -161,7 +159,6 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   const [newFileName, setNewFileName] = useState('')
   const [newFileType, setNewFileType] = useState('sql')
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
-  const [isRunning, setIsRunning] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   // Same bindings the IDE's Run button shows, read from the shortcut store so a
@@ -189,8 +186,8 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
-  const { roleSchemasFor, roleOf, dataSourceIdOf } = useRoleSchemas(pipeline)
-  const { runScripts, stop: stopRun, running: pipelineRunning } = usePipelineRunner(pipeline)
+  const { roleOf, dataSourceIdOf } = useRoleSchemas(pipeline)
+  const { runScripts, runOne, stop: stopRun, running: busy } = usePipelineRunner(pipeline)
 
   /** The scripts a Run-all covers, in execution order. Disabled ones stay in so
    *  the run log records them as skipped rather than dropping them silently. */
@@ -199,9 +196,6 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
       .filter((f) => f.type === 'file' && (f.language === 'sql' || f.name.endsWith('.sql')))
       .sort((a, b) => a.order - b.order)
   ), [files])
-  // One script (local state) or the whole set (store state) — either way the
-  // toolbar shows Stop rather than an enabled Run.
-  const busy = isRunning || pipelineRunning
 
   // Only the pipeline's own databases — its two roles plus the ATHENA reference
   // of its mapping project. Unrelated vocabulary DBs of the workspace are not
@@ -293,27 +287,16 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     setNewFileType('sql')
   }
 
-  // Execute SQL against a data source (per-file override or pipeline default)
+  // Execute SQL against a data source. Goes through the shared runner, which owns
+  // the run state: the toolbar can stop it, and switching tabs no longer makes an
+  // in-flight run look finished (that state used to be local to this component).
   const executeSql = useCallback(
-    async (sql: string, label: string, dataSourceId?: string) => {
+    async (fileId: string, sql: string, label: string, dataSourceId?: string) => {
       const dsId = dataSourceId ?? pipeline?.targetDataSourceId
       if (!dsId) return
-      // Ensure the target data source is mounted
-      const { testConnection } = useDataSourceStore.getState()
-      await testConnection(dsId)
-      // A role qualifier only resolves once that database is mounted too — the
-      // dropdown mounts one, the script may reach all three.
-      for (const role of usedRoles(sql)) {
-        const roleId = dataSourceIdOf(role)
-        if (roleId && roleId !== dsId) await testConnection(roleId)
-      }
-      // `source.` / `target.` / `vocab.` come from the pipeline's roles and the
-      // Vocabulary tab — never from the picker next to Run, which only chooses
-      // which database the bare (unqualified) statement is aimed at.
-      const resolvedSql = resolveRolePrefixes(sql, roleSchemasFor(dsId))
       const start = Date.now()
       try {
-        const rows = await runPipelineSql(pipeline, dsId, resolvedSql)
+        const rows = await runOne(fileId, sql, dsId)
         const duration = Date.now() - start
         addExecutionResult({
           id: `exec-${Date.now()}`,
@@ -351,18 +334,16 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
         })
       }
     },
-    [pipeline?.targetDataSourceId, roleSchemasFor, dataSourceIdOf, addExecutionResult, addOutputTab],
+    [pipeline?.targetDataSourceId, runOne, addExecutionResult, addOutputTab],
   )
 
   // Run current file
   const handleRunFile = useCallback(async () => {
     if (!selectedFile?.content || !isExecutable(selectedFile)) return
-    setIsRunning(true)
-    try {
-      await executeSql(selectedFile.content, selectedFile.name, resolveFileDataSourceId(selectedFile))
-    } finally {
-      setIsRunning(false)
-    }
+    await executeSql(
+      selectedFile.id, selectedFile.content, selectedFile.name,
+      resolveFileDataSourceId(selectedFile),
+    )
   }, [selectedFile, executeSql, resolveFileDataSourceId])
 
   // Cmd+Enter: run the selection if any, else the current line (RStudio-style).
@@ -384,12 +365,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
       label = `${selectedFile.name}:${pos.lineNumber}`
     }
     if (!sql.trim()) return
-    setIsRunning(true)
-    try {
-      await executeSql(sql, label, resolveFileDataSourceId(selectedFile))
-    } finally {
-      setIsRunning(false)
-    }
+    await executeSql(selectedFile.id, sql, label, resolveFileDataSourceId(selectedFile))
   }, [selectedFile, executeSql, resolveFileDataSourceId])
 
   // Run every script, through the same runner as the Pipeline tab: this used to
@@ -534,9 +510,6 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                             variant="destructive"
                             className="gap-1"
                             onClick={stopRun}
-                            // A single statement cannot be cancelled mid-flight;
-                            // Stop only ends a multi-script run between scripts.
-                            disabled={!pipelineRunning}
                           >
                             <Square size={12} />
                             {t('etl.stop')}

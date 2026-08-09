@@ -826,7 +826,7 @@ export interface EtlRunLog {
   id: string
   pipelineId: string
   fileId: string
-  status: 'pending' | 'running' | 'success' | 'error' | 'skipped'
+  status: 'pending' | 'running' | 'success' | 'error' | 'skipped' | 'stopped'
   startedAt?: string
   completedAt?: string
   durationMs?: number
