@@ -86,6 +86,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { usePipelineRunner } from './use-pipeline-runner'
 import { RunProgressBar } from './RunProgressBar'
+import { splitSentences } from './role-presentation'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
@@ -660,7 +661,13 @@ function RunStatusIcon({ status }: { status: string }) {
       <TooltipTrigger asChild>
         <span className="inline-flex shrink-0">{icon}</span>
       </TooltipTrigger>
-      <TooltipContent>{t(`etl.run_status_${status}`)}</TooltipContent>
+      {/* One sentence per line: "stopped" explains both what happened and what it
+          means for the data, which ran together as a wall of text. */}
+      <TooltipContent className="max-w-[300px]">
+        {splitSentences(t(`etl.run_status_${status}`)).map((line) => (
+          <span key={line} className="block [&+&]:mt-1">{line}</span>
+        ))}
+      </TooltipContent>
     </Tooltip>
   )
 }

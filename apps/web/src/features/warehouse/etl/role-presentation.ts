@@ -41,3 +41,16 @@ export function compareByRole(
   }
   return rank(a) - rank(b)
 }
+
+/**
+ * Split a status explanation into its sentences, so a tooltip can put one per
+ * line. Splits after `.` followed by whitespace and a capital — an abbreviation
+ * or a decimal keeps its sentence together, and the French `… :` mid-sentence
+ * colon is not a boundary.
+ */
+export function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=\.)\s+(?=[A-ZÀ-ÖØ-Þ])/u)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
