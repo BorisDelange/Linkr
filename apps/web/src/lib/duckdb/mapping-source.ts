@@ -17,6 +17,9 @@
 /** Folder holding a pipeline's mapping exports, relative to the pipeline. */
 export const MAPPING_DIR = 'mapping'
 
+/** What a script writes before an export name to refer to it. */
+export const MAPPING_REF_PREFIX = 'mapping.'
+
 /** The STCM export: one row per concept mapping. */
 export const STCM_EXPORT = 'source_to_concept_map'
 
@@ -53,4 +56,14 @@ export function usedMappingRefs(sql: string): string[] {
 /** Where a pipeline's export lives, as a path inside the pipeline folder. */
 export function mappingExportPath(name: string): string {
   return `${MAPPING_DIR}/${name}.csv`
+}
+
+/**
+ * The export a pipeline file provides, or undefined when it is an ordinary file.
+ * The inverse of `mappingExportPath`, so the runner can find the exports a
+ * pipeline holds without a naming convention duplicated at the call site.
+ */
+export function mappingExportNameOf(path: string): string | undefined {
+  const match = new RegExp(`^${MAPPING_DIR}/([a-z_][a-z0-9_]*)\\.csv$`, 'i').exec(path)
+  return match ? match[1].toLowerCase() : undefined
 }

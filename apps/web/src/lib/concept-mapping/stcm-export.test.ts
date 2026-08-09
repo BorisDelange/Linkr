@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildStcmCsv, csvField, STCM_COLUMNS } from './stcm-export'
+import { buildStcmCsv, csvField, STCM_COLUMNS, STCM_CSV_COLUMNS } from './stcm-export'
 import type { ConceptMapping } from '@/types'
 
 function m(over: Partial<ConceptMapping> & { id: string }): ConceptMapping {
@@ -51,9 +51,23 @@ describe('csvField', () => {
 })
 
 describe('buildStcmCsv', () => {
-  it('writes a header in OMOP column order', () => {
+  it('writes a header in OMOP column order, then the extra domain column', () => {
     const { csv } = buildStcmCsv([m({ id: 'a' })])
-    expect(rows(csv)[0]).toBe(STCM_COLUMNS.join(','))
+    expect(rows(csv)[0]).toBe(STCM_CSV_COLUMNS.join(','))
+    // The OMOP columns come first and unchanged, so PART 1 can select them by name.
+    expect(rows(csv)[0].startsWith(STCM_COLUMNS.join(','))).toBe(true)
+  })
+
+  it('carries the source domain, which OMOP has no STCM column for', () => {
+    // Without it the script would need a CASE over the source codes to type its
+    // source concepts — putting the rows back into the versioned file.
+    const { csv } = buildStcmCsv([m({ id: 'a', sourceDomainId: 'Measurement' })])
+    expect(rows(csv)[1].endsWith(',Measurement')).toBe(true)
+  })
+
+  it('falls back to Observation when a mapping has no domain', () => {
+    const { csv } = buildStcmCsv([m({ id: 'a', sourceDomainId: '' })])
+    expect(rows(csv)[1].endsWith(',Observation')).toBe(true)
   })
 
   it('writes one row per mapping', () => {
@@ -87,7 +101,8 @@ describe('buildStcmCsv', () => {
 
   it('leaves invalid_reason empty so DuckDB reads it as NULL', () => {
     const { csv } = buildStcmCsv([m({ id: 'a' })])
-    expect(rows(csv)[1].endsWith(',')).toBe(true)
+    const fields = rows(csv)[1].split(',')
+    expect(fields[STCM_COLUMNS.indexOf('invalid_reason')]).toBe('')
     expect(rows(csv)[1]).not.toContain('NULL')
   })
 

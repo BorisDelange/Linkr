@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  mappingExportNameOf,
   mappingExportPath,
   resolveMappingRefs,
   STCM_EXPORT,
@@ -67,5 +68,24 @@ describe('usedMappingRefs', () => {
 describe('mappingExportPath', () => {
   it('places exports in a folder of their own', () => {
     expect(mappingExportPath(STCM_EXPORT)).toBe('mapping/source_to_concept_map.csv')
+  })
+})
+
+describe('mappingExportNameOf', () => {
+  it('round-trips with mappingExportPath', () => {
+    expect(mappingExportNameOf(mappingExportPath(STCM_EXPORT))).toBe(STCM_EXPORT)
+  })
+
+  it('ignores a file outside the mapping folder', () => {
+    expect(mappingExportNameOf('00_vocabulary.sql')).toBeUndefined()
+    expect(mappingExportNameOf('data/source_to_concept_map.csv')).toBeUndefined()
+  })
+
+  it('ignores a nested path, so only direct exports count', () => {
+    expect(mappingExportNameOf('mapping/sub/x.csv')).toBeUndefined()
+  })
+
+  it('ignores a non-CSV file in the mapping folder', () => {
+    expect(mappingExportNameOf('mapping/notes.md')).toBeUndefined()
   })
 })

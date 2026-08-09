@@ -262,6 +262,7 @@ async def run_etl(
     target: DataSource,
     sql: str,
     roles: dict[str, DataSource],
+    mapping_data: dict[str, str] | None = None,
 ) -> list[dict]:
     """Run ETL SQL with the target writable and the other roles attached read-only."""
     if not is_managed(target):
@@ -273,7 +274,7 @@ async def run_etl(
         raise ValueError("the target database file is missing; recreate it")
     attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"})
     return await asyncio.to_thread(
-        db_connect.run_etl_sql, str(target_path), sql, attachments
+        db_connect.run_etl_sql, str(target_path), sql, attachments, mapping_data
     )
 
 

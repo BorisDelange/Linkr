@@ -591,8 +591,18 @@ async def build_sql_collection_tree(db: AsyncSession, collection) -> dict[str, b
     return tree
 
 
+# Byte-faithful to buildEtlPipelineFolder's .gitignore (entity-io.ts), which uses
+# DATA_FILE_EXTENSIONS. No `.cache/` and no `!path` exceptions: a standalone
+# pipeline has no per-file versioning marks.
+_DATA_FILE_GITIGNORE = b"**/*.csv\n**/*.parquet\n**/*.pq\n**/*.xlsx\n**/*.xls\n"
+
+
 async def build_etl_pipeline_tree(db: AsyncSession, pipeline) -> dict[str, bytes]:
     tree = await _etl_pipeline_sub_tree(db, pipeline)
+    # Standalone repo only (the workspace export's root .gitignore already covers
+    # these). Matters most for mapping/*.csv: a mapping project's own dictionary,
+    # kept out of the generated script precisely so it is not committed.
+    tree[".gitignore"] = _DATA_FILE_GITIGNORE
     await _attach_org(db, tree, "_pipeline.json", pipeline)
     return tree
 

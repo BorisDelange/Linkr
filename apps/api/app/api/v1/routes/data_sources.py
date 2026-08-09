@@ -254,7 +254,9 @@ async def etl_run(
             continue
         roles[role] = await _load_source(db, ds_id, user, "databases:read")
     try:
-        rows = await data_source_service.run_etl(db, target, body.sql, roles)
+        rows = await data_source_service.run_etl(
+            db, target, body.sql, roles, body.mapping_data
+        )
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     except Exception as e:  # noqa: BLE001 — surface SQL errors to the client

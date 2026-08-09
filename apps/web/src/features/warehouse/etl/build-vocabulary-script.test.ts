@@ -100,11 +100,27 @@ describe('ATHENA date columns', () => {
 })
 
 describe('source concept ids', () => {
-  it('writes the stored id into source_to_concept_map, not 0', () => {
+  it('loads source_to_concept_map from the mapping export, not inline rows', () => {
+    // The rows carry a private dictionary's source codes; the CSV keeps them out
+    // of this (versioned) file — see lib/duckdb/mapping-source.
     const { sql } = buildVocabularyScriptWithIds([
       { ...MAPPING, sourceConceptId: 2_000_000_042 },
     ])
-    expect(sql).toContain("('50983', 2000000042,")
+    expect(sql).toContain("read_csv('mapping.source_to_concept_map'")
+    expect(sql).not.toContain('50983')
+    expect(sql).not.toContain('2000000042')
+  })
+
+  it('leaks no mapping content into the script, whatever the mappings', () => {
+    // The point of the CSV: this file is versioned, the dictionary may be private.
+    const { sql } = buildVocabularyScriptWithIds([
+      { ...MAPPING, sourceConceptCode: 'SECRET_CODE', sourceConceptName: 'Secret Name' },
+      { ...MAPPING, id: 'm2', sourceConceptCode: 'OTHER_CODE', sourceConceptName: 'Other Name' },
+    ])
+    expect(sql).not.toContain('SECRET_CODE')
+    expect(sql).not.toContain('Secret Name')
+    expect(sql).not.toContain('OTHER_CODE')
+    expect(sql).not.toContain('Other Name')
   })
 
   it('never renumbers with ROW_NUMBER', () => {
@@ -126,12 +142,16 @@ describe('source concept ids', () => {
     expect(idsToPersist.size).toBe(0)
   })
 
-  it('inserts the source concept with the same id it wrote in the STCM', () => {
+  it('builds the source concepts from the export, keeping ids consistent', () => {
+    // Both the STCM rows and the source concepts come from the one CSV, so the
+    // id used in each cannot drift apart.
     const { sql } = buildVocabularyScriptWithIds([
       { ...MAPPING, sourceConceptId: 2_000_000_123 },
     ])
-    expect(sql).toContain('(2000000123,')
-    expect(sql).toContain("('50983', 2000000123,")
+    const reads = sql.match(/read_csv\('mapping\.source_to_concept_map'/g)
+    expect(reads).toHaveLength(2)
+    expect(sql).toContain('stcm.source_concept_id       AS concept_id')
+    expect(sql).toContain('WHERE stcm.source_concept_id > 2000000000')
   })
 
   it('allocates against the whole project, not just the filtered subset', () => {

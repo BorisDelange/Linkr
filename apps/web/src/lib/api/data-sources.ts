@@ -70,10 +70,14 @@ export async function runEtlOnServer(
   dataSourceId: string,
   sql: string,
   roles: Record<string, string>,
+  /** `mapping.<name>` exports the script reads, as CSV text. They are sent with
+   *  the run rather than stored server-side: the rows come from a mapping
+   *  project that may be private, and they change whenever it does. */
+  mappingData: Record<string, string> = {},
 ): Promise<Record<string, unknown>[]> {
   const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
     `/data-sources/${dataSourceId}/etl-run`,
-    { method: 'POST', body: JSON.stringify({ sql, roles }) },
+    { method: 'POST', body: JSON.stringify({ sql, roles, mappingData }) },
   )
   return res.rows
 }

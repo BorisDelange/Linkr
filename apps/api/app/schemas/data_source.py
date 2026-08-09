@@ -121,3 +121,8 @@ class EtlRunRequest(CamelModel):
 
     sql: str
     roles: dict[str, str] = {}
+    # `mapping.<name>` exports the script reads, as CSV text. They are the
+    # mapping project's own rows (a private dictionary's source codes), so they
+    # travel with the request instead of being written into the versioned
+    # script; the server materialises each as a temp file for the run.
+    mapping_data: dict[str, str] = {}

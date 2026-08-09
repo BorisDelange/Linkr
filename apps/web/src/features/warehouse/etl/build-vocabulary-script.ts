@@ -4,7 +4,16 @@
  */
 import type { ConceptMapping } from '@/types'
 import { escSql as esc } from '@/lib/format-helpers'
-import { assignSourceConceptIds, sourceConceptKey } from '@/lib/concept-mapping/source-concept-ids'
+import {
+  assignSourceConceptIds,
+  SOURCE_CONCEPT_ID_BASE,
+} from '@/lib/concept-mapping/source-concept-ids'
+import { SOURCE_DOMAIN_COLUMN, STCM_COLUMNS } from '@/lib/concept-mapping/stcm-export'
+import {
+  mappingExportPath,
+  MAPPING_REF_PREFIX,
+  STCM_EXPORT,
+} from '@/lib/duckdb/mapping-source'
 
 /**
  * The generated script addresses the ATHENA reference by ROLE, not by its
@@ -152,19 +161,17 @@ export function buildVocabularyScriptWithIds(
   parts.push(`DELETE FROM ${TARGET}.source_to_concept_map;`)
 
   if (mappings.length > 0) {
-    const rows = mappings.map((m) => {
-      const sourceCode = esc(m.sourceConceptCode)
-      const sourceDesc = esc(m.sourceConceptName)
-      const targetVocab = esc(m.targetVocabularyId)
-      const sourceVocab = esc(m.sourceVocabularyId)
-      const sourceConceptId = sourceIds.byKey.get(sourceConceptKey(m)) ?? 0
-      return `('${sourceCode}', ${sourceConceptId}, '${sourceVocab}', '${sourceDesc}', ${m.targetConceptId}, '${targetVocab}', DATE '1970-01-01', DATE '2099-12-31', NULL)`
-    })
-
+    // The rows are NOT written here. A mapping project is often a private
+    // dictionary, and inlining every source code as literal VALUES put it into a
+    // versioned file. They live in a gitignored CSV beside the pipeline, which
+    // the Vocabulary tab regenerates with this script and the runner supplies at
+    // execution time — see lib/duckdb/mapping-source.
     parts.push('')
-    parts.push(`INSERT INTO ${TARGET}.source_to_concept_map (source_code, source_concept_id, source_vocabulary_id, source_code_description, target_concept_id, target_vocabulary_id, valid_start_date, valid_end_date, invalid_reason)`)
-    parts.push('VALUES')
-    parts.push(rows.join(',\n') + ';')
+    parts.push(`-- ${mappings.length} mapping${mappings.length !== 1 ? 's' : ''} from the mapping project, read from`)
+    parts.push(`-- ${mappingExportPath(STCM_EXPORT)} (regenerated with this script, not versioned).`)
+    parts.push(`INSERT INTO ${TARGET}.source_to_concept_map (${STCM_COLUMNS.join(', ')})`)
+    parts.push(`SELECT ${STCM_COLUMNS.join(', ')}`)
+    parts.push(`FROM read_csv('${MAPPING_REF_PREFIX}${STCM_EXPORT}', header = true);`)
   }
 
   // =========================================================================
@@ -238,30 +245,29 @@ export function buildVocabularyScriptWithIds(
   parts.push('')
   parts.push('-- 2e. Source concepts (concept_id > 2 000 000 000)')
   parts.push('--')
-  parts.push('-- The ids below come from the mapping project, which keeps them for the life')
-  parts.push('-- of the project: re-generating this script after adding or removing mappings')
-  parts.push('-- leaves the existing ones untouched, so data already loaded stays valid.')
-  parts.push('-- Only genuinely new source concepts get a newly allocated id.')
+  parts.push('-- The ids come from the mapping project, which keeps them for the life of the')
+  parts.push('-- project: re-generating this script after adding or removing mappings leaves')
+  parts.push('-- the existing ones untouched, so data already loaded stays valid. Only')
+  parts.push('-- genuinely new source concepts get a newly allocated id.')
+  parts.push('--')
+  parts.push('-- Read from the same CSV as PART 1, so the source codes stay out of this')
+  parts.push('-- file. DISTINCT because an N:1 mapping repeats a source code per target.')
 
-  // One row per source concept, not per mapping: an N:1 mapping repeats the same
-  // source code against several targets.
-  const sourceConcepts = new Map<string, { id: number; m: ConceptMapping }>()
-  for (const m of mappings) {
-    const key = sourceConceptKey(m)
-    const id = sourceIds.byKey.get(key)
-    if (id == null || sourceConcepts.has(key)) continue
-    sourceConcepts.set(key, { id, m })
-  }
-
-  if (sourceConcepts.size > 0) {
-    const rows = [...sourceConcepts.values()].map(({ id, m }) => (
-      `(${id}, '${esc(m.sourceConceptName)}', '${esc(m.sourceDomainId || 'Observation')}',`
-      + ` '${esc(m.sourceVocabularyId)}', 'Clinical Observation', NULL,`
-      + ` '${esc(m.sourceConceptCode)}', DATE '1970-01-01', DATE '2099-12-31', NULL)`
-    ))
+  if (mappings.length > 0) {
     parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
-    parts.push('VALUES')
-    parts.push(rows.join(',\n') + ';')
+    parts.push(`SELECT DISTINCT`)
+    parts.push(`    stcm.source_concept_id       AS concept_id,`)
+    parts.push(`    stcm.source_code_description AS concept_name,`)
+    parts.push(`    stcm.${SOURCE_DOMAIN_COLUMN}          AS domain_id,`)
+    parts.push(`    stcm.source_vocabulary_id    AS vocabulary_id,`)
+    parts.push(`    'Clinical Observation'       AS concept_class_id,`)
+    parts.push(`    NULL                         AS standard_concept,`)
+    parts.push(`    stcm.source_code             AS concept_code,`)
+    parts.push(`    DATE '1970-01-01'            AS valid_start_date,`)
+    parts.push(`    DATE '2099-12-31'            AS valid_end_date,`)
+    parts.push(`    NULL                         AS invalid_reason`)
+    parts.push(`FROM read_csv('${MAPPING_REF_PREFIX}${STCM_EXPORT}', header = true) stcm`)
+    parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE};`)
   }
 
   // 2f. source_to_concept_map already carries these ids (PART 1 writes them), so

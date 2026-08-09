@@ -3,6 +3,8 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
 import { RunAbortedError, runPipelineSql } from './run-pipeline-sql'
+import { mappingExportNameOf } from '@/lib/duckdb/mapping-source'
+import { treeNodePath } from '@/lib/entity-tree'
 import { useRoleSchemas } from './use-role-schemas'
 import type { EtlFile, EtlPipeline } from '@/types'
 
@@ -24,6 +26,25 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
   const { onScriptError } = options
   const pipelineRunning = useEtlStore((s) => s.pipelineRunning)
   const { roleSchemasFor, dataSourceIdOf } = useRoleSchemas(pipeline)
+
+  /**
+   * CSV text of the `mapping.` exports this pipeline holds, keyed by export name.
+   *
+   * Read at run time rather than captured: the Vocabulary tab rewrites the file
+   * whenever it regenerates the script, and a run must use the current rows.
+   */
+  const mappingDataFor = useCallback((): Record<string, string> => {
+    if (!pipeline) return {}
+    const own = useEtlStore.getState().files.filter((f) => f.pipelineId === pipeline.id)
+    const byId = new Map(own.map((f) => [f.id, f]))
+    const data: Record<string, string> = {}
+    for (const f of own) {
+      if (f.type !== 'file' || !f.content) continue
+      const name = mappingExportNameOf(treeNodePath(f, byId))
+      if (name) data[name] = f.content
+    }
+    return data
+  }, [pipeline])
 
   /**
    * `files` is the ordered list to execute. Disabled ones are marked skipped
@@ -78,6 +99,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
         }
         const resolvedSql = resolveRolePrefixes(file.content, roleSchemasFor(dsId))
         const rows = await runPipelineSql(pipeline, dsId, resolvedSql, {
+          mappingData: mappingDataFor(),
           signal: abort?.signal,
           onProgress: (done, total, next) => {
             log(file.id, {
@@ -118,7 +140,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
     useEtlStore.getState().finishPipelineRun(
       hasError || abort?.signal.aborted ? 'error' : 'success',
     )
-  }, [pipeline, roleSchemasFor, dataSourceIdOf, onScriptError])
+  }, [pipeline, roleSchemasFor, dataSourceIdOf, mappingDataFor, onScriptError])
 
   /**
    * Run one ad-hoc chunk of SQL (a file, a selection, a line) through the same
@@ -161,6 +183,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
       }
       const resolved = resolveRolePrefixes(sql, roleSchemasFor(dataSourceId))
       const rows = await runPipelineSql(pipeline, dataSourceId, resolved, {
+        mappingData: mappingDataFor(),
         signal: abort?.signal,
         onProgress: (done, total, next) => log({
           statementsDone: done, statementsTotal: total, currentStatement: next,
@@ -189,7 +212,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
       useEtlStore.getState().finishPipelineRun('error')
       throw err
     }
-  }, [pipeline, roleSchemasFor, dataSourceIdOf])
+  }, [pipeline, roleSchemasFor, dataSourceIdOf, mappingDataFor])
 
   const stop = useCallback(() => useEtlStore.getState().stopPipelineRun(), [])
 

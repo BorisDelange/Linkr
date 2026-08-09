@@ -442,6 +442,29 @@ export async function computeStats(
   }
 }
 
+/**
+ * Make CSV text readable by `read_csv('<name>')` for the duration of a run.
+ *
+ * Front-only has no filesystem, so a mapping export cannot be a file on disk;
+ * DuckDB-WASM's virtual file system takes the text directly. Returns a disposer
+ * — the registration is per-run, since the rows change whenever the mapping
+ * project does.
+ */
+export async function registerVirtualCsv(
+  files: Record<string, string>,
+): Promise<() => Promise<void>> {
+  const names = Object.keys(files)
+  if (names.length === 0) return async () => {}
+  const db = await getDuckDB()
+  for (const name of names) await db.registerFileText(name, files[name])
+  return async () => {
+    for (const name of names) {
+      // A failed drop must not mask the run's own error.
+      try { await db.dropFile(name) } catch { /* already gone */ }
+    }
+  }
+}
+
 /** Run an arbitrary SQL query against a data source schema. */
 export async function queryDataSource(
   dataSourceId: string,

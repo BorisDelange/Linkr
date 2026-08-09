@@ -18,6 +18,8 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { schemaName } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
 import { buildVocabularyScriptWithIds } from './build-vocabulary-script'
+import { buildStcmCsv } from '@/lib/concept-mapping/stcm-export'
+import { MAPPING_DIR, STCM_EXPORT } from '@/lib/duckdb/mapping-source'
 import type { ConceptMapping, EtlFile, MappingStatus } from '@/types'
 
 const VOCAB_SCRIPT_NAME = '00_vocabulary.sql'
@@ -56,6 +58,56 @@ async function upsertVocabScript(pipelineId: string, sql: string): Promise<'crea
     await createFile(file)
     return 'created'
   }
+}
+
+/**
+ * Write the STCM export the generated script reads, as `mapping/<name>.csv`
+ * inside the pipeline.
+ *
+ * The rows are not in the script on purpose: a mapping project is often a
+ * private dictionary, and the script is versioned. The file is regenerated with
+ * the script so the two never disagree, and is gitignored by default (the
+ * per-file versioning mark can re-include it).
+ */
+async function upsertMappingExport(
+  pipelineId: string,
+  name: string,
+  csv: string,
+): Promise<void> {
+  const { files, createFile, updateFile } = useEtlStore.getState()
+  const own = files.filter((f) => f.pipelineId === pipelineId)
+
+  let folder = own.find((f) => f.type === 'folder' && f.name === MAPPING_DIR && !f.parentId)
+  if (!folder) {
+    folder = {
+      id: crypto.randomUUID(),
+      pipelineId,
+      name: MAPPING_DIR,
+      type: 'folder',
+      parentId: null,
+      // Before the scripts, which start at -1: the exports they read.
+      order: -2,
+      createdAt: new Date().toISOString(),
+    }
+    await createFile(folder)
+  }
+
+  const fileName = `${name}.csv`
+  const existing = own.find((f) => f.parentId === folder.id && f.name === fileName)
+  if (existing) {
+    await updateFile(existing.id, { content: csv })
+    return
+  }
+  await createFile({
+    id: crypto.randomUUID(),
+    pipelineId,
+    name: fileName,
+    type: 'file',
+    parentId: folder.id,
+    content: csv,
+    order: 0,
+    createdAt: new Date().toISOString(),
+  })
 }
 
 /**
@@ -207,6 +259,10 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       for (const [mappingId, sourceConceptId] of idsToPersist) {
         await updateMapping(mappingId, { sourceConceptId })
       }
+      // The export carries the rows the script reads; write it first so the
+      // script is never the newer of the two.
+      const { csv } = buildStcmCsv(filteredMappings, projectMappings)
+      await upsertMappingExport(pipelineId, STCM_EXPORT, csv)
       const action = await upsertVocabScript(pipelineId, sql)
       setResult({ success: true, count: filteredMappings.length, action })
     } catch (err) {

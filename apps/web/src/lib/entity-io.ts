@@ -1985,6 +1985,16 @@ export async function buildEtlPipelineFolder(
       zip.file(`${prefix}${treeNodePath(f, byId)}`, f.content)
     }
   }
+  // Standalone pipeline repo only: inside a workspace export the root .gitignore
+  // already covers these, and a nested copy would just be noise.
+  //
+  // A pipeline's data files are gitignored like everywhere else in the app. This
+  // matters most for mapping/*.csv: those rows are a mapping project's own
+  // dictionary, kept out of the generated script precisely so they are not
+  // committed — writing them here would put them back in the repo.
+  if (!prefix) {
+    zip.file('.gitignore', `${DATA_FILE_EXTENSIONS.map((e) => `**/*${e}`).join('\n')}\n`)
+  }
 }
 
 /**

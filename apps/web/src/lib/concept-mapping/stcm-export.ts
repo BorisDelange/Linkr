@@ -23,6 +23,19 @@ export const STCM_COLUMNS = [
   'invalid_reason',
 ] as const
 
+/**
+ * The mapping's source domain, which OMOP's source_to_concept_map has no column
+ * for. It is carried as an extra CSV column so the script can build the source
+ * concepts from this file too — without it the domain would have to be inlined
+ * as a CASE over the source codes, putting back the very rows the CSV removes.
+ * PART 1 selects the OMOP columns by name, so the extra one is simply ignored
+ * on the way into the table.
+ */
+export const SOURCE_DOMAIN_COLUMN = 'source_domain_id'
+
+/** CSV columns: the OMOP ones, plus the domain the script needs. */
+export const STCM_CSV_COLUMNS = [...STCM_COLUMNS, SOURCE_DOMAIN_COLUMN] as const
+
 const VALID_START = '1970-01-01'
 const VALID_END = '2099-12-31'
 
@@ -37,7 +50,7 @@ export function buildStcmCsv(
 ): { csv: string; rowCount: number; idsToPersist: Map<string, number> } {
   const ids = assignSourceConceptIds(allProjectMappings)
 
-  const lines = [STCM_COLUMNS.join(',')]
+  const lines = [STCM_CSV_COLUMNS.join(',')]
   for (const m of mappings) {
     lines.push([
       csvField(m.sourceConceptCode),
@@ -51,6 +64,7 @@ export function buildStcmCsv(
       // Empty, not "NULL": DuckDB reads an empty CSV field as NULL, whereas the
       // literal text would become the four-character string.
       '',
+      csvField(m.sourceDomainId || 'Observation'),
     ].join(','))
   }
 

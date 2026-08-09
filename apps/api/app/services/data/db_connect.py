@@ -10,6 +10,7 @@ never stored: it lives only for the duration of the connection.
 import datetime
 import os
 import re
+import tempfile
 import uuid
 from collections.abc import Callable
 from decimal import Decimal
@@ -653,6 +654,7 @@ def run_etl_sql(
     target_path: str,
     sql: str,
     roles: dict[str, dict] | None = None,
+    mapping_data: dict[str, str] | None = None,
 ) -> list[dict]:
     """Run an ETL script against a writable managed DuckDB file.
 
@@ -668,26 +670,62 @@ def run_etl_sql(
         {"source": {"kind": "file",    "path": "..."},
          "vocab":  {"kind": "parquet", "files": [(name, path), ...],
                     "known": [...]}}
+
+    `mapping_data` maps a `mapping.<name>` export to its CSV text. Each is
+    written to a temp file for the duration of the run and the matching
+    `'mapping.<name>'` literal is rewritten to that path, so the script can
+    read rows that are deliberately absent from the versioned SQL.
     """
     # An in-memory hub, with every role ATTACHed onto it. Opening the target file
     # directly would name that database after the file and make it impossible to
     # also attach it as `target` (DuckDB refuses the same file twice).
     con = duckdb.connect()
-    try:
-        con.execute(f"SET extension_directory = '{_ext_dir()}'")
-        con.execute(f"ATTACH '{target_path}' AS target")
+    with tempfile.TemporaryDirectory(prefix="linkr-mapping-") as tmp:
+        try:
+            con.execute(f"SET extension_directory = '{_ext_dir()}'")
+            con.execute(f"ATTACH '{target_path}' AS target")
 
-        for role, spec in (roles or {}).items():
-            if role == "target":
-                continue
-            _attach_role(con, role, spec)
+            for role, spec in (roles or {}).items():
+                if role == "target":
+                    continue
+                _attach_role(con, role, spec)
 
-        # Unqualified names must not silently fall back to another attached
-        # database: keep the writable target first.
-        search_path = "target,memory"
-        return _run_statements(con, search_path, sql)
-    finally:
-        con.close()
+            sql = _resolve_mapping_refs(sql, mapping_data or {}, tmp)
+
+            # Unqualified names must not silently fall back to another attached
+            # database: keep the writable target first.
+            search_path = "target,memory"
+            return _run_statements(con, search_path, sql)
+        finally:
+            con.close()
+
+
+# `'mapping.<name>'` inside a string literal — the only place it is meaningful.
+# Mirrors MAPPING_REF in apps/web/src/lib/duckdb/mapping-source.ts.
+_MAPPING_REF = re.compile(r"""(['"])mapping\.([a-z_][a-z0-9_]*)\1""", re.IGNORECASE)
+
+
+def _resolve_mapping_refs(sql: str, data: dict[str, str], tmp_dir: str) -> str:
+    """Write each referenced export to `tmp_dir` and point the SQL at it.
+
+    An unknown export is left as written, so the error names the missing export
+    rather than a path that means nothing."""
+    written: dict[str, str] = {}
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(2).lower()
+        if name not in data:
+            return match.group(0)
+        path = written.get(name)
+        if path is None:
+            path = os.path.join(tmp_dir, f"{name}.csv")
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(data[name])
+            written[name] = path
+        escaped = path.replace("'", "''")
+        return f"'{escaped}'"
+
+    return _MAPPING_REF.sub(replace, sql)
 
 
 def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
