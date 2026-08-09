@@ -292,6 +292,16 @@ export function CatalogPage() {
   )
 }
 
+/**
+ * Open a catalog entry's repo. The URL is remote, untrusted data; only http(s)
+ * may reach window.open (a `javascript:`/`data:` url would run in this origin).
+ * fetchCatalog already drops non-https entries — this is defence in depth.
+ */
+function openRepo(url: string): void {
+  if (!/^https?:\/\//i.test(url)) return
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
 interface CatalogEntryCardProps {
   entry: CatalogEntry
   language: string
@@ -318,11 +328,11 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
       role="link"
       tabIndex={0}
       aria-label={t('catalog.open_repository')}
-      onClick={() => window.open(entry.git.url, '_blank', 'noopener,noreferrer')}
+      onClick={() => openRepo(entry.git.url)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          window.open(entry.git.url, '_blank', 'noopener,noreferrer')
+          openRepo(entry.git.url)
         }
       }}
       className="flex min-h-44 min-w-0 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"

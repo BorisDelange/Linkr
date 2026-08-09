@@ -76,13 +76,5 @@ export const ENTRY_TYPE_META: Record<CatalogEntryType, EntryTypeMeta> = {
   },
 }
 
-/** Entry types, in the order they appear in the type filter. */
-export const ENTRY_TYPES: CatalogEntryType[] = [
-  'project',
-  'mapping-project',
-  'sql-collection',
-  'etl-pipeline',
-  'data-catalog',
-  'dq-rule-set',
-  'schema-preset',
-]
+// Re-exported for existing importers; the source of truth is types.ts (pure).
+export { ENTRY_TYPES } from './types'

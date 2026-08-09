@@ -90,6 +90,10 @@ export function CatalogInstallDialog({
     if (!entry || !workspaceId || installing) return
     setError(null)
     setInstalling(true)
+    // The prepare phase owns `installing` here; on the commit and conflict paths
+    // ownership is handed off (commit toggles it itself; the conflict dialog stays
+    // open with the button idle), so this only clears it on prepare-only exits.
+    let handedOff = false
     try {
       // Clone first, then check for a collision: the id that decides it is declared by
       // the repo, so it isn't knowable before the clone.
@@ -100,13 +104,16 @@ export function CatalogInstallDialog({
       }
       if (prep.prepared.existingName) {
         setConflict(prep.prepared)
+        handedOff = true
         return
       }
+      handedOff = true
+      setInstalling(false)
       await commit(prep.prepared, false)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setInstalling(false)
+      if (!handedOff) setInstalling(false)
     }
   }
 

@@ -17,6 +17,7 @@
 import type JSZip from 'jszip'
 import { applyClonedEntity } from '@/lib/entity-io'
 import { gitCloneToZip, gitSetSyncState, scopeForLinkedType } from '@/lib/api/git'
+import { normalizeGitUrl } from '@/lib/git-clone'
 import { isServerMode } from '@/lib/api-client'
 import { getStorage } from '@/lib/storage'
 import { localized, setLocalized } from '@/lib/localized'
@@ -24,6 +25,10 @@ import { stampAuthored } from '@/stores/app-store'
 import type { Storage } from '@/lib/storage'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
 import type { CatalogEntry } from './types'
+
+// A published entity is small (metadata + scripts). This is a guard against a
+// hostile/oversized catalog repo, not a real content limit.
+const MAX_CLONE_BYTES = 200 * 1024 * 1024
 
 export type InstallFailure =
   | 'server-mode-required'
@@ -58,12 +63,19 @@ function idOf(type: CatalogEntry['type'], meta: Record<string, unknown>): string
   return typeof value === 'string' && value ? value : null
 }
 
+export interface ExistingRow {
+  name?: unknown
+  lineageId?: string
+  gitRemoteConfig?: { url?: string } | null
+  workspaceId?: string
+}
+
 /** Look up an existing row of this type by id. */
 async function findExisting(
   type: CatalogEntry['type'],
   id: string,
   storage: Storage,
-): Promise<{ name?: unknown } | null> {
+): Promise<ExistingRow | null> {
   const get = async (): Promise<unknown> => {
     switch (type) {
       case 'sql-collection': return storage.sqlScriptCollections.getById(id)
@@ -77,10 +89,26 @@ async function findExisting(
     }
   }
   try {
-    return ((await get()) as { name?: unknown } | undefined) ?? null
+    return ((await get()) as ExistingRow | undefined) ?? null
   } catch {
     return null
   }
+}
+
+/**
+ * Whether an existing local row is genuinely the SAME published entity as `entry`
+ * (so overwriting it is an update), rather than an unrelated entity that merely
+ * shares the id the catalog declares. A hostile or careless catalog entry must
+ * never be able to destroy a local entity by id-collision: only a matching
+ * lineage or git remote counts as identity.
+ */
+export function isSameEntity(row: ExistingRow, entry: CatalogEntry): boolean {
+  if (entry.lineageId && row.lineageId && row.lineageId === entry.lineageId) return true
+  const rowUrl = row.gitRemoteConfig?.url
+  if (rowUrl && entry.git.url && normalizeGitUrl(rowUrl) === normalizeGitUrl(entry.git.url)) {
+    return true
+  }
+  return false
 }
 
 /** Remove the parent row before an overwrite. Child rows are cleared by applyClonedEntity. */
@@ -111,7 +139,9 @@ export interface PreparedInstall {
   /** Id declared by the repo — the id an overwrite would replace. */
   repoId: string
   oid: string | null
-  /** Set when an entity with `repoId` already exists locally. */
+  /** Some local row of this type already uses `repoId` (same OR unrelated entity). */
+  idCollision: boolean
+  /** Set only when the collision is genuinely the SAME published entity (safe to overwrite). */
   existingName?: string
 }
 
@@ -137,6 +167,11 @@ export async function prepareCatalogInstall(entry: CatalogEntry): Promise<Prepar
   try {
     const JSZipMod = (await import('jszip')).default
     const cloned = await gitCloneToZip(entry.git.url, branch)
+    // The catalog is untrusted: cap the archive before decompressing so an entry
+    // pointing at a huge or zip-bomb repo can't hang or OOM the tab.
+    if (cloned.blob.size > MAX_CLONE_BYTES) {
+      return { ok: false, failure: 'clone-failed', error: 'The entity archive is too large to install.' }
+    }
     const zip = await JSZipMod.loadAsync(cloned.blob)
 
     const metaEntry = zip.files[META_FILE[entry.type]]
@@ -147,7 +182,12 @@ export async function prepareCatalogInstall(entry: CatalogEntry): Promise<Prepar
     // can't collide — better than refusing the install outright.
     const repoId = idOf(entry.type, meta) ?? crypto.randomUUID()
 
+    // A collision is a conflict ONLY when the local row is the same published
+    // entity (matching lineage / git remote). Otherwise the ids just happen to
+    // coincide and we must install as a fresh copy, never offer to overwrite an
+    // unrelated entity the user owns.
     const existing = await findExisting(entry.type, repoId, getStorage())
+    const sameEntity = existing ? isSameEntity(existing, entry) : false
     return {
       ok: true,
       prepared: {
@@ -155,7 +195,8 @@ export async function prepareCatalogInstall(entry: CatalogEntry): Promise<Prepar
         zip,
         repoId,
         oid: cloned.oid,
-        existingName: existing ? (localizedName(existing.name) ?? repoId) : undefined,
+        idCollision: existing != null,
+        existingName: sameEntity ? (localizedName(existing?.name) ?? repoId) : undefined,
       },
     }
   } catch (err) {
@@ -276,14 +317,20 @@ export async function commitCatalogInstall(
   const { entry, zip, oid } = prepared
   const branch = entry.git.branch || 'main'
   const url = entry.git.url
-  const id = duplicate ? crypto.randomUUID() : prepared.repoId
+  // Reusing the repo id (overwrite) is only ever allowed for the SAME published
+  // entity. If the repo id collides with an UNRELATED local row, force a fresh id
+  // so the install can never destroy an entity the user owns by id-collision —
+  // whatever the caller passed for `duplicate`.
+  const unrelatedCollision = prepared.idCollision && !prepared.existingName
+  const reuseId = !duplicate && !unrelatedCollision
+  const id = reuseId ? prepared.repoId : crypto.randomUUID()
   const storage = getStorage()
   const git: GitRemoteConfig = { url, branch }
 
   // Overwrite: drop the existing row first so the shell insert below doesn't collide.
   // applyClonedEntity's per-type branches already delete child rows (files, checks,
   // project sub-entities), so only the parent needs clearing here.
-  if (!duplicate && prepared.existingName) {
+  if (reuseId && prepared.existingName) {
     await deleteExisting(entry.type, id, storage)
   }
 
@@ -296,17 +343,25 @@ export async function commitCatalogInstall(
   }
 
   let ok = false
+  let applyError: string | undefined
   try {
     ok = await applyClonedEntity(zip, entry.type, id, storage, workspaceId, git)
   } catch (err) {
-    return { ok: false, failure: 'apply-failed', error: err instanceof Error ? err.message : String(err) }
+    ok = false
+    applyError = err instanceof Error ? err.message : String(err)
   }
-  if (!ok) return { ok: false, failure: 'apply-failed', id }
+  if (!ok) {
+    // createShell inserted a parent row above; a failed apply must not leave it
+    // orphaned. (schema-preset has no shell row — deleteExisting is a no-op there.)
+    await deleteExisting(entry.type, id, storage).catch(() => {})
+    return { ok: false, failure: 'apply-failed', id, error: applyError }
+  }
 
   // Mark the copy AFTER applyClonedEntity: it rewrites `name` from the repo, so a
   // suffix set on the shell row would be overwritten. Matches the per-page importers,
-  // which append "(copy)" on duplicate so the two rows are tellable apart.
-  if (duplicate) {
+  // which append "(copy)" on duplicate so the two rows are tellable apart. A forced
+  // fresh id (unrelated collision) is a copy too.
+  if (!reuseId) {
     await renameAsCopy(entry.type, id, storage, language).catch(() => {})
   }
 

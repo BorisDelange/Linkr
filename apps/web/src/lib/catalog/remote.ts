@@ -11,6 +11,7 @@
  */
 
 import type { CatalogCache, CatalogDiff, CatalogFile, CatalogIndexFile } from './types'
+import { ENTRY_TYPES } from './types'
 
 /** The community catalog, used unless the user points Settings at another repo. */
 export const DEFAULT_CATALOG_URL = 'https://framagit.org/interhop/linkr/linkr-catalog'
@@ -123,10 +124,20 @@ export async function fetchCatalog(
   const catalog = await fetchJson<CatalogFile>(source, 'catalog.json')
   assertVersion(catalog?.schemaVersion)
   if (!Array.isArray(catalog.entries) || !catalog.contentHash) throw new CatalogError('malformed')
-  // Drop entries this build can't act on (e.g. a type added by a newer catalog) instead
-  // of failing the whole fetch — one unknown entry shouldn't hide the other 50.
+  // Drop entries this build can't act on instead of failing the whole fetch — one
+  // bad entry shouldn't hide the other 50. The catalog is untrusted remote data,
+  // so validate hard: an unknown `type` would blow up ENTRY_TYPE_META[type] and
+  // blank the page; a non-array `badges` would throw in the badge filter; and a
+  // non-https `git.url` must never reach window.open / a server-side clone.
+  const validTypes = new Set<string>(ENTRY_TYPES)
   const entries = catalog.entries.filter(
-    (e) => e && typeof e.id === 'string' && typeof e.type === 'string' && e.git?.url,
+    (e) =>
+      e &&
+      typeof e.id === 'string' &&
+      validTypes.has(e.type) &&
+      typeof e.git?.url === 'string' &&
+      /^https:\/\//i.test(e.git.url) &&
+      (e.badges === undefined || Array.isArray(e.badges)),
   )
   return { ...catalog, entries }
 }

@@ -14,6 +14,21 @@ import type { GitLinkedEntity } from '@/lib/entity-io'
 /** Entity kinds the catalog can list — the same union the app can clone. */
 export type CatalogEntryType = GitLinkedEntity['type']
 
+/**
+ * The entry types, in the order they appear in the type filter. Lives here (not in
+ * entry-meta, which pulls in icon components) so pure data code — the remote
+ * fetch's type validation — can use it without dragging React into that module.
+ */
+export const ENTRY_TYPES: CatalogEntryType[] = [
+  'project',
+  'mapping-project',
+  'sql-collection',
+  'etl-pipeline',
+  'data-catalog',
+  'dq-rule-set',
+  'schema-preset',
+]
+
 /** Maturity signal shown on the card. Absent = a normal, usable entry. */
 export type CatalogEntryStatus = 'wip' | 'deprecated' | 'unreachable'
 
