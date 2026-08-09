@@ -1791,8 +1791,13 @@ function SortableScriptRow({
       <div
         ref={setNodeRef}
         style={style}
+        // The whole card selects on click and opens the script on double-click;
+        // the drag handle and the action buttons sit above it and stop the event,
+        // so only the empty space between them falls through to here.
+        onClick={() => onSelectNode(file.id)}
+        onDoubleClick={() => onSelectFile?.(file.id)}
         className={cn(
-          'flex items-center gap-2 rounded-lg border-2 bg-card px-2 py-2 transition-colors relative overflow-hidden',
+          'flex cursor-pointer items-center gap-2 rounded-lg border-2 bg-card px-2 py-2 transition-colors relative overflow-hidden',
           borderClass,
         )}
       >
@@ -1803,6 +1808,7 @@ function SortableScriptRow({
         <button
           {...attributes}
           {...listeners}
+          onClick={(e) => e.stopPropagation()}
           className="shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing ml-1"
         >
           <GripVertical size={14} />
@@ -1824,13 +1830,8 @@ function SortableScriptRow({
           }
         </div>
 
-        {/* File info — click selects (sidebar details), double-click opens the
-            script in the Scripts tab, same as the "View code" button. */}
-        <button
-          className="min-w-0 flex-1 text-left"
-          onClick={() => onSelectNode(file.id)}
-          onDoubleClick={() => onSelectFile?.(file.id)}
-        >
+        {/* File info — the click handlers live on the card, so this is just layout. */}
+        <div className="min-w-0 flex-1 text-left">
           <div className="flex items-center gap-1.5">
             <span className={cn('truncate text-xs font-medium', isDisabled && 'line-through text-muted-foreground/60')} title={file.name}>{file.name}</span>
             {log && !isDisabled && <RunStatusIcon status={log.status} />}
@@ -1859,14 +1860,14 @@ function SortableScriptRow({
               <span>{log.rowsAffected.toLocaleString()} rows</span>
             )}
           </div>
-        </button>
+        </div>
 
         {/* View code button */}
         {onSelectFile && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={() => onSelectFile(file.id)}
+                onClick={(e) => { e.stopPropagation(); onSelectFile(file.id) }}
                 className="shrink-0 rounded p-1 text-muted-foreground/40 transition-colors hover:bg-accent hover:text-foreground"
               >
                 <Eye size={12} />
@@ -1880,7 +1881,7 @@ function SortableScriptRow({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              onClick={() => onToggleDisabled(file.id)}
+              onClick={(e) => { e.stopPropagation(); onToggleDisabled(file.id) }}
               className={cn(
                 'shrink-0 rounded p-1 transition-colors',
                 isDisabled

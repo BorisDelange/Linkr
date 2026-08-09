@@ -7,6 +7,7 @@ import {
   capitalize,
   daysBetween,
   humanBytes,
+  compactCount,
 } from './format-helpers'
 
 // These are security-critical: escSql / isSafeIdentifier / validateIntegerIds
@@ -96,6 +97,29 @@ describe('capitalize', () => {
 
   it('handles empty string', () => {
     expect(capitalize('')).toBe('')
+  })
+})
+
+describe('compactCount', () => {
+  it('leaves small counts alone', () => {
+    expect(compactCount(0)).toBe('0')
+    expect(compactCount(999)).toBe('999')
+  })
+
+  it('abbreviates thousands, keeping a decimal below 10k', () => {
+    expect(compactCount(1_234)).toBe('1.2k')
+    expect(compactCount(37_100)).toBe('37k')
+  })
+
+  it('abbreviates millions', () => {
+    expect(compactCount(3_860_220)).toBe('3.9M')
+    expect(compactCount(33_278_686)).toBe('33M')
+  })
+
+  it('stays narrow enough for a sidebar column', () => {
+    for (const n of [0, 999, 1_234, 37_100, 3_860_220, 33_278_686, 999_999_999]) {
+      expect(compactCount(n).length).toBeLessThanOrEqual(5)
+    }
   })
 })
 

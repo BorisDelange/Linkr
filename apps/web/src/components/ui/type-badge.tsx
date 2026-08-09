@@ -42,7 +42,7 @@ export function TypeBadge({ type }: { type: string }) {
         config.color,
       )}
     >
-      {Icon ? <Icon size={11} /> : config.icon}
+      {Icon ? <Icon size={10} /> : config.icon}
     </span>
   )
 }

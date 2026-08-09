@@ -113,6 +113,20 @@ export function capitalize(s: string): string {
 }
 
 /**
+ * Abbreviated count for narrow columns: 1234 -> "1.2k", 33278686 -> "33M".
+ * A row count printed in full ("33,278,686") eats the width a table name needs.
+ */
+export function compactCount(n: number): string {
+  if (n < 1_000) return String(n)
+  if (n < 1_000_000) {
+    const k = n / 1_000
+    return `${k < 10 ? k.toFixed(1) : Math.round(k)}k`
+  }
+  const m = n / 1_000_000
+  return `${m < 10 ? m.toFixed(1) : Math.round(m)}M`
+}
+
+/**
  * Human-readable byte size, scaling the unit to the value: a 30 KB file shown in
  * MB rounds to "0.0 MB" and reads as empty.
  */

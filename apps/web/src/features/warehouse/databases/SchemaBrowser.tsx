@@ -30,6 +30,7 @@ import { TypeBadge, mapColumnType } from '@/components/ui/type-badge'
 import { cn } from '@/lib/utils'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { getStorage } from '@/lib/storage'
+import { compactCount } from '@/lib/format-helpers'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 
@@ -122,6 +123,7 @@ function TableRow({
   onSelect: () => void
 }) {
   const { ref, overflows, triggerProps } = useOverflowTooltip()
+  const count = rowCount != null ? compactCount(rowCount) : null
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -129,22 +131,34 @@ function TableRow({
           onClick={onSelect}
           {...triggerProps}
           className={cn(
-            'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
+            'flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs transition-colors',
             isActive ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
           )}
         >
           <span ref={ref} className="min-w-0 flex-1 truncate font-mono">{table}</span>
-          {rowCount != null && (
-            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-              {rowCount.toLocaleString()}
+          {count && (
+            // Abbreviated and right-aligned in a fixed column: a raw 33 278 686
+            // ate the width the name needed, truncating it far more than necessary.
+            <span className="w-9 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
+              {count}
             </span>
           )}
         </button>
       </TooltipTrigger>
-      {overflows && <TooltipContent side="right">{table}</TooltipContent>}
+      {(overflows || count) && (
+        <TooltipContent side="right">
+          {table}
+          {rowCount != null && (
+            <span className="ml-1.5 text-muted-foreground">
+              {rowCount.toLocaleString()}
+            </span>
+          )}
+        </TooltipContent>
+      )}
     </Tooltip>
   )
 }
+
 
 const tableCache = new Map<string, TableCacheEntry>()
 const tableCacheKey = (dataSourceId: string, table: string) => `${dataSourceId}::${table}`
@@ -604,7 +618,9 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
         <div className="min-h-0 flex-1">
           <Allotment proportionalLayout={false}>
             {/* Table list sidebar */}
-            <Allotment.Pane preferredSize={220} minSize={140} maxSize={360} visible={tablesVisible}>
+            {/* 250, not 220: the row-count column needs to clear the right edge
+                with a little breathing room at the default (double-click) width. */}
+            <Allotment.Pane preferredSize={250} minSize={140} maxSize={360} visible={tablesVisible}>
               <div className="flex h-full flex-col border-r">
                 <div className="flex items-center gap-2 border-b px-3 py-2">
                   <SortHeader
