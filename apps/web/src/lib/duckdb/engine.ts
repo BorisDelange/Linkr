@@ -26,53 +26,11 @@ const duckdb_mvp_worker = duckdbAsset('duckdb-browser-mvp.worker.js')
 const duckdb_eh_wasm = duckdbAsset('duckdb-eh.wasm')
 const duckdb_eh_worker = duckdbAsset('duckdb-browser-eh.worker.js')
 
-/**
- * Split a SQL script into individual statements, respecting single-quoted
- * string literals and `--` line comments so that semicolons inside strings
- * (e.g. `'Sodium Chloride 23.4%;30ML V'`) are not treated as separators.
- */
-export function splitSqlStatements(sql: string): string[] {
-  const stmts: string[] = []
-  let current = ''
-  let i = 0
-  while (i < sql.length) {
-    const ch = sql[i]
-    // Single-quoted string literal — consume until closing quote
-    if (ch === "'") {
-      current += ch
-      i++
-      while (i < sql.length) {
-        if (sql[i] === "'" && sql[i + 1] === "'") {
-          current += "''"
-          i += 2
-        } else if (sql[i] === "'") {
-          current += "'"
-          i++
-          break
-        } else {
-          current += sql[i]
-          i++
-        }
-      }
-    // Line comment — consume until end of line
-    } else if (ch === '-' && sql[i + 1] === '-') {
-      const nl = sql.indexOf('\n', i)
-      if (nl === -1) { i = sql.length } else { i = nl + 1 }
-    // Statement separator
-    } else if (ch === ';') {
-      const trimmed = current.trim()
-      if (trimmed) stmts.push(trimmed)
-      current = ''
-      i++
-    } else {
-      current += ch
-      i++
-    }
-  }
-  const trimmed = current.trim()
-  if (trimmed) stmts.push(trimmed)
-  return stmts
-}
+// Split a SQL script into statements. Now backed by the shared tokenizer so the
+// splitter and the role-prefix rewriter agree on what is a comment / literal /
+// dollar-quote (a `;` inside any of those must not split a statement).
+import { splitSqlStatements } from './sql-tokenizer'
+export { splitSqlStatements }
 
 let _db: duckdb.AsyncDuckDB | null = null
 let _initPromise: Promise<duckdb.AsyncDuckDB> | null = null

@@ -89,6 +89,17 @@ describe('resolveRolePrefixes', () => {
     expect(resolveRolePrefixes('SELECT * FROM source.a UNION SELECT * FROM source.b', SCHEMAS))
       .toBe('SELECT * FROM "ds_mimic_raw".a UNION SELECT * FROM "ds_mimic_raw".b')
   })
+
+  it('does not rewrite inside a dollar-quoted block', () => {
+    expect(resolveRolePrefixes('SELECT $$ source.x $$, source.a', SCHEMAS))
+      .toBe('SELECT $$ source.x $$, "ds_mimic_raw".a')
+  })
+
+  it('an escaped quote does not disable rewriting for the rest of the script', () => {
+    // The `\'` must not be read as opening a literal that swallows source.a.
+    expect(resolveRolePrefixes("SELECT E'\\'' AS q, source.a", SCHEMAS))
+      .toBe("SELECT E'\\'' AS q, \"ds_mimic_raw\".a")
+  })
 })
 
 describe('resolveRolePrefixes — server mode', () => {

@@ -9,6 +9,11 @@
  * in git) stays portable.
  */
 
+// String literals, quoted identifiers, comments and dollar-quoted blocks — a
+// role prefix inside any of them is data or prose, not a qualifier. Shared with
+// the statement splitter so both agree on what SQL is.
+import { isProtected, protectedRegions } from './sql-tokenizer'
+
 /** The role prefixes a script may use, in the order they are matched. */
 export const ROLE_PREFIXES = ['source', 'target', 'vocab'] as const
 
@@ -32,61 +37,6 @@ export interface RoleSchemas {
  * table name that follows is untouched.
  */
 const ROLE_QUALIFIER = /(^|[^\w."'`])(source|target|vocab)\.(?=[\w"])/gi
-
-/** Regions of a SQL string that must not be rewritten: literals and comments. */
-interface Region {
-  start: number
-  end: number
-}
-
-/**
- * Find string literals, quoted identifiers and comments. A role prefix inside
- * any of them is data or prose, not a qualifier — rewriting it would corrupt
- * the value (`'source.x'`) or silently edit a comment.
- */
-function protectedRegions(sql: string): Region[] {
-  const regions: Region[] = []
-  let i = 0
-  while (i < sql.length) {
-    const ch = sql[i]
-    // Line comment
-    if (ch === '-' && sql[i + 1] === '-') {
-      const end = sql.indexOf('\n', i)
-      regions.push({ start: i, end: end === -1 ? sql.length : end })
-      i = end === -1 ? sql.length : end
-      continue
-    }
-    // Block comment
-    if (ch === '/' && sql[i + 1] === '*') {
-      const end = sql.indexOf('*/', i + 2)
-      const stop = end === -1 ? sql.length : end + 2
-      regions.push({ start: i, end: stop })
-      i = stop
-      continue
-    }
-    // Quoted run: '...', "...", `...` — doubling the quote escapes it.
-    if (ch === "'" || ch === '"' || ch === '`') {
-      let j = i + 1
-      while (j < sql.length) {
-        if (sql[j] === ch) {
-          if (sql[j + 1] === ch) { j += 2; continue }
-          break
-        }
-        j++
-      }
-      const stop = j >= sql.length ? sql.length : j + 1
-      regions.push({ start: i, end: stop })
-      i = stop
-      continue
-    }
-    i++
-  }
-  return regions
-}
-
-function isProtected(regions: Region[], index: number): boolean {
-  return regions.some((r) => index >= r.start && index < r.end)
-}
 
 /** Roles actually referenced as a qualifier in the SQL (ignoring literals/comments). */
 export function usedRoles(sql: string): RolePrefix[] {

@@ -65,6 +65,13 @@ describe('buildVocabularyScript', () => {
     expect(sql).toContain('concept_id')
     expect(sql).toContain('vocabulary_id')
   })
+
+  it('allocates custom-vocabulary concept ids with COALESCE so an empty target does not NULL them', () => {
+    // Without COALESCE, MAX(concept_id) over an empty set is NULL and
+    // NULL + ROW_NUMBER() inserts nothing (or violates NOT NULL).
+    expect(sql).toContain('COALESCE(MAX(concept_id), 2000000000)')
+    expect(sql).not.toMatch(/\(SELECT MAX\(concept_id\) FROM target\.concept WHERE concept_id >= 2000000000\) \+ ROW_NUMBER/)
+  })
 })
 
 describe('ATHENA date columns', () => {

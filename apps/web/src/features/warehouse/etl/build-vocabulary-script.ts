@@ -237,7 +237,7 @@ export function buildVocabularyScriptWithIds(
   // 2e. Source concepts, with the ids the mapping project holds.
   //
   // These used to be numbered at generation time
-  // (`2000000000 + ROW_NUMBER() OVER (ORDER BY …)`), which meant adding or
+  // (`${SOURCE_CONCEPT_ID_BASE} + ROW_NUMBER() OVER (ORDER BY …)`), which meant adding or
   // removing a single mapping renumbered every source concept: ids drifted
   // between runs, and data already loaded with the previous ones silently
   // referenced the wrong concept. They are assigned once, stored on the mapping
@@ -278,7 +278,7 @@ export function buildVocabularyScriptWithIds(
   parts.push('-- 2g. Vocabulary concepts for custom source vocabularies')
   parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
-  parts.push(`    (SELECT MAX(concept_id) FROM ${TARGET}.concept WHERE concept_id >= 2000000000) + ROW_NUMBER() OVER (ORDER BY sv.source_vocabulary_id) AS concept_id,`)
+  parts.push(`    (SELECT COALESCE(MAX(concept_id), ${SOURCE_CONCEPT_ID_BASE}) FROM ${TARGET}.concept WHERE concept_id >= ${SOURCE_CONCEPT_ID_BASE}) + ROW_NUMBER() OVER (ORDER BY sv.source_vocabulary_id) AS concept_id,`)
   parts.push(`    sv.source_vocabulary_id     AS concept_name,`)
   parts.push(`    'Metadata'                  AS domain_id,`)
   parts.push(`    'Vocabulary'                AS vocabulary_id,`)
@@ -328,7 +328,7 @@ export function buildVocabularyScriptWithIds(
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
   parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
-  parts.push(`WHERE stcm.source_concept_id > 2000000000`)
+  parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0;`)
   parts.push('')
@@ -341,7 +341,7 @@ export function buildVocabularyScriptWithIds(
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
   parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
-  parts.push(`WHERE stcm.source_concept_id > 2000000000`)
+  parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0;`)
 
@@ -396,7 +396,7 @@ export function buildVocabularyScriptWithIds(
   parts.push(`FROM ${TARGET}.concept vc`)
   parts.push(`WHERE vc.domain_id = 'Metadata'`)
   parts.push(`  AND vc.concept_class_id = 'Vocabulary'`)
-  parts.push(`  AND vc.concept_id >= 2000000000`)
+  parts.push(`  AND vc.concept_id >= ${SOURCE_CONCEPT_ID_BASE}`)
   parts.push(`  AND vc.concept_code NOT IN (SELECT vocabulary_id FROM ${TARGET}.vocabulary);`)
   parts.push('')
 
@@ -520,7 +520,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   // Group by unique (source_vocabulary_id, concept_code) and derive domain from target
   parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
-  parts.push(`    (SELECT COALESCE(MAX(concept_id), 2000000000) FROM ${TARGET}.concept WHERE concept_id >= 2000000000)`)
+  parts.push(`    (SELECT COALESCE(MAX(concept_id), ${SOURCE_CONCEPT_ID_BASE}) FROM ${TARGET}.concept WHERE concept_id >= ${SOURCE_CONCEPT_ID_BASE})`)
   parts.push(`      + ROW_NUMBER() OVER (ORDER BY src.source_vocabulary_id, src.source_code) AS concept_id,`)
   parts.push(`    src.source_code_description AS concept_name,`)
   parts.push(`    COALESCE(tc.domain_id, 'Observation') AS domain_id,`)
@@ -555,7 +555,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`FROM ${TARGET}.concept c`)
   parts.push(`WHERE c.concept_code = source_to_concept_map.source_code`)
   parts.push(`  AND c.vocabulary_id = source_to_concept_map.source_vocabulary_id`)
-  parts.push(`  AND c.concept_id > 2000000000`)
+  parts.push(`  AND c.concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
   parts.push(`  AND source_to_concept_map.source_concept_id = 0;`)
 
   // --- PART 4: concept_relationship Maps to + Mapped from ---
@@ -573,7 +573,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
   parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
-  parts.push(`WHERE stcm.source_concept_id > 2000000000`)
+  parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0`)
   parts.push(`  AND NOT EXISTS (`)
@@ -592,7 +592,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
   parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
-  parts.push(`WHERE stcm.source_concept_id > 2000000000`)
+  parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0`)
   parts.push(`  AND NOT EXISTS (`)
