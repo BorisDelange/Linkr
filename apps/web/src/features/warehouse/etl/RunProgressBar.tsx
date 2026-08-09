@@ -3,12 +3,16 @@ import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEtlStore } from '@/stores/etl-store'
+import { cn } from '@/lib/utils'
 import { currentStatementNumber, statementPreview } from './statement-preview'
 import type { EtlFile } from '@/types'
 
 interface Props {
   /** The scripts of this run, in order, so "3 / 12" counts the right set. */
   files: EtlFile[]
+  /** Open the running script at the statement being executed. Omit where there
+   *  is no editor to jump to (the Pipeline toolbar passes it through). */
+  onGoToStatement?: (fileId: string, statement: string | undefined) => void
 }
 
 /**
@@ -19,7 +23,7 @@ interface Props {
  * statement for minutes, and without a moving number there is no way to tell
  * work from a hang.
  */
-export function RunProgressBar({ files }: Props) {
+export function RunProgressBar({ files, onGoToStatement }: Props) {
   const { t } = useTranslation()
   const running = useEtlStore((s) => s.pipelineRunning)
   const statuses = useEtlStore((s) => s.scriptStatuses)
@@ -48,7 +52,27 @@ export function RunProgressBar({ files }: Props) {
         {log?.statementsTotal != null && log.statementsTotal > 1 && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="shrink-0 cursor-default tabular-nums text-muted-foreground">
+              <span
+                role={onGoToStatement ? 'button' : undefined}
+                tabIndex={onGoToStatement ? 0 : undefined}
+                onClick={onGoToStatement && current
+                  ? () => onGoToStatement(current.id, log.currentStatement)
+                  : undefined}
+                onKeyDown={onGoToStatement && current
+                  ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onGoToStatement(current.id, log.currentStatement)
+                      }
+                    }
+                  : undefined}
+                className={cn(
+                  'shrink-0 tabular-nums text-muted-foreground',
+                  onGoToStatement && current
+                    ? 'cursor-pointer underline-offset-2 hover:text-foreground hover:underline'
+                    : 'cursor-default',
+                )}
+              >
                 · {t('etl.run_statement_progress', {
                   done: currentStatementNumber(log),
                   total: log.statementsTotal,
@@ -68,14 +92,6 @@ export function RunProgressBar({ files }: Props) {
         {elapsed && (
           <span className="shrink-0 tabular-nums text-muted-foreground">· {elapsed}</span>
         )}
-      </div>
-      {/* Progress across the set; the current script's own statements move the
-          counter above, which is the finer signal. */}
-      <div className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-blue-500 transition-all"
-          style={{ width: `${files.length ? (done / files.length) * 100 : 0}%` }}
-        />
       </div>
     </div>
   )

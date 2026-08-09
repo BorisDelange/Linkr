@@ -36,3 +36,30 @@ export function statementPreview(sql: string | undefined, max = 220): string | n
   if (!code) return null
   return code.length > max ? `${code.slice(0, max)}…` : code
 }
+
+/**
+ * 1-based line where `statement` starts inside `sql`, or null when not found.
+ *
+ * Located by searching the text rather than tracked through the splitter: the
+ * runner reports the statement it is executing, and the splitter deliberately
+ * returns trimmed text with no positions. Matching on the first non-comment line
+ * survives that trimming — the raw statement in the file may be preceded by
+ * comments and indentation the reported one has lost.
+ */
+export function statementLine(sql: string, statement: string | undefined): number | null {
+  if (!sql || !statement) return null
+
+  // The first line that is actual code: comments before a statement belong to it
+  // in the split, so anchoring on them would land above the statement.
+  const anchor = statement
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l && !l.startsWith('--'))
+  if (!anchor) return null
+
+  const lines = sql.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim().startsWith(anchor.slice(0, Math.min(anchor.length, 60)))) return i + 1
+  }
+  return null
+}

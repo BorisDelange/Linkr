@@ -64,3 +64,26 @@ export function compareEtlFilesByName(
   if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
   return naturalCompare(a.name, b.name)
 }
+
+/**
+ * New `order` values that put the scripts in name order, keyed by file id.
+ *
+ * Execution order is the user's own (drag to reorder), but a pipeline's scripts
+ * are conventionally named for the sequence they belong in — `00_vocabulary`,
+ * `10_src_core`, `35_drug_exposure`. When the two disagree the run is silently
+ * wrong rather than failing: a step reads a table an earlier one has not written
+ * yet and quietly produces zeros. This realigns the two in one action.
+ *
+ * Only entries whose order actually changes are returned, so the caller writes
+ * the minimum.
+ */
+export function orderByNamePatch(
+  files: Pick<EtlFile, 'id' | 'name' | 'type' | 'order'>[],
+): Map<string, number> {
+  const sorted = [...files].sort(compareEtlFilesByName)
+  const patch = new Map<string, number>()
+  sorted.forEach((f, index) => {
+    if (f.order !== index) patch.set(f.id, index)
+  })
+  return patch
+}

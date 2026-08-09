@@ -73,6 +73,7 @@ import { RunAbortedError } from './run-pipeline-sql'
 import { EtlUploadDialog } from './EtlUploadDialog'
 import { inferEtlLanguage } from './etl-file-language'
 import { RunProgressBar } from './RunProgressBar'
+import { statementLine } from './statement-preview'
 import { compareByRole } from './role-presentation'
 import { PipelineDbPicker } from './PipelineDbPicker'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -366,6 +367,28 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     await executeSql(selectedFile.id, sql, label, resolveFileDataSourceId(selectedFile))
   }, [selectedFile, executeSql, resolveFileDataSourceId])
 
+  /**
+   * Jump to the statement a run is executing: open its script if needed, then
+   * put the cursor on the line. Lets "Query 10/26" answer "which one is that?"
+   * without hunting through a 300-line generated file.
+   */
+  const goToStatement = useCallback((fileId: string, statement: string | undefined) => {
+    const file = files.find((f) => f.id === fileId)
+    if (!file) return
+    if (fileId !== selectedFileId) selectFile(fileId)
+    const line = statementLine(file.content ?? '', statement)
+    if (line == null) return
+    // After a selectFile the editor may still hold the previous model, so the
+    // reveal waits for the swap rather than scrolling the wrong file.
+    requestAnimationFrame(() => {
+      const editor = editorRef.current
+      if (!editor) return
+      editor.revealLineInCenter(line)
+      editor.setPosition({ lineNumber: line, column: 1 })
+      editor.focus()
+    })
+  }, [files, selectedFileId, selectFile])
+
   // Run every script, through the same runner as the Pipeline tab: this used to
   // be a silent local loop, so a Run-all here showed a spinner and nothing else.
   const handleRunAll = useCallback(async () => {
@@ -562,7 +585,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                             </DropdownMenu>
                           </div>
                         )}
-                        <RunProgressBar files={orderedSqlFiles} />
+                        <RunProgressBar files={orderedSqlFiles} onGoToStatement={goToStatement} />
                       </>
                     )}
                     {/* Save current file (Cmd+S) — after Run */}

@@ -45,6 +45,7 @@ import {
   Power,
   Ban,
   Building2,
+  ArrowDownAZ,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -61,6 +62,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
+import { orderByNamePatch } from './etl-file-language'
 import { usePipelineRunner } from './use-pipeline-runner'
 import { RunProgressBar } from './RunProgressBar'
 import { splitSentences } from './role-presentation'
@@ -108,6 +110,20 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
       .sort((a, b) => a.order - b.order),
     [files],
   )
+
+  /**
+   * Align execution order with the script names.
+   *
+   * A pipeline runs in `order`, which the user sets by dragging — but the scripts
+   * are named for the sequence they belong in (`00_`, `10_`, `35_`). When the two
+   * drift apart the run does not fail, it silently produces wrong data: a step
+   * reads a table an earlier step has not written yet.
+   */
+  const orderPatch = useMemo(() => orderByNamePatch(sqlFiles), [sqlFiles])
+  const orderByNameChanges = orderPatch.size
+  const sortByName = useCallback(() => {
+    for (const [fileId, order] of orderPatch) updateFile(fileId, { order })
+  }, [orderPatch, updateFile])
 
   // Run pipeline — execute scripts sequentially
   const handleRunPipeline = useCallback(async () => {
@@ -196,6 +212,23 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t('etl.disable_all')}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={!canWrite || orderByNameChanges === 0}
+                  onClick={sortByName}
+                >
+                  <ArrowDownAZ size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[280px]">
+                {orderByNameChanges === 0
+                  ? t('etl.sort_by_name_done')
+                  : t('etl.sort_by_name_hint', { count: orderByNameChanges })}
+              </TooltipContent>
             </Tooltip>
             <div className="mx-0.5 h-4 w-px bg-border" />
             <Tooltip>

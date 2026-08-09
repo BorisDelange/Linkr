@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   compareEtlFilesByName,
   inferEtlLanguage,
+  orderByNamePatch,
   safeEtlFileName,
   uniqueEtlFileName,
 } from './etl-file-language'
@@ -97,5 +98,44 @@ describe('compareEtlFilesByName', () => {
   it('is case-insensitive between names', () => {
     const names = [f('b.sql'), f('A.sql')].sort(compareEtlFilesByName).map((x) => x.name)
     expect(names).toEqual(['A.sql', 'b.sql'])
+  })
+})
+
+describe('orderByNamePatch', () => {
+  const f = (id: string, name: string, order: number) =>
+    ({ id, name, order, type: 'file' as const })
+
+  it('realigns execution order with the numeric prefixes', () => {
+    // The real case: 35_ ran before 10_ because it was created first, so the
+    // mapping steps had not populated their tables yet.
+    const patch = orderByNamePatch([
+      f('a', '00_vocabulary.sql', 0),
+      f('b', '35_drug_exposure.sql', 1),
+      f('c', '10_src_core.sql', 2),
+    ])
+    expect(patch.get('c')).toBe(1)
+    expect(patch.get('b')).toBe(2)
+  })
+
+  it('returns nothing when the order already matches', () => {
+    const patch = orderByNamePatch([
+      f('a', '00_vocabulary.sql', 0),
+      f('b', '10_src_core.sql', 1),
+    ])
+    expect(patch.size).toBe(0)
+  })
+
+  it('only reports the files that actually move', () => {
+    const patch = orderByNamePatch([
+      f('a', '00_a.sql', 0),
+      f('c', '30_c.sql', 2),
+      f('b', '20_b.sql', 1),
+    ])
+    // Already correct once sorted: a=0, b=1, c=2 — b and c hold 1 and 2 already.
+    expect(patch.size).toBe(0)
+  })
+
+  it('handles an empty pipeline', () => {
+    expect(orderByNamePatch([]).size).toBe(0)
   })
 })

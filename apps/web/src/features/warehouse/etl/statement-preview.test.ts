@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currentStatementNumber, statementPreview } from './statement-preview'
+import { currentStatementNumber, statementLine, statementPreview } from './statement-preview'
 import { splitSqlStatements } from '@/lib/duckdb/engine'
 
 describe('statementPreview', () => {
@@ -66,5 +66,42 @@ describe('currentStatementNumber', () => {
       expect(currentStatementNumber(log)).toBe(i + 1)
       expect(statementPreview(log.currentStatement)).toBe(statements[currentStatementNumber(log) - 1])
     })
+  })
+})
+
+describe('statementLine', () => {
+  const SQL = [
+    '-- header comment',            // 1
+    '',                             // 2
+    'DELETE FROM target.concept;',  // 3
+    '',                             // 4
+    '-- 2a. Target concepts',       // 5
+    'INSERT INTO target.concept',   // 6
+    'SELECT c.concept_id',          // 7
+    'FROM vocab.concept c;',        // 8
+  ].join('\n')
+
+  it('finds a single-line statement', () => {
+    expect(statementLine(SQL, 'DELETE FROM target.concept')).toBe(3)
+  })
+
+  it('skips the comments a statement carries, landing on its code', () => {
+    // The splitter hands back the leading comments with the statement; anchoring
+    // on them would put the cursor above the SQL.
+    const stmt = '-- 2a. Target concepts\nINSERT INTO target.concept\nSELECT c.concept_id\nFROM vocab.concept c'
+    expect(statementLine(SQL, stmt)).toBe(6)
+  })
+
+  it('returns null when the statement is not in this file', () => {
+    expect(statementLine(SQL, 'DROP TABLE something')).toBeNull()
+  })
+
+  it('returns null for missing input', () => {
+    expect(statementLine(SQL, undefined)).toBeNull()
+    expect(statementLine('', 'DELETE FROM x')).toBeNull()
+  })
+
+  it('returns null for a comment-only statement', () => {
+    expect(statementLine(SQL, '-- just a comment')).toBeNull()
   })
 })
