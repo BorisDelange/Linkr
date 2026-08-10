@@ -2,15 +2,8 @@ import { useTranslation } from 'react-i18next'
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-/**
- * What a file explorer is ordered by.
- *
- * `manual` is the user's own drag order, which some trees persist (the SQL
- * scripts tree, where the sequence is the point). It is offered as a column so
- * choosing a sort is reversible — otherwise sorting once would lose an
- * arrangement that cannot be reconstructed.
- */
-export type FileTreeSortKey = 'name' | 'size' | 'manual'
+/** What a file explorer is ordered by. */
+export type FileTreeSortKey = 'name' | 'size'
 
 export interface FileTreeSort {
   key: FileTreeSortKey
@@ -22,8 +15,6 @@ interface Props {
   onChange: (sort: FileTreeSort) => void
   /** Hide the size column where no size is known (a tree of folders only). */
   showSize?: boolean
-  /** Offer the user's drag order as a column, for trees that persist one. */
-  showManual?: boolean
   className?: string
 }
 
@@ -38,7 +29,7 @@ interface Props {
  * it. Name starts ascending (A→Z is what a file list is expected to do) and size
  * descending (the big files are the interesting ones).
  */
-export function FileTreeHeader({ sort, onChange, showSize = true, showManual = false, className }: Props) {
+export function FileTreeHeader({ sort, onChange, showSize = true, className }: Props) {
   const { t } = useTranslation()
 
   const select = (key: FileTreeSortKey) => {
@@ -65,15 +56,6 @@ export function FileTreeHeader({ sort, onChange, showSize = true, showManual = f
           active={sort.key === 'size'}
           desc={sort.desc}
           onClick={() => select('size')}
-          className="shrink-0"
-        />
-      )}
-      {showManual && (
-        <SortButton
-          label={t('files.column_manual')}
-          active={sort.key === 'manual'}
-          desc={sort.desc}
-          onClick={() => select('manual')}
           className="shrink-0"
         />
       )}

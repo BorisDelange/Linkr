@@ -9,33 +9,6 @@ import { cn } from '@/lib/utils'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
 import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
 
-/** Canonical root sort order for the project tree. */
-const ROOT_ORDER: Record<string, number> = {
-  'project.json': 0,
-  'README.md': 1,
-  'tasks.json': 2,
-  '.gitignore': 3,
-  'scripts': 4,
-  'pipeline': 5,
-  'databases': 6,
-  'cohorts': 7,
-  'dashboards': 8,
-  'datasets': 9,
-  'attachments': 10,
-}
-
-function sortNodes(a: TreeNode, b: TreeNode): number {
-  if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
-  return a.name.localeCompare(b.name)
-}
-
-function sortRootNodes(a: TreeNode, b: TreeNode): number {
-  const oa = ROOT_ORDER[a.name] ?? 99
-  const ob = ROOT_ORDER[b.name] ?? 99
-  if (oa !== ob) return oa - ob
-  return sortNodes(a, b)
-}
-
 interface FileTreeProps {
   /** Open a create dialog targeting a folder (null = scripts root). */
   onNewChild: (parentId: string | null, folderMode: boolean) => void
@@ -47,9 +20,7 @@ export function FileTree({ onNewChild }: FileTreeProps) {
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const { nodes } = useProjectTree(activeProjectUid)
   const [rootDragOver, setRootDragOver] = useState(false)
-  // 'manual' is this tree's canonical layout (project.json, README.md, scripts…),
-  // which carries meaning a name sort would destroy; name and size are views.
-  const [sort, setSort] = useState<FileTreeSort>({ key: 'manual', desc: false })
+  const [sort, setSort] = useState<FileTreeSort>({ key: 'name', desc: false })
 
   // Virtual nodes (read-only views of other entities) are hidden from the IDE
   // tree, except those flagged showInIde (the datasets/ subtree), shown read-only.
@@ -64,14 +35,15 @@ export function FileTree({ onNewChild }: FileTreeProps) {
   })
   const compare = (a: TreeNode, b: TreeNode) => compareTreeNodes(sortable(a), sortable(b), sort)
 
+  // Alphabetical, including at the root: ROOT_ORDER's fixed layout is gone with
+  // the 'Custom' column, since a sort the user cannot select is a sort they
+  // cannot get back to.
   const rootNodes = nodes
     .filter((f) => f.parentId === null && isVisible(f))
-    .sort(sort.key === 'manual' ? sortRootNodes : compare)
+    .sort(compare)
 
   function getChildren(parentId: string): TreeNode[] {
-    return nodes
-      .filter((f) => f.parentId === parentId && isVisible(f))
-      .sort(sort.key === 'manual' ? sortNodes : compare)
+    return nodes.filter((f) => f.parentId === parentId && isVisible(f)).sort(compare)
   }
 
   if (rootNodes.length === 0) {
@@ -104,7 +76,7 @@ export function FileTree({ onNewChild }: FileTreeProps) {
 
   return (
     <>
-      <FileTreeHeader sort={sort} onChange={setSort} showManual />
+      <FileTreeHeader sort={sort} onChange={setSort} />
     {/* Radix wraps the viewport content in a `display:table` div that grows to the
         widest row, which defeats `truncate` on the file rows. Force that inner div
         back to a plain block so rows are constrained to the sidebar width. */}

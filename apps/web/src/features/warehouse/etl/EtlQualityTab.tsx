@@ -153,7 +153,7 @@ function StatisticsView({
   return (
     <ScrollArea className="h-full">
       <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
-        <StatsColumn label={t('etl.source')} ds={sourceDs} stats={sourceStats} loading={loading} accent="teal" />
+        <StatsColumn label={t('etl.source')} ds={sourceDs} stats={sourceStats} loading={loading} accent="orange" />
         <StatsColumn label={t('etl.target')} ds={targetDs} stats={targetStats} loading={loading} accent="emerald" />
       </div>
     </ScrollArea>
@@ -171,11 +171,11 @@ function StatsColumn({
   ds: DataSource | undefined
   stats: DatabaseStatsCache | null
   loading: boolean
-  accent: 'teal' | 'emerald'
+  accent: 'orange' | 'emerald'
 }) {
   const { t } = useTranslation()
-  const borderColor = accent === 'teal' ? 'border-teal-500/30' : 'border-emerald-500/30'
-  const iconColor = accent === 'teal' ? 'text-teal-500' : 'text-emerald-500'
+  const borderColor = accent === 'orange' ? 'border-orange-500/30' : 'border-emerald-500/30'
+  const iconColor = accent === 'orange' ? 'text-orange-500' : 'text-emerald-500'
 
   if (!ds) {
     return (

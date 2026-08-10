@@ -328,7 +328,7 @@ function NodeDetailSidebar({ info, onViewCode }: { info: NodeInfo | null; onView
       <DatabaseSidebarDetail
         ds={info.ds}
         label={t(info.type === 'source' ? 'etl.source' : 'etl.target')}
-        accentColor={info.type === 'source' ? 'text-teal-500' : 'text-emerald-500'}
+        accentColor={info.type === 'source' ? 'text-orange-500' : 'text-emerald-500'}
       />
     )
   }
@@ -817,10 +817,10 @@ function ScriptOrderList({
             <>
               <button
                 onClick={() => onSelectNode('__source__')}
-                className="flex w-full items-center gap-3 rounded-lg border-2 border-teal-500/30 bg-card px-3 py-2.5 text-left transition-colors hover:border-teal-500/60"
+                className="flex w-full items-center gap-3 rounded-lg border-2 border-orange-500/30 bg-card px-3 py-2.5 text-left transition-colors hover:border-orange-500/60"
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-teal-500/15">
-                  <Database size={16} className="text-teal-600 dark:text-teal-400" />
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-orange-500/15">
+                  <Database size={16} className="text-orange-600 dark:text-orange-400" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium">{t('etl.source')}</div>

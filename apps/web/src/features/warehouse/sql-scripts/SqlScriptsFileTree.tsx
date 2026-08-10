@@ -56,7 +56,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [deleteConfirmFileId, setDeleteConfirmFileId] = useState<string | null>(null)
   const [rootDragOver, setRootDragOver] = useState(false)
-  const [sort, setSort] = useState<FileTreeSort>({ key: 'manual', desc: false })
+  const [sort, setSort] = useState<FileTreeSort>({ key: 'name', desc: false })
 
   const toggleFolder = (id: string) => {
     setExpandedFolders((prev) => {
@@ -85,11 +85,11 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
   const deleteConfirmFile = deleteConfirmFileId ? files.find((f) => f.id === deleteConfirmFileId) : null
 
   const rootFiles = files.filter((f) => f.parentId === null)
-  // Defaults to the drag order, which this tree persists and which the user set
-  // deliberately; name and size are alternative views on the same list.
+  // Alphabetical like every other explorer. `order` is still what the drag
+  // handles write and what execution follows; it is simply not a display sort.
   const compare = (a: SqlScriptFile, b: SqlScriptFile) => compareTreeNodes(
-    { name: a.name, type: a.type, size: contentSize(a.content), order: a.order },
-    { name: b.name, type: b.type, size: contentSize(b.content), order: b.order },
+    { name: a.name, type: a.type, size: contentSize(a.content) },
+    { name: b.name, type: b.type, size: contentSize(b.content) },
     sort,
   )
   const getChildren = (parentId: string) =>
@@ -121,7 +121,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
 
   return (
     <>
-      <FileTreeHeader sort={sort} onChange={setSort} showManual />
+      <FileTreeHeader sort={sort} onChange={setSort} />
       <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div
           className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
