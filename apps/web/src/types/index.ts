@@ -2,6 +2,7 @@
 export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset, ErdGroup } from './schema-mapping'
 export type { ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex, SuggestionCategory } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
+import type { MappingStatus } from './concept-mapping'
 export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache, PeriodConfig, CatalogPeriodRow } from './catalog'
 export { getDefaultDimensions } from './catalog'
 export type { AuthorDetails, Authored, Lineaged } from './author'
@@ -864,6 +865,22 @@ export interface EtlPipelineConfig {
   versionedDataFiles?: string[]
   /** Code files to leave out despite being versioned by default. */
   excludedFiles?: string[]
+  /** What the Vocabulary tab generates, and from which mappings. */
+  vocabulary?: EtlVocabularyConfig
+}
+
+/**
+ * The Vocabulary tab's choices, kept on the pipeline so they survive a tab
+ * switch — they describe how this pipeline's vocabulary is built, not a
+ * transient UI state.
+ */
+export interface EtlVocabularyConfig {
+  /** Artefacts to write: 'csv' | 'script' | 'prune'. */
+  artefacts?: string[]
+  /** Mapping statuses fed to the generated artefacts. */
+  statuses?: MappingStatus[]
+  /** How to resolve several mappings competing for one source concept. */
+  approvalRule?: 'at_least_one' | 'majority' | 'no_rejections'
 }
 
 export interface EtlFile {
