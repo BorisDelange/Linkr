@@ -916,6 +916,30 @@ export interface EtlRunHistoryEntry {
   createdById?: number
 }
 
+/**
+ * The Quality-check → Concepts table, cached.
+ *
+ * The rows come from one STCM read plus two GROUP BY passes per OMOP clinical
+ * table, and only change when the pipeline runs — so they are persisted and
+ * shared rather than recomputed per user, per visit. `rows` is deliberately
+ * untyped here as the row shape lives with the feature (QualityConceptRow); the
+ * cache only transports it.
+ */
+export interface EtlQualityCache {
+  pipelineId: string
+  computedAt: string
+  /** The target database these counts were read from: the rows are meaningless
+   *  against a different one, so a repointed pipeline must not reuse them. */
+  targetDataSourceId: string
+  /**
+   * Fingerprint of the inputs, so a stale table is detected rather than served.
+   * Currently the last run's completion stamp: the counts change when the ETL
+   * runs, and nothing else moves them.
+   */
+  fingerprint: string
+  rows: unknown[]
+}
+
 export interface EtlColumnProfile {
   tableName: string
   columnName: string

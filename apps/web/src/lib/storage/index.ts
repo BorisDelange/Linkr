@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -86,6 +86,13 @@ export interface DatabaseStatsCacheStorage {
   get(dataSourceId: string): Promise<DatabaseStatsCache | undefined>
   save(cache: DatabaseStatsCache): Promise<void>
   delete(dataSourceId: string): Promise<void>
+}
+
+/** Storage for the ETL quality-check concept table (heavy, recomputable). */
+export interface EtlQualityCacheStorage {
+  get(pipelineId: string): Promise<EtlQualityCache | undefined>
+  save(cache: EtlQualityCache): Promise<void>
+  delete(pipelineId: string): Promise<void>
 }
 
 /** Storage interface for readme attachment blobs. */
@@ -455,6 +462,7 @@ export interface Storage {
   fileHandles: FileHandleStorage
   cohorts: CohortStorage
   databaseStatsCache: DatabaseStatsCacheStorage
+  etlQualityCache: EtlQualityCacheStorage
   schemaPresets: SchemaPresetStorage
   pipelines: PipelineStorage
   readmeAttachments: ReadmeAttachmentStorage

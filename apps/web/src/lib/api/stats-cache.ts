@@ -1,6 +1,10 @@
 import { apiRequest } from '@/lib/api-client'
-import type { DatabaseStatsCacheStorage, CatalogResultStorage } from '@/lib/storage'
-import type { DatabaseStatsCache, CatalogResultCache } from '@/types'
+import type {
+  CatalogResultStorage,
+  DatabaseStatsCacheStorage,
+  EtlQualityCacheStorage,
+} from '@/lib/storage'
+import type { CatalogResultCache, DatabaseStatsCache, EtlQualityCache } from '@/types'
 
 /** Server-side shared cache wire shape (see StatsCacheResponse). */
 interface StatsCacheWire {
@@ -49,5 +53,28 @@ export const apiCatalogResultStorage: CatalogResultStorage = {
   },
   async delete(catalogId) {
     await apiRequest(`/data-catalogs/${catalogId}/results-cache`, { method: 'DELETE' })
+  },
+}
+
+/** Shared ETL quality-check table, same pattern keyed by pipeline id. Recomputing
+ *  it means a dozen COUNT queries over the target, so one member's computation
+ *  serves the whole workspace. */
+export const apiEtlQualityCacheStorage: EtlQualityCacheStorage = {
+  async get(pipelineId) {
+    const wire = await apiRequest<StatsCacheWire | null>(
+      `/etl-pipelines/${pipelineId}/quality-cache`,
+    )
+    if (!wire) return undefined
+    return { ...(wire.payload as object), pipelineId, computedAt: wire.computedAt } as EtlQualityCache
+  },
+  async save(cache) {
+    const { pipelineId, computedAt, ...payload } = cache
+    await apiRequest(`/etl-pipelines/${pipelineId}/quality-cache`, {
+      method: 'PUT',
+      body: JSON.stringify({ computedAt, payload }),
+    })
+  },
+  async delete(pipelineId) {
+    await apiRequest(`/etl-pipelines/${pipelineId}/quality-cache`, { method: 'DELETE' })
   },
 }

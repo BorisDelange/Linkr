@@ -17,7 +17,8 @@ from app.schemas.etl_pipeline import (
     EtlRunHistoryResponse,
     EtlRunHistoryUpdate,
 )
-from app.services import etl_pipeline_service
+from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
+from app.services import etl_pipeline_service, stats_cache_service
 
 router = APIRouter(tags=["etl-pipelines"])
 
@@ -225,3 +226,63 @@ async def delete_runs_for_pipeline(
 ):
     await _load_pipeline(db, pipeline_id, user, "etl:delete")
     await etl_pipeline_service.delete_runs_for_pipeline(db, pipeline_id)
+
+
+# --- Quality-check cache ---------------------------------------------------
+
+# A third scope on the shared stats_cache table (alongside 'database' and
+# 'catalog'): the quality-check concept table is an expensive derived result
+# (one STCM read + two GROUP BYs per OMOP clinical table) that only changes when
+# the pipeline runs, so it belongs in the same shared, recomputable cache rather
+# than in each user's browser.
+_QUALITY_SCOPE = "etl-quality"
+
+
+@router.get(
+    _PIPE + "/{pipeline_id}/quality-cache",
+    response_model=StatsCacheResponse | None,
+)
+async def get_quality_cache(
+    pipeline_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The shared per-concept quality table for this pipeline (null if none)."""
+    await _load_pipeline(db, pipeline_id, user, "etl:read")
+    row = await stats_cache_service.get(db, _QUALITY_SCOPE, pipeline_id)
+    if row is None:
+        return None
+    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+
+
+@router.put(
+    _PIPE + "/{pipeline_id}/quality-cache",
+    response_model=StatsCacheResponse,
+)
+async def save_quality_cache(
+    pipeline_id: str,
+    body: StatsCacheSave,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Store the table a client just computed, sharing it with the workspace."""
+    await _load_pipeline(db, pipeline_id, user, "etl:write")
+    row = await stats_cache_service.save(
+        db, _QUALITY_SCOPE, pipeline_id, body.computed_at, body.payload
+    )
+    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+
+
+@router.delete(
+    _PIPE + "/{pipeline_id}/quality-cache",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_quality_cache(
+    pipeline_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Drop the shared table (the Refresh button). A recompute, so write — not
+    delete — permission, mirroring the database stats cache."""
+    await _load_pipeline(db, pipeline_id, user, "etl:write")
+    await stats_cache_service.delete(db, _QUALITY_SCOPE, pipeline_id)

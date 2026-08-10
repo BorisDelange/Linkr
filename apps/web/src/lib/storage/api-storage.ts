@@ -31,7 +31,7 @@ import { apiSqlScriptCollectionStorage, apiSqlScriptFileStorage } from '@/lib/ap
 import { apiUserStorage } from '@/lib/api/users'
 import { apiWikiPageStorage } from '@/lib/api/wiki-pages'
 import { apiWorkspaceStorage } from '@/lib/api/workspaces'
-import { apiDatabaseStatsCacheStorage, apiCatalogResultStorage } from '@/lib/api/stats-cache'
+import { apiDatabaseStatsCacheStorage, apiCatalogResultStorage, apiEtlQualityCacheStorage } from '@/lib/api/stats-cache'
 import type { Storage } from '@/lib/storage'
 import { noopFileHandleStorage, noopScoresBlobStorage, noopScoresMetaStorage } from '@/lib/storage/noop-storage'
 
@@ -88,6 +88,7 @@ export function createAPIStorage(): Storage {
     userPlugins: apiUserPluginStorage,
     connections: apiIdeConnectionStorage,
     databaseStatsCache: apiDatabaseStatsCacheStorage,
+    etlQualityCache: apiEtlQualityCacheStorage,
     catalogResults: apiCatalogResultStorage,
   }
 }

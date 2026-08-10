@@ -294,3 +294,75 @@ async def test_run_writes_require_pipeline_access(client, db):
     assert (await client.delete(
         f"{API}/etl-pipelines/{p['id']}/runs", headers=other
     )).status_code in (403, 404)
+
+
+async def test_quality_cache_round_trip(client):
+    """The quality-check table survives a save and comes back unchanged.
+
+    It is a shared, recomputable cache (scope 'etl-quality' on stats_cache) so one
+    member's computation — a dozen COUNT queries over the target — serves the whole
+    workspace. The payload carries the fingerprint that decides staleness, so
+    dropping a field would silently serve a stale table instead of recomputing."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+
+    # Nothing computed yet.
+    r = await client.get(f"{API}/etl-pipelines/{p['id']}/quality-cache", headers=headers)
+    assert r.status_code == 200 and r.json() is None
+
+    payload = {
+        "targetDataSourceId": "tgt-1",
+        "fingerprint": "2026-08-10T12:00:00Z",
+        "rows": [{"sourceCode": "220210", "sourceRows": 5381913, "targetRows": 5849705}],
+    }
+    r = await client.put(
+        f"{API}/etl-pipelines/{p['id']}/quality-cache",
+        headers=headers,
+        json={"computedAt": "2026-08-10T12:05:00Z", "payload": payload},
+    )
+    assert r.status_code == 200
+
+    got = (await client.get(
+        f"{API}/etl-pipelines/{p['id']}/quality-cache", headers=headers
+    )).json()
+    assert got["computedAt"] == "2026-08-10T12:05:00Z"
+    assert got["payload"] == payload
+
+    # A second save overwrites rather than accumulating.
+    await client.put(
+        f"{API}/etl-pipelines/{p['id']}/quality-cache",
+        headers=headers,
+        json={"computedAt": "2026-08-10T13:00:00Z", "payload": {**payload, "rows": []}},
+    )
+    got = (await client.get(
+        f"{API}/etl-pipelines/{p['id']}/quality-cache", headers=headers
+    )).json()
+    assert got["computedAt"] == "2026-08-10T13:00:00Z" and got["payload"]["rows"] == []
+
+    # Refresh drops it for everyone.
+    assert (await client.delete(
+        f"{API}/etl-pipelines/{p['id']}/quality-cache", headers=headers
+    )).status_code == 204
+    assert (await client.get(
+        f"{API}/etl-pipelines/{p['id']}/quality-cache", headers=headers
+    )).json() is None
+
+
+async def test_quality_cache_requires_pipeline_access(client, db):
+    """A non-member can neither read nor overwrite the shared table."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+    other = await _create_user(db, client, "mallory2")
+
+    assert (await client.get(
+        f"{API}/etl-pipelines/{p['id']}/quality-cache", headers=other
+    )).status_code in (403, 404)
+    assert (await client.put(
+        f"{API}/etl-pipelines/{p['id']}/quality-cache", headers=other,
+        json={"computedAt": "2026-08-10T12:05:00Z", "payload": {"rows": []}},
+    )).status_code in (403, 404)
+    assert (await client.delete(
+        f"{API}/etl-pipelines/{p['id']}/quality-cache", headers=other
+    )).status_code in (403, 404)

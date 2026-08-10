@@ -65,6 +65,10 @@ interface EtlState {
   pipelineRunAbort: AbortController | null
   scriptStatuses: Map<string, EtlRunLog>
   runHistory: EtlRunHistoryEntry[]
+  /** False until this pipeline's history has been read. The quality-check cache
+   *  keys on the last run, so acting on an empty history would recompute the
+   *  table once and then again the moment the runs arrive. */
+  runHistoryLoaded: boolean
   /** Returns false when a run is already in progress (the caller must not proceed). */
   /** `fileIds` are the scripts THIS run covers, so progress counts the right
    *  set: running one line must not report "0/16" against the whole pipeline. */
@@ -202,6 +206,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       // Another pipeline's runs must not linger while this one's load: the panel
       // would show them as if they belonged here.
       runHistory: [],
+      runHistoryLoaded: false,
       scriptStatuses: new Map(),
     })
     // Not awaited with the files: the editor should not wait on the history, and a
@@ -419,6 +424,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   runningFileIds: [],
   scriptStatuses: new Map(),
   runHistory: [],
+  runHistoryLoaded: false,
 
   startPipelineRun: (fileIds = []) => {
     // Re-entrancy guard: the store is shared across tabs, so a Run in the Scripts
@@ -530,6 +536,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       .slice(0, MAX_RUN_HISTORY)
     set({
       runHistory: history,
+      runHistoryLoaded: true,
       // Rebuild the per-script badges from the LAST run, so the green ticks and
       // error marks on the DAG widgets and in the Scripts tree survive leaving the
       // page — they are a view of the last run, which is now persisted. Only the

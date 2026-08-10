@@ -3,6 +3,8 @@ import {
   classifyDiff,
   countByDiff,
   expectedRowsByTarget,
+  isQualityCacheUsable,
+  qualityFingerprint,
   sortTableCounts,
   type ConceptCount,
 } from './quality-diff'
@@ -155,5 +157,76 @@ describe('sortTableCounts', () => {
     const input = [...TABLES]
     sortTableCounts(input, '', { by: 'name', desc: true })
     expect(input).toEqual(TABLES)
+  })
+})
+
+describe('qualityFingerprint', () => {
+  const run = (completedAt: string | undefined, status = 'success') =>
+    ({ status, completedAt, startedAt: '2026-01-01T00:00:00Z' })
+
+  it('is the newest completion stamp', () => {
+    expect(qualityFingerprint([
+      run('2026-08-01T10:00:00Z'),
+      run('2026-08-09T18:30:00Z'),
+      run('2026-08-05T09:00:00Z'),
+    ])).toBe('2026-08-09T18:30:00Z')
+  })
+
+  it('does not depend on the array order', () => {
+    // Run history order is not guaranteed across backends; a re-sorted list must
+    // not read as a different fingerprint and force a recompute.
+    const runs = [run('2026-08-01T10:00:00Z'), run('2026-08-09T18:30:00Z')]
+    expect(qualityFingerprint(runs)).toBe(qualityFingerprint([...runs].reverse()))
+  })
+
+  it('is "none" when the pipeline has never run', () => {
+    expect(qualityFingerprint([])).toBe('none')
+  })
+
+  it('ignores a run still in progress, which has no result yet', () => {
+    expect(qualityFingerprint([run(undefined, 'running')])).toBe('none')
+    expect(qualityFingerprint([
+      run('2026-08-01T10:00:00Z'),
+      run(undefined, 'running'),
+    ])).toBe('2026-08-01T10:00:00Z')
+  })
+
+  it('counts a failed run: it may still have written rows', () => {
+    // An ETL that errored halfway has changed the target, so the cached counts
+    // are stale even though the run did not succeed.
+    expect(qualityFingerprint([run('2026-08-02T08:00:00Z', 'error')])).toBe('2026-08-02T08:00:00Z')
+  })
+
+  it('changes after a new run, which is what invalidates the cache', () => {
+    const before = qualityFingerprint([run('2026-08-01T10:00:00Z')])
+    const after = qualityFingerprint([run('2026-08-01T10:00:00Z'), run('2026-08-10T12:00:00Z')])
+    expect(after).not.toBe(before)
+  })
+})
+
+describe('isQualityCacheUsable', () => {
+  const cache = { targetDataSourceId: 'ds-target', fingerprint: 'fp-1' }
+
+  it('accepts a cache matching both the target and the fingerprint', () => {
+    expect(isQualityCacheUsable(cache, 'ds-target', 'fp-1')).toBe(true)
+  })
+
+  it('rejects a cache from before the last run', () => {
+    expect(isQualityCacheUsable(cache, 'ds-target', 'fp-2')).toBe(false)
+  })
+
+  it('rejects a cache read from a DIFFERENT target database', () => {
+    // The rows are counts read FROM the target; repointing the pipeline would
+    // otherwise display the previous database's figures.
+    expect(isQualityCacheUsable(cache, 'ds-other', 'fp-1')).toBe(false)
+  })
+
+  it('rejects an absent cache, and an unknown target', () => {
+    expect(isQualityCacheUsable(undefined, 'ds-target', 'fp-1')).toBe(false)
+    expect(isQualityCacheUsable(cache, undefined, 'fp-1')).toBe(false)
+  })
+
+  it('rejects a cache written before these fields existed', () => {
+    expect(isQualityCacheUsable({}, 'ds-target', 'fp-1')).toBe(false)
   })
 })

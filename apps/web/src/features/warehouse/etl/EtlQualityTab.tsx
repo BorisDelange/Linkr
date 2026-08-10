@@ -40,6 +40,8 @@ import {
   CLINICAL_TABLES,
   countByDiff,
   expectedRowsByTarget,
+  isQualityCacheUsable,
+  qualityFingerprint,
   sortTableCounts,
   type ConceptCount,
   type QualityConceptRow,
@@ -122,7 +124,7 @@ export function EtlQualityTab({ pipelineId }: Props) {
         <div className="min-h-0 min-w-0 flex-1">
           {activeTab === 'statistics'
             ? <StatisticsView sourceDs={sourceDs} targetDs={targetDs} onActions={setActions} />
-            : <ConceptQualityView targetDs={targetDs} onActions={setActions} />}
+            : <ConceptQualityView pipelineId={pipelineId} targetDs={targetDs} onActions={setActions} />}
         </div>
       </div>
     </TooltipProvider>
@@ -453,19 +455,24 @@ function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number;
 // ---------------------------------------------------------------------------
 
 /**
- * Rows already computed, per target database.
+ * The concept table, persisted per pipeline.
  *
- * Module-level rather than component state: switching tabs unmounts this view,
- * and re-running a dozen COUNT queries every time is both slow and a silent
- * reset of whatever the user had filtered. Refresh re-reads deliberately.
+ * It was a module-level Map: it survived a tab switch but died on reload, so
+ * every visit paid for a dozen COUNT queries over the target again, and each
+ * user paid separately. It now goes to etlQualityCache — the same shared store
+ * pattern the Statistics view uses (server-side `stats_cache`, scope
+ * `etl-quality`), which is what makes one member's computation serve everyone.
+ *
+ * Staleness is decided by a fingerprint (the last completed run) plus the target
+ * database id, so a re-run or a repointed pipeline recomputes on its own. The
+ * Refresh button forces it regardless.
  */
-const conceptRowsCache = new Map<string, QualityConceptRow[]>()
-
-
 function ConceptQualityView({
+  pipelineId,
   targetDs,
   onActions,
 }: {
+  pipelineId: string
   targetDs: DataSource | undefined
   onActions: (node: React.ReactNode) => void
 }) {
@@ -476,31 +483,50 @@ function ConceptQualityView({
   const tRef = useRef(t)
   tRef.current = t
   const targetId = targetDs?.id
-  const [rows, setRows] = useState<QualityConceptRow[]>(
-    () => (targetId ? conceptRowsCache.get(targetId) ?? [] : []),
-  )
+  const runHistory = useEtlStore((s) => s.runHistory)
+  const runHistoryLoaded = useEtlStore((s) => s.runHistoryLoaded)
+  const [rows, setRows] = useState<QualityConceptRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [computedAt, setComputedAt] = useState<string | null>(null)
   const [diffFilter, setDiffFilter] = useState<QualityDiff | null>(null)
+
+  const fingerprint = useMemo(() => qualityFingerprint(runHistory), [runHistory])
 
   const load = useCallback(async (force: boolean) => {
     if (!targetId) return
-    if (!force && conceptRowsCache.has(targetId)) {
-      setRows(conceptRowsCache.get(targetId) ?? [])
-      return
+    if (!force) {
+      const cached = await getStorage().etlQualityCache.get(pipelineId).catch(() => undefined)
+      if (isQualityCacheUsable(cached, targetId, fingerprint)) {
+        setRows((cached!.rows ?? []) as QualityConceptRow[])
+        setComputedAt(cached!.computedAt)
+        return
+      }
     }
     setLoading(true)
     try {
       const loaded = await loadConceptQuality(targetId)
-      conceptRowsCache.set(targetId, loaded)
+      const at = new Date().toISOString()
       setRows(loaded)
+      setComputedAt(at)
+      await getStorage().etlQualityCache.save({
+        pipelineId,
+        computedAt: at,
+        targetDataSourceId: targetId,
+        fingerprint,
+        rows: loaded,
+      }).catch(() => {})
     } catch {
       setRows([])
     } finally {
       setLoading(false)
     }
-  }, [targetId])
+  }, [pipelineId, targetId, fingerprint])
 
-  useEffect(() => { void load(false) }, [load])
+  // Gated on the history being read: the fingerprint keys on the last run, so
+  // firing early would compute against 'none' and then recompute a moment later.
+  useEffect(() => {
+    if (runHistoryLoaded) void load(false)
+  }, [load, runHistoryLoaded])
 
   const counts = useMemo(() => countByDiff(rows), [rows])
   const shown = useMemo(
@@ -557,6 +583,13 @@ function ConceptQualityView({
             {t('etl.comparison_show_all')}
           </button>
         )}
+        {/* When it was counted, as in Statistics — the table is cached now, so a
+            stale figure has to be recognisable as one. */}
+        {computedAt && (
+          <span className="truncate text-[11px] text-muted-foreground">
+            {t('etl.quality_stats_computed_at', { when: formatDateTimeLocale(computedAt, i18n.language) })}
+          </span>
+        )}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -580,7 +613,7 @@ function ConceptQualityView({
     )
     // Cleared on unmount so Statistics does not inherit these controls.
     return () => onActions(null)
-  }, [onActions, counts, diffFilter, shown.length, exportCsv, load, t])
+  }, [onActions, counts, diffFilter, shown.length, exportCsv, load, computedAt, t, i18n.language])
 
   const columns = useMemo((): ConceptColumn<QualityConceptRow>[] => [
     {

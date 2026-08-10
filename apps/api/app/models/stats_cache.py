@@ -6,11 +6,12 @@ from app.models.base import JSONB_or_JSON, Base, TimestampMixin, UUIDPKMixin
 
 class StatsCache(Base, UUIDPKMixin, TimestampMixin):
     """Shared, recomputable cache of expensive read-only results (database stats,
-    catalog results). Keyed by (scope, cache_key) so all users of a project/
-    workspace reuse one computed payload instead of each recomputing into their
-    own browser IndexedDB. Purged/overwritten on explicit refresh.
+    catalog results, ETL quality tables). Keyed by (scope, cache_key) so all users
+    of a project/workspace reuse one computed payload instead of each recomputing
+    into their own browser IndexedDB. Purged/overwritten on explicit refresh.
 
-    scope: 'database' (cache_key = data_source_id) | 'catalog' (cache_key = catalog_id).
+    scope: 'database' (cache_key = data_source_id) | 'catalog' (cache_key =
+    catalog_id) | 'etl-quality' (cache_key = pipeline_id).
     Not a foreign key — the entity may live in a different store and the cache is
     always safe to drop; orphans are pruned when the owning entity is deleted.
     """

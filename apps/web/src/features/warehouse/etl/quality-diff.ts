@@ -78,6 +78,43 @@ export function countByDiff(rows: { diff: QualityDiff }[]): Record<QualityDiff, 
   return counts
 }
 
+/**
+ * Fingerprint of the inputs the concept table is derived from.
+ *
+ * The counts change when the ETL runs and at no other time, so the last
+ * completed run identifies the state of the data. A cache whose fingerprint no
+ * longer matches is stale and must not be served: showing yesterday's counts
+ * beside today's target would defeat the point of the check.
+ *
+ * `none` when the pipeline has never run — a hand-loaded target still gets a
+ * cache, just one that only the Refresh button invalidates.
+ */
+export function qualityFingerprint(
+  runs: readonly { status: string; completedAt?: string; startedAt: string }[],
+): string {
+  const done = runs.filter((r) => r.status !== 'running' && r.completedAt)
+  if (done.length === 0) return 'none'
+  // Max, not "last in the array": run history order is not guaranteed, and a
+  // re-sorted list must not read as a different fingerprint.
+  return done.reduce((best, r) => (r.completedAt! > best ? r.completedAt! : best), '')
+}
+
+/**
+ * Can this cached table be shown?
+ *
+ * Both the target database and the fingerprint must match. The target matters
+ * because the rows are counts read FROM it: a pipeline repointed at another
+ * database would otherwise display the previous one's figures.
+ */
+export function isQualityCacheUsable(
+  cache: { targetDataSourceId?: string; fingerprint?: string } | undefined,
+  targetDataSourceId: string | undefined,
+  fingerprint: string,
+): boolean {
+  if (!cache || !targetDataSourceId) return false
+  return cache.targetDataSourceId === targetDataSourceId && cache.fingerprint === fingerprint
+}
+
 export type TableSortKey = 'name' | 'rows'
 
 export interface TableSort {
