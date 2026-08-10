@@ -223,21 +223,29 @@ function LicenseChip({
       <span className="truncate">{title}</span>
     </span>
   )
-  if (!onOpen) return <span className="min-w-0">{body}</span>
+  // The full title in the tooltip: this is the row's longest label, so it is the
+  // one that gets truncated when a card footer also carries an action button.
+  const hint = license
+    ? `${title}${onOpen ? ` — ${t('license.open')}` : ''}`
+    : t('license.choose')
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onOpen}
-          className="min-w-0 rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {body}
-        </button>
+        {onOpen ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            className="min-w-0 basis-0 grow-[2] rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {body}
+          </button>
+        ) : (
+          <span tabIndex={0} className="min-w-0 basis-0 grow-[2] cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {body}
+          </span>
+        )}
       </TooltipTrigger>
-      <TooltipContent side="top" className="text-xs">
-        {license ? t('license.open') : t('license.choose')}
-      </TooltipContent>
+      <TooltipContent side="top" className="text-xs">{hint}</TooltipContent>
     </Tooltip>
   )
 }
