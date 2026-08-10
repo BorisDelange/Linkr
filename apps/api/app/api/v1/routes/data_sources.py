@@ -18,7 +18,7 @@ from app.schemas.concept_cache import (
     ConceptStatsSave,
 )
 from app.schemas.data_source import (
-    DatabaseFilePath,
+    DatabaseConnectionInfo,
     CreateFromDdlRequest,
     DataSourceCreate,
     DataSourceFileImportRequest,
@@ -291,25 +291,70 @@ async def get_data_source_schema(
     return await data_source_service.introspect(db, source)
 
 
-@router.get("/{source_id}/file-path", response_model=DatabaseFilePath)
-async def get_database_file_path(
+@router.get("/{source_id}/connection-info", response_model=DatabaseConnectionInfo)
+async def get_database_connection_info(
     source_id: str,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Disk path of a MANAGED DuckDB database, so the user can attach the same
-    file from an R/Python script outside Linkr.
+    """How to reach this database from outside Linkr (R/Python, a SQL client).
 
-    Only managed databases have one: an external engine has no local file, and a
-    parquet-folder source is many files. Permission-gated like any other read of
-    the source, since it discloses a server filesystem path.
+    A file source answers with a path, a parquet source with its folder, an
+    external engine with its host/port/database — never the password. Permission
+    gated like any other read of the source, since it discloses server paths and
+    connection details.
     """
     source = await _load_source(db, source_id, user, "databases:read")
-    config = source.connection_config or {}
-    if not config.get("managed"):
-        return DatabaseFilePath()
-    path = managed_db.path_for(source.id)
-    return DatabaseFilePath(path=str(path), exists=path.exists())
+    config = dict(source.connection_config or {})
+    engine = config.get("engine")
+    info = DatabaseConnectionInfo(engine=engine)
+
+    if data_source_service.is_external_engine(engine):
+        return DatabaseConnectionInfo(
+            engine=engine,
+            kind="external",
+            host=config.get("host"),
+            port=config.get("port"),
+            database=config.get("database"),
+            schema_name=config.get("schema"),
+            username=config.get("username"),
+        )
+
+    if data_source_service.is_managed(source):
+        path = managed_db.path_for(source.id)
+        return DatabaseConnectionInfo(
+            engine="duckdb", kind="file", path=str(path), exists=path.exists()
+        )
+
+    files = await data_source_service.list_files(db, source.id)
+    if not files:
+        return info
+
+    paths = [blob_store.path_for(f.content_hash) for f in files]
+    names = [f.file_name for f in files]
+    # A parquet folder is addressed as the DIRECTORY holding the tables — which is
+    # what a script outside Linkr would glob. Uploaded blobs all live in the same
+    # directory, so the parent of any of them is that folder.
+    if len(files) > 1 or names[0].lower().endswith((".parquet", ".pq")):
+        return DatabaseConnectionInfo(
+            engine=engine,
+            kind="parquet-folder",
+            path=str(paths[0].parent),
+            exists=paths[0].parent.is_dir(),
+            blob=True,
+            file_names=names,
+        )
+
+    return DatabaseConnectionInfo(
+        engine=engine,
+        kind="file",
+        path=str(paths[0]),
+        exists=paths[0].is_file(),
+        # Content-addressed: the file is named by its sha, with no extension, so
+        # a tool that keys off ".duckdb" needs telling.
+        blob=True,
+        file_names=names,
+    )
 
 
 @router.get("/{source_id}/concept-cache", response_model=ConceptCacheStatus)

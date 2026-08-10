@@ -430,7 +430,7 @@ async def test_managed_database_exposes_its_file_path(client, tmp_path, monkeypa
 
     # Before materialisation: not managed yet, so there is no path to hand out.
     before = (
-        await client.get(f"{API}/data-sources/{created['id']}/file-path", headers=headers)
+        await client.get(f"{API}/data-sources/{created['id']}/connection-info", headers=headers)
     ).json()
     assert before["path"] is None and before["exists"] is False
 
@@ -441,14 +441,17 @@ async def test_managed_database_exposes_its_file_path(client, tmp_path, monkeypa
     )
 
     after = (
-        await client.get(f"{API}/data-sources/{created['id']}/file-path", headers=headers)
+        await client.get(f"{API}/data-sources/{created['id']}/connection-info", headers=headers)
     ).json()
     assert after["exists"] is True
+    assert after["kind"] == "file"
     assert after["path"] == str(managed_db.path_for(created["id"]))
     assert after["path"].endswith(".duckdb")
+    # A managed file is named by the source id, not content-addressed.
+    assert after["blob"] is False
 
 
-async def test_file_path_requires_read_access(client, db):
+async def test_connection_info_requires_read_access(client, db):
     """It discloses a server filesystem path, so it is permission-gated."""
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
@@ -466,5 +469,91 @@ async def test_file_path_requires_read_access(client, db):
         )
     ).json()
     other = await _create_user(db, client, "mallory")
-    r = await client.get(f"{API}/data-sources/{created['id']}/file-path", headers=other)
+    r = await client.get(f"{API}/data-sources/{created['id']}/connection-info", headers=other)
     assert r.status_code in (403, 404)
+
+
+async def test_connection_info_for_an_external_engine_omits_the_password(client):
+    """Postgres/MySQL answer with host/port/database so the user can reconnect from
+    another tool — but the password must never come back out."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    created = (
+        await client.post(
+            f"{API}/data-sources",
+            headers=headers,
+            json={
+                "workspaceId": ws,
+                "alias": "pg",
+                "name": "PG",
+                "sourceType": "database",
+                "connectionConfig": {
+                    "engine": "postgresql",
+                    "host": "db.example.org",
+                    "port": 5432,
+                    "database": "omop",
+                    "schema": "cdm",
+                    "username": "reader",
+                    "password": "s3cret",
+                },
+            },
+        )
+    ).json()
+
+    info = (
+        await client.get(f"{API}/data-sources/{created['id']}/connection-info", headers=headers)
+    ).json()
+    assert info["kind"] == "external"
+    assert info["host"] == "db.example.org" and info["port"] == 5432
+    assert info["database"] == "omop" and info["schemaName"] == "cdm"
+    assert info["username"] == "reader"
+    assert "password" not in info
+    assert "s3cret" not in str(info)
+    # No local file for a network database.
+    assert info["path"] is None
+
+
+async def test_connection_info_for_a_parquet_folder_points_at_the_directory(client, tmp_path, monkeypatch):
+    """A script outside Linkr globs the FOLDER, not one of the tables."""
+    from app.config import settings
+
+    monkeypatch.setattr(type(settings), "data_path", property(lambda _: tmp_path))
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    created = (
+        await client.post(
+            f"{API}/data-sources",
+            headers=headers,
+            json={
+                "workspaceId": ws,
+                "alias": "pq",
+                "name": "PQ",
+                "sourceType": "database",
+                "connectionConfig": {"engine": "duckdb"},
+            },
+        )
+    ).json()
+
+    for name in ("person.parquet", "visit_occurrence.parquet"):
+        data = f"{name} contents".encode()
+        sha = await _upload(client, headers, data, name=name)
+        await client.post(
+            f"{API}/data-sources/files/import",
+            headers=headers,
+            json={
+                "dataSourceId": created["id"],
+                "sha": sha,
+                "fileName": name,
+                "fileSize": len(data),
+            },
+        )
+
+    info = (
+        await client.get(f"{API}/data-sources/{created['id']}/connection-info", headers=headers)
+    ).json()
+    assert info["kind"] == "parquet-folder"
+    assert sorted(info["fileNames"]) == ["person.parquet", "visit_occurrence.parquet"]
+    # The directory, and it must not be one of the table files.
+    assert not info["path"].endswith(".parquet")
+    assert info["blob"] is True

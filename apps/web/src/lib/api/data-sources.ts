@@ -133,21 +133,35 @@ export function fetchDataSourceSchema(
   return apiRequest<IntrospectedTable[]>(`/data-sources/${dataSourceId}/schema`)
 }
 
-/** Where a managed DuckDB database lives on the server's disk. */
-export interface DatabaseFilePath {
-  /** Null when the source is not a managed file database. */
+/** How to reach a database from outside Linkr (R/Python, a SQL client). */
+export interface DatabaseConnectionInfo {
+  engine: string | null
+  /** 'file' | 'parquet-folder' | 'external', or null when undetermined. */
+  kind: string | null
+  /** File or folder sources. */
   path: string | null
   exists: boolean
+  /** The path is a content-addressed blob (named by its hash, no extension). */
+  blob: boolean
+  /** Parquet folders: the table files found there. */
+  fileNames: string[]
+  /** External engines. The password is never returned. */
+  host: string | null
+  port: number | null
+  database: string | null
+  schemaName: string | null
+  username: string | null
 }
 
 /**
- * Disk path of a managed DuckDB database, so the user can attach the very same
- * file from an R/Python script outside Linkr.
+ * Connection details for a database, so the user can reach the same data from an
+ * R/Python script outside Linkr: a path for file/parquet sources, host and port
+ * for a network engine.
  */
-export function fetchDatabaseFilePath(
+export function fetchDatabaseConnectionInfo(
   dataSourceId: string,
-): Promise<DatabaseFilePath> {
-  return apiRequest<DatabaseFilePath>(`/data-sources/${dataSourceId}/file-path`)
+): Promise<DatabaseConnectionInfo> {
+  return apiRequest<DatabaseConnectionInfo>(`/data-sources/${dataSourceId}/connection-info`)
 }
 
 /**

@@ -211,6 +211,11 @@ def is_managed(source: DataSource) -> bool:
     return bool((source.connection_config or {}).get("managed"))
 
 
+def is_external_engine(engine: str | None) -> bool:
+    """A network database (Postgres/MySQL) rather than a local file."""
+    return engine in _EXTERNAL_ENGINES
+
+
 async def role_attachments(
     db: AsyncSession, sources: dict[str, DataSource]
 ) -> dict[str, dict]:

@@ -146,11 +146,30 @@ class EtlRunRequest(CamelModel):
         return out
 
 
-class DatabaseFilePath(CamelModel):
-    """Where a managed DuckDB database lives on the server's disk, so the user can
-    open the very same file from R/Python outside Linkr."""
+class DatabaseConnectionInfo(CamelModel):
+    """How to reach this database from OUTSIDE Linkr — an R/Python script, a SQL
+    client. What that means depends on the source:
 
-    # Absent when the source is not a managed file database (external engine,
-    # parquet folder), or when the file has not been created yet.
+      * managed DuckDB  → the .duckdb file the server owns
+      * uploaded file   → the blob path (content-addressed, so no extension)
+      * parquet folder  → the directory holding the .parquet tables
+      * postgres/mysql  → host/port/database/schema/user, never the password
+    """
+
+    engine: str | None = None
+    # One of "file" | "parquet-folder" | "external", or None when undetermined.
+    kind: str | None = None
+    # File / folder sources.
     path: str | None = None
     exists: bool = False
+    # True when the path is a content-addressed blob rather than a name the user
+    # would recognise: the UI warns that it has no .duckdb extension.
+    blob: bool = False
+    # Parquet folders: the table files found there, for a quick sanity check.
+    file_names: list[str] = []
+    # External engines. The password is NEVER returned (see strip_secrets).
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    schema_name: str | None = None
+    username: str | None = None
