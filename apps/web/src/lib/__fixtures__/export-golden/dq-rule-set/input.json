@@ -3,9 +3,18 @@
     "id": "rs-1",
     "workspaceId": "ws1",
     "entityId": "icu-dq",
-    "gitRemoteConfig": { "url": "https://git.example.org/dq.git", "branch": "main" },
-    "name": { "en": "ICU data quality", "fr": "Qualité données réa" },
-    "description": { "en": "Core checks", "fr": "Contrôles de base" },
+    "gitRemoteConfig": {
+      "url": "https://git.example.org/dq.git",
+      "branch": "main"
+    },
+    "name": {
+      "en": "ICU data quality",
+      "fr": "Qualité données réa"
+    },
+    "description": {
+      "en": "Core checks",
+      "fr": "Contrôles de base"
+    },
     "dataSourceId": "",
     "status": "draft",
     "lastRunAt": null,
@@ -14,25 +23,72 @@
     "origin": "user",
     "createdById": 7,
     "createdBy": "Boris Delange",
-    "createdByDetails": { "firstName": "Boris", "lastName": "Delange", "orcid": "0000-0002-1825-0097" },
+    "createdByDetails": {
+      "firstName": "Boris",
+      "lastName": "Delange",
+      "orcid": "0000-0002-1825-0097"
+    },
     "organization": null,
     "lineageId": "lin-1",
     "parentLineageId": null,
     "createdAt": "2026-01-02T03:04:05.000Z",
     "updatedAt": "2026-06-01T00:00:00.000Z",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "readme": {
+      "en": "# Quality rules\n"
+    },
+    "license": {
+      "id": "MIT",
+      "text": "MIT License\n\nCopyright (c) 2026 University Hospital of Rennes\n"
+    }
   },
   "checks": [
-    { "id": "chk-1", "ruleSetId": "rs-1", "name": "Non-null person id", "description": "person_id must be present", "category": "completeness", "severity": "error", "threshold": 0.02, "sql": "SELECT COUNT(*) FROM person WHERE person_id IS NULL;", "order": 0, "createdAt": "2026-01-02T03:04:05.000Z", "updatedAt": "2026-01-02T03:04:05.000Z" },
-    { "id": "chk-2", "ruleSetId": "rs-1", "name": "Valid birth year", "description": "year_of_birth in range", "category": "plausibility", "severity": "warning", "threshold": 100, "sql": "SELECT COUNT(*) FROM person WHERE year_of_birth < 1900;", "order": 1, "createdAt": "2026-01-02T03:04:05.000Z", "updatedAt": "2026-01-02T03:04:05.000Z" }
+    {
+      "id": "chk-1",
+      "ruleSetId": "rs-1",
+      "name": "Non-null person id",
+      "description": "person_id must be present",
+      "category": "completeness",
+      "severity": "error",
+      "threshold": 0.02,
+      "sql": "SELECT COUNT(*) FROM person WHERE person_id IS NULL;",
+      "order": 0,
+      "createdAt": "2026-01-02T03:04:05.000Z",
+      "updatedAt": "2026-01-02T03:04:05.000Z"
+    },
+    {
+      "id": "chk-2",
+      "ruleSetId": "rs-1",
+      "name": "Valid birth year",
+      "description": "year_of_birth in range",
+      "category": "plausibility",
+      "severity": "warning",
+      "threshold": 100,
+      "sql": "SELECT COUNT(*) FROM person WHERE year_of_birth < 1900;",
+      "order": 1,
+      "createdAt": "2026-01-02T03:04:05.000Z",
+      "updatedAt": "2026-01-02T03:04:05.000Z"
+    }
   ],
-  "workspace": { "id": "ws1", "organizationId": "org1" },
+  "workspace": {
+    "id": "ws1",
+    "organizationId": "org1"
+  },
   "organization": {
     "id": "org1",
-    "name": { "en": "University Hospital of Rennes", "fr": "" },
+    "name": {
+      "en": "University Hospital of Rennes",
+      "fr": ""
+    },
     "type": "hospital",
-    "location": { "en": "Rennes", "fr": "" },
-    "country": { "en": "France", "fr": "" },
+    "location": {
+      "en": "Rennes",
+      "fr": ""
+    },
+    "country": {
+      "en": "France",
+      "fr": ""
+    },
     "website": "",
     "email": "",
     "customType": null,

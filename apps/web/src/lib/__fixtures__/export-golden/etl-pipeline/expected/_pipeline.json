@@ -25,6 +25,9 @@
   "parentLineageId": null,
   "createdAt": "2026-01-02T03:04:05.000Z",
   "version": "0.1.0",
+  "license": {
+    "id": "MIT"
+  },
   "organization": {
     "id": "org1",
     "name": {

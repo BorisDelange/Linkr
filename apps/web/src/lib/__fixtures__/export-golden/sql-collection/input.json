@@ -3,31 +3,93 @@
     "id": "col-1",
     "workspaceId": "ws1",
     "entityId": "icu-scripts",
-    "name": { "en": "ICU scripts", "fr": "Scripts réa" },
-    "description": { "en": "Reusable SQL", "fr": "SQL réutilisable" },
+    "name": {
+      "en": "ICU scripts",
+      "fr": "Scripts réa"
+    },
+    "description": {
+      "en": "Reusable SQL",
+      "fr": "SQL réutilisable"
+    },
     "defaultDataSourceId": null,
-    "gitRemoteConfig": { "url": "https://git.example.org/sql.git", "branch": "main" },
+    "gitRemoteConfig": {
+      "url": "https://git.example.org/sql.git",
+      "branch": "main"
+    },
     "createdById": 7,
     "createdBy": "Boris Delange",
-    "createdByDetails": { "firstName": "Boris", "lastName": "Delange", "orcid": "0000-0002-1825-0097" },
+    "createdByDetails": {
+      "firstName": "Boris",
+      "lastName": "Delange",
+      "orcid": "0000-0002-1825-0097"
+    },
     "lineageId": "lin-1",
     "parentLineageId": null,
     "createdAt": "2026-01-02T03:04:05.000Z",
     "updatedAt": "2026-06-01T00:00:00.000Z",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "readme": {
+      "en": "# SOFA queries\n"
+    },
+    "license": {
+      "id": "MIT",
+      "text": "MIT License\n\nCopyright (c) 2026 University Hospital of Rennes\n"
+    }
   },
   "files": [
-    { "id": "f-root", "collectionId": "col-1", "name": "queries", "type": "folder", "parentId": null, "content": null, "order": 0, "dataSourceId": null, "createdAt": "2026-01-02T03:04:05.000Z" },
-    { "id": "f-cohort", "collectionId": "col-1", "name": "cohort.sql", "type": "file", "parentId": "f-root", "content": "SELECT * FROM person;", "order": 0, "dataSourceId": null, "createdAt": "2026-01-02T03:04:05.000Z" },
-    { "id": "f-top", "collectionId": "col-1", "name": "top.sql", "type": "file", "parentId": null, "content": "SELECT 1;", "order": 1, "dataSourceId": null, "createdAt": "2026-01-02T03:04:05.000Z" }
+    {
+      "id": "f-root",
+      "collectionId": "col-1",
+      "name": "queries",
+      "type": "folder",
+      "parentId": null,
+      "content": null,
+      "order": 0,
+      "dataSourceId": null,
+      "createdAt": "2026-01-02T03:04:05.000Z"
+    },
+    {
+      "id": "f-cohort",
+      "collectionId": "col-1",
+      "name": "cohort.sql",
+      "type": "file",
+      "parentId": "f-root",
+      "content": "SELECT * FROM person;",
+      "order": 0,
+      "dataSourceId": null,
+      "createdAt": "2026-01-02T03:04:05.000Z"
+    },
+    {
+      "id": "f-top",
+      "collectionId": "col-1",
+      "name": "top.sql",
+      "type": "file",
+      "parentId": null,
+      "content": "SELECT 1;",
+      "order": 1,
+      "dataSourceId": null,
+      "createdAt": "2026-01-02T03:04:05.000Z"
+    }
   ],
-  "workspace": { "id": "ws1", "organizationId": "org1" },
+  "workspace": {
+    "id": "ws1",
+    "organizationId": "org1"
+  },
   "organization": {
     "id": "org1",
-    "name": { "en": "University Hospital of Rennes", "fr": "" },
+    "name": {
+      "en": "University Hospital of Rennes",
+      "fr": ""
+    },
     "type": "hospital",
-    "location": { "en": "Rennes", "fr": "" },
-    "country": { "en": "France", "fr": "" },
+    "location": {
+      "en": "Rennes",
+      "fr": ""
+    },
+    "country": {
+      "en": "France",
+      "fr": ""
+    },
     "website": "",
     "email": "",
     "customType": null,

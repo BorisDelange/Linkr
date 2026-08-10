@@ -86,7 +86,8 @@ async def test_sql_collection_matches_golden(db):
         git_remote_config=c["gitRemoteConfig"], created_by_id=c["createdById"],
         created_by=c["createdBy"], created_by_details=c["createdByDetails"],
         lineage_id=c["lineageId"], parent_lineage_id=c["parentLineageId"],
-        version=c["version"], created_at=_dt(c["createdAt"]), updated_at=_dt(c["updatedAt"]),
+        version=c["version"], readme=c.get("readme"), license=c.get("license"),
+        created_at=_dt(c["createdAt"]), updated_at=_dt(c["updatedAt"]),
     )
     db.add(collection)
     await db.commit()
@@ -116,6 +117,7 @@ async def test_etl_pipeline_matches_golden(db):
         created_by_id=p["createdById"], created_by=p["createdBy"],
         created_by_details=p["createdByDetails"], lineage_id=p["lineageId"],
         parent_lineage_id=p["parentLineageId"], version=p["version"],
+        readme=p.get("readme"), license=p.get("license"),
         created_at=_dt(p["createdAt"]), updated_at=_dt(p["updatedAt"]),
     )
     db.add(pipeline)
@@ -145,6 +147,7 @@ async def test_dq_rule_set_matches_golden(db):
         created_by_details=r["createdByDetails"], organization=r["organization"],
         lineage_id=r["lineageId"], parent_lineage_id=r["parentLineageId"],
         git_remote_config=r["gitRemoteConfig"], version=r["version"],
+        readme=r.get("readme"), license=r.get("license"),
         created_at=_dt(r["createdAt"]), updated_at=_dt(r["updatedAt"]),
     )
     db.add(rule_set)
@@ -178,6 +181,7 @@ async def test_data_catalog_matches_golden(db):
         created_by_details=c["createdByDetails"], organization=c["organization"],
         lineage_id=c["lineageId"], parent_lineage_id=c["parentLineageId"],
         git_remote_config=c["gitRemoteConfig"], version=c["version"],
+        readme=c.get("readme"), license=c.get("license"),
         created_at=_dt(c["createdAt"]), updated_at=_dt(c["updatedAt"]),
     )
     db.add(catalog)
@@ -194,7 +198,8 @@ async def test_schema_preset_matches_golden(db):
         preset_id=p["presetId"], workspace_id=p["workspaceId"], mapping=p["mapping"],
         git_remote_config=p["gitRemoteConfig"], created_by_id=p["createdById"],
         created_by=p["createdBy"], created_by_details=p["createdByDetails"],
-        version=p["version"], created_at=_dt(p["createdAt"]), updated_at=_dt(p["updatedAt"]),
+        version=p["version"], readme=p.get("readme"), license=p.get("license"),
+        created_at=_dt(p["createdAt"]), updated_at=_dt(p["updatedAt"]),
     )
     db.add(preset)
     await db.commit()
@@ -211,6 +216,7 @@ async def test_user_plugin_matches_golden(db):
         files=p["files"], organization=p["organization"],
         git_remote_config=p["gitRemoteConfig"], created_by_id=p["createdById"],
         created_by=p["createdBy"], created_by_details=p["createdByDetails"],
+        readme=p.get("readme"), license=p.get("license"),
         created_at=_dt(p["createdAt"]), updated_at=_dt(p["updatedAt"]),
     )
     db.add(plugin)

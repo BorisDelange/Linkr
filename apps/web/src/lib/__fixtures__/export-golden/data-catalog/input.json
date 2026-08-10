@@ -3,18 +3,47 @@
     "id": "cat-1",
     "workspaceId": "ws1",
     "entityId": "icu-catalog",
-    "gitRemoteConfig": { "url": "https://git.example.org/catalog.git", "branch": "main" },
-    "name": { "en": "ICU catalog", "fr": "Catalogue réa" },
-    "description": { "en": "Aggregated indicators", "fr": "Indicateurs agrégés" },
+    "gitRemoteConfig": {
+      "url": "https://git.example.org/catalog.git",
+      "branch": "main"
+    },
+    "name": {
+      "en": "ICU catalog",
+      "fr": "Catalogue réa"
+    },
+    "description": {
+      "en": "Aggregated indicators",
+      "fr": "Indicateurs agrégés"
+    },
     "dataSourceId": "",
     "dimensions": [
-      { "id": "dim-age", "column": "age", "label": { "en": "Age", "fr": "Âge" } },
-      { "id": "dim-sex", "column": "sex", "label": { "en": "Sex", "fr": "Sexe" } }
+      {
+        "id": "dim-age",
+        "column": "age",
+        "label": {
+          "en": "Age",
+          "fr": "Âge"
+        }
+      },
+      {
+        "id": "dim-sex",
+        "column": "sex",
+        "label": {
+          "en": "Sex",
+          "fr": "Sexe"
+        }
+      }
     ],
-    "anonymization": { "minCellCount": 5, "method": "suppression" },
+    "anonymization": {
+      "minCellCount": 5,
+      "method": "suppression"
+    },
     "categoryColumn": "department",
     "subcategoryColumn": null,
-    "periodConfig": { "column": "admission_date", "granularity": "month" },
+    "periodConfig": {
+      "column": "admission_date",
+      "granularity": "month"
+    },
     "status": "draft",
     "lastError": null,
     "lastComputedAt": null,
@@ -23,21 +52,44 @@
     "origin": "user",
     "createdById": 7,
     "createdBy": "Boris Delange",
-    "createdByDetails": { "firstName": "Boris", "lastName": "Delange", "orcid": "0000-0002-1825-0097" },
+    "createdByDetails": {
+      "firstName": "Boris",
+      "lastName": "Delange",
+      "orcid": "0000-0002-1825-0097"
+    },
     "organization": null,
     "lineageId": "lin-1",
     "parentLineageId": null,
     "createdAt": "2026-01-02T03:04:05.000Z",
     "updatedAt": "2026-06-01T00:00:00.000Z",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "readme": {
+      "en": "# ICU catalog\n"
+    },
+    "license": {
+      "id": "MIT",
+      "text": "MIT License\n\nCopyright (c) 2026 University Hospital of Rennes\n"
+    }
   },
-  "workspace": { "id": "ws1", "organizationId": "org1" },
+  "workspace": {
+    "id": "ws1",
+    "organizationId": "org1"
+  },
   "organization": {
     "id": "org1",
-    "name": { "en": "University Hospital of Rennes", "fr": "" },
+    "name": {
+      "en": "University Hospital of Rennes",
+      "fr": ""
+    },
     "type": "hospital",
-    "location": { "en": "Rennes", "fr": "" },
-    "country": { "en": "France", "fr": "" },
+    "location": {
+      "en": "Rennes",
+      "fr": ""
+    },
+    "country": {
+      "en": "France",
+      "fr": ""
+    },
     "website": "",
     "email": "",
     "customType": null,

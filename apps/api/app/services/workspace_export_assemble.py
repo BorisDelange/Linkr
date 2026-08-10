@@ -21,6 +21,7 @@ tests pin them. See docs/architecture.md ("Fullstack Storage & Compute").
 import asyncio
 import io
 import json
+import re
 import zipfile
 from dataclasses import dataclass, field
 
@@ -340,6 +341,16 @@ async def _readme_attachment_files(
     return tree
 
 
+def _is_entity_docs_file(path: str) -> bool:
+    """Port of ``isEntityDocsFile`` (entity-io.ts): the docs files the export owns."""
+    lower = path.lower()
+    return (
+        bool(re.fullmatch(r"readme(\.[a-z-]+)?\.md", lower))
+        or lower == "license.md"
+        or path.startswith("attachments/")
+    )
+
+
 async def _entity_docs(
     db: AsyncSession, prefix: str, meta: dict, owner_type: str, owner_id: str
 ) -> dict[str, bytes]:
@@ -358,11 +369,9 @@ async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, by
     _collection.json (stripped) + _tree.json (files without content) + each file at
     its real path."""
     tree: dict[str, bytes] = {}
-    tree["_collection.json"] = _json(
-        strip_entity_docs(
-            _strip_instance_fields(_badged_dump(SqlScriptCollectionResponse, collection))
-        )
-    )
+    dumped = _badged_dump(SqlScriptCollectionResponse, collection)
+    tree["_collection.json"] = _json(strip_entity_docs(_strip_instance_fields(dumped)))
+    tree.update(await _entity_docs(db, "", dumped, "sql-collection", collection.id))
     files = [
         _dump(SqlScriptFileResponse, f)
         for f in await sql_script_service.list_files(db, collection.id)
@@ -722,9 +731,9 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
     # (stripped) + checks.json (verbatim, only when non-empty). Note this differs
     # from the workspace layout, which bundles {ruleSet, checks} in _ruleset.json.
     tree: dict[str, bytes] = {}
-    tree["rule-set.json"] = _json(
-        strip_entity_docs(_strip_instance_fields(_badged_dump(DqRuleSetResponse, rule_set)))
-    )
+    dumped = _badged_dump(DqRuleSetResponse, rule_set)
+    tree["rule-set.json"] = _json(strip_entity_docs(_strip_instance_fields(dumped)))
+    tree.update(await _entity_docs(db, "", dumped, "dq-rule-set", rule_set.id))
     checks = [_dump(DqCustomCheckResponse, c) for c in await dq_rule_set_service.list_checks(db, rule_set.id)]
     if checks:
         tree["checks.json"] = _json(checks)
@@ -734,9 +743,9 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
 
 async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]:
     tree: dict[str, bytes] = {}
-    tree["catalog.json"] = _json(
-        strip_entity_docs(_strip_instance_fields(_badged_dump(DataCatalogResponse, catalog)))
-    )
+    dumped = _badged_dump(DataCatalogResponse, catalog)
+    tree["catalog.json"] = _json(strip_entity_docs(_strip_instance_fields(dumped)))
+    tree.update(await _entity_docs(db, "", dumped, "data-catalog", catalog.id))
     await _attach_org(db, tree, "catalog.json", catalog)
     return tree
 
@@ -744,11 +753,12 @@ async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]
 async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]:
     # Distinctive: the schema preset standalone builder does NOT inline an org
     # (entity-io.ts:1607 has no attachEntityOrganization), so no _attach_org here.
-    return {
-        "preset.json": _json(
-            strip_entity_docs(_strip_instance_fields(_dump(SchemaPresetResponse, preset)))
-        )
+    dumped = _dump(SchemaPresetResponse, preset)
+    tree: dict[str, bytes] = {
+        "preset.json": _json(strip_entity_docs(_strip_instance_fields(dumped)))
     }
+    tree.update(await _entity_docs(db, "", dumped, "schema-preset", preset.preset_id))
+    return tree
 
 
 async def build_user_plugin_tree(db: AsyncSession, plugin) -> dict[str, bytes]:
@@ -759,7 +769,12 @@ async def build_user_plugin_tree(db: AsyncSession, plugin) -> dict[str, bytes]:
     p = _dump(UserPluginResponse, plugin)
     meta = {k: p[k] for k in ("id", "entityId", "createdBy", "createdByDetails") if p.get(k) is not None}
     tree: dict[str, bytes] = {"_plugin.json": _json(meta)}
+    tree.update(await _entity_docs(db, "", p, "user-plugin", plugin.id))
     for filename, content in (plugin.files or {}).items():
+        # README.md / LICENSE.md are the entity's own fields (written above); a
+        # stale copy inside `files` would overwrite them.
+        if _is_entity_docs_file(filename):
+            continue
         tree[filename] = str(content).encode("utf-8")
     await _attach_org(db, tree, "_plugin.json", plugin)
     return tree
