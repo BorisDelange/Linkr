@@ -169,9 +169,29 @@ describe('isReservedTreeName', () => {
     }
   })
 
+  it('reserves the licence spellings a user actually types, not just LICENSE.md', () => {
+    // Only `LICENSE.md` was refused, so these were accepted as ordinary files.
+    // `LICENSE` with no extension is the canonical name GitHub and GitLab render,
+    // so a file of that name reads as the entity's licence while the real one lives
+    // on the entity — quietly wrong rather than loudly broken.
+    for (const name of [
+      'LICENSE', 'LICENCE', 'licence.md', 'LICENSE.txt', 'licence.txt', 'COPYING', 'copying',
+    ]) {
+      expect(isReservedTreeName(name, null), name).toBe(true)
+    }
+  })
+
   it('allows them inside a folder, where nothing is emitted', () => {
-    for (const name of ['README.md', 'LICENSE.md', 'attachments']) {
-      expect(isReservedTreeName(name, 'folder-id')).toBe(false)
+    for (const name of ['README.md', 'LICENSE.md', 'LICENSE', 'LICENCE.md', 'attachments']) {
+      expect(isReservedTreeName(name, 'folder-id'), name).toBe(false)
+    }
+  })
+
+  it('does not over-reach onto names that merely start with the word', () => {
+    for (const name of [
+      'licenses.md', 'license-notes.md', 'LICENSE.sql', 'copying-guide.md', 'my-LICENSE',
+    ]) {
+      expect(isReservedTreeName(name, null), name).toBe(false)
     }
   })
 

@@ -45,11 +45,33 @@ export interface PathNode {
  * attachments/ folder at the root of its folder, from fields on the entity itself.
  * A user node of the same name at the tree root would collide there, so the name
  * is refused — inside a subfolder it is harmless.
+ *
+ * The license spellings go WIDER than the one the export writes. `LICENSE.md` was
+ * the only one refused, so `LICENSE` (no extension — the canonical name GitHub and
+ * GitLab render), the British `LICENCE`, and `LICENSE.txt` were all accepted as
+ * ordinary files. They are not destroyed on import the way a `LICENSE.md` clash
+ * would be, which is worse in a quiet way: the file sits in the repo looking like
+ * the entity's licence while the real one lives on the entity and overwrites
+ * nothing. Reserving them sends the user to the licence field instead.
  */
+const RESERVED_LICENSE_NAMES = new Set([
+  'license',
+  'license.md',
+  'license.txt',
+  'licence',
+  'licence.md',
+  'licence.txt',
+  'copying',
+])
+
 export function isReservedTreeName(name: string, parentId: string | null): boolean {
   if (parentId !== null) return false
   const n = name.trim().toLowerCase()
-  return n === 'attachments' || n === 'license.md' || /^readme(\.[a-z-]+)?\.md$/.test(n)
+  return (
+    n === 'attachments'
+    || RESERVED_LICENSE_NAMES.has(n)
+    || /^readme(\.[a-z-]+)?\.md$/.test(n)
+  )
 }
 
 /** Full path of a stored node, walking parentId up to the root. */

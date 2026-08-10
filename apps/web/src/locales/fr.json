@@ -1360,7 +1360,7 @@
     "name_exists": "« {{name}} » existe déjà ici.",
     "file_name_placeholder": "ex. script",
     "name_already_exists": "Un fichier ou dossier avec ce nom existe déjà ici",
-    "name_reserved": "Ce nom est réservé par le système et ne peut pas être utilisé",
+    "name_reserved": "Ce nom est réservé : README, LICENSE et attachments/ sont générés depuis les champs de l'élément — modifiez-les là, pas sous forme de fichiers",
     "type_text": "Texte brut",
     "type_r": "Script R",
     "type_python": "Script Python",
