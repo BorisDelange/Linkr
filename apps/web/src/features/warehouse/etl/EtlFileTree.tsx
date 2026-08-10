@@ -115,7 +115,7 @@ export function EtlFileTree() {
   return (
     <>
       <FileTreeHeader sort={sort} onChange={setSort} />
-      <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
+      <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="py-1">
           {[...rootFiles].sort(compare).map((file) => (
             <EtlFileTreeItem

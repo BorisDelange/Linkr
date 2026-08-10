@@ -80,7 +80,7 @@ export function FileTree({ onNewChild }: FileTreeProps) {
     {/* Radix wraps the viewport content in a `display:table` div that grows to the
         widest row, which defeats `truncate` on the file rows. Force that inner div
         back to a plain block so rows are constrained to the sidebar width. */}
-    <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
+    <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
       <div
         className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
         onDragOver={handleRootDragOver}
