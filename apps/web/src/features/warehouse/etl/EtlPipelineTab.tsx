@@ -1046,28 +1046,41 @@ function ScriptOrderList({
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-lg space-y-0 p-4">
         {/* Source node (static) */}
-          {hasSource && (
-            <>
+          {/* Always shown, even undefined: a pipeline whose databases are missing
+              still HAS a source and a target conceptually, and hiding the widget
+              left the diagram looking complete while nothing could run. Red says
+              it must be set. Databases are instance-local, so a git-imported
+              pipeline always lands here. */}
+          <>
               <button
                 onClick={() => onSelectNode('__source__')}
                 // Double-click goes straight to the tables, the same as the
                 // sidebar's Browse schema — one click to inspect, two to open.
                 onDoubleClick={() => { if (sourceDs) onBrowseSchema?.(sourceDs.id) }}
-                className="flex w-full items-center gap-3 rounded-lg border-2 border-orange-500/30 bg-card px-3 py-2.5 text-left transition-colors hover:border-orange-500/60"
+                className={cn(
+                  'flex w-full items-center gap-3 rounded-lg border-2 bg-card px-3 py-2.5 text-left transition-colors',
+                  hasSource
+                    ? 'border-orange-500/30 hover:border-orange-500/60'
+                    : 'border-destructive/50 hover:border-destructive',
+                )}
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-orange-500/15">
-                  <Database size={16} className="text-orange-600 dark:text-orange-400" />
+                <div className={cn(
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
+                  hasSource ? 'bg-orange-500/15' : 'bg-destructive/10',
+                )}>
+                  <Database size={16} className={hasSource ? 'text-orange-600 dark:text-orange-400' : 'text-destructive'} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium">{t('etl.source')}</div>
-                  {sourceDs && <div className="text-[10px] text-muted-foreground">{sourceDs.name}</div>}
+                  {sourceDs
+                    ? <div className="text-[10px] text-muted-foreground">{sourceDs.name}</div>
+                    : <div className="text-[10px] text-destructive">{t('etl.pipeline_define_source')}</div>}
                 </div>
               </button>
               <div className="flex justify-center py-1">
                 <div className="h-4 w-px bg-border" />
               </div>
-            </>
-          )}
+          </>
 
           {/* Sortable script list */}
           <DndContext
@@ -1096,8 +1109,7 @@ function ScriptOrderList({
           </DndContext>
 
           {/* Target node (static) */}
-          {hasTarget && (
-            <>
+          <>
               {sqlFiles.length > 0 && (
                 <div className="flex justify-center py-1">
                   <div className="h-4 w-px bg-border" />
@@ -1106,18 +1118,27 @@ function ScriptOrderList({
               <button
                 onClick={() => onSelectNode('__target__')}
                 onDoubleClick={() => { if (targetDs) onBrowseSchema?.(targetDs.id) }}
-                className="flex w-full items-center gap-3 rounded-lg border-2 border-emerald-500/30 bg-card px-3 py-2.5 text-left transition-colors hover:border-emerald-500/60"
+                className={cn(
+                  'flex w-full items-center gap-3 rounded-lg border-2 bg-card px-3 py-2.5 text-left transition-colors',
+                  hasTarget
+                    ? 'border-emerald-500/30 hover:border-emerald-500/60'
+                    : 'border-destructive/50 hover:border-destructive',
+                )}
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-500/15">
-                  <Database size={16} className="text-emerald-600 dark:text-emerald-400" />
+                <div className={cn(
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
+                  hasTarget ? 'bg-emerald-500/15' : 'bg-destructive/10',
+                )}>
+                  <Database size={16} className={hasTarget ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium">{t('etl.target')}</div>
-                  {targetDs && <div className="text-[10px] text-muted-foreground">{targetDs.name}</div>}
+                  {targetDs
+                    ? <div className="text-[10px] text-muted-foreground">{targetDs.name}</div>
+                    : <div className="text-[10px] text-destructive">{t('etl.pipeline_define_target')}</div>}
                 </div>
               </button>
-            </>
-          )}
+          </>
       </div>
     </div>
   )

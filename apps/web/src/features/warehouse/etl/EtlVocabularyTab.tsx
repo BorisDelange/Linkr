@@ -157,19 +157,28 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     if (!mappingProjectsLoaded) loadMappingProjects()
   }, [mappingProjectsLoaded, loadMappingProjects])
 
-  // Use the persisted mappingProjectId from the pipeline, or default to first available
+  /**
+   * The mapping project this pipeline is attached to — only ever what the user
+   * chose, never a default.
+   *
+   * It used to auto-select the first available project AND persist it. A pipeline
+   * imported from git then looked attached to an arbitrary dictionary it was never
+   * mapped against: the generated `00_vocabulary.sql` ran, filled
+   * source_to_concept_map from the wrong source, and the failure surfaced far
+   * downstream. An empty picker is the honest state, and the banner below says what
+   * to do about it.
+   */
   const [selectedProjectId, setSelectedProjectId] = useState<string>(pipeline?.mappingProjectId ?? '')
-
-  // Auto-select default when projects load and none is set
   const workspaceId = pipeline?.workspaceId
   const availableProjects = mappingProjects.filter((p) => !workspaceId || p.workspaceId === workspaceId)
+
+  // Adopt the pipeline's persisted choice once it loads (the pipeline may arrive
+  // after the first render), but never invent one.
   useEffect(() => {
-    if (!selectedProjectId && availableProjects.length > 0) {
-      const defaultId = availableProjects[0].id
-      setSelectedProjectId(defaultId)
-      if (pipeline) updatePipeline(pipeline.id, { mappingProjectId: defaultId })
+    if (pipeline?.mappingProjectId && !selectedProjectId) {
+      setSelectedProjectId(pipeline.mappingProjectId)
     }
-  }, [selectedProjectId, availableProjects, pipeline, updatePipeline])
+  }, [pipeline?.mappingProjectId, selectedProjectId])
 
   // Persist selection changes
   const handleProjectChange = useCallback((id: string) => {
@@ -283,6 +292,22 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             {t('etl.vocab_description')}
           </p>
         </div>
+
+        {/* No dictionary attached: the generated 00_vocabulary.sql has nothing to
+            fill source_to_concept_map from, so the script fails at RUN time with a
+            SQL error that says nothing about the real cause. Say it here instead. */}
+        {!selectedProjectId && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            <span className="flex items-start gap-2">
+              <AlertCircle size={16} className="mt-px shrink-0" />
+              <span>
+                {availableProjects.length > 0
+                  ? t('etl.vocab_no_project_attached')
+                  : t('etl.vocab_no_project_available')}
+              </span>
+            </span>
+          </div>
+        )}
 
         {/* Warning if no vocabulary data source */}
         {selectedProjectId && !vocabSchema && (

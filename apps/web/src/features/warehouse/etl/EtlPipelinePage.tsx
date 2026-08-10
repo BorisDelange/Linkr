@@ -90,6 +90,21 @@ export function EtlPipelinePage({ pipelineId }: Props) {
     )
   }
 
+  /**
+   * Which tabs need attention, and why (an i18n key for the dot's tooltip).
+   *
+   * Both cases are what a git-imported pipeline arrives in: the databases are
+   * instance-local so they never travel, and the mapping project is local too.
+   * Computed here rather than inside each tab so the dot is visible before the
+   * user opens the tab that has the problem.
+   */
+  const needsAttention: Partial<Record<TabId, string>> = {
+    ...(pipeline.sourceDataSourceId && pipeline.targetDataSourceId
+      ? {}
+      : { pipeline: 'etl.attention_databases' }),
+    ...(pipeline.mappingProjectId ? {} : { vocabulary: 'etl.attention_no_mapping_project' }),
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header with pipeline tabs */}
@@ -108,6 +123,17 @@ export function EtlPipelinePage({ pipelineId }: Props) {
             >
               <tab.icon size={14} />
               {t(tab.labelKey)}
+              {/* An amber dot for a tab that needs attention before the pipeline can
+                  run. A freshly git-imported pipeline has neither databases nor a
+                  dictionary, and without this the first sign of it was a SQL error
+                  from a script whose message says nothing about the cause. */}
+              {needsAttention[tab.id] && (
+                <span
+                  className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                  title={t(needsAttention[tab.id]!)}
+                  aria-label={t(needsAttention[tab.id]!)}
+                />
+              )}
             </button>
           ))}
         </div>

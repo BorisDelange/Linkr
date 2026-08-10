@@ -3257,7 +3257,13 @@
     "run": "Run",
     "save": "Save",
     "copy_prefix": "Copy prefix",
-    "copy_prefix_tooltip": "Copy the {{role}}. prefix to address that database in SQL"
+    "copy_prefix_tooltip": "Copy the {{role}}. prefix to address that database in SQL",
+    "vocab_no_project_attached": "No mapping project attached yet. Pick one below: without it the generated 00_vocabulary.sql has no source_to_concept_map to fill, and running the pipeline fails.",
+    "vocab_no_project_available": "No mapping project in this workspace yet. Create one first, or upload a source-to-concept-map CSV below — without either, the generated 00_vocabulary.sql has nothing to fill and running the pipeline fails.",
+    "attention_no_mapping_project": "No mapping project attached",
+    "attention_databases": "The source or target database is not set",
+    "pipeline_define_source": "Not set — pick a source database",
+    "pipeline_define_target": "Not set — pick a target database"
   },
   "sql_scripts": {
     "title": "Script Collections",

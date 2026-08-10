@@ -3257,7 +3257,13 @@
     "run": "Exécuter",
     "save": "Enregistrer",
     "copy_prefix": "Copier le préfixe",
-    "copy_prefix_tooltip": "Copier le préfixe {{role}}. pour désigner cette base en SQL"
+    "copy_prefix_tooltip": "Copier le préfixe {{role}}. pour désigner cette base en SQL",
+    "vocab_no_project_attached": "Aucun projet de mapping n'est encore rattaché. Choisissez-en un ci-dessous : sans lui, le script 00_vocabulary.sql généré n'a aucune source_to_concept_map à remplir et l'exécution de la pipeline échoue.",
+    "vocab_no_project_available": "Aucun projet de mapping dans cet espace de travail. Créez-en un d'abord, ou importez un CSV source-to-concept-map ci-dessous — sans l'un ou l'autre, le script 00_vocabulary.sql généré n'a rien à remplir et l'exécution de la pipeline échoue.",
+    "attention_no_mapping_project": "Aucun projet de mapping rattaché",
+    "attention_databases": "La base source ou cible n'est pas définie",
+    "pipeline_define_source": "Non définie — choisissez une base source",
+    "pipeline_define_target": "Non définie — choisissez une base cible"
   },
   "sql_scripts": {
     "title": "Collections de scripts",
