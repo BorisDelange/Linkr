@@ -18,7 +18,7 @@ import {
   type ConflictResolution,
   type ExistingFile,
   type UploadCandidate,
-} from './upload-conflicts'
+} from '@/lib/upload-conflicts'
 import type { EtlFile } from '@/types'
 
 interface Props {
@@ -139,7 +139,7 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
         {pending ? (
           <div className="mt-4 space-y-3">
             <p className="text-sm">
-              {t('etl.upload_conflict_intro', { count: pending.conflicts.length })}
+              {t('files.upload_conflict_intro', { count: pending.conflicts.length })}
             </p>
             {/* The names, so the choice is made against real files rather than a
                 bare count — replacing the wrong script is not recoverable. */}
@@ -148,7 +148,7 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
                 <li key={name} className="truncate font-mono text-[11px]">{name}</li>
               ))}
             </ul>
-            <p className="text-xs text-muted-foreground">{t('etl.upload_conflict_hint')}</p>
+            <p className="text-xs text-muted-foreground">{t('files.upload_conflict_hint')}</p>
           </div>
         ) : (
         <div
@@ -206,7 +206,7 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
                 disabled={busy}
                 onClick={() => void apply(pending.candidates, 'keep-both')}
               >
-                {t('etl.upload_keep_both')}
+                {t('files.upload_keep_both')}
               </Button>
               {/* Destructive styling: it overwrites a script's contents, and the
                   previous version is not kept anywhere. */}
@@ -215,7 +215,7 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
                 disabled={busy}
                 onClick={() => void apply(pending.candidates, 'replace')}
               >
-                {t('etl.upload_replace')}
+                {t('files.upload_replace')}
               </Button>
             </>
           )}

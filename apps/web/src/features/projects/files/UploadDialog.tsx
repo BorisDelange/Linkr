@@ -10,7 +10,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Upload } from 'lucide-react'
+import { Upload, Loader2 } from 'lucide-react'
+import {
+  findConflicts,
+  planUpload,
+  type ConflictResolution,
+  type ExistingFile,
+  type UploadCandidate,
+} from '@/lib/upload-conflicts'
 
 interface UploadDialogProps {
   open: boolean
@@ -24,83 +31,167 @@ export function UploadDialog({
   parentId,
 }: UploadDialogProps) {
   const { t } = useTranslation()
-  const { createFile, updateFileContent, saveFile } = useFileStore()
+  const { createFileWithContent, updateFileContent, saveFile, selectFile } = useFileStore()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragActive, setDragActive] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  /** Files read and waiting on the user's answer about clashing names. */
+  const [pending, setPending] = useState<{ candidates: UploadCandidate[]; conflicts: string[] } | null>(null)
 
-  const handleFiles = (fileList: FileList | null) => {
-    if (!fileList) return
-    Array.from(fileList).forEach((file) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-        const langMap: Record<string, string> = {
-          py: 'python',
-          r: 'r',
-          sql: 'sql',
-          sh: 'shell',
-          json: 'json',
-          md: 'markdown',
-          rmd: 'markdown',
-          qmd: 'markdown',
-          ipynb: 'json',
-        }
-        const lang = langMap[ext] ?? 'plaintext'
-        createFile(file.name, parentId, lang)
-        // Update the content of the just-created file and save immediately
-        const state = useFileStore.getState()
-        const created = state.files[state.files.length - 1]
-        if (created) {
-          updateFileContent(created.id, reader.result as string)
-          saveFile(created.id)
-        }
+  /** Existing siblings — clashes are per FOLDER: the same name in two folders is
+   *  two distinct paths in the export tree. */
+  const siblings = (): ExistingFile[] =>
+    useFileStore.getState().files
+      .filter((f) => f.parentId === parentId && f.type === 'file')
+      .map((f) => ({ id: f.id, name: f.name }))
+
+  const apply = async (candidates: UploadCandidate[], resolution: ConflictResolution) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const plan = planUpload(candidates, siblings(), resolution)
+      let lastId: string | null = null
+
+      // Replacing UPDATES the existing file, so its id survives — and with it the
+      // versioning mark (keyed by path), its open tab and any undo pointing at it.
+      for (const r of plan.replaces) {
+        updateFileContent(r.id, r.content)
+        await saveFile(r.id)
+        lastId = r.id
       }
-      reader.readAsText(file)
-    })
+      // Sequential, not Promise.all: in server mode each create re-scans the disk,
+      // and concurrent re-scans race over the ids they return.
+      for (const c of plan.creates) {
+        const id = await createFileWithContent(c.name, parentId, c.content)
+        if (id) lastId = id
+      }
+
+      if (lastId) selectFile(lastId)
+      setPending(null)
+      onOpenChange(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleFiles = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      const candidates: UploadCandidate[] = []
+      for (const file of Array.from(fileList)) {
+        candidates.push({ name: file.name, content: await file.text() })
+      }
+      const conflicts = findConflicts(candidates, siblings())
+      // Nothing to decide: straight through, so the common case is unchanged.
+      if (conflicts.length === 0) {
+        await apply(candidates, 'keep-both')
+        return
+      }
+      setPending({ candidates, conflicts })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const close = () => {
+    setPending(null)
+    setError(null)
     onOpenChange(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => { if (!busy) { if (!next) close(); else onOpenChange(next) } }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('files.upload')}</DialogTitle>
           <DialogDescription>{t('files.upload_description')}</DialogDescription>
         </DialogHeader>
-        <div
-          className={`mt-4 flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors cursor-pointer ${
-            dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
-          }`}
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            setDragActive(true)
-          }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            setDragActive(false)
-            handleFiles(e.dataTransfer.files)
-          }}
-        >
-          <Upload size={32} className="text-muted-foreground/50" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            {t('files.upload_drop')}
-          </p>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => handleFiles(e.target.files)}
-          />
-        </div>
+        {pending ? (
+          <div className="mt-4 space-y-3">
+            <p className="text-sm">
+              {t('files.upload_conflict_intro', { count: pending.conflicts.length })}
+            </p>
+            {/* The names, so the choice is made against real files rather than a
+                bare count — replacing the wrong file is not recoverable. */}
+            <ul className="max-h-32 space-y-0.5 overflow-y-auto rounded bg-muted/50 p-2">
+              {pending.conflicts.map((name) => (
+                <li key={name} className="truncate font-mono text-[11px]">{name}</li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">{t('files.upload_conflict_hint')}</p>
+          </div>
+        ) : (
+          <div
+            className={`mt-4 flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors ${
+              busy ? 'cursor-default opacity-60' : 'cursor-pointer'
+            } ${
+              dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+            }`}
+            onClick={() => { if (!busy) inputRef.current?.click() }}
+            onDragOver={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (!busy) setDragActive(true)
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setDragActive(false)
+              if (!busy) void handleFiles(e.dataTransfer.files)
+            }}
+          >
+            {busy
+              ? <Loader2 size={32} className="animate-spin text-muted-foreground/50" />
+              : <Upload size={32} className="text-muted-foreground/50" />}
+            <p className="mt-3 text-sm text-muted-foreground">
+              {t('files.upload_drop')}
+            </p>
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void handleFiles(e.target.files)
+                // Cleared so re-picking the same file fires change again.
+                e.target.value = ''
+              }}
+            />
+          </div>
+        )}
+        {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" disabled={busy} onClick={close}>
             {t('common.cancel')}
           </Button>
+          {pending && (
+            <>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => void apply(pending.candidates, 'keep-both')}
+              >
+                {t('files.upload_keep_both')}
+              </Button>
+              {/* Destructive styling: it overwrites a file's contents, and the
+                  previous version is not kept anywhere. */}
+              <Button
+                variant="destructive"
+                disabled={busy}
+                onClick={() => void apply(pending.candidates, 'replace')}
+              >
+                {t('files.upload_replace')}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

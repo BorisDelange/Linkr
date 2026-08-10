@@ -77,6 +77,19 @@ interface FileState {
    *  button, and after every mutation so external changes and renames settle). */
   reloadFromDisk: (projectUid: string) => Promise<void>
   createFile: (name: string, parentId: string | null, language: string) => void
+  /**
+   * Create a file WITH its content and persist it, resolving to its final id.
+   *
+   * Upload needs this: createFile is fire-and-forget, so the caller had to guess
+   * which node it had just made (`files[files.length - 1]`) — a race as soon as
+   * several files land at once, and wrong in server mode where the id changes
+   * after the disk re-scan.
+   */
+  createFileWithContent: (
+    name: string,
+    parentId: string | null,
+    content: string,
+  ) => Promise<string | null>
   createFolder: (name: string, parentId: string | null) => void
   deleteNode: (id: string) => void
   renameNode: (id: string, newName: string) => void
@@ -857,6 +870,35 @@ export const useFileStore = create<FileState>((set, get) => ({
     } finally {
       _loadingProjectUid = null
     }
+  },
+
+  createFileWithContent: async (name, parentId, content) => {
+    const projectUid = get().activeProjectUid ?? ''
+    const id = newFileId('file')
+    const node: FileNode = {
+      id,
+      projectUid,
+      name,
+      type: 'file',
+      parentId,
+      language: getLanguageForFile(name),
+      content,
+      createdAt: new Date().toISOString().split('T')[0],
+    }
+    // Saved-content baseline set to the uploaded text, so the file is not born dirty.
+    _savedContent.set(id, content)
+    set((s) => ({ files: [...s.files, node] }))
+    await getStorage().ideFiles.create(node)
+
+    if (isServerMode()) {
+      // The backend derives ids from paths, so the one above is provisional until
+      // the re-scan; find the node again by name under the same parent.
+      await get().reloadFromDisk(projectUid)
+      const match = get().files.find((f) => f.name === name && f.parentId === parentId)
+      if (match) _savedContent.set(match.id, content)
+      return match?.id ?? null
+    }
+    return id
   },
 
   createFile: (name, parentId, language) => {
