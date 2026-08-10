@@ -21,6 +21,7 @@ describe('ETL run state', () => {
     useEtlStore.setState({
       pipelineRunning: false,
       pipelineRunAbort: null,
+      runningFileIds: [],
       scriptStatuses: new Map(),
       runHistory: [],
     })
@@ -107,5 +108,77 @@ describe('ETL run state', () => {
     // A second Run (e.g. from another tab) must not replace the live controller.
     expect(useEtlStore.getState().startPipelineRun()).toBe(false)
     expect(useEtlStore.getState().pipelineRunAbort).toBe(firstAbort)
+  })
+})
+
+describe('clearing the run history', () => {
+  beforeEach(() => {
+    useEtlStore.setState({
+      pipelineRunning: false,
+      pipelineRunAbort: null,
+      runningFileIds: [],
+      scriptStatuses: new Map(),
+      runHistory: [],
+    })
+  })
+
+  it('forgets the per-script marks as well as the list', () => {
+    // The ticks on the pipeline widgets and in the Scripts tree are views of
+    // scriptStatuses: clearing only the list would leave them behind.
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    store.setScriptStatus('f1', { ...RUNNING, status: 'success' })
+    store.finishPipelineRun('success')
+
+    expect(useEtlStore.getState().runHistory).toHaveLength(1)
+    expect(useEtlStore.getState().scriptStatuses.size).toBe(1)
+
+    useEtlStore.getState().clearRunHistory()
+    expect(useEtlStore.getState().runHistory).toHaveLength(0)
+    expect(useEtlStore.getState().scriptStatuses.size).toBe(0)
+  })
+
+  it('refuses while a run is in progress', () => {
+    // Clearing mid-run would wipe the state that run is writing.
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    store.setScriptStatus('f1', RUNNING)
+
+    useEtlStore.getState().clearRunHistory()
+    expect(useEtlStore.getState().scriptStatuses.size).toBe(1)
+    expect(useEtlStore.getState().runHistory).toHaveLength(1)
+  })
+
+  it('is safe on an empty history', () => {
+    useEtlStore.getState().clearRunHistory()
+    expect(useEtlStore.getState().runHistory).toEqual([])
+  })
+})
+
+describe('the scripts a run covers', () => {
+  beforeEach(() => {
+    useEtlStore.setState({
+      pipelineRunning: false, pipelineRunAbort: null,
+      runningFileIds: [], scriptStatuses: new Map(), runHistory: [],
+    })
+  })
+
+  it('records just the declared set, so one line is not counted against the pipeline', () => {
+    useEtlStore.getState().startPipelineRun(['f2'])
+    expect(useEtlStore.getState().runningFileIds).toEqual(['f2'])
+  })
+
+  it('clears the set when the run ends', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1', 'f2'])
+    store.finishPipelineRun('success')
+    expect(useEtlStore.getState().runningFileIds).toEqual([])
+  })
+
+  it('clears the set on a stop, too', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    useEtlStore.getState().stopPipelineRun()
+    expect(useEtlStore.getState().runningFileIds).toEqual([])
   })
 })

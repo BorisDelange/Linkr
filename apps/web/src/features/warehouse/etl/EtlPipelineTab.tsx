@@ -46,6 +46,7 @@ import {
   Ban,
   Building2,
   ArrowDownAZ,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -55,6 +56,16 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -75,9 +86,11 @@ import type { EtlFile, DatabaseStatsCache } from '@/types'
 interface Props {
   pipelineId: string
   onSelectFile?: (fileId: string) => void
+  /** Show a database's tables in the Schemas tab (same view, no modal). */
+  onBrowseSchema?: (dataSourceId: string) => void
 }
 
-export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
+export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
   const { etlPipelines, files, pipelineRunning, scriptStatuses, runHistory, stopPipelineRun, updateFile } = useEtlStore()
@@ -292,6 +305,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
                 <NodeDetailSidebar
                   info={selectedNodeInfo}
                   onViewCode={onSelectFile ? (fileId: string) => onSelectFile(fileId) : undefined}
+                  onBrowseSchema={onBrowseSchema}
                 />
               </div>
             </Allotment.Pane>
@@ -311,7 +325,11 @@ type NodeInfo =
   | { type: 'target'; ds: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined }
   | { type: 'script'; file: import('@/types').EtlFile; log: import('@/types').EtlRunLog | undefined }
 
-function NodeDetailSidebar({ info, onViewCode }: { info: NodeInfo | null; onViewCode?: (fileId: string) => void }) {
+function NodeDetailSidebar({ info, onViewCode, onBrowseSchema }: {
+  info: NodeInfo | null
+  onViewCode?: (fileId: string) => void
+  onBrowseSchema?: (dataSourceId: string) => void
+}) {
   const { t } = useTranslation()
 
   if (!info) {
@@ -329,6 +347,7 @@ function NodeDetailSidebar({ info, onViewCode }: { info: NodeInfo | null; onView
         ds={info.ds}
         label={t(info.type === 'source' ? 'etl.source' : 'etl.target')}
         accentColor={info.type === 'source' ? 'text-orange-500' : 'text-emerald-500'}
+        onBrowseSchema={onBrowseSchema}
       />
     )
   }
@@ -414,10 +433,12 @@ function DatabaseSidebarDetail({
   ds,
   label,
   accentColor,
+  onBrowseSchema,
 }: {
   ds: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
   label: string
   accentColor: string
+  onBrowseSchema?: (dataSourceId: string) => void
 }) {
   const { t, i18n } = useTranslation()
   const [stats, setStats] = useState<DatabaseStatsCache | null>(null)
@@ -481,6 +502,20 @@ function DatabaseSidebarDetail({
             )}
             <DetailRow label={t('etl.pipeline_db_type')} value={ds.sourceType ?? '—'} />
           </div>
+
+          {/* Opens the Schemas tab on this database rather than a modal — the same
+              browser either way, and the same affordance the Scripts toolbar has. */}
+          {onBrowseSchema && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-1.5 text-xs"
+              onClick={() => onBrowseSchema(ds.id)}
+            >
+              <Table2 size={12} />
+              {t('etl.browse_schema')}
+            </Button>
+          )}
 
           {/* Loading state */}
           {loading && (
@@ -682,6 +717,10 @@ interface RunHistoryPanelProps {
 
 function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunHistoryPanelProps) {
   const { t } = useTranslation()
+  const canWrite = useMyWorkspaceRole().can('etl:write')
+  const running = useEtlStore((s) => s.pipelineRunning)
+  const clearRunHistory = useEtlStore((s) => s.clearRunHistory)
+  const [confirmClear, setConfirmClear] = useState(false)
   const fileMap = useMemo(() => new Map(files.map((f) => [f.id, f])), [files])
 
   if (runHistory.length === 0) {
@@ -696,7 +735,21 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
   }
 
   return (
-    <ScrollArea className="h-full">
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-end border-b px-3 py-1.5">
+        <Button
+          variant="ghost"
+          size="xs"
+          className="gap-1.5 text-xs"
+          // Disabled mid-run: clearing would wipe the statuses the run is writing.
+          disabled={!canWrite || running}
+          onClick={() => setConfirmClear(true)}
+        >
+          <Trash2 size={12} />
+          {t('etl.clear_run_history')}
+        </Button>
+      </div>
+      <ScrollArea className="h-full min-h-0 flex-1">
       <div className="p-3 space-y-2">
         {runHistory.map((run) => {
           const isExpanded = expandedRunId === run.id
@@ -754,7 +807,28 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
           )
         })}
       </div>
-    </ScrollArea>
+      </ScrollArea>
+
+      <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('etl.clear_run_history_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('etl.clear_run_history_confirm_body')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { clearRunHistory(); setConfirmClear(false) }}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {t('etl.clear_run_history')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   )
 }
 

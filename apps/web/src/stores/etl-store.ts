@@ -68,12 +68,16 @@ interface EtlState {
   /** Returns false when a run is already in progress (the caller must not proceed). */
   /** `fileIds` are the scripts THIS run covers, so progress counts the right
    *  set: running one line must not report "0/16" against the whole pipeline. */
-  startPipelineRun: (fileIds: string[]) => boolean
+  startPipelineRun: (fileIds?: string[]) => boolean
   /** Scripts of the run in progress, in order. Empty when nothing is running. */
   runningFileIds: string[]
   stopPipelineRun: () => void
   setScriptStatus: (fileId: string, log: EtlRunLog) => void
   finishPipelineRun: (status: 'success' | 'error') => void
+  /** Forget every past run: the history list AND the per-script status icons the
+   *  Pipeline widgets and the Scripts tree read from it. Refused while a run is
+   *  in progress, which would otherwise wipe the state that run is writing. */
+  clearRunHistory: () => void
 
   // Output tabs
   outputTabs: EtlOutputTab[]
@@ -366,7 +370,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   scriptStatuses: new Map(),
   runHistory: [],
 
-  startPipelineRun: (fileIds) => {
+  startPipelineRun: (fileIds = []) => {
     // Re-entrancy guard: the store is shared across tabs, so a Run in the Scripts
     // tab while the Pipeline tab is mid-run would otherwise replace the live
     // AbortController — Stop would then only reach the second run and the first
@@ -442,6 +446,14 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       }
       return { scriptStatuses: newStatuses, runHistory: history }
     })
+  },
+
+  clearRunHistory: () => {
+    // Both, not just the list: the badges on the script widgets and in the
+    // Scripts tree are views of scriptStatuses, so clearing the history alone
+    // would leave green ticks for runs the user just asked to forget.
+    if (get().pipelineRunning) return
+    set({ runHistory: [], scriptStatuses: new Map() })
   },
 
   finishPipelineRun: (status) => {

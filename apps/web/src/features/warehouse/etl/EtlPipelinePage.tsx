@@ -157,7 +157,11 @@ export function EtlPipelinePage({ pipelineId }: Props) {
           <EtlScriptsTab pipelineId={pipeline.id} onBrowseSchema={handleBrowseSchema} />
         )}
         {activeTab === 'pipeline' && (
-          <EtlPipelineTab pipelineId={pipeline.id} onSelectFile={handleSelectFile} />
+          <EtlPipelineTab
+            pipelineId={pipeline.id}
+            onSelectFile={handleSelectFile}
+            onBrowseSchema={handleBrowseSchema}
+          />
         )}
         {activeTab === 'schemas' && (
           <EtlSchemasTab pipelineId={pipeline.id} initialDataSourceId={schemasDbId} />

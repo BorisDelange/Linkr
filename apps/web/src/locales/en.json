@@ -26,7 +26,7 @@
     "wiki": "Wiki",
     "plugins": "Plugins",
     "warehouse": "Data Warehouse",
-    "versioning": "Versioning",
+    "versioning": "Versioning & export",
     "settings": "Settings",
     "back_to_workspaces": "Back to workspaces"
   },
@@ -207,7 +207,7 @@
     "datasets": "Datasets",
     "ide": "IDE",
     "dashboards": "Dashboards",
-    "versioning": "Versioning",
+    "versioning": "Versioning & export",
     "project_settings": "Settings",
     "back_to_projects": "Back to projects",
     "reports": "Reports"
@@ -1519,7 +1519,7 @@
     "description": "Build and manage interactive dashboards."
   },
   "versioning": {
-    "title": "Versioning",
+    "title": "Versioning & export",
     "description": "Version control and export your project.",
     "content_not_imported": "Content not imported",
     "content_not_imported_hint": "This git-linked element was imported as a pointer, but its content could not be reconstituted from the linked repository.",
@@ -3150,6 +3150,9 @@
     "pipeline_run_rows": "Rows",
     "pipeline_view_code": "View code",
     "run_history": "Run history",
+    "clear_run_history": "Clear history",
+    "clear_run_history_confirm_title": "Clear the run history?",
+    "clear_run_history_confirm_body": "This forgets every past run, and with it the success and error marks on the pipeline steps and in the Scripts explorer. It cannot be undone — the scripts and the data they wrote are untouched.",
     "no_run_history": "No runs yet",
     "profiling_sort_tables": "Sort tables",
     "profiling_filter_tables": "Filter tables…",
@@ -3256,7 +3259,7 @@
     "label_selection": "{{name}} (selection)"
   },
   "app_versioning": {
-    "title": "Versioning",
+    "title": "Versioning & export",
     "description": "Version control for your workspace: wiki pages, configuration, and plugins.",
     "history_title": "History",
     "no_commits": "No commits yet.",
@@ -3294,7 +3297,7 @@
     "entity_versioning_title": "Versioning & export",
     "entity_versioning_description": "Export this item or link it to a Git repository.",
     "tab_git_repository": "Git repository",
-    "entity_export_git_linked_hint": "This item is linked to a Git repository. In workspace exports, only its metadata and the Git link are included — its full content lives in the linked repository.",
+    "entity_export_git_linked_hint": "This ZIP contains the item's full content — the same git-friendly tree that is synced to the linked repository. Only workspace exports reduce this item to its metadata and Git link.",
     "entity_git_link_hint": "Linking to a Git repository lets the deployed portal rebuild this item from its own repository. When linked, workspace exports include only metadata and this pointer.",
     "remote_connected": "Saved",
     "export_git_linked_tooltip": "Only metadata and the Git link are exported — the full content stays in the linked Git repository.",
