@@ -3263,7 +3263,15 @@
     "attention_no_mapping_project": "No mapping project attached",
     "attention_databases": "The source or target database is not set",
     "pipeline_define_source": "Not set — pick a source database",
-    "pipeline_define_target": "Not set — pick a target database"
+    "pipeline_define_target": "Not set — pick a target database",
+    "vocab_generate_script_only": "Script only",
+    "vocab_generate_csv_only": "CSV only",
+    "vocab_generate_script_only_hint": "Regenerate 00_vocabulary.sql only, leaving the source_to_concept_map CSV untouched.",
+    "vocab_generate_csv_only_hint": "Regenerate the source_to_concept_map CSV only, keeping any custom edits you made to 00_vocabulary.sql.",
+    "vocab_csv_generated": "source_to_concept_map CSV generated with {{count}} mappings.",
+    "vocab_export_missing": "Missing {{files}} — the mapping data is not versioned, so it never arrives with a pipeline cloned from git. The scripts will fail until you regenerate it below (\"CSV only\" keeps your 00_vocabulary.sql as it is).",
+    "vocab_export_empty": "{{files}} holds no rows. The scripts will run but leave source_to_concept_map empty. Check the status filter below, then regenerate.",
+    "attention_vocab_export_missing": "The source_to_concept_map CSV is missing"
   },
   "sql_scripts": {
     "title": "Script Collections",

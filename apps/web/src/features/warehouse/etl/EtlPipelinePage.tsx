@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ArrowLeft, ArrowRight, Code, Workflow, Table2, Database, BookOpen, GitCompare } from 'lucide-react'
@@ -21,6 +21,7 @@ import { EtlPipelineTab } from './EtlPipelineTab'
 import { EtlSchemasTab } from './EtlSchemasTab'
 import { EtlVocabularyTab } from './EtlVocabularyTab'
 import { EtlQualityTab } from './EtlQualityTab'
+import { vocabularyReadiness } from './vocabulary-readiness'
 
 type TabId = 'scripts' | 'pipeline' | 'schemas' | 'vocabulary' | 'quality'
 
@@ -40,7 +41,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
-  const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles, updatePipeline } = useEtlStore()
+  const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles, updatePipeline, files, filesLoaded, activePipelineId } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
@@ -76,6 +77,26 @@ export function EtlPipelinePage({ pipelineId }: Props) {
     setActiveTab('schemas')
   }, [])
 
+  /**
+   * Why the Vocabulary tab needs attention, if it does.
+   *
+   * Above the early returns because it reads the store (Rules of Hooks). Both
+   * causes are what a git-imported pipeline arrives in: the mapping project is
+   * instance-local, and the STCM export is gitignored so it never travels.
+   */
+  const vocabAttention = useMemo(() => {
+    if (!fullPipelineId) return undefined
+    // Only judge the exports once THIS pipeline's files are in: before that the
+    // store is empty (or still holds the previous pipeline's), and every export
+    // would look missing — a false amber dot on every open.
+    const loaded = filesLoaded && activePipelineId === fullPipelineId
+    const own = files.filter((f) => f.pipelineId === fullPipelineId)
+    if (loaded && !vocabularyReadiness(own).ready) {
+      return 'etl.attention_vocab_export_missing'
+    }
+    return pipeline?.mappingProjectId ? undefined : 'etl.attention_no_mapping_project'
+  }, [files, filesLoaded, activePipelineId, fullPipelineId, pipeline?.mappingProjectId])
+
   if (!etlPipelinesLoaded) return null
 
   if (!pipeline) {
@@ -102,7 +123,9 @@ export function EtlPipelinePage({ pipelineId }: Props) {
     ...(pipeline.sourceDataSourceId && pipeline.targetDataSourceId
       ? {}
       : { pipeline: 'etl.attention_databases' }),
-    ...(pipeline.mappingProjectId ? {} : { vocabulary: 'etl.attention_no_mapping_project' }),
+    // A missing export outranks a missing mapping project: it is the more
+    // specific problem, and the one whose run-time error names nothing useful.
+    ...(vocabAttention ? { vocabulary: vocabAttention } : {}),
   }
 
   return (

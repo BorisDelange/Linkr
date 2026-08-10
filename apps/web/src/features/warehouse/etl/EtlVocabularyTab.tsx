@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BookOpen, FileCode, Loader2, AlertCircle, Check } from 'lucide-react'
+import { BookOpen, FileCode, Loader2, AlertCircle, Check, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
@@ -19,12 +19,16 @@ import { schemaName } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
 import { buildVocabularyScriptWithIds } from './build-vocabulary-script'
 import { buildStcmCsv } from '@/lib/concept-mapping/stcm-export'
-import { MAPPING_DIR, STCM_EXPORT } from '@/lib/duckdb/mapping-source'
+import { MAPPING_DIR, STCM_EXPORT, mappingExportPath } from '@/lib/duckdb/mapping-source'
+import { vocabularyReadiness } from './vocabulary-readiness'
 import type { ConceptMapping, EtlFile, MappingStatus } from '@/types'
 
 const VOCAB_SCRIPT_NAME = '00_vocabulary.sql'
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
+
+/** Which artefacts a generate action writes — see `generate` below. */
+type GenerateWhat = 'script' | 'csv' | 'both'
 
 const STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked']
 
@@ -146,7 +150,7 @@ function filterMappings(
 export function EtlVocabularyTab({ pipelineId }: Props) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
-  const { etlPipelines, updatePipeline } = useEtlStore()
+  const { etlPipelines, updatePipeline, files, filesLoaded, activePipelineId } = useEtlStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings, updateMapping } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
@@ -185,8 +189,14 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     setSelectedProjectId(id)
     if (pipeline) updatePipeline(pipeline.id, { mappingProjectId: id || undefined })
   }, [pipeline, updatePipeline])
-  const [creating, setCreating] = useState(false)
-  const [result, setResult] = useState<{ success: boolean; count: number; action?: 'created' | 'updated'; error?: string } | null>(null)
+  const [creating, setCreating] = useState<GenerateWhat | null>(null)
+  const [result, setResult] = useState<{
+    success: boolean
+    count: number
+    action?: 'created' | 'updated'
+    what?: GenerateWhat
+    error?: string
+  } | null>(null)
 
   // Status filter state (same pattern as ExportTab)
   const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(new Set(['approved']))
@@ -227,6 +237,23 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     [projectMappings, includedStatuses, approvalRule],
   )
 
+  /**
+   * Exports the pipeline's scripts read but do not have.
+   *
+   * A pipeline imported from git has `00_vocabulary.sql` but not
+   * `mapping/source_to_concept_map.csv` — the export is gitignored, being derived
+   * from a dictionary that is often private. Without this the first sign was a
+   * DuckDB "file not found: mapping.source_to_concept_map" at run time.
+   */
+  const readiness = useMemo(() => {
+    // Judged only once THIS pipeline's files are in: before that everything looks
+    // missing, which would flash the banner on every open.
+    if (!filesLoaded || activePipelineId !== pipelineId) {
+      return { missingExports: [], emptyExports: [], usesExports: false, ready: true }
+    }
+    return vocabularyReadiness(files.filter((f) => f.pipelineId === pipelineId))
+  }, [files, filesLoaded, activePipelineId, pipelineId])
+
   // Resolve vocabulary data source schema for the selected mapping project
   const vocabSchema = useMemo(() => {
     const project = mappingProjects.find((p) => p.id === selectedProjectId)
@@ -246,13 +273,27 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     return vocabDs?.schemaMapping?.knownTables ?? undefined
   }, [selectedProjectId, mappingProjects, dataSources])
 
-  const handleCreateFromProject = useCallback(async () => {
+  /**
+   * Generate the script, the CSV, or both.
+   *
+   * Split because they have genuinely different lifetimes: the script is a
+   * versioned artefact a user may hand-edit (and want to KEEP), while the CSV is
+   * gitignored derived data that has to be rebuilt on every clone. Regenerating
+   * both to get the CSV back silently discarded those edits.
+   *
+   * They stay consistent when generated apart because both take their
+   * source-concept ids from `assignSourceConceptIds` over the same project, which
+   * reuses the ids already stored on each mapping rather than renumbering.
+   */
+  const generate = useCallback(async (what: 'script' | 'csv' | 'both') => {
     if (!selectedProjectId || filteredMappings.length === 0) return
-    if (!vocabSchema) {
+    // Only the script reads the vocabulary reference; the CSV is built purely
+    // from the mappings, so it must stay available when no ATHENA import exists.
+    if (what !== 'csv' && !vocabSchema) {
       setResult({ success: false, count: 0, error: t('etl.vocab_no_vocab_ds') })
       return
     }
-    setCreating(true)
+    setCreating(what)
     setResult(null)
 
     try {
@@ -262,25 +303,30 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
         filteredMappings, undefined, vocabTables, projectMappings,
       )
       // Store the source-concept ids this run settled on, so the next generation
-      // reuses them instead of allocating new ones. Done before writing the
-      // script: if this fails, the script that would reference unsaved ids is
-      // not created either.
+      // reuses them instead of allocating new ones. Done before writing anything:
+      // if it fails, no artefact references an unsaved id. Needed for the CSV
+      // alone too — it carries the same ids.
       for (const [mappingId, sourceConceptId] of idsToPersist) {
         await updateMapping(mappingId, { sourceConceptId })
       }
       // The export carries the rows the script reads; write it first so the
       // script is never the newer of the two.
-      const { csv } = buildStcmCsv(filteredMappings, projectMappings)
-      await upsertMappingExport(pipelineId, STCM_EXPORT, csv)
-      const action = await upsertVocabScript(pipelineId, sql)
-      setResult({ success: true, count: filteredMappings.length, action })
+      if (what !== 'script') {
+        const { csv } = buildStcmCsv(filteredMappings, projectMappings)
+        await upsertMappingExport(pipelineId, STCM_EXPORT, csv)
+      }
+      const action = what === 'csv' ? undefined : await upsertVocabScript(pipelineId, sql)
+      setResult({ success: true, count: filteredMappings.length, action, what })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setResult({ success: false, count: 0, error: msg })
     } finally {
-      setCreating(false)
+      setCreating(null)
     }
   }, [selectedProjectId, filteredMappings, projectMappings, pipelineId, vocabSchema, vocabTables, updateMapping, t])
+
+  // The CSV needs no vocabulary reference, so each button adds its own condition.
+  const cannotGenerate = !selectedProjectId || filteredMappings.length === 0 || !canWrite
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 overflow-auto p-8">
@@ -304,6 +350,28 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                 {availableProjects.length > 0
                   ? t('etl.vocab_no_project_attached')
                   : t('etl.vocab_no_project_available')}
+              </span>
+            </span>
+          </div>
+        )}
+
+        {/* The scripts are here but the data they read is not: the CSV is
+            gitignored, so it never survives a clone. Regenerating it is the fix,
+            and it does not require touching the script. */}
+        {!readiness.ready && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            <span className="flex items-start gap-2">
+              <AlertCircle size={16} className="mt-px shrink-0" />
+              <span>
+                {readiness.missingExports.length > 0
+                  ? t('etl.vocab_export_missing', {
+                      files: readiness.missingExports.map((n) => mappingExportPath(n)).join(', '),
+                      count: readiness.missingExports.length,
+                    })
+                  : t('etl.vocab_export_empty', {
+                      files: readiness.emptyExports.map((n) => mappingExportPath(n)).join(', '),
+                      count: readiness.emptyExports.length,
+                    })}
               </span>
             </span>
           </div>
@@ -387,15 +455,46 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             </div>
           )}
 
-          <Button
-            size="sm"
-            className="w-full"
-            onClick={handleCreateFromProject}
-            disabled={!selectedProjectId || filteredMappings.length === 0 || !vocabSchema || creating || !canWrite}
-          >
-            {creating ? <Loader2 size={14} className="animate-spin" /> : <FileCode size={14} />}
-            {t('etl.vocab_create_script')}
-          </Button>
+          {/* Two artefacts, generated together or apart.
+              Apart matters because a hand-edited 00_vocabulary.sql is a versioned
+              file worth keeping, while the CSV beside it is gitignored derived data
+              that has to be rebuilt after every clone: "regenerate both" to recover
+              the CSV silently threw the edits away. */}
+          <div className="space-y-1.5">
+            <Button
+              size="sm"
+              className="w-full"
+              onClick={() => generate('both')}
+              disabled={cannotGenerate || !vocabSchema || creating !== null}
+            >
+              {creating === 'both' ? <Loader2 size={14} className="animate-spin" /> : <FileCode size={14} />}
+              {t('etl.vocab_create_script')}
+            </Button>
+            <div className="flex gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() => generate('script')}
+                disabled={cannotGenerate || !vocabSchema || creating !== null}
+                title={t('etl.vocab_generate_script_only_hint')}
+              >
+                {creating === 'script' ? <Loader2 size={14} className="animate-spin" /> : <FileCode size={14} />}
+                {t('etl.vocab_generate_script_only')}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() => generate('csv')}
+                disabled={cannotGenerate || creating !== null}
+                title={t('etl.vocab_generate_csv_only_hint')}
+              >
+                {creating === 'csv' ? <Loader2 size={14} className="animate-spin" /> : <Table2 size={14} />}
+                {t('etl.vocab_generate_csv_only')}
+              </Button>
+            </div>
+          </div>
         </div>
 
 
@@ -409,7 +508,9 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             {result.success ? (
               <span className="flex items-center gap-1.5">
                 <Check size={14} />
-                {t(result.action === 'updated' ? 'etl.vocab_script_updated' : 'etl.vocab_script_created', { count: result.count })}
+                {result.what === 'csv'
+                  ? t('etl.vocab_csv_generated', { count: result.count })
+                  : t(result.action === 'updated' ? 'etl.vocab_script_updated' : 'etl.vocab_script_created', { count: result.count })}
               </span>
             ) : (
               <span className="flex items-center gap-1.5">
