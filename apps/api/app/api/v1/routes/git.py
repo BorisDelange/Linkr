@@ -1085,12 +1085,13 @@ async def clone(
     if body.token:
         await git_credential_service.set_token_for_url(db, user, body.url, body.token)
     headers = {"Content-Disposition": 'attachment; filename="repo.zip"'}
-    # Expose the cloned HEAD so the import flow can anchor the new entity's sync
-    # state to it (see mapping_project_set_sync_state). Custom header must be
-    # explicitly exposed for the browser fetch to read it.
+    # The cloned HEAD, so the import and pull flows can anchor the entity's sync
+    # state to it. Exposing it to JS is CORSMiddleware's job (expose_headers in
+    # main.py): setting Access-Control-Expose-Headers here does nothing, because the
+    # middleware overwrites it with its own list on the way out — which is exactly
+    # how this header stayed unreadable, leaving every pull unanchored.
     if cloned_oid:
         headers["X-Git-Cloned-Oid"] = cloned_oid
-        headers["Access-Control-Expose-Headers"] = "X-Git-Cloned-Oid"
     return Response(content=data, media_type="application/zip", headers=headers)
 
 

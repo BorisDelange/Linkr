@@ -289,3 +289,25 @@ async def test_git_status_surfaces_error_for_unreadable_remote(client):
     )
     assert r.status_code == 400
     assert "code" in r.json()["detail"]
+
+
+def test_cloned_oid_header_is_exposed_to_the_browser():
+    """X-Git-Cloned-Oid must be in CORSMiddleware's expose_headers.
+
+    The clone route sets the header, and the import/pull flows anchor the entity's
+    sync state to it. But a custom response header is invisible to JS unless CORS
+    exposes it, and the middleware OVERWRITES any Access-Control-Expose-Headers the
+    route sets — so the route setting it itself did nothing. The client read null,
+    the anchor never moved, and a completed pull still reported "behind" and blocked
+    the next push with "pull first". Every clone-based flow was affected (projects
+    and ETL pulls, catalog install, workspace import, content retry)."""
+    from fastapi.middleware.cors import CORSMiddleware
+
+    from app.main import app
+
+    exposed: list[str] | None = None
+    for mw in app.user_middleware:
+        if mw.cls is CORSMiddleware:
+            exposed = [h.lower() for h in mw.kwargs.get("expose_headers", [])]
+    assert exposed is not None, "CORS middleware not installed"
+    assert "x-git-cloned-oid" in exposed

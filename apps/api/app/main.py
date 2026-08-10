@@ -142,9 +142,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # x-file-name carries the original filename on raw-file downloads; custom
-    # response headers are invisible to JS unless explicitly exposed.
-    expose_headers=["x-file-name"],
+    # Custom response headers are invisible to JS unless explicitly exposed.
+    #   x-file-name        — original filename on raw-file downloads
+    #   x-git-cloned-oid   — the commit a /git/clone landed on. The pull anchors the
+    #                        entity to it; unexposed, the client read null and the
+    #                        anchor never moved, so a completed pull still reported
+    #                        "behind" and blocked the next push with "pull first".
+    expose_headers=["x-file-name", "x-git-cloned-oid"],
 )
 
 # Routes
