@@ -233,6 +233,11 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
         <TabsContent value="quick" className="flex min-h-0 flex-1 flex-col gap-3">
           {branchRow}
 
+          {/* Same position as in Details — right under the branch row. At the
+              bottom of the tab it sat below the action cards, where a "pull first"
+              or "not implemented" notice is read after the buttons it qualifies. */}
+          {pullBanner}
+
           {loadingStatus ? (
             <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
               <Loader2 size={14} className="animate-spin" />
@@ -277,8 +282,6 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
               )}
             </div>
           )}
-
-          {pullBanner}
         </TabsContent>
 
         {/* Details: the full expert UI (branch select, refresh, file selection,
