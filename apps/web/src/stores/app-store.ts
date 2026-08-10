@@ -6,7 +6,7 @@ import { slugifyId } from '@/lib/slugify-id'
 import { setLocalized, toLocalized, isShellHtml } from '@/lib/localized'
 import { seedWorkspaces, isSeeded } from '@/lib/seed-loader'
 import { userToAuthorDetails } from '@/lib/user-identity'
-import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, AuthorDetails, Authored, Lineaged } from '@/types'
+import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, AuthorDetails, Authored, Lineaged, EntityLicense } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
 // Populated via registerWorkspaceStore() called from workspace-store.ts after it's created.
@@ -151,6 +151,7 @@ interface AppState {
   updateProjectTodos: (uid: string, todos: TodoItem[]) => void
   updateProjectNotes: (uid: string, notes: string) => void
   updateProjectReadme: (uid: string, readme: string) => void
+  updateProjectLicense: (uid: string, license: EntityLicense | null) => Promise<void>
 
   restoreReadmeVersion: (uid: string, snapshotId: string) => void
   updateProjectStatus: (uid: string, status: ProjectStatus) => void
@@ -425,6 +426,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       }),
     }))
     if (next) getStorage().projects.update(uid, { readme: next })
+  },
+
+  updateProjectLicense: async (uid, license) => {
+    const next = license ?? undefined
+    set((s) => ({
+      _projectsRaw: s._projectsRaw.map((p) => (p.uid === uid ? { ...p, license: next } : p)),
+    }))
+    await getStorage().projects.update(uid, { license: next })
   },
 
 

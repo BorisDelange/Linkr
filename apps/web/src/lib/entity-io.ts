@@ -749,11 +749,18 @@ export async function buildProjectZip(
   // `uid` is the local primary key: a delete+reimport regenerates it, so writing it
   // would churn the diff. It's dropped here (NOT added to INSTANCE_FIELDS, which
   // children share); lineageId/parentLineageId stay for cross-instance identity.
-  const { readme: _r, todos: _t, notes: _n, uid: _uid, ...projectMeta } = prunedProject
-  zip.file('project.json', json({ ...stripInstanceFields(projectMeta), appVersion: APP_VERSION }))
+  const { readme: _r, todos: _t, notes: _n, uid: _uid, license: projectLicense, ...projectMeta } = prunedProject
+  zip.file('project.json', json({
+    ...stripInstanceFields(projectMeta),
+    ...(licenseMeta(projectLicense) ? { license: licenseMeta(projectLicense) } : {}),
+    appVersion: APP_VERSION,
+  }))
 
   // --- README.md (+ README.<lang>.md per extra language) ---
   writeReadmeFiles(zip, '', project.readme)
+
+  // --- LICENSE.md ---
+  writeLicenseFile(zip, '', projectLicense)
 
   // --- tasks.json ---
   const notes = toLocalized(project.notes)
@@ -1376,6 +1383,13 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   }
   if (Object.keys(readmeByLang).length > 0) {
     projectMeta.readme = readmeByLang
+  }
+  const projectLicenseFile = zipData.files['LICENSE.md']
+  if (projectLicenseFile) {
+    projectMeta.license = readLicense(
+      projectMeta.license as { id?: string; name?: string } | undefined,
+      await projectLicenseFile.async('string'),
+    )
   }
   const tasksFile = zipData.files['tasks.json']
   if (tasksFile) {
@@ -2234,9 +2248,10 @@ export async function buildWorkspaceZip(
   // an organization's UUID is stable across instances (it's the catalog index),
   // so a workspace keeps pointing at the org it was exported with. The full org
   // record travels alongside in organization.json.
-  const { readme: wsReadme, ...wsMeta } = workspace
+  const { readme: wsReadme, license: wsLicense, ...wsMeta } = workspace
   zip.file('workspace.json', json({
     ...stripInstanceFields(wsMeta),
+    ...(licenseMeta(wsLicense) ? { license: licenseMeta(wsLicense) } : {}),
     ...(workspace.organizationId ? { organizationId: workspace.organizationId } : {}),
     appVersion: APP_VERSION,
   }))
@@ -2253,6 +2268,10 @@ export async function buildWorkspaceZip(
 
   // --- README.md (+ README.<lang>.md per extra language) ---
   writeReadmeFiles(zip, '', wsReadme)
+  writeLicenseFile(zip, '', wsLicense)
+  // The workspace README's own images used to be left behind, so a readme that
+  // embedded one exported with a dead link.
+  await writeAttachmentFiles(zip, '', storage, 'workspace', workspace.id)
 
   // --- projects/ ---
   // Git-linked projects: metadata + README + git pointer only (full content lives in the project's own repo).
@@ -2573,6 +2592,8 @@ export interface ParsedWorkspaceZip {
   schemas: CustomSchemaPreset[]
   databases: Partial<DataSource>[]
   wikiPages: WikiPage[]
+  /** The workspace README's own images. */
+  workspaceAttachments?: ParsedEntityAttachments
   wikiAttachmentsMeta: Omit<WikiAttachment, 'data'>[]
   wikiAttachmentBlobs: Map<string, ArrayBuffer>
   sqlCollections: { collection: SqlScriptCollection; files: SqlScriptFile[] }[]
@@ -2644,6 +2665,11 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   if (Object.keys(wsReadmeByLang).length > 0) {
     workspace.readme = wsReadmeByLang
   }
+  const wsLicenseFile = zipData.files['LICENSE.md']
+  if (wsLicenseFile) {
+    workspace.license = readLicense(workspace.license, await wsLicenseFile.async('string'))
+  }
+  const workspaceAttachments = await readEntityDocs(zipData, '', {})
 
   // --- projects/ ---
   const projects = new Map<string, ParsedProjectZip>()
@@ -2902,6 +2928,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
   return {
     workspace, organization, projects, projectEntries, schemas, databases,
+    workspaceAttachments: { meta: workspaceAttachments.attachmentsMeta, blobs: workspaceAttachments.attachmentBlobs },
     wikiPages, wikiAttachmentsMeta, wikiAttachmentBlobs,
     sqlCollections, etlPipelines, dqRuleSets, conceptSets,
     mappingProjects, sourceConceptIdRanges, sourceConceptIdEntries,

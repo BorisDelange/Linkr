@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getStatusClasses, getStatusDotClass } from '@/features/projects/ProjectSettingsPage'
 import { ReadmeEditor, remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { LicenseEditor } from '@/components/editor/LicenseEditor'
 import { Paperclip } from 'lucide-react'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -44,7 +45,7 @@ export function WorkspaceHomePage() {
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
   const canWriteSummary = useMyWorkspaceRole(wsUid).can('workspace-summary:write')
-  const { _workspacesRaw, updateWorkspaceReadme } = useWorkspaceStore()
+  const { _workspacesRaw, updateWorkspaceReadme, updateWorkspaceLicense } = useWorkspaceStore()
   const { _projectsRaw, getWorkspaceProjects, openProject, language } = useAppStore()
 
   const [tab, setTab] = useState('overview')
@@ -170,6 +171,7 @@ export function WorkspaceHomePage() {
         <TabsList variant="line" className="shrink-0">
           <TabsTrigger value="overview">{t('summary.tab_overview')}</TabsTrigger>
           <TabsTrigger value="readme">{t('summary.tab_readme')}</TabsTrigger>
+          <TabsTrigger value="license">{t('summary.tab_license')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="min-h-0 flex-1 overflow-hidden">
@@ -217,6 +219,17 @@ export function WorkspaceHomePage() {
                   {t('summary.attachments')}
                 </Button>
               }
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="license" className="min-h-0 flex-1 overflow-hidden">
+          {wsUid && (
+            <LicenseEditor
+              license={workspace?.license ?? null}
+              onSave={(license) => updateWorkspaceLicense(wsUid, license)}
+              copyrightHolder={org?.name ? localized(org.name, language) : undefined}
+              canEdit={canWriteSummary}
             />
           )}
         </TabsContent>

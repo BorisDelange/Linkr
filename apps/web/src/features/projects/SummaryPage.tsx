@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 import { SummaryOverviewTab } from './summary/SummaryOverviewTab'
 import { SummaryReadmeTab } from './summary/SummaryReadmeTab'
+import { SummaryLicenseTab } from './summary/SummaryLicenseTab'
 
 import { SummaryTasksTab } from './summary/SummaryTasksTab'
 
@@ -87,6 +88,7 @@ export function SummaryPage() {
         <TabsList variant="line" className="shrink-0">
           <TabsTrigger value="overview">{t('summary.tab_overview')}</TabsTrigger>
           <TabsTrigger value="readme">{t('summary.tab_readme')}</TabsTrigger>
+          <TabsTrigger value="license">{t('summary.tab_license')}</TabsTrigger>
 
           <TabsTrigger value="tasks">{t('summary.tab_tasks')}</TabsTrigger>
         </TabsList>
@@ -95,6 +97,9 @@ export function SummaryPage() {
         </TabsContent>
         <TabsContent value="readme" className="min-h-0 flex-1 overflow-hidden">
           <SummaryReadmeTab uid={uid!} />
+        </TabsContent>
+        <TabsContent value="license" className="min-h-0 flex-1 overflow-hidden">
+          <SummaryLicenseTab uid={uid!} />
         </TabsContent>
 
         <TabsContent value="tasks" className="min-h-0 flex-1 overflow-hidden">

@@ -1411,3 +1411,49 @@ describe('ETL pipeline docs — readme, license and attachments round-trip', () 
     expect(zip.files['attachments/_meta.json']).toBeUndefined()
   })
 })
+
+// A project's and a workspace's license travels as LICENSE.md (the file git hosts
+// recognise); only its id stays in the JSON. Without the import side, picking a
+// license would be silently lost on the first export/import round-trip.
+describe('project / workspace license — LICENSE.md round-trip', () => {
+  it('parseProjectZip recombines the license id from project.json with the file text', async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({
+      uid: 'p1', name: { en: 'P' }, description: {}, projectId: 'p',
+      license: { id: 'GPL-3.0' },
+    }))
+    zip.file('LICENSE.md', 'GNU GENERAL PUBLIC LICENSE\nVersion 3\n')
+    const parsed = await parseProjectZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)
+    expect(parsed!.project.license).toEqual({
+      id: 'GPL-3.0', text: 'GNU GENERAL PUBLIC LICENSE\nVersion 3\n',
+    })
+  })
+
+  it('treats a LICENSE.md with no metadata as a custom license', async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({ uid: 'p1', name: { en: 'P' }, description: {}, projectId: 'p' }))
+    zip.file('LICENSE.md', 'Internal hospital use only.\n')
+    const parsed = await parseProjectZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)
+    expect(parsed!.project.license).toEqual({ id: 'custom', text: 'Internal hospital use only.\n' })
+  })
+
+  it('parseWorkspaceZip reads the workspace license and its readme images', async () => {
+    const zip = new JSZip()
+    zip.file('workspace.json', JSON.stringify({
+      id: 'ws-1', name: { en: 'W' }, license: { id: 'custom', name: 'House rules' },
+    }))
+    zip.file('LICENSE.md', 'Ask before reusing.\n')
+    zip.file('attachments/_meta.json', JSON.stringify([{
+      id: 'att-9', fileName: 'logo.png', mimeType: 'image/png', fileSize: 2,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }]))
+    zip.file('attachments/att-9-logo.png', new Uint8Array([7, 8]))
+
+    const parsed = await parseWorkspaceZip(await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File)
+    expect(parsed!.workspace.license).toEqual({
+      id: 'custom', name: 'House rules', text: 'Ask before reusing.\n',
+    })
+    expect(parsed!.workspaceAttachments!.meta.map((m) => m.fileName)).toEqual(['logo.png'])
+    expect(parsed!.workspaceAttachments!.blobs.get('att-9')).toBeDefined()
+  })
+})

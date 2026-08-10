@@ -4,7 +4,7 @@ import { deleteProjectData } from '@/lib/entity-io'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { isShellHtml, toLocalized, setLocalized, localized } from '@/lib/localized'
-import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString } from '@/types'
+import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString, EntityLicense } from '@/types'
 import { useAppStore, registerWorkspaceStore, stampAuthored, stampLineage } from './app-store'
 import { useOrganizationStore } from './organization-store'
 
@@ -58,6 +58,7 @@ interface WorkspaceState {
   updateWorkspace: (id: string, changes: Partial<Workspace>) => Promise<void>
   updateWorkspaceBadges: (id: string, badges: ProjectBadge[]) => Promise<void>
   updateWorkspaceReadme: (id: string, readme: string) => Promise<void>
+  updateWorkspaceLicense: (id: string, license: EntityLicense | null) => Promise<void>
   deleteWorkspace: (id: string, onProgress?: (phaseKey: string) => void) => Promise<void>
 
   // Navigation
@@ -190,6 +191,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
       }),
     }))
     if (next) await getStorage().workspaces.update(id, { readme: next, updatedAt: now })
+  },
+
+  updateWorkspaceLicense: async (id, license) => {
+    const next = license ?? undefined
+    const now = new Date().toISOString()
+    set((s) => ({
+      _workspacesRaw: s._workspacesRaw.map((ws) => (ws.id === id ? { ...ws, license: next, updatedAt: now } : ws)),
+    }))
+    await getStorage().workspaces.update(id, { license: next, updatedAt: now })
   },
 
   deleteWorkspace: async (id, onProgress) => {

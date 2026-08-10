@@ -464,6 +464,9 @@ export function WorkspacesPage() {
       } as import('@/types').DataSource)
     }
 
+    // --- Import the workspace README's images ---
+    await createEntityAttachments(storage, parsed.workspaceAttachments, 'workspace', targetWsId, targetWsId)
+
     // --- Import wiki pages ---
     if (parsed.wikiPages.length > 0) {
       reportPhase('workspaces.import_phase_wiki', 0, parsed.wikiPages.length)
