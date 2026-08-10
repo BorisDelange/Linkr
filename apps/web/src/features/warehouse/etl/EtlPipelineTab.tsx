@@ -464,7 +464,7 @@ function CopyableValue({ value, mono = true }: { value: string; mono?: boolean }
   }
 
   return (
-    <div className="flex min-w-0 items-start gap-1">
+    <div className="flex min-w-0 items-center gap-1">
       {/* break-all, not break-words: a path has no spaces to wrap on, so it would
           otherwise widen the whole sidebar. */}
       <code
@@ -481,7 +481,9 @@ function CopyableValue({ value, mono = true }: { value: string; mono?: boolean }
             type="button"
             onClick={copy}
             aria-label={t('files.copy')}
-            className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            // items-center on the row centres the button against the whole code
+            // block; a hand-tuned top margin only lined up on a one-line value.
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             {copied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
           </button>

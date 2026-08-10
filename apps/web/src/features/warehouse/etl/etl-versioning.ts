@@ -46,6 +46,40 @@ export function toggleVersioned(
 }
 
 /**
+ * The config after forcing several paths to `versioned`.
+ *
+ * Not a loop of `toggleVersioned`: a mixed selection would flip each file to the
+ * opposite of what it was and stay mixed. A bulk action means "make all of these
+ * versioned" (or not), so the target state is explicit.
+ */
+export function setVersionedMany(
+  paths: string[],
+  versioned: boolean,
+  config: EtlPipelineConfig | undefined,
+): EtlPipelineConfig {
+  const current = config ?? {}
+  const data = paths.filter((p) => isDataExtension(p))
+  const code = paths.filter((p) => !isDataExtension(p))
+
+  // A data path is listed when INCLUDED; a code path when EXCLUDED. The two
+  // lists therefore move in opposite directions for the same request.
+  const apply = (list: string[] | undefined, subject: string[], add: boolean): string[] => {
+    const set = new Set(list ?? [])
+    for (const p of subject) {
+      if (add) set.add(p)
+      else set.delete(p)
+    }
+    return [...set].sort()
+  }
+
+  return {
+    ...current,
+    versionedDataFiles: apply(current.versionedDataFiles, data, versioned),
+    excludedFiles: apply(current.excludedFiles, code, !versioned),
+  }
+}
+
+/**
  * Drop marks for paths that no longer exist.
  *
  * A renamed or deleted file would otherwise leave an entry behind for ever,
