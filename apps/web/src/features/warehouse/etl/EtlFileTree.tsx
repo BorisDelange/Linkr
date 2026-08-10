@@ -489,17 +489,15 @@ function EtlFileTreeItem({
             className={cn(
               'flex h-6 w-full min-w-0 items-center gap-1.5 pr-3.5 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
-              // ONE colour for every selected row, the active one included. Tinting
-              // the active row differently (or not at all) made the first file
-              // clicked — which is also the file open in the editor — look excluded
-              // from the user's own selection. Listed after the isActive rule so it
-              // overrides it; the left border still says which file is open.
-              isMultiSelected && 'bg-primary/10 text-foreground',
-              isMultiSelected && isActive && 'border-l-2 border-l-primary',
+              // ONE look for every selected row — tint AND left border. Marking the
+              // active row differently made the first file clicked (which is also
+              // the file open in the editor) look excluded from the user's own
+              // selection. Listed after the isActive rule so it overrides it.
+              isMultiSelected && 'border-l-2 border-l-primary bg-primary/10 text-foreground',
             )}
-            // The 2px border is subtracted from the indent, so the name does not
-            // shift sideways on the one row that has it.
-            style={{ paddingLeft: `${depth * 16 + 8 - (isMultiSelected && isActive ? 2 : 0)}px` }}
+            // The 2px border is subtracted from the indent, so names do not shift
+            // sideways when rows become selected.
+            style={{ paddingLeft: `${depth * 16 + 8 - (isMultiSelected ? 2 : 0)}px` }}
           >
             {isFolder ? (
               <>
