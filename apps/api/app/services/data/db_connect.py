@@ -713,10 +713,20 @@ def run_etl_sql(
             # mapping.<name> ref is a CSV read from tmp — both need local file
             # access, so external access can only be cut when neither is present.
             needs_file_access = bool(mapping_data)
+            # Files already attached, by absolute path -> the database name holding
+            # them. DuckDB refuses to attach one FILE twice however it is aliased,
+            # so a role pointing at an already-attached file is aliased instead.
+            attached: dict[str, str] = {_real_path(target_path): "target"}
             for role, spec in (roles or {}).items():
                 if role.lower() == "target":
                     continue
-                _attach_role(con, role, spec)
+                same_as = _already_attached_as(spec, attached)
+                if same_as is not None:
+                    _alias_role(con, role, same_as)
+                else:
+                    _attach_role(con, role, spec)
+                    if spec.get("kind") == "file":
+                        attached.setdefault(_real_path(spec["path"]), role)
                 if spec.get("kind") in ("parquet", "external"):
                     needs_file_access = True
 
@@ -766,6 +776,63 @@ def _resolve_mapping_refs(sql: str, data: dict[str, str], tmp_dir: str) -> str:
         return f"'{escaped}'"
 
     return _MAPPING_REF.sub(replace, sql)
+
+
+def _real_path(path: str) -> str:
+    """A file's identity for attach purposes.
+
+    Resolved and case-folded: DuckDB compares open file handles, so a symlink, a
+    relative path or a different casing on macOS/Windows all name the same file
+    and would collide even though the strings differ."""
+    return os.path.normcase(os.path.realpath(path))
+
+
+def _already_attached_as(spec: dict, attached: dict[str, str]) -> str | None:
+    """The database already holding this role's file, or None.
+
+    Only `file` roles can collide: a parquet role attaches a fresh `:memory:`
+    database, and an external one opens a network connection — neither is a local
+    file handle."""
+    if spec.get("kind") != "file":
+        return None
+    return attached.get(_real_path(spec["path"]))
+
+
+def _alias_role(con: duckdb.DuckDBPyConnection, role: str, target_db: str) -> None:
+    """Make `role.` resolve to an already-attached database.
+
+    A pipeline may legitimately point two roles at one database — reading and
+    writing the same warehouse (`source` == `target`) is the normal shape for an
+    in-place transform. DuckDB rejects the second ATTACH of that file with "Unique
+    file handle conflict", which surfaced as an opaque Binder Error that no restart
+    could fix, since the pipeline was misread as a stale lock.
+
+    Aliasing rather than re-attaching: a real (empty, in-memory) database named
+    after the role, holding a view per table. A schema of that name in `memory`
+    would not resolve, because `role.table` is looked up as a schema of the target
+    first — the same reasoning as the parquet branch below.
+
+    The views are built from the tables present at attach time. A table the script
+    CREATEs later is not visible through the alias, which is the honest limit: the
+    alias is a read-only window onto the other role, and the script writes through
+    `target`."""
+    role = _require_ident(role, "role name")
+    con.execute(f'ATTACH \':memory:\' AS "{role}"')
+    rows = con.execute(
+        "SELECT table_schema, table_name FROM information_schema.tables "
+        "WHERE table_catalog = ?",
+        [target_db],
+    ).fetchall()
+    for schema, table in rows:
+        safe_schema = _require_ident(str(schema), "schema name")
+        safe_table = _require_ident(str(table), "table name")
+        # Mirror non-main schemas too, so `source.other.t` keeps working.
+        if safe_schema != "main":
+            con.execute(f'CREATE SCHEMA IF NOT EXISTS "{role}"."{safe_schema}"')
+        con.execute(
+            f'CREATE OR REPLACE VIEW "{role}"."{safe_schema}"."{safe_table}" AS '
+            f'SELECT * FROM "{target_db}"."{safe_schema}"."{safe_table}"'
+        )
 
 
 def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:

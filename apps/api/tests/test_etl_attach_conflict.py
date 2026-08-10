@@ -62,3 +62,86 @@ def test_a_failed_run_does_not_keep_the_file(managed_db):
     with pytest.raises(Exception):
         db_connect.run_etl_sql(managed_db, "SELECT * FROM target.does_not_exist;")
     db_connect.run_etl_sql(managed_db, "DELETE FROM target.concept;")
+
+
+# --- Two roles on ONE database --------------------------------------------
+#
+# The same "Unique file handle conflict", a different cause: not a stale pooled
+# handle but the run attaching one file twice itself, because the pipeline points
+# two roles at the same database. Reading and writing one warehouse is a normal
+# in-place transform, so it must work — and no restart ever fixed it, since the
+# conflict is created fresh on every run.
+
+
+def test_source_and_target_on_the_same_database(managed_db):
+    """The reported bug: source == target must not fail to attach."""
+    rows = db_connect.run_etl_sql(
+        managed_db,
+        "SELECT count(*) AS n FROM source.concept;",
+        {"source": {"kind": "file", "engine": "duckdb", "path": managed_db}},
+    )
+    assert rows == [{"n": 2}]
+
+
+def test_writing_target_while_reading_the_same_db_as_source(managed_db):
+    """The point of the role mechanism: one statement reads one role, writes another."""
+    db_connect.run_etl_sql(
+        managed_db,
+        "CREATE TABLE target.copied AS SELECT * FROM source.concept;",
+        {"source": {"kind": "file", "engine": "duckdb", "path": managed_db}},
+    )
+    con = duckdb.connect(managed_db)
+    try:
+        assert con.execute("SELECT count(*) FROM copied").fetchone()[0] == 2
+    finally:
+        con.close()
+
+
+def test_a_symlinked_path_is_recognised_as_the_same_file(tmp_path, managed_db):
+    """Attach identity is the resolved path: DuckDB compares open handles, so a
+    symlink to the target is the same file even though the string differs."""
+    link = tmp_path / "link.duckdb"
+    link.symlink_to(managed_db)
+    rows = db_connect.run_etl_sql(
+        managed_db,
+        "SELECT count(*) AS n FROM source.concept;",
+        {"source": {"kind": "file", "engine": "duckdb", "path": str(link)}},
+    )
+    assert rows == [{"n": 2}]
+
+
+def test_three_roles_on_the_same_database(managed_db):
+    spec = {"kind": "file", "engine": "duckdb", "path": managed_db}
+    rows = db_connect.run_etl_sql(
+        managed_db,
+        "SELECT (SELECT count(*) FROM source.concept)"
+        " + (SELECT count(*) FROM vocab.concept) AS n;",
+        {"source": dict(spec), "vocab": dict(spec)},
+    )
+    assert rows == [{"n": 4}]
+
+
+def test_a_genuinely_different_file_still_attaches_normally(tmp_path, managed_db):
+    """The alias path must not swallow the ordinary case."""
+    other = tmp_path / "other.duckdb"
+    con = duckdb.connect(str(other))
+    con.execute("CREATE TABLE patients(id BIGINT); INSERT INTO patients VALUES (9)")
+    con.close()
+    rows = db_connect.run_etl_sql(
+        managed_db,
+        "SELECT (SELECT count(*) FROM target.concept) AS t,"
+        " (SELECT count(*) FROM source.patients) AS s;",
+        {"source": {"kind": "file", "engine": "duckdb", "path": str(other)}},
+    )
+    assert rows == [{"t": 2, "s": 1}]
+
+
+def test_the_alias_is_read_only(managed_db):
+    """A role alias is a window onto the other database, not a second writable
+    handle: the script writes through `target`."""
+    with pytest.raises(Exception):
+        db_connect.run_etl_sql(
+            managed_db,
+            "INSERT INTO source.concept VALUES (3);",
+            {"source": {"kind": "file", "engine": "duckdb", "path": managed_db}},
+        )
