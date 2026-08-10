@@ -1360,7 +1360,7 @@
     "name_exists": "\"{{name}}\" already exists here.",
     "file_name_placeholder": "e.g. script",
     "name_already_exists": "A file or folder with this name already exists here",
-    "name_reserved": "This name is reserved: README, LICENSE and attachments/ are generated from the entity's own fields — edit them there, not as files",
+    "name_reserved": "This name is reserved: README and LICENSE are generated from the entity's own fields — edit them there, not as files",
     "type_text": "Plain text",
     "type_r": "R script",
     "type_python": "Python script",
@@ -1481,7 +1481,8 @@
     "save": "Save",
     "root_folder": "scripts (root)",
     "column_name": "Name",
-    "column_size": "Size"
+    "column_size": "Size",
+    "name_reserved_attachments": "This name is reserved: attachments/ is generated from the entity's own attachments — add them there, not as a folder"
   },
   "pipeline": {
     "title": "Pipeline",

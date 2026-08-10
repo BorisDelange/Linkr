@@ -1360,7 +1360,7 @@
     "name_exists": "« {{name}} » existe déjà ici.",
     "file_name_placeholder": "ex. script",
     "name_already_exists": "Un fichier ou dossier avec ce nom existe déjà ici",
-    "name_reserved": "Ce nom est réservé : README, LICENSE et attachments/ sont générés depuis les champs de l'élément — modifiez-les là, pas sous forme de fichiers",
+    "name_reserved": "Ce nom est réservé : README et LICENSE sont générés depuis les champs de l'élément — modifiez-les là, pas sous forme de fichiers",
     "type_text": "Texte brut",
     "type_r": "Script R",
     "type_python": "Script Python",
@@ -1481,7 +1481,8 @@
     "save": "Enregistrer",
     "root_folder": "scripts (racine)",
     "column_name": "Nom",
-    "column_size": "Taille"
+    "column_size": "Taille",
+    "name_reserved_attachments": "Ce nom est réservé : attachments/ est généré depuis les pièces jointes de l'élément — ajoutez-les là, pas sous forme de dossier"
   },
   "pipeline": {
     "title": "Pipeline",

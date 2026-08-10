@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { isReservedTreeName } from '@/lib/entity-tree'
+import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
 import { useTranslation } from 'react-i18next'
 import { useFileStore, buildScriptsFolderTree, getScriptsFolderId, RESERVED_ROOT_FOLDERS } from '@/stores/file-store'
 import { FolderOpen } from 'lucide-react'
@@ -136,7 +136,7 @@ export function CreateFolderDialog({
                 <p className="text-xs text-destructive">{t('files.name_already_exists')}</p>
               )}
               {isReserved && (
-                <p className="text-xs text-destructive">{t('files.name_reserved')}</p>
+                <p className="text-xs text-destructive">{t(reservedTreeNameReason(trimmedName))}</p>
               )}
             </div>
           </div>

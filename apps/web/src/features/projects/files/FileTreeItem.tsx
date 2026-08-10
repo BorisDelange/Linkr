@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { isReservedTreeName } from '@/lib/entity-tree'
+import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
 import { useState, useRef, useEffect } from 'react'
 import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
@@ -375,7 +375,7 @@ export function FileTreeItem({
               ref={renameRef}
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
-              title={renameReserved ? t('files.name_reserved') : renameClashes ? t('files.name_exists', { name: trimmedRename }) : undefined}
+              title={renameReserved ? t(reservedTreeNameReason(trimmedRename)) : renameClashes ? t('files.name_exists', { name: trimmedRename }) : undefined}
               onKeyDown={(e) => {
                 e.stopPropagation()
                 if (e.key === 'Enter') submitRename()

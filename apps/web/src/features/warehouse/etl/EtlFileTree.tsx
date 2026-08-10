@@ -45,7 +45,7 @@ import { isVersioned, toggleVersioned, setVersionedMany } from './etl-versioning
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
 import { compareTreeNodes, contentSize, sizeColumnWidthCh } from '@/lib/file-tree-sort'
 import { humanBytes } from '@/lib/format-helpers'
-import { isReservedTreeName, treeNodePath } from '@/lib/entity-tree'
+import { isReservedTreeName, reservedTreeNameReason, treeNodePath } from '@/lib/entity-tree'
 import { downloadBlob } from '@/lib/entity-io'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import {
@@ -408,7 +408,7 @@ function EtlFileTreeItem({
               ref={inputRef}
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              title={renameReserved ? t('files.name_reserved') : renameClashes ? t('etl.name_exists', { name: trimmedNewName }) : undefined}
+              title={renameReserved ? t(reservedTreeNameReason(trimmedNewName)) : renameClashes ? t('etl.name_exists', { name: trimmedNewName }) : undefined}
               onKeyDown={(e) => {
                 e.stopPropagation()
                 if (e.key === 'Enter') handleRenameSubmit()

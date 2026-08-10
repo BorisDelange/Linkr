@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { isReservedTreeName } from '@/lib/entity-tree'
+import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
 import { useTranslation } from 'react-i18next'
 import { useFileStore, buildScriptsFolderTree, getScriptsFolderId } from '@/stores/file-store'
 import {
@@ -292,7 +292,7 @@ export function CreateFileDialog({
                 <p className="text-xs text-destructive">{t('files.name_already_exists')}</p>
               )}
               {isReserved && !isDuplicate && (
-                <p className="text-xs text-destructive">{t('files.name_reserved')}</p>
+                <p className="text-xs text-destructive">{t(reservedTreeNameReason(finalName))}</p>
               )}
             </div>
           </div>

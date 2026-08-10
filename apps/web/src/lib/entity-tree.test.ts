@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  fromPathTree, isReservedTreeName, readPathTree, rederiveTreeIds, storablePathNode, toPathTree, treeNodePath,
+  fromPathTree, isReservedTreeName, readPathTree, rederiveTreeIds, reservedTreeNameReason,
+  storablePathNode, toPathTree, treeNodePath,
 } from './entity-tree'
 
 /** A stored SQL-collection tree: sofa/ { sofa.sql }, top.sql. */
@@ -184,6 +185,17 @@ describe('isReservedTreeName', () => {
   it('allows them inside a folder, where nothing is emitted', () => {
     for (const name of ['README.md', 'LICENSE.md', 'LICENSE', 'LICENCE.md', 'attachments']) {
       expect(isReservedTreeName(name, 'folder-id'), name).toBe(false)
+    }
+  })
+
+  it('explains attachments as a folder, everything else as a file', () => {
+    // ETL pipelines cannot create folders at all, so a message naming
+    // "attachments/" there would describe something the user cannot do. Keyed off
+    // the typed name rather than the caller's context.
+    expect(reservedTreeNameReason('attachments')).toBe('files.name_reserved_attachments')
+    expect(reservedTreeNameReason('  Attachments  ')).toBe('files.name_reserved_attachments')
+    for (const name of ['README.md', 'LICENSE', 'LICENCE.md', 'COPYING']) {
+      expect(reservedTreeNameReason(name), name).toBe('files.name_reserved')
     }
   })
 

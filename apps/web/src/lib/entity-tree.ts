@@ -74,6 +74,20 @@ export function isReservedTreeName(name: string, parentId: string | null): boole
   )
 }
 
+/**
+ * The i18n key explaining why `name` is refused.
+ *
+ * Derived from the name rather than from the caller's context: `attachments` is a
+ * folder, and trees that cannot create folders (ETL pipelines) would otherwise
+ * show a message about one. Keyed off what the user actually typed, so every call
+ * site gets the right wording with no flag to thread through.
+ */
+export function reservedTreeNameReason(name: string): string {
+  return name.trim().toLowerCase() === 'attachments'
+    ? 'files.name_reserved_attachments'
+    : 'files.name_reserved'
+}
+
 /** Full path of a stored node, walking parentId up to the root. */
 export function treeNodePath(node: TreeNode, byId: Map<string, TreeNode>): string {
   const parts: string[] = [node.name]

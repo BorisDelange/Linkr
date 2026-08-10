@@ -39,7 +39,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { downloadBlob } from '@/lib/entity-io'
-import { isReservedTreeName, treeNodePath } from '@/lib/entity-tree'
+import { isReservedTreeName, reservedTreeNameReason, treeNodePath } from '@/lib/entity-tree'
 import {
   EMPTY_SELECTION,
   actionTargets,
@@ -478,7 +478,7 @@ function SqlScriptsFileTreeItem({
               ref={inputRef}
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              title={renameReserved ? t('files.name_reserved') : renameClashes ? t('sql_scripts.name_exists', { name: trimmedNewName }) : undefined}
+              title={renameReserved ? t(reservedTreeNameReason(trimmedNewName)) : renameClashes ? t('sql_scripts.name_exists', { name: trimmedNewName }) : undefined}
               onKeyDown={(e) => {
                 e.stopPropagation()
                 if (e.key === 'Enter') handleRenameSubmit()

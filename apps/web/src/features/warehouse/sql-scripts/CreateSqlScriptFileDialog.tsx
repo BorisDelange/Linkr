@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { isReservedTreeName } from '@/lib/entity-tree'
+import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
 import { useTranslation } from 'react-i18next'
 import { FileCode, FileText, FolderOpen } from 'lucide-react'
 import {
@@ -199,7 +199,7 @@ export function CreateSqlScriptFileDialog({
                 </p>
               )}
               {isReserved && !isDuplicate && (
-                <p className="text-xs text-destructive">{t('files.name_reserved')}</p>
+                <p className="text-xs text-destructive">{t(reservedTreeNameReason(finalName))}</p>
               )}
             </div>
           </div>

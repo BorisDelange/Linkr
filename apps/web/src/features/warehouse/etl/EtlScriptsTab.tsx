@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
-import { isReservedTreeName } from '@/lib/entity-tree'
+import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -1114,7 +1114,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                 autoFocus
               />
               {newFileResolved.reserved && (
-                <p className="text-xs text-destructive">{t('files.name_reserved')}</p>
+                <p className="text-xs text-destructive">{t(reservedTreeNameReason(newFileResolved.name))}</p>
               )}
               {newFileResolved.clashes && (
                 <p className="text-xs text-destructive">
