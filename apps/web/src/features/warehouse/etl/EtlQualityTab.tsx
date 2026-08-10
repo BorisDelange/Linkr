@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/concept-data-table'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
+import { getStorage } from '@/lib/storage'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { validateIntegerIds } from '@/lib/format-helpers'
@@ -125,49 +126,72 @@ function StatisticsView({
   const [loading, setLoading] = useState(false)
 
   /**
-   * Count both databases. Shared by the automatic load (browser mode) and the
-   * explicit button (server mode): the message said the counts were not computed
-   * but offered no way to ask for them.
+   * Count one database and SAVE the result.
+   *
+   * The counts were recomputed on every visit and thrown away, so the work was
+   * repeated for figures that only change when the pipeline runs. They now go to
+   * databaseStatsCache — the same store the Databases page uses, backed by the
+   * server's /stats-cache in server mode.
    */
+  const computeOne = async (ds: DataSource | undefined): Promise<DatabaseStatsCache | null> => {
+    if (!ds?.id || !ds.schemaMapping) return null
+    try {
+      const fresh = await computeDatabaseStats(ds.id, ds.schemaMapping)
+      // Merge, not replace: tableCounts belong to the schema browser, which fills
+      // them separately — overwriting with our empty list would erase them.
+      const existing = await getStorage().databaseStatsCache.get(ds.id).catch(() => undefined)
+      const merged = { ...fresh, tableCounts: fresh.tableCounts.length ? fresh.tableCounts : existing?.tableCounts ?? [] }
+      await getStorage().databaseStatsCache.save(merged).catch(() => {})
+      return merged
+    } catch {
+      return null
+    }
+  }
+
   const computeStats = useCallback(async () => {
     setLoading(true)
-    const results = await Promise.all([
-      sourceDs?.id && sourceDs.schemaMapping
-        ? computeDatabaseStats(sourceDs.id, sourceDs.schemaMapping).catch(() => null)
-        : Promise.resolve(null),
-      targetDs?.id && targetDs.schemaMapping
-        ? computeDatabaseStats(targetDs.id, targetDs.schemaMapping).catch(() => null)
-        : Promise.resolve(null),
-    ])
-    setSourceStats(results[0])
-    setTargetStats(results[1])
+    const [src, tgt] = await Promise.all([computeOne(sourceDs), computeOne(targetDs)])
+    setSourceStats(src)
+    setTargetStats(tgt)
     setLoading(false)
+  // computeOne only reads the two data sources, both listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
 
   useEffect(() => {
-    // Server mode: never auto-run COUNT(*) on potentially huge databases — the
-    // user asks for it with the button instead.
-    if (isServerMode()) return
     let cancelled = false
     setLoading(true)
 
     const load = async () => {
-      const results = await Promise.all([
-        sourceDs?.id && sourceDs.schemaMapping
-          ? computeDatabaseStats(sourceDs.id, sourceDs.schemaMapping).catch(() => null)
-          : Promise.resolve(null),
-        targetDs?.id && targetDs.schemaMapping
-          ? computeDatabaseStats(targetDs.id, targetDs.schemaMapping).catch(() => null)
-          : Promise.resolve(null),
+      // Saved counts first, whatever the mode: they are what the user computed
+      // last, and showing them beats an empty card plus a fresh scan.
+      const [srcCached, tgtCached] = await Promise.all([
+        sourceDs?.id ? getStorage().databaseStatsCache.get(sourceDs.id).catch(() => undefined) : undefined,
+        targetDs?.id ? getStorage().databaseStatsCache.get(targetDs.id).catch(() => undefined) : undefined,
       ])
-      if (!cancelled) {
-        setSourceStats(results[0])
-        setTargetStats(results[1])
+      if (cancelled) return
+      setSourceStats(srcCached ?? null)
+      setTargetStats(tgtCached ?? null)
+
+      // Server mode never auto-counts: COUNT(*) could run over very large tables,
+      // so the user asks for it with the button.
+      if (isServerMode()) {
         setLoading(false)
+        return
       }
+      const [src, tgt] = await Promise.all([
+        srcCached ? Promise.resolve(srcCached) : computeOne(sourceDs),
+        tgtCached ? Promise.resolve(tgtCached) : computeOne(targetDs),
+      ])
+      if (cancelled) return
+      setSourceStats(src)
+      setTargetStats(tgt)
+      setLoading(false)
     }
     void load()
     return () => { cancelled = true }
+  // computeOne only reads the two data sources, both listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
 
   return (
@@ -229,17 +253,23 @@ function StatsColumn({
       {!loading && !stats && (
         <div className="space-y-2 py-1">
           <p className="text-[11px] text-muted-foreground">
-            {isServerMode()
-              ? t('etl.quality_stats_server')
-              : ds.schemaMapping
-                ? t('etl.quality_stats_unavailable')
-                : t('etl.quality_stats_no_model')}
+            {/* The MISSING MODEL is checked first, whatever the mode: it is the
+                specific reason nothing can be counted, and it says what to do
+                about it. Testing server mode first told the user the counts were
+                merely not automatic, then withheld the button with no explanation
+                — leaving "why is there one on target and not on source?". */}
+            {!ds.schemaMapping
+              ? t('etl.quality_stats_no_model')
+              : isServerMode()
+                ? t('etl.quality_stats_server')
+                : t('etl.quality_stats_unavailable')}
           </p>
-          {/* Only where counting can actually work: without a schema mapping there
-              is nothing to count, so a button would just fail. */}
+          {/* Only where counting can work: with no schema mapping there is nothing
+              to count, so a button would just fail. Solid and full size: it is the
+              only action on an empty card, and a small outline read as a caption. */}
           {ds.schemaMapping && (
-            <Button size="xs" variant="outline" onClick={() => void onCompute()}>
-              <Activity size={12} />
+            <Button size="sm" onClick={() => void onCompute()}>
+              <Activity size={14} />
               {t('etl.quality_stats_compute')}
             </Button>
           )}
@@ -249,19 +279,19 @@ function StatsColumn({
       {stats && (
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-2">
-            <StatBox icon={<Users size={12} className="text-blue-500" />} value={stats.summary.patientCount} label={t('etl.sidebar_patients')} />
-            <StatBox icon={<Activity size={12} className="text-emerald-500" />} value={stats.summary.visitCount} label={t('etl.sidebar_visits')} />
-            <StatBox icon={<Building2 size={12} className="text-amber-500" />} value={stats.summary.visitDetailCount} label={t('etl.sidebar_visit_units')} />
+            <StatBox icon={<Users size={16} className="text-blue-500" />} value={stats.summary.patientCount} label={t('etl.sidebar_patients')} />
+            <StatBox icon={<Activity size={16} className="text-emerald-500" />} value={stats.summary.visitCount} label={t('etl.sidebar_visits')} />
+            <StatBox icon={<Building2 size={16} className="text-amber-500" />} value={stats.summary.visitDetailCount} label={t('etl.sidebar_visit_units')} />
           </div>
 
           {stats.tableCounts.length > 0 && (
             <div className="space-y-0.5">
-              <h4 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 {t('etl.sidebar_tables')} ({stats.tableCounts.length})
               </h4>
               {stats.tableCounts.map((tc) => (
-                <div key={tc.tableName} className="flex items-center gap-2 rounded px-1 py-0.5 text-[11px]">
-                  <Table2 size={9} className="shrink-0 text-blue-500/60" />
+                <div key={tc.tableName} className="flex items-center gap-2 rounded px-1 py-1 text-xs">
+                  <Table2 size={11} className="shrink-0 text-blue-500/60" />
                   <span className="min-w-0 flex-1 truncate font-mono">{tc.tableName}</span>
                   <span className="shrink-0 tabular-nums text-muted-foreground">{tc.rowCount.toLocaleString()}</span>
                 </div>
@@ -274,12 +304,14 @@ function StatsColumn({
   )
 }
 
+/** Sized for THIS tab, which is full width — the pipeline sidebar's 300px forced
+ *  the 9px labels these started from, and they were barely legible here. */
 function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) {
   return (
-    <div className="rounded-md border p-2 text-center">
-      <div className="mx-auto mb-0.5 flex justify-center">{icon}</div>
-      <div className="text-sm font-semibold tabular-nums">{value.toLocaleString()}</div>
-      <div className="text-[9px] text-muted-foreground">{label}</div>
+    <div className="rounded-md border p-3 text-center">
+      <div className="mx-auto mb-1 flex justify-center">{icon}</div>
+      <div className="text-xl font-semibold tabular-nums">{value.toLocaleString()}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   )
 }
