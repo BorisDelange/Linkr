@@ -39,7 +39,7 @@ from app.services import (
     data_source_service,
     stats_cache_service,
 )
-from app.services.data import concept_cache_fs, managed_db
+from app.services.data import concept_cache_fs, db_connect, managed_db
 
 router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 
@@ -260,6 +260,11 @@ async def etl_run(
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except db_connect.EtlRunCancelled:
+        # The client that asked for this run is gone (reload/navigation), so there
+        # is nobody to answer. Not an error: re-raised as a cancellation so it is
+        # not reported as a failed script.
+        raise
     except Exception as e:  # noqa: BLE001 — surface SQL errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return QueryResult(rows=rows)

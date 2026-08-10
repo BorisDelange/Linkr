@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -291,9 +292,34 @@ async def run_etl(
         connection_pool.invalidate(source.id)
 
     attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"})
-    return await asyncio.to_thread(
-        db_connect.run_etl_sql, str(target_path), sql, attachments, mapping_data
+
+    # `asyncio.to_thread` cannot be cancelled: if the client goes away mid-run (a
+    # browser reload), the await returns but the worker thread keeps going, holding
+    # the target ATTACHed — every retry then failed with "Unique file handle
+    # conflict ... already attached by database 'target'" until it finished.
+    # The handle lets us interrupt the statement so the thread unwinds and frees
+    # the file. Shielded so the cancellation reaches us here rather than tearing
+    # down the await while the thread is still bound to the connection.
+    handle = db_connect.EtlRunHandle()
+    task = asyncio.create_task(
+        asyncio.to_thread(
+            db_connect.run_etl_sql,
+            str(target_path),
+            sql,
+            attachments,
+            mapping_data,
+            handle,
+        )
     )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        handle.cancel()
+        # Wait for the thread to actually release the file, so the next request
+        # (the user retrying) does not race the attach it is about to drop.
+        with contextlib.suppress(BaseException):
+            await task
+        raise
 
 
 # --- Live connection test (external databases) -----------------------------

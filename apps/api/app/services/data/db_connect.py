@@ -11,6 +11,7 @@ import datetime
 import os
 import re
 import tempfile
+import threading
 import uuid
 from collections.abc import Callable
 from decimal import Decimal
@@ -674,11 +675,71 @@ def introspect_external(config: dict, password: str | None) -> list[dict]:
 
 # --- ETL runs (writable target + read-only role databases) ------------------
 
+class EtlRunCancelled(Exception):
+    """The run was stopped because its caller went away (client reload/disconnect)."""
+
+
+class EtlRunHandle:
+    """A live ETL run, so a caller whose request died can stop it.
+
+    `asyncio.to_thread` CANNOT be cancelled: when the client goes away (a browser
+    reload mid-run), the request coroutine is cancelled and the `await` returns,
+    but the worker thread runs on — still holding the target ATTACHed. Every retry
+    then hit "Unique file handle conflict: ... already attached by database
+    'target'" until that thread finished, which for a vocabulary script copying
+    millions of concept rows meant minutes. It looked permanent, and restarting the
+    server "fixed" it only by killing the thread.
+
+    `interrupt()` is safe from another thread and aborts the statement in progress,
+    so the run unwinds through its own `finally` and releases the file.
+    """
+
+    __slots__ = ("_con", "_lock", "_cancelled", "_done")
+
+    def __init__(self) -> None:
+        self._con: duckdb.DuckDBPyConnection | None = None
+        self._lock = threading.Lock()
+        self._cancelled = False
+        self._done = False
+
+    def _bind(self, con: duckdb.DuckDBPyConnection) -> bool:
+        """Attach the connection to this handle. False when already cancelled —
+        the caller gave up before the connection existed, so don't start."""
+        with self._lock:
+            if self._cancelled:
+                return False
+            self._con = con
+            return True
+
+    def _finish(self) -> None:
+        with self._lock:
+            self._con = None
+            self._done = True
+
+    def cancel(self) -> None:
+        """Abort the run. Safe to call from any thread, before or after the run
+        starts, and more than once."""
+        with self._lock:
+            self._cancelled = True
+            con = self._con if not self._done else None
+        if con is not None:
+            try:
+                con.interrupt()
+            except Exception:  # noqa: BLE001 — already finishing is fine
+                pass
+
+    @property
+    def cancelled(self) -> bool:
+        with self._lock:
+            return self._cancelled
+
+
 def run_etl_sql(
     target_path: str,
     sql: str,
     roles: dict[str, dict] | None = None,
     mapping_data: dict[str, str] | None = None,
+    handle: EtlRunHandle | None = None,
 ) -> list[dict]:
     """Run an ETL script against a writable managed DuckDB file.
 
@@ -704,6 +765,11 @@ def run_etl_sql(
     # directly would name that database after the file and make it impossible to
     # also attach it as `target` (DuckDB refuses the same file twice).
     con = duckdb.connect()
+    # Registered before the first ATTACH: a cancel arriving in that window must
+    # still be able to stop the run, or it would attach and hold the file anyway.
+    if handle is not None and not handle._bind(con):
+        con.close()
+        raise EtlRunCancelled()
     with tempfile.TemporaryDirectory(prefix="linkr-mapping-") as tmp:
         try:
             con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
@@ -746,7 +812,15 @@ def run_etl_sql(
             # database: keep the writable target first.
             search_path = "target,memory"
             return _run_statements(con, search_path, sql)
+        except duckdb.InterruptException as e:
+            # Only a cancel raises this — report it as such rather than as a SQL
+            # error, so the caller does not surface "Interrupted!" to the user.
+            if handle is not None and handle.cancelled:
+                raise EtlRunCancelled() from e
+            raise
         finally:
+            if handle is not None:
+                handle._finish()
             con.close()
 
 

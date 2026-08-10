@@ -7,6 +7,9 @@ Browsing a managed database leaves a pooled connection holding it READ_ONLY as
 server restarted, because the pool kept the handle warm.
 """
 
+import threading
+import time
+
 import duckdb
 import pytest
 
@@ -134,6 +137,96 @@ def test_a_genuinely_different_file_still_attaches_normally(tmp_path, managed_db
         {"source": {"kind": "file", "engine": "duckdb", "path": str(other)}},
     )
     assert rows == [{"t": 2, "s": 1}]
+
+
+# --- A run whose client went away ------------------------------------------
+#
+# The third cause of the same message, and the one that actually bit in practice:
+# `asyncio.to_thread` cannot be cancelled, so a browser reload mid-run left the
+# worker thread holding the target attached. Here BOTH names in the error are
+# "target" (two runs, same role) — that is how it is told apart from the two
+# causes above.
+
+
+@pytest.fixture
+def slow_db(tmp_path):
+    """Big enough that a cross join is still running when the test retries."""
+    path = tmp_path / "slow.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE t AS SELECT * FROM range(200000)")
+    con.close()
+    yield str(path)
+    connection_pool.clear()
+
+
+SLOW_SQL = (
+    "CREATE OR REPLACE TABLE target.out AS "
+    "SELECT a.range x, b.range y FROM target.t a, target.t b WHERE a.range < 400;"
+)
+
+
+def test_cancel_frees_the_file_for_the_next_run(slow_db):
+    """The reported sequence: run, reload the page, run again."""
+    handle = db_connect.EtlRunHandle()
+    started = threading.Event()
+    failed: list[BaseException] = []
+
+    def work():
+        started.set()
+        try:
+            db_connect.run_etl_sql(slow_db, SLOW_SQL, handle=handle)
+        except BaseException as e:  # noqa: BLE001 — recorded for the assertion
+            failed.append(e)
+
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    assert started.wait(5)
+    time.sleep(0.4)  # let the statement get going
+
+    handle.cancel()
+    thread.join(30)
+    assert not thread.is_alive(), "the run did not stop when cancelled"
+    assert isinstance(failed[0], db_connect.EtlRunCancelled)
+
+    # The retry the user makes: must not hit "already attached by database target".
+    db_connect.run_etl_sql(slow_db, "SELECT count(*) FROM target.t;")
+
+
+def test_cancelling_before_the_run_starts_never_attaches(slow_db):
+    """A cancel that lands in the window before the first ATTACH must still stop
+    the run, or it would take the file and hold it."""
+    handle = db_connect.EtlRunHandle()
+    handle.cancel()
+    with pytest.raises(db_connect.EtlRunCancelled):
+        db_connect.run_etl_sql(slow_db, SLOW_SQL, handle=handle)
+    # Nothing was left attached.
+    db_connect.run_etl_sql(slow_db, "SELECT count(*) FROM target.t;")
+
+
+def test_cancel_is_idempotent_and_safe_after_completion(slow_db):
+    handle = db_connect.EtlRunHandle()
+    db_connect.run_etl_sql(slow_db, "SELECT 1 AS x;", handle=handle)
+    handle.cancel()
+    handle.cancel()
+
+
+def test_a_run_without_a_handle_still_works(slow_db):
+    """The handle is optional: existing callers pass nothing."""
+    assert db_connect.run_etl_sql(slow_db, "SELECT 42 AS x;") == [{"x": 42}]
+
+
+def test_an_uninterrupted_run_is_not_reported_as_cancelled(slow_db):
+    handle = db_connect.EtlRunHandle()
+    assert db_connect.run_etl_sql(slow_db, "SELECT 7 AS x;", handle=handle) == [{"x": 7}]
+    assert not handle.cancelled
+
+
+def test_a_sql_error_is_still_a_sql_error_not_a_cancellation(slow_db):
+    """The InterruptException branch must not swallow ordinary failures."""
+    handle = db_connect.EtlRunHandle()
+    with pytest.raises(Exception) as exc:
+        db_connect.run_etl_sql(slow_db, "SELECT * FROM target.nope;", handle=handle)
+    assert not isinstance(exc.value, db_connect.EtlRunCancelled)
 
 
 def test_the_alias_is_read_only(managed_db):
