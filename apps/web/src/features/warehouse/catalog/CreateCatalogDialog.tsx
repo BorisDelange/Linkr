@@ -79,8 +79,11 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
     }
   }, [editingCatalog, open])
 
-  const handleSubmit = async () => {
-    if (!name.trim() || !activeWorkspaceId) return
+  const canSubmit = !!name.trim() && (isEdit || isEntityIdValid(entityId, existingIds))
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!canSubmit || !activeWorkspaceId) return
 
     if (isEdit && editingCatalog) {
       await updateCatalog(editingCatalog.id, {
@@ -121,23 +124,24 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            {isEdit ? t('data_catalog.edit_title') : t('data_catalog.create_title')}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label className="text-xs">{t('data_catalog.name')}<RequiredMark /></Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('data_catalog.name_placeholder')}
-              className="mt-1"
-              autoFocus
-            />
-          </div>
-                      <EntityIdField
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>
+              {isEdit ? t('data_catalog.edit_title') : t('data_catalog.create_title')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <div>
+              <Label>{t('data_catalog.name')}<RequiredMark /></Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('data_catalog.name_placeholder')}
+                className="mt-1"
+                autoFocus
+              />
+            </div>
+            <EntityIdField
               name={name}
               value={entityId}
               onChange={setEntityId}
@@ -147,57 +151,58 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
               required
               readOnly={isEdit}
             />
-          <div>
-            <Label className="text-xs">{t('data_catalog.field_description')}</Label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('data_catalog.field_description_placeholder')}
-              className="mt-1"
-            />
-          </div>
-          <div>
-            <Label className="text-xs">{t('data_catalog.database')}</Label>
-            <Select value={dataSourceId} onValueChange={setDataSourceId}>
-              <SelectTrigger className="mt-1">
-                <SelectValue placeholder={t('data_catalog.select_database')} />
-              </SelectTrigger>
-              <SelectContent>
-                {dbSources.map((ds) => (
-                  <SelectItem key={ds.id} value={ds.id}>
-                    {ds.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
-
-          <VersionField value={version} onChange={setVersion} />
-
-          {isEdit && editingCatalog && (
-            <div className="border-t pt-4">
-              <AuthoringFields
-                value={{
-                  createdById: 'createdById' in authoring ? authoring.createdById : editingCatalog.createdById,
-                  createdBy: authoring.createdBy ?? editingCatalog.createdBy,
-                  createdByDetails: authoring.createdByDetails ?? editingCatalog.createdByDetails,
-                  organization: authoring.organization ?? editingCatalog.organization,
-                }}
-                onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+            <div>
+              <Label>{t('data_catalog.field_description')}</Label>
+              <Input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={t('data_catalog.field_description_placeholder')}
+                className="mt-1"
               />
             </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleSubmit} disabled={!name.trim() || (!isEdit && !isEntityIdValid(entityId, existingIds))}>
-            {isEdit ? t('common.save') : t('common.create')}
-          </Button>
-        </DialogFooter>
+            <div>
+              <Label>{t('data_catalog.database')}</Label>
+              <Select value={dataSourceId} onValueChange={setDataSourceId}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder={t('data_catalog.select_database')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {dbSources.map((ds) => (
+                    <SelectItem key={ds.id} value={ds.id}>
+                      {ds.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
+
+            <VersionField value={version} onChange={setVersion} />
+
+            {isEdit && editingCatalog && (
+              <div className="border-t pt-4">
+                <AuthoringFields
+                  value={{
+                    createdById: 'createdById' in authoring ? authoring.createdById : editingCatalog.createdById,
+                    createdBy: authoring.createdBy ?? editingCatalog.createdBy,
+                    createdByDetails: authoring.createdByDetails ?? editingCatalog.createdByDetails,
+                    organization: authoring.organization ?? editingCatalog.organization,
+                  }}
+                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter className="mt-6">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" disabled={!canSubmit}>
+              {isEdit ? t('common.save') : t('common.create')}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
