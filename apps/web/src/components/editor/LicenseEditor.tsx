@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import { ArrowLeft, Check, Pencil, Repeat, Scale, Trash2, X } from 'lucide-react'
@@ -50,10 +50,6 @@ export function LicenseEditor({
   const [removeOpen, setRemoveOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => {
-    if (mode === 'view') setDraft(null)
-  }, [mode])
-
   const handlePickStandard = async (id: (typeof LICENSE_TEMPLATES)[number]['id']) => {
     const raw = await loadLicenseText(id)
     const text = fillLicensePlaceholders(raw, {
@@ -69,6 +65,11 @@ export function LicenseEditor({
     setMode('edit')
   }
 
+  const backToView = () => {
+    setDraft(null)
+    setMode('view')
+  }
+
   const handleSave = async () => {
     if (!draft) return
     const trimmedName = draft.name?.trim()
@@ -77,7 +78,7 @@ export function LicenseEditor({
       ...(draft.id === 'custom' ? { name: trimmedName } : trimmedName ? { name: trimmedName } : {}),
       text: draft.text,
     })
-    setMode('view')
+    backToView()
   }
 
   const applyFormat = (format: MarkdownFormat) => {
@@ -128,14 +129,14 @@ export function LicenseEditor({
             </>
           )}
           {mode === 'pick' && (
-            <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setMode('view')}>
+            <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={backToView}>
               <ArrowLeft size={12} />
               {t('common.cancel')}
             </Button>
           )}
           {mode === 'edit' && (
             <>
-              <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setMode('view')}>
+              <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={backToView}>
                 <X size={12} />
                 {t('common.cancel')}
               </Button>

@@ -4,6 +4,8 @@ import { Plus, Upload, type LucideIcon } from 'lucide-react'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { EntityActionsMenu, type EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { EntityDocsDialog } from '@/components/ui/entity-docs-dialog'
+import { localized } from '@/lib/localized'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { shortenIdAmong } from '@/lib/short-id'
 import { GitContentStatusBadge } from '@/components/versioning/GitContentStatusBadge'
@@ -130,7 +132,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   canEdit = true,
   canDelete = true,
 }: ListPageTemplateProps<T>) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   // These warehouse entities inherit their org from the workspace (no org field of
   // their own): a locally-created item has no frozen `organization` snapshot, so the
@@ -146,6 +148,9 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  // The footer's license chip opens the docs dialog straight on its License tab —
+  // the same dialog the card's "..." menu opens.
+  const [licenseTarget, setLicenseTarget] = useState<T | null>(null)
 
   return (
     <div className="h-full overflow-auto">
@@ -265,6 +270,8 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     organization={item.organization}
                     createdAt={item.createdAt}
                     updatedAt={item.updatedAt}
+                    license={docs ? docs.getLicense(item) : undefined}
+                    onOpenLicense={docs ? () => setLicenseTarget(item) : undefined}
                   />
                 </div>
               </Card>
@@ -281,6 +288,25 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
       })}
 
       {/* Import dialog (ZIP upload or git clone) */}
+      {docs && licenseTarget && (
+        <EntityDocsDialog
+          open
+          onOpenChange={(open) => { if (!open) setLicenseTarget(null) }}
+          initialTab="license"
+          entityName={localized(licenseTarget.name, i18n.language)}
+          readme={docs.getReadme(licenseTarget)}
+          onSaveReadme={(readme) => docs.onSaveReadme(licenseTarget, readme)}
+          license={docs.getLicense(licenseTarget)}
+          onSaveLicense={(license) => docs.onSaveLicense(licenseTarget, license)}
+          canEdit={canEdit}
+          attachmentOwner={docs.attachmentOwnerType ? {
+            type: docs.attachmentOwnerType,
+            id: docs.getOwnerId?.(licenseTarget) ?? licenseTarget.id,
+            workspaceId: docs.getWorkspaceId?.(licenseTarget),
+          } : undefined}
+        />
+      )}
+
       {onImport && (
         <ImportSourceDialog
           open={importOpen}

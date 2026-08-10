@@ -9,7 +9,9 @@ import { useUserDirectoryStore, toDetails } from '@/stores/user-directory-store'
 import { useAppStore } from '@/stores/app-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import type { AuthorDetails } from '@/types/author'
-import type { OrganizationInfo } from '@/types'
+import type { EntityLicense, OrganizationInfo } from '@/types'
+import { licenseTitle } from '@/lib/licenses'
+import { Scale } from 'lucide-react'
 
 interface CardMetaFooterProps {
   /** Stable creator id — resolved to the *current* display name AND details
@@ -26,6 +28,10 @@ interface CardMetaFooterProps {
   organization?: OrganizationInfo
   createdAt?: string
   updatedAt?: string
+  /** The entity's license, shown as a chip. Clicking it opens the license view. */
+  license?: EntityLicense | null
+  /** Opens the entity's license (tab or dialog). Without it the chip is plain text. */
+  onOpenLicense?: () => void
   /** Extra leading content on the meta row (e.g. a per-card stat like "3 projects"). */
   leading?: React.ReactNode
   /** Extra content pinned to the right of the meta row (e.g. a card action button). */
@@ -179,14 +185,59 @@ function AuthorChip({
   )
 }
 
-/** A date with a tooltip spelling out whether it's the creation or modification date. */
-function DateChip({ date, tooltip }: { date: string; tooltip: string }) {
+/**
+ * The last-modification date, with both dates spelled out on hover. Only one is
+ * shown on the row: two bare dates side by side said nothing about which was
+ * which, and the row has to leave room for the license.
+ */
+function DateChip({ created, updated, t }: { created: string; updated: string; t: (k: string, o?: Record<string, unknown>) => string }) {
+  const shown = updated || created
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="shrink-0 cursor-default">{date}</span>
+        <span tabIndex={0} className="shrink-0 cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">{shown}</span>
       </TooltipTrigger>
-      <TooltipContent side="top" className="text-xs">{tooltip}</TooltipContent>
+      <TooltipContent side="top" className="text-xs">
+        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+          {created && <DetailRow label={t('common.created')} value={created} />}
+          {updated && <DetailRow label={t('common.modified')} value={updated} />}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** The entity's license, or an invitation to pick one. Clickable when the caller
+ *  knows how to open the license view. */
+function LicenseChip({
+  license, onOpen, t,
+}: {
+  license?: EntityLicense | null
+  onOpen?: () => void
+  t: (k: string) => string
+}) {
+  const title = license ? licenseTitle(license) : t('license.none_short')
+  const body = (
+    <span className={cn('flex min-w-0 items-center gap-1', !license && 'italic')}>
+      <Scale size={11} className="shrink-0" />
+      <span className="truncate">{title}</span>
+    </span>
+  )
+  if (!onOpen) return <span className="min-w-0">{body}</span>
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="min-w-0 rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {body}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">
+        {license ? t('license.open') : t('license.choose')}
+      </TooltipContent>
     </Tooltip>
   )
 }
@@ -197,7 +248,7 @@ function DateChip({ date, tooltip }: { date: string; tooltip: string }) {
  * which). Renders nothing when there's nothing to show. Sits below the card body
  * so every harmonized list widget reads the same.
  */
-export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, leading, trailing, className }: CardMetaFooterProps) {
+export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, license, onOpenLicense, leading, trailing, className }: CardMetaFooterProps) {
   const { t, i18n } = useTranslation()
   // Prefer the live directory name + details (reflects profile edits); fall back to
   // the snapshot taken at creation when the id can't be resolved (author gone /
@@ -221,7 +272,8 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
   const label = resolved || authorLabel(createdBy, details)
   const created = createdAt ? formatDate(createdAt, i18n.language) : ''
   const updated = updatedAt ? formatDate(updatedAt, i18n.language) : ''
-  if (!label && !created && !updated && !leading && !trailing) return null
+  const showLicense = !!license || !!onOpenLicense
+  if (!label && !created && !updated && !showLicense && !leading && !trailing) return null
 
   // Outer wrapper owns the top gap + optional mt-auto (pin to card bottom); the
   // gap lives in pt-3 so it survives even when mt-auto collapses to 0. Callers
@@ -245,9 +297,9 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
           />
         )}
         {label && (created || updated) && <Sep />}
-        {created && <DateChip date={created} tooltip={t('common.created_on', { date: created })} />}
-        {created && updated && <Sep />}
-        {updated && <DateChip date={updated} tooltip={t('common.last_modified', { date: updated })} />}
+        {(created || updated) && <DateChip created={created} updated={updated} t={t} />}
+        {(label || created || updated) && showLicense && <Sep />}
+        {showLicense && <LicenseChip license={license} onOpen={onOpenLicense} t={t} />}
         {/* ml-auto pins the action right; the meta chips above it truncate rather
             than push it off the row. */}
         {trailing && <span className="ml-auto shrink-0">{trailing}</span>}

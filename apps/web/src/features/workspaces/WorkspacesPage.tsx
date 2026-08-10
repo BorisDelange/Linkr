@@ -1000,6 +1000,11 @@ export function WorkspacesPage() {
                       organization={raw?.organization}
                       createdAt={ws.createdAt}
                       updatedAt={ws.updatedAt}
+                      license={raw?.license}
+                      onOpenLicense={() => {
+                        openWorkspace(ws.id, ws.name)
+                        navigate(`${paths.workspaceHome(ws.id)}?tab=license`)
+                      }}
                     />
                   </div>
                 </Card>

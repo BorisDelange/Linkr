@@ -486,6 +486,11 @@ export function ProjectsPage() {
                       organization={raw?.organization}
                       createdAt={project.createdAt}
                       updatedAt={project.updatedAt}
+                      license={raw?.license}
+                      onOpenLicense={() => {
+                        openProject(project.uid, localized(project.name, i18n.language))
+                        navigate(`${paths.projectSummary(wsUid ?? '', project.uid)}?tab=license`)
+                      }}
                     />
                   </div>
                 </Card>

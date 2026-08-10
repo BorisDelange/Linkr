@@ -28,6 +28,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { CatalogInstallDialog } from './CatalogInstallDialog'
 import type { CatalogEntry } from '@/lib/catalog/types'
+import type { EntityLicense } from '@/types'
 
 /** Organization label used by the filter list, the filter test and the search haystack. */
 function orgNameOf(entry: CatalogEntry, language: string): string {
@@ -395,6 +396,8 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
           organization={entry.organization ? { ...entry.organization, name: entry.organization.name ?? '' } : undefined}
           createdAt={entry.createdAt}
           updatedAt={entry.updatedAt}
+          // The index carries an SPDX id, not the text: shown, never opened.
+          license={entry.license ? { id: entry.license as EntityLicense['id'], text: '' } : undefined}
           // The footer already swallows clicks, so the button can't reach the card's
           // open-the-repo handler.
           trailing={

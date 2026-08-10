@@ -2777,6 +2777,8 @@
     "filters": "Filtres",
     "badges": "Badges",
     "created_on": "Créé le {{date}}",
+    "created": "Créé le",
+    "modified": "Modifié le",
     "last_modified": "Modifié le {{date}}",
     "sort_by": "Trier par",
     "sort_alphabetical": "Alphabétique",
@@ -4456,6 +4458,8 @@
   "license": {
     "title": "Licence",
     "no_license": "Aucune licence. Sans licence, personne n'a le droit de réutiliser ce contenu.",
+    "none_short": "Sans licence",
+    "open": "Voir la licence",
     "choose": "Choisir une licence",
     "change": "Changer",
     "remove": "Retirer",

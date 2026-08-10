@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
 import { localized } from '@/lib/localized'
@@ -48,7 +48,17 @@ export function WorkspaceHomePage() {
   const { _workspacesRaw, updateWorkspaceReadme, updateWorkspaceLicense } = useWorkspaceStore()
   const { _projectsRaw, getWorkspaceProjects, openProject, language } = useAppStore()
 
-  const [tab, setTab] = useState('overview')
+  // URL-synced like the project summary's tabs, so a card's license chip can link
+  // straight here and the tab survives a reload.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') ?? 'overview'
+  const setTab = (value: string) => {
+    setSearchParams((prev) => {
+      if (value === 'overview') prev.delete('tab')
+      else prev.set('tab', value)
+      return prev
+    })
+  }
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const { attachments, uploadAttachment, deleteAttachment, resolveAttachmentUrls } =
     useReadmeAttachments('workspace', wsUid ?? '')
