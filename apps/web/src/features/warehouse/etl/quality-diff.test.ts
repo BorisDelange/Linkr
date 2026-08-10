@@ -83,3 +83,18 @@ describe('countByDiff', () => {
     expect(countByDiff([])).toEqual({ match: 0, missing: 0, fewer: 0, more: 0 })
   })
 })
+
+describe('what "OK" (match) actually means', () => {
+  it('is decided on ROWS alone, to the row — no tolerance', () => {
+    // Asked directly: does OK allow a margin? It must not.
+    expect(classifyDiff(100, 100, 100)).toBe('match')
+    expect(classifyDiff(100, 99, 100)).toBe('fewer')
+    expect(classifyDiff(100, 101, 100)).toBe('more')
+  })
+
+  it('ignores patient counts entirely', () => {
+    // They are shown in the table but take no part in the verdict: the same rows
+    // spread over a different number of patients is still a match.
+    expect(classifyDiff(50, 50, 50)).toBe('match')
+  })
+})

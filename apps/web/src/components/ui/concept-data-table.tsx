@@ -122,6 +122,12 @@ interface ConceptDataTableProps<T> {
    * DOM node makes sorting and resizing visibly slow.
    */
   pageSize?: number
+  /**
+   * Column to sort by on first render, and its direction. The user can still
+   * change it; this only decides what they see before touching anything, which
+   * matters when the interesting rows are the big ones.
+   */
+  initialSorting?: { columnId: string; desc: boolean }
 }
 
 /**
@@ -129,9 +135,9 @@ interface ConceptDataTableProps<T> {
  * (text / number / multi-select), column-visibility menu and a results count.
  * Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting }: ConceptDataTableProps<T>) {
   const { t } = useTranslation()
-  const [sorting, setSorting] = useState<Sorting>(null)
+  const [sorting, setSorting] = useState<Sorting>(initialSorting ?? null)
   const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>({})
   const [page, setPage] = useState(0)
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})

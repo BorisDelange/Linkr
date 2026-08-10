@@ -124,9 +124,29 @@ function StatisticsView({
   const [targetStats, setTargetStats] = useState<DatabaseStatsCache | null>(null)
   const [loading, setLoading] = useState(false)
 
+  /**
+   * Count both databases. Shared by the automatic load (browser mode) and the
+   * explicit button (server mode): the message said the counts were not computed
+   * but offered no way to ask for them.
+   */
+  const computeStats = useCallback(async () => {
+    setLoading(true)
+    const results = await Promise.all([
+      sourceDs?.id && sourceDs.schemaMapping
+        ? computeDatabaseStats(sourceDs.id, sourceDs.schemaMapping).catch(() => null)
+        : Promise.resolve(null),
+      targetDs?.id && targetDs.schemaMapping
+        ? computeDatabaseStats(targetDs.id, targetDs.schemaMapping).catch(() => null)
+        : Promise.resolve(null),
+    ])
+    setSourceStats(results[0])
+    setTargetStats(results[1])
+    setLoading(false)
+  }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
+
   useEffect(() => {
-    // Server mode: never auto-run COUNT(*) on potentially huge databases.
-    // The stats states keep their initial null/false — nothing else sets them.
+    // Server mode: never auto-run COUNT(*) on potentially huge databases — the
+    // user asks for it with the button instead.
     if (isServerMode()) return
     let cancelled = false
     setLoading(true)
@@ -153,8 +173,8 @@ function StatisticsView({
   return (
     <ScrollArea className="h-full">
       <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
-        <StatsColumn label={t('etl.source')} ds={sourceDs} stats={sourceStats} loading={loading} accent="orange" />
-        <StatsColumn label={t('etl.target')} ds={targetDs} stats={targetStats} loading={loading} accent="emerald" />
+        <StatsColumn label={t('etl.source')} ds={sourceDs} stats={sourceStats} loading={loading} accent="orange" onCompute={computeStats} />
+        <StatsColumn label={t('etl.target')} ds={targetDs} stats={targetStats} loading={loading} accent="emerald" onCompute={computeStats} />
       </div>
     </ScrollArea>
   )
@@ -166,12 +186,14 @@ function StatsColumn({
   stats,
   loading,
   accent,
+  onCompute,
 }: {
   label: string
   ds: DataSource | undefined
   stats: DatabaseStatsCache | null
   loading: boolean
   accent: 'orange' | 'emerald'
+  onCompute: () => void | Promise<void>
 }) {
   const { t } = useTranslation()
   const borderColor = accent === 'orange' ? 'border-orange-500/30' : 'border-emerald-500/30'
@@ -205,13 +227,23 @@ function StatsColumn({
           which reads as a rendering fault rather than "not computed". Server mode
           never auto-counts, and a database with no data model has nothing to count. */}
       {!loading && !stats && (
-        <p className="py-1 text-[11px] text-muted-foreground">
-          {isServerMode()
-            ? t('etl.quality_stats_server')
-            : ds.schemaMapping
-              ? t('etl.quality_stats_unavailable')
-              : t('etl.quality_stats_no_model')}
-        </p>
+        <div className="space-y-2 py-1">
+          <p className="text-[11px] text-muted-foreground">
+            {isServerMode()
+              ? t('etl.quality_stats_server')
+              : ds.schemaMapping
+                ? t('etl.quality_stats_unavailable')
+                : t('etl.quality_stats_no_model')}
+          </p>
+          {/* Only where counting can actually work: without a schema mapping there
+              is nothing to count, so a button would just fail. */}
+          {ds.schemaMapping && (
+            <Button size="xs" variant="outline" onClick={() => void onCompute()}>
+              <Activity size={12} />
+              {t('etl.quality_stats_compute')}
+            </Button>
+          )}
+        </div>
       )}
 
       {stats && (
@@ -412,6 +444,8 @@ function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) 
           // A dictionary runs to thousands of mappings; rendering a DOM row for
           // each is what made sorting and resizing crawl.
           pageSize={100}
+          // Biggest source volumes first: those are the mappings whose gaps matter.
+          initialSorting={{ columnId: 'sourceRows', desc: true }}
         />
       </div>
     </div>

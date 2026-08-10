@@ -3044,6 +3044,7 @@
     "tab_vocabulary": "Vocabulaire",
     "tab_quality": "Contrôle qualité",
     "quality_stats_server": "Les statistiques ne sont pas calculées automatiquement sur le serveur : les décomptes porteraient sur des tables potentiellement très volumineuses.",
+    "quality_stats_compute": "Calculer les statistiques",
     "quality_stats_unavailable": "Les statistiques n'ont pas pu être calculées pour cette base.",
     "quality_stats_no_model": "Aucun modèle de données défini pour cette base, les effectifs de patients et de séjours ne peuvent donc pas être calculés. Définissez-le dans Éditer.",
     "comparison_target_vocab": "Vocabulaire cible",
