@@ -6,6 +6,8 @@ import { useProjectTree, type TreeNode } from '@/hooks/use-project-tree'
 import { FileTreeItem } from './FileTreeItem'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
+import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
 
 /** Canonical root sort order for the project tree. */
 const ROOT_ORDER: Record<string, number> = {
@@ -45,6 +47,9 @@ export function FileTree({ onNewChild }: FileTreeProps) {
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const { nodes } = useProjectTree(activeProjectUid)
   const [rootDragOver, setRootDragOver] = useState(false)
+  // 'manual' is this tree's canonical layout (project.json, README.md, scripts…),
+  // which carries meaning a name sort would destroy; name and size are views.
+  const [sort, setSort] = useState<FileTreeSort>({ key: 'manual', desc: false })
 
   // Virtual nodes (read-only views of other entities) are hidden from the IDE
   // tree, except those flagged showInIde (the datasets/ subtree), shown read-only.
@@ -52,12 +57,21 @@ export function FileTree({ onNewChild }: FileTreeProps) {
     return node.virtual !== true || (node as { showInIde?: true }).showInIde === true
   }
 
+  const sortable = (n: TreeNode) => ({
+    name: n.name,
+    type: n.type,
+    size: contentSize((n as { content?: string }).content),
+  })
+  const compare = (a: TreeNode, b: TreeNode) => compareTreeNodes(sortable(a), sortable(b), sort)
+
   const rootNodes = nodes
     .filter((f) => f.parentId === null && isVisible(f))
-    .sort(sortRootNodes)
+    .sort(sort.key === 'manual' ? sortRootNodes : compare)
 
   function getChildren(parentId: string): TreeNode[] {
-    return nodes.filter((f) => f.parentId === parentId && isVisible(f)).sort(sortNodes)
+    return nodes
+      .filter((f) => f.parentId === parentId && isVisible(f))
+      .sort(sort.key === 'manual' ? sortNodes : compare)
   }
 
   if (rootNodes.length === 0) {
@@ -89,9 +103,11 @@ export function FileTree({ onNewChild }: FileTreeProps) {
   }
 
   return (
-    // Radix wraps the viewport content in a `display:table` div that grows to the
-    // widest row, which defeats `truncate` on the file rows. Force that inner div
-    // back to a plain block so rows are constrained to the sidebar width.
+    <>
+      <FileTreeHeader sort={sort} onChange={setSort} showManual />
+    {/* Radix wraps the viewport content in a `display:table` div that grows to the
+        widest row, which defeats `truncate` on the file rows. Force that inner div
+        back to a plain block so rows are constrained to the sidebar width. */}
     <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
       <div
         className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
@@ -112,5 +128,6 @@ export function FileTree({ onNewChild }: FileTreeProps) {
         ))}
       </div>
     </ScrollArea>
+    </>
   )
 }

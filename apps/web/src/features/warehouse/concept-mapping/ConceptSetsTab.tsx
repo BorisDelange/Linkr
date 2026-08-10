@@ -1780,7 +1780,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                                   </span>
                                 )}
                                 <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                                  {humanBytes(f.size)}
+                                  {humanBytes(f.size, i18n.language)}
                                 </span>
                               </label>
                             )

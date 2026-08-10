@@ -39,6 +39,9 @@ import {
 import { cn } from '@/lib/utils'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
+import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
+import { humanBytes } from '@/lib/format-helpers'
 import type { SqlScriptFile } from '@/types'
 
 interface Props {
@@ -53,6 +56,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [deleteConfirmFileId, setDeleteConfirmFileId] = useState<string | null>(null)
   const [rootDragOver, setRootDragOver] = useState(false)
+  const [sort, setSort] = useState<FileTreeSort>({ key: 'manual', desc: false })
 
   const toggleFolder = (id: string) => {
     setExpandedFolders((prev) => {
@@ -81,8 +85,15 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
   const deleteConfirmFile = deleteConfirmFileId ? files.find((f) => f.id === deleteConfirmFileId) : null
 
   const rootFiles = files.filter((f) => f.parentId === null)
+  // Defaults to the drag order, which this tree persists and which the user set
+  // deliberately; name and size are alternative views on the same list.
+  const compare = (a: SqlScriptFile, b: SqlScriptFile) => compareTreeNodes(
+    { name: a.name, type: a.type, size: contentSize(a.content), order: a.order },
+    { name: b.name, type: b.type, size: contentSize(b.content), order: b.order },
+    sort,
+  )
   const getChildren = (parentId: string) =>
-    files.filter((f) => f.parentId === parentId).sort((a, b) => a.order - b.order)
+    files.filter((f) => f.parentId === parentId).sort(compare)
   // True if another node under the same parent already has this name (rename guard).
   const nameExists = (parentId: string | null, name: string, exceptId: string) =>
     files.some(
@@ -110,6 +121,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
 
   return (
     <>
+      <FileTreeHeader sort={sort} onChange={setSort} showManual />
       <ScrollArea className="flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div
           className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
@@ -117,7 +129,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
           onDragLeave={() => setRootDragOver(false)}
           onDrop={handleRootDrop}
         >
-          {rootFiles.sort((a, b) => a.order - b.order).map((file) => (
+          {[...rootFiles].sort(compare).map((file) => (
             <SqlScriptsFileTreeItem
               key={file.id}
               file={file}
@@ -209,7 +221,7 @@ function SqlScriptsFileTreeItem({
   expandedFolders: Set<string>
   selectedFileId: string | null
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('sql-scripts:write')
   const canDelete = useMyWorkspaceRole().can('sql-scripts:delete')
   const [editing, setEditing] = useState(false)
@@ -429,6 +441,13 @@ function SqlScriptsFileTreeItem({
           >
             {icon}
             <span ref={nameRef} className="truncate">{file.name}</span>
+            {/* Discreet and last, so it answers "which is the big one" without
+                competing with the name. */}
+            {file.type === 'file' && contentSize(file.content) != null && (
+              <span className="ml-auto shrink-0 pl-1 text-[10px] tabular-nums text-muted-foreground/60">
+                {humanBytes(contentSize(file.content), i18n.language)}
+              </span>
+            )}
           </button>
           </TooltipTrigger>
         </ContextMenuTrigger>

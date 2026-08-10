@@ -7,6 +7,8 @@ export interface SortableNode {
   type: 'file' | 'folder'
   /** Bytes, when known. A tree whose nodes hold text can measure it. */
   size?: number
+  /** The user's own position, for trees that persist a drag order. */
+  order?: number
 }
 
 /**
@@ -19,6 +21,12 @@ export interface SortableNode {
  */
 export function compareTreeNodes(a: SortableNode, b: SortableNode, sort: FileTreeSort): number {
   if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
+
+  if (sort.key === 'manual') {
+    const diff = (a.order ?? 0) - (b.order ?? 0)
+    if (diff !== 0) return sort.desc ? -diff : diff
+    return naturalCompare(a.name, b.name)
+  }
 
   if (sort.key === 'size') {
     // An unknown size sorts as 0 rather than dropping to the bottom: "unknown"

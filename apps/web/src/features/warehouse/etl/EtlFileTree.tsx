@@ -205,7 +205,7 @@ function EtlFileTreeItem({
   expandedFolders: Set<string>
   selectedFileId: string | null
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
   const canDelete = useMyWorkspaceRole().can('etl:delete')
   // Read from the store rather than threaded through props: the tree recurses,
@@ -399,7 +399,7 @@ function EtlFileTreeItem({
                 without competing with the name for attention. */}
             {!isFolder && size != null && (
               <span className="ml-auto shrink-0 pl-1 text-[10px] tabular-nums text-muted-foreground/60">
-                {humanBytes(size)}
+                {humanBytes(size, i18n.language)}
               </span>
             )}
           </button>

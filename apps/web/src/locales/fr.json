@@ -1468,7 +1468,8 @@
     "save": "Enregistrer",
     "root_folder": "scripts (racine)",
     "column_name": "Nom",
-    "column_size": "Taille"
+    "column_size": "Taille",
+    "column_manual": "Personnalisé"
   },
   "pipeline": {
     "title": "Pipeline",

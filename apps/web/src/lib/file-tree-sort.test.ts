@@ -51,6 +51,28 @@ describe('compareTreeNodes', () => {
   })
 })
 
+describe('compareTreeNodes — manual order', () => {
+  const byManual = { key: 'manual' as const, desc: false }
+  const m = (name: string, order: number): SortableNode => ({ name, type: 'file', order })
+
+  it('keeps the order the user dragged into place', () => {
+    // The SQL scripts tree persists this; sorting must be able to return to it.
+    expect(order([m('c', 2), m('a', 0), m('b', 1)], byManual)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('reverses when descending', () => {
+    expect(order([m('a', 0), m('b', 1)], { key: 'manual', desc: true })).toEqual(['b', 'a'])
+  })
+
+  it('breaks a tie on the name', () => {
+    expect(order([m('b', 0), m('a', 0)], byManual)).toEqual(['a', 'b'])
+  })
+
+  it('still lists folders first', () => {
+    expect(order([m('zzz', 0), { name: 'dir', type: 'folder', order: 9 }], byManual)[0]).toBe('dir')
+  })
+})
+
 describe('contentSize', () => {
   it('measures plain text', () => {
     expect(contentSize('hello')).toBe(5)

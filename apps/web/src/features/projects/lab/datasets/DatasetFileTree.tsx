@@ -40,6 +40,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
+import { compareTreeNodes } from '@/lib/file-tree-sort'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
@@ -61,11 +63,6 @@ const VersioningContext = createContext<{
   marked: Set<string>
   toggle: (path: string) => void
 } | null>(null)
-
-function sortNodes(a: DatasetFile, b: DatasetFile): number {
-  if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
-  return a.name.localeCompare(b.name)
-}
 
 function getAllDescendantIds(files: DatasetFile[], parentId: string): string[] {
   const children = files.filter((f) => f.parentId === parentId)
@@ -456,11 +453,18 @@ export function DatasetFileTree() {
   const [rootDragOver, setRootDragOver] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DatasetFile | null>(null)
   const [importSettingsTarget, setImportSettingsTarget] = useState<DatasetFile | null>(null)
+  const [sort, setSort] = useState<FileTreeSort>({ key: 'name', desc: false })
 
-  const rootNodes = files.filter((f) => f.parentId === null).sort(sortNodes)
+  // No size column here: a dataset's rows live outside the tree node (they are
+  // fetched on demand), so there is nothing to measure — an empty column would
+  // read as "0 bytes" rather than "not known".
+  const compare = (a: DatasetFile, b: DatasetFile) =>
+    compareTreeNodes({ name: a.name, type: a.type }, { name: b.name, type: b.type }, sort)
+
+  const rootNodes = files.filter((f) => f.parentId === null).sort(compare)
 
   function getChildren(parentId: string): DatasetFile[] {
-    return files.filter((f) => f.parentId === parentId).sort(sortNodes)
+    return files.filter((f) => f.parentId === parentId).sort(compare)
   }
 
   const handleConfirmDelete = () => {
@@ -504,6 +508,8 @@ export function DatasetFileTree() {
           <p className="text-xs text-muted-foreground">{t('datasets.no_files')}</p>
         </div>
       ) : (
+      <>
+      <FileTreeHeader sort={sort} onChange={setSort} showSize={false} />
       <ScrollArea className="h-full min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div
           className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
@@ -523,6 +529,7 @@ export function DatasetFileTree() {
           ))}
         </div>
       </ScrollArea>
+      </>
       )}
       </div>
 

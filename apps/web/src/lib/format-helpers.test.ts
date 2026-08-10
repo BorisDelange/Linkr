@@ -151,8 +151,21 @@ describe('humanBytes', () => {
     expect(humanBytes(42 * 1024 ** 3)).toBe('42 GB')
   })
 
+  it('counts in octets in French, which is the local convention', () => {
+    // "KB" in a French UI reads as an untranslated string.
+    expect(humanBytes(500, 'fr')).toBe('500 o')
+    expect(humanBytes(30_000, 'fr')).toBe('29 ko')
+    expect(humanBytes(64_500_000, 'fr')).toBe('61.5 Mo')
+    expect(humanBytes(2.5 * 1024 ** 3, 'fr')).toBe('2.5 Go')
+  })
+
+  it('defaults to English units when no language is given', () => {
+    expect(humanBytes(30_000)).toBe('29 KB')
+  })
+
   it('returns an empty string when the size is unknown', () => {
     expect(humanBytes(undefined)).toBe('')
+    expect(humanBytes(undefined, 'fr')).toBe('')
   })
 
   it('distinguishes a genuinely empty file from an unknown size', () => {

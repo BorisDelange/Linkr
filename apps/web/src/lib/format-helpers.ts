@@ -136,16 +136,20 @@ export function compactCount(n: number): string {
  * Human-readable byte size, scaling the unit to the value: a 30 KB file shown in
  * MB rounds to "0.0 MB" and reads as empty.
  */
-export function humanBytes(n: number | undefined): string {
+export function humanBytes(n: number | undefined, lang = 'en'): string {
   if (n == null) return ''
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  // French counts in OCTETS: o / ko / Mo / Go, lowercase o. "KB" in a French UI
+  // reads as an untranslated string.
+  const fr = lang.startsWith('fr')
+  const [b, kb, mb_, gb_] = fr ? ['o', 'ko', 'Mo', 'Go'] : ['B', 'KB', 'MB', 'GB']
+  if (n < 1024) return `${n} ${b}`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} ${kb}`
   // A tenth of a MB is a meaningful difference; a tenth of a GB is not, so the
   // larger unit keeps a decimal only below 10.
   const mb = n / 1024 / 1024
-  if (mb < 1024) return `${mb.toFixed(1)} MB`
+  if (mb < 1024) return `${mb.toFixed(1)} ${mb_}`
   const gb = mb / 1024
-  return `${gb < 10 ? gb.toFixed(1) : gb.toFixed(0)} GB`
+  return `${gb < 10 ? gb.toFixed(1) : gb.toFixed(0)} ${gb_}`
 }
 
 // ---------------------------------------------------------------------------

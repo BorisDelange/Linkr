@@ -48,6 +48,8 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { contentSize } from '@/lib/file-tree-sort'
+import { humanBytes } from '@/lib/format-helpers'
 
 interface FileTreeItemProps {
   node: TreeNode
@@ -143,7 +145,7 @@ export function FileTreeItem({
   selectedFileId,
   onNewChild,
 }: FileTreeItemProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canWrite = useMyProjectRole().can('ide:write')
   const canDelete = useMyProjectRole().can('ide:delete')
   const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode, renameNode } = useFileStore()
@@ -189,6 +191,7 @@ export function FileTreeItem({
   // (included only if marked); a code file is versioned by default (excluded only
   // if marked). The key is its export tree path `scripts/<idePath>`.
   const isRealFile = !isFolder && !isVirtual
+  const fileSize = contentSize((node as { content?: string }).content)
   const isDataFile = isRealFile && isDataExtension(node.name)
   const markKey = isRealFile ? `scripts/${getNodePath(files as TreeNode[], node.id)}` : ''
   const includedSet = new Set(
@@ -420,6 +423,13 @@ export function FileTreeItem({
       <span ref={nameRef} className="truncate">{node.name}</span>
       {isRealFile && willBeVersioned && (
         <GitCommitVertical size={11} className="shrink-0 text-primary" aria-label={t('datasets.versioned_badge')} />
+      )}
+      {/* Discreet and last, so it answers "which is the big one" without
+          competing with the name. */}
+      {isRealFile && fileSize != null && (
+        <span className="ml-auto shrink-0 pl-1 text-[10px] tabular-nums text-muted-foreground/60">
+          {humanBytes(fileSize, i18n.language)}
+        </span>
       )}
       {isVirtual && !isBridge && !isFolder && (
         <Lock size={10} className="ml-auto shrink-0 text-muted-foreground/50" />
