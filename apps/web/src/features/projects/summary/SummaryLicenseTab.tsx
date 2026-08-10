@@ -1,5 +1,6 @@
 import { useAppStore } from '@/stores/app-store'
 import { useOrganizationStore } from '@/stores/organization-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { LicenseEditor } from '@/components/editor/LicenseEditor'
 import { localized } from '@/lib/localized'
@@ -15,10 +16,15 @@ export function SummaryLicenseTab({ uid }: SummaryLicenseTabProps) {
   const updateProjectLicense = useAppStore((s) => s.updateProjectLicense)
   const getOrganization = useOrganizationStore((s) => s.getOrganization)
 
+  // A project inherits its org from the workspace when it has no frozen snapshot
+  // of its own (same rule as the card footers).
+  const workspaceOrgId = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === project?.workspaceId)?.organizationId,
+  )
   const org = project?.organization?.name
     ? project.organization
-    : project?.organizationId
-      ? getOrganization(project.organizationId)
+    : workspaceOrgId
+      ? getOrganization(workspaceOrgId)
       : undefined
 
   return (

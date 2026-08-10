@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { isReservedTreeName } from '@/lib/entity-tree'
 import { useState, useRef, useEffect } from 'react'
 import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'

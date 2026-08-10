@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { isReservedTreeName } from '@/lib/entity-tree'
 import type { IdeFile } from '@/types'
 import { getStorage } from '@/lib/storage'
 import {

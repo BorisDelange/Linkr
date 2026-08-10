@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { isReservedTreeName } from '@/lib/entity-tree'
 import { useTranslation } from 'react-i18next'
 import { FileCode, FileText, FolderOpen } from 'lucide-react'
 import {

@@ -41,7 +41,7 @@ export function usePluginActions(): PluginActions {
     let cancelled = false
     void (async () => {
       const rows = await Promise.all(
-        pluginList.filter((p) => !p.isReadOnly).map(async (p) => [p.id, await getStorage().userPlugins.getById(p.id)] as const),
+        pluginList.filter((p) => !p.readOnly).map(async (p) => [p.id, await getStorage().userPlugins.getById(p.id)] as const),
       )
       if (cancelled) return
       setDocsByPlugin(Object.fromEntries(

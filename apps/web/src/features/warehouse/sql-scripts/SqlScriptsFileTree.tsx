@@ -39,7 +39,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { downloadBlob } from '@/lib/entity-io'
-import { treeNodePath } from '@/lib/entity-tree'
+import { isReservedTreeName, treeNodePath } from '@/lib/entity-tree'
 import {
   EMPTY_SELECTION,
   actionTargets,

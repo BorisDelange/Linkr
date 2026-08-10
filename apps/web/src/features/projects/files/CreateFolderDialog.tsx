@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { isReservedTreeName } from '@/lib/entity-tree'
 import { useTranslation } from 'react-i18next'
 import { useFileStore, buildScriptsFolderTree, getScriptsFolderId, RESERVED_ROOT_FOLDERS } from '@/stores/file-store'
 import { FolderOpen } from 'lucide-react'
