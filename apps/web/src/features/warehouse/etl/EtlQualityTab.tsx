@@ -3,16 +3,21 @@ import { useTranslation } from 'react-i18next'
 import {
   Activity,
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   Building2,
   CheckCircle2,
   Database,
   Download,
   Loader2,
   RefreshCw,
+  Search,
   Table2,
   Users,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
@@ -35,11 +40,14 @@ import {
   CLINICAL_TABLES,
   countByDiff,
   expectedRowsByTarget,
+  sortTableCounts,
   type ConceptCount,
   type QualityConceptRow,
   type QualityDiff,
+  type TableSort,
+  type TableSortKey,
 } from './quality-diff'
-import type { DatabaseStatsCache, DataSource } from '@/types'
+import type { DatabaseStatsCache, DataSource, TableRowCount } from '@/types'
 
 type QualityTab = 'statistics' | 'concepts'
 
@@ -322,23 +330,109 @@ function StatsColumn({
             <StatBox icon={<Building2 size={16} className="text-amber-500" />} value={stats.summary.visitDetailCount} label={t('etl.sidebar_visit_units')} />
           </div>
 
-          {stats.tableCounts.length > 0 && (
-            <div className="space-y-0.5">
-              <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                {t('etl.sidebar_tables')} ({stats.tableCounts.length})
-              </h4>
-              {stats.tableCounts.map((tc) => (
-                <div key={tc.tableName} className="flex items-center gap-2 rounded px-1 py-1 text-xs">
-                  <Table2 size={11} className="shrink-0 text-blue-500/60" />
-                  <span className="min-w-0 flex-1 truncate font-mono">{tc.tableName}</span>
-                  <span className="shrink-0 tabular-nums text-muted-foreground">{tc.rowCount.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          {stats.tableCounts.length > 0 && <TableCountList counts={stats.tableCounts} />}
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * The per-table row counts, searchable and sortable.
+ *
+ * A full OMOP target runs to dozens of tables in export order, so finding one
+ * meant reading the whole list, and "which table is biggest" was not answerable
+ * at all. Sorting is local to each column (source and target are independent
+ * lists, and comparing them is the Concepts view's job, not this one's).
+ */
+function TableCountList({ counts }: { counts: TableRowCount[] }) {
+  const { t } = useTranslation()
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<TableSort>({ by: 'rows', desc: true })
+
+  const shown = useMemo(() => sortTableCounts(counts, search, sort), [counts, search, sort])
+
+  const toggle = (by: TableSortKey) => {
+    // Re-clicking the active column flips it; a new column starts in the
+    // direction that column is usually read — A→Z for names, biggest first
+    // for counts.
+    setSort((s) => (s.by === by ? { by, desc: !s.desc } : { by, desc: by === 'rows' }))
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <h4 className="shrink-0 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          {t('etl.sidebar_tables')} ({shown.length === counts.length ? counts.length : `${shown.length}/${counts.length}`})
+        </h4>
+        <div className="relative ml-auto min-w-0 flex-1">
+          <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('etl.quality_stats_search_tables')}
+            className="h-6 pl-6 pr-6 text-[11px]"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              title={t('common.clear')}
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 border-b px-1 pb-1">
+        <SortHeader label={t('etl.quality_stats_table_name')} active={sort.by === 'name'} desc={sort.desc} onClick={() => toggle('name')} className="min-w-0 flex-1" />
+        <SortHeader label={t('etl.quality_stats_table_rows')} active={sort.by === 'rows'} desc={sort.desc} onClick={() => toggle('rows')} className="shrink-0" />
+      </div>
+
+      {shown.length === 0 ? (
+        <p className="px-1 py-2 text-[11px] text-muted-foreground">{t('etl.quality_stats_no_table_match')}</p>
+      ) : (
+        <div className="space-y-0.5">
+          {shown.map((tc) => (
+            <div key={tc.tableName} className="flex items-center gap-2 rounded px-1 py-1 text-xs">
+              <Table2 size={11} className="shrink-0 text-blue-500/60" />
+              <span className="min-w-0 flex-1 truncate font-mono">{tc.tableName}</span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">{tc.rowCount.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SortHeader({
+  label,
+  active,
+  desc,
+  onClick,
+  className,
+}: {
+  label: string
+  active: boolean
+  desc: boolean
+  onClick: () => void
+  className?: string
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-sort={active ? (desc ? 'descending' : 'ascending') : 'none'}
+      className={cn(
+        'flex items-center gap-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors',
+        active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+        className,
+      )}
+    >
+      <span className="truncate">{label}</span>
+      {active && (desc ? <ArrowDown size={10} className="shrink-0" /> : <ArrowUp size={10} className="shrink-0" />)}
+    </button>
   )
 }
 

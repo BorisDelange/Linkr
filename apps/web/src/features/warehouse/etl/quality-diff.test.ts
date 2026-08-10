@@ -3,6 +3,7 @@ import {
   classifyDiff,
   countByDiff,
   expectedRowsByTarget,
+  sortTableCounts,
   type ConceptCount,
 } from './quality-diff'
 
@@ -96,5 +97,63 @@ describe('what "OK" (match) actually means', () => {
     // They are shown in the table but take no part in the verdict: the same rows
     // spread over a different number of patients is still a match.
     expect(classifyDiff(50, 50, 50)).toBe('match')
+  })
+})
+
+describe('sortTableCounts', () => {
+  const TABLES = [
+    { tableName: 'measurement', rowCount: 5_849_705 },
+    { tableName: 'person', rowCount: 40_795 },
+    { tableName: 'Device_exposure', rowCount: 0 },
+    { tableName: 'observation', rowCount: 0 },
+  ]
+
+  it('sorts by row count, biggest first', () => {
+    const out = sortTableCounts(TABLES, '', { by: 'rows', desc: true })
+    expect(out.map((t) => t.tableName)).toEqual(['measurement', 'person', 'Device_exposure', 'observation'])
+  })
+
+  it('sorts by row count ascending', () => {
+    const out = sortTableCounts(TABLES, '', { by: 'rows', desc: false })
+    expect(out.map((t) => t.rowCount)).toEqual([0, 0, 40_795, 5_849_705])
+  })
+
+  it('breaks count ties by name, so the order is stable across renders', () => {
+    // A partly-filled OMOP target has many empty tables; without the tiebreak
+    // they came out in whatever order the export happened to produce.
+    const out = sortTableCounts(TABLES, '', { by: 'rows', desc: true })
+    expect(out.slice(2).map((t) => t.tableName)).toEqual(['Device_exposure', 'observation'])
+  })
+
+  it('sorts by name, case-insensitively as the user reads it', () => {
+    const out = sortTableCounts(TABLES, '', { by: 'name', desc: false })
+    // 'Device_exposure' sorts under D despite the capital, not before everything.
+    expect(out.map((t) => t.tableName)).toEqual(['Device_exposure', 'measurement', 'observation', 'person'])
+  })
+
+  it('reverses the name order', () => {
+    const out = sortTableCounts(TABLES, '', { by: 'name', desc: true })
+    expect(out[0].tableName).toBe('person')
+  })
+
+  it('filters on a substring, ignoring case', () => {
+    expect(sortTableCounts(TABLES, 'OBS', { by: 'name', desc: false }).map((t) => t.tableName))
+      .toEqual(['observation'])
+    expect(sortTableCounts(TABLES, 'exposure', { by: 'name', desc: false }).map((t) => t.tableName))
+      .toEqual(['Device_exposure'])
+  })
+
+  it('ignores surrounding whitespace in the search', () => {
+    expect(sortTableCounts(TABLES, '  person  ', { by: 'name', desc: false })).toHaveLength(1)
+  })
+
+  it('returns nothing when nothing matches', () => {
+    expect(sortTableCounts(TABLES, 'zzz', { by: 'rows', desc: true })).toEqual([])
+  })
+
+  it('never mutates the input', () => {
+    const input = [...TABLES]
+    sortTableCounts(input, '', { by: 'name', desc: true })
+    expect(input).toEqual(TABLES)
   })
 })

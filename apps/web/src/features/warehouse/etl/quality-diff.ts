@@ -78,6 +78,40 @@ export function countByDiff(rows: { diff: QualityDiff }[]): Record<QualityDiff, 
   return counts
 }
 
+export type TableSortKey = 'name' | 'rows'
+
+export interface TableSort {
+  by: TableSortKey
+  desc: boolean
+}
+
+/**
+ * Search + sort the per-table row counts of the Statistics view.
+ *
+ * Names are compared with `localeCompare` so accents and case sort the way the
+ * user reads them, and ties on the count fall back to the name — otherwise the
+ * many empty tables of a partly-filled OMOP target come out in an arbitrary
+ * order that changes between renders.
+ */
+export function sortTableCounts<T extends { tableName: string; rowCount: number }>(
+  counts: readonly T[],
+  search: string,
+  sort: TableSort,
+): T[] {
+  const needle = search.trim().toLowerCase()
+  const out = needle
+    ? counts.filter((c) => c.tableName.toLowerCase().includes(needle))
+    : [...counts]
+  const byName = (a: T, b: T) => a.tableName.localeCompare(b.tableName)
+  out.sort((a, b) => {
+    if (sort.by === 'name') return sort.desc ? byName(b, a) : byName(a, b)
+    const delta = a.rowCount - b.rowCount
+    if (delta !== 0) return sort.desc ? -delta : delta
+    return byName(a, b)
+  })
+  return out
+}
+
 /** OMOP clinical tables and the concept column to count, per side. */
 export const CLINICAL_TABLES = [
   { table: 'condition_occurrence', standard: 'condition_concept_id', source: 'condition_source_concept_id' },

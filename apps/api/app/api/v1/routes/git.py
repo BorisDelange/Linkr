@@ -888,17 +888,76 @@ def _register_entity_git_routes(
                 status.HTTP_400_BAD_REQUEST,
                 f"{not_found} is not linked to a git remote",
             )
-        return await _guard(
+        resolved_branch = _default_branch(e, branch)
+        # Pass the anchor so git_service refuses a push over remote work the user
+        # hasn't pulled ("pull first"). Without it the guard is inert and a stale
+        # push silently fast-forwards over someone else's commits.
+        row = await git_sync_state_service.get(db, prefix, _entity_id(e), resolved_branch)
+        result = await _guard(
             git_service.commit_push(
                 repo_getter,
                 _entity_id(e),
                 await _zip_bytes(db, e, file),
-                _default_branch(e, branch),
+                resolved_branch,
                 message,
                 _remote_url(e),
                 await _token(db, user, e),
                 paths,
+                row.synced_oid if row else None,
             )
+        )
+        # A successful push means the pushed commit is now the synced point.
+        if result.get("pushed") and result.get("commit"):
+            await git_sync_state_service.set_oid(
+                db, prefix, _entity_id(e), resolved_branch, result["commit"]["oid"]
+            )
+        return result
+
+    @router.get(
+        f"/{prefix}/{{entity_id}}/sync-state",
+        response_model=GitSyncStateResponse,
+        name=f"{prefix}_sync_state",
+    )
+    async def _sync_state_route(
+        entity_id: str,
+        branch: str | None = None,
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(get_current_user),
+    ):
+        """Where the local entity stands vs the remote branch (behind/diverged),
+        from the DB anchor. No ZIP: the check only compares remote oids, so the
+        client needn't rebuild the export just to learn it is out of date."""
+        e = await _load_workspace_entity(
+            get_fn, entity_id, db, user, read_perm, not_found
+        )
+        return await _sync_state(
+            db,
+            prefix,
+            repo_getter,
+            _entity_id(e),
+            _default_branch(e, branch),
+            _remote_url(e),
+            await _token(db, user, e),
+        )
+
+    @router.post(
+        f"/{prefix}/{{entity_id}}/set-sync-state",
+        status_code=status.HTTP_204_NO_CONTENT,
+        name=f"{prefix}_set_sync_state",
+    )
+    async def _set_sync_state_route(
+        entity_id: str,
+        body: GitSetSyncStateRequest,
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(get_current_user),
+    ):
+        """Anchor the entity to a known remote commit — called after a git import
+        or a pull so later remote work is detected as 'behind'. Write access."""
+        e = await _load_workspace_entity(
+            get_fn, entity_id, db, user, write_perm, not_found
+        )
+        await git_sync_state_service.set_oid(
+            db, prefix, _entity_id(e), body.branch, body.synced_oid
         )
 
 
