@@ -1411,9 +1411,9 @@ export function SchemaPresetsPage() {
 
     const label = setLocalized({}, language, name)
     const description = newPresetDescription.trim() ? setLocalized({}, language, newPresetDescription.trim()) : undefined
-    // If using a built-in template, copy its mapping
+    // If using a built-in template, copy its mapping and remember the provenance
     const templateMapping = createTemplate !== 'blank' && SCHEMA_PRESETS[createTemplate]
-      ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: label, description }
+      ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: label, description, templateId: createTemplate }
       : undefined
 
     // What the user typed always wins. Otherwise a built-in template keeps its
@@ -1568,9 +1568,11 @@ export function SchemaPresetsPage() {
                         id: pid,
                         label: SCHEMA_PRESETS[pid]?.presetLabel ? localized(SCHEMA_PRESETS[pid]!.presetLabel, language) : pid,
                         // Marked, but still selectable: reusing a template creates a
-                        // second schema (confirmCreatePreset derives a fresh presetId
-                        // when the built-in's own id is taken).
-                        added: customPresets.some(cp => cp.presetId === pid),
+                        // second schema. Created schemas carry the template in
+                        // mapping.templateId (their own presetId is the name slug);
+                        // the presetId match covers seeded/restored defaults that
+                        // kept the built-in id.
+                        added: customPresets.some(cp => cp.presetId === pid || cp.mapping.templateId === pid),
                       })),
                     ].map(tpl => (
                       <button

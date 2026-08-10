@@ -27,6 +27,12 @@ export interface SchemaMapping {
   presetLabel: LocalizedString
   /** Optional human-readable description of the schema, bilingual like the label. */
   description?: LocalizedString
+  /**
+   * Built-in preset this schema was created from. The created schema's own
+   * presetId is derived from its name, so this is the only reliable link back
+   * to the template (drives the "already added" mark in the create dialog).
+   */
+  templateId?: SchemaPresetId
 
   patientTable?: {
     table: string
