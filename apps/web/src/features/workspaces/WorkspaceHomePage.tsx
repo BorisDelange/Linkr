@@ -33,9 +33,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { getStatusClasses, getStatusDotClass } from '@/features/projects/ProjectSettingsPage'
 import { ReadmeEditor, remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 import { Paperclip } from 'lucide-react'
-import { useWorkspaceReadmeAttachments } from '@/hooks/use-workspace-readme-attachments'
+import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { ReadmeAttachmentsDialog } from '@/features/projects/summary/ReadmeAttachmentsDialog'
+import { AttachmentsDialog } from '@/components/editor/AttachmentsDialog'
 
 const MAX_RECENT = 2
 
@@ -50,7 +50,7 @@ export function WorkspaceHomePage() {
   const [tab, setTab] = useState('overview')
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const { attachments, uploadAttachment, deleteAttachment, resolveAttachmentUrls } =
-    useWorkspaceReadmeAttachments(wsUid ?? '')
+    useReadmeAttachments('workspace', wsUid ?? '')
 
   const workspace = _workspacesRaw.find((ws) => ws.id === wsUid)
   const projects = wsUid ? getWorkspaceProjects(wsUid) : []
@@ -222,7 +222,7 @@ export function WorkspaceHomePage() {
         </TabsContent>
       </Tabs>
 
-      <ReadmeAttachmentsDialog
+      <AttachmentsDialog
         open={attachmentsOpen}
         onOpenChange={setAttachmentsOpen}
         attachments={attachments}

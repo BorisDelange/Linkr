@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -90,12 +90,11 @@ export interface DatabaseStatsCacheStorage {
 
 /** Storage interface for readme attachment blobs. */
 export interface ReadmeAttachmentStorage {
-  getByProject(projectUid: string): Promise<ReadmeAttachment[]>
-  getByWorkspace(workspaceId: string): Promise<ReadmeAttachment[]>
+  getByOwner(ownerType: ReadmeOwnerType, ownerId: string): Promise<ReadmeAttachment[]>
   getById(id: string): Promise<ReadmeAttachment | undefined>
   create(attachment: ReadmeAttachment): Promise<void>
   delete(id: string): Promise<void>
-  deleteByProject(projectUid: string): Promise<void>
+  deleteByOwner(ownerType: ReadmeOwnerType, ownerId: string): Promise<void>
   deleteByWorkspace(workspaceId: string): Promise<void>
 }
 

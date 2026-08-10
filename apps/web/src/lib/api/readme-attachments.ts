@@ -13,29 +13,32 @@ async function withData(meta: Meta): Promise<ReadmeAttachment> {
   return { ...meta, data }
 }
 
+function ownerQuery(ownerType: string, ownerId: string): string {
+  return `ownerType=${encodeURIComponent(ownerType)}&ownerId=${encodeURIComponent(ownerId)}`
+}
+
 /**
  * Server-mode README attachment storage. Metadata lives in the DB; the binary
  * is a content-addressed blob fetched per-attachment so the `data: ArrayBuffer`
  * contract (consumed by use-attachments to build blob URLs) is preserved.
  */
 export const apiReadmeAttachmentStorage: ReadmeAttachmentStorage = {
-  getByProject: async (projectUid) => {
-    const metas = await apiRequest<Meta[]>(`${BASE}?projectUid=${encodeURIComponent(projectUid)}`)
+  getByOwner: async (ownerType, ownerId) => {
+    const metas = await apiRequest<Meta[]>(`${BASE}?${ownerQuery(ownerType, ownerId)}`)
     return Promise.all(metas.map(withData))
   },
 
-  getByWorkspace: async (workspaceId) => {
-    const metas = await apiRequest<Meta[]>(`${BASE}?workspaceId=${encodeURIComponent(workspaceId)}`)
-    return Promise.all(metas.map(withData))
-  },
-
-  // No caller uses getById for attachments (loads are always by parent).
+  // No caller uses getById for attachments (loads are always by owner).
   getById: async () => undefined,
 
   create: async (att) => {
-    const qs = new URLSearchParams({ id: att.id, fileName: att.fileName, mimeType: att.mimeType })
-    if (att.projectUid) qs.set('projectUid', att.projectUid)
-    if (att.workspaceId) qs.set('workspaceId', att.workspaceId)
+    const qs = new URLSearchParams({
+      id: att.id,
+      fileName: att.fileName,
+      mimeType: att.mimeType,
+      ownerType: att.ownerType,
+      ownerId: att.ownerId,
+    })
     if (att.createdAt) qs.set('createdAt', att.createdAt)
     await apiFetch(`/api/v1${BASE}?${qs}`, { method: 'POST', body: att.data })
   },
@@ -44,8 +47,8 @@ export const apiReadmeAttachmentStorage: ReadmeAttachmentStorage = {
     await apiRequest(`${BASE}/${id}`, { method: 'DELETE' })
   },
 
-  deleteByProject: async (projectUid) => {
-    await apiRequest(`${BASE}?projectUid=${encodeURIComponent(projectUid)}`, { method: 'DELETE' })
+  deleteByOwner: async (ownerType, ownerId) => {
+    await apiRequest(`${BASE}?${ownerQuery(ownerType, ownerId)}`, { method: 'DELETE' })
   },
 
   deleteByWorkspace: async (workspaceId) => {

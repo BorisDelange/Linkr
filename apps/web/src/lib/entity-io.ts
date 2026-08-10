@@ -13,7 +13,8 @@ import {
 import type {
   Project, IdeFile, Pipeline, Cohort, IdeConnection,
   Dashboard, DashboardTab, DashboardWidget, DashboardFilter,
-  DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, ReadmeAttachment,
+  DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, ReadmeAttachment, ReadmeOwnerType,
+  EntityLicense,
   Workspace, WikiPage, WikiAttachment,
   SqlScriptCollection, SqlScriptFile,
   EtlPipeline, EtlFile,
@@ -51,6 +52,75 @@ function writeReadmeFiles(
     const suffix = lang === primary ? '' : `.${lang}`
     zip.file(`${dir}README${suffix}.md`, byLang[lang])
   }
+}
+
+/**
+ * Write an entity's license as `LICENSE.md` — the name both GitHub and GitLab
+ * detect. Only the text lands in the file; which license it is stays in the
+ * entity's JSON (see `licenseMeta`) so the id round-trips without parsing legalese.
+ */
+function writeLicenseFile(zip: JSZip, dir: string, license: EntityLicense | null | undefined): void {
+  if (!license?.text) return
+  zip.file(`${dir}LICENSE.md`, license.text)
+}
+
+/** JSON-safe license: the text is stripped, it travels as LICENSE.md. */
+function licenseMeta(license: EntityLicense | null | undefined): { id: string; name?: string } | undefined {
+  if (!license) return undefined
+  return license.name ? { id: license.id, name: license.name } : { id: license.id }
+}
+
+/** Recombine an entity's license from its JSON metadata + its LICENSE.md text. */
+function readLicense(
+  meta: { id?: string; name?: string } | null | undefined,
+  text: string | undefined,
+): EntityLicense | undefined {
+  if (!text) return undefined
+  return {
+    id: (meta?.id as EntityLicense['id']) ?? 'custom',
+    ...(meta?.name ? { name: meta.name } : {}),
+    text,
+  }
+}
+
+/** `attachments/_meta.json` + blobs for one entity folder. Owner fields are left
+ *  out: they are re-stamped from context on import, so the ZIP stays portable. */
+async function writeAttachmentFiles(
+  zip: JSZip,
+  dir: string,
+  storage: Storage,
+  ownerType: ReadmeOwnerType,
+  ownerId: string,
+): Promise<void> {
+  const attachments = await storage.readmeAttachments
+    .getByOwner(ownerType, ownerId)
+    .catch(() => [] as ReadmeAttachment[])
+  if (attachments.length === 0) return
+  const meta = attachments.map((att) => ({
+    id: att.id,
+    fileName: att.fileName,
+    mimeType: att.mimeType,
+    fileSize: att.fileSize,
+    createdAt: att.createdAt,
+  }))
+  zip.file(`${dir}attachments/_meta.json`, json(meta))
+  for (const att of attachments) {
+    zip.file(`${dir}attachments/${att.id}-${att.fileName}`, att.data)
+  }
+}
+
+/** README.md + LICENSE.md + attachments/ for one entity folder. */
+async function writeEntityDocs(
+  zip: JSZip,
+  dir: string,
+  entity: { readme?: LocalizedString | string; license?: EntityLicense },
+  storage: Storage,
+  ownerType: ReadmeOwnerType,
+  ownerId: string,
+): Promise<void> {
+  writeReadmeFiles(zip, dir, entity.readme)
+  writeLicenseFile(zip, dir, entity.license)
+  await writeAttachmentFiles(zip, dir, storage, ownerType, ownerId)
 }
 
 /** Coerce imported todos: legacy string `text` becomes a LocalizedString. */
@@ -106,7 +176,7 @@ export async function deleteProjectData(storage: Storage, uid: string): Promise<
 
   await storage.ideFiles.deleteByProject(uid).catch(() => {})
   await storage.connections.deleteByProject(uid).catch(() => {})
-  await storage.readmeAttachments.deleteByProject(uid).catch(() => {})
+  await storage.readmeAttachments.deleteByOwner('project', uid).catch(() => {})
 
   // Dataset files, data, raw files, analyses
   const datasetFiles = await safe(storage.datasetFiles.getByProject(uid), [])
@@ -791,14 +861,7 @@ export async function buildProjectZip(
   }
 
   // --- attachments/ ---
-  const attachments = await storage.readmeAttachments.getByProject(projectUid)
-  if (attachments.length > 0) {
-    const meta = attachments.map(({ data: _, ...rest }) => rest)
-    zip.file('attachments/_meta.json', json(meta))
-    for (const att of attachments) {
-      zip.file(`attachments/${att.id}-${att.fileName}`, att.data)
-    }
-  }
+  await writeAttachmentFiles(zip, '', storage, 'project', projectUid)
 
   // --- .gitignore ---
   // Data files are ignored by default EVERYWHERE — under datasets/ AND scripts/
@@ -1159,11 +1222,19 @@ export async function importProjectContent(
       config: remapColIds(a.config, colIdMap),
     })
   }
+  const attachmentWorkspaceId = parsed.attachmentsMeta.length
+    ? (await storage.projects.getById(projectUid).catch(() => undefined))?.workspaceId
+    : undefined
   for (const meta of parsed.attachmentsMeta) {
     const blobData = parsed.attachmentBlobs.get(meta.id)
     if (blobData) {
       await storage.readmeAttachments.create({
-        ...meta, id: mapId(meta.id), projectUid, data: blobData,
+        ...meta,
+        id: mapId(meta.id),
+        ownerType: 'project',
+        ownerId: projectUid,
+        workspaceId: attachmentWorkspaceId,
+        data: blobData,
       } as ReadmeAttachment)
     }
   }

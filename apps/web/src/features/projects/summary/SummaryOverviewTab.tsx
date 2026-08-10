@@ -117,7 +117,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
   }, [dataSources, cohorts, pipeline, dashboards, project?.todos, language])
 
   const readme = localized(project?.readme, language)
-  const { resolveAttachmentUrls } = useReadmeAttachments(uid)
+  const { resolveAttachmentUrls } = useReadmeAttachments('project', uid, project?.workspaceId)
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">

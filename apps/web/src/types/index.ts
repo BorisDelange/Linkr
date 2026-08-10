@@ -157,6 +157,7 @@ export interface Workspace extends Seedable, Authored, Lineaged {
   organization?: OrganizationInfo
   badges?: ProjectBadge[]
   readme?: LocalizedString
+  license?: EntityLicense
   gitRemoteConfig?: GitRemoteConfig
   /** Default package lists for new projects' environments, per language:
    *  { python: ["pandas", …], r: ["dplyr", …] }. Undefined = built-in defaults. */
@@ -193,6 +194,7 @@ export interface Project extends Seedable, Authored, Lineaged {
   todos?: TodoItem[]
   notes?: LocalizedString
   readme?: LocalizedString
+  license?: EntityLicense
 
   /** IDs of app-level databases linked to this project. */
   linkedDataSourceIds?: string[]
@@ -373,17 +375,56 @@ export interface TodoItem {
   done: boolean
 }
 
+/** Every versionable entity can own a README and its image attachments. */
+export type ReadmeOwnerType =
+  | 'workspace'
+  | 'project'
+  | 'mapping-project'
+  | 'sql-collection'
+  | 'etl-pipeline'
+  | 'dq-rule-set'
+  | 'data-catalog'
+  | 'schema-preset'
+  | 'user-plugin'
+
 export interface ReadmeAttachment {
   id: string
-  /** Exactly one of projectUid / workspaceId is set — a README belongs to a
-   *  project or a workspace. */
-  projectUid?: string
+  ownerType: ReadmeOwnerType
+  /** workspace.id / project.uid / entity id (presetId for schema presets). */
+  ownerId: string
+  /** Owner's workspace, denormalized so deleting a workspace cascades to every
+   *  attachment it contains, whatever the owner type. */
   workspaceId?: string
   fileName: string
   mimeType: string
   fileSize: number
   data: ArrayBuffer
   createdAt: string
+}
+
+// --- License ---
+
+export type StandardLicenseId =
+  | 'MIT'
+  | 'Apache-2.0'
+  | 'GPL-3.0'
+  | 'AGPL-3.0'
+  | 'BSD-3-Clause'
+  | 'MPL-2.0'
+  | 'CC-BY-4.0'
+  | 'CC-BY-SA-4.0'
+  | 'CC0-1.0'
+  | 'ODbL-1.0'
+  | 'EUPL-1.2'
+  | 'CeCILL-2.1'
+
+/** The license of a versionable entity. `text` is snapshotted when the license is
+ *  picked, so exports stay byte-stable and the server never needs the bundled texts. */
+export interface EntityLicense {
+  id: StandardLicenseId | 'custom'
+  /** Title of a custom license. Standard titles come from the license registry. */
+  name?: string
+  text: string
 }
 
 
@@ -797,6 +838,8 @@ export interface EtlPipeline extends Seedable, Authored, Lineaged {
   status: EtlPipelineStatus
   lastRunAt?: string
   lastRunDurationMs?: number
+  readme?: LocalizedString
+  license?: EntityLicense
   /** Git repository this pipeline is linked to. When set, workspace export emits metadata + this pointer only. */
   gitRemoteConfig?: GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
@@ -913,6 +956,8 @@ export interface SqlScriptCollection extends Authored, Lineaged {
   /** Badges for grouping/tagging (e.g. hospital center name). */
   badges?: ProjectBadge[]
   defaultDataSourceId?: string
+  readme?: LocalizedString
+  license?: EntityLicense
   /** Git repository this collection is linked to. When set, workspace export emits metadata + this pointer only. */
   gitRemoteConfig?: GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
@@ -961,6 +1006,8 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
    * (greyed) but are excluded from the scan and the score.
    */
   disabledCheckIds?: string[]
+  readme?: LocalizedString
+  license?: EntityLicense
   /**
    * Git repository this rule set is linked to. When set, workspace export emits only a
    * metadata marker (`data-quality/<folder>/_ruleset.json`, holding `{ ruleSet, checks }`)
@@ -1020,6 +1067,8 @@ export interface UserPlugin extends Authored {
   entityId?: string
   workspaceId?: string
   files: Record<string, string>
+  readme?: LocalizedString
+  license?: EntityLicense
   /** Frozen provenance snapshot of the origin organization, carried across
    *  export/import (same pattern as a project's `organization`). Inherited from
    *  the parent workspace at export time when absent. */

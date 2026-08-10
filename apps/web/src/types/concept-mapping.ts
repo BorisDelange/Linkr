@@ -191,6 +191,8 @@ export interface MappingProject extends Seedable, Authored, Lineaged {
   stats?: MappingProjectStats
   /** History of bulk catalog imports. */
   importBatches?: ConceptSetImportBatch[]
+  readme?: LocalizedString
+  license?: import('./index').EntityLicense
   /** Git repository this mapping project is linked to. When set, workspace export emits metadata + this pointer only. */
   gitRemoteConfig?: import('./index').GitRemoteConfig
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */

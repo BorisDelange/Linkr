@@ -6,7 +6,7 @@ import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { useMyProjectRole } from '@/hooks/use-context-role'
-import { ReadmeAttachmentsDialog } from './ReadmeAttachmentsDialog'
+import { AttachmentsDialog } from '@/components/editor/AttachmentsDialog'
 import { ReadmeEditor } from '@/components/editor/ReadmeEditor'
 
 
@@ -27,7 +27,7 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
     uploadAttachment,
     deleteAttachment,
     resolveAttachmentUrls,
-  } = useReadmeAttachments(uid)
+  } = useReadmeAttachments('project', uid, project?.workspaceId)
 
   return (
     <>
@@ -50,7 +50,7 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
           </Button>
         }
       />
-      <ReadmeAttachmentsDialog
+      <AttachmentsDialog
         open={attachmentsOpen}
         onOpenChange={setAttachmentsOpen}
         attachments={attachments}

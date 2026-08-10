@@ -392,7 +392,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
       const data = await fetchBinary(`${base}/attachments/${meta.id}-${meta.fileName}`)
       if (data) {
         await storage.readmeAttachments.create({
-          ...meta, projectUid, data,
+          ...meta, ownerType: 'project', ownerId: projectUid, data,
         } as import('@/types').ReadmeAttachment).catch(() => {})
       }
     }

@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
 import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getSchemaPreset } from '@/lib/schema-presets'
@@ -62,7 +62,7 @@ interface LinkrDB extends DBSchema {
     key: string
     value: ReadmeAttachment
     indexes: {
-      'by-project': string
+      'by-owner': [string, string]
       'by-workspace': string
     }
   }
@@ -295,7 +295,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 36
+const DB_VERSION = 37
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -779,6 +779,72 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         const etlRunHistoryStore = db.createObjectStore('etl_run_history', { keyPath: 'id' })
         etlRunHistoryStore.createIndex('by-pipeline', 'pipelineId')
       }
+      // Version 37: every versionable entity can own a README, so attachments move
+      // from "either projectUid or workspaceId" to (ownerType, ownerId). The root
+      // README.md files ETL pipelines and SQL collections used to seed in their file
+      // tree become the entity's own readme — the name is reserved from now on.
+      if (oldVersion < 37) {
+        const attStore = transaction.objectStore('readme_attachments')
+        if (!attStore.indexNames.contains('by-owner')) {
+          attStore.createIndex('by-owner', ['ownerType', 'ownerId'])
+        }
+        if (attStore.indexNames.contains('by-project')) {
+          attStore.deleteIndex('by-project')
+        }
+        const projectStore = transaction.objectStore('projects')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(projectStore.getAll() as Promise<any[]>).then((projects) => {
+          const wsOfProject = new Map<string, string | undefined>(
+            projects.map((p) => [p.uid, p.workspaceId]),
+          )
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(attStore.getAll() as Promise<any[]>).then((atts) => {
+            for (const att of atts) {
+              if (att.ownerType) continue
+              if (att.projectUid) {
+                att.ownerType = 'project'
+                att.ownerId = att.projectUid
+                att.workspaceId = wsOfProject.get(att.projectUid)
+              } else if (att.workspaceId) {
+                att.ownerType = 'workspace'
+                att.ownerId = att.workspaceId
+              } else {
+                continue
+              }
+              delete att.projectUid
+              attStore.put(att)
+            }
+          })
+        })
+
+        const hoistTreeReadme = (
+          fileStoreName: 'etl_files' | 'sql_script_files',
+          entityStoreName: 'etl_pipelines' | 'sql_script_collections',
+          fkKey: 'pipelineId' | 'collectionId',
+        ) => {
+          const fileStore = transaction.objectStore(fileStoreName)
+          const entityStore = transaction.objectStore(entityStoreName)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(fileStore.getAll() as Promise<any[]>).then((files) => {
+            const readmes = files.filter(
+              (f) => f.type === 'file' && f.parentId == null && /^README\.md$/i.test(f.name ?? ''),
+            )
+            for (const file of readmes) {
+              const ownerId = file[fkKey]
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ;(entityStore.get(ownerId) as Promise<any>).then((entity) => {
+                if (entity && !entity.readme && file.content) {
+                  entity.readme = { en: file.content }
+                  entityStore.put(entity)
+                }
+                fileStore.delete(file.id)
+              })
+            }
+          })
+        }
+        hoistTreeReadme('etl_files', 'etl_pipelines', 'pipelineId')
+        hoistTreeReadme('sql_script_files', 'sql_script_collections', 'collectionId')
+      }
     },
   })
   // Auto-close when another tab requests a deleteDatabase or version upgrade
@@ -1135,14 +1201,9 @@ class IDBSchemaPresetStorage implements SchemaPresetStorage {
 }
 
 class IDBReadmeAttachmentStorage implements ReadmeAttachmentStorage {
-  async getByProject(projectUid: string): Promise<ReadmeAttachment[]> {
+  async getByOwner(ownerType: ReadmeOwnerType, ownerId: string): Promise<ReadmeAttachment[]> {
     const db = await getDB()
-    return db.getAllFromIndex('readme_attachments', 'by-project', projectUid)
-  }
-
-  async getByWorkspace(workspaceId: string): Promise<ReadmeAttachment[]> {
-    const db = await getDB()
-    return db.getAllFromIndex('readme_attachments', 'by-workspace', workspaceId)
+    return db.getAllFromIndex('readme_attachments', 'by-owner', [ownerType, ownerId])
   }
 
   async getById(id: string): Promise<ReadmeAttachment | undefined> {
@@ -1160,17 +1221,17 @@ class IDBReadmeAttachmentStorage implements ReadmeAttachmentStorage {
     await db.delete('readme_attachments', id)
   }
 
-  async deleteByProject(projectUid: string): Promise<void> {
-    await this._deleteByIndex('by-project', projectUid)
+  async deleteByOwner(ownerType: ReadmeOwnerType, ownerId: string): Promise<void> {
+    await this._deleteByIndex('by-owner', [ownerType, ownerId])
   }
 
   async deleteByWorkspace(workspaceId: string): Promise<void> {
     await this._deleteByIndex('by-workspace', workspaceId)
   }
 
-  private async _deleteByIndex(index: 'by-project' | 'by-workspace', key: string): Promise<void> {
+  private async _deleteByIndex(index: 'by-owner' | 'by-workspace', key: string | [string, string]): Promise<void> {
     const db = await getDB()
-    const items = await db.getAllFromIndex('readme_attachments', index, key)
+    const items = await db.getAllFromIndex('readme_attachments', index, key as never)
     const tx = db.transaction('readme_attachments', 'readwrite')
     for (const item of items) {
       tx.store.delete(item.id)

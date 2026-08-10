@@ -1,9 +1,12 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Trash2, Pencil, Download, GitBranch, MoreHorizontal } from 'lucide-react'
+import { Trash2, Pencil, Download, GitBranch, MoreHorizontal, BookOpen, Scale } from 'lucide-react'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
+import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
+import { EtlPullDialog } from '@/components/versioning/EtlPullDialog'
+import { useEtlStore } from '@/stores/etl-store'
 import type { GitScope } from '@/lib/api/git'
-import type { GitRemoteConfig, LocalizedString } from '@/types'
+import type { EntityLicense, GitRemoteConfig, LocalizedString, ReadmeOwnerType } from '@/types'
 import { localized } from '@/lib/localized'
 import { cardMenuTriggerClass } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
@@ -66,6 +69,21 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
   /** When set, the versioning dialog's Git tab shows the push-only sync panel
    *  for this scope (server mode); the item's id is used as the sync id. */
   syncScope?: GitScope
+  /** When set, adds Readme and License items opening the shared docs dialog. */
+  docs?: EntityDocsAccessors<T>
+}
+
+/** How an entity's README and license are read and written, for the docs dialog. */
+export interface EntityDocsAccessors<T> {
+  getReadme: (item: T) => LocalizedString | string | undefined
+  onSaveReadme: (item: T, readme: LocalizedString) => void | Promise<void>
+  getLicense: (item: T) => EntityLicense | null | undefined
+  onSaveLicense: (item: T, license: EntityLicense | null) => void | Promise<void>
+  /** Owner type for README image attachments. Omitted = no attachments. */
+  attachmentOwnerType?: ReadmeOwnerType
+  /** Attachment owner id, when it is not the item's `id` (e.g. schema presets). */
+  getOwnerId?: (item: T) => string
+  getWorkspaceId?: (item: T) => string | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +111,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   canDelete = true,
   extraItems,
   syncScope,
+  docs,
 }: EntityActionsMenuProps<T>) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -104,6 +123,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   const [toEdit, setToEdit] = useState<T | null>(null)
   const [toDelete, setToDelete] = useState<T | null>(null)
   const [versioning, setVersioning] = useState<{ item: T; tab: 'export' | 'git' } | null>(null)
+  const [docsOpen, setDocsOpen] = useState<{ item: T; tab: DocsTab } | null>(null)
 
   // Git versioning is available whenever the entity exposes a remote getter/setter.
   // The Export tab of the dialog needs a real onExport; when the entity exports via
@@ -166,6 +186,18 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
               {t('common.versioning')}
             </DropdownMenuItem>
           )}
+          {docs && (
+            <>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsOpen({ item, tab: 'readme' }) }}>
+                <BookOpen size={14} />
+                {t('summary.tab_readme')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDocsOpen({ item, tab: 'license' }) }}>
+                <Scale size={14} />
+                {t('license.title')}
+              </DropdownMenuItem>
+            </>
+          )}
           {extraItems}
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -198,12 +230,50 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             gitOnly={gitOnly}
             syncScope={syncScope}
             syncId={syncScope ? versioning.item.id : undefined}
+            // Chosen from the scope rather than passed in by each caller: the pull
+            // flow is a property of the entity kind, and an ETL pipeline is reached
+            // from both the list page and the header menu.
+            renderPullDialog={syncScope === 'etl-pipelines'
+              ? ({ branch, onClose, onPulled }) => (
+                <EtlPullDialog
+                  pipelineId={versioning.item.id}
+                  branch={branch}
+                  onClose={onClose}
+                  onPulled={async () => {
+                    // The pull wrote to storage; the ETL views read from the store.
+                    await useEtlStore.getState().loadEtlPipelines()
+                    await useEtlStore.getState().loadPipelineFiles(versioning.item.id)
+                    await onPulled()
+                  }}
+                />
+              )
+              : undefined}
             supportsIncludeData={exportSupportsIncludeData}
             gitRemote={getGitRemote(versioning.item)}
             onExport={onExport ? () => onExport(versioning.item) : undefined}
             onSaveGitRemote={async (config) => {
               await onSaveGitRemote(versioning.item, config)
             }}
+          />
+        )}
+
+        {/* Readme + license */}
+        {docsOpen && docs && (
+          <EntityDocsDialog
+            open
+            onOpenChange={(open) => { if (!open) setDocsOpen(null) }}
+            initialTab={docsOpen.tab}
+            entityName={localized(docsOpen.item.name, language)}
+            readme={docs.getReadme(docsOpen.item)}
+            onSaveReadme={(readme) => docs.onSaveReadme(docsOpen.item, readme)}
+            license={docs.getLicense(docsOpen.item)}
+            onSaveLicense={(license) => docs.onSaveLicense(docsOpen.item, license)}
+            canEdit={canEdit}
+            attachmentOwner={docs.attachmentOwnerType ? {
+              type: docs.attachmentOwnerType,
+              id: docs.getOwnerId?.(docsOpen.item) ?? docsOpen.item.id,
+              workspaceId: docs.getWorkspaceId?.(docsOpen.item),
+            } : undefined}
           />
         )}
 

@@ -1,4 +1,4 @@
-import type { GitRemoteConfig, LocalizedString } from './index'
+import type { EntityLicense, GitRemoteConfig, LocalizedString } from './index'
 import type { Authored } from './author'
 
 /**
@@ -231,6 +231,8 @@ export interface CustomSchemaPreset extends Authored {
   presetId: string
   workspaceId?: string
   mapping: SchemaMapping
+  readme?: LocalizedString
+  license?: EntityLicense
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
   version?: string
   /**

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Upload, type LucideIcon } from 'lucide-react'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
-import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
+import { EntityActionsMenu, type EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { shortenIdAmong } from '@/lib/short-id'
@@ -66,6 +66,8 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
   /** When set, the versioning dialog's Git tab shows the push-only sync panel for
    *  this scope (server mode), using each item's id as the sync id. */
   syncScope?: GitScope
+  /** When set, each card's menu gets Readme and License items. */
+  docs?: EntityDocsAccessors<T>
   /** Import from a file. When provided, the Import header button is enabled.
    *  `gitRemote` is set when the source was cloned from git, so the caller can
    *  pre-link the entity's Versioning page to that repo (url/branch/token). */
@@ -116,6 +118,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   onSaveGitRemote,
   exportSupportsIncludeData = true,
   syncScope,
+  docs,
   onImport,
   importAccept = '.zip',
   renderCardBody,
@@ -230,6 +233,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                         onSaveGitRemote={onSaveGitRemote}
                         exportSupportsIncludeData={exportSupportsIncludeData}
                         syncScope={syncScope}
+                        docs={docs}
                         renderEditDialog={renderEditDialog}
                         deleteConfirmTitleKey={deleteConfirmTitleKey}
                         deleteConfirmDescriptionKey={deleteConfirmDescriptionKey}

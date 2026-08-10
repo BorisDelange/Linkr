@@ -45,7 +45,7 @@ import { isVersioned, toggleVersioned, setVersionedMany } from './etl-versioning
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
 import { compareTreeNodes, contentSize, sizeColumnWidthCh } from '@/lib/file-tree-sort'
 import { humanBytes } from '@/lib/format-helpers'
-import { treeNodePath } from '@/lib/entity-tree'
+import { isReservedTreeName, treeNodePath } from '@/lib/entity-tree'
 import { downloadBlob } from '@/lib/entity-io'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import {
@@ -341,13 +341,15 @@ function EtlFileTreeItem({
   }, [editing, file.name, isFolder])
 
   const trimmedNewName = editName.trim()
+  const renameReserved = !!trimmedNewName && isReservedTreeName(trimmedNewName, file.parentId)
   const renameClashes =
     !!trimmedNewName &&
     trimmedNewName.toLowerCase() !== file.name.toLowerCase() &&
     nameExists(file.parentId, trimmedNewName, file.id)
+  const renameInvalid = renameClashes || renameReserved
 
   const handleRenameSubmit = () => {
-    if (!trimmedNewName || renameClashes) return
+    if (!trimmedNewName || renameInvalid) return
     if (trimmedNewName !== file.name) {
       onRename(file.id, trimmedNewName)
     }
@@ -399,14 +401,14 @@ function EtlFileTreeItem({
           <span
             className={cn(
               '-ml-0.5 flex h-5 min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
-              renameClashes ? 'border-destructive' : 'border-primary',
+              renameInvalid ? 'border-destructive' : 'border-primary',
             )}
           >
             <input
               ref={inputRef}
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              title={renameClashes ? t('etl.name_exists', { name: trimmedNewName }) : undefined}
+              title={renameReserved ? t('files.name_reserved') : renameClashes ? t('etl.name_exists', { name: trimmedNewName }) : undefined}
               onKeyDown={(e) => {
                 e.stopPropagation()
                 if (e.key === 'Enter') handleRenameSubmit()
@@ -427,7 +429,7 @@ function EtlFileTreeItem({
             <button
               type="button"
               tabIndex={-1}
-              disabled={renameClashes || !trimmedNewName}
+              disabled={renameInvalid || !trimmedNewName}
               aria-label={t('common.save')}
               onMouseDown={(e) => e.preventDefault()}
               onClick={handleRenameSubmit}

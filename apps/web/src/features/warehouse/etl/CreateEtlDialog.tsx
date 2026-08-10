@@ -43,7 +43,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const { t } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { createPipeline, updatePipeline, createFile } = useEtlStore()
+  const { createPipeline, updatePipeline } = useEtlStore()
   const language = useAppStore((s) => s.language)
 
   const [name, setName] = useState('')
@@ -112,26 +112,16 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           badges,
           status: 'draft',
           version: version.trim() || '0.1.0',
+          // A README from the start: the pipeline is git-versionable, and a repo
+          // whose first file is a numbered SQL script says nothing about what the
+          // pipeline is for. It lives on the entity, not in the file tree.
+          readme: setLocalized({}, language, `# ${name.trim()}\n`),
           ...stampAuthored(),
           ...stampLineage(),
           createdAt: now,
           updatedAt: now,
         }
         await createPipeline(pipeline)
-        // A README from the start, as SQL script collections do: the pipeline is
-        // git-versionable, and a repo whose first file is a numbered SQL script
-        // says nothing about what the pipeline is for.
-        await createFile({
-          id: crypto.randomUUID(),
-          pipelineId: pipeline.id,
-          name: 'README.md',
-          type: 'file',
-          parentId: null,
-          content: `# ${name.trim()}\n`,
-          language: 'markdown',
-          order: -100,
-          createdAt: now,
-        })
         onOpenChange(false)
         setName('')
         setSourceId('')

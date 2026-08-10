@@ -1,4 +1,4 @@
-import type { Seedable, LocalizedString, GitRemoteConfig, OrganizationInfo } from './index'
+import type { Seedable, LocalizedString, GitRemoteConfig, OrganizationInfo, EntityLicense } from './index'
 import type { Authored, Lineaged } from './author'
 
 // --- Catalog Status ---
@@ -159,6 +159,8 @@ export interface DataCatalog extends Seedable, Authored, Lineaged {
   lastComputeDurationMs?: number
   /** Health-DCAT-AP metadata stored as a JSON-LD object. */
   dcatApMetadata?: Record<string, unknown>
+  readme?: LocalizedString
+  license?: EntityLicense
   /**
    * Git repository this catalog is linked to. When set, workspace export emits only a
    * metadata marker (`catalogs/<folder>/_catalog.json`) plus a git-links.json pointer;

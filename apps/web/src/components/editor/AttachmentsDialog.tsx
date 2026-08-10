@@ -8,12 +8,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import type { ReadmeAttachment } from '@/types'
+/** Structural shape shared by README and wiki attachments. */
+export interface AttachmentItem {
+  id: string
+  fileName: string
+  mimeType: string
+  fileSize: number
+  data: ArrayBuffer
+  createdAt: string
+}
 
-interface ReadmeAttachmentsDialogProps {
+interface AttachmentsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  attachments: ReadmeAttachment[]
+  attachments: AttachmentItem[]
   onUpload: (file: File) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }
@@ -32,13 +40,13 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function ReadmeAttachmentsDialog({
+export function AttachmentsDialog({
   open,
   onOpenChange,
   attachments,
   onUpload,
   onDelete,
-}: ReadmeAttachmentsDialogProps) {
+}: AttachmentsDialogProps) {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -161,7 +169,7 @@ function AttachmentRow({
   onCopy,
   onDelete,
 }: {
-  attachment: ReadmeAttachment
+  attachment: AttachmentItem
   onCopy: () => void
   onDelete: () => void
 }) {

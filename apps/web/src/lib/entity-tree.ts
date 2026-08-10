@@ -38,6 +38,20 @@ export interface PathNode {
   type: 'file' | 'folder'
 }
 
+/**
+ * Whether a name is reserved at this position in a versioned tree.
+ *
+ * An entity's export writes README.md (plus README.<lang>.md), LICENSE.md and an
+ * attachments/ folder at the root of its folder, from fields on the entity itself.
+ * A user node of the same name at the tree root would collide there, so the name
+ * is refused — inside a subfolder it is harmless.
+ */
+export function isReservedTreeName(name: string, parentId: string | null): boolean {
+  if (parentId !== null) return false
+  const n = name.trim().toLowerCase()
+  return n === 'attachments' || n === 'license.md' || /^readme(\.[a-z-]+)?\.md$/.test(n)
+}
+
 /** Full path of a stored node, walking parentId up to the root. */
 export function treeNodePath(node: TreeNode, byId: Map<string, TreeNode>): string {
   const parts: string[] = [node.name]
