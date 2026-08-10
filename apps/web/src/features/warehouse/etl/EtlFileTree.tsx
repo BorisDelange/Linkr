@@ -114,7 +114,9 @@ export function EtlFileTree() {
 
   return (
     <>
-      <FileTreeHeader sort={sort} onChange={setSort} />
+      {/* Same right gutter as the rows (pr-3.5), so the "size" label stays above
+          the values it heads once the scrollbar has its own lane. */}
+      <FileTreeHeader sort={sort} onChange={setSort} className="pr-3.5" />
       <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="py-1">
           {[...rootFiles].sort(compare).map((file) => (
@@ -267,7 +269,7 @@ function EtlFileTreeItem({
     return (
       <div>
         <div
-          className="flex h-6 w-full min-w-0 items-center gap-1.5 pr-2 text-xs"
+          className="flex h-6 w-full min-w-0 items-center gap-1.5 pr-3.5 text-xs"
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
           <span className="w-3 shrink-0" />
@@ -349,7 +351,7 @@ function EtlFileTreeItem({
             }}
             {...nameTriggerProps}
             className={cn(
-              'flex h-6 w-full min-w-0 items-center gap-1.5 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
+              'flex h-6 w-full min-w-0 items-center gap-1.5 pr-3.5 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}

@@ -283,12 +283,31 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   }, [selectedFile, addOutputTab, setOutputVisible])
 
   // Create new file
+  /**
+   * The name the file would actually get, and whether it is already taken.
+   *
+   * Checked on the RESOLVED name, after the extension is appended: typing
+   * "00_vocabulary" when 00_vocabulary.sql exists is the same clash, and testing
+   * the raw input would miss it.
+   */
+  const newFileResolved = useMemo(() => {
+    const typed = newFileName.trim()
+    if (!typed) return { name: '', clashes: false }
+    const ext = (ETL_FILE_TYPES.find((ft) => ft.id === newFileType) ?? ETL_FILE_TYPES[0]).ext
+    const name = typed.includes('.') ? typed : `${typed}${ext}`
+    // Top level only: the dialog creates at the root (parentId null).
+    const clashes = files.some(
+      (f) => f.parentId === null && f.name.toLowerCase() === name.toLowerCase(),
+    )
+    return { name, clashes }
+  }, [newFileName, newFileType, files])
+
   const handleCreateFile = async () => {
-    let name = newFileName.trim()
-    if (!name) return
+    const name = newFileResolved.name
+    // Refused rather than silently de-duplicated: two files with one name at the
+    // same path make the export tree ambiguous and the run order unreadable.
+    if (!name || newFileResolved.clashes) return
     const selectedType = ETL_FILE_TYPES.find((ft) => ft.id === newFileType) ?? ETL_FILE_TYPES[0]
-    // Auto-add extension if the name doesn't already have one
-    if (!name.includes('.')) name = `${name}${selectedType.ext}`
     const lang = inferEtlLanguage(name) ?? selectedType.lang
     const now = new Date().toISOString()
     const file: EtlFile = {
@@ -1057,15 +1076,21 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') { e.preventDefault(); handleCreateFile() }
                 }}
+                aria-invalid={newFileResolved.clashes}
                 autoFocus
               />
+              {newFileResolved.clashes && (
+                <p className="text-xs text-destructive">
+                  {t('etl.name_exists', { name: newFileResolved.name })}
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateFileOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreateFile} disabled={!newFileName.trim()}>
+            <Button onClick={handleCreateFile} disabled={!newFileName.trim() || newFileResolved.clashes}>
               {t('common.create')}
             </Button>
           </DialogFooter>
