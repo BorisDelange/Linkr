@@ -332,9 +332,13 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
     """Server equivalent of ``buildEtlPipelineFolder`` (entity-io.ts:1775):
     _pipeline.json (stripped) + _tree.json + each file at its real path."""
     tree: dict[str, bytes] = {}
-    tree["_pipeline.json"] = _json(
-        _strip_instance_fields(_badged_dump(EtlPipelineResponse, pipeline))
-    )
+    dumped = _badged_dump(EtlPipelineResponse, pipeline)
+    # Same byte-parity rule as `badges`: the client omits an unset `config`
+    # entirely (JSON.stringify skips undefined) while Pydantic emits an explicit
+    # null. A pipeline with no versioning marks must export identically either way.
+    if dumped.get("config") is None:
+        dumped.pop("config", None)
+    tree["_pipeline.json"] = _json(_strip_instance_fields(dumped))
     files = [
         _dump(EtlFileResponse, f)
         for f in await etl_pipeline_service.list_files(db, pipeline.id)
