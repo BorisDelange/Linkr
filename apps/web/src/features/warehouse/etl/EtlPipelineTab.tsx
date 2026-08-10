@@ -47,6 +47,8 @@ import {
   Building2,
   ArrowDownAZ,
   Trash2,
+  Copy,
+  Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -72,6 +74,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
+import { fetchDatabaseFilePath } from '@/lib/api/data-sources'
 import { localized } from '@/lib/localized'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { orderByNamePatch } from './etl-file-language'
@@ -447,6 +450,46 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
+/** A path plus a copy button: it is meant to be pasted into another tool, and a
+ *  long path is impractical to select by hand in a narrow sidebar. */
+function FilePathRow({ label, path }: { label: string; path: string }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+
+  const copy = () => {
+    navigator.clipboard.writeText(path).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <div className="min-w-0 space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-muted-foreground">{label}</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={copy}
+              aria-label={t('files.copy')}
+              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {copied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{copied ? t('common.copied') : t('files.copy')}</TooltipContent>
+        </Tooltip>
+      </div>
+      {/* break-all, not break-words: a path has no spaces to wrap on, so it would
+          otherwise widen the whole sidebar. */}
+      <code className="block min-w-0 break-all rounded bg-muted/50 px-1.5 py-1 text-[10px] leading-relaxed">
+        {path}
+      </code>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Database sidebar detail — rich stats for source/target nodes
 // ---------------------------------------------------------------------------
@@ -465,6 +508,23 @@ function DatabaseSidebarDetail({
   const { t, i18n } = useTranslation()
   const [stats, setStats] = useState<DatabaseStatsCache | null>(null)
   const [loading, setLoading] = useState(false)
+  const [filePath, setFilePath] = useState<string | null>(null)
+
+  // The .duckdb path, so the user can attach the same file from an R/Python
+  // script outside Linkr. Server mode only: the browser build keeps its database
+  // inside the WASM sandbox, where there is no path to hand out.
+  const managed = !!ds?.connectionConfig && 'managed' in ds.connectionConfig && ds.connectionConfig.managed === true
+  useEffect(() => {
+    if (!ds?.id || !isServerMode() || !managed) {
+      setFilePath(null)
+      return
+    }
+    let cancelled = false
+    fetchDatabaseFilePath(ds.id)
+      .then((r) => { if (!cancelled) setFilePath(r.exists ? r.path : null) })
+      .catch(() => { if (!cancelled) setFilePath(null) })
+    return () => { cancelled = true }
+  }, [ds?.id, managed])
 
   useEffect(() => {
     if (!ds?.id || !ds.schemaMapping) {
@@ -523,6 +583,7 @@ function DatabaseSidebarDetail({
               <DetailRow label={t('etl.pipeline_db_schema')} value={localized(ds.schemaMapping.presetLabel, i18n.language)} />
             )}
             <DetailRow label={t('etl.pipeline_db_type')} value={ds.sourceType ?? '—'} />
+            {filePath && <FilePathRow label={t('etl.pipeline_db_file')} path={filePath} />}
           </div>
 
           {/* Opens the Schemas tab on this database rather than a modal — the same

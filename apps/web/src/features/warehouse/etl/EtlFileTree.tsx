@@ -43,14 +43,14 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { isVersioned, toggleVersioned } from './etl-versioning'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
-import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
+import { compareTreeNodes, contentSize, sizeColumnWidthCh } from '@/lib/file-tree-sort'
 import { humanBytes } from '@/lib/format-helpers'
 import { treeNodePath } from '@/lib/entity-tree'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import type { EtlFile } from '@/types'
 
 export function EtlFileTree() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { files, selectedFileId, selectFile, deleteFile, updateFile } = useEtlStore()
   const [sort, setSort] = useState<FileTreeSort>({ key: 'name', desc: false })
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
@@ -91,6 +91,14 @@ export function EtlFileTree() {
     { name: b.name, type: b.type, size: contentSize(b.content) },
     sort,
   )
+  // One width for every row, measured from the sizes actually shown: a fixed
+  // width sized for "1000 ko" left a gap when every file is "5 ko".
+  const sizeWidthCh = sizeColumnWidthCh(
+    files.map((f) => {
+      const bytes = f.type === 'file' ? contentSize(f.content) : undefined
+      return bytes == null ? undefined : humanBytes(bytes, i18n.language)
+    }),
+  )
   const rootFiles = files.filter((f) => f.parentId === null)
   const getChildren = (parentId: string) =>
     files.filter((f) => f.parentId === parentId).sort(compare)
@@ -125,6 +133,7 @@ export function EtlFileTree() {
               getChildren={getChildren}
               expandedFolders={expandedFolders}
               selectedFileId={selectedFileId}
+              sizeWidthCh={sizeWidthCh}
             />
           ))}
         </div>
@@ -166,6 +175,7 @@ function EtlFileTreeItem({
   getChildren,
   expandedFolders,
   selectedFileId,
+  sizeWidthCh,
 }: {
   file: EtlFile
   depth: number
@@ -180,6 +190,7 @@ function EtlFileTreeItem({
   getChildren: (parentId: string) => EtlFile[]
   expandedFolders: Set<string>
   selectedFileId: string | null
+  sizeWidthCh: number
 }) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
@@ -316,6 +327,7 @@ function EtlFileTreeItem({
             onRename={onRename}
             nameExists={nameExists}
             getChildren={getChildren}
+            sizeWidthCh={sizeWidthCh}
             expandedFolders={expandedFolders}
             selectedFileId={selectedFileId}
           />
@@ -386,7 +398,10 @@ function EtlFileTreeItem({
               {/* Discreet, and last: the size answers "which file is the big one"
                   without competing with the name for attention. Right-aligned in a
                   fixed box so the digits line up as a column. */}
-              <span className="w-12 text-right text-[10px] tabular-nums text-muted-foreground/60">
+              <span
+                className="text-right text-[10px] tabular-nums text-muted-foreground/60"
+                style={{ width: `${sizeWidthCh}ch` }}
+              >
                 {!isFolder && size != null ? humanBytes(size, i18n.language) : ''}
               </span>
             </span>

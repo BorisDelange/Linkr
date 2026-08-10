@@ -34,6 +34,27 @@ export function compareTreeNodes(a: SortableNode, b: SortableNode, sort: FileTre
   return sort.desc ? -byName : byName
 }
 
+/**
+ * Width (in `ch`) for the size column, from the widest label actually present.
+ *
+ * A fixed width has to assume the worst case ("1000 ko"), which leaves a visible
+ * gap between the versioning icon and the sizes when every file is "5 ko". Sizing
+ * to the real content keeps the columns tight AND aligned, since every row is
+ * given the same measured width.
+ *
+ * `ch` because the labels are rendered with `tabular-nums`, where every digit is
+ * one `ch` wide — so the count of characters is the width.
+ */
+export function sizeColumnWidthCh(labels: (string | undefined)[]): number {
+  let widest = 0
+  for (const label of labels) {
+    if (label) widest = Math.max(widest, label.length)
+  }
+  // Never collapse to nothing: with no sizes at all the column disappears, and a
+  // minimum keeps the icons off the right edge.
+  return Math.max(widest, 4)
+}
+
 /** Bytes of a node's text content, or undefined when it holds none. */
 export function contentSize(content: string | undefined): number | undefined {
   if (content == null) return undefined

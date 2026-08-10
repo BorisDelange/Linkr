@@ -402,3 +402,69 @@ async def test_create_from_ddl_materialises_the_database(client, tmp_path, monke
         )
     ).json()
     assert {t["name"] for t in schema} == {"person", "concept"}
+
+
+async def test_managed_database_exposes_its_file_path(client, tmp_path, monkeypatch):
+    """The user attaches the same .duckdb from an R/Python script outside Linkr,
+    so the sidebar needs the real disk path."""
+    from app.config import settings
+    from app.services.data import managed_db
+
+    monkeypatch.setattr(type(settings), "data_path", property(lambda _: tmp_path))
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    created = (
+        await client.post(
+            f"{API}/data-sources",
+            headers=headers,
+            json={
+                "workspaceId": ws,
+                "alias": "omop",
+                "name": "OMOP",
+                "sourceType": "database",
+                "connectionConfig": {"engine": "duckdb"},
+            },
+        )
+    ).json()
+
+    # Before materialisation: not managed yet, so there is no path to hand out.
+    before = (
+        await client.get(f"{API}/data-sources/{created['id']}/file-path", headers=headers)
+    ).json()
+    assert before["path"] is None and before["exists"] is False
+
+    await client.post(
+        f"{API}/data-sources/{created['id']}/create-from-ddl",
+        headers=headers,
+        json={"ddl": "CREATE TABLE person (person_id BIGINT);"},
+    )
+
+    after = (
+        await client.get(f"{API}/data-sources/{created['id']}/file-path", headers=headers)
+    ).json()
+    assert after["exists"] is True
+    assert after["path"] == str(managed_db.path_for(created["id"]))
+    assert after["path"].endswith(".duckdb")
+
+
+async def test_file_path_requires_read_access(client, db):
+    """It discloses a server filesystem path, so it is permission-gated."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    created = (
+        await client.post(
+            f"{API}/data-sources",
+            headers=headers,
+            json={
+                "workspaceId": ws,
+                "alias": "omop",
+                "name": "OMOP",
+                "sourceType": "database",
+                "connectionConfig": {"engine": "duckdb"},
+            },
+        )
+    ).json()
+    other = await _create_user(db, client, "mallory")
+    r = await client.get(f"{API}/data-sources/{created['id']}/file-path", headers=other)
+    assert r.status_code in (403, 404)

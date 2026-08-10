@@ -3144,6 +3144,7 @@
     "pipeline_db_engine": "Engine",
     "pipeline_db_schema": "Schema",
     "pipeline_db_type": "Type",
+    "pipeline_db_file": "Database file",
     "pipeline_no_db_selected": "No database selected",
     "pipeline_script_order": "Order",
     "pipeline_script_lang": "Language",

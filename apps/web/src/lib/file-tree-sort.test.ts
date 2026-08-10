@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareTreeNodes, contentSize, type SortableNode } from './file-tree-sort'
+import { compareTreeNodes, contentSize, sizeColumnWidthCh, type SortableNode } from './file-tree-sort'
 
 const f = (name: string, size?: number): SortableNode => ({ name, type: 'file', size })
 const d = (name: string): SortableNode => ({ name, type: 'folder' })
@@ -65,5 +65,25 @@ describe('contentSize', () => {
   it('distinguishes an empty file from one with no content at all', () => {
     expect(contentSize('')).toBe(0)
     expect(contentSize(undefined)).toBeUndefined()
+  })
+})
+
+
+describe('sizeColumnWidthCh', () => {
+  it('fits the widest label actually present, not a worst case', () => {
+    // Sized for "1000 ko" when every file is "5 ko", the column left a visible
+    // gap between the versioning icon and the sizes.
+    expect(sizeColumnWidthCh(['5 ko', '10 ko'])).toBe(5)
+    expect(sizeColumnWidthCh(['5 ko', '1000 ko'])).toBe(7)
+  })
+
+  it('ignores rows with no size (folders)', () => {
+    expect(sizeColumnWidthCh([undefined, '12 ko', undefined])).toBe(5)
+  })
+
+  it('keeps a minimum so the column never collapses', () => {
+    expect(sizeColumnWidthCh([])).toBe(4)
+    expect(sizeColumnWidthCh([undefined])).toBe(4)
+    expect(sizeColumnWidthCh(['9 o'])).toBe(4)
   })
 })

@@ -144,3 +144,13 @@ class EtlRunRequest(CamelModel):
                 raise ValueError(f"invalid role name: {role!r}")
             out[role.lower()] = ds_id
         return out
+
+
+class DatabaseFilePath(CamelModel):
+    """Where a managed DuckDB database lives on the server's disk, so the user can
+    open the very same file from R/Python outside Linkr."""
+
+    # Absent when the source is not a managed file database (external engine,
+    # parquet folder), or when the file has not been created yet.
+    path: str | None = None
+    exists: bool = False

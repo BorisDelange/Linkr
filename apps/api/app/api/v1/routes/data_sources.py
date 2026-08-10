@@ -18,6 +18,7 @@ from app.schemas.concept_cache import (
     ConceptStatsSave,
 )
 from app.schemas.data_source import (
+    DatabaseFilePath,
     CreateFromDdlRequest,
     DataSourceCreate,
     DataSourceFileImportRequest,
@@ -288,6 +289,27 @@ async def get_data_source_schema(
     mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
     source = await _load_source(db, source_id, user, "databases:read")
     return await data_source_service.introspect(db, source)
+
+
+@router.get("/{source_id}/file-path", response_model=DatabaseFilePath)
+async def get_database_file_path(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Disk path of a MANAGED DuckDB database, so the user can attach the same
+    file from an R/Python script outside Linkr.
+
+    Only managed databases have one: an external engine has no local file, and a
+    parquet-folder source is many files. Permission-gated like any other read of
+    the source, since it discloses a server filesystem path.
+    """
+    source = await _load_source(db, source_id, user, "databases:read")
+    config = source.connection_config or {}
+    if not config.get("managed"):
+        return DatabaseFilePath()
+    path = managed_db.path_for(source.id)
+    return DatabaseFilePath(path=str(path), exists=path.exists())
 
 
 @router.get("/{source_id}/concept-cache", response_model=ConceptCacheStatus)

@@ -133,6 +133,23 @@ export function fetchDataSourceSchema(
   return apiRequest<IntrospectedTable[]>(`/data-sources/${dataSourceId}/schema`)
 }
 
+/** Where a managed DuckDB database lives on the server's disk. */
+export interface DatabaseFilePath {
+  /** Null when the source is not a managed file database. */
+  path: string | null
+  exists: boolean
+}
+
+/**
+ * Disk path of a managed DuckDB database, so the user can attach the very same
+ * file from an R/Python script outside Linkr.
+ */
+export function fetchDatabaseFilePath(
+  dataSourceId: string,
+): Promise<DatabaseFilePath> {
+  return apiRequest<DatabaseFilePath>(`/data-sources/${dataSourceId}/file-path`)
+}
+
 /**
  * Server-mode data source storage. Metadata is CRUD against the API; the
  * connection password is stripped server-side and never returned.
