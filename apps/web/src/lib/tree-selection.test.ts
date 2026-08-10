@@ -27,6 +27,17 @@ describe('selectOnClick', () => {
     expect(s.ids).toEqual(['a', 'c'])
   })
 
+  it('keeps the FIRST clicked file in the selection as more are cmd-clicked', () => {
+    // The row styling reads membership from here, and the first file clicked is
+    // also the one open in the editor — it must still count as selected, or the
+    // anchor of the user's own selection looks excluded from it.
+    let s = selectOnClick(EMPTY_SELECTION, 'a', VISIBLE)
+    s = selectOnClick(s, 'c', VISIBLE, { meta: true })
+    s = selectOnClick(s, 'e', VISIBLE, { meta: true })
+    expect(s.ids).toContain('a')
+    expect(s.ids).toEqual(['a', 'c', 'e'])
+  })
+
   it('cmd-click on a selected row removes it', () => {
     const s = selectOnClick({ ids: ['a', 'b'], anchorId: 'a' }, 'a', VISIBLE, { meta: true })
     expect(s.ids).toEqual(['b'])

@@ -369,7 +369,10 @@ function EtlFileTreeItem({
     updatePipeline(pipelineId, { config: toggleVersioned(treePath, pipelineConfig) })
   }
 
-  const isMultiSelected = selection.ids.includes(file.id)
+  // Only once the selection actually spans several rows: a plain click leaves one
+  // id selected, and marking that row would decorate ordinary single-file opening
+  // as if a multi-selection were under way.
+  const isMultiSelected = selection.ids.length > 1 && selection.ids.includes(file.id)
   // Right-clicking inside a multi-selection acts on all of it; outside, on this
   // row alone (see lib/tree-selection.actionTargets).
   const targets = actionTargets(selection, file.id)
@@ -486,11 +489,18 @@ function EtlFileTreeItem({
             className={cn(
               'flex h-6 w-full min-w-0 items-center gap-1.5 pr-3.5 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
-              // Multi-selected but not the open file: distinct from the active row,
-              // so "what I am editing" stays readable inside a selection.
+              // Selection is shown on EVERY selected row, the active one included:
+              // guarding this with !isActive hid it on the first file clicked (which
+              // is also the open file), so the anchor of the user's own selection
+              // looked excluded from it. The active row stays distinguishable by its
+              // left border instead of by having no selection tint.
               isMultiSelected && !isActive && 'bg-primary/10',
+              isMultiSelected && isActive && 'bg-accent',
+              isMultiSelected && 'border-l-2 border-l-primary',
             )}
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
+            // The 2px selection border is subtracted from the indent, so the name
+            // does not shift sideways when a row becomes selected.
+            style={{ paddingLeft: `${depth * 16 + 8 - (isMultiSelected ? 2 : 0)}px` }}
           >
             {isFolder ? (
               <>
