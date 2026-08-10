@@ -84,13 +84,13 @@ function EntityExportContent({
 }
 
 /**
- * Per-entity versioning dialog. Renders the shared VersioningTabs (Export · Git · History)
+ * Per-entity versioning dialog. Renders the shared VersioningTabs (Git · Export)
  * inside a dialog, so it stays consistent with the workspace/project versioning pages.
  */
 export function EntityVersioningDialog({
   open,
   onOpenChange,
-  initialTab = 'export',
+  initialTab = 'git',
   supportsIncludeData = true,
   onExport,
   exportContent,

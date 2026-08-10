@@ -35,15 +35,16 @@ interface VersioningTabsProps {
 }
 
 /**
- * Unified versioning UI — Export · Git repository — shared by the versioning
+ * Unified versioning UI — Git repository · Export — shared by the versioning
  * pages (project, workspace) and the per-entity dialog. Only the Export content
- * differs per scope; the Git tab is identical everywhere.
+ * differs per scope; the Git tab is identical everywhere. Git comes first (and
+ * is the default): syncing to a repo is the primary flow, ZIP export the fallback.
  */
 export function VersioningTabs({
   exportContent,
   gitRemote,
   onSaveGitRemote,
-  initialTab = 'export',
+  initialTab = 'git',
   tab: controlledTab,
   onTabChange,
   fillHeight = false,
@@ -70,27 +71,27 @@ export function VersioningTabs({
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as VersioningTab)} className={fillHeight ? 'flex min-h-0 flex-1 flex-col' : undefined}>
       <TabsList className="w-full">
+        <TabsTrigger value="git" className="flex-1 gap-1.5">
+          <GitBranch size={14} />
+          {t('app_versioning.tab_git_repository')}
+        </TabsTrigger>
         {!gitOnly && (
           <TabsTrigger value="export" className="flex-1 gap-1.5">
             <Download size={14} />
             {t('versioning.tab_export')}
           </TabsTrigger>
         )}
-        <TabsTrigger value="git" className="flex-1 gap-1.5">
-          <GitBranch size={14} />
-          {t('app_versioning.tab_git_repository')}
-        </TabsTrigger>
       </TabsList>
+
+      <TabsContent value="git" className={sideContentClass}>
+        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} syncScope={syncScope} syncId={syncId} renderPullDialog={renderPullDialog} />
+      </TabsContent>
 
       {!gitOnly && (
         <TabsContent value="export" className={exportContentClass}>
           {exportContent}
         </TabsContent>
       )}
-
-      <TabsContent value="git" className={sideContentClass}>
-        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} syncScope={syncScope} syncId={syncId} renderPullDialog={renderPullDialog} />
-      </TabsContent>
     </Tabs>
   )
 }
