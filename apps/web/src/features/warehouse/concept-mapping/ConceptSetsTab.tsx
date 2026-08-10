@@ -1114,8 +1114,8 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       <Tabs defaultValue="concept-sets">
         <div className="flex justify-center">
           <TabsList className="w-fit">
-            <TabsTrigger value="concept-sets">{t('concept_mapping.cs_project_sets')}</TabsTrigger>
             <TabsTrigger value="vocabulary">{t('concept_mapping.cs_vocabulary_ref')}</TabsTrigger>
+            <TabsTrigger value="concept-sets">{t('concept_mapping.cs_project_sets')}</TabsTrigger>
           </TabsList>
         </div>
 
