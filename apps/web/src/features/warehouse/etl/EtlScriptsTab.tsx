@@ -86,6 +86,7 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 import { comboToString } from '@/lib/format-shortcut'
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import { EtlFileTree } from './EtlFileTree'
+import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import type { EtlFile } from '@/types'
 
 /** Shortcut actions surfaced in the ETL editor (subset of the IDE's set;
@@ -110,11 +111,15 @@ const ETL_FILE_TYPES = [
   { id: 'md', label: 'Markdown', ext: '.md', lang: 'markdown' as const, icon: FileText, iconColor: 'text-muted-foreground' },
 ]
 
-/** Documentation files (.md) have nothing to run: the editor sends file contents to
- *  DuckDB, so running one would just raise a SQL parse error. Mirrors the SQL-only
- *  filter the Run-all pass uses. */
+/** A documentation file: Run PREVIEWS it (as in the project IDE) instead of
+ *  sending it to DuckDB, which would only raise a SQL parse error. */
+function isMarkdownFile(file: EtlFile): boolean {
+  return file.language === 'markdown' || file.name.toLowerCase().endsWith('.md')
+}
+
+/** Sent to DuckDB when run. Markdown is not: it gets a preview instead. */
 function isExecutable(file: EtlFile): boolean {
-  return file.language !== 'markdown' && !file.name.toLowerCase().endsWith('.md')
+  return !isMarkdownFile(file)
 }
 
 function getTabIcon(type: string) {
@@ -382,18 +387,40 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     [pipeline?.targetDataSourceId, runOne, addExecutionResult, addOutputTab, t],
   )
 
+  /**
+   * Markdown has no partial run: whatever the trigger, render the whole file.
+   * Mirrors the project IDE, where Run on a .md opens a preview tab.
+   */
+  const previewMarkdown = useCallback((file: EtlFile) => {
+    addOutputTab({
+      id: `markdown-${file.name}`,
+      label: `${t('etl.preview')} — ${file.name}`,
+      type: 'markdown',
+      content: file.content ?? '',
+    })
+    setOutputVisible(true)
+  }, [addOutputTab, setOutputVisible, t])
+
   // Run current file
   const handleRunFile = useCallback(async () => {
-    if (!selectedFile?.content || !isExecutable(selectedFile)) return
+    if (!selectedFile?.content) return
+    if (isMarkdownFile(selectedFile)) {
+      previewMarkdown(selectedFile)
+      return
+    }
     await executeSql(
       selectedFile.id, selectedFile.content, selectedFile.name,
       resolveFileDataSourceId(selectedFile),
     )
-  }, [selectedFile, executeSql, resolveFileDataSourceId])
+  }, [selectedFile, executeSql, resolveFileDataSourceId, previewMarkdown])
 
   // Cmd+Enter: run the selection if any, else the current line (RStudio-style).
   const handleRunSelectionOrLine = useCallback(async () => {
-    if (!selectedFile || !isExecutable(selectedFile)) return
+    if (!selectedFile) return
+    if (isMarkdownFile(selectedFile)) {
+      previewMarkdown(selectedFile)
+      return
+    }
     const editor = editorRef.current
     const model = editor?.getModel()
     if (!editor || !model) return
@@ -411,7 +438,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     }
     if (!sql.trim()) return
     await executeSql(selectedFile.id, sql, label, resolveFileDataSourceId(selectedFile))
-  }, [selectedFile, executeSql, resolveFileDataSourceId])
+  }, [selectedFile, executeSql, resolveFileDataSourceId, previewMarkdown])
 
   /**
    * Jump to the statement a run is executing: open its script if needed, then
@@ -577,10 +604,16 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
 
                 {editorVisible && selectedFile && (
                   <>
-                    {/* Run is hidden for documentation files — nothing to execute. */}
-                    {isExecutable(selectedFile) && (
-                      <>
-                        <div className="mx-1 h-4 w-px bg-border" />
+                    <div className="mx-1 h-4 w-px bg-border" />
+                    {/* Markdown gets a plain Preview: it has no partial run, so the
+                        split menu's "run selection / line" would be a lie. */}
+                    {!isExecutable(selectedFile) ? (
+                      <Button size="xs" className="gap-1" onClick={handleRunFile}>
+                        <Eye size={12} />
+                        {t('etl.preview')}
+                      </Button>
+                    ) : (
+                    <>
                         {/* Run — split button (same UI as SQL script collections). */}
                         {busy ? (
                           <Button
@@ -635,7 +668,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                           </div>
                         )}
                         <RunProgressBar files={orderedSqlFiles} onGoToStatement={goToStatement} />
-                      </>
+                    </>
                     )}
                     {/* Save current file (Cmd+S) — after Run */}
                     <Tooltip>
@@ -1196,6 +1229,11 @@ function EtlOutputContent({
       {!isConsoleTab && activeTab?.type === 'text' && (
         <ScrollArea className="h-full">
           <pre className="whitespace-pre-wrap p-4 font-mono text-xs">{String(activeTab.content)}</pre>
+        </ScrollArea>
+      )}
+      {!isConsoleTab && activeTab?.type === 'markdown' && (
+        <ScrollArea className="h-full">
+          <MarkdownRenderer content={String(activeTab.content)} className="p-4" />
         </ScrollArea>
       )}
     </div>

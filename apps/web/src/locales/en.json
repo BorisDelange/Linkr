@@ -3084,6 +3084,7 @@
     "run_stopped": "Stopped before the end — the script did not run to completion.",
     "run_all": "Run all scripts",
     "stop": "Stop execution",
+    "preview": "Preview",
     "browse_schema": "Browse schema",
     "browse_schema_no_target": "Select a database first",
     "copy_schema_ref": "Copy schema reference for SQL",
