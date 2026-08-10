@@ -193,8 +193,26 @@ async function readEntityDocs(
   }
 }
 
+/**
+ * Split README paths back into a LocalizedString, the inverse of
+ * `writeReadmeFiles`: the primary language carries no suffix (so a bare
+ * `README.md` is 'en') and `README.<lang>.md` names the others.
+ *
+ * Takes already-read text keyed by path, so it serves every caller regardless of
+ * where the bytes came from — a JSZip walk (project import), a parsed clone
+ * record (entity pull), or a plain map. One rule, three call sites.
+ */
+export function readReadmeByLang(textByPath: Record<string, string>): LocalizedString | undefined {
+  const byLang: LocalizedString = {}
+  for (const [path, text] of Object.entries(textByPath)) {
+    const m = /^README(?:\.([a-z]{2}))?\.md$/i.exec(path)
+    if (m) byLang[m[1] ?? 'en'] = text
+  }
+  return Object.keys(byLang).length > 0 ? byLang : undefined
+}
+
 /** Whether a path inside an entity folder is one of the docs files the export owns. */
-function isEntityDocsFile(path: string): boolean {
+export function isEntityDocsFile(path: string): boolean {
   return /^README(\.[a-z-]+)?\.md$/i.test(path) || /^LICENSE\.md$/i.test(path) || path.startsWith('attachments/')
 }
 
@@ -1382,13 +1400,12 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   const organization = projectMeta.organization as Organization | undefined
 
   // Reconstruct readme (README.md = en, README.<lang>.md = other langs), todos, notes
-  const readmeByLang: LocalizedString = {}
+  const readmeTexts: Record<string, string> = {}
   for (const [path, file] of Object.entries(zipData.files)) {
-    const m = /^README(?:\.([a-z]{2}))?\.md$/.exec(path)
-    if (!m) continue
-    readmeByLang[m[1] ?? 'en'] = await file.async('string')
+    if (/^README(?:\.[a-z]{2})?\.md$/i.test(path)) readmeTexts[path] = await file.async('string')
   }
-  if (Object.keys(readmeByLang).length > 0) {
+  const readmeByLang = readReadmeByLang(readmeTexts)
+  if (readmeByLang) {
     projectMeta.readme = readmeByLang
   }
   const projectLicenseFile = zipData.files['LICENSE.md']

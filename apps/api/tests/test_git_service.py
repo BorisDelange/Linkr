@@ -687,3 +687,46 @@ async def test_clone_to_zip_returns_head_oid():
         assert "project.json" in names and not any(n.startswith(".git/") for n in names)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_pull_preview_ships_readme_and_license_per_language():
+    """README/LICENSE reach the preview so a mapping-project pull can merge them.
+
+    They are not tree content — the entity owns them as readme/license fields — and
+    they were absent from the managed-file list, so a remote commit that added a
+    README reported nothing to pull. Enumerated from the commit rather than
+    hardcoded, because the README has one file per language."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)
+        await g.commit_push(getter, "u", _zip({
+            "project.json": '{"name":{"en":"P"},"license":{"id":"mit"}}',
+            "mappings.json": "[]",
+            "README.md": "# English",
+            "README.fr.md": "# Francais",
+            "LICENSE.md": "MIT text",
+        }), "main", "docs", remote, None)
+
+        preview = await g.pull_preview(getter, "u", "main", remote, None)
+        files = preview["remote"]["files"]
+        assert files["README.md"] == "# English"
+        assert files["README.fr.md"] == "# Francais"
+        assert files["LICENSE.md"] == "MIT text"
+        # The pre-existing managed files still come through.
+        assert files["mappings.json"] == "[]"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_docs_regex_matches_readme_variants_only():
+    """The enumeration must catch every language sibling and nothing else — a
+    stray match would ship unrelated files to the client as 'docs'."""
+    for ok in ("README.md", "readme.md", "README.fr.md", "README.EN.md", "LICENSE.md", "license.md"):
+        assert g._DOCS_RE.match(ok), ok
+    for bad in ("README", "READMEX.md", "docs/README.md", "LICENSE.txt", "README.french.md"):
+        assert not g._DOCS_RE.match(bad), bad

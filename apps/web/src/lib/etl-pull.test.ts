@@ -9,6 +9,7 @@ import {
   stripInstancePipelineFields,
 } from './etl-pull'
 import { attachTreeIds } from './entity-io'
+import { entityDocsChanged, readEntityDocsFrom } from './entity-docs-pull'
 import type { EtlFile, EtlPipeline } from '@/types'
 import type { TreeImportNode } from './entity-io'
 
@@ -30,9 +31,12 @@ describe('etlPullGroupOf', () => {
     expect(etlPullGroupOf('mapping/source_to_concept_map.csv')).toBe('mappings')
   })
 
-  it('puts a README and anything unrecognised in "other"', () => {
-    expect(etlPullGroupOf('README.md')).toBe('other')
+  it('puts anything unrecognised in "other"', () => {
     expect(etlPullGroupOf('notes.txt')).toBe('other')
+    // A README classifies as 'other' too, but it never reaches the file list —
+    // isEtlManifest excludes it, because the entity owns it as a `readme` field.
+    expect(etlPullGroupOf('README.md')).toBe('other')
+    expect(isEtlManifest('README.md')).toBe(true)
   })
 
   it('does not mistake a CSV outside mapping/ for a dictionary', () => {
@@ -67,6 +71,7 @@ describe('buildEtlPullPlan', () => {
     node('00_vocabulary.sql', 'TRUNCATE;'),
     node('10_src_code.sql', 'INSERT;'),
     node('mapping/stcm.csv', 'a,b\n1,2'),
+    node('notes.txt', 'free text'),
     node('README.md', '# doc'),
     node('_tree.json', '[]'),
     node('.gitignore', '*.csv'),
@@ -76,7 +81,8 @@ describe('buildEtlPullPlan', () => {
     const plan = buildEtlPullPlan(REMOTE, [], false)
     expect(plan.groups.scripts.map((i) => i.key)).toEqual(['00_vocabulary.sql', '10_src_code.sql'])
     expect(plan.groups.mappings.map((i) => i.key)).toEqual(['mapping/stcm.csv'])
-    expect(plan.groups.other.map((i) => i.key)).toEqual(['README.md'])
+    // README.md is absent: it travels as the docs block, not as a file item.
+    expect(plan.groups.other.map((i) => i.key)).toEqual(['notes.txt'])
   })
 
   it('marks everything new when there is nothing local', () => {
@@ -105,8 +111,8 @@ describe('buildEtlPullPlan', () => {
   })
 
   it('treats a missing content field as empty rather than undefined', () => {
-    const local = [file('x', 'README.md', null, '')]
-    const plan = buildEtlPullPlan([node('README.md')], local, false)
+    const local = [file('x', 'notes.txt', null, '')]
+    const plan = buildEtlPullPlan([node('notes.txt')], local, false)
     expect(plan.groups.other[0].identical).toBe(true)
   })
 
@@ -226,5 +232,69 @@ describe('etlRecordPaths', () => {
     const viaLocal = [...etlFilesByPath(records).keys()]
     expect(viaLocal).toEqual(['a/b/c.sql'])
     expect(viaRecords).toContain('a/b/c.sql')
+  })
+})
+
+describe('README and LICENSE are docs, not tree files', () => {
+  // The bug this covers, found on the real mimic-iv-to-omop repo: a remote commit
+  // added README.md, but the file is deliberately ABSENT from _tree.json (the
+  // entity owns its readme). Planning only from the manifest saw nothing, so the
+  // dialog said "nothing to pull" while the remote was genuinely ahead.
+
+  it('never offers a docs file as an individual item', () => {
+    for (const p of ['README.md', 'README.fr.md', 'LICENSE.md', 'attachments/_meta.json']) {
+      expect(isEtlManifest(p)).toBe(true)
+    }
+    const plan = buildEtlPullPlan(
+      [node('README.md', '# doc'), node('LICENSE.md', 'MIT'), node('10_src.sql', 'X')],
+      [],
+      false,
+    )
+    expect(plan.groups.other).toEqual([])
+    expect(plan.groups.scripts.map((i) => i.key)).toEqual(['10_src.sql'])
+  })
+
+  it('reads the readme per language, primary suffix-free as the export writes it', () => {
+    const docs = readEntityDocsFrom({ 'README.md': '# EN', 'README.fr.md': '# FR' }, null)
+    expect(docs.readme).toEqual({ en: '# EN', fr: '# FR' })
+  })
+
+  it('recombines the license id from the JSON with the text from the file', () => {
+    // Only the text is in LICENSE.md; which license it is stays in _pipeline.json.
+    const docs = readEntityDocsFrom({ 'LICENSE.md': 'Permission is hereby granted…' }, { license: { id: 'mit' } })
+    expect(docs.license).toMatchObject({ id: 'mit', text: 'Permission is hereby granted…' })
+  })
+
+  it('reports no license when the repo carries no LICENSE.md', () => {
+    expect(readEntityDocsFrom({ 'README.md': 'x' }, { license: { id: 'mit' } }).license).toBeUndefined()
+  })
+
+  it('detects a readme that the local pipeline does not have — the reported case', () => {
+    const remote = readEntityDocsFrom({ 'README.md': '# Attribution and results' }, null)
+    expect(entityDocsChanged({}, remote)).toBe(true)
+    expect(buildEtlPullPlan([], [], false, true).docsChanged).toBe(true)
+  })
+
+  it('detects a CHANGED readme, and ignores an identical one', () => {
+    const remote = readEntityDocsFrom({ 'README.md': 'v2' }, null)
+    expect(entityDocsChanged({ readme: { en: 'v1' } }, remote)).toBe(true)
+    expect(entityDocsChanged({ readme: { en: 'v2' } }, remote)).toBe(false)
+  })
+
+  it('normalises a legacy plain-string local readme before comparing', () => {
+    // toLocalized fills EVERY language from a bare string, so a legacy record reads
+    // as {en, fr} and a remote carrying only `en` is genuinely different — offering
+    // the pull is correct here, not a false positive.
+    const enOnly = readEntityDocsFrom({ 'README.md': 'same' }, null)
+    expect(entityDocsChanged({ readme: 'same' }, enOnly)).toBe(true)
+    // Same content in both languages → nothing to pull.
+    const both = readEntityDocsFrom({ 'README.md': 'same', 'README.fr.md': 'same' }, null)
+    expect(entityDocsChanged({ readme: 'same' }, both)).toBe(false)
+  })
+
+  it('offers nothing when the remote has no docs at all', () => {
+    // A pull ADDS or REPLACES; it must never delete a local README because the
+    // repo happens not to have one.
+    expect(entityDocsChanged({ readme: { en: 'mine' } }, readEntityDocsFrom({}, null))).toBe(false)
   })
 })

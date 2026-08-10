@@ -657,6 +657,18 @@ async def pull_file_bytes(
 
 # Files a mapping-project pull merges as JSON (small — full content is returned).
 _PULL_TEXT_FILES = ("mappings.json", "project.json")
+
+# Docs the entity owns as fields (readme / license) rather than as tree content.
+# Enumerated from the commit instead of hardcoded, because the README has one file
+# per language (README.md + README.<lang>.md, see writeReadmeFiles) and a fixed
+# tuple would silently drop every translation.
+_DOCS_RE = re.compile(r"^(README(\.[a-z]{2})?|LICENSE)\.md$", re.IGNORECASE)
+
+
+def _docs_files_at(repo: Path, commit: str) -> list[str]:
+    """Root-level README/LICENSE paths present at `commit`."""
+    out = _run(repo, "ls-tree", "--name-only", commit, check=False)
+    return [line.strip() for line in out.splitlines() if _DOCS_RE.match(line.strip())]
 # Whole-list families: too big to ship for a 3-way, so we return stats only; the
 # actual bytes are pulled on resolution. (line count for CSV; presence for parquet.)
 _PULL_STAT_FILES = ("source-concepts.csv", "similarity-scores.parquet")
@@ -718,6 +730,10 @@ async def pull_preview(
                 return {"files": {}, "stats": {}}
             files: dict[str, str | None] = {}
             for name in _PULL_TEXT_FILES:
+                files[name] = _blob_at(repo, commit, name)
+            # README/LICENSE ride along as text: they are small, and the client
+            # merges them like any other field the entity owns.
+            for name in _docs_files_at(repo, commit):
                 files[name] = _blob_at(repo, commit, name)
             stats: dict[str, dict] = {}
             for name in _PULL_STAT_FILES:

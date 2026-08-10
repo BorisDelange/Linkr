@@ -19,6 +19,7 @@ import type { Cohort, Dashboard, LocalizedString, Pipeline, Project, TodoItem } 
 import { getStorage } from '@/lib/storage'
 import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
+import { entityDocsChanged, entityDocsChanges, presentReadme } from '@/lib/entity-docs-pull'
 import {
   parseProjectZip,
   importProjectContent,
@@ -165,13 +166,20 @@ export async function prepareProjectPull(
   }
 }
 
-/** Does the remote README/todos/notes block differ from the local one? */
+/**
+ * Does the remote README / LICENSE / todos / notes block differ from the local one?
+ *
+ * The licence is part of it: `parseProjectZip` already recombines LICENSE.md with
+ * the id in project.json, but the pull used to compare and apply only
+ * readme/todos/notes — so a remote licence was parsed and then dropped on the
+ * floor. readme/license go through the shared docs helper, which every scope uses.
+ */
 async function computeReadmeChanged(local: Project | undefined, remote: Project): Promise<boolean> {
   const norm = (v: unknown) => JSON.stringify(v ?? null)
   return (
-    norm(local?.readme) !== norm(remote.readme) ||
-    norm(local?.todos) !== norm(remote.todos) ||
-    norm(local?.notes) !== norm(remote.notes)
+    entityDocsChanged(local, { readme: presentReadme(remote.readme), license: remote.license })
+    || norm(local?.todos) !== norm(remote.todos)
+    || norm(local?.notes) !== norm(remote.notes)
   )
 }
 
@@ -211,7 +219,10 @@ export async function applyProjectPull(
 
   if (selection.readme) {
     await storage.projects.update(projectUid, {
-      readme: parsed.project.readme,
+      ...entityDocsChanges({
+        readme: presentReadme(parsed.project.readme),
+        license: parsed.project.license,
+      }),
       todos: parsed.project.todos as TodoItem[] | undefined,
       notes: parsed.project.notes,
     })

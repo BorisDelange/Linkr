@@ -172,9 +172,12 @@ function sameOptional(a: ConceptMapping | null, b: ConceptMapping | null): boole
 
 // --- Metadata 3-way (per field) --------------------------------------------
 
-/** Project metadata fields the pull tracks (name/description + badges). Kept
- *  small on purpose — instance fields (git/owner/timestamps) never merge. */
-const METADATA_FIELDS: (keyof MappingProject)[] = ['name', 'description', 'badges', 'status']
+/** Project metadata fields the pull tracks (name/description + badges + docs).
+ *  Kept small on purpose — instance fields (git/owner/timestamps) never merge.
+ *  `readme` and `license` are not in project.json: pull.ts folds them in from
+ *  README*.md / LICENSE.md so they get the same per-field 3-way, which makes a
+ *  README edited on both sides a conflict instead of a silent overwrite. */
+const METADATA_FIELDS: (keyof MappingProject)[] = ['name', 'description', 'badges', 'status', 'readme', 'license']
 
 export function mergeMetadata(
   base: Partial<MappingProject>,

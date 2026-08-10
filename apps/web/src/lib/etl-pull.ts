@@ -28,11 +28,18 @@ import { treeNodePath } from '@/lib/entity-tree'
 import {
   attachTreeIds,
   dropForeignAuthorId,
+  isEntityDocsFile,
   parseImportZip,
   reconstructTreeFiles,
   stripInstanceFields,
   type TreeImportNode,
 } from '@/lib/entity-io'
+import {
+  entityDocsChanged,
+  entityDocsChanges,
+  readEntityDocsFrom,
+  type EntityDocs,
+} from '@/lib/entity-docs-pull'
 import { setVersionedMany } from '@/features/warehouse/etl/etl-versioning'
 
 /** Pullable groups of an ETL pipeline, in display order. */
@@ -55,7 +62,17 @@ export interface EtlPullPlan {
   groups: Record<EtlPullGroup, EtlPullItem[]>
   /** The remote pipeline settings differ from the local ones (a single block). */
   settingsChanged: boolean
+  /**
+   * The remote README / LICENSE differ from the local ones (a single block).
+   *
+   * These are NOT tree files: the export writes `README.md` / `LICENSE.md` beside
+   * `_tree.json` and the entity owns them as `readme` / `license` fields. Planning
+   * only from `_tree.json` therefore missed them entirely — a remote commit that
+   * added a README reported "nothing to pull".
+   */
+  docsChanged: boolean
 }
+
 
 export interface PreparedEtlPull {
   plan: EtlPullPlan
@@ -63,6 +80,8 @@ export interface PreparedEtlPull {
   nodes: TreeImportNode[]
   /** Remote `_pipeline.json`, minus instance-local fields. */
   remotePipeline: Partial<EtlPipeline> | null
+  /** Remote README / LICENSE, read from the files beside the manifests. */
+  remoteDocs: EntityDocs
   /** The commit the clone landed on — the sync anchor after a successful pull. */
   clonedOid: string | null
   branch: string
@@ -73,6 +92,8 @@ export interface EtlPullSelection {
   paths: Set<string>
   /** Replace the local pipeline settings with the remote ones. */
   settings: boolean
+  /** Replace the local README / license with the remote ones. */
+  docs: boolean
 }
 
 /**
@@ -88,10 +109,19 @@ export function etlPullGroupOf(path: string): EtlPullGroup {
   return 'other'
 }
 
-/** Manifests and git config: not user content, never offered as items. */
+/**
+ * Paths a pull must not offer as individual file items.
+ *
+ * Manifests and git config are machinery. The docs files (README/LICENSE/
+ * attachments) are excluded for a different reason: the entity OWNS them as
+ * `readme`/`license` fields — they are not tree nodes — so they travel as the
+ * docs block instead. `isEntityDocsFile` is the export's own predicate, reused
+ * here so the two sides cannot disagree on what counts as a docs file.
+ */
 export function isEtlManifest(path: string): boolean {
   return path === '_pipeline.json' || path === '_tree.json'
     || path === '.gitignore' || path === '.gitattributes'
+    || isEntityDocsFile(path)
 }
 
 /**
@@ -149,6 +179,7 @@ export function buildEtlPullPlan(
   nodes: TreeImportNode[],
   localFiles: EtlFile[],
   settingsChanged: boolean,
+  docsChanged = false,
 ): EtlPullPlan {
   const localByPath = etlFilesByPath(localFiles)
   const groups: Record<EtlPullGroup, EtlPullItem[]> = { scripts: [], mappings: [], other: [] }
@@ -164,7 +195,7 @@ export function buildEtlPullPlan(
   for (const key of ETL_PULL_GROUPS) {
     groups[key].sort((a, b) => a.key.localeCompare(b.key))
   }
-  return { groups, settingsChanged }
+  return { groups, settingsChanged, docsChanged }
 }
 
 /** Do the remote pipeline settings differ from the local ones? */
@@ -214,13 +245,22 @@ export async function prepareEtlPull(
 
   const rawRemote = parsed['_pipeline.json'] as EtlPipeline | undefined
   const remotePipeline = rawRemote ? stripInstancePipelineFields(rawRemote) : null
+  // Docs come from the FILES beside the manifests, not from _tree.json — the
+  // entity owns them. The license id is in the JSON, its text in LICENSE.md.
+  const remoteDocs = readEntityDocsFrom(parsed, rawRemote ?? null)
 
   const localFiles = await storage.etlFiles.getByPipeline(pipelineId)
 
   return {
-    plan: buildEtlPullPlan(nodes, localFiles, etlSettingsChanged(pipeline, remotePipeline)),
+    plan: buildEtlPullPlan(
+      nodes,
+      localFiles,
+      etlSettingsChanged(pipeline, remotePipeline),
+      entityDocsChanged(pipeline, remoteDocs),
+    ),
     nodes,
     remotePipeline,
+    remoteDocs,
     clonedOid: cloned.oid,
     branch,
   }
@@ -280,6 +320,16 @@ export async function applyEtlPull(
 
   if (selection.settings && remotePipeline) {
     await storage.etlPipelines.update(pipelineId, remotePipeline).catch(() => {})
+  }
+
+  // Docs are entity fields, written whether or not the settings block was taken.
+  // Only what the remote actually carries is written: a repo with a README but no
+  // LICENSE must not blank out a local license.
+  if (selection.docs) {
+    const changes = entityDocsChanges(prepared.remoteDocs)
+    if (Object.keys(changes).length > 0) {
+      await storage.etlPipelines.update(pipelineId, changes).catch(() => {})
+    }
   }
 
   // Now in sync with the cloned commit — anchor to it so the behind/diverged

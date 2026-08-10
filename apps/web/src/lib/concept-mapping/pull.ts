@@ -8,6 +8,7 @@
  */
 import type { ConceptMapping, MappingProject } from '@/types'
 import { getStorage } from '@/lib/storage'
+import { readEntityDocsFrom } from '@/lib/entity-docs-pull'
 import { gitPullPreview, gitPullFile, gitSetSyncState, type GitPullSide } from '@/lib/api/git'
 import {
   mergeMappings,
@@ -66,7 +67,15 @@ export async function prepareMappingProjectPull(projectId: string, branch?: stri
   const remoteProject = parseJson<Partial<MappingProject>>(preview.remote, 'project.json', {})
 
   const mappings = mergeMappings(baseMappings, remoteMappings, localMappings)
-  const metadata = mergeMetadata(baseProject, remoteProject, localProject ?? {})
+  // README/LICENSE are files, not project.json fields (the export strips the readme
+  // and keeps only the licence ID there). Fold them back onto each side so they go
+  // through the SAME per-field 3-way as name/description: an edit on both sides
+  // becomes a conflict the user resolves, rather than a silently lost local README.
+  const metadata = mergeMetadata(
+    withDocs(baseProject, preview.base.files),
+    withDocs(remoteProject, preview.remote.files),
+    localProject ?? {},
+  )
 
   // Source concepts: whole-list block choice — "changed" iff the remote blob oid
   // differs from BASE (reliable for LFS; a row count would need smudging). The
@@ -95,6 +104,34 @@ export async function prepareMappingProjectPull(projectId: string, branch?: stri
     remoteHead: preview.remoteHead,
     localMappings,
     localProject: localProject ?? undefined,
+  }
+}
+
+/**
+ * A parsed side's project metadata with its docs folded in.
+ *
+ * `readme` and `license` reach the client as README*.md / LICENSE.md text, and the
+ * licence ID (not its text) lives in project.json — `readEntityDocsFrom` recombines
+ * the two, exactly as the clone-based pulls do. Fields the side does not carry are
+ * left absent so `mergeMetadata` reads them as unchanged rather than as cleared.
+ */
+function withDocs(
+  meta: Partial<MappingProject>,
+  files: Record<string, string | null>,
+): Partial<MappingProject> {
+  const parsed: Record<string, unknown> = {}
+  for (const [path, text] of Object.entries(files)) {
+    if (typeof text === 'string') parsed[path] = text
+  }
+  const docs = readEntityDocsFrom(parsed, meta as { license?: { id?: string; name?: string } })
+  // `license` is REPLACED, not merged in: project.json holds only the id, and
+  // leaving that bare id in place would compare an {id} against a full
+  // {id,text} licence and report a change on every pull. When the side has no
+  // LICENSE.md the licence is genuinely absent there.
+  return {
+    ...meta,
+    ...(docs.readme ? { readme: docs.readme } : {}),
+    license: docs.license,
   }
 }
 

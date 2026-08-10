@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -53,10 +53,13 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
   const { status, branches, syncState, selected, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
     useGitSyncStore()
   const authorName = useAppStore((s) => s.getUserDisplayName())
-  // Behind/diverged detection is only wired for mapping projects in v1.
   // behind/diverged detection: mapping projects (built-in 3-way pull) and any scope
   // that supplies its own pull dialog (settings uses an upsert dialog).
   const syncStateSupported = scope === 'mapping-projects' || !!renderPullDialog
+  // A scope with no pull flow can push but cannot take remote changes back. Say so
+  // instead of silently omitting the banner: the gap is invisible otherwise, and it
+  // reads as "there is nothing to pull" rather than "this is not built yet".
+  const pullNotImplemented = !syncStateSupported
   const lfsSet = lfsPaths()
   const [branch, setBranch] = useState(defaultBranch)
   const [message, setMessage] = useState('')
@@ -148,6 +151,11 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
         <ArrowDownToLine size={12} />
         {t('versioning.pull_action')}
       </Button>
+    </div>
+  ) : pullNotImplemented ? (
+    <div className="flex shrink-0 items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+      <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+      <span className="flex-1">{t('versioning.pull_not_implemented')}</span>
     </div>
   ) : null
 
