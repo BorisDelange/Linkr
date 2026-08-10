@@ -1683,7 +1683,6 @@
     "pull_readme_replace": "Remplacer mon README, mes tâches et mes notes par ceux du dépôt distant",
     "pull_readme_unchanged": "Le README, les tâches et les notes distants sont identiques aux vôtres.",
     "pull_badge_new": "nouveau",
-    "pull_badge_unchanged": "inchangé",
     "pull_etl_title": "Récupérer les modifications distantes",
     "pull_etl_intro": "Choisissez ce que vous voulez récupérer du dépôt distant. Les nouveaux fichiers sont ajoutés ; ceux que vous avez déjà ne sont écrasés que si vous les cochez. Les bases source et cible ne sont jamais récupérées — elles restent liées à cette instance.",
     "pull_group_etl_scripts": "Scripts",

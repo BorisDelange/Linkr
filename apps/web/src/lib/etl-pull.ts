@@ -53,8 +53,6 @@ export interface EtlPullItem {
   key: string
   /** True when a local file already exists at this path → pulling OVERWRITES it. */
   exists: boolean
-  /** True when the local content is byte-identical, so pulling changes nothing. */
-  identical: boolean
 }
 
 export interface EtlPullPlan {
@@ -170,10 +168,14 @@ export function etlRecordPaths(records: EtlFile[]): Map<string, string> {
 /**
  * Build the pull plan from remote tree nodes and the local files.
  *
- * Pure, so grouping and the new/overwrite/identical marking are testable without
- * a git remote. `identical` exists because a re-clone lists every file as
- * "existing" — without it the dialog cannot distinguish "nothing to do" from
- * "would overwrite your edits".
+ * Only files the user can DO something about are listed: a file whose content is
+ * already byte-identical to the remote is dropped, not shown greyed out. A
+ * pipeline repo is dozens of scripts and a pull typically touches one or two, so
+ * listing the rest buried the real changes and pushed the dialog past its own
+ * footer. "Nothing to pull" is then simply an empty plan.
+ *
+ * Pure, so the grouping and the new/overwrite marking are testable without a
+ * git remote.
  */
 export function buildEtlPullPlan(
   nodes: TreeImportNode[],
@@ -186,11 +188,8 @@ export function buildEtlPullPlan(
   for (const node of nodes) {
     if (node.type !== 'file' || isEtlManifest(node.path)) continue
     const local = localByPath.get(node.path)
-    groups[etlPullGroupOf(node.path)].push({
-      key: node.path,
-      exists: !!local,
-      identical: !!local && (local.content ?? '') === (node.content ?? ''),
-    })
+    if (local && (local.content ?? '') === (node.content ?? '')) continue
+    groups[etlPullGroupOf(node.path)].push({ key: node.path, exists: !!local })
   }
   for (const key of ETL_PULL_GROUPS) {
     groups[key].sort((a, b) => a.key.localeCompare(b.key))

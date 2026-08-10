@@ -35,9 +35,11 @@ const GROUP_LABEL: Record<EtlPullGroup, string> = {
  *
  * Defaults follow the project dialog: new files checked, files that would
  * OVERWRITE local content unchecked, so nothing is replaced without an explicit
- * tick. Files whose content already matches the remote are shown but not
- * selectable — ticking them would be a no-op, and leaving them checkable made a
- * re-clone look like a pull of everything.
+ * tick.
+ *
+ * Only actionable files are listed — `buildEtlPullPlan` drops the ones already
+ * identical to the remote. A pipeline is dozens of scripts and a pull usually
+ * touches one or two, so listing the rest buried the real changes.
  */
 export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPullDialogProps) {
   const { t } = useTranslation()
@@ -57,7 +59,7 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
       .then((p) => {
         if (cancelled) return
         setPrepared(p)
-        // New files checked; an overwrite or an unchanged file is not.
+        // New files checked; an overwrite needs an explicit tick.
         const seed = new Set<string>()
         for (const group of ETL_PULL_GROUPS) {
           for (const item of p.plan.groups[group]) {
@@ -79,12 +81,11 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
 
   const plan = prepared?.plan
   const items = (group: EtlPullGroup): EtlPullItem[] => plan?.groups[group] ?? []
-  /** Ticking an unchanged file would do nothing, so it is not offered. */
-  const pullable = (group: EtlPullGroup): EtlPullItem[] => items(group).filter((i) => !i.identical)
 
+  // The plan only ever contains actionable files, so an empty one IS "up to date".
   const nothingToPull = useMemo(
     () => plan != null
-      && ETL_PULL_GROUPS.every((g) => plan.groups[g].every((i) => i.identical))
+      && ETL_PULL_GROUPS.every((g) => plan.groups[g].length === 0)
       && !plan.settingsChanged
       && !plan.docsChanged,
     [plan],
@@ -102,7 +103,7 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
   }
 
   const toggleGroupAll = (group: EtlPullGroup) => {
-    const keys = pullable(group).map((i) => i.key)
+    const keys = items(group).map((i) => i.key)
     setPaths((s) => {
       const allSelected = keys.length > 0 && keys.every((k) => s.has(k))
       const next = new Set(s)
@@ -129,7 +130,11 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex max-h-[80vh] w-[92vw] max-w-[640px] flex-col gap-0 overflow-hidden p-0">
+      {/* h-[80vh], not max-h: a flex child with `flex-1 min-h-0` can only shrink
+          against a RESOLVED height, so with max-h alone the file list grew past
+          the dialog and the footer scrolled off screen instead of the list
+          scrolling inside it. */}
+      <DialogContent className="flex h-[80vh] max-h-[80vh] w-[92vw] max-w-[640px] flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
           <DialogTitle className="flex items-center gap-2 text-sm">
             <ArrowDownToLine size={16} />
@@ -159,13 +164,12 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
               {ETL_PULL_GROUPS.map((group) => {
                 const list = items(group)
                 if (list.length === 0) return null
-                const selectable = pullable(group)
-                const allSelected = selectable.length > 0 && selectable.every((i) => paths.has(i.key))
+                const allSelected = list.every((i) => paths.has(i.key))
                 return (
                   <Section
                     key={group}
-                    title={t(GROUP_LABEL[group])}
-                    action={selectable.length > 0 ? (
+                    title={`${t(GROUP_LABEL[group])} (${list.length})`}
+                    action={(
                       <button
                         type="button"
                         onClick={() => toggleGroupAll(group)}
@@ -174,20 +178,16 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
                         {t('versioning.pull_group_select_all')}
                         {allSelected ? ' ✓' : ''}
                       </button>
-                    ) : undefined}
+                    )}
                   >
                     <ul className="divide-y">
                       {list.map((item) => (
                         <li key={item.key} className="flex items-center gap-2 py-1.5 text-xs">
                           <Checkbox
                             checked={paths.has(item.key)}
-                            disabled={item.identical}
                             onCheckedChange={() => toggle(item.key)}
                           />
-                          <span
-                            className={cn('min-w-0 flex-1 truncate font-mono', item.identical && 'text-muted-foreground')}
-                            title={item.key}
-                          >
+                          <span className="min-w-0 flex-1 truncate font-mono" title={item.key}>
                             {item.key}
                           </span>
                           <StateBadge item={item} />
@@ -257,11 +257,9 @@ function Section({ title, action, children }: { title: string; action?: React.Re
 
 function StateBadge({ item }: { item: EtlPullItem }) {
   const { t } = useTranslation()
-  const [labelKey, className] = item.identical
-    ? ['versioning.pull_badge_unchanged', 'bg-muted text-muted-foreground']
-    : item.exists
-      ? ['versioning.pull_badge_overwrite', 'bg-amber-500/15 text-amber-700 dark:text-amber-400']
-      : ['versioning.pull_badge_new', 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400']
+  const [labelKey, className] = item.exists
+    ? ['versioning.pull_badge_overwrite', 'bg-amber-500/15 text-amber-700 dark:text-amber-400']
+    : ['versioning.pull_badge_new', 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400']
   return (
     <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide', className)}>
       {t(labelKey)}

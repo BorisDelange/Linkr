@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildEtlPullPlan,
+  ETL_PULL_GROUPS,
   etlFilesByPath,
   etlPullGroupOf,
   etlRecordPaths,
@@ -87,33 +88,51 @@ describe('buildEtlPullPlan', () => {
 
   it('marks everything new when there is nothing local', () => {
     const plan = buildEtlPullPlan(REMOTE, [], false)
-    expect(plan.groups.scripts.every((i) => !i.exists && !i.identical)).toBe(true)
+    expect(plan.groups.scripts.every((i) => !i.exists)).toBe(true)
   })
 
   it('marks a path that exists locally as an overwrite', () => {
     const local = [file('x', '10_src_code.sql', null, 'MY OWN EDIT')]
     const plan = buildEtlPullPlan(REMOTE, local, false)
     const item = plan.groups.scripts.find((i) => i.key === '10_src_code.sql')
-    expect(item).toMatchObject({ exists: true, identical: false })
+    expect(item).toMatchObject({ exists: true })
   })
 
-  it('flags a byte-identical file, so "nothing to do" is distinguishable', () => {
-    // Without this a re-clone lists every file as "would overwrite".
+  it('OMITS a byte-identical file: the list is only what you can act on', () => {
+    // A re-clone otherwise listed every script, burying the one real change and
+    // pushing the dialog past its own footer.
     const local = [file('x', '10_src_code.sql', null, 'INSERT;')]
     const plan = buildEtlPullPlan(REMOTE, local, false)
-    expect(plan.groups.scripts.find((i) => i.key === '10_src_code.sql')?.identical).toBe(true)
+    expect(plan.groups.scripts.map((i) => i.key)).toEqual(['00_vocabulary.sql'])
+  })
+
+  it('is empty when everything matches, which is what "up to date" means', () => {
+    const local = [
+      file('a', '00_vocabulary.sql', null, 'TRUNCATE;'),
+      file('b', '10_src_code.sql', null, 'INSERT;'),
+      file('c', 'notes.txt', null, 'free text'),
+      folder('f1', 'mapping'),
+      file('d', 'stcm.csv', 'f1', 'a,b\n1,2'),
+    ]
+    const plan = buildEtlPullPlan(REMOTE, local, false)
+    expect(ETL_PULL_GROUPS.every((g) => plan.groups[g].length === 0)).toBe(true)
   })
 
   it('compares nested paths, not bare names', () => {
+    // Same path AND same content → nothing to do, so it drops out entirely.
     const local = [folder('f1', 'mapping'), file('x', 'stcm.csv', 'f1', 'a,b\n1,2')]
-    const plan = buildEtlPullPlan(REMOTE, local, false)
-    expect(plan.groups.mappings[0]).toMatchObject({ exists: true, identical: true })
+    expect(buildEtlPullPlan(REMOTE, local, false).groups.mappings).toEqual([])
+    // Same path, different content → an overwrite the user can choose.
+    const edited = [folder('f1', 'mapping'), file('x', 'stcm.csv', 'f1', 'CHANGED')]
+    expect(buildEtlPullPlan(REMOTE, edited, false).groups.mappings[0])
+      .toMatchObject({ key: 'mapping/stcm.csv', exists: true })
   })
 
   it('treats a missing content field as empty rather than undefined', () => {
+    // ('' vs undefined) must not read as a difference, or an empty file would be
+    // offered on every pull.
     const local = [file('x', 'notes.txt', null, '')]
-    const plan = buildEtlPullPlan([node('notes.txt')], local, false)
-    expect(plan.groups.other[0].identical).toBe(true)
+    expect(buildEtlPullPlan([node('notes.txt')], local, false).groups.other).toEqual([])
   })
 
   it('sorts each group by path, so the list order is stable', () => {

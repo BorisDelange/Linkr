@@ -1684,7 +1684,6 @@
     "pull_readme_replace": "Replace my README, to-dos and notes with the remote ones",
     "pull_readme_unchanged": "The remote README, to-dos and notes match yours.",
     "pull_badge_new": "new",
-    "pull_badge_unchanged": "unchanged",
     "pull_etl_title": "Pull remote changes",
     "pull_etl_intro": "Choose what to bring in from the remote. New files are added; files you already have are overwritten only if you tick them. The source and target databases are never pulled — they stay linked to this instance.",
     "pull_group_etl_scripts": "Scripts",
