@@ -6,6 +6,7 @@ import {
   Building2,
   CheckCircle2,
   Database,
+  Download,
   Loader2,
   RefreshCw,
   Table2,
@@ -24,7 +25,9 @@ import { isServerMode } from '@/lib/api-client'
 import { getStorage } from '@/lib/storage'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
-import { validateIntegerIds } from '@/lib/format-helpers'
+import { formatDateTimeLocale, validateIntegerIds } from '@/lib/format-helpers'
+import { csvBlob, toCsv } from '@/lib/csv-export'
+import { downloadBlob } from '@/lib/entity-io'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import {
@@ -63,6 +66,14 @@ export function EtlQualityTab({ pipelineId }: Props) {
     lastQualityTab = tab
     setActiveTab(tab)
   }, [])
+  /**
+   * Right-hand controls of the tab bar, supplied by whichever view is active.
+   *
+   * One bar for both views rather than a second row under Concepts: the toolbar
+   * was costing a row of height on a full-width table, and Statistics had its
+   * action buried inside a card.
+   */
+  const [actions, setActions] = useState<React.ReactNode>(null)
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
   const sourceDs = dataSources.find((ds) => ds.id === pipeline?.sourceDataSourceId)
@@ -97,12 +108,13 @@ export function EtlQualityTab({ pipelineId }: Props) {
               {t(`etl.comparison_tab_${tab}`)}
             </button>
           ))}
+          <div className="ml-auto flex min-w-0 items-center gap-1.5">{actions}</div>
         </div>
 
         <div className="min-h-0 min-w-0 flex-1">
           {activeTab === 'statistics'
-            ? <StatisticsView sourceDs={sourceDs} targetDs={targetDs} />
-            : <ConceptQualityView targetDs={targetDs} />}
+            ? <StatisticsView sourceDs={sourceDs} targetDs={targetDs} onActions={setActions} />
+            : <ConceptQualityView targetDs={targetDs} onActions={setActions} />}
         </div>
       </div>
     </TooltipProvider>
@@ -116,11 +128,13 @@ export function EtlQualityTab({ pipelineId }: Props) {
 function StatisticsView({
   sourceDs,
   targetDs,
+  onActions,
 }: {
   sourceDs: DataSource | undefined
   targetDs: DataSource | undefined
+  onActions: (node: React.ReactNode) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [sourceStats, setSourceStats] = useState<DatabaseStatsCache | null>(null)
   const [targetStats, setTargetStats] = useState<DatabaseStatsCache | null>(null)
   const [loading, setLoading] = useState(false)
@@ -157,6 +171,41 @@ function StatisticsView({
   // computeOne only reads the two data sources, both listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
+
+  /** Newest of the two timestamps: one button recomputes both, so one date. */
+  const computedAt = [sourceStats?.computedAt, targetStats?.computedAt]
+    .filter((d): d is string => !!d)
+    .sort()
+    .at(-1)
+
+  const canCompute = !!(sourceDs?.schemaMapping || targetDs?.schemaMapping)
+
+  useEffect(() => {
+    onActions(
+      canCompute ? (
+        <>
+          {/* When it was last counted, so a stale figure is recognisable as one. */}
+          {computedAt && (
+            <span className="truncate text-[11px] text-muted-foreground">
+              {t('etl.quality_stats_computed_at', { when: formatDateTimeLocale(computedAt, i18n.language) })}
+            </span>
+          )}
+          <Button
+            size="sm"
+            variant={computedAt ? 'outline' : 'default'}
+            className="h-7 shrink-0 px-2.5 text-xs"
+            disabled={loading}
+            onClick={() => void computeStats()}
+          >
+            {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+            {computedAt ? t('etl.quality_stats_reload') : t('etl.quality_stats_compute')}
+          </Button>
+        </>
+      ) : null,
+    )
+    // Cleared on unmount so the other view does not inherit these buttons.
+    return () => onActions(null)
+  }, [onActions, canCompute, computedAt, loading, computeStats, t, i18n.language])
 
   useEffect(() => {
     let cancelled = false
@@ -197,8 +246,8 @@ function StatisticsView({
   return (
     <ScrollArea className="h-full">
       <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
-        <StatsColumn label={t('etl.source')} ds={sourceDs} stats={sourceStats} loading={loading} accent="orange" onCompute={computeStats} />
-        <StatsColumn label={t('etl.target')} ds={targetDs} stats={targetStats} loading={loading} accent="emerald" onCompute={computeStats} />
+        <StatsColumn label={t('etl.source')} ds={sourceDs} stats={sourceStats} loading={loading} accent="orange" />
+        <StatsColumn label={t('etl.target')} ds={targetDs} stats={targetStats} loading={loading} accent="emerald" />
       </div>
     </ScrollArea>
   )
@@ -210,14 +259,12 @@ function StatsColumn({
   stats,
   loading,
   accent,
-  onCompute,
 }: {
   label: string
   ds: DataSource | undefined
   stats: DatabaseStatsCache | null
   loading: boolean
   accent: 'orange' | 'emerald'
-  onCompute: () => void | Promise<void>
 }) {
   const { t } = useTranslation()
   const borderColor = accent === 'orange' ? 'border-orange-500/30' : 'border-emerald-500/30'
@@ -264,17 +311,6 @@ function StatsColumn({
                 ? t('etl.quality_stats_server')
                 : t('etl.quality_stats_unavailable')}
           </p>
-          {/* Only where counting can work: with no schema mapping there is nothing
-              to count, so a button would just fail. Solid and full size: it is the
-              only action on an empty card, and a small outline read as a caption. */}
-          {/* h-7 sits between xs (h-6, too slight for the card's only action) and
-              sm (h-8, which dominated it). */}
-          {ds.schemaMapping && (
-            <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => void onCompute()}>
-              <Activity size={13} />
-              {t('etl.quality_stats_compute')}
-            </Button>
-          )}
         </div>
       )}
 
@@ -332,7 +368,13 @@ function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number;
 const conceptRowsCache = new Map<string, QualityConceptRow[]>()
 
 
-function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) {
+function ConceptQualityView({
+  targetDs,
+  onActions,
+}: {
+  targetDs: DataSource | undefined
+  onActions: (node: React.ReactNode) => void
+}) {
   const { t, i18n } = useTranslation()
   const language = i18n.language
   // `t` through a ref: the column array must not be rebuilt on every render (see
@@ -372,6 +414,80 @@ function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) 
     [rows, diffFilter],
   )
 
+  /** The filtered rows, as CSV — what is on screen, not the unfiltered set. */
+  const exportCsv = useCallback(() => {
+    const text = toCsv(shown, [
+      { header: 'status', value: (r) => r.diff },
+      { header: 'source_vocabulary_id', value: (r) => r.sourceVocabularyId },
+      { header: 'source_code', value: (r) => r.sourceCode },
+      { header: 'source_code_description', value: (r) => r.sourceDescription },
+      { header: 'source_concept_id', value: (r) => r.sourceConceptId },
+      { header: 'source_patients', value: (r) => r.sourcePatients },
+      { header: 'source_rows', value: (r) => r.sourceRows },
+      { header: 'expected_rows', value: (r) => r.expectedRows },
+      { header: 'target_concept_id', value: (r) => r.targetConceptId },
+      { header: 'target_vocabulary_id', value: (r) => r.targetVocabularyId },
+      { header: 'target_patients', value: (r) => r.targetPatients },
+      { header: 'target_rows', value: (r) => r.targetRows },
+    ])
+    downloadBlob(csvBlob(text), 'quality-check-concepts.csv')
+  }, [shown])
+
+  useEffect(() => {
+    onActions(
+      <>
+        {/* Verdict chips as filters, in the shared bar: the label says what each
+            one does — a bare "1394 OK" read as a count beside the total. */}
+        <span className="shrink-0 text-[11px] text-muted-foreground">{t('etl.comparison_filter_by')}</span>
+        {(['missing', 'fewer', 'more', 'match'] as const).map((d) => (
+          counts[d] > 0 && (
+            <button
+              key={d}
+              onClick={() => setDiffFilter(diffFilter === d ? null : d)}
+              aria-pressed={diffFilter === d}
+              className={cn(
+                'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors',
+                DIFF_CHIP[d],
+                diffFilter === d && 'ring-1 ring-current',
+              )}
+            >
+              {counts[d].toLocaleString()} {t(`etl.comparison_${d}`)}
+            </button>
+          )
+        ))}
+        {diffFilter && (
+          <button
+            onClick={() => setDiffFilter(null)}
+            className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted/80"
+          >
+            {t('etl.comparison_show_all')}
+          </button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="shrink-0"
+          disabled={shown.length === 0}
+          onClick={exportCsv}
+          title={t('etl.comparison_export_csv')}
+        >
+          <Download size={12} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="shrink-0"
+          onClick={() => void load(true)}
+          title={t('common.refresh')}
+        >
+          <RefreshCw size={12} />
+        </Button>
+      </>,
+    )
+    // Cleared on unmount so Statistics does not inherit these controls.
+    return () => onActions(null)
+  }, [onActions, counts, diffFilter, shown.length, exportCsv, load, t])
+
   const columns = useMemo((): ConceptColumn<QualityConceptRow>[] => [
     {
       id: 'diff',
@@ -397,6 +513,20 @@ function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) 
     { id: 'sourceRows', header: tRef.current('etl.comparison_source_rows'), accessor: (r) => r.sourceRows, cell: (r) => num(r.sourceRows), filter: 'number', size: 110 },
     { id: 'targetConceptId', header: tRef.current('etl.comparison_target_id'), accessor: (r) => r.targetConceptId, filter: 'number', size: 130 },
     { id: 'targetVocabularyId', header: tRef.current('etl.comparison_target_vocab'), accessor: (r) => r.targetVocabularyId, filter: 'select', size: 130 },
+    {
+      id: 'expectedRows',
+      header: tRef.current('etl.comparison_expected_rows'),
+      accessor: (r) => r.expectedRows,
+      // Emphasised when it differs from this row's own source count: that is
+      // exactly the case where the verdict is not readable from sourceRows.
+      cell: (r) => (
+        <span className={cn('tabular-nums', r.expectedRows !== r.sourceRows && 'font-medium text-foreground')}>
+          {r.expectedRows.toLocaleString()}
+        </span>
+      ),
+      filter: 'number',
+      size: 120,
+    },
     { id: 'targetPatients', header: tRef.current('etl.comparison_target_patients'), accessor: (r) => r.targetPatients, cell: (r) => num(r.targetPatients), filter: 'number', size: 110 },
     { id: 'targetRows', header: tRef.current('etl.comparison_target_rows'), accessor: (r) => r.targetRows, cell: (r) => num(r.targetRows), filter: 'number', size: 110 },
     // Keyed on the LANGUAGE, not on `t`: useTranslation returns a new `t` on every
@@ -430,45 +560,6 @@ function ConceptQualityView({ targetDs }: { targetDs: DataSource | undefined }) 
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      {/* Verdict chips: each is a filter, and the label says so — the previous
-          bare "1394 OK" read as a count next to the total, which it is not. */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b px-3 py-1.5">
-        <span className="text-[11px] text-muted-foreground">{t('etl.comparison_filter_by')}</span>
-        {(['missing', 'fewer', 'more', 'match'] as const).map((d) => (
-          counts[d] > 0 && (
-            <button
-              key={d}
-              onClick={() => setDiffFilter(diffFilter === d ? null : d)}
-              aria-pressed={diffFilter === d}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors',
-                DIFF_CHIP[d],
-                diffFilter === d && 'ring-1 ring-current',
-              )}
-            >
-              {counts[d].toLocaleString()} {t(`etl.comparison_${d}`)}
-            </button>
-          )
-        ))}
-        {diffFilter && (
-          <button
-            onClick={() => setDiffFilter(null)}
-            className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted/80"
-          >
-            {t('etl.comparison_show_all')}
-          </button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="ml-auto"
-          onClick={() => void load(true)}
-          title={t('common.refresh')}
-        >
-          <RefreshCw size={12} />
-        </Button>
-      </div>
-
       <div className="min-h-0 min-w-0 flex-1">
         <ConceptDataTable
           data={shown}
@@ -551,13 +642,15 @@ async function loadConceptQuality(targetDsId: string): Promise<QualityConceptRow
   return mappings.map((m) => {
     const sc = sourceCounts.get(m.sourceConceptId) ?? { patients: 0, rows: 0 }
     const tc = targetCounts.get(m.targetConceptId) ?? { patients: 0, rows: 0 }
+    const expectedRows = expected.get(m.targetConceptId) ?? 0
     return {
       ...m,
       sourcePatients: sc.patients,
       sourceRows: sc.rows,
       targetPatients: tc.patients,
       targetRows: tc.rows,
-      diff: classifyDiff(sc.rows, tc.rows, expected.get(m.targetConceptId) ?? 0),
+      expectedRows,
+      diff: classifyDiff(sc.rows, tc.rows, expectedRows),
     }
   })
 }

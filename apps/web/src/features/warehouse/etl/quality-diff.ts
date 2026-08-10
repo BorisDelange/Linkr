@@ -19,6 +19,13 @@ export interface QualityConceptRow {
   sourceRows: number
   targetPatients: number
   targetRows: number
+  /**
+   * Source rows expected for this row's TARGET concept, summed over every mapping
+   * that feeds it. This — not `sourceRows` — is what the verdict compares against,
+   * so it has to be visible: on an N:1 mapping the row's own count differs from it
+   * and an "OK" beside two unequal numbers looks like a bug.
+   */
+  expectedRows: number
   diff: QualityDiff
 }
 
