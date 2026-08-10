@@ -1771,6 +1771,8 @@
     "file_desc_collection_json": "The SQL script collection's settings.",
     "file_desc_tree": "The layout of the file tree (folders and order).",
     "file_desc_sql_file": "A SQL query in the collection.",
+    "file_desc_etl_script_file": "A transformation script (SQL, Python, R) run by the pipeline.",
+    "file_desc_etl_mapping_csv": "The mapping export the vocabulary script reads. Not versioned by default: these rows are the mapping project’s own dictionary.",
     "file_desc_pipeline_json": "The ETL pipeline's settings.",
     "file_desc_catalog_json": "The data catalog's configuration.",
     "file_desc_ruleset_json": "The data-quality rule set's settings.",

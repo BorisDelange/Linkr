@@ -125,6 +125,13 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   'etl-pipelines': [
     { test: /^_pipeline\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_pipeline_json' },
     { test: /^_tree\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_tree' },
+    README_RULE,
+    // mapping/*.csv before the generic script rules: these are a mapping project's
+    // own dictionary (gitignored by default), not pipeline code, and the user
+    // decides per file whether they are versioned at all.
+    { test: /^mapping\/.*\.csv$/i, category: 'mappings', order: CAT.mappings, descriptionKey: 'versioning.file_desc_etl_mapping_csv' },
+    { test: /\.(sql|py|r)$/i, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_etl_script_file' },
+    GITIGNORE_RULE,
     ATTRS_RULE,
   ],
   'data-catalogs': [

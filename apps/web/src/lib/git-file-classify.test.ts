@@ -20,6 +20,15 @@ describe('isForeignPath', () => {
     expect(isForeignPath('projects', 'project.json')).toBe(false)
     expect(isForeignPath('projects', 'dashboards/d.json')).toBe(false)
   })
+
+  it('does not treat a pipeline\'s own scripts as foreign', () => {
+    // They used to fall to 'other' for want of a scope rule, which made "Sync all"
+    // skip them and left them unchecked by default — the user had to tick every
+    // script by hand to commit their own pipeline.
+    expect(isForeignPath('etl-pipelines', '00_vocabulary.sql')).toBe(false)
+    expect(isForeignPath('etl-pipelines', 'transform.py')).toBe(false)
+    expect(isForeignPath('etl-pipelines', 'mapping/source_to_concept_map.csv')).toBe(false)
+  })
 })
 
 // Health data must never be pushed to git by default, so the commit list leaves

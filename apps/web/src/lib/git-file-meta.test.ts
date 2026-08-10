@@ -52,6 +52,31 @@ describe('gitFileMeta', () => {
     expect(gitFileMeta('data-catalogs', 'not-a-known-file.txt').descriptionKey).toBeUndefined()
   })
 
+  it('groups an ETL pipeline by what the files ARE, not under "other"', () => {
+    // Every script used to fall through to "other": the scope only had rules for
+    // _pipeline.json and _tree.json, so the versioning list was one big Other box.
+    for (const path of ['00_vocabulary.sql', '10_src_code.sql', 'transform.py', 'model.R']) {
+      const m = gitFileMeta('etl-pipelines', path)
+      expect(m.category).toBe('scripts')
+      expect(m.descriptionKey).toBe('versioning.file_desc_etl_script_file')
+    }
+  })
+
+  it('gives the ETL mapping export its own category, ahead of the script rules', () => {
+    // A mapping CSV is the mapping project's dictionary (gitignored by default),
+    // not pipeline code — it must not be lumped in with the scripts.
+    const m = gitFileMeta('etl-pipelines', 'mapping/source_to_concept_map.csv')
+    expect(m.category).toBe('mappings')
+    expect(m.descriptionKey).toBe('versioning.file_desc_etl_mapping_csv')
+  })
+
+  it('recognises the rest of an ETL pipeline tree', () => {
+    expect(gitFileMeta('etl-pipelines', '_tree.json').category).toBe('general')
+    expect(gitFileMeta('etl-pipelines', 'README.md').category).toBe('readme')
+    expect(gitFileMeta('etl-pipelines', '.gitignore').category).toBe('config')
+    expect(gitFileMeta('etl-pipelines', '.gitattributes').category).toBe('attrs')
+  })
+
   it('classifies the new entity scopes', () => {
     expect(gitFileMeta('etl-pipelines', '_pipeline.json').category).toBe('general')
     expect(gitFileMeta('data-catalogs', 'catalog.json').category).toBe('general')

@@ -1771,6 +1771,8 @@
     "file_desc_collection_json": "Les paramètres de la collection de scripts SQL.",
     "file_desc_tree": "L'arborescence des fichiers (dossiers et ordre).",
     "file_desc_sql_file": "Une requête SQL de la collection.",
+    "file_desc_etl_script_file": "Un script de transformation (SQL, Python, R) exécuté par le pipeline.",
+    "file_desc_etl_mapping_csv": "L’export de mapping lu par le script de vocabulaire. Non versionné par défaut : ces lignes sont le dictionnaire du projet d’alignement.",
     "file_desc_pipeline_json": "Les paramètres du pipeline ETL.",
     "file_desc_catalog_json": "La configuration du catalogue de données.",
     "file_desc_ruleset_json": "Les paramètres de l'ensemble de règles de qualité.",
