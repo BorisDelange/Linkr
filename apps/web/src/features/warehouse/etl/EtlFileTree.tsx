@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   FileCode,
-  FileText,
   Folder,
   FolderOpen,
   ChevronRight,
@@ -47,31 +46,8 @@ import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-hea
 import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
 import { humanBytes } from '@/lib/format-helpers'
 import { treeNodePath } from '@/lib/entity-tree'
+import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import type { EtlFile } from '@/types'
-
-const LANGUAGE_COLORS: Record<string, string> = {
-  sql: 'text-blue-500',
-  python: 'text-yellow-500',
-  r: 'text-sky-500',
-}
-
-function getFileColor(file: EtlFile): string {
-  if (file.language) return LANGUAGE_COLORS[file.language] ?? 'text-muted-foreground'
-  const ext = file.name.split('.').pop()?.toLowerCase()
-  if (ext === 'sql') return 'text-blue-500'
-  if (ext === 'py') return 'text-yellow-500'
-  if (ext === 'r' || ext === 'rmd') return 'text-sky-500'
-  return 'text-muted-foreground'
-}
-
-/** Documentation files get the plain-document icon, as in the IDE file tree. */
-function FileTypeIcon({ file }: { file: EtlFile }) {
-  const isMarkdown = file.language === 'markdown' || file.name.toLowerCase().endsWith('.md')
-  const className = cn('shrink-0', getFileColor(file))
-  return isMarkdown
-    ? <FileText size={14} className={className} />
-    : <FileCode size={14} className={className} />
-}
 
 export function EtlFileTree() {
   const { t } = useTranslation()
@@ -284,7 +260,7 @@ function EtlFileTreeItem({
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
           <span className="w-3 shrink-0" />
-          <FileTypeIcon file={file} />
+          <FileTypeIcon name={file.name} />
           <span
             className={cn(
               '-ml-0.5 flex h-5 min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
@@ -378,30 +354,42 @@ function EtlFileTreeItem({
             ) : (
               <>
                 <span className="w-3 shrink-0" />
-                <FileTypeIcon file={file} />
+                <FileTypeIcon name={file.name} />
               </>
             )}
             <span ref={nameRef} className="truncate">{file.name}</span>
-            {/* Same marker as the IDE (FileTreeItem): shown on every file git
-                will commit, whether that is a script by default or a data file
-                the user marked. */}
-            {!isFolder && versioned && (
-              <GitCommitVertical
-                size={11}
-                className="shrink-0 text-primary"
-                aria-label={t('datasets.versioned_badge')}
-              />
-            )}
-            {/* Where the run is: the tree is where the scripts are listed, so the
-                status belongs here and not only in the Pipeline tab's DAG. */}
-            <ScriptRunStatus fileId={file.id} />
-            {/* Discreet, and last: the size answers "which file is the big one"
-                without competing with the name for attention. */}
-            {!isFolder && size != null && (
-              <span className="ml-auto shrink-0 pl-1 text-[10px] tabular-nums text-muted-foreground/60">
-                {humanBytes(size, i18n.language)}
+            {/* Every marker is pushed to the end in a FIXED order — run status,
+                then versioning, then size — so they line up in a column down the
+                tree. Following the name instead made each one land at a different
+                x depending on how long the filename was. */}
+            <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
+              {/* Fixed-width slots, so every marker keeps the same x down the whole
+                  tree. Laid out naturally, a two-character size ("5 ko" vs "10 ko")
+                  shifted the versioning icon left and right from row to row. */}
+              <span className="flex w-3 justify-center">
+                {/* Where the run is: the tree is where the scripts are listed, so
+                    the status belongs here and not only in the Pipeline tab's DAG. */}
+                <ScriptRunStatus fileId={file.id} />
               </span>
-            )}
+              <span className="flex w-3 justify-center">
+                {/* Same marker as the IDE (FileTreeItem): shown on every file git
+                    will commit, whether that is a script by default or a data file
+                    the user marked. */}
+                {!isFolder && versioned && (
+                  <GitCommitVertical
+                    size={11}
+                    className="text-primary"
+                    aria-label={t('datasets.versioned_badge')}
+                  />
+                )}
+              </span>
+              {/* Discreet, and last: the size answers "which file is the big one"
+                  without competing with the name for attention. Right-aligned in a
+                  fixed box so the digits line up as a column. */}
+              <span className="w-12 text-right text-[10px] tabular-nums text-muted-foreground/60">
+                {!isFolder && size != null ? humanBytes(size, i18n.language) : ''}
+              </span>
+            </span>
           </button>
           </TooltipTrigger>
         </ContextMenuTrigger>
@@ -474,7 +462,7 @@ function ScriptRunStatus({ fileId }: { fileId: string }) {
   const log = useEtlStore((s) => s.scriptStatuses.get(fileId))
   if (!log) return null
 
-  const cls = 'ml-auto shrink-0'
+  const cls = 'shrink-0'
   const icon = (() => {
     switch (log.status) {
       case 'running': return <Loader2 size={11} className={cn(cls, 'animate-spin text-blue-500')} />
@@ -490,7 +478,7 @@ function ScriptRunStatus({ fileId }: { fileId: string }) {
   // A native title, not a Tooltip: the row already wraps one for the file name,
   // and nesting two triggers on the same element fights over the hover.
   return (
-    <span className="ml-auto inline-flex shrink-0" title={t(`etl.run_status_${log.status}`)}>
+    <span className="inline-flex shrink-0" title={t(`etl.run_status_${log.status}`)}>
       {icon}
     </span>
   )

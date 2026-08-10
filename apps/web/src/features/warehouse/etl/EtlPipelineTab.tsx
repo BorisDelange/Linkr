@@ -73,6 +73,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
+import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { orderByNamePatch } from './etl-file-language'
 import { usePipelineRunner } from './use-pipeline-runner'
 import { RunProgressBar } from './RunProgressBar'
@@ -737,7 +738,7 @@ interface RunHistoryPanelProps {
 }
 
 function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunHistoryPanelProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
   const running = useEtlStore((s) => s.pipelineRunning)
   const clearRunHistory = useEtlStore((s) => s.clearRunHistory)
@@ -787,7 +788,6 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
       <div className="p-3 space-y-2">
         {runHistory.map((run) => {
           const isExpanded = expandedRunId === run.id
-          const date = new Date(run.startedAt)
           const successCount = run.scripts.filter((s) => s.status === 'success').length
           const totalCount = run.scripts.length
           return (
@@ -799,7 +799,7 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
                 {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                 <RunStatusIcon status={run.status} />
                 <span className="flex-1 font-medium">
-                  {date.toLocaleDateString()} {date.toLocaleTimeString()}
+                  {formatDateTimeLocale(run.startedAt, i18n.language)}
                 </span>
                 <span className="text-muted-foreground">
                   {successCount}/{totalCount}

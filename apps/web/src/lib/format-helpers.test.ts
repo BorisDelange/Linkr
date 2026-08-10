@@ -8,6 +8,8 @@ import {
   daysBetween,
   humanBytes,
   compactCount,
+  formatDateTimeLocale,
+  formatTimeLocale,
 } from './format-helpers'
 
 // These are security-critical: escSql / isSafeIdentifier / validateIntegerIds
@@ -181,5 +183,48 @@ describe('daysBetween', () => {
   it('returns null when a bound is missing', () => {
     expect(daysBetween(undefined, '2026-01-08')).toBeNull()
     expect(daysBetween('2026-01-01', undefined)).toBeNull()
+  })
+})
+
+
+// The app's language, NOT the browser's: a French browser kept printing French
+// dates after the user switched the app to English.
+describe('formatDateTimeLocale', () => {
+  const ISO = '2026-08-10T14:05:00Z'
+
+  it('follows the app language, not the host locale', () => {
+    const en = formatDateTimeLocale(ISO, 'en')
+    const fr = formatDateTimeLocale(ISO, 'fr')
+    expect(en).not.toBe(fr)
+    // English puts the month name first; French leads with the day number.
+    expect(en).toMatch(/Aug/)
+    expect(fr).toMatch(/10/)
+    expect(fr).not.toMatch(/Aug/)
+  })
+
+  it('accepts a regional tag like fr-CA', () => {
+    expect(formatDateTimeLocale(ISO, 'fr-CA')).toBe(formatDateTimeLocale(ISO, 'fr'))
+  })
+
+  it('shows a dash for a missing date and echoes an unparseable one', () => {
+    expect(formatDateTimeLocale(undefined, 'en')).toBe('—')
+    expect(formatDateTimeLocale('not-a-date', 'en')).toBe('Invalid Date')
+  })
+})
+
+describe('formatTimeLocale', () => {
+  it('formats an epoch number as well as an ISO string', () => {
+    const ms = Date.parse('2026-08-10T14:05:09Z')
+    expect(formatTimeLocale(ms, 'fr')).toBe(formatTimeLocale('2026-08-10T14:05:09Z', 'fr'))
+  })
+
+  it('uses a 24-hour clock in French and 12-hour in English', () => {
+    const ISO = '2026-08-10T14:05:09Z'
+    expect(formatTimeLocale(ISO, 'en')).toMatch(/(AM|PM)/)
+    expect(formatTimeLocale(ISO, 'fr')).not.toMatch(/(AM|PM)/)
+  })
+
+  it('shows a dash for a missing value', () => {
+    expect(formatTimeLocale(undefined, 'en')).toBe('—')
   })
 })

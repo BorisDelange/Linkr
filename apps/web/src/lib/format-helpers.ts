@@ -38,6 +38,42 @@ export function formatDateShort(d: string | undefined, lang: string): string {
   }
 }
 
+/**
+ * Date + time in the language the APP is set to.
+ *
+ * Not `toLocaleString()` with no locale: that follows the BROWSER's locale, so a
+ * French browser kept printing French dates after switching the app to English.
+ * The app's language is the only thing the user can actually see and control.
+ */
+export function formatDateTimeLocale(d: string | undefined, lang: string): string {
+  if (!d) return '—'
+  try {
+    return new Date(d).toLocaleString(lang.startsWith('fr') ? 'fr-FR' : 'en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return d
+  }
+}
+
+/** Clock time in the app's language (same rationale as formatDateTimeLocale). */
+export function formatTimeLocale(d: string | number | undefined, lang: string): string {
+  if (d == null) return '—'
+  try {
+    return new Date(d).toLocaleTimeString(lang.startsWith('fr') ? 'fr-FR' : 'en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  } catch {
+    return String(d)
+  }
+}
+
 /** Short date+time for clinical tables. */
 export function formatDateTime(d: string): string {
   try {

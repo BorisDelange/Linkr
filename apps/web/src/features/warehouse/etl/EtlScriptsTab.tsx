@@ -75,6 +75,8 @@ import { inferEtlLanguage } from './etl-file-language'
 import { RunProgressBar } from './RunProgressBar'
 import { statementLineAt } from './statement-preview'
 import { csvDelimiterFor, parseCsvPreview } from '@/lib/csv-preview'
+import { formatTimeLocale } from '@/lib/format-helpers'
+import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import { compareByRole } from './role-presentation'
 import { PipelineDbPicker } from './PipelineDbPicker'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -139,6 +141,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     openFileIds,
     selectFile,
     closeFile,
+    reorderOpenFiles,
     updateFileContent,
     createFile,
     isFileDirty,
@@ -167,6 +170,9 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   const [newFileType, setNewFileType] = useState('sql')
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  // Tab drag-reorder, same interaction as the project IDE's file tabs.
+  const [dragFileId, setDragFileId] = useState<string | null>(null)
+  const [dropFileInsert, setDropFileInsert] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
 
   // Same bindings the IDE's Run button shows, read from the shortcut store so a
   // rebind is reflected in both places.
@@ -740,17 +746,56 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                         <ContextMenu key={fid}>
                           <ContextMenuTrigger asChild>
                             <button
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('etl-file-tab-id', fid)
+                                e.dataTransfer.effectAllowed = 'move'
+                                setDragFileId(fid)
+                              }}
+                              onDragOver={(e) => {
+                                if (!e.dataTransfer.types.includes('etl-file-tab-id')) return
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = 'move'
+                                const rect = e.currentTarget.getBoundingClientRect()
+                                const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+                                setDropFileInsert({ id: fid, side })
+                              }}
+                              onDragLeave={() => setDropFileInsert(null)}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                const side = dropFileInsert?.side ?? 'right'
+                                setDropFileInsert(null)
+                                setDragFileId(null)
+                                const draggedId = e.dataTransfer.getData('etl-file-tab-id')
+                                if (!draggedId || draggedId === fid) return
+                                const fromIdx = openFileIds.indexOf(draggedId)
+                                let toIdx = openFileIds.indexOf(fid)
+                                if (side === 'right') toIdx++
+                                // Removing the dragged tab first shifts every later
+                                // index down by one.
+                                if (fromIdx < toIdx) toIdx--
+                                if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderOpenFiles(fromIdx, toIdx)
+                              }}
+                              onDragEnd={() => { setDragFileId(null); setDropFileInsert(null) }}
                               onClick={() => {
                                 selectFile(fid)
                                 if (!editorVisible) setEditorVisible(true)
                               }}
                               className={cn(
-                                'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                                'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
                                 isActive
                                   ? 'bg-background text-foreground'
                                   : 'text-muted-foreground hover:bg-accent/50',
+                                dragFileId === fid && 'opacity-40',
                               )}
                             >
+                              {dropFileInsert?.id === fid && dropFileInsert.side === 'left' && dragFileId !== fid && (
+                                <div className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-primary" />
+                              )}
+                              {dropFileInsert?.id === fid && dropFileInsert.side === 'right' && dragFileId !== fid && (
+                                <div className="absolute right-0 top-1 bottom-1 w-0.5 rounded-full bg-primary" />
+                              )}
+                              <FileTypeIcon name={file.name} size={12} />
                               <span className="max-w-[140px] truncate" title={file.name}>{file.name}</span>
                               {isDirty && <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />}
                               <span
@@ -1137,7 +1182,7 @@ function EtlOutputContent({
 // ---------------------------------------------------------------------------
 
 function EtlResultCard({ result }: { result: EtlExecutionResult }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [showCode, setShowCode] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -1191,7 +1236,7 @@ function EtlResultCard({ result }: { result: EtlExecutionResult }) {
             <TooltipContent>{t('files.copy')}</TooltipContent>
           </Tooltip>
           <span className="ml-1 text-[10px] text-muted-foreground">
-            {new Date(result.timestamp).toLocaleTimeString()}
+            {formatTimeLocale(result.timestamp, i18n.language)}
           </span>
           {result.duration > 0 && (
             <span className="text-[10px] text-muted-foreground">
