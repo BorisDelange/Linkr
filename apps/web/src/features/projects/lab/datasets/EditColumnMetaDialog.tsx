@@ -126,7 +126,7 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
 
           {categorical && codes.length > 0 && (
             <div className="space-y-1.5">
-              <Label className="text-xs">{t('datasets.col_meta_value_labels')}</Label>
+              <Label>{t('datasets.col_meta_value_labels')}</Label>
               <p className="text-xs text-muted-foreground">{t('datasets.col_meta_value_labels_hint')}</p>
               <ScrollArea className="max-h-56 rounded-md border">
                 <div className="divide-y">

@@ -816,7 +816,7 @@ export function CreateMappingProjectDialog({
             {showCSVOptions && (
               <div className="grid grid-cols-4 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs">{t('datasets.upload_delimiter')}</Label>
+                  <Label>{t('datasets.upload_delimiter')}</Label>
                   <Select value={delimiter} onValueChange={(v) => setDelimiter(v as Delimiter)}>
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />
@@ -831,7 +831,7 @@ export function CreateMappingProjectDialog({
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">{t('datasets.upload_encoding')}</Label>
+                  <Label>{t('datasets.upload_encoding')}</Label>
                   <Select value={encoding} onValueChange={(v) => setEncoding(v as Encoding)}>
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />
@@ -844,7 +844,7 @@ export function CreateMappingProjectDialog({
                   </Select>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
+                  <Label>{t('datasets.upload_skip_rows')}</Label>
                   <Input
                     type="number"
                     min={0}
@@ -854,7 +854,7 @@ export function CreateMappingProjectDialog({
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">{t('datasets.upload_header')}</Label>
+                  <Label>{t('datasets.upload_header')}</Label>
                   <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />
@@ -873,7 +873,7 @@ export function CreateMappingProjectDialog({
               <div className="grid grid-cols-3 gap-3">
                 {sheetNames.length > 1 && (
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_sheet')}</Label>
+                    <Label>{t('datasets.upload_sheet')}</Label>
                     <Select value={selectedSheet} onValueChange={setSelectedSheet}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
@@ -887,7 +887,7 @@ export function CreateMappingProjectDialog({
                   </div>
                 )}
                 <div className="space-y-1">
-                  <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
+                  <Label>{t('datasets.upload_skip_rows')}</Label>
                   <Input
                     type="number"
                     min={0}
@@ -897,7 +897,7 @@ export function CreateMappingProjectDialog({
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">{t('datasets.upload_header')}</Label>
+                  <Label>{t('datasets.upload_header')}</Label>
                   <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />

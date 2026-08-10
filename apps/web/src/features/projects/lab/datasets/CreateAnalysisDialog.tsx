@@ -161,7 +161,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
 
   const nameInput = (
     <div className="space-y-1">
-      <Label className="text-xs">{t('datasets.name')} *</Label>
+      <Label>{t('datasets.name')} *</Label>
       <Input
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -212,7 +212,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
                     {nameInput}
                     {configHasBothLangs && (
                       <div className="space-y-1">
-                        <Label className="text-xs">{t('common.language')}</Label>
+                        <Label>{t('common.language')}</Label>
                         <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
                           <SelectTrigger className="h-8 w-40 text-sm"><SelectValue /></SelectTrigger>
                           <SelectContent position="popper" sideOffset={4}>

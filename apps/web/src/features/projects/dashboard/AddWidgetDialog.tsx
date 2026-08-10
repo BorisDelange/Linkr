@@ -256,7 +256,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
   // Widget name input shared between views
   const nameInput = (
     <div className="space-y-1">
-      <Label className="text-xs">{t('dashboard.widget_name')} *</Label>
+      <Label>{t('dashboard.widget_name')} *</Label>
       <Input
         value={widgetName}
         onChange={(e) => setWidgetName(e.target.value)}
@@ -275,12 +275,12 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
   // Dataset selector shared between views
   const datasetSelector = (
     <div className="space-y-1">
-      <Label className="text-xs">{t('dashboard.widget_dataset')}</Label>
+      <Label>{t('dashboard.widget_dataset')}</Label>
       <Select
         value={datasetFileId ?? '__none__'}
         onValueChange={(v) => handleSetDatasetFileId(v === '__none__' ? null : v)}
       >
-        <SelectTrigger className="h-8 text-sm">
+        <SelectTrigger>
           <SelectValue placeholder={t('dashboard.widget_dataset_placeholder')} />
         </SelectTrigger>
         <SelectContent position="popper" sideOffset={4}>
@@ -351,7 +351,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
 
                     {configHasBothLangs && (
                       <div className="space-y-1">
-                        <Label className="text-xs">{t('common.language')}</Label>
+                        <Label>{t('common.language')}</Label>
                         <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
                           <SelectTrigger className="h-8 w-40 text-sm">
                             <SelectValue />

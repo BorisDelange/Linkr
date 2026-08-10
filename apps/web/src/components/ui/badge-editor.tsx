@@ -96,7 +96,7 @@ export function BadgeEditor({ value, onChange, suggestions = [], label }: BadgeE
 
   return (
     <div className="grid gap-2">
-      <Label className="text-xs">{label ?? t('common.badges')}</Label>
+      <Label>{label ?? t('common.badges')}</Label>
 
       {value.length > 0 && (
         <div className="mb-1 flex flex-wrap gap-1.5">

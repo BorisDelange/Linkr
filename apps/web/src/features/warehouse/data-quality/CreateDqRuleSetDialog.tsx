@@ -124,7 +124,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label className="text-xs">{t('data_quality.rs_name')}<RequiredMark /></Label>
+            <Label>{t('data_quality.rs_name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -134,7 +134,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
             />
           </div>
           <div>
-            <Label className="text-xs">{t('common.description')}</Label>
+            <Label>{t('common.description')}</Label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -152,7 +152,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               readOnly={isEdit}
             />
           <div>
-            <Label className="text-xs">{t('data_quality.rs_database')}</Label>
+            <Label>{t('data_quality.rs_database')}</Label>
             <Select value={dataSourceId} onValueChange={setDataSourceId}>
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder={t('data_quality.select_database')} />

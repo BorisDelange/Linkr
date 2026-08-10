@@ -61,7 +61,7 @@ export function EntityIdField({
 
   return (
     <div className="space-y-2">
-      <Label htmlFor={htmlId} className="flex items-center gap-1.5 text-xs">
+      <Label htmlFor={htmlId} className="flex items-center gap-1.5">
         <Lock size={12} className="text-muted-foreground" />
         {t('entity_id.label')}
         {required && <RequiredMark />}
@@ -75,7 +75,7 @@ export function EntityIdField({
         </TooltipProvider>
       </Label>
       {readOnly ? (
-        <Input id={htmlId} value={value} readOnly disabled className="font-mono text-xs" />
+        <Input id={htmlId} value={value} readOnly disabled className="font-mono" />
       ) : (
         <IdInput
           htmlId={htmlId}
@@ -84,14 +84,14 @@ export function EntityIdField({
           placeholder={placeholder}
         />
       )}
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {t('entity_id.hint')}
       </p>
       {!readOnly && idDuplicate && (
-        <p className="text-[11px] text-destructive">{t('entity_id.duplicate')}</p>
+        <p className="text-xs text-destructive">{t('entity_id.duplicate')}</p>
       )}
       {!readOnly && !idValid && value.length > 0 && (
-        <p className="text-[11px] text-destructive">{t('entity_id.invalid')}</p>
+        <p className="text-xs text-destructive">{t('entity_id.invalid')}</p>
       )}
     </div>
   )

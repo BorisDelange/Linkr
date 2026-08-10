@@ -339,7 +339,7 @@ export function CreateWikiPageDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label className="text-xs">{t('wiki.page_title')}<RequiredMark /></Label>
+            <Label>{t('wiki.page_title')}<RequiredMark /></Label>
             <div className="flex items-center gap-2">
               <IconPicker value={icon} onChange={setIcon} modal={false} />
               <Input
@@ -364,7 +364,7 @@ export function CreateWikiPageDialog({
           />
 
           <div>
-            <Label className="text-xs">{t('wiki.template')}</Label>
+            <Label>{t('wiki.template')}</Label>
             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
               {TEMPLATES.map((tpl) => (
                 <button

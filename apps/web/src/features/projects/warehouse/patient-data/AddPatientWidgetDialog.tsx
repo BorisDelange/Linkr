@@ -137,18 +137,17 @@ export function AddPatientWidgetDialog({
 
           <div className="space-y-4">
             <div className="space-y-1">
-              <Label className="text-xs">{t('patient_data.widget_name')}</Label>
+              <Label>{t('patient_data.widget_name')}</Label>
               <Input
                 value={widgetName}
                 onChange={(e) => setWidgetName(e.target.value)}
                 placeholder={t('patient_data.widget_name_placeholder')}
-                className="h-8 text-sm"
               />
             </div>
 
             {configHasBothLangs && (
               <div className="space-y-1">
-                <Label className="text-xs">{t('common.language')}</Label>
+                <Label>{t('common.language')}</Label>
                 <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
                   <SelectTrigger className="h-8 w-40 text-sm">
                     <SelectValue />
@@ -197,7 +196,7 @@ export function AddPatientWidgetDialog({
         </DialogHeader>
 
         <div className="shrink-0">
-          <Label className="text-xs">{t('patient_data.widget_name')}</Label>
+          <Label>{t('patient_data.widget_name')}</Label>
           <Input
             value={widgetName}
             onChange={(e) => setWidgetName(e.target.value)}

@@ -1551,16 +1551,16 @@ export function SchemaPresetsPage() {
 
           {/* Create schema dialog */}
           <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) setShowCreateDialog(false) }}>
-            <DialogContent>
+            <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle>{t('schemas.new_schema')}</DialogTitle>
+                <DialogTitle>{t('schemas.create_title')}</DialogTitle>
                 <DialogDescription>{t('settings.schema_preset_new_description')}</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 {/* Template picker */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">{t('schemas.template')}</Label>
-                  <p className="text-[11px] text-muted-foreground">{t('schemas.template_hint')}</p>
+                  <Label>{t('schemas.template')}</Label>
+                  <p className="text-xs text-muted-foreground">{t('schemas.template_hint')}</p>
                   <div className="grid grid-cols-2 gap-1.5">
                     {[
                       { id: 'blank', label: t('schemas.template_blank'), added: false },
@@ -1609,7 +1609,7 @@ export function SchemaPresetsPage() {
                 </div>
                 {/* Name */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">{t('common.name')}<RequiredMark /></Label>
+                  <Label>{t('common.name')}<RequiredMark /></Label>
                   <Input
                     value={newPresetName}
                     onChange={(e) => setNewPresetName(e.target.value)}
@@ -1627,11 +1627,10 @@ export function SchemaPresetsPage() {
                 </div>
                 {/* Description */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">{t('schemas.field_description')}</Label>
+                  <Label>{t('schemas.field_description')}</Label>
                   <Input
                     value={newPresetDescription}
                     onChange={(e) => setNewPresetDescription(e.target.value)}
-                    className="h-8 text-sm"
                     placeholder={t('schemas.field_description_placeholder')}
                   />
                 </div>

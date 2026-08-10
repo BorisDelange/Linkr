@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
+import { EntityIdField } from '@/components/ui/entity-id-field'
 import {
   Dialog,
   DialogContent,
@@ -47,28 +48,34 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t('common.edit')}</DialogTitle>
+          <DialogTitle>{t('schemas.edit_title')}</DialogTitle>
           <DialogDescription>{t('schemas.edit_description')}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1">
-            <Label className="text-xs">{t('schemas.field_name')}<RequiredMark /></Label>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>{t('schemas.field_name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
-              className="h-8 text-sm"
               autoFocus
             />
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">{t('schemas.field_description')}</Label>
+          <EntityIdField
+            name={name}
+            value={item.presetId}
+            onChange={() => {}}
+            existingIds={[]}
+            htmlId="schema-preset-id"
+            readOnly
+          />
+          <div className="space-y-2">
+            <Label>{t('schemas.field_description')}</Label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="h-8 text-sm"
               placeholder={t('schemas.field_description_placeholder')}
             />
           </div>
