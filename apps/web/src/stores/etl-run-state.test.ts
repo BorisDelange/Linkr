@@ -182,3 +182,52 @@ describe('the scripts a run covers', () => {
     expect(useEtlStore.getState().runningFileIds).toEqual([])
   })
 })
+
+describe('a stopped run in the history', () => {
+  beforeEach(() => {
+    useEtlStore.setState({
+      pipelineRunning: false, pipelineRunAbort: null,
+      runningFileIds: [], scriptStatuses: new Map(), runHistory: [],
+    })
+  })
+
+  it('does not leave the history entry showing a spinner', () => {
+    // The history keeps its OWN copies of the logs, so relabelling only
+    // scriptStatuses left 00_vocabulary.sql "running" for ever in the panel.
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    store.setScriptStatus('f1', RUNNING)
+
+    useEtlStore.getState().stopPipelineRun()
+
+    const run = useEtlStore.getState().runHistory[0]
+    expect(run.scripts.map((s) => s.status)).toEqual(['stopped'])
+    expect(useEtlStore.getState().scriptStatuses.get('f1')?.status).toBe('stopped')
+  })
+
+  it('leaves a script that already finished alone', () => {
+    // Only the one in flight becomes 'stopped'; a success stays a success.
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1', 'f2'])
+    store.setScriptStatus('f1', { ...RUNNING, status: 'success' })
+    store.setScriptStatus('f2', { ...RUNNING, id: 'log-2', fileId: 'f2' })
+
+    useEtlStore.getState().stopPipelineRun()
+
+    const byFile = new Map(
+      useEtlStore.getState().runHistory[0].scripts.map((s) => [s.fileId, s.status]),
+    )
+    expect(byFile.get('f1')).toBe('success')
+    expect(byFile.get('f2')).toBe('stopped')
+  })
+
+  it('records how long the interrupted script had been going', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    store.setScriptStatus('f1', RUNNING)
+    useEtlStore.getState().stopPipelineRun()
+    const log = useEtlStore.getState().runHistory[0].scripts[0]
+    expect(log.durationMs).toBeGreaterThan(0)
+    expect(log.completedAt).toBeTruthy()
+  })
+})

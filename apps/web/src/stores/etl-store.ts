@@ -395,26 +395,36 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     const { pipelineRunAbort } = get()
     pipelineRunAbort?.abort()
     set((s) => {
-      const history = [...s.runHistory]
-      if (history.length > 0 && history[0].status === 'running') {
-        history[0] = { ...history[0], status: 'error', completedAt: new Date().toISOString() }
-      }
       // The script in flight keeps its own status, which would otherwise stay
       // "running" for good — the abort only stops the loop, it cannot interrupt a
       // statement already sent, so the honest label is "stopped", not "error".
-      const statuses = new Map(s.scriptStatuses)
-      for (const [fileId, log] of statuses) {
-        if (log.status === 'running') {
-          statuses.set(fileId, {
-            ...log,
-            status: 'stopped',
-            completedAt: new Date().toISOString(),
-            durationMs: log.startedAt
-              ? Date.now() - new Date(log.startedAt).getTime()
-              : undefined,
-          })
+      const stoppedNow = (log: EtlRunLog): EtlRunLog => (
+        log.status === 'running'
+          ? {
+              ...log,
+              status: 'stopped',
+              completedAt: new Date().toISOString(),
+              durationMs: log.startedAt
+                ? Date.now() - new Date(log.startedAt).getTime()
+                : undefined,
+            }
+          : log
+      )
+
+      const history = [...s.runHistory]
+      if (history.length > 0 && history[0].status === 'running') {
+        history[0] = {
+          ...history[0],
+          status: 'error',
+          completedAt: new Date().toISOString(),
+          // The history keeps its OWN copies of these logs, so relabelling only
+          // scriptStatuses left the run's entry showing a spinner for ever.
+          scripts: history[0].scripts.map(stoppedNow),
         }
       }
+
+      const statuses = new Map(s.scriptStatuses)
+      for (const [fileId, log] of statuses) statuses.set(fileId, stoppedNow(log))
       return {
         pipelineRunning: false,
         pipelineRunAbort: null,
