@@ -231,7 +231,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
           ) : nothingToCommit ? (
             <p className="py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
           ) : (
-            <div className="space-y-3">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {quickActions.map((qa, i) => (
                   <QuickActionCard
@@ -472,7 +472,9 @@ function QuickActionCard({
           ) : (
             <>
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">{t('versioning.quick_will_push')}</p>
-              <ul className="mt-1 space-y-0.5">
+              {/* Long change lists scroll inside the card so the widgets never
+                  outgrow the dialog. */}
+              <ul className="mt-1 max-h-48 space-y-0.5 overflow-y-auto">
                 {action.files.map((f) => {
                   const meta = changeTypeMeta(f.changeType)
                   return (
