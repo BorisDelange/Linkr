@@ -645,8 +645,12 @@ export function CreateMappingProjectDialog({
     hasExistingFileData && parsedRows.length === 0  // no new file → existing data is valid
     || (parsedColumns.length > 0 && parsedRows.length > 0 && !!columnMapping.conceptCodeColumn && !!columnMapping.terminologyColumn)
   )
-  const isDatabaseValid = sourceType === 'database' && !!dataSourceId
-  const canSubmit = !!name.trim() && (isDatabaseValid || isFileValid) && (isEdit || isEntityIdValid(entityId, existingIds))
+  // The source is optional: a project can be created empty and get its database
+  // or file later (from Edit). A half-configured FILE source is the exception —
+  // columns parsed but no code/terminology column picked would persist a source
+  // the editor can't read, so that still blocks.
+  const fileHalfConfigured = sourceType === 'file' && parsedColumns.length > 0 && !isFileValid
+  const canSubmit = !!name.trim() && !fileHalfConfigured && (isEdit || isEntityIdValid(entityId, existingIds))
 
   // Per-tab list of what's still missing — drives the red dot on each tab and
   // the tooltip on the disabled Create button.
@@ -654,13 +658,7 @@ export function CreateMappingProjectDialog({
   if (!name.trim()) infoMissing.push(t('concept_mapping.missing_name'))
   if (!isEdit && !isEntityIdValid(entityId, existingIds)) infoMissing.push(t('concept_mapping.missing_identifier'))
   const sourceMissing: string[] = []
-  if (!isDatabaseValid && !isFileValid) {
-    sourceMissing.push(
-      sourceType === 'database'
-        ? t('concept_mapping.missing_database')
-        : t('concept_mapping.missing_file'),
-    )
-  }
+  if (fileHalfConfigured) sourceMissing.push(t('concept_mapping.missing_file'))
   const allMissing = [...infoMissing, ...sourceMissing]
 
   // --- Submit ---
@@ -679,6 +677,11 @@ export function CreateMappingProjectDialog({
       }
       if (sourceType === 'database') {
         changes.dataSourceId = dataSourceId
+        changes.fileSourceData = undefined
+      } else if (!isFileValid && !hasExistingFileData) {
+        // Switched to a file source but nothing imported yet — leave the project
+        // sourceless rather than writing an empty fileSourceData shell.
+        changes.dataSourceId = ''
         changes.fileSourceData = undefined
       } else {
         const newFileData = {
@@ -726,7 +729,10 @@ export function CreateMappingProjectDialog({
         createdAt: now,
         updatedAt: now,
       }
-      if (sourceType === 'file') {
+      // Only attach a file source when one was actually imported: the source is
+      // optional, and an empty fileSourceData shell would read as a broken source
+      // rather than "no source yet".
+      if (sourceType === 'file' && isFileValid) {
         project.fileSourceData = {
           fileName: file?.name ?? '',
           rows: [],  // No longer store full rows — DuckDB loads from rawFileBuffer
