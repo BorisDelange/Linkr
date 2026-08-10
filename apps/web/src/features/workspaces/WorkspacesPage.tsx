@@ -50,7 +50,7 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { localized } from '@/lib/localized'
-import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
+import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent, createEntityAttachments } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
@@ -536,7 +536,7 @@ export function WorkspacesPage() {
       reportPhase('workspaces.import_phase_etl', 0, parsed.etlPipelines.length)
       await yieldToBrowser()
     }
-    for (const { pipeline, files } of parsed.etlPipelines) {
+    for (const { pipeline, files, attachments } of parsed.etlPipelines) {
       const id = await resolveChildId((i) => storage.etlPipelines.getById(i), pipeline.id)
       idMap.set(`etl-pipeline:${pipeline.id}`, id)
       if (id === pipeline.id) {
@@ -555,6 +555,7 @@ export function WorkspacesPage() {
       for (const f of targetFiles) {
         await storage.etlFiles.create({ ...f, pipelineId: id })
       }
+      await createEntityAttachments(storage, attachments, 'etl-pipeline', id, targetWsId)
     }
 
     // --- Import DQ rule sets ---

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  fromPathTree, readPathTree, rederiveTreeIds, storablePathNode, toPathTree, treeNodePath,
+  fromPathTree, isReservedTreeName, readPathTree, rederiveTreeIds, storablePathNode, toPathTree, treeNodePath,
 } from './entity-tree'
 
 /** A stored SQL-collection tree: sofa/ { sofa.sql }, top.sql. */
@@ -159,5 +159,29 @@ describe('rederiveTreeIds', () => {
   it('is a no-op when the owner is unchanged', () => {
     const nodes = [{ id: 'a', name: 'a.sql', type: 'file' as const, parentId: null }]
     expect(rederiveTreeIds(nodes, 'same', 'same', 'collectionId')).toBe(nodes)
+  })
+})
+
+describe('isReservedTreeName', () => {
+  it('reserves the names the export writes at the entity root', () => {
+    for (const name of ['README.md', 'readme.md', 'README.fr.md', 'LICENSE.md', 'license.md', 'attachments']) {
+      expect(isReservedTreeName(name, null)).toBe(true)
+    }
+  })
+
+  it('allows them inside a folder, where nothing is emitted', () => {
+    for (const name of ['README.md', 'LICENSE.md', 'attachments']) {
+      expect(isReservedTreeName(name, 'folder-id')).toBe(false)
+    }
+  })
+
+  it('leaves ordinary names alone', () => {
+    for (const name of ['notes.md', 'readme_notes.md', 'my-README.md', 'licenses.md', 'attachment']) {
+      expect(isReservedTreeName(name, null)).toBe(false)
+    }
+  })
+
+  it('ignores surrounding whitespace', () => {
+    expect(isReservedTreeName('  README.md  ', null)).toBe(true)
   })
 })

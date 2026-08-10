@@ -1770,6 +1770,8 @@
     "file_desc_project_json": "Paramètres du projet : nom, description et options. Le cœur du projet.",
     "file_desc_mp_project_json": "Paramètres du projet d'alignement : nom, type de source et correspondance des colonnes.",
     "file_desc_readme": "Le README affiché sur la page d'accueil du projet (Markdown).",
+    "file_desc_license": "Conditions de réutilisation de ce contenu",
+    "file_desc_readme_attachment": "Image intégrée au readme",
     "file_desc_tasks": "La liste de tâches et les notes du projet.",
     "file_desc_scripts_tree": "L'arborescence des fichiers de code (dossiers et ordre des fichiers).",
     "file_desc_script_file": "Un fichier de code (R, Python, SQL…) de l'éditeur du projet.",

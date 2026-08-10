@@ -109,6 +109,88 @@ async function writeAttachmentFiles(
   }
 }
 
+/**
+ * An entity's JSON metadata without the documentation that travels as files:
+ * `readme` is dropped (it becomes README.md) and `license` keeps only its
+ * identity (the text becomes LICENSE.md).
+ */
+function stripEntityDocs<T extends { readme?: unknown; license?: EntityLicense }>(
+  meta: T,
+): Omit<T, 'readme' | 'license'> & { license?: { id: string; name?: string } } {
+  const { readme: _readme, license, ...rest } = meta
+  const licence = licenseMeta(license)
+  return licence ? { ...rest, license: licence } : rest
+}
+
+/** An entity's README attachments as they travel in a ZIP, owner-agnostic. */
+export interface ParsedEntityAttachments {
+  meta: Omit<ReadmeAttachment, 'data' | 'ownerType' | 'ownerId'>[]
+  blobs: Map<string, ArrayBuffer>
+}
+
+/** Persist parsed attachments for an entity, stamping the resolved owner. */
+export async function createEntityAttachments(
+  storage: Storage,
+  attachments: ParsedEntityAttachments | undefined,
+  ownerType: ReadmeOwnerType,
+  ownerId: string,
+  workspaceId?: string,
+): Promise<void> {
+  if (!attachments) return
+  // Re-importing the same entity must not stack duplicates of its images.
+  await storage.readmeAttachments.deleteByOwner(ownerType, ownerId).catch(() => {})
+  for (const meta of attachments.meta) {
+    const data = attachments.blobs.get(meta.id)
+    if (!data) continue
+    await storage.readmeAttachments
+      .create({ ...meta, ownerType, ownerId, workspaceId, data })
+      .catch(() => {})
+  }
+}
+
+/**
+ * Read back the docs an entity folder carries as files: README.md (+ per-language
+ * siblings), LICENSE.md, and the attachments metadata/blobs. The license id comes
+ * from the entity's JSON, the text from the file.
+ */
+async function readEntityDocs(
+  zipData: JSZip,
+  prefix: string,
+  meta: { license?: { id?: string; name?: string } },
+): Promise<{
+  readme?: LocalizedString
+  license?: EntityLicense
+  attachmentsMeta: Omit<ReadmeAttachment, 'data' | 'ownerType' | 'ownerId'>[]
+  attachmentBlobs: Map<string, ArrayBuffer>
+}> {
+  const readmeByLang: LocalizedString = {}
+  for (const path of Object.keys(zipData.files)) {
+    if (!path.startsWith(prefix)) continue
+    const m = /^README(?:\.([a-z]{2}))?\.md$/.exec(path.slice(prefix.length))
+    if (m) readmeByLang[m[1] ?? 'en'] = await zipData.files[path].async('string')
+  }
+  const licenseEntry = zipData.files[`${prefix}LICENSE.md`]
+  const licenseText = licenseEntry ? await licenseEntry.async('string') : undefined
+
+  const attachmentsMeta =
+    (await readJsonFile<Omit<ReadmeAttachment, 'data' | 'ownerType' | 'ownerId'>[]>(
+      zipData,
+      `${prefix}attachments/_meta.json`,
+    )) ?? []
+  const attachmentBlobs = new Map<string, ArrayBuffer>()
+  for (const att of attachmentsMeta) {
+    const entry = zipData.files[`${prefix}attachments/${att.id}-${att.fileName}`]
+    if (entry) attachmentBlobs.set(att.id, await entry.async('arraybuffer'))
+  }
+
+  return {
+    readme: Object.keys(readmeByLang).length ? readmeByLang : undefined,
+    license: readLicense(meta.license, licenseText),
+    attachmentsMeta,
+    attachmentBlobs,
+  }
+}
+
 /** README.md + LICENSE.md + attachments/ for one entity folder. */
 async function writeEntityDocs(
   zip: JSZip,
@@ -1920,8 +2002,20 @@ export async function applyClonedEntity(
     const meta = await readJson<SqlScriptCollection | EtlPipeline>(metaName)
     if (meta) {
       const { id: _id, workspaceId: _ws, ...changes } = dropForeignAuthorId(meta) as SqlScriptCollection
-      if (type === 'sql-collection') await storage.sqlScriptCollections.update(targetId, changes).catch(() => {})
-      else await storage.etlPipelines.update(targetId, changes as Partial<EtlPipeline>).catch(() => {})
+      // README.md / LICENSE.md / attachments/ live as files in the repo, not in the
+      // metadata: fold them back onto the entity so the clone is complete.
+      const docs = await readEntityDocs(zip, '', meta)
+      const withDocs = { ...changes, readme: docs.readme, license: docs.license }
+      const ownerType = type === 'sql-collection' ? 'sql-collection' : 'etl-pipeline'
+      if (type === 'sql-collection') await storage.sqlScriptCollections.update(targetId, withDocs).catch(() => {})
+      else await storage.etlPipelines.update(targetId, withDocs as Partial<EtlPipeline>).catch(() => {})
+      await createEntityAttachments(
+        storage,
+        { meta: docs.attachmentsMeta, blobs: docs.attachmentBlobs },
+        ownerType,
+        targetId,
+        workspaceId,
+      )
     }
     const fkKey = type === 'sql-collection' ? 'collectionId' : 'pipelineId'
     // Clear this collection's/pipeline's own files first, so a retry or a re-clone
@@ -2039,7 +2133,8 @@ export async function buildEtlPipelineFolder(
   pipeline: EtlPipeline,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}_pipeline.json`, json(stripInstanceFields(pipeline)))
+  zip.file(`${prefix}_pipeline.json`, json(stripEntityDocs(stripInstanceFields(pipeline) as EtlPipeline)))
+  await writeEntityDocs(zip, prefix, pipeline, storage, 'etl-pipeline', pipeline.id)
   const files = await storage.etlFiles.getByPipeline(pipeline.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
 
@@ -2481,7 +2576,7 @@ export interface ParsedWorkspaceZip {
   wikiAttachmentsMeta: Omit<WikiAttachment, 'data'>[]
   wikiAttachmentBlobs: Map<string, ArrayBuffer>
   sqlCollections: { collection: SqlScriptCollection; files: SqlScriptFile[] }[]
-  etlPipelines: { pipeline: EtlPipeline; files: EtlFile[] }[]
+  etlPipelines: { pipeline: EtlPipeline; files: EtlFile[]; attachments?: ParsedEntityAttachments }[]
   dqRuleSets: { ruleSet: DqRuleSet; checks: DqCustomCheck[] }[]
   conceptSets: ConceptSet[]
   mappingProjects: { project: MappingProject; mappings: ConceptMapping[]; scoresFile?: File }[]
@@ -2684,7 +2779,14 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
       const entry = zipData.files[`${prefix}${f.path}`]
       if (entry) f.content = await entry.async('string')
     }
-    etlPipelines.push({ pipeline, files: files as EtlFile[] })
+    const docs = await readEntityDocs(zipData, prefix, pipeline)
+    if (docs.readme) pipeline.readme = docs.readme
+    if (docs.license) pipeline.license = docs.license
+    etlPipelines.push({
+      pipeline,
+      files: files as EtlFile[],
+      attachments: { meta: docs.attachmentsMeta, blobs: docs.attachmentBlobs },
+    })
   }
 
   // --- data-quality/ (also supports legacy 'dq/' prefix) ---

@@ -76,7 +76,7 @@ const storage = {
   datasetData: { get: async () => undefined },
   datasetRawFiles: { get: async () => undefined },
   readmeAttachments: {
-    getByProject: async () =>
+    getByOwner: async () =>
       input.attachments.map(({ dataBase64, ...rest }) => ({
         ...rest,
         data: Uint8Array.from(atob(dataBase64), (c) => c.charCodeAt(0)),

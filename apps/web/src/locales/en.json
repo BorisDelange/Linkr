@@ -1770,6 +1770,8 @@
     "file_desc_project_json": "Project settings: name, description and options. The heart of the project.",
     "file_desc_mp_project_json": "Mapping project settings: name, source type and column mapping.",
     "file_desc_readme": "The README shown on the project's home page (Markdown).",
+    "file_desc_license": "License terms for reusing this content",
+    "file_desc_readme_attachment": "Image embedded in the readme",
     "file_desc_tasks": "The project's to-do list and notes.",
     "file_desc_scripts_tree": "The layout of the code file tree (folders and file order).",
     "file_desc_script_file": "A code file (R, Python, SQL…) from the project's editor.",

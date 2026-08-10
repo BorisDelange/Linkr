@@ -115,7 +115,7 @@ const storage = {
   datasetData: { get: async () => undefined },
   datasetRawFiles: { get: async () => undefined },
   datasetAnalyses: { getByDataset: async () => [] },
-  readmeAttachments: { getByProject: async () => [] },
+  readmeAttachments: { getByOwner: async () => [] },
   wikiPages: { getByWorkspace: async () => input.wikiPages },
   wikiAttachments: {
     getByWorkspace: async () =>

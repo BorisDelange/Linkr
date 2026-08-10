@@ -87,10 +87,26 @@ const README_RULE: Rule = {
   descriptionKey: 'versioning.file_desc_readme',
 }
 
+const LICENSE_RULE: Rule = {
+  test: /^LICENSE\.md$/i,
+  category: 'readme',
+  order: CAT.readme,
+  descriptionKey: 'versioning.file_desc_license',
+}
+
+const ATTACHMENTS_RULE: Rule = {
+  test: /^attachments\//,
+  category: 'readme',
+  order: CAT.readme,
+  descriptionKey: 'versioning.file_desc_readme_attachment',
+}
+
 const RULES: Partial<Record<GitScope, Rule[]>> = {
   projects: [
     { test: /^project\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_project_json' },
     README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
     { test: /^tasks\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_tasks' },
     { test: /^scripts\/_tree\.json$/, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_scripts_tree' },
     { test: /^scripts\//, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_script_file' },
@@ -108,6 +124,8 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   'mapping-projects': [
     { test: /^project\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_mp_project_json' },
     README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
     { test: /^mappings\.(json|csv)$/, category: 'mappings', order: CAT.mappings, descriptionKey: 'versioning.file_desc_mappings' },
     { test: /source-concepts\.csv$/, category: 'concepts', order: CAT.concepts, descriptionKey: 'versioning.file_desc_source_concepts' },
     { test: /^source-concept-ids\//, category: 'concepts', order: CAT.concepts, descriptionKey: 'versioning.file_desc_source_concept_ids' },
@@ -119,6 +137,8 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     { test: /^_collection\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_collection_json' },
     { test: /^_tree\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_tree' },
     README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
     { test: /\.sql$/i, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_sql_file' },
     ATTRS_RULE,
   ],
@@ -126,6 +146,8 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     { test: /^_pipeline\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_pipeline_json' },
     { test: /^_tree\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_tree' },
     README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
     // mapping/*.csv before the generic script rules: these are a mapping project's
     // own dictionary (gitignored by default), not pipeline code, and the user
     // decides per file whether they are versioned at all.
@@ -136,15 +158,24 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   ],
   'data-catalogs': [
     { test: /^catalog\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_catalog_json' },
+    README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
     ATTRS_RULE,
   ],
   'dq-rule-sets': [
     { test: /^rule-set\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_ruleset_json' },
     { test: /^checks\.json$/, category: 'checks', order: CAT.checks, descriptionKey: 'versioning.file_desc_dq_checks' },
+    README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
     ATTRS_RULE,
   ],
   'schema-presets': [
     { test: /^preset\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_preset_json' },
+    README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
     ATTRS_RULE,
   ],
   settings: [
@@ -157,6 +188,8 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     { test: /^_plugin\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_plugin_meta' },
     { test: /^plugin\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_plugin_manifest' },
     README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
     { test: /\.(js|ts|jsx|tsx|py|r|css)$/i, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_plugin_source' },
     ATTRS_RULE,
   ],
@@ -166,6 +199,8 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   workspaces: [
     { test: /^workspace\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_workspace_json' },
     README_RULE,
+    LICENSE_RULE,
+    ATTACHMENTS_RULE,
     { test: /^source-concept-ids\//, category: 'concept_ids', order: CAT.concept_ids, descriptionKey: 'versioning.file_desc_source_concept_ids' },
     { test: /^projects\//, category: 'projects', order: CAT.projects, descriptionKey: 'versioning.file_desc_ws_project' },
     { test: /^mapping-projects\//, category: 'mapping_projects', order: CAT.mapping_projects, descriptionKey: 'versioning.file_desc_ws_mapping_project' },
