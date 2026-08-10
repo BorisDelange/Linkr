@@ -489,18 +489,17 @@ function EtlFileTreeItem({
             className={cn(
               'flex h-6 w-full min-w-0 items-center gap-1.5 pr-3.5 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
-              // Selection is shown on EVERY selected row, the active one included:
-              // guarding this with !isActive hid it on the first file clicked (which
-              // is also the open file), so the anchor of the user's own selection
-              // looked excluded from it. The active row stays distinguishable by its
-              // left border instead of by having no selection tint.
-              isMultiSelected && !isActive && 'bg-primary/10',
-              isMultiSelected && isActive && 'bg-accent',
-              isMultiSelected && 'border-l-2 border-l-primary',
+              // ONE colour for every selected row, the active one included. Tinting
+              // the active row differently (or not at all) made the first file
+              // clicked — which is also the file open in the editor — look excluded
+              // from the user's own selection. Listed after the isActive rule so it
+              // overrides it; the left border still says which file is open.
+              isMultiSelected && 'bg-primary/10 text-foreground',
+              isMultiSelected && isActive && 'border-l-2 border-l-primary',
             )}
-            // The 2px selection border is subtracted from the indent, so the name
-            // does not shift sideways when a row becomes selected.
-            style={{ paddingLeft: `${depth * 16 + 8 - (isMultiSelected ? 2 : 0)}px` }}
+            // The 2px border is subtracted from the indent, so the name does not
+            // shift sideways on the one row that has it.
+            style={{ paddingLeft: `${depth * 16 + 8 - (isMultiSelected && isActive ? 2 : 0)}px` }}
           >
             {isFolder ? (
               <>
