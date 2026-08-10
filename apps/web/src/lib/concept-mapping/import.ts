@@ -11,9 +11,10 @@
  * This module is UI-free: callers own the ZIP read + conflict handling and pass
  * the parsed contents in.
  */
-import type { ConceptMapping, GitRemoteConfig, MappingProject, SourceConceptIdRange } from '@/types'
+import type { ConceptMapping, GitRemoteConfig, LocalizedString, MappingProject, SourceConceptIdRange } from '@/types'
 import type { Storage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
+import { readLicense } from '@/lib/entity-io'
 import { restoreFileSourceDataFromCsv } from './export'
 import { parseSourceConceptIdEntries } from './source-concept-ids-io'
 
@@ -74,10 +75,24 @@ export async function importMappingProjectContent(
     }
   }
 
+  // README.md / LICENSE.md are files in the repo, not metadata: fold them back
+  // onto the entity (the licence's id comes from project.json, its text from the file).
+  const readmeByLang: LocalizedString = {}
+  for (const [path, content] of Object.entries(files)) {
+    const m = /^README(?:\.([a-z]{2}))?\.md$/.exec(path)
+    if (m && typeof content === 'string') readmeByLang[m[1] ?? 'en'] = content
+  }
+  const licenseText = files['LICENSE.md']
+  const license = typeof licenseText === 'string'
+    ? readLicense(project.license, licenseText)
+    : project.license
+
   const entity: MappingProject = {
     ...project,
     id: targetId,
     workspaceId,
+    ...(Object.keys(readmeByLang).length ? { readme: readmeByLang } : {}),
+    ...(license ? { license } : {}),
     conceptSetIds: project.conceptSetIds ?? [],
     // gitRemoteConfig is set by the caller (import source), never from the ZIP
     // (export strips it). Cloning a git-linked project must keep the link.

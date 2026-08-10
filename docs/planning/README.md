@@ -93,14 +93,18 @@ arbitrated 2026-08-05; `xl-*` exporters are GPL-3.0 (compatible, no commercial l
 ## README + licence par entité — [readme-license-plan.md](readme-license-plan.md)
 
 README + LICENSE (12 standards + custom) sur tous les contenus versionnables ; attachments
-généralisés `(ownerType, ownerId)` ; export `README.md`/`LICENSE.md`/`attachments/` par entité ;
-dq/catalogs/schemas deviennent des dossiers dans l'export workspace (VERSION → 2.3.0).
+généralisés `(ownerType, ownerId)` ; export `README.md`/`LICENSE.md`/`attachments/` par entité.
+Livré (front + back, byte-parity des goldens vérifiée) ; `VERSION` volontairement inchangé.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Phase A — types, registre licences, storage attachments owner-based, backend + alembic | M |
-| 🔜 | Phase B — export/import front + miroirs serveur, seed loader, git-file-meta, goldens | M |
-| 🔜 | Phase C — LicenseEditor + EntityDocsDialog + menus, onglets Licence, noms réservés, i18n | M |
+| ✅ | Types, registre de licences lazy-loadé, storage attachments owner-based (IDB v37) | M |
+| ✅ | LicenseEditor + EntityDocsDialog, items Readme/Licence sur toutes les entités, onglets Licence project/workspace | M |
+| ✅ | Export/import + miroirs serveur + goldens ; noms réservés dans les arbres ; footers (une date + licence) | M |
+| 🔜 | Export workspace : dq/catalogs/schemas en dossiers pour héberger leurs docs (aujourd'hui fichiers plats → docs émises seulement en export autonome) | M |
+| 🔜 | Mapping projects : licence non gérée dans `concept-mapping/export.ts` (readme OK) | S |
+| 🔜 | Seed loader : lire `LICENSE.md` (+ docs des entités) dans les données par défaut | S |
+| 🔜 | Documenter README/licence par entité dans `../linkr-website` | S |
 
 ## Permissions — [users-authorizations-audit.md](users-authorizations-audit.md)
 

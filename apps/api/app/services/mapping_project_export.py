@@ -22,6 +22,7 @@ the caller.
 from typing import Any
 
 from app.core.json_export import export_json as _json
+from app.services.entity_docs import entity_doc_files
 from app.services.entity_docs import license_meta as _license_meta
 from app.services.org_snapshot import org_snapshot
 
@@ -171,6 +172,7 @@ def build_mapping_project_tree(
     tree: dict[str, bytes] = {}
 
     tree["project.json"] = _build_project_json(project, organization)
+    tree.update(entity_doc_files("", project))
     tree["mappings.json"] = _serialize_mappings(mappings)
 
     if project.get("sourceType") == "file" and source_csv:

@@ -70,6 +70,8 @@ async def _seed(db) -> MappingProject:
         organization=data["organization"],
         created_by=p["createdBy"],
         created_by_details=p["createdByDetails"],
+        readme=p.get("readme"),
+        license=p.get("license"),
         # createdAt is now kept in the export (stable provenance), so the seeded
         # row must carry the fixture's value for the golden byte-parity to hold —
         # a real import preserves it the same way.

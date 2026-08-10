@@ -1,6 +1,6 @@
 import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 import { localized } from '@/lib/localized'
-import { stripInstanceFields, attachEntityOrganization } from '@/lib/entity-io'
+import { stripInstanceFields, attachEntityOrganization, licenseMeta, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
 import { mappingKey } from '@/lib/concept-mapping/merge'
 import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
 
@@ -612,9 +612,12 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
  * top of this (the one field the caller keeps).
  */
 export function cleanMappingProjectMeta(project: MappingProject): Record<string, unknown> {
-  const { conceptSetIds: _, importBatches: _ib, fileSourceData, vocabularyDataSourceId: _vds, ...projectRest } = project
+  const { conceptSetIds: _, importBatches: _ib, fileSourceData, vocabularyDataSourceId: _vds, readme: _readme, license, ...projectRest } = project
   return {
     ...stripInstanceFields(projectRest),
+    // The readme and the licence text travel as README.md / LICENSE.md; only the
+    // licence's identity stays here.
+    ...(licenseMeta(license) ? { license: licenseMeta(license) } : {}),
     dataSourceId: '',
     ...(fileSourceData ? {
       fileSourceData: {
@@ -642,6 +645,9 @@ export async function buildMappingProjectFolder(
 
   const projectJson = cleanMappingProjectMeta(project)
   zip.file(`${prefix}project.json`, JSON.stringify(projectJson, null, 2))
+  writeReadmeFiles(zip, prefix, project.readme)
+  writeLicenseFile(zip, prefix, project.license)
+  await writeAttachmentFiles(zip, prefix, storage, 'mapping-project', project.id)
   zip.file(`${prefix}mappings.json`, serializeMappingsForVersioning(mappings))
 
   // SSSOM / Usagi / source-to-concept-map are derivable from mappings.json — they

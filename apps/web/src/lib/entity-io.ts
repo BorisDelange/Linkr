@@ -38,7 +38,7 @@ import { importDatasetOnServer } from '@/lib/api/datasets'
  * plus `README.<lang>.md` siblings, so it round-trips per language while
  * staying git/portal-readable. Accepts legacy plain strings.
  */
-function writeReadmeFiles(
+export function writeReadmeFiles(
   zip: JSZip,
   dir: string,
   readme: LocalizedString | string | null | undefined,
@@ -59,19 +59,19 @@ function writeReadmeFiles(
  * detect. Only the text lands in the file; which license it is stays in the
  * entity's JSON (see `licenseMeta`) so the id round-trips without parsing legalese.
  */
-function writeLicenseFile(zip: JSZip, dir: string, license: EntityLicense | null | undefined): void {
+export function writeLicenseFile(zip: JSZip, dir: string, license: EntityLicense | null | undefined): void {
   if (!license?.text) return
   zip.file(`${dir}LICENSE.md`, license.text)
 }
 
 /** JSON-safe license: the text is stripped, it travels as LICENSE.md. */
-function licenseMeta(license: EntityLicense | null | undefined): { id: string; name?: string } | undefined {
+export function licenseMeta(license: EntityLicense | null | undefined): { id: string; name?: string } | undefined {
   if (!license) return undefined
   return license.name ? { id: license.id, name: license.name } : { id: license.id }
 }
 
 /** Recombine an entity's license from its JSON metadata + its LICENSE.md text. */
-function readLicense(
+export function readLicense(
   meta: { id?: string; name?: string } | null | undefined,
   text: string | undefined,
 ): EntityLicense | undefined {
@@ -85,16 +85,18 @@ function readLicense(
 
 /** `attachments/_meta.json` + blobs for one entity folder. Owner fields are left
  *  out: they are re-stamped from context on import, so the ZIP stays portable. */
-async function writeAttachmentFiles(
+export async function writeAttachmentFiles(
   zip: JSZip,
   dir: string,
   storage: Storage,
   ownerType: ReadmeOwnerType,
   ownerId: string,
 ): Promise<void> {
-  const attachments = await storage.readmeAttachments
-    .getByOwner(ownerType, ownerId)
-    .catch(() => [] as ReadmeAttachment[])
+  // Tolerate a storage without the attachment store (older server adapter, or a
+  // narrow test double): an entity's docs must still export.
+  const attachments = await (storage.readmeAttachments
+    ?.getByOwner(ownerType, ownerId)
+    .catch(() => [] as ReadmeAttachment[]) ?? Promise.resolve([] as ReadmeAttachment[]))
   if (attachments.length === 0) return
   const meta = attachments.map((att) => ({
     id: att.id,
