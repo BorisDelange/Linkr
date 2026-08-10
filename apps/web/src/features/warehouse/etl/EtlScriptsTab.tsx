@@ -74,6 +74,7 @@ import { EtlUploadDialog } from './EtlUploadDialog'
 import { inferEtlLanguage } from './etl-file-language'
 import { RunProgressBar } from './RunProgressBar'
 import { statementLine } from './statement-preview'
+import { csvDelimiterFor, parseCsvPreview } from '@/lib/csv-preview'
 import { compareByRole } from './role-presentation'
 import { PipelineDbPicker } from './PipelineDbPicker'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -254,6 +255,26 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     if (selectedFile.language) return selectedFile.language
     return inferEtlLanguage(selectedFile.name) ?? 'plaintext'
   }, [selectedFile])
+
+  /**
+   * Selecting a CSV/TSV opens it as a table in the output panel, as the IDE does.
+   * A pipeline holds data beside its scripts — the mapping export above all — and
+   * reading 1394 comma-separated lines in the editor is not reading them.
+   */
+  useEffect(() => {
+    if (!selectedFile || selectedFile.type !== 'file') return
+    const delimiter = csvDelimiterFor(selectedFile.name)
+    if (!delimiter) return
+    const preview = parseCsvPreview(selectedFile.content ?? '', delimiter)
+    if (!preview) return
+    addOutputTab({
+      id: `csv-preview:${selectedFile.id}`,
+      label: selectedFile.name,
+      type: 'table',
+      content: { headers: preview.headers, rows: preview.rows },
+    })
+    setOutputVisible(true)
+  }, [selectedFile, addOutputTab, setOutputVisible])
 
   // Create new file
   const handleCreateFile = async () => {
