@@ -624,6 +624,12 @@ function EtlFileTreeItem({
           onRename={onRename}
           nameExists={nameExists}
           getChildren={getChildren}
+          sizeWidthCh={sizeWidthCh}
+          selection={selection}
+          onClickFile={onClickFile}
+          onBulkVersioning={onBulkVersioning}
+          onBulkDownload={onBulkDownload}
+          onBulkDelete={onBulkDelete}
           expandedFolders={expandedFolders}
           selectedFileId={selectedFileId}
         />
