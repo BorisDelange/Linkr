@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Folder,
@@ -44,6 +44,14 @@ import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-hea
 import { compareTreeNodes } from '@/lib/file-tree-sort'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useDatasetStore } from '@/stores/dataset-store'
+import {
+  actionTargets,
+  EMPTY_SELECTION,
+  pruneSelection,
+  selectOnClick,
+  type ClickModifiers,
+  type Selection,
+} from '@/lib/tree-selection'
 import { useAppStore } from '@/stores/app-store'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
@@ -95,9 +103,17 @@ interface DatasetTreeItemProps {
   getChildren: (parentId: string) => DatasetFile[]
   onRequestDelete: (node: DatasetFile) => void
   onRequestImportSettings: (node: DatasetFile) => void
+  /** Multi-selection state, owned by the tree root (see lib/tree-selection). */
+  selection: Selection
+  onClickFile: (id: string, modifiers: ClickModifiers) => void
+  onBulkVersioning: (ids: string[], versioned: boolean) => void
+  onRequestBulkDelete: (ids: string[]) => void
 }
 
-function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestImportSettings }: DatasetTreeItemProps) {
+function DatasetTreeItem({
+  node, depth, getChildren, onRequestDelete, onRequestImportSettings,
+  selection, onClickFile, onBulkVersioning, onRequestBulkDelete,
+}: DatasetTreeItemProps) {
   const { t } = useTranslation()
   const {
     files,
@@ -133,15 +149,28 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
   const isFolder = node.type === 'folder'
   const isExpanded = expandedFolders.includes(node.id)
   const isSelected = selectedFileId === node.id
+  const isMultiSelected = selection.ids.length > 1 && selection.ids.includes(node.id)
+  // Right-clicking inside a multi-selection acts on all of it; outside, on this
+  // row alone (see lib/tree-selection.actionTargets).
+  const targets = actionTargets(selection, node.id)
+  const bulk = targets.length > 1
+  const targetFiles = bulk
+    ? targets.map((id) => files.find((f) => f.id === id)).filter((f): f is DatasetFile => !!f && f.type === 'file')
+    : []
   const children = isFolder ? getChildren(node.id) : []
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
     if (isFolder) {
       toggleFolder(node.id)
-    } else {
-      selectFile(node.id)
-      openFile(node.id)
+      return
     }
+    // Cmd/Ctrl or Shift build a selection instead of opening: opening a file on a
+    // range-click would load a dozen datasets nobody asked for.
+    const modifiers: ClickModifiers = { meta: e.metaKey || e.ctrlKey, shift: e.shiftKey }
+    onClickFile(node.id, modifiers)
+    if (modifiers.meta || modifiers.shift) return
+    selectFile(node.id)
+    openFile(node.id)
   }
 
   const handleStartRename = () => {
@@ -270,9 +299,12 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
             className={cn(
               'group flex min-w-0 items-center gap-0.5 px-1 py-0.5 cursor-pointer text-xs hover:bg-accent/50 transition-colors',
               isSelected && !isFolder && 'bg-accent text-accent-foreground',
+              // Every selected row gets the same tint and bar — the marker means
+              // "selected", not "first" (matches the ETL and IDE trees).
+              isMultiSelected && 'border-l-2 border-l-primary bg-primary/10 text-foreground',
               dragOver && 'bg-accent/70 ring-1 ring-primary/50',
             )}
-            style={{ paddingLeft: `${depth * 12 + 4}px` }}
+            style={{ paddingLeft: `${depth * 12 + 4 - (isMultiSelected ? 2 : 0)}px` }}
             onClick={handleClick}
             {...nameTriggerProps}
             draggable={!editing}
@@ -333,36 +365,56 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
           </TooltipTrigger>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem onClick={handleStartRename}>
-            <Pencil size={14} />
-            {t('datasets.rename')}
-          </ContextMenuItem>
-          {!isFolder && (
+          {/* Single-target actions are hidden on a multi-selection: renaming or
+              duplicating "all of them" has no meaning, and copying one path from a
+              selection of several silently picks one. */}
+          {!bulk && (
+            <ContextMenuItem onClick={handleStartRename}>
+              <Pencil size={14} />
+              {t('datasets.rename')}
+            </ContextMenuItem>
+          )}
+          {!bulk && !isFolder && (
             <ContextMenuItem onClick={handleDuplicate}>
               <Copy size={14} />
               {t('datasets.duplicate')}
             </ContextMenuItem>
           )}
-          {!isFolder && (
+          {!bulk && !isFolder && (
             <ContextMenuItem onClick={handleDownload}>
               <Download size={14} />
               {t('files.download')}
             </ContextMenuItem>
           )}
-          {!isFolder && (
+          {!bulk && !isFolder && (
             <ContextMenuItem onClick={() => onRequestImportSettings(node)}>
               <Settings2 size={14} />
               {t('datasets.import_settings')}
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />
-          {!isFolder && versioning && (
+          {!bulk && !isFolder && versioning && (
             <ContextMenuItem onClick={() => versioning.toggle(markKey)}>
               <GitCommitVertical size={14} />
               {isMarkedVersioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned')}
             </ContextMenuItem>
           )}
-          {resolvedDirs && (
+          {/* Bulk versioning: the count says how many files it will touch, and the
+              two directions are separate items — a single "toggle" on a mixed
+              selection would invert each file and leave it just as mixed. */}
+          {bulk && versioning && targetFiles.length > 0 && (
+            <>
+              <ContextMenuItem onClick={() => onBulkVersioning(targets, true)}>
+                <GitCommitVertical size={14} />
+                {t('datasets.mark_versioned_many', { count: targetFiles.length })}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => onBulkVersioning(targets, false)}>
+                <GitCommitVertical size={14} />
+                {t('datasets.unmark_versioned_many', { count: targetFiles.length })}
+              </ContextMenuItem>
+            </>
+          )}
+          {!bulk && resolvedDirs && (
             <ContextMenuItem
               onClick={() => {
                 navigator.clipboard.writeText(`${resolvedDirs.datasetsDir}/${nodeDsPath}`)
@@ -372,7 +424,7 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
               {t('files.copy_path')}
             </ContextMenuItem>
           )}
-          {relativeMeaningful ? (
+          {!bulk && (relativeMeaningful ? (
             <ContextMenuItem
               onClick={() => {
                 const path = getNodePath(files, node.id)
@@ -398,14 +450,14 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
                 {t('files.copy_relative_path_disabled')}
               </TooltipContent>
             </Tooltip>
-          )}
+          ))}
           <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"
-            onClick={() => onRequestDelete(node)}
+            onClick={() => (bulk ? onRequestBulkDelete(targets) : onRequestDelete(node))}
           >
             <Trash2 size={14} />
-            {t('datasets.delete')}
+            {bulk ? t('datasets.delete_many', { count: targets.length }) : t('datasets.delete')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -423,6 +475,10 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
             getChildren={getChildren}
             onRequestDelete={onRequestDelete}
             onRequestImportSettings={onRequestImportSettings}
+            selection={selection}
+            onClickFile={onClickFile}
+            onBulkVersioning={onBulkVersioning}
+            onRequestBulkDelete={onRequestBulkDelete}
           />
         ))}
     </>
@@ -435,7 +491,7 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
 
 export function DatasetFileTree() {
   const { t } = useTranslation()
-  const { files, moveNode, deleteNode } = useDatasetStore()
+  const { files, moveNode, deleteNode, expandedFolders } = useDatasetStore()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const idePath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.idePath)
   const datasetsPath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.datasetsPath)
@@ -451,6 +507,8 @@ export function DatasetFileTree() {
   // Re-resolve when a binding changes (the settings tab may have re-pointed it).
   const resolved = useResolvedDirs(activeProjectUid, `${idePath ?? ''}|${datasetsPath ?? ''}`)
   const [rootDragOver, setRootDragOver] = useState(false)
+  const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION)
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<string[] | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DatasetFile | null>(null)
   const [importSettingsTarget, setImportSettingsTarget] = useState<DatasetFile | null>(null)
   const [sort, setSort] = useState<FileTreeSort>({ key: 'name', desc: false })
@@ -465,6 +523,57 @@ export function DatasetFileTree() {
 
   function getChildren(parentId: string): DatasetFile[] {
     return files.filter((f) => f.parentId === parentId).sort(compare)
+  }
+
+  /**
+   * Ids in the order they appear ON SCREEN — what a Shift-range means to the user:
+   * a collapsed folder's children lie between no visible rows, so they must not be
+   * swept in.
+   */
+  const visibleIds = useMemo(() => {
+    const out: string[] = []
+    const walk = (nodes: DatasetFile[]) => {
+      for (const node of nodes) {
+        out.push(node.id)
+        if (node.type === 'folder' && expandedFolders.includes(node.id)) {
+          walk(files.filter((f) => f.parentId === node.id).sort(compare))
+        }
+      }
+    }
+    walk(files.filter((f) => f.parentId === null).sort(compare))
+    return out
+  // compare is derived from `sort`, which is listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, sort, expandedFolders])
+
+  // A deleted or renamed-away file must not stay selected: a bulk action would
+  // report a count it cannot deliver.
+  useEffect(() => {
+    setSelection((prev) => pruneSelection(prev, files.map((f) => f.id)))
+  }, [files])
+
+  const handleClickFile = useCallback((id: string, modifiers: ClickModifiers) => {
+    setSelection((prev) => selectOnClick(prev, id, visibleIds, modifiers))
+  }, [visibleIds])
+
+  /** Mark or unmark every selected FILE (folders carry no versioning state). */
+  const handleBulkVersioning = useCallback((ids: string[], versioned: boolean) => {
+    if (!activeProjectUid) return
+    for (const id of ids) {
+      const node = files.find((f) => f.id === id)
+      if (!node || node.type !== 'file') continue
+      const key = `datasets/${getNodePath(files, id)}`
+      // toggleVersionedDataFile flips; only call it where the current state differs,
+      // so a mixed selection ends up all-marked (or all-unmarked) rather than
+      // inverted file by file.
+      if (markedPaths.has(key) !== versioned) toggleVersionedDataFile(activeProjectUid, key)
+    }
+  }, [activeProjectUid, files, markedPaths, toggleVersionedDataFile])
+
+  const handleBulkDelete = () => {
+    for (const id of bulkDeleteIds ?? []) deleteNode(id)
+    setBulkDeleteIds(null)
+    setSelection(EMPTY_SELECTION)
   }
 
   const handleConfirmDelete = () => {
@@ -525,6 +634,10 @@ export function DatasetFileTree() {
               getChildren={getChildren}
               onRequestDelete={setDeleteTarget}
               onRequestImportSettings={setImportSettingsTarget}
+              selection={selection}
+              onClickFile={handleClickFile}
+              onBulkVersioning={handleBulkVersioning}
+              onRequestBulkDelete={setBulkDeleteIds}
             />
           ))}
         </div>
@@ -547,6 +660,25 @@ export function DatasetFileTree() {
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleConfirmDelete}>
               {t('datasets.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk delete: its own dialog so the count is in the question, not just on
+          the button — deleting several datasets is not undoable. */}
+      <AlertDialog open={!!bulkDeleteIds} onOpenChange={(open) => { if (!open) setBulkDeleteIds(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('datasets.delete_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('datasets.delete_confirm_many', { count: bulkDeleteIds?.length ?? 0 })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleBulkDelete}>
+              {t('datasets.delete_many', { count: bulkDeleteIds?.length ?? 0 })}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
