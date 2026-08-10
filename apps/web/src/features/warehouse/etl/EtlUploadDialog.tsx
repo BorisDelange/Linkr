@@ -11,7 +11,14 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useEtlStore } from '@/stores/etl-store'
-import { inferEtlLanguage, safeEtlFileName, uniqueEtlFileName } from './etl-file-language'
+import { inferEtlLanguage, safeEtlFileName } from './etl-file-language'
+import {
+  findConflicts,
+  planUpload,
+  type ConflictResolution,
+  type ExistingFile,
+  type UploadCandidate,
+} from './upload-conflicts'
 import type { EtlFile } from '@/types'
 
 interface Props {
@@ -35,35 +42,42 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleFiles = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return
+  /** Files read and sanitised, waiting on the user's answer about clashes. */
+  const [pending, setPending] = useState<{ candidates: UploadCandidate[]; conflicts: string[] } | null>(null)
+
+  /** Existing siblings — clashes are per FOLDER, not per pipeline: two files with
+   *  the same name in different folders are distinct paths in the export tree. */
+  const siblings = (): ExistingFile[] => {
+    const { files } = useEtlStore.getState()
+    return files
+      .filter((f) => f.pipelineId === pipelineId && f.parentId === parentId && f.type === 'file')
+      .map((f) => ({ id: f.id, name: f.name }))
+  }
+
+  const apply = async (candidates: UploadCandidate[], resolution: ConflictResolution) => {
     setBusy(true)
     setError(null)
     try {
-      const { files, createFile, selectFile } = useEtlStore.getState()
-      // Names are reserved as we go, so two uploads in one drop cannot collide
-      // with each other — only checking the store would let both take one name.
-      const taken = files.filter((f) => f.pipelineId === pipelineId).map((f) => f.name)
+      const { files, createFile, updateFile, selectFile } = useEtlStore.getState()
+      const plan = planUpload(candidates, siblings(), resolution)
       let order = files.filter((f) => f.pipelineId === pipelineId).length
       let lastId: string | null = null
-      const rejected: string[] = []
 
-      for (const file of Array.from(fileList)) {
-        const safe = safeEtlFileName(file.name)
-        if (!safe) {
-          rejected.push(file.name)
-          continue
-        }
-        const name = uniqueEtlFileName(safe, taken)
-        taken.push(name)
+      // Replacing UPDATES in place, so the file keeps its id — and with it its
+      // versioning mark, its place in the run order, and any history pointing at it.
+      for (const r of plan.replaces) {
+        await updateFile(r.id, { content: r.content, language: inferEtlLanguage(r.name) })
+        lastId = r.id
+      }
+      for (const c of plan.creates) {
         const created: EtlFile = {
           id: crypto.randomUUID(),
           pipelineId,
-          name,
+          name: c.name,
           type: 'file',
           parentId,
-          content: await file.text(),
-          language: inferEtlLanguage(name),
+          content: c.content,
+          language: inferEtlLanguage(c.name),
           order: order++,
           createdAt: new Date().toISOString(),
         }
@@ -71,12 +85,43 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
         lastId = created.id
       }
 
+      if (lastId) selectFile(lastId)
+      setPending(null)
+      onOpenChange(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleFiles = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      const candidates: UploadCandidate[] = []
+      const rejected: string[] = []
+      for (const file of Array.from(fileList)) {
+        const safe = safeEtlFileName(file.name)
+        if (!safe) {
+          rejected.push(file.name)
+          continue
+        }
+        candidates.push({ name: safe, content: await file.text() })
+      }
       if (rejected.length > 0) {
         setError(t('etl.upload_rejected', { names: rejected.join(', ') }))
         return
       }
-      if (lastId) selectFile(lastId)
-      onOpenChange(false)
+
+      const conflicts = findConflicts(candidates, siblings())
+      // Nothing to decide: go straight through, so the common case is unchanged.
+      if (conflicts.length === 0) {
+        await apply(candidates, 'keep-both')
+        return
+      }
+      setPending({ candidates, conflicts })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -91,6 +136,21 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
           <DialogTitle>{t('etl.upload_files')}</DialogTitle>
           <DialogDescription>{t('etl.upload_files_description')}</DialogDescription>
         </DialogHeader>
+        {pending ? (
+          <div className="mt-4 space-y-3">
+            <p className="text-sm">
+              {t('etl.upload_conflict_intro', { count: pending.conflicts.length })}
+            </p>
+            {/* The names, so the choice is made against real files rather than a
+                bare count — replacing the wrong script is not recoverable. */}
+            <ul className="max-h-32 space-y-0.5 overflow-y-auto rounded bg-muted/50 p-2">
+              {pending.conflicts.map((name) => (
+                <li key={name} className="truncate font-mono text-[11px]">{name}</li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">{t('etl.upload_conflict_hint')}</p>
+          </div>
+        ) : (
         <div
           className={`mt-4 flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors ${
             busy ? 'cursor-default opacity-60' : 'cursor-pointer'
@@ -127,13 +187,38 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
             }}
           />
         </div>
+        )}
         {error && (
           <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
         )}
         <DialogFooter className="mt-4">
-          <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => { setPending(null); onOpenChange(false) }}
+          >
             {t('common.cancel')}
           </Button>
+          {pending && (
+            <>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => void apply(pending.candidates, 'keep-both')}
+              >
+                {t('etl.upload_keep_both')}
+              </Button>
+              {/* Destructive styling: it overwrites a script's contents, and the
+                  previous version is not kept anywhere. */}
+              <Button
+                variant="destructive"
+                disabled={busy}
+                onClick={() => void apply(pending.candidates, 'replace')}
+              >
+                {t('etl.upload_replace')}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
