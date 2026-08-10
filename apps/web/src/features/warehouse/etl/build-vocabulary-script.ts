@@ -169,9 +169,13 @@ export function buildPruneVocabularyScript(): string {
   parts.push(`        SELECT table_name, string_agg('"' || column_name || '"', ', ') AS cols`)
   parts.push('        FROM duckdb_columns()')
   parts.push(`        WHERE (database_name = '${T}' OR schema_name = '${T}')`)
-  parts.push("          AND column_name LIKE '%\\_concept\\_id' ESCAPE '\\'")
+  // SIMILAR TO rather than LIKE ... ESCAPE '\': the pipeline splits a script on
+  // top-level semicolons, and its tokenizer reads the backslash in ESCAPE '\'
+  // as escaping the closing quote — the string never ends and the whole script
+  // runs as one statement.
+  parts.push("          AND column_name SIMILAR TO '.*_concept_id'")
   parts.push(`          AND table_name NOT IN (${vocabList})`)
-  parts.push(`          AND table_name NOT LIKE 'tmp\\_%' ESCAPE '\\'`)
+  parts.push("          AND table_name NOT SIMILAR TO 'tmp_.*'")
   parts.push('        GROUP BY table_name')
   parts.push('    )')
   parts.push(');')
