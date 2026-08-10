@@ -7,6 +7,11 @@ class UserPluginCreate(CamelModel):
     id: str
     entity_id: str | None = None
     workspace_id: str  # required — plugins are always workspace-scoped
+    # README + licence ({id, name?, text}); the licence text travels as LICENSE.md
+    # in exports. Present on Update too — a field missing there is silently dropped
+    # on git/import round-trips.
+    readme: dict | str | None = None
+    license: dict | None = None
     files: dict = {}
     git_remote_config: dict | None = None
     organization: dict | None = None
@@ -21,6 +26,8 @@ class UserPluginCreate(CamelModel):
 
 class UserPluginUpdate(CamelModel):
     entity_id: str | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
     files: dict | None = None
     git_remote_config: dict | None = None
 
@@ -29,6 +36,8 @@ class UserPluginResponse(CamelModel):
     id: str
     entity_id: str | None = None
     workspace_id: str
+    readme: dict | str | None = None
+    license: dict | None = None
     files: dict
     git_remote_config: dict | None = None
     organization: dict | None = None

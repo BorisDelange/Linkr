@@ -32,6 +32,15 @@ from app.core.json_export import export_json as _json
 # (``appVersion``) — see app/export_version.py. It equals the frontend's
 # version.ts APP_VERSION so front-only and server exports are byte-identical.
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
+
+# README.md / LICENSE.md / stripEntityDocs live in entity_docs: every documentable
+# entity shares them, so they are not workspace-specific.
+from app.services.entity_docs import (  # noqa: F401  (re-exported for the assemblers)
+    entity_doc_files,
+    strip_entity_docs,
+    to_localized as _to_localized,
+)
+from app.services.entity_docs import readme_files as _readme_files
 from app.services.org_snapshot import org_snapshot
 
 # Fields specific to the exporting instance/deployment, dropped from every
@@ -94,16 +103,6 @@ def _localized_en(value: Any) -> str:
     return ""
 
 
-def _to_localized(value: Any) -> dict:
-    """Port of ``toLocalized``: dict stays, a non-empty string becomes
-    ``{'en': value}``, empty/None becomes ``{}``."""
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str) and value:
-        return {"en": value}
-    return {}
-
-
 def _strip_instance_fields(meta: dict) -> dict:
     """Port of ``stripInstanceFields`` (entity-io.ts:417): copy, drop the
     instance-specific fields (preserving key order), then drop an empty
@@ -111,24 +110,6 @@ def _strip_instance_fields(meta: dict) -> dict:
     out = {k: v for k, v in meta.items() if k not in _INSTANCE_FIELDS}
     if not out.get("createdAt"):
         out.pop("createdAt", None)
-    return out
-
-
-def _readme_files(prefix: str, readme: Any) -> dict[str, bytes]:
-    """Port of ``writeReadmeFiles`` (entity-io.ts:35): ``README.md`` for the
-    primary language (en, else first), ``README.<lang>.md`` for the rest, written
-    at ``<prefix>``."""
-    if not readme:
-        return {}
-    by_lang = _to_localized(readme)
-    langs = [lang for lang in by_lang if by_lang[lang]]
-    if not langs:
-        return {}
-    primary = "en" if "en" in langs else langs[0]
-    out: dict[str, bytes] = {}
-    for lang in langs:
-        suffix = "" if lang == primary else f".{lang}"
-        out[f"{prefix}README{suffix}.md"] = str(by_lang[lang]).encode("utf-8")
     return out
 
 
@@ -489,6 +470,9 @@ def build_workspace_tree(
     wiki_pages: list[dict] | None,
     wiki_attachments: list[dict] | None,
     wiki_attachment_blobs: dict[str, bytes] | None,
+    # The workspace README's own images, already shaped as ``attachments/...`` paths
+    # by the caller (they need a DB + blob-store read, which this pure module can't do).
+    readme_attachment_files: dict[str, bytes] | None = None,
     schemas: list[dict] | None,
     data_sources: list[dict] | None,
     sql_collections: list[dict] | None,
@@ -514,8 +498,7 @@ def build_workspace_tree(
     tree: dict[str, bytes] = {}
     git_links = _GitLinks()
 
-    ws_meta = {k: v for k, v in workspace.items() if k != "readme"}
-    ws_out = _strip_instance_fields(ws_meta)
+    ws_out = _strip_instance_fields(strip_entity_docs(workspace))
     if workspace.get("organizationId"):
         ws_out["organizationId"] = workspace["organizationId"]
     ws_out["appVersion"] = APP_VERSION
@@ -526,7 +509,8 @@ def build_workspace_tree(
         # portable shape as the inline org snapshots, so this root org doesn't churn.
         tree["organization.json"] = _json(org_snapshot(organization))
 
-    tree.update(_readme_files("", workspace.get("readme")))
+    tree.update(entity_doc_files("", workspace))
+    tree.update(readme_attachment_files or {})
 
     if projects is not None:
         _build_projects_section(tree, projects, git_links)

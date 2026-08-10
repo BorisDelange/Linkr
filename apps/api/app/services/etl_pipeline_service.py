@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.etl_pipeline import EtlFile, EtlPipeline, EtlRunHistory
-from app.services import git_secret
+from app.services import attachment_service, git_secret
 from app.schemas.etl_pipeline import (
     EtlFileCreate,
     EtlFileUpdate,
@@ -57,8 +57,11 @@ async def update(
 
 
 async def delete(db: AsyncSession, pipeline: EtlPipeline) -> None:
+    pipeline_id = pipeline.id
     await db.delete(pipeline)  # cascades to files via FK
     await db.commit()
+    # The README attachments' owner is polymorphic (no FK), so clean them here.
+    await attachment_service.delete_readme_for_owner(db, "etl-pipeline", pipeline_id)
 
 
 # --- Files -----------------------------------------------------------------

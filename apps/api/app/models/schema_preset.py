@@ -13,6 +13,10 @@ class SchemaPreset(Base, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE")
     )
     mapping: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Entity licence: {id, name?, text} — the text is snapshotted at pick time
+    # so it travels with the export (LICENSE.md) independently of the picker.
+    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")

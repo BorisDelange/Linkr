@@ -5,7 +5,7 @@ from app.models.schema_preset import SchemaPreset
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.schema_preset import SchemaPresetSave
-from app.services import git_secret
+from app.services import attachment_service, git_secret
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[SchemaPreset]:
@@ -74,5 +74,8 @@ async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
 
 
 async def delete(db: AsyncSession, preset: SchemaPreset) -> None:
+    preset_id = preset.preset_id
     await db.delete(preset)
     await db.commit()
+    # The README attachments' owner is polymorphic (no FK), so clean them here.
+    await attachment_service.delete_readme_for_owner(db, "schema-preset", preset_id)

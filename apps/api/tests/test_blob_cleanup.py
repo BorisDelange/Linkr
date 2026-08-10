@@ -153,7 +153,8 @@ async def test_readme_attachment_blob_dereferenced_on_project_delete(db):
     sha = await _store_blob(b"attachment image bytes")
 
     db.add(ReadmeAttachment(
-        id=_uid(), project_uid=project.uid, file_name="a.png", blob_sha=sha,
+        id=_uid(), owner_type="project", owner_id=project.uid, file_name="a.png",
+        blob_sha=sha,
     ))
     await db.commit()
 

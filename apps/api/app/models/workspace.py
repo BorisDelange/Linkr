@@ -13,6 +13,9 @@ class Workspace(Base, UUIDPKMixin, TimestampMixin):
     badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     # LocalizedString ({"en": ..., "fr": ...}); JSON, not Text.
     readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Entity licence: {id, name?, text} — the text is snapshotted at pick time
+    # so it travels with the export (LICENSE.md) independently of the picker.
+    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Default package lists for a new project's environments, per language:
     # {"python": ["pandas", "numpy==1.26", …], "r": ["dplyr", …]}. Applied when a

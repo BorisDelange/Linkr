@@ -77,6 +77,8 @@ from app.services.workspace_export import (
     _slugify,
     _strip_instance_fields,
     build_workspace_tree,
+    entity_doc_files,
+    strip_entity_docs,
 )
 
 
@@ -304,6 +306,50 @@ async def _mapping_projects_section(
     return entries, id_ranges
 
 
+# --- per-entity documentation (README / LICENSE / attachments) --------------
+
+
+async def _readme_attachment_files(
+    db: AsyncSession, prefix: str, owner_type: str, owner_id: str
+) -> dict[str, bytes]:
+    """Server equivalent of ``writeAttachmentFiles`` (entity-io.ts): the owner's
+    README images as ``attachments/_meta.json`` (exactly the five portable keys —
+    the owner fields are re-stamped from context on import) plus one file per blob."""
+    attachments = await attachment_service.list_readme_by_owner(db, owner_type, owner_id)
+    if not attachments:
+        return {}
+    tree: dict[str, bytes] = {
+        f"{prefix}attachments/_meta.json": _json(
+            [
+                {
+                    "id": att.id,
+                    "fileName": att.file_name,
+                    "mimeType": att.mime_type,
+                    "fileSize": att.file_size,
+                    "createdAt": att.created_at,
+                }
+                for att in attachments
+            ]
+        )
+    }
+    for att in attachments:
+        if att.blob_sha and blob_store.exists(att.blob_sha):
+            tree[f"{prefix}attachments/{att.id}-{att.file_name}"] = (
+                await blob_store.read_bytes(att.blob_sha)
+            )
+    return tree
+
+
+async def _entity_docs(
+    db: AsyncSession, prefix: str, meta: dict, owner_type: str, owner_id: str
+) -> dict[str, bytes]:
+    """Server equivalent of ``writeEntityDocs`` (entity-io.ts): README.md (+ per
+    language siblings), LICENSE.md, and the README attachments."""
+    tree = entity_doc_files(prefix, meta)
+    tree.update(await _readme_attachment_files(db, prefix, owner_type, owner_id))
+    return tree
+
+
 # --- sql / etl full folders -------------------------------------------------
 
 
@@ -313,7 +359,9 @@ async def _sql_collection_sub_tree(db: AsyncSession, collection) -> dict[str, by
     its real path."""
     tree: dict[str, bytes] = {}
     tree["_collection.json"] = _json(
-        _strip_instance_fields(_badged_dump(SqlScriptCollectionResponse, collection))
+        strip_entity_docs(
+            _strip_instance_fields(_badged_dump(SqlScriptCollectionResponse, collection))
+        )
     )
     files = [
         _dump(SqlScriptFileResponse, f)
@@ -337,7 +385,10 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
     # null. A pipeline with no versioning marks must export identically either way.
     if dumped.get("config") is None:
         dumped.pop("config", None)
-    tree["_pipeline.json"] = _json(_strip_instance_fields(dumped))
+    tree["_pipeline.json"] = _json(
+        strip_entity_docs(_strip_instance_fields(dumped))
+    )
+    tree.update(await _entity_docs(db, "", dumped, "etl-pipeline", pipeline.id))
     files = [
         _dump(EtlFileResponse, f)
         for f in await etl_pipeline_service.list_files(db, pipeline.id)
@@ -467,7 +518,7 @@ async def build_workspace_tree_from_db(
                 continue
             schemas.append(
                 {
-                    "meta": _dump(SchemaPresetResponse, sp),
+                    "meta": strip_entity_docs(_dump(SchemaPresetResponse, sp)),
                     "git": _resolve_git_remote(sp.git_remote_config),
                 }
             )
@@ -490,7 +541,11 @@ async def build_workspace_tree_from_db(
                 continue
             git = _resolve_git_remote(c.git_remote_config)
             meta = _badged_dump(SqlScriptCollectionResponse, c)
-            entry: dict = {"meta": meta, "git": git, "folder": _eid(meta)}
+            entry: dict = {
+                "meta": strip_entity_docs(meta),
+                "git": git,
+                "folder": _eid(meta),
+            }
             if not git:
                 entry["sub_tree"] = await _sql_collection_sub_tree(db, c)
             sql_collections.append(entry)
@@ -503,7 +558,11 @@ async def build_workspace_tree_from_db(
                 continue
             git = _resolve_git_remote(p.git_remote_config)
             meta = _badged_dump(EtlPipelineResponse, p)
-            entry = {"meta": meta, "git": git, "folder": _eid(meta)}
+            entry = {
+                "meta": strip_entity_docs(meta),
+                "git": git,
+                "folder": _eid(meta),
+            }
             if not git:
                 entry["sub_tree"] = await _etl_pipeline_sub_tree(db, p)
             etl_pipelines.append(entry)
@@ -521,7 +580,7 @@ async def build_workspace_tree_from_db(
             meta = _badged_dump(DqRuleSetResponse, rs)
             dq_rule_sets.append(
                 {
-                    "meta": meta,
+                    "meta": strip_entity_docs(meta),
                     "checks": checks,
                     "git": _resolve_git_remote(rs.git_remote_config),
                     "folder": _eid(meta),
@@ -544,7 +603,7 @@ async def build_workspace_tree_from_db(
                 continue
             catalogs.append(
                 {
-                    "meta": _badged_dump(DataCatalogResponse, cat),
+                    "meta": strip_entity_docs(_badged_dump(DataCatalogResponse, cat)),
                     "git": _resolve_git_remote(cat.git_remote_config),
                 }
             )
@@ -567,6 +626,9 @@ async def build_workspace_tree_from_db(
         wiki_pages=wiki_pages,
         wiki_attachments=wiki_attachments,
         wiki_attachment_blobs=wiki_attachment_blobs,
+        readme_attachment_files=await _readme_attachment_files(
+            db, "", "workspace", workspace.id
+        ),
         schemas=schemas,
         data_sources=data_sources,
         sql_collections=sql_collections,
@@ -660,7 +722,9 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
     # (stripped) + checks.json (verbatim, only when non-empty). Note this differs
     # from the workspace layout, which bundles {ruleSet, checks} in _ruleset.json.
     tree: dict[str, bytes] = {}
-    tree["rule-set.json"] = _json(_strip_instance_fields(_badged_dump(DqRuleSetResponse, rule_set)))
+    tree["rule-set.json"] = _json(
+        strip_entity_docs(_strip_instance_fields(_badged_dump(DqRuleSetResponse, rule_set)))
+    )
     checks = [_dump(DqCustomCheckResponse, c) for c in await dq_rule_set_service.list_checks(db, rule_set.id)]
     if checks:
         tree["checks.json"] = _json(checks)
@@ -670,7 +734,9 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
 
 async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]:
     tree: dict[str, bytes] = {}
-    tree["catalog.json"] = _json(_strip_instance_fields(_badged_dump(DataCatalogResponse, catalog)))
+    tree["catalog.json"] = _json(
+        strip_entity_docs(_strip_instance_fields(_badged_dump(DataCatalogResponse, catalog)))
+    )
     await _attach_org(db, tree, "catalog.json", catalog)
     return tree
 
@@ -678,7 +744,11 @@ async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]
 async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]:
     # Distinctive: the schema preset standalone builder does NOT inline an org
     # (entity-io.ts:1607 has no attachEntityOrganization), so no _attach_org here.
-    return {"preset.json": _json(_strip_instance_fields(_dump(SchemaPresetResponse, preset)))}
+    return {
+        "preset.json": _json(
+            strip_entity_docs(_strip_instance_fields(_dump(SchemaPresetResponse, preset)))
+        )
+    }
 
 
 async def build_user_plugin_tree(db: AsyncSession, plugin) -> dict[str, bytes]:

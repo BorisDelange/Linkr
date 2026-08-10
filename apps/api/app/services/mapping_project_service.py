@@ -12,7 +12,7 @@ from app.schemas.mapping_project import (
     ServiceMappingCreate,
     ServiceMappingUpdate,
 )
-from app.services import author_provenance, blob_store, git_secret
+from app.services import attachment_service, author_provenance, blob_store, git_secret
 from app.services.data.mapping_status import effective_mapping_status, source_key
 
 
@@ -90,6 +90,8 @@ async def delete(db: AsyncSession, project: MappingProject) -> None:
     await db.delete(project)  # cascades to concept_mappings via FK
     await db.commit()
     await _forget_blob(db, sha)
+    # The README attachments' owner is polymorphic (no FK), so clean them here.
+    await attachment_service.delete_readme_for_owner(db, "mapping-project", project_id)
     # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
     git_service.remove_repo("mapping-projects", project_id)
 

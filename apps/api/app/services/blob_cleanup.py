@@ -53,7 +53,8 @@ async def collect_project_blob_shas(db: AsyncSession, project_uid: str) -> set[s
 
     result = await db.execute(
         select(ReadmeAttachment.blob_sha).where(
-            ReadmeAttachment.project_uid == project_uid
+            ReadmeAttachment.owner_type == "project",
+            ReadmeAttachment.owner_id == project_uid,
         )
     )
     shas.update(sha for (sha,) in result.all() if sha)

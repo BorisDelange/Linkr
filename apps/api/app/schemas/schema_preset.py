@@ -8,6 +8,11 @@ class SchemaPresetSave(CamelModel):
 
     preset_id: str
     workspace_id: str | None = None
+    # README + licence ({id, name?, text}); the licence text travels as LICENSE.md
+    # in exports. Present on Update too — a field missing there is silently dropped
+    # on git/import round-trips.
+    readme: dict | str | None = None
+    license: dict | None = None
     mapping: dict = {}
     git_remote_config: dict | None = None
     created_by_id: int | None = None
@@ -21,6 +26,8 @@ class SchemaPresetSave(CamelModel):
 class SchemaPresetResponse(CamelModel):
     preset_id: str
     workspace_id: str | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
     mapping: dict
     git_remote_config: dict | None = None
     created_by_id: int | None = None

@@ -18,19 +18,17 @@ async def _blob_unreferenced(db: AsyncSession, model, sha: str) -> bool:
     return True
 
 
-# --- README attachments (project-scoped) -----------------------------------
+# --- README attachments (polymorphic owner) --------------------------------
 
 
-async def list_readme(db: AsyncSession, project_uid: str) -> list[ReadmeAttachment]:
+async def list_readme_by_owner(
+    db: AsyncSession, owner_type: str, owner_id: str
+) -> list[ReadmeAttachment]:
     result = await db.execute(
-        select(ReadmeAttachment).where(ReadmeAttachment.project_uid == project_uid)
-    )
-    return list(result.scalars().all())
-
-
-async def list_readme_by_workspace(db: AsyncSession, workspace_id: str) -> list[ReadmeAttachment]:
-    result = await db.execute(
-        select(ReadmeAttachment).where(ReadmeAttachment.workspace_id == workspace_id)
+        select(ReadmeAttachment).where(
+            ReadmeAttachment.owner_type == owner_type,
+            ReadmeAttachment.owner_id == owner_id,
+        )
     )
     return list(result.scalars().all())
 
@@ -40,14 +38,15 @@ async def get_readme(db: AsyncSession, att_id: str) -> ReadmeAttachment | None:
 
 
 async def create_readme(
-    db: AsyncSession, *, id: str, project_uid: str | None = None,
+    db: AsyncSession, *, id: str, owner_type: str, owner_id: str,
     workspace_id: str | None = None, file_name: str, mime_type: str,
     created_at: str | None, data: bytes,
 ) -> ReadmeAttachment:
     sha, size = await blob_store.store_bytes(data)
     att = ReadmeAttachment(
-        id=id, project_uid=project_uid, workspace_id=workspace_id, file_name=file_name,
-        mime_type=mime_type, file_size=size, blob_sha=sha, created_at=created_at,
+        id=id, owner_type=owner_type, owner_id=owner_id, workspace_id=workspace_id,
+        file_name=file_name, mime_type=mime_type, file_size=size, blob_sha=sha,
+        created_at=created_at,
     )
     db.add(att)
     await db.commit()
@@ -73,8 +72,16 @@ async def _delete_readme_where(db: AsyncSession, whereclause) -> None:
             await blob_store.delete(sha)
 
 
-async def delete_readme_for_project(db: AsyncSession, project_uid: str) -> None:
-    await _delete_readme_where(db, ReadmeAttachment.project_uid == project_uid)
+async def delete_readme_for_owner(
+    db: AsyncSession, owner_type: str, owner_id: str
+) -> None:
+    """Called from each owning entity's delete: the polymorphic owner has no FK,
+    so nothing cascades on its behalf."""
+    await _delete_readme_where(
+        db,
+        (ReadmeAttachment.owner_type == owner_type)
+        & (ReadmeAttachment.owner_id == owner_id),
+    )
 
 
 async def delete_readme_for_workspace(db: AsyncSession, workspace_id: str) -> None:

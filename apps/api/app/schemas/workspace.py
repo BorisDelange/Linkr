@@ -10,6 +10,10 @@ class WorkspaceCreate(CamelModel):
     organization_id: str | None = None
     badges: list[dict] | None = None
     readme: dict | str | None = None
+    # Entity licence ({id, name?, text}); the text travels as LICENSE.md in exports.
+    # Present on Update too — a field missing there is silently dropped on
+    # git/import round-trips.
+    license: dict | None = None
     git_remote_config: dict | None = None
     origin: str = "user"
     created_by_id: int | None = None
@@ -27,6 +31,7 @@ class WorkspaceUpdate(CamelModel):
     organization_id: str | None = None
     badges: list[dict] | None = None
     readme: dict | str | None = None
+    license: dict | None = None
     git_remote_config: dict | None = None
     # {"python": [...], "r": [...]} default packages for new projects' environments.
     default_env_packages: dict | None = None
@@ -51,6 +56,7 @@ class WorkspaceResponse(CamelModel):
     organization_id: str | None = None
     badges: list[dict] | None = None
     readme: dict | str | None = None
+    license: dict | None = None
     git_remote_config: dict | None = None
     default_env_packages: dict | None = None
     default_env_options: dict | None = None

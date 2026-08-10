@@ -22,6 +22,7 @@ the caller.
 from typing import Any
 
 from app.core.json_export import export_json as _json
+from app.services.entity_docs import license_meta as _license_meta
 from app.services.org_snapshot import org_snapshot
 
 # Fields dropped from project.json so the exported metadata is portable — mirrors
@@ -125,10 +126,18 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
             "importBatches",
             "vocabularyDataSourceId",
             "fileSourceData",
+            # Documentation travels as files (README.md / LICENSE.md), not in the
+            # metadata; only the licence identity is re-appended below.
+            "readme",
+            "license",
         ):
             continue
         # Reset in place: reassigning an existing key keeps its position (JS + py3.7+).
         out[k] = "" if k == "dataSourceId" else v
+
+    licence = _license_meta(project.get("license"))
+    if licence is not None:
+        out["license"] = licence
 
     fsd = project.get("fileSourceData")
     if fsd is not None:

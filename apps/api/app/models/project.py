@@ -40,6 +40,9 @@ class Project(Base, TimestampMixin):
     # always sends an object. `| str` tolerance is handled at the schema layer.
     notes: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Entity licence: {id, name?, text} — the text is snapshotted at pick time
+    # so it travels with the export (LICENSE.md) independently of the picker.
+    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     linked_data_source_ids: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across

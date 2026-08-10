@@ -18,6 +18,10 @@ class ProjectCreate(CamelModel):
     # LocalizedString; accept a bare string too for legacy data / round-trips.
     notes: dict | str | None = None
     readme: dict | str | None = None
+    # Entity licence ({id, name?, text}); the text travels as LICENSE.md in exports.
+    # Present on Update too — a field missing there is silently dropped on
+    # git/import round-trips.
+    license: dict | None = None
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
     lineage_id: str | None = None
@@ -48,6 +52,7 @@ class ProjectUpdate(CamelModel):
     todos: list[dict] | None = None
     notes: dict | str | None = None
     readme: dict | str | None = None
+    license: dict | None = None
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
     lineage_id: str | None = None
@@ -84,6 +89,7 @@ class ProjectResponse(CamelModel):
     todos: list[dict] | None = None
     notes: dict | str | None = None
     readme: dict | str | None = None
+    license: dict | None = None
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
     lineage_id: str | None = None

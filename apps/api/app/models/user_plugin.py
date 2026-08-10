@@ -18,6 +18,10 @@ class UserPlugin(Base, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     files: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # filename -> code
+    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Entity licence: {id, name?, text} — the text is snapshotted at pick time
+    # so it travels with the export (LICENSE.md) independently of the picker.
+    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Frozen origin-organization snapshot, carried across export/import.
     organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)

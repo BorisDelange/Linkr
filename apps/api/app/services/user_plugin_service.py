@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User
 from app.models.user_plugin import UserPlugin
 from app.schemas.user_plugin import UserPluginCreate, UserPluginUpdate
-from app.services import author_provenance, git_secret
+from app.services import attachment_service, author_provenance, git_secret
 
 
 async def list_all(db: AsyncSession) -> list[UserPlugin]:
@@ -53,5 +53,8 @@ async def update(db: AsyncSession, plugin: UserPlugin, data: UserPluginUpdate) -
 
 
 async def delete(db: AsyncSession, plugin: UserPlugin) -> None:
+    plugin_id = plugin.id
     await db.delete(plugin)
     await db.commit()
+    # The README attachments' owner is polymorphic (no FK), so clean them here.
+    await attachment_service.delete_readme_for_owner(db, "user-plugin", plugin_id)

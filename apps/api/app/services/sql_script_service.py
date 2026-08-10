@@ -9,7 +9,7 @@ from app.schemas.sql_script import (
     SqlScriptFileCreate,
     SqlScriptFileUpdate,
 )
-from app.services import git_secret
+from app.services import attachment_service, git_secret
 
 
 # --- Collections -----------------------------------------------------------
@@ -61,8 +61,11 @@ async def update(
 
 
 async def delete(db: AsyncSession, collection: SqlScriptCollection) -> None:
+    collection_id = collection.id
     await db.delete(collection)  # cascades to files via FK
     await db.commit()
+    # The README attachments' owner is polymorphic (no FK), so clean them here.
+    await attachment_service.delete_readme_for_owner(db, "sql-collection", collection_id)
 
 
 # --- Files -----------------------------------------------------------------

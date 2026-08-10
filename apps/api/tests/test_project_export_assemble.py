@@ -151,7 +151,8 @@ async def _seed(db) -> Project:
     for att in data["attachments"]:
         sha, _ = await blob_store.store_bytes(base64.b64decode(att["dataBase64"]))
         db.add(ReadmeAttachment(
-            id=att["id"], project_uid=uid, workspace_id=att["workspaceId"],
+            id=att["id"], owner_type="project", owner_id=uid,
+            workspace_id=att["workspaceId"],
             file_name=att["fileName"], mime_type=att["mimeType"],
             file_size=att["fileSize"], blob_sha=sha, created_at=att["createdAt"],
         ))

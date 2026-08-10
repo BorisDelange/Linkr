@@ -11,6 +11,11 @@ class DqRuleSetCreate(CamelModel):
     name: dict = {}
     description: dict = {}
     badges: list | None = None
+    # README + licence ({id, name?, text}); the licence text travels as LICENSE.md
+    # in exports. Present on Update too — a field missing there is silently dropped
+    # on git/import round-trips.
+    readme: dict | str | None = None
+    license: dict | None = None
     # Defaults to "" so a git-linked rule set can be created from a minimal
     # workspace pointer; the clone re-applies the real data source id from the repo.
     data_source_id: str = ""
@@ -36,6 +41,8 @@ class DqRuleSetUpdate(CamelModel):
     name: dict | None = None
     description: dict | None = None
     badges: list | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
     data_source_id: str | None = None
     status: str | None = None
     last_run_at: str | None = None
@@ -62,6 +69,8 @@ class DqRuleSetResponse(CamelModel):
     name: dict
     description: dict
     badges: list | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
     data_source_id: str
     status: str
     last_run_at: str | None = None

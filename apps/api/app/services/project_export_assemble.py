@@ -235,12 +235,13 @@ async def build_project_tree_from_db(
 
     attachments = []
     attachment_blobs: dict[str, bytes] = {}
-    for att in await attachment_service.list_readme(db, project.uid):
+    for att in await attachment_service.list_readme_by_owner(db, "project", project.uid):
         attachments.append(
             {
+                # Owner fields are deliberately absent: they are re-stamped from
+                # context on import, so the export stays portable (mirrors
+                # writeAttachmentFiles in entity-io.ts).
                 "id": att.id,
-                "projectUid": att.project_uid,
-                "workspaceId": att.workspace_id,
                 "fileName": att.file_name,
                 "mimeType": att.mime_type,
                 "fileSize": att.file_size,

@@ -10,6 +10,11 @@ class EtlPipelineCreate(CamelModel):
     name: dict = {}
     description: dict = {}
     badges: list | None = None
+    # README + licence ({id, name?, text}); the licence text travels as LICENSE.md
+    # in exports. Present on Update too — a field missing there is silently dropped
+    # on git/import round-trips.
+    readme: dict | str | None = None
+    license: dict | None = None
     source_data_source_id: str | None = None
     target_data_source_id: str | None = None
     mapping_project_id: str | None = None
@@ -36,6 +41,8 @@ class EtlPipelineUpdate(CamelModel):
     name: dict | None = None
     description: dict | None = None
     badges: list | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
     source_data_source_id: str | None = None
     target_data_source_id: str | None = None
     mapping_project_id: str | None = None
@@ -64,6 +71,8 @@ class EtlPipelineResponse(CamelModel):
     name: dict
     description: dict
     badges: list | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
     source_data_source_id: str | None = None
     target_data_source_id: str | None = None
     mapping_project_id: str | None = None

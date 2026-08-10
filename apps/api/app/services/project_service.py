@@ -9,7 +9,13 @@ from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.project import ProjectCreate, ProjectUpdate
-from app.services import author_provenance, blob_cleanup, git_secret, project_fs
+from app.services import (
+    attachment_service,
+    author_provenance,
+    blob_cleanup,
+    git_secret,
+    project_fs,
+)
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Project]:
@@ -97,4 +103,6 @@ async def delete(db: AsyncSession, project: Project) -> None:
     # shared (e.g. a duplicated mapping project) — deref_blobs only deletes
     # ones no longer referenced by any row anywhere.
     shutil.rmtree(project_fs.project_dir(project_uid), ignore_errors=True)
+    # The README attachments' owner is polymorphic (no FK), so clean them here.
+    await attachment_service.delete_readme_for_owner(db, "project", project_uid)
     await blob_cleanup.deref_blobs(db, shas)

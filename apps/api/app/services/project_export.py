@@ -30,6 +30,7 @@ from typing import Any
 # exports are byte-identical.
 from app.core.json_export import export_json as _json
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
+from app.services.entity_docs import license_file, license_meta
 from app.services.org_snapshot import org_snapshot
 
 # Fields specific to the exporting instance/deployment, dropped from every
@@ -285,11 +286,15 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     Organization:1473).
 
     Drop readme/todos/notes/uid (own files / regenerated PK) and the instance
-    fields, append ``appVersion``, then append the inherited ``organization``
-    snapshot at the end when one resolves."""
-    dropped = {"readme", "todos", "notes", "uid"}
+    fields, reduce ``license`` to its identity (the text travels as LICENSE.md),
+    append ``appVersion``, then append the inherited ``organization`` snapshot at
+    the end when one resolves."""
+    dropped = {"readme", "todos", "notes", "uid", "license"}
     meta = {k: v for k, v in project.items() if k not in dropped}
     out = _strip_instance_fields(meta)
+    licence = license_meta(project.get("license"))
+    if licence is not None:
+        out["license"] = licence
     out["appVersion"] = APP_VERSION
     if organization:
         out["organization"] = org_snapshot(organization)
@@ -432,6 +437,7 @@ def build_project_tree(
     tree["project.json"] = _build_project_json(project, organization)
 
     tree.update(_readme_files(project.get("readme")))
+    tree.update(license_file("", project.get("license")))
 
     notes = _to_localized(project.get("notes"))
     has_notes = any(bool(v) for v in notes.values())
@@ -579,8 +585,20 @@ def build_project_tree(
                     included_data_paths.append(f"datasets/{folder_name}/{base_name}.csv")
 
     if attachments:
+        # Exactly the five portable keys, in this order — the owner fields are
+        # re-stamped from context on import, so they never travel (mirrors
+        # writeAttachmentFiles in entity-io.ts).
         tree["attachments/_meta.json"] = _json(
-            [{k: v for k, v in a.items() if k != "data"} for a in attachments]
+            [
+                {
+                    "id": a["id"],
+                    "fileName": a["fileName"],
+                    "mimeType": a["mimeType"],
+                    "fileSize": a["fileSize"],
+                    "createdAt": a.get("createdAt"),
+                }
+                for a in attachments
+            ]
         )
         for att in attachments:
             blob = attachment_blobs.get(att["id"])

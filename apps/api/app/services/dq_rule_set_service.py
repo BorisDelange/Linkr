@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
-from app.services import git_secret
+from app.services import attachment_service, git_secret
 from app.schemas.dq_rule_set import (
     DqCustomCheckCreate,
     DqCustomCheckUpdate,
@@ -57,8 +57,11 @@ async def update(
 
 
 async def delete(db: AsyncSession, rule_set: DqRuleSet) -> None:
+    rule_set_id = rule_set.id
     await db.delete(rule_set)  # cascades to checks via FK
     await db.commit()
+    # The README attachments' owner is polymorphic (no FK), so clean them here.
+    await attachment_service.delete_readme_for_owner(db, "dq-rule-set", rule_set_id)
 
 
 # --- Custom checks ---------------------------------------------------------

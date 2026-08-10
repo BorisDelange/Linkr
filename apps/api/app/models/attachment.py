@@ -1,21 +1,29 @@
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
 
 class ReadmeAttachment(Base):
-    """An image/file attached to a README. Metadata in the DB, the binary in the
-    blob store (dedup by sha). Scoped to a project OR a workspace (exactly one of
-    project_uid / workspace_id is set) — projects and workspaces both have a
-    README."""
+    """An image/file attached to any entity's README. Metadata in the DB, the
+    binary in the blob store (dedup by sha).
+
+    The owner is polymorphic (``owner_type`` + ``owner_id``) because every
+    documentable entity has a README: workspace, project, mapping project, SQL
+    collection, ETL pipeline, DQ rule set, data catalog, schema preset, user
+    plugin. That costs the FK cascade, so each entity's delete calls
+    ``attachment_service.delete_readme_for_owner``. ``workspace_id`` is kept (and
+    stamped server-side from the resolved owner) so deleting a workspace still
+    cascades whatever the owner type was."""
 
     __tablename__ = "readme_attachments"
+    __table_args__ = (
+        Index("ix_readme_attachments_owner", "owner_type", "owner_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    project_uid: Mapped[str | None] = mapped_column(
-        ForeignKey("projects.uid", ondelete="CASCADE")
-    )
+    owner_type: Mapped[str] = mapped_column(String(20))
+    owner_id: Mapped[str] = mapped_column(String(64))
     workspace_id: Mapped[str | None] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE")
     )

@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.data_catalog import DataCatalog
 from app.schemas.data_catalog import DataCatalogCreate, DataCatalogUpdate
-from app.services import git_secret
+from app.services import attachment_service, git_secret
 
 
 async def list_all(db: AsyncSession) -> list[DataCatalog]:
@@ -47,5 +47,8 @@ async def update(
 
 
 async def delete(db: AsyncSession, catalog: DataCatalog) -> None:
+    catalog_id = catalog.id
     await db.delete(catalog)
     await db.commit()
+    # The README attachments' owner is polymorphic (no FK), so clean them here.
+    await attachment_service.delete_readme_for_owner(db, "data-catalog", catalog_id)

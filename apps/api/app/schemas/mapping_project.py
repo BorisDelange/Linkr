@@ -11,6 +11,11 @@ class MappingProjectCreate(CamelModel):
     description: dict = {}
     status: str | None = None
     badges: list | None = None
+    # README + licence ({id, name?, text}); the licence text travels as LICENSE.md
+    # in exports. Present on Update too — a field missing there is silently dropped
+    # on git/import round-trips.
+    readme: dict | str | None = None
+    license: dict | None = None
     # Defaults to "file" so a git-linked project can be created from a minimal
     # workspace pointer (id/name/gitRemoteConfig only); the clone re-applies the
     # real sourceType from the linked repo's project.json.
@@ -51,6 +56,8 @@ class MappingProjectUpdate(CamelModel):
     description: dict | None = None
     status: str | None = None
     badges: list | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
     source_type: str | None = None
     data_source_id: str | None = None
     vocabulary_data_source_id: str | None = None
@@ -77,6 +84,8 @@ class MappingProjectResponse(CamelModel):
     description: dict
     status: str | None = None
     badges: list | None = None
+    readme: dict | str | None = None
+    license: dict | None = None
     source_type: str
     data_source_id: str | None = None
     vocabulary_data_source_id: str | None = None

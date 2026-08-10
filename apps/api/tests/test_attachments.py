@@ -36,12 +36,14 @@ async def test_readme_attachment_roundtrip(client):
     ws = await _workspace(client, headers)
     proj = await _project(client, headers, ws)
 
-    qs = f"id=a1&projectUid={proj}&fileName=logo.png&mimeType=image/png"
+    qs = f"id=a1&ownerType=project&ownerId={proj}&fileName=logo.png&mimeType=image/png"
     r = await client.post(f"{API}/readme-attachments?{qs}", headers=headers, content=PNG)
     assert r.status_code == 201
     assert r.json()["fileName"] == "logo.png" and r.json()["fileSize"] == len(PNG)
+    # workspaceId is resolved server-side from the owner, never taken from the client.
+    assert r.json()["ownerType"] == "project" and r.json()["workspaceId"] == ws
 
-    listed = (await client.get(f"{API}/readme-attachments?projectUid={proj}", headers=headers)).json()
+    listed = (await client.get(f"{API}/readme-attachments?ownerType=project&ownerId={proj}", headers=headers)).json()
     assert [a["id"] for a in listed] == ["a1"]
 
     blob = await client.get(f"{API}/readme-attachments/a1/blob", headers=headers)
@@ -59,8 +61,8 @@ async def test_readme_dedup_and_ref_counting(client):
     ws = await _workspace(client, headers)
     proj = await _project(client, headers, ws)
 
-    await client.post(f"{API}/readme-attachments?id=d1&projectUid={proj}&fileName=x.png&mimeType=image/png", headers=headers, content=PNG)
-    await client.post(f"{API}/readme-attachments?id=d2&projectUid={proj}&fileName=y.png&mimeType=image/png", headers=headers, content=PNG)
+    await client.post(f"{API}/readme-attachments?id=d1&ownerType=project&ownerId={proj}&fileName=x.png&mimeType=image/png", headers=headers, content=PNG)
+    await client.post(f"{API}/readme-attachments?id=d2&ownerType=project&ownerId={proj}&fileName=y.png&mimeType=image/png", headers=headers, content=PNG)
 
     await client.delete(f"{API}/readme-attachments/d1", headers=headers)
     # d2's bytes must still be served.
@@ -73,31 +75,99 @@ async def test_readme_workspace_scope(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
 
-    qs = f"id=w1&workspaceId={ws}&fileName=ws.png&mimeType=image/png"
+    qs = f"id=w1&ownerType=workspace&ownerId={ws}&fileName=ws.png&mimeType=image/png"
     r = await client.post(f"{API}/readme-attachments?{qs}", headers=headers, content=PNG)
     assert r.status_code == 201
-    assert r.json()["workspaceId"] == ws and r.json()["projectUid"] is None
+    assert r.json()["workspaceId"] == ws and r.json()["ownerType"] == "workspace"
 
-    listed = (await client.get(f"{API}/readme-attachments?workspaceId={ws}", headers=headers)).json()
+    listed = (await client.get(f"{API}/readme-attachments?ownerType=workspace&ownerId={ws}", headers=headers)).json()
     assert [a["id"] for a in listed] == ["w1"]
 
     blob = await client.get(f"{API}/readme-attachments/w1/blob", headers=headers)
     assert blob.content == PNG
 
-    # Batch delete by workspace.
+    # Batch delete by owner.
+    assert (await client.delete(f"{API}/readme-attachments?ownerType=workspace&ownerId={ws}", headers=headers)).status_code == 204
+    assert (await client.get(f"{API}/readme-attachments?ownerType=workspace&ownerId={ws}", headers=headers)).json() == []
+
+
+async def test_readme_workspace_batch_delete_spans_owner_types(client):
+    # ?workspaceId= wipes every attachment of the workspace, whatever owns it.
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    proj = await _project(client, headers, ws)
+    pipe = (await client.post(f"{API}/etl-pipelines", headers=headers, json={
+        "id": "pipe-1", "workspaceId": ws, "name": {"en": "P"},
+    })).json()["id"]
+
+    for att_id, owner_type, owner_id in (
+        ("m1", "workspace", ws), ("m2", "project", proj), ("m3", "etl-pipeline", pipe),
+    ):
+        r = await client.post(
+            f"{API}/readme-attachments?id={att_id}&ownerType={owner_type}"
+            f"&ownerId={owner_id}&fileName={att_id}.png&mimeType=image/png",
+            headers=headers, content=PNG + att_id.encode(),
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["workspaceId"] == ws
+
     assert (await client.delete(f"{API}/readme-attachments?workspaceId={ws}", headers=headers)).status_code == 204
-    assert (await client.get(f"{API}/readme-attachments?workspaceId={ws}", headers=headers)).json() == []
+    for owner_type, owner_id in (("workspace", ws), ("project", proj), ("etl-pipeline", pipe)):
+        assert (await client.get(
+            f"{API}/readme-attachments?ownerType={owner_type}&ownerId={owner_id}", headers=headers
+        )).json() == []
+
+
+async def test_readme_entity_owner_cascade_on_delete(client):
+    # The polymorphic owner has no FK, so the entity's delete must clean up.
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    coll = (await client.post(f"{API}/sql-script-collections", headers=headers, json={
+        "id": "coll-1", "workspaceId": ws, "name": {"en": "C"},
+    })).json()["id"]
+
+    r = await client.post(
+        f"{API}/readme-attachments?id=c1&ownerType=sql-collection&ownerId={coll}"
+        "&fileName=c.png&mimeType=image/png",
+        headers=headers, content=PNG,
+    )
+    assert r.status_code == 201, r.text
+
+    assert (await client.delete(f"{API}/sql-script-collections/{coll}", headers=headers)).status_code == 204
+    assert (await client.get(f"{API}/readme-attachments/c1/blob", headers=headers)).status_code == 404
+
+
+async def test_readme_unknown_owner_type_and_missing_owner(client):
+    headers = await _admin_headers(client)
+    assert (await client.get(f"{API}/readme-attachments?ownerType=nope&ownerId=x", headers=headers)).status_code == 422
+    assert (await client.get(f"{API}/readme-attachments", headers=headers)).status_code == 422
+    assert (await client.get(f"{API}/readme-attachments?ownerType=etl-pipeline&ownerId=ghost", headers=headers)).status_code == 404
+    assert (await client.get(f"{API}/readme-attachments?ownerType=project&ownerId=ghost", headers=headers)).status_code == 404
 
 
 async def test_readme_non_member_forbidden(client, db):
     admin = await _admin_headers(client)
     ws = await _workspace(client, admin)
     proj = await _project(client, admin, ws)
-    await client.post(f"{API}/readme-attachments?id=z1&projectUid={proj}&fileName=x.png&mimeType=image/png", headers=admin, content=PNG)
+    await client.post(f"{API}/readme-attachments?id=z1&ownerType=project&ownerId={proj}&fileName=x.png&mimeType=image/png", headers=admin, content=PNG)
 
     other = await _create_user(db, client, "bob")
-    assert (await client.get(f"{API}/readme-attachments?projectUid={proj}", headers=other)).status_code == 403
+    assert (await client.get(f"{API}/readme-attachments?ownerType=project&ownerId={proj}", headers=other)).status_code == 403
     assert (await client.get(f"{API}/readme-attachments/z1/blob", headers=other)).status_code == 403
+
+
+async def test_readme_entity_owner_permission_is_its_own_resource(client, db):
+    # An ETL pipeline's README is governed by `etl`, not the workspace summary.
+    admin = await _admin_headers(client)
+    ws = await _workspace(client, admin)
+    pipe = (await client.post(f"{API}/etl-pipelines", headers=admin, json={
+        "id": "pipe-perm", "workspaceId": ws, "name": {"en": "P"},
+    })).json()["id"]
+
+    other = await _create_user(db, client, "carol")
+    assert (await client.get(
+        f"{API}/readme-attachments?ownerType=etl-pipeline&ownerId={pipe}", headers=other
+    )).status_code == 403
 
 
 # --- Wiki attachments -------------------------------------------------------

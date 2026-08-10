@@ -20,6 +20,10 @@ class DataCatalog(Base, TimestampMixin):
     description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     # Badges for grouping/tagging (list of {id, label, color}).
     badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Entity licence: {id, name?, text} — the text is snapshotted at pick time
+    # so it travels with the export (LICENSE.md) independently of the picker.
+    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     data_source_id: Mapped[str] = mapped_column(String(36))
     dimensions: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
     anonymization: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
