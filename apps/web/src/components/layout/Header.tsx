@@ -218,6 +218,8 @@ export function Header() {
   const schemaActions = useSchemaPresetActions()
   const schemaItem = schemaPreset ? toSchemaPresetItem(schemaPreset) : undefined
   const pluginActions = usePluginActions()
+  const [wsMenuOpen, setWsMenuOpen] = useState(false)
+  const [projMenuOpen, setProjMenuOpen] = useState(false)
   const [pluginMenuOpen, setPluginMenuOpen] = useState(false)
   const [cmMenuOpen, setCmMenuOpen] = useState(false)
   const [dashMenuOpen, setDashMenuOpen] = useState(false)
@@ -506,8 +508,11 @@ export function Header() {
           {activeWorkspaceName && (
             <>
               <Separator orientation="vertical" className="!h-4" />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+              <DropdownMenu open={wsMenuOpen} onOpenChange={setWsMenuOpen}>
+                <DropdownMenuTrigger
+                  asChild
+                  onContextMenu={(e) => { e.preventDefault(); setWsMenuOpen((o) => !o) }}
+                >
                   <Badge
                     variant="outline"
                     className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-amber-600 border-amber-200 bg-amber-50 transition-colors hover:bg-amber-100 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900"
@@ -566,8 +571,11 @@ export function Header() {
           {activeProjectName && (
             <>
               <Separator orientation="vertical" className="!h-4" />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+              <DropdownMenu open={projMenuOpen} onOpenChange={setProjMenuOpen}>
+                <DropdownMenuTrigger
+                  asChild
+                  onContextMenu={(e) => { e.preventDefault(); setProjMenuOpen((o) => !o) }}
+                >
                   <Badge
                     variant="outline"
                     className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-blue-700 border-blue-200 bg-blue-50 transition-colors hover:bg-blue-100 dark:text-blue-400 dark:border-blue-800 dark:bg-blue-950 dark:hover:bg-blue-900"

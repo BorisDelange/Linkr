@@ -124,7 +124,11 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   return (
     <>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-        <DropdownMenuTrigger asChild>
+        {/* Right-click opens the menu too (asChild merges the handler onto the trigger). */}
+        <DropdownMenuTrigger
+          asChild
+          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(!menuOpen) }}
+        >
           {trigger ?? (
             <Button
               variant="ghost"
