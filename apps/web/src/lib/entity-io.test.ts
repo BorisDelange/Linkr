@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset } from '@/types'
@@ -1311,5 +1311,103 @@ describe('§4 projectUid-scoped dashboard ids', () => {
     expect(w.tabId).toBe(tabs[0].id)
     expect(d.filterConfig[0].scope.tabIds).toEqual([tabs[0].id])
     expect(d.filterConfig[0].id).toBeTruthy()
+  })
+})
+
+// An entity's readme and license travel as README.md / LICENSE.md next to its
+// metadata (the convention git hosts recognise), never inside the JSON — and they
+// must come back on import, or documenting a pipeline would be lost on the first
+// export/import round-trip.
+describe('ETL pipeline docs — readme, license and attachments round-trip', () => {
+  const PIPELINE = (over: Record<string, unknown> = {}) => ({
+    id: 'etl-1', entityId: 'my-etl', workspaceId: 'ws-1',
+    name: { en: 'My ETL' }, description: {},
+    sourceDataSourceId: 'ds-1', status: 'draft' as const,
+    readme: { en: '# My ETL\n\n<img src="attachments/diagram.png" />', fr: '# Mon ETL' },
+    license: { id: 'MIT' as const, text: 'MIT License\n\nCopyright (c) 2026 CHU\n' },
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-02T00:00:00.000Z',
+    ...over,
+  })
+  const ATTACHMENT = {
+    id: 'att-1', ownerType: 'etl-pipeline' as const, ownerId: 'etl-1', workspaceId: 'ws-1',
+    fileName: 'diagram.png', mimeType: 'image/png', fileSize: 4,
+    data: new Uint8Array([1, 2, 3, 4]).buffer, createdAt: '2026-01-01T00:00:00.000Z',
+  }
+
+  const storeWith = (attachments: unknown[], files: unknown[] = []) => ({
+    etlFiles: { getByPipeline: async () => files },
+    readmeAttachments: { getByOwner: async () => attachments },
+  }) as unknown as Storage
+
+  it('writes README.md, LICENSE.md and attachments/, and strips them from _pipeline.json', async () => {
+    const zip = new JSZip()
+    await buildEtlPipelineFolder(zip, '', PIPELINE(), storeWith([ATTACHMENT]))
+
+    expect(await zip.files['README.md'].async('string')).toContain('# My ETL')
+    expect(await zip.files['README.fr.md'].async('string')).toBe('# Mon ETL')
+    expect(await zip.files['LICENSE.md'].async('string')).toContain('MIT License')
+    expect(zip.files['attachments/att-1-diagram.png']).toBeDefined()
+
+    const meta = JSON.parse(await zip.files['_pipeline.json'].async('string'))
+    expect(meta.readme).toBeUndefined()
+    // The license id stays in the JSON so it round-trips without parsing legalese;
+    // the text is only in LICENSE.md.
+    expect(meta.license).toEqual({ id: 'MIT' })
+
+    // The attachments manifest is portable: no instance-local owner fields.
+    const attMeta = JSON.parse(await zip.files['attachments/_meta.json'].async('string'))
+    expect(attMeta).toEqual([{
+      id: 'att-1', fileName: 'diagram.png', mimeType: 'image/png',
+      fileSize: 4, createdAt: '2026-01-01T00:00:00.000Z',
+    }])
+  })
+
+  it('parseWorkspaceZip folds the files back onto the pipeline', async () => {
+    const zip = new JSZip()
+    zip.file('workspace.json', JSON.stringify({ id: 'ws-1', name: { en: 'W' } }))
+    await buildEtlPipelineFolder(zip, 'etl/my-etl/', PIPELINE(), storeWith([ATTACHMENT]))
+    const file = await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+
+    const parsed = await parseWorkspaceZip(file)
+    const entry = parsed!.etlPipelines.find((p) => p.pipeline.id === 'etl-1')!
+    expect(entry.pipeline.readme).toEqual({ en: expect.stringContaining('# My ETL'), fr: '# Mon ETL' })
+    expect(entry.pipeline.license).toEqual({ id: 'MIT', text: expect.stringContaining('MIT License') })
+    expect(entry.attachments!.meta.map((m) => m.fileName)).toEqual(['diagram.png'])
+    expect(entry.attachments!.blobs.get('att-1')).toBeDefined()
+  })
+
+  it('applyClonedEntity restores the docs of a cloned pipeline repo', async () => {
+    const calls: Record<string, unknown[][]> = {}
+    const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }
+    const store = new Proxy({}, {
+      get: (_t, prop) => {
+        switch (prop) {
+          case 'etlPipelines': return { update: rec('etl.update') }
+          case 'readmeAttachments': return { deleteByOwner: rec('att.deleteByOwner'), create: rec('att.create') }
+          default: return new Proxy({}, { get: () => async () => [] })
+        }
+      },
+    }) as unknown as Storage
+
+    const repo = new JSZip()
+    await buildEtlPipelineFolder(repo, '', PIPELINE(), storeWith([ATTACHMENT]))
+    expect(await applyClonedEntity(repo, 'etl-pipeline', 'etl-target', store, 'ws-2')).toBe(true)
+
+    const changes = calls['etl.update']![0][1] as { readme?: unknown; license?: unknown }
+    expect(changes.readme).toEqual({ en: expect.stringContaining('# My ETL'), fr: '# Mon ETL' })
+    expect(changes.license).toEqual({ id: 'MIT', text: expect.stringContaining('MIT License') })
+    // Re-cloning must not stack duplicate images.
+    expect(calls['att.deleteByOwner']![0]).toEqual(['etl-pipeline', 'etl-target'])
+    expect(calls['att.create']![0][0]).toMatchObject({
+      fileName: 'diagram.png', ownerType: 'etl-pipeline', ownerId: 'etl-target', workspaceId: 'ws-2',
+    })
+  })
+
+  it('emits no docs files for a pipeline without readme or license', async () => {
+    const zip = new JSZip()
+    await buildEtlPipelineFolder(zip, '', PIPELINE({ readme: undefined, license: undefined }), storeWith([]))
+    expect(zip.files['README.md']).toBeUndefined()
+    expect(zip.files['LICENSE.md']).toBeUndefined()
+    expect(zip.files['attachments/_meta.json']).toBeUndefined()
   })
 })
