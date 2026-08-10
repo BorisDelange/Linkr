@@ -2187,26 +2187,31 @@ export async function buildEtlPipelineFolder(
   const files = await storage.etlFiles.getByPipeline(pipeline.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
 
-  // Per-file versioning marks (pipeline.config): a code file the user excluded
-  // never leaves the machine, so it is dropped from the tree as well as the
-  // files — a _tree.json naming a file that is not there would break re-import.
-  const excluded = new Set(pipeline.config?.excludedFiles ?? [])
-  const isExcludedCode = (path: string) => !isDataExtension(path) && excluded.has(path)
-  const kept = files.filter((f) => !(f.type === 'file' && isExcludedCode(treeNodePath(f, byId))))
+  // Per-file versioning marks (pipeline.config). A file that does not leave the
+  // machine is dropped from the tree as well as from the zip: `_tree.json` naming a
+  // file the repo cannot contain breaks re-import, and made every pull offer the
+  // phantom as an incoming change ("Mapping files (1):
+  // mapping/source_to_concept_map.csv" for a file that was never committed and
+  // never could be, being gitignored as data).
+  //
+  // The rule is inlined rather than imported from features/warehouse/etl
+  // (`isVersioned`): etl-versioning.ts imports isDataExtension from HERE, so the
+  // import would be a cycle. entity-io.test.ts asserts the two agree.
+  const isVersionedPath = (path: string) =>
+    isDataExtension(path)
+      ? (pipeline.config?.versionedDataFiles ?? []).includes(path)
+      : !(pipeline.config?.excludedFiles ?? []).includes(path)
+  const kept = files.filter(
+    (f) => f.type !== 'file' || isVersionedPath(treeNodePath(f, byId)),
+  )
   zip.file(`${prefix}_tree.json`, json(toPathTree(kept, 'pipelineId')))
 
   const includedDataPaths: string[] = []
   for (const f of kept) {
     if (f.type !== 'file' || f.content == null) continue
     const path = treeNodePath(f, byId)
-    // A data file leaves the machine only when explicitly marked for versioning
-    // (same rule as project datasets). It keeps its _tree.json entry so the file
-    // node survives re-import (content simply absent); the mark also re-includes
-    // it in the standalone .gitignore below.
-    if (isDataExtension(path)) {
-      if (!(pipeline.config?.versionedDataFiles ?? []).includes(path)) continue
-      includedDataPaths.push(path)
-    }
+    // Marked data files are re-included in the standalone .gitignore below.
+    if (isDataExtension(path)) includedDataPaths.push(path)
     zip.file(`${prefix}${path}`, f.content)
   }
 

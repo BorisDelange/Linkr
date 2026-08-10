@@ -187,6 +187,13 @@ export function buildEtlPullPlan(
   }
   for (const node of nodes) {
     if (node.type !== 'file' || isEtlManifest(node.path)) continue
+    // A node the tree declares but the repo has no blob for is nothing to pull.
+    // Exports before the tree/gitignore fix listed unmarked data files (which are
+    // gitignored, so never committed), and the pull offered them as new files that
+    // could never arrive — "Mapping files (1)" for a phantom. Tolerated here rather
+    // than only fixed in the export, because those trees are already committed in
+    // people's repos and must stop lying without needing a fresh push.
+    if (node.content == null) continue
     const local = localByPath.get(node.path)
     if (local && (local.content ?? '') === (node.content ?? '')) continue
     groups[etlPullGroupOf(node.path)].push({ key: node.path, exists: !!local })

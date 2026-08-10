@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
+import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
 import type { DatasetFile, DataCatalog, DqRuleSet, DqCustomCheck, CustomSchemaPreset } from '@/types'
 import type { Storage } from '@/lib/storage'
 
@@ -1411,6 +1412,67 @@ describe('ETL pipeline docs — readme, license and attachments round-trip', () 
     expect(zip.files['README.md']).toBeUndefined()
     expect(zip.files['LICENSE.md']).toBeUndefined()
     expect(zip.files['attachments/_meta.json']).toBeUndefined()
+  })
+
+  // _tree.json must describe the repo, not the machine. An unmarked data file is
+  // gitignored, so listing it made every pull offer a phantom incoming change for
+  // a file that was never committed and never could be.
+  describe('_tree.json lists only what the repo actually carries', () => {
+    const FILES = [
+      { id: 'd1', pipelineId: 'etl-1', name: 'mapping', type: 'folder' as const, parentId: null, order: -2, createdAt: 'T0' },
+      { id: 'f1', pipelineId: 'etl-1', name: 'source_to_concept_map.csv', type: 'file' as const, parentId: 'd1', content: 'a,b\n1,2\n', order: 0, createdAt: 'T0' },
+      { id: 'f2', pipelineId: 'etl-1', name: '00_vocabulary.sql', type: 'file' as const, parentId: null, content: 'SELECT 1;', order: -1, createdAt: 'T0' },
+    ]
+    const treeOf = async (zip: JSZip) =>
+      (JSON.parse(await zip.files['_tree.json'].async('string')) as { path: string }[]).map((n) => n.path)
+
+    it('omits an UNMARKED data file — the phantom pull item', async () => {
+      const zip = new JSZip()
+      await buildEtlPipelineFolder(zip, '', PIPELINE(), storeWith([], FILES))
+      const paths = await treeOf(zip)
+      expect(paths).not.toContain('mapping/source_to_concept_map.csv')
+      expect(paths).toContain('00_vocabulary.sql')
+      // Not written either, and gitignored — the tree now agrees with both.
+      expect(zip.files['mapping/source_to_concept_map.csv']).toBeUndefined()
+      expect(await zip.files['.gitignore'].async('string')).toContain('**/*.csv')
+    })
+
+    it('keeps a data file the user MARKED for versioning, and un-ignores it', async () => {
+      const zip = new JSZip()
+      await buildEtlPipelineFolder(
+        zip, '',
+        PIPELINE({ config: { versionedDataFiles: ['mapping/source_to_concept_map.csv'] } }),
+        storeWith([], FILES),
+      )
+      expect(await treeOf(zip)).toContain('mapping/source_to_concept_map.csv')
+      expect(zip.files['mapping/source_to_concept_map.csv']).toBeDefined()
+      expect(await zip.files['.gitignore'].async('string'))
+        .toContain('!mapping/source_to_concept_map.csv')
+    })
+
+    it('still omits an excluded CODE file', async () => {
+      const zip = new JSZip()
+      await buildEtlPipelineFolder(
+        zip, '',
+        PIPELINE({ config: { excludedFiles: ['00_vocabulary.sql'] } }),
+        storeWith([], FILES),
+      )
+      const paths = await treeOf(zip)
+      expect(paths).not.toContain('00_vocabulary.sql')
+      expect(zip.files['00_vocabulary.sql']).toBeUndefined()
+    })
+
+    it('agrees with isVersioned, the rule the versioning UI uses', async () => {
+      // The export inlines the rule to avoid an import cycle; if the two ever
+      // disagree the tree and the UI would describe different repos.
+      const config = { versionedDataFiles: ['mapping/source_to_concept_map.csv'] }
+      const zip = new JSZip()
+      await buildEtlPipelineFolder(zip, '', PIPELINE({ config }), storeWith([], FILES))
+      const paths = new Set(await treeOf(zip))
+      for (const p of ['mapping/source_to_concept_map.csv', '00_vocabulary.sql']) {
+        expect(paths.has(p), p).toBe(isVersioned(p, config))
+      }
+    })
   })
 })
 

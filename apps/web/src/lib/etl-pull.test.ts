@@ -98,6 +98,27 @@ describe('buildEtlPullPlan', () => {
     expect(plan.groups.scripts.every((i) => !i.exists)).toBe(true)
   })
 
+  it('OMITS a node the tree declares but the repo has no blob for', () => {
+    // The phantom: exports before the fix listed unmarked data files in
+    // _tree.json even though .gitignore (**/*.csv) meant they were never
+    // committed. The pull then offered "Mapping files (1):
+    // mapping/source_to_concept_map.csv" for a file that could never arrive.
+    const remote = [
+      node('00_vocabulary.sql', 'TRUNCATE;'),
+      node('mapping/source_to_concept_map.csv'), // declared, no content in the repo
+    ]
+    const plan = buildEtlPullPlan(remote, [], false)
+    expect(plan.groups.mappings).toEqual([])
+    expect(plan.groups.scripts.map((i) => i.key)).toEqual(['00_vocabulary.sql'])
+  })
+
+  it('still pulls a file that is genuinely EMPTY in the repo', () => {
+    // '' is a committed empty file; undefined is a file that is not there. Those
+    // must not be conflated, or a real (if empty) script would silently never pull.
+    const plan = buildEtlPullPlan([node('90_placeholder.sql', '')], [], false)
+    expect(plan.groups.scripts.map((i) => i.key)).toEqual(['90_placeholder.sql'])
+  })
+
   it('marks a path that exists locally as an overwrite', () => {
     const local = [file('x', '10_src_code.sql', null, 'MY OWN EDIT')]
     const plan = buildEtlPullPlan(REMOTE, local, false)
@@ -135,15 +156,17 @@ describe('buildEtlPullPlan', () => {
       .toMatchObject({ key: 'mapping/stcm.csv', exists: true })
   })
 
-  it('treats a missing content field as empty rather than undefined', () => {
+  it('treats a missing local content field as empty rather than undefined', () => {
     // ('' vs undefined) must not read as a difference, or an empty file would be
-    // offered on every pull.
-    const local = [file('x', 'notes.txt', null, '')]
-    expect(buildEtlPullPlan([node('notes.txt')], local, false).groups.other).toEqual([])
+    // offered on every pull. The REMOTE side is a real committed empty file here
+    // ('' , not undefined), so the node survives the no-blob skip and the
+    // comparison itself is what drops it.
+    const local = [file('x', 'notes.txt', null, undefined)]
+    expect(buildEtlPullPlan([node('notes.txt', '')], local, false).groups.other).toEqual([])
   })
 
   it('sorts each group by path, so the list order is stable', () => {
-    const shuffled = [node('z.sql'), node('a.sql'), node('m.sql')]
+    const shuffled = [node('z.sql', 'Z'), node('a.sql', 'A'), node('m.sql', 'M')]
     expect(buildEtlPullPlan(shuffled, [], false).groups.scripts.map((i) => i.key))
       .toEqual(['a.sql', 'm.sql', 'z.sql'])
   })
