@@ -234,13 +234,13 @@ function LicenseChip({
 }) {
   const title = license ? licenseTitle(license) : t('license.none_short')
   const body = (
-    <span className={cn('flex min-w-0 items-center gap-1', !license && 'italic')}>
+    <span className={cn('flex w-full min-w-0 items-center gap-1', !license && 'italic')}>
       <Scale size={11} className="shrink-0" />
       <span className="truncate">{title}</span>
     </span>
   )
   // The full title in the tooltip: this is the row's longest label, so it is the
-  // one that gets truncated when a card footer also carries an action button.
+  // first to be truncated when the footer also carries an action button.
   const hint = license
     ? `${title}${onOpen ? ` — ${t('license.open')}` : ''}`
     // Without a licence: an invitation when the viewer can add one, a plain
@@ -255,12 +255,12 @@ function LicenseChip({
           <button
             type="button"
             onClick={onOpen}
-            className="min-w-0 basis-0 grow-[2] rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex min-w-0 shrink rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             {body}
           </button>
         ) : (
-          <span tabIndex={0} className="min-w-0 basis-0 grow-[2] cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span tabIndex={0} className="flex min-w-0 shrink cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {body}
           </span>
         )}

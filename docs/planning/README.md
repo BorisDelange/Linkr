@@ -90,22 +90,6 @@ arbitrated 2026-08-05; `xl-*` exporters are GPL-3.0 (compatible, no commercial l
 | 🔜 | 6. Presentation mode (port `splitBlocksIntoSlides` + `computeFitScale`, overlay, shortcuts) | M |
 | 🔜 | 7. Exports (md/HTML → DOCX/ODT/PDF via XL → PPTX via `pptxgenjs`) | L |
 
-## README + licence par entité — [readme-license-plan.md](readme-license-plan.md)
-
-README + LICENSE (12 standards + custom) sur tous les contenus versionnables ; attachments
-généralisés `(ownerType, ownerId)` ; export `README.md`/`LICENSE.md`/`attachments/` par entité.
-Livré (front + back, byte-parity des goldens vérifiée) ; `VERSION` volontairement inchangé.
-
-| St | Item | Effort |
-|----|------|--------|
-| ✅ | Types, registre de licences lazy-loadé (12 chunks), storage attachments owner-based (IDB v37 + alembic `c9d0e1f2a3b4`) | M |
-| ✅ | LicenseEditor + EntityDocsDialog, items Readme/Licence sur toutes les entités, onglets Licence project/workspace | M |
-| ✅ | Export/import front + miroirs serveur, byte-parity des goldens (7 types), noms réservés dans les arbres | M |
-| ✅ | Footers de widgets : une seule date (les deux au survol) + chip licence cliquable ; catalogue = dates dans le survol auteur + « No license » explicite | S |
-| 🔜 | Export workspace : dq/catalogs/schemas en dossiers pour héberger leurs docs (aujourd'hui fichiers plats → docs émises seulement en export autonome) | M |
-| 🔜 | Seed loader : lire `LICENSE.md` (+ docs des entités) dans les données par défaut | S |
-| 🔜 | Documenter README/licence par entité dans `../linkr-website` | S |
-
 ## Permissions — [users-authorizations-audit.md](users-authorizations-audit.md)
 
 | St | Item | Effort |
@@ -123,6 +107,8 @@ Livré (front + back, byte-parity des goldens vérifiée) ; `VERSION` volontaire
 | 🤔 | Cohort schema migrations v1→v4: removable once no old cohort persists in your DB/IDB | S |
 | 💤 | git-content-retry: token input/hint on auth-gated failure | S |
 | 💤 | PTY idle sweep (kernel sessions sweep; PTY is bounded by WS lifetime) | S |
+| 🔜 | Workspace export: dq / catalogs / schemas are flat files, so their README/LICENSE only ship in a standalone entity export — move them to folders | M |
+| 🔜 | Seed loader: read `LICENSE.md` (and the entity docs) from the bundled default data | S |
 
 ## Long-term vision — [../vision-roadmap.md](../vision-roadmap.md)
 
@@ -132,6 +118,7 @@ Pillars 2 (Monitoring) and 3 (Deployment) not started.
 
 *Shipped & retired (as-built in `docs/architecture.md` / the code): IDE managed environments
 + jobs, dashboard widget parallel execution, dataset column-metadata sidecar, Goupile eCRF
-import.*
+import, README + licence per versionable entity (the two follow-ups above are all that
+is left of it; user-facing docs still to write in `../linkr-website`).*
 
 *[../health-dcat-ap.md](../health-dcat-ap.md) is a reference document, not an effort.*
