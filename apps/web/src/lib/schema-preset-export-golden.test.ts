@@ -34,6 +34,7 @@ const input = JSON.parse(readFileSync(join(GOLDEN_DIR, 'input.json'), 'utf8')) a
 
 const storage = {
   schemaPresets: { getById: async () => input.preset },
+  readmeAttachments: { getByOwner: async () => [] },
   workspaces: { getById: async () => input.workspace },
   organizations: { getById: async () => input.organization },
 } as unknown as Storage

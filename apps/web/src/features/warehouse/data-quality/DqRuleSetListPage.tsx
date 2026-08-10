@@ -201,6 +201,7 @@ export function DqRuleSetListPage() {
       onDelete={dqActions.onDelete}
       onExport={dqActions.onExport}
       getGitRemote={dqActions.getGitRemote}
+      docs={dqActions.docs}
       onSaveGitRemote={dqActions.onSaveGitRemote}
       exportSupportsIncludeData={dqActions.exportSupportsIncludeData}
       syncScope="dq-rule-sets"

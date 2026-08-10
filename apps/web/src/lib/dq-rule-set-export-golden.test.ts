@@ -35,6 +35,7 @@ const input = JSON.parse(readFileSync(join(GOLDEN_DIR, 'input.json'), 'utf8')) a
 
 const storage = {
   dqRuleSets: { getById: async () => input.ruleSet },
+  readmeAttachments: { getByOwner: async () => [] },
   dqCustomChecks: { getByRuleSet: async () => input.checks },
   workspaces: { getById: async () => input.workspace },
   organizations: { getById: async () => input.organization },

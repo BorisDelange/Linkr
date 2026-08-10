@@ -5,6 +5,7 @@ import { getStorage } from '@/lib/storage'
 import { exportEntityZip, slugify } from '@/lib/entity-io'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
 import type { DqRuleSet, GitRemoteConfig } from '@/types'
+import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 
 export interface DqRuleSetActions {
   onDelete: (id: string) => Promise<void>
@@ -15,6 +16,7 @@ export interface DqRuleSetActions {
   renderEditDialog: (props: { item: DqRuleSet; onOpenChange: (open: boolean) => void }) => React.ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
+  docs: EntityDocsAccessors<DqRuleSet>
 }
 
 /**
@@ -23,6 +25,7 @@ export interface DqRuleSetActions {
  * behaviourally identical.
  */
 export function useDqRuleSetActions(): DqRuleSetActions {
+  const updateRuleSet = useDqStore((s) => s.updateRuleSet)
   const deleteRuleSet = useDqStore((s) => s.deleteRuleSet)
   const loadDqRuleSets = useDqStore((s) => s.loadDqRuleSets)
 
@@ -53,5 +56,13 @@ export function useDqRuleSetActions(): DqRuleSetActions {
     ),
     deleteConfirmTitleKey: 'data_quality.delete_rs_title',
     deleteConfirmDescriptionKey: 'data_quality.delete_rs_description',
+    docs: {
+      getReadme: (e) => e.readme,
+      onSaveReadme: (e, readme) => updateRuleSet(e.id, { readme }),
+      getLicense: (e) => e.license ?? null,
+      onSaveLicense: (e, license) => updateRuleSet(e.id, { license: license ?? undefined }),
+      attachmentOwnerType: 'dq-rule-set',
+      getWorkspaceId: (e) => e.workspaceId,
+    },
   }
 }

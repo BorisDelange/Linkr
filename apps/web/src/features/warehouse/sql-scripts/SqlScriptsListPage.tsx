@@ -187,6 +187,7 @@ export function SqlScriptsListPage() {
       onDelete={sqlActions.onDelete}
       onExport={sqlActions.onExport}
       getGitRemote={sqlActions.getGitRemote}
+      docs={sqlActions.docs}
       onSaveGitRemote={sqlActions.onSaveGitRemote}
       exportSupportsIncludeData={sqlActions.exportSupportsIncludeData}
       syncScope="sql-script-collections"

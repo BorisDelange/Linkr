@@ -12,6 +12,7 @@ interface SchemaPresetState {
   savePreset: (preset: CustomSchemaPreset) => Promise<void>
   deletePreset: (presetId: string) => Promise<void>
   setGitRemote: (presetId: string, config: GitRemoteConfig | null) => Promise<void>
+  updatePreset: (presetId: string, changes: Partial<CustomSchemaPreset>) => Promise<void>
 }
 
 /**
@@ -53,14 +54,13 @@ export const useSchemaPresetStore = create<SchemaPresetState>((set, get) => ({
   },
 
   setGitRemote: async (presetId, config) => {
+    await get().updatePreset(presetId, { gitRemoteConfig: config ?? undefined })
+  },
+
+  updatePreset: async (presetId, changes) => {
     const existing = get().presets.find((p) => p.presetId === presetId)
     if (!existing) return
-    const updated: CustomSchemaPreset = {
-      ...existing,
-      gitRemoteConfig: config ?? undefined,
-      updatedAt: new Date().toISOString(),
-    }
-    await get().savePreset(updated)
+    await get().savePreset({ ...existing, ...changes, updatedAt: new Date().toISOString() })
   },
 }))
 

@@ -191,6 +191,11 @@ async function readEntityDocs(
   }
 }
 
+/** Whether a path inside an entity folder is one of the docs files the export owns. */
+function isEntityDocsFile(path: string): boolean {
+  return /^README(\.[a-z-]+)?\.md$/i.test(path) || /^LICENSE\.md$/i.test(path) || path.startsWith('attachments/')
+}
+
 /** README.md + LICENSE.md + attachments/ for one entity folder. */
 async function writeEntityDocs(
   zip: JSZip,
@@ -1711,7 +1716,8 @@ export async function buildSqlCollectionFolder(
 ): Promise<void> {
   // Strip instance-specific fields (workspaceId, gitRemoteConfig, …) so the
   // versioned tree round-trips idempotently — import reassigns them anyway.
-  zip.file(`${prefix}_collection.json`, json(stripInstanceFields(collection)))
+  zip.file(`${prefix}_collection.json`, json(stripEntityDocs(stripInstanceFields(collection) as SqlScriptCollection)))
+  await writeEntityDocs(zip, prefix, collection, storage, 'sql-collection', collection.id)
   const files = await storage.sqlScriptFiles.getByCollection(collection.id)
   const byId = new Map<string, TreeNode>(files.map(f => [f.id, f]))
   zip.file(`${prefix}_tree.json`, json(toPathTree(files, 'collectionId')))
@@ -1845,8 +1851,10 @@ export async function buildDataCatalogFolder(
   zip: JSZip,
   prefix: string,
   catalog: DataCatalog,
+  storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}catalog.json`, json(stripInstanceFields(catalog)))
+  zip.file(`${prefix}catalog.json`, json(stripEntityDocs(stripInstanceFields(catalog) as DataCatalog)))
+  await writeEntityDocs(zip, prefix, catalog, storage, 'data-catalog', catalog.id)
 }
 
 export async function buildDataCatalogZip(
@@ -1857,7 +1865,7 @@ export async function buildDataCatalogZip(
   const catalog = await storage.dataCatalogs.getById(catalogId)
   if (!catalog) return null
   const zip = new JSZip()
-  await buildDataCatalogFolder(zip, '', catalog)
+  await buildDataCatalogFolder(zip, '', catalog, storage)
   await attachEntityOrganization(zip, 'catalog.json', catalog, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(catalog.name, 'en') || catalog.id }
@@ -1871,7 +1879,8 @@ export async function buildDqRuleSetFolder(
   ruleSet: DqRuleSet,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}rule-set.json`, json(stripInstanceFields(ruleSet)))
+  zip.file(`${prefix}rule-set.json`, json(stripEntityDocs(stripInstanceFields(ruleSet) as DqRuleSet)))
+  await writeEntityDocs(zip, prefix, ruleSet, storage, 'dq-rule-set', ruleSet.id)
   const checks = await storage.dqCustomChecks.getByRuleSet(ruleSet.id)
   if (checks.length > 0) zip.file(`${prefix}checks.json`, json(checks))
 }
@@ -1896,8 +1905,10 @@ export async function buildSchemaPresetFolder(
   zip: JSZip,
   prefix: string,
   preset: CustomSchemaPreset,
+  storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}preset.json`, json(stripInstanceFields(preset)))
+  zip.file(`${prefix}preset.json`, json(stripEntityDocs(stripInstanceFields(preset) as CustomSchemaPreset)))
+  await writeEntityDocs(zip, prefix, preset, storage, 'schema-preset', preset.presetId)
 }
 
 export async function buildSchemaPresetZip(
@@ -1908,7 +1919,7 @@ export async function buildSchemaPresetZip(
   const preset = await storage.schemaPresets.getById(presetId)
   if (!preset) return null
   const zip = new JSZip()
-  await buildSchemaPresetFolder(zip, '', preset)
+  await buildSchemaPresetFolder(zip, '', preset, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: preset.presetId }
 }
@@ -1919,6 +1930,7 @@ export async function buildUserPluginFolder(
   zip: JSZip,
   prefix: string,
   plugin: UserPlugin,
+  storage: Storage,
 ): Promise<void> {
   // Author provenance rides along like every other entity: createdBy + full
   // createdByDetails travel, createdById does not (a local id is meaningless
@@ -1929,7 +1941,11 @@ export async function buildUserPluginFolder(
     createdBy: plugin.createdBy,
     createdByDetails: plugin.createdByDetails,
   }))
+  await writeEntityDocs(zip, prefix, plugin, storage, 'user-plugin', plugin.id)
   for (const [filename, content] of Object.entries(plugin.files)) {
+    // README.md / LICENSE.md are the entity's own fields (written above); a stale
+    // copy inside `files` would overwrite them.
+    if (isEntityDocsFile(filename)) continue
     zip.file(`${prefix}${filename}`, content)
   }
 }
@@ -1942,7 +1958,7 @@ export async function buildUserPluginZip(
   const plugin = await storage.userPlugins.getById(pluginId)
   if (!plugin) return null
   const zip = new JSZip()
-  await buildUserPluginFolder(zip, '', plugin)
+  await buildUserPluginFolder(zip, '', plugin, storage)
   // Inline the origin organization (full snapshot) so a single-plugin ZIP is
   // self-sufficient, matching single-project export.
   await attachEntityOrganization(zip, '_plugin.json', plugin, storage)

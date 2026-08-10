@@ -177,6 +177,7 @@ export function CatalogListPage() {
       onDelete={catalogActions.onDelete}
       onExport={catalogActions.onExport}
       getGitRemote={catalogActions.getGitRemote}
+      docs={catalogActions.docs}
       onSaveGitRemote={catalogActions.onSaveGitRemote}
       exportSupportsIncludeData={catalogActions.exportSupportsIncludeData}
       syncScope="data-catalogs"

@@ -192,6 +192,7 @@ export function EtlListPage() {
       onDelete={etlActions.onDelete}
       onExport={etlActions.onExport}
       getGitRemote={etlActions.getGitRemote}
+      docs={etlActions.docs}
       onSaveGitRemote={etlActions.onSaveGitRemote}
       exportSupportsIncludeData={etlActions.exportSupportsIncludeData}
       syncScope="etl-pipelines"

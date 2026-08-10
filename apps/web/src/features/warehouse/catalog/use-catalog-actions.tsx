@@ -5,6 +5,7 @@ import { getStorage } from '@/lib/storage'
 import { exportEntityZip, slugify } from '@/lib/entity-io'
 import { CreateCatalogDialog } from './CreateCatalogDialog'
 import type { DataCatalog, GitRemoteConfig } from '@/types'
+import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 
 export interface CatalogActions {
   onDelete: (id: string) => Promise<void>
@@ -15,6 +16,7 @@ export interface CatalogActions {
   renderEditDialog: (props: { item: DataCatalog; onOpenChange: (open: boolean) => void }) => React.ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
+  docs: EntityDocsAccessors<DataCatalog>
 }
 
 /**
@@ -23,6 +25,7 @@ export interface CatalogActions {
  * behaviourally identical.
  */
 export function useCatalogActions(): CatalogActions {
+  const updateCatalog = useCatalogStore((s) => s.updateCatalog)
   const deleteCatalog = useCatalogStore((s) => s.deleteCatalog)
   const loadCatalogs = useCatalogStore((s) => s.loadCatalogs)
 
@@ -49,5 +52,13 @@ export function useCatalogActions(): CatalogActions {
     ),
     deleteConfirmTitleKey: 'data_catalog.delete_title',
     deleteConfirmDescriptionKey: 'data_catalog.delete_description',
+    docs: {
+      getReadme: (e) => e.readme,
+      onSaveReadme: (e, readme) => updateCatalog(e.id, { readme }),
+      getLicense: (e) => e.license ?? null,
+      onSaveLicense: (e, license) => updateCatalog(e.id, { license: license ?? undefined }),
+      attachmentOwnerType: 'data-catalog',
+      getWorkspaceId: (e) => e.workspaceId,
+    },
   }
 }

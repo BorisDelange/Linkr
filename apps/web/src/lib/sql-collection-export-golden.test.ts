@@ -35,6 +35,7 @@ const input = JSON.parse(readFileSync(join(GOLDEN_DIR, 'input.json'), 'utf8')) a
 
 const storage = {
   sqlScriptCollections: { getById: async () => input.collection },
+  readmeAttachments: { getByOwner: async () => [] },
   sqlScriptFiles: { getByCollection: async () => input.files },
   workspaces: { getById: async () => input.workspace },
   organizations: { getById: async () => input.organization },

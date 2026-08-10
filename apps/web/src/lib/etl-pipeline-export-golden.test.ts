@@ -35,6 +35,7 @@ const input = JSON.parse(readFileSync(join(GOLDEN_DIR, 'input.json'), 'utf8')) a
 
 const storage = {
   etlPipelines: { getById: async () => input.pipeline },
+  readmeAttachments: { getByOwner: async () => [] },
   etlFiles: { getByPipeline: async () => input.files },
   workspaces: { getById: async () => input.workspace },
   organizations: { getById: async () => input.organization },

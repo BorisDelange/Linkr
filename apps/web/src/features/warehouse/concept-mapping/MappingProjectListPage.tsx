@@ -458,6 +458,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         onExportOverride={mappingActions.onExportOverride}
         onVersioningOverride={mappingActions.onVersioningOverride}
         getGitRemote={mappingActions.getGitRemote}
+        docs={mappingActions.docs}
         onSaveGitRemote={mappingActions.onSaveGitRemote}
         syncScope="mapping-projects"
         exportSupportsIncludeData={mappingActions.exportSupportsIncludeData}

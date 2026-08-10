@@ -457,6 +457,7 @@ describe('attachEntityOrganization — inlines inherited org into entity meta', 
   const makeStore = (workspace: unknown, org: unknown) => ({
     workspaces: { getById: async (id: string) => ((workspace as { id?: string })?.id === id ? workspace : undefined) },
     organizations: { getById: async (id: string) => ((org as { id?: string })?.id === id ? org : undefined) },
+    readmeAttachments: { getByOwner: async () => [] },
   }) as unknown as Storage
 
   const zipWithMeta = (meta: object) => {
@@ -510,6 +511,7 @@ describe('buildUserPluginZip — author + org provenance', () => {
     userPlugins: { getById: async (id: string) => ((plugin as { id?: string })?.id === id ? plugin : undefined) },
     workspaces: { getById: async (id: string) => ((workspace as { id?: string })?.id === id ? workspace : undefined) },
     organizations: { getById: async (id: string) => ((org as { id?: string })?.id === id ? org : undefined) },
+    readmeAttachments: { getByOwner: async () => [] },
   }) as unknown as Storage
 
   const readMeta = async (blob: Blob) => {

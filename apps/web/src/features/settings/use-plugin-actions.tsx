@@ -1,9 +1,10 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { getStorage } from '@/lib/storage'
 import { buildUserPluginZip } from '@/lib/entity-io'
 import { PluginSettingsDialog } from './PluginSettingsDialog'
-import type { LocalizedString, GitRemoteConfig } from '@/types'
+import type { LocalizedString, GitRemoteConfig, EntityLicense, UserPlugin } from '@/types'
+import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 
 /** Minimal entity shape the header badge / actions menu operates on. */
 export interface PluginActionItem {
@@ -21,6 +22,7 @@ export interface PluginActions {
   renderEditDialog: (props: { item: PluginActionItem; onOpenChange: (open: boolean) => void }) => React.ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
+  docs: EntityDocsAccessors<PluginActionItem>
 }
 
 /**
@@ -31,6 +33,29 @@ export interface PluginActions {
 export function usePluginActions(): PluginActions {
   const deletePlugin = usePluginEditorStore((s) => s.deletePlugin)
   const refreshPluginList = usePluginEditorStore((s) => s.refreshPluginList)
+  const pluginList = usePluginEditorStore((s) => s.pluginList)
+  // PluginActionItem is deliberately minimal (the header badge builds one from the
+  // open editor), so the docs come from storage rather than from the item.
+  const [docsByPlugin, setDocsByPlugin] = useState<Record<string, Pick<UserPlugin, 'readme' | 'license'>>>({})
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const rows = await Promise.all(
+        pluginList.filter((p) => !p.isReadOnly).map(async (p) => [p.id, await getStorage().userPlugins.getById(p.id)] as const),
+      )
+      if (cancelled) return
+      setDocsByPlugin(Object.fromEntries(
+        rows.filter(([, row]) => row).map(([id, row]) => [id, { readme: row!.readme, license: row!.license }]),
+      ))
+    })()
+    return () => { cancelled = true }
+  }, [pluginList])
+
+  const saveDocs = useCallback(async (id: string, changes: Pick<UserPlugin, 'readme'> | { license?: EntityLicense }) => {
+    await getStorage().userPlugins.update(id, changes)
+    setDocsByPlugin((prev) => ({ ...prev, [id]: { ...prev[id], ...changes } }))
+    await refreshPluginList()
+  }, [refreshPluginList])
 
   const onExport = useCallback(async (item: PluginActionItem) => {
     // Use the canonical builder so the export carries the same author/org
@@ -61,5 +86,12 @@ export function usePluginActions(): PluginActions {
     ),
     deleteConfirmTitleKey: 'plugins.delete',
     deleteConfirmDescriptionKey: 'plugins.delete_confirm',
+    docs: {
+      getReadme: (item) => docsByPlugin[item.id]?.readme,
+      onSaveReadme: (item, readme) => saveDocs(item.id, { readme }),
+      getLicense: (item) => docsByPlugin[item.id]?.license ?? null,
+      onSaveLicense: (item, license) => saveDocs(item.id, { license: license ?? undefined }),
+      attachmentOwnerType: 'user-plugin',
+    },
   }
 }

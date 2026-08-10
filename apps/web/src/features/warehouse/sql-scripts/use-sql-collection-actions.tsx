@@ -6,6 +6,7 @@ import { getStorage } from '@/lib/storage'
 import { buildSqlCollectionFolder, downloadBlob, slugify } from '@/lib/entity-io'
 import { CreateSqlScriptsDialog } from './CreateSqlScriptsDialog'
 import type { GitRemoteConfig, SqlScriptCollection } from '@/types'
+import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 
 export interface SqlCollectionActions {
   onDelete: (id: string) => Promise<void>
@@ -16,6 +17,7 @@ export interface SqlCollectionActions {
   renderEditDialog: (props: { item: SqlScriptCollection; onOpenChange: (open: boolean) => void }) => React.ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
+  docs: EntityDocsAccessors<SqlScriptCollection>
 }
 
 /**
@@ -24,6 +26,7 @@ export interface SqlCollectionActions {
  * so the two stay behaviourally identical.
  */
 export function useSqlCollectionActions(): SqlCollectionActions {
+  const updateCollection = useSqlScriptsStore((s) => s.updateCollection)
   const deleteCollection = useSqlScriptsStore((s) => s.deleteCollection)
   const loadCollections = useSqlScriptsStore((s) => s.loadCollections)
 
@@ -50,5 +53,13 @@ export function useSqlCollectionActions(): SqlCollectionActions {
     ),
     deleteConfirmTitleKey: 'sql_scripts.delete_confirm_title',
     deleteConfirmDescriptionKey: 'sql_scripts.delete_confirm_description',
+    docs: {
+      getReadme: (e) => e.readme,
+      onSaveReadme: (e, readme) => updateCollection(e.id, { readme }),
+      getLicense: (e) => e.license ?? null,
+      onSaveLicense: (e, license) => updateCollection(e.id, { license: license ?? undefined }),
+      attachmentOwnerType: 'sql-collection',
+      getWorkspaceId: (e) => e.workspaceId,
+    },
   }
 }

@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
 import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
 import type { GitRemoteConfig, MappingProject } from '@/types'
+import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 
 export interface MappingProjectActions {
   onDelete: (id: string) => Promise<void>
@@ -18,6 +19,7 @@ export interface MappingProjectActions {
   renderEditDialog: (props: { item: MappingProject; onOpenChange: (open: boolean) => void }) => React.ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
+  docs: EntityDocsAccessors<MappingProject>
 }
 
 /**
@@ -27,6 +29,7 @@ export interface MappingProjectActions {
  */
 export function useMappingProjectActions(): MappingProjectActions {
   const navigate = useNavigate()
+  const updateMappingProject = useConceptMappingStore((s) => s.updateMappingProject)
   const deleteMappingProject = useConceptMappingStore((s) => s.deleteMappingProject)
   const loadMappingProjects = useConceptMappingStore((s) => s.loadMappingProjects)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -58,5 +61,13 @@ export function useMappingProjectActions(): MappingProjectActions {
     ),
     deleteConfirmTitleKey: 'concept_mapping.delete_confirm_title',
     deleteConfirmDescriptionKey: 'concept_mapping.delete_confirm_description',
+    docs: {
+      getReadme: (e) => e.readme,
+      onSaveReadme: (e, readme) => updateMappingProject(e.id, { readme }),
+      getLicense: (e) => e.license ?? null,
+      onSaveLicense: (e, license) => updateMappingProject(e.id, { license: license ?? undefined }),
+      attachmentOwnerType: 'mapping-project',
+      getWorkspaceId: (e) => e.workspaceId,
+    },
   }
 }

@@ -3,6 +3,7 @@ import { useSchemaPresetStore } from '@/stores/schema-preset-store'
 import { SchemaPresetRenameDialog } from './SchemaPresetRenameDialog'
 import { localized } from '@/lib/localized'
 import type { CustomSchemaPreset, GitRemoteConfig, LocalizedString, SchemaMapping } from '@/types'
+import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 
 /** A CustomSchemaPreset adapted to EntityActionsMenu's `{ id, name }` contract. */
 export type SchemaPresetItem = CustomSchemaPreset & { id: string; name: LocalizedString }
@@ -21,6 +22,7 @@ export interface SchemaPresetActions {
   renderEditDialog: (props: { item: SchemaPresetItem; onOpenChange: (open: boolean) => void }) => React.ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
+  docs: EntityDocsAccessors<SchemaPresetItem>
 }
 
 function downloadMapping(mapping: SchemaMapping) {
@@ -44,6 +46,7 @@ function downloadMapping(mapping: SchemaMapping) {
 export function useSchemaPresetActions(): SchemaPresetActions {
   const deletePreset = useSchemaPresetStore((s) => s.deletePreset)
   const setGitRemote = useSchemaPresetStore((s) => s.setGitRemote)
+  const updatePreset = useSchemaPresetStore((s) => s.updatePreset)
 
   const onSaveGitRemote = useCallback(async (item: SchemaPresetItem, config: GitRemoteConfig | null) => {
     await setGitRemote(item.presetId, config)
@@ -60,5 +63,14 @@ export function useSchemaPresetActions(): SchemaPresetActions {
     ),
     deleteConfirmTitleKey: 'settings.schema_preset_delete',
     deleteConfirmDescriptionKey: 'settings.schema_preset_delete_confirm',
+    docs: {
+      getReadme: (item) => item.readme,
+      onSaveReadme: (item, readme) => updatePreset(item.presetId, { readme }),
+      getLicense: (item) => item.license ?? null,
+      onSaveLicense: (item, license) => updatePreset(item.presetId, { license: license ?? undefined }),
+      attachmentOwnerType: 'schema-preset',
+      getOwnerId: (item) => item.presetId,
+      getWorkspaceId: (item) => item.workspaceId,
+    },
   }
 }
