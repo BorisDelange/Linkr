@@ -3154,6 +3154,7 @@
     "clear_run_history_confirm_title": "Clear the run history?",
     "clear_run_history_confirm_body": "This forgets every past run, and with it the success and error marks on the pipeline steps and in the Scripts explorer. It cannot be undone — the scripts and the data they wrote are untouched.",
     "no_run_history": "No runs yet",
+    "run_history_session_only": "Runs are kept for this session only — reloading the page clears them.",
     "profiling_sort_tables": "Sort tables",
     "profiling_filter_tables": "Filter tables…",
     "profiling_no_match": "No matching tables",

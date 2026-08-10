@@ -114,8 +114,14 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
   }, [])
 
   const { runScripts } = usePipelineRunner(pipeline, { onScriptError: revealFailedScript })
-  const [showHistory, setShowHistory] = useState(false)
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
+  /**
+   * What the right sidebar shows. One subject at a time: the history and a node's
+   * detail answer different questions, and side by side they left neither enough
+   * width in a pane that is 300px to begin with.
+   */
+  const [sidebarView, setSidebarView] = useState<'node' | 'history'>('node')
+  const showHistory = sidebarVisible && sidebarView === 'history'
 
   const sqlFiles = useMemo(() =>
     files
@@ -249,7 +255,13 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
                 <Button
                   variant={showHistory ? 'secondary' : 'ghost'}
                   size="icon-xs"
-                  onClick={() => setShowHistory(!showHistory)}
+                  onClick={() => {
+                    // Toggle off if it is already the subject, else take over the
+                    // sidebar from whatever it was showing.
+                    if (showHistory) { setSidebarVisible(false); return }
+                    setSidebarView('history')
+                    setSidebarVisible(true)
+                  }}
                 >
                   <History size={14} />
                 </Button>
@@ -274,17 +286,10 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
         {/* Content: canvas + sidebar */}
         <div className="min-h-0 flex-1 overflow-hidden">
           <Allotment proportionalLayout={false}>
-            {/* Script list or history — the source/target comparison is its own
-                tab now (EtlQualityTab), not a mode of this one. */}
+            {/* Always the script list: the history moved into the sidebar, and the
+                source/target comparison is its own tab (EtlQualityTab). */}
             <Allotment.Pane minSize={400}>
-              {showHistory ? (
-                <RunHistoryPanel
-                  runHistory={runHistory}
-                  files={files}
-                  expandedRunId={expandedRunId}
-                  onToggleRun={(id) => setExpandedRunId(expandedRunId === id ? null : id)}
-                />
-              ) : (
+              {(
                 <ScriptOrderList
                   sqlFiles={sqlFiles}
                   sourceDs={sourceDs}
@@ -294,19 +299,35 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
                   hasTarget={hasTarget}
                   updateFile={updateFile}
                   onSelectFile={onSelectFile}
-                  onSelectNode={(id) => { setSelectedNodeId(id); setSidebarVisible(true) }}
+                  onSelectNode={(id) => {
+                    setSelectedNodeId(id)
+                    // Selecting a node makes it the sidebar's subject, replacing
+                    // the history rather than appearing beside it.
+                    setSidebarView('node')
+                    setSidebarVisible(true)
+                  }}
+                  onBrowseSchema={onBrowseSchema}
                 />
               )}
             </Allotment.Pane>
 
-            {/* Right sidebar — node detail */}
-            <Allotment.Pane preferredSize={300} minSize={220} maxSize={450} visible={sidebarVisible}>
+            {/* Right sidebar — the run history OR the selected node, never both */}
+            <Allotment.Pane preferredSize={340} minSize={240} maxSize={520} visible={sidebarVisible}>
               <div className="flex h-full min-h-0 flex-col overflow-hidden border-l">
-                <NodeDetailSidebar
-                  info={selectedNodeInfo}
-                  onViewCode={onSelectFile ? (fileId: string) => onSelectFile(fileId) : undefined}
-                  onBrowseSchema={onBrowseSchema}
-                />
+                {sidebarView === 'history' ? (
+                  <RunHistoryPanel
+                    runHistory={runHistory}
+                    files={files}
+                    expandedRunId={expandedRunId}
+                    onToggleRun={(id) => setExpandedRunId(expandedRunId === id ? null : id)}
+                  />
+                ) : (
+                  <NodeDetailSidebar
+                    info={selectedNodeInfo}
+                    onViewCode={onSelectFile ? (fileId: string) => onSelectFile(fileId) : undefined}
+                    onBrowseSchema={onBrowseSchema}
+                  />
+                )}
               </div>
             </Allotment.Pane>
           </Allotment>
@@ -723,33 +744,46 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
   const [confirmClear, setConfirmClear] = useState(false)
   const fileMap = useMemo(() => new Map(files.map((f) => [f.id, f])), [files])
 
+  const header = (
+    <div className="flex items-center gap-2 border-b px-3 py-2.5">
+      <History size={14} className="text-muted-foreground" />
+      <h3 className="flex-1 truncate text-xs font-medium">{t('etl.run_history')}</h3>
+      {runHistory.length > 0 && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          // Disabled mid-run: clearing would wipe the statuses the run is writing.
+          disabled={!canWrite || running}
+          onClick={() => setConfirmClear(true)}
+          title={t('etl.clear_run_history')}
+        >
+          <Trash2 size={12} />
+        </Button>
+      )}
+    </div>
+  )
+
   if (runHistory.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <History size={28} className="mx-auto text-muted-foreground/50" />
-          <p className="mt-3 text-sm text-muted-foreground">{t('etl.no_run_history')}</p>
+      <div className="flex h-full min-h-0 flex-col">
+        {header}
+        <div className="flex flex-1 flex-col items-center justify-center p-6 text-center">
+          <History size={24} className="text-muted-foreground/50" />
+          <p className="mt-3 text-xs text-muted-foreground">{t('etl.no_run_history')}</p>
+          {/* Said here rather than discovered: the list is empty again after a
+              reload, which looks like data loss if it is not stated. */}
+          <p className="mt-1 text-[11px] text-muted-foreground/70">
+            {t('etl.run_history_session_only')}
+          </p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-end border-b px-3 py-1.5">
-        <Button
-          variant="ghost"
-          size="xs"
-          className="gap-1.5 text-xs"
-          // Disabled mid-run: clearing would wipe the statuses the run is writing.
-          disabled={!canWrite || running}
-          onClick={() => setConfirmClear(true)}
-        >
-          <Trash2 size={12} />
-          {t('etl.clear_run_history')}
-        </Button>
-      </div>
-      <ScrollArea className="h-full min-h-0 flex-1">
+    <div className="flex h-full min-h-0 flex-col">
+      {header}
+      <ScrollArea className="min-h-0 flex-1">
       <div className="p-3 space-y-2">
         {runHistory.map((run) => {
           const isExpanded = expandedRunId === run.id
@@ -846,6 +880,8 @@ interface ScriptOrderListProps {
   updateFile: (id: string, changes: Partial<EtlFile>) => Promise<void>
   onSelectFile?: (fileId: string) => void
   onSelectNode: (id: string) => void
+  /** Double-clicking a database node opens its tables, as the sidebar button does. */
+  onBrowseSchema?: (dataSourceId: string) => void
 }
 
 function ScriptOrderList({
@@ -858,6 +894,7 @@ function ScriptOrderList({
   updateFile,
   onSelectFile,
   onSelectNode,
+  onBrowseSchema,
 }: ScriptOrderListProps) {
   const { t } = useTranslation()
   const sensors = useSensors(
@@ -891,6 +928,9 @@ function ScriptOrderList({
             <>
               <button
                 onClick={() => onSelectNode('__source__')}
+                // Double-click goes straight to the tables, the same as the
+                // sidebar's Browse schema — one click to inspect, two to open.
+                onDoubleClick={() => { if (sourceDs) onBrowseSchema?.(sourceDs.id) }}
                 className="flex w-full items-center gap-3 rounded-lg border-2 border-orange-500/30 bg-card px-3 py-2.5 text-left transition-colors hover:border-orange-500/60"
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-orange-500/15">
@@ -943,6 +983,7 @@ function ScriptOrderList({
               )}
               <button
                 onClick={() => onSelectNode('__target__')}
+                onDoubleClick={() => { if (targetDs) onBrowseSchema?.(targetDs.id) }}
                 className="flex w-full items-center gap-3 rounded-lg border-2 border-emerald-500/30 bg-card px-3 py-2.5 text-left transition-colors hover:border-emerald-500/60"
               >
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-500/15">

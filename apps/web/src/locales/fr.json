@@ -3154,6 +3154,7 @@
     "clear_run_history_confirm_title": "Vider l'historique des exécutions ?",
     "clear_run_history_confirm_body": "Cela efface toutes les exécutions passées, et avec elles les marques de succès et d'erreur sur les étapes du pipeline et dans l'explorateur de scripts. C'est irréversible — les scripts et les données qu'ils ont écrites ne sont pas touchés.",
     "no_run_history": "Aucune exécution",
+    "run_history_session_only": "Les exécutions ne sont conservées que pour cette session — recharger la page les efface.",
     "profiling_sort_tables": "Trier les tables",
     "profiling_filter_tables": "Filtrer les tables…",
     "profiling_no_match": "Aucune table correspondante",
