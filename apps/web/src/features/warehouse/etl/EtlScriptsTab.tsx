@@ -304,14 +304,14 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     const clashes = files.some(
       (f) => f.parentId === null && f.name.toLowerCase() === name.toLowerCase(),
     )
-    return { name, clashes }
+    return { name, clashes, reserved: isReservedTreeName(name, null) }
   }, [newFileName, newFileType, files])
 
   const handleCreateFile = async () => {
     const name = newFileResolved.name
     // Refused rather than silently de-duplicated: two files with one name at the
     // same path make the export tree ambiguous and the run order unreadable.
-    if (!name || newFileResolved.clashes) return
+    if (!name || newFileResolved.clashes || newFileResolved.reserved) return
     const selectedType = ETL_FILE_TYPES.find((ft) => ft.id === newFileType) ?? ETL_FILE_TYPES[0]
     const lang = inferEtlLanguage(name) ?? selectedType.lang
     const now = new Date().toISOString()
@@ -1109,9 +1109,12 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') { e.preventDefault(); handleCreateFile() }
                 }}
-                aria-invalid={newFileResolved.clashes}
+                aria-invalid={newFileResolved.clashes || newFileResolved.reserved}
                 autoFocus
               />
+              {newFileResolved.reserved && (
+                <p className="text-xs text-destructive">{t('files.name_reserved')}</p>
+              )}
               {newFileResolved.clashes && (
                 <p className="text-xs text-destructive">
                   {t('etl.name_exists', { name: newFileResolved.name })}
@@ -1123,7 +1126,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
             <Button variant="outline" onClick={() => setCreateFileOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreateFile} disabled={!newFileName.trim() || newFileResolved.clashes}>
+            <Button onClick={handleCreateFile} disabled={!newFileName.trim() || newFileResolved.clashes || newFileResolved.reserved}>
               {t('common.create')}
             </Button>
           </DialogFooter>

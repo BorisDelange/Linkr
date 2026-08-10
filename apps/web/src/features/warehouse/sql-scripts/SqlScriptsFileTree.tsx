@@ -349,13 +349,15 @@ function SqlScriptsFileTreeItem({
   }, [editing, isFolder, file.name])
 
   const trimmedNewName = editName.trim()
+  const renameReserved = !!trimmedNewName && isReservedTreeName(trimmedNewName, file.parentId)
   const renameClashes =
     !!trimmedNewName &&
     trimmedNewName.toLowerCase() !== file.name.toLowerCase() &&
     nameExists(file.parentId, trimmedNewName, file.id)
+  const renameInvalid = renameClashes || renameReserved
 
   const handleRenameSubmit = () => {
-    if (!trimmedNewName || renameClashes) return
+    if (!trimmedNewName || renameInvalid) return
     if (trimmedNewName !== file.name) {
       onRename(file.id, trimmedNewName)
     }
@@ -470,13 +472,13 @@ function SqlScriptsFileTreeItem({
           {icon}
           <span className={cn(
             '-ml-1 flex h-5 min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
-            renameClashes ? 'border-destructive' : 'border-primary',
+            renameInvalid ? 'border-destructive' : 'border-primary',
           )}>
             <input
               ref={inputRef}
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              title={renameClashes ? t('sql_scripts.name_exists', { name: trimmedNewName }) : undefined}
+              title={renameReserved ? t('files.name_reserved') : renameClashes ? t('sql_scripts.name_exists', { name: trimmedNewName }) : undefined}
               onKeyDown={(e) => {
                 e.stopPropagation()
                 if (e.key === 'Enter') handleRenameSubmit()
@@ -497,7 +499,7 @@ function SqlScriptsFileTreeItem({
             <button
               type="button"
               tabIndex={-1}
-              disabled={renameClashes || !trimmedNewName}
+              disabled={renameInvalid || !trimmedNewName}
               aria-label={t('common.save')}
               onMouseDown={(e) => e.preventDefault()}
               onClick={handleRenameSubmit}

@@ -58,7 +58,10 @@ export function CreateFolderDialog({
   const isDuplicate = trimmedName.length > 0 && files.some(
     (f) => f.name === trimmedName && f.parentId === actualParentId
   )
-  const isReserved = trimmedName.length > 0 && !actualParentId && RESERVED_ROOT_FOLDERS.has(trimmedName)
+  const isReserved =
+    trimmedName.length > 0 &&
+    ((!actualParentId && RESERVED_ROOT_FOLDERS.has(trimmedName)) ||
+      isReservedTreeName(trimmedName, actualParentId))
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

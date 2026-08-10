@@ -959,7 +959,7 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   createFolder: (name, parentId) => {
     // Block reserved system folder names at root level
-    if (!parentId && RESERVED_ROOT_FOLDERS.has(name)) {
+    if (!parentId && (RESERVED_ROOT_FOLDERS.has(name) || isReservedTreeName(name, null))) {
       console.warn(`[file-store] Cannot create reserved folder name: ${name}`)
       return
     }
@@ -1071,9 +1071,14 @@ export const useFileStore = create<FileState>((set, get) => ({
     const state = get()
     const node = state.files.find((f) => f.id === id)
     if (!node) return
-    // Block reserved system folder names at root level
-    if (node.type === 'folder' && !node.parentId && RESERVED_ROOT_FOLDERS.has(newName)) {
-      console.warn(`[file-store] Cannot rename to reserved folder name: ${newName}`)
+    // Block reserved names at root level: the reserved folders below, plus the
+    // README.md / LICENSE.md / attachments the export writes there from the
+    // project's own fields (files or folders alike).
+    if (
+      !node.parentId &&
+      ((node.type === 'folder' && RESERVED_ROOT_FOLDERS.has(newName)) || isReservedTreeName(newName, null))
+    ) {
+      console.warn(`[file-store] Cannot rename to reserved name: ${newName}`)
       return
     }
     const projectUid = state.activeProjectUid ?? ''

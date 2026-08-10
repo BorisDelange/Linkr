@@ -191,8 +191,11 @@ export function FileTreeItem({
       (f) => f.parentId === node.parentId && f.id !== node.id && f.name.toLowerCase() === trimmedRename.toLowerCase(),
     )
 
+  const renameReserved = !!trimmedRename && isReservedTreeName(trimmedRename, node.parentId)
+  const renameInvalid = renameClashes || renameReserved
+
   const submitRename = () => {
-    if (!trimmedRename || renameClashes) return
+    if (!trimmedRename || renameInvalid) return
     if (trimmedRename !== node.name) {
       if (isBridge && bridgeDatasetFileId) datasetStore.renameNode(bridgeDatasetFileId, trimmedRename)
       else renameNode(node.id, trimmedRename)
@@ -365,13 +368,13 @@ export function FileTreeItem({
           {rowIcon}
           <span className={cn(
             '-ml-0.5 flex h-5 min-w-0 flex-1 items-center gap-0.5 rounded border bg-background pr-0.5',
-            renameClashes ? 'border-destructive' : 'border-primary',
+            renameInvalid ? 'border-destructive' : 'border-primary',
           )}>
             <input
               ref={renameRef}
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
-              title={renameClashes ? t('files.name_exists', { name: trimmedRename }) : undefined}
+              title={renameReserved ? t('files.name_reserved') : renameClashes ? t('files.name_exists', { name: trimmedRename }) : undefined}
               onKeyDown={(e) => {
                 e.stopPropagation()
                 if (e.key === 'Enter') submitRename()
@@ -392,7 +395,7 @@ export function FileTreeItem({
             <button
               type="button"
               tabIndex={-1}
-              disabled={renameClashes || !trimmedRename}
+              disabled={renameInvalid || !trimmedRename}
               aria-label={t('common.save')}
               onMouseDown={(e) => e.preventDefault()}
               onClick={submitRename}

@@ -140,13 +140,14 @@ export function CreateFileDialog({
 
   const finalName = name.includes('.') ? name.trim() : `${name.trim()}${selectedType.ext}`
   const actualParentId = selectedParentId === '__root__' ? scriptsFolderId : selectedParentId
+  const isReserved = finalName.length > 0 && isReservedTreeName(finalName, actualParentId)
   const isDuplicate = finalName.length > 0 && files.some(
     (f) => f.name === finalName && f.parentId === actualParentId
   )
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!finalName || isDuplicate) return
+    if (!finalName || isDuplicate || isReserved) return
     createFile(finalName, actualParentId, selectedType.lang)
 
     // Inject boilerplate for notebook file types
@@ -289,6 +290,9 @@ export function CreateFileDialog({
               {isDuplicate && (
                 <p className="text-xs text-destructive">{t('files.name_already_exists')}</p>
               )}
+              {isReserved && !isDuplicate && (
+                <p className="text-xs text-destructive">{t('files.name_reserved')}</p>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-6">
@@ -299,7 +303,7 @@ export function CreateFileDialog({
             >
               {t('common.cancel')}
             </Button>
-            <Button type="submit" disabled={!name.trim() || isDuplicate}>
+            <Button type="submit" disabled={!name.trim() || isDuplicate || isReserved}>
               {t('common.create')}
             </Button>
           </DialogFooter>

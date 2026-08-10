@@ -99,9 +99,11 @@ export function CreateSqlScriptFileDialog({
       (f) => f.parentId === actualParentId && f.name.toLowerCase() === finalName.toLowerCase(),
     )
 
+  const isReserved = !!finalName && isReservedTreeName(finalName, actualParentId)
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!finalName || isDuplicate) return
+    if (!finalName || isDuplicate || isReserved) return
     const now = new Date().toISOString()
     const node: SqlScriptFile = folderMode
       ? {
@@ -195,13 +197,16 @@ export function CreateSqlScriptFileDialog({
                   {t('sql_scripts.name_exists', { name: finalName })}
                 </p>
               )}
+              {isReserved && !isDuplicate && (
+                <p className="text-xs text-destructive">{t('files.name_reserved')}</p>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-6">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" disabled={!name.trim() || isDuplicate}>
+            <Button type="submit" disabled={!name.trim() || isDuplicate || isReserved}>
               {t('common.create')}
             </Button>
           </DialogFooter>

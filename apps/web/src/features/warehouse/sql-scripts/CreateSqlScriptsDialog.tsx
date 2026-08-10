@@ -29,7 +29,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
-import type { ProjectBadge, SqlScriptCollection, SqlScriptFile } from '@/types'
+import type { ProjectBadge, SqlScriptCollection } from '@/types'
 
 interface Props {
   open: boolean
@@ -42,7 +42,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   const { t } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { createCollection, updateCollection, createFile } = useSqlScriptsStore()
+  const { createCollection, updateCollection } = useSqlScriptsStore()
   const language = useAppStore((s) => s.language)
 
   const [name, setName] = useState('')
@@ -107,24 +107,16 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           defaultDataSourceId: defaultDbId || undefined,
           badges,
           version: version.trim() || '0.1.0',
+          // A README from the start: the collection is git-versionable, and a repo
+          // whose first file is a numbered SQL script says nothing about what the
+          // collection is for. It lives on the entity, not in the file tree.
+          readme: setLocalized({}, language, `# ${name.trim()}\n`),
           ...stampAuthored(),
           ...stampLineage(),
           createdAt: now,
           updatedAt: now,
         }
         await createCollection(collection)
-        // Create default README.md
-        const readme: SqlScriptFile = {
-          id: crypto.randomUUID(),
-          collectionId: collection.id,
-          name: 'README.md',
-          type: 'file',
-          parentId: null,
-          content: `# ${name.trim()}\n\n${description.trim() ? description.trim() + '\n' : ''}`,
-          order: 0,
-          createdAt: now,
-        }
-        await createFile(readme)
         onOpenChange(false)
         setName('')
         setDescription('')
