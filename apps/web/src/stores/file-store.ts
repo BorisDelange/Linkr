@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import type { IdeFile } from '@/types'
 import { getStorage } from '@/lib/storage'
+import {
+  EMPTY_SELECTION,
+  selectOnClick,
+  type ClickModifiers,
+  type Selection,
+} from '@/lib/tree-selection'
 import { isServerMode } from '@/lib/api-client'
 import { useAppStore } from '@/stores/app-store'
 
@@ -83,6 +89,12 @@ interface FileState {
   revertFile: (id: string) => void
   _dirtyVersion: number
   selectFile: (id: string | null) => void
+  /** Multi-selection for bulk actions (Cmd/Shift click). Held in the store so it
+   *  survives the tree remounting when panes are toggled. */
+  selection: Selection
+  /** Apply a click with its modifiers against the rows currently on screen. */
+  clickFile: (id: string, visibleIds: string[], modifiers: ClickModifiers) => void
+  clearSelection: () => void
   openFile: (id: string) => void
   closeFile: (id: string) => void
   reorderOpenFiles: (fromIndex: number, toIndex: number) => void
@@ -1152,6 +1164,14 @@ export const useFileStore = create<FileState>((set, get) => ({
   },
 
   _dirtyVersion: 0,
+
+  selection: EMPTY_SELECTION,
+
+  clickFile: (id, visibleIds, modifiers) => {
+    set((s) => ({ selection: selectOnClick(s.selection, id, visibleIds, modifiers) }))
+  },
+
+  clearSelection: () => set({ selection: EMPTY_SELECTION }),
 
   selectFile: (id) => {
     if (id === null) {

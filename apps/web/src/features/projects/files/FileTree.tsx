@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
 import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
+import { pruneSelection } from '@/lib/tree-selection'
 
 interface FileTreeProps {
   /** Open a create dialog targeting a folder (null = scripts root). */
@@ -45,6 +46,31 @@ export function FileTree({ onNewChild }: FileTreeProps) {
   function getChildren(parentId: string): TreeNode[] {
     return nodes.filter((f) => f.parentId === parentId && isVisible(f)).sort(compare)
   }
+
+  /**
+   * Ids in the order they appear ON SCREEN — what a Shift-range means. A collapsed
+   * folder's children are not between two visible rows, so they are not swept in.
+   */
+  const visibleIds = useMemo(() => {
+    const out: string[] = []
+    const walk = (list: TreeNode[]) => {
+      for (const n of list) {
+        out.push(n.id)
+        if (n.type === 'folder' && expandedFolders.includes(n.id)) walk(getChildren(n.id))
+      }
+    }
+    walk(rootNodes)
+    return out
+  // rootNodes/getChildren derive from nodes+sort, both listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, sort, expandedFolders])
+
+  // A file deleted or renamed away must not stay selected: a bulk action would
+  // then report a count it cannot deliver.
+  useEffect(() => {
+    const alive = nodes.map((n) => n.id)
+    useFileStore.setState((st) => ({ selection: pruneSelection(st.selection, alive) }))
+  }, [nodes])
 
   if (rootNodes.length === 0) {
     return (
@@ -95,6 +121,7 @@ export function FileTree({ onNewChild }: FileTreeProps) {
             getChildren={getChildren}
             expandedFolders={expandedFolders}
             selectedFileId={selectedFileId}
+            visibleIds={visibleIds}
             onNewChild={onNewChild}
           />
         ))}

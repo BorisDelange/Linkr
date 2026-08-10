@@ -43,6 +43,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { contentSize } from '@/lib/file-tree-sort'
+import { actionTargets } from '@/lib/tree-selection'
+import { downloadBlob } from '@/lib/entity-io'
 import { humanBytes } from '@/lib/format-helpers'
 
 interface FileTreeItemProps {
@@ -51,6 +53,8 @@ interface FileTreeItemProps {
   getChildren: (parentId: string) => TreeNode[]
   expandedFolders: string[]
   selectedFileId: string | null
+  /** Row ids in on-screen order, for Shift-ranges. */
+  visibleIds: string[]
   /** Open a create dialog targeting a folder (null = scripts root). */
   onNewChild: (parentId: string | null, folderMode: boolean) => void
 }
@@ -91,12 +95,13 @@ export function FileTreeItem({
   getChildren,
   expandedFolders,
   selectedFileId,
+  visibleIds,
   onNewChild,
 }: FileTreeItemProps) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyProjectRole().can('ide:write')
   const canDelete = useMyProjectRole().can('ide:delete')
-  const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode, renameNode } = useFileStore()
+  const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode, renameNode, selection, clickFile, clearSelection } = useFileStore()
   const datasetStore = useDatasetStore()
   // Per-file versioning. Key = the export tree path `scripts/<idePath>` (same
   // namespace the Datasets sidebar uses and the .gitignore exception matches).
@@ -133,6 +138,9 @@ export function FileTreeItem({
   const isFolder = node.type === 'folder'
   const isExpanded = expandedFolders.includes(node.id)
   const isSelected = selectedFileId === node.id
+  // Only past one row: a plain click leaves a single id selected, and decorating
+  // that would dress up ordinary file opening as a multi-selection.
+  const isMultiSelected = selection.ids.length > 1 && selection.ids.includes(node.id)
   const children = isFolder ? getChildren(node.id) : []
 
   // Every real file has a versioning state. A data file is gitignored by default
@@ -156,12 +164,17 @@ export function FileTreeItem({
     else void toggleExcludedFile(activeProjectUid, markKey)
   }
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
     if (isFolder) {
       toggleFolder(node.id)
-    } else {
-      selectFile(node.id)
+      return
     }
+    // metaKey is Cmd on Mac, ctrlKey elsewhere: accept either.
+    const modifiers = { meta: e.metaKey || e.ctrlKey, shift: e.shiftKey }
+    clickFile(node.id, visibleIds, modifiers)
+    // A modified click builds the selection; it must not also open the file, which
+    // would replace what the user is assembling.
+    if (!modifiers.meta && !modifiers.shift) selectFile(node.id)
   }
 
   const startRename = () => {
@@ -265,9 +278,57 @@ export function FileTreeItem({
     URL.revokeObjectURL(url)
   }
 
+  // Right-clicking inside a multi-selection acts on all of it; outside, on this
+  // row alone (see lib/tree-selection.actionTargets).
+  const targets = actionTargets(selection, node.id)
+  const targetNodes = targets
+    .map((id) => (files as TreeNode[]).find((f) => f.id === id))
+    .filter((f): f is TreeNode => !!f && f.type === 'file' && f.virtual !== true)
+  const bulk = targetNodes.length > 1
+
+  /** One file downloads as itself; several as a zip, keeping their tree paths. */
+  const handleBulkDownload = async () => {
+    if (targetNodes.length <= 1) {
+      handleDownload()
+      return
+    }
+    // Imported lazily: JSZip is large and only a multi-file download needs it.
+    const { default: JSZip } = await import('jszip')
+    const zip = new JSZip()
+    for (const n of targetNodes) {
+      zip.file(getNodePath(files as TreeNode[], n.id) || n.name, n.content ?? '')
+    }
+    downloadBlob(await zip.generateAsync({ type: 'blob' }), 'scripts.zip')
+  }
+
+  /** Mark key and current state for ANY node, not just this row's. */
+  const markKeyFor = (n: TreeNode) => `scripts/${getNodePath(files as TreeNode[], n.id)}`
+  const isVersionedFor = (n: TreeNode) => (
+    isDataExtension(n.name) ? includedSet.has(markKeyFor(n)) : !excludedSet.has(markKeyFor(n))
+  )
+
+  const handleBulkVersioning = () => {
+    if (!activeProjectUid) return
+    // Forced to ONE state rather than toggled file by file: a mixed selection
+    // would otherwise invert each one and stay mixed.
+    const shouldVersion = !targetNodes.every(isVersionedFor)
+    for (const n of targetNodes) {
+      if (isVersionedFor(n) === shouldVersion) continue
+      const key = markKeyFor(n)
+      if (isDataExtension(n.name)) void toggleVersionedDataFile(activeProjectUid, key)
+      else void toggleExcludedFile(activeProjectUid, key)
+    }
+  }
+
+  const allTargetsVersioned = targetNodes.length > 0 && targetNodes.every(isVersionedFor)
+
   const handleDelete = () => {
     if (isBridge && bridgeDatasetFileId) {
       datasetStore.deleteNode(bridgeDatasetFileId)
+    } else if (bulk) {
+      for (const n of targetNodes) deleteNode(n.id)
+      // Nothing selected is left to act on, and stale ids would misreport counts.
+      clearSelection()
     } else {
       deleteNode(node.id)
     }
@@ -349,6 +410,7 @@ export function FileTreeItem({
             getChildren={getChildren}
             expandedFolders={expandedFolders}
             selectedFileId={selectedFileId}
+            visibleIds={visibleIds}
             onNewChild={onNewChild}
           />
         ))}
@@ -368,9 +430,14 @@ export function FileTreeItem({
       className={cn(
         'flex h-6 w-full min-w-0 items-center gap-1 px-2 text-left text-xs hover:bg-accent/50 transition-colors',
         isSelected && !isFolder && 'bg-accent text-accent-foreground',
+        // One look for every selected row (tint + left border), the open file
+        // included — marking it differently made the first file clicked look
+        // excluded from the user's own selection. After isSelected so it wins.
+        isMultiSelected && 'border-l-2 border-l-primary bg-primary/10 text-foreground',
         dragOver && 'bg-accent/70 ring-1 ring-primary/50'
       )}
-      style={{ paddingLeft: `${depth * 16 + 8}px` }}
+      // The 2px border is subtracted so names do not shift when selected.
+      style={{ paddingLeft: `${depth * 16 + 8 - (isMultiSelected ? 2 : 0)}px` }}
     >
       {rowIcon}
       <span ref={nameRef} className="truncate">{node.name}</span>
@@ -458,9 +525,10 @@ export function FileTreeItem({
                 </ContextMenuItem>
               )}
               {!isFolder && (
-                <ContextMenuItem onClick={handleDownload}>
+                <ContextMenuItem onClick={() => void handleBulkDownload()}>
                   <Download size={14} />
-                  {t('files.download')}
+                  {/* Several files come down as one zip. */}
+                  {bulk ? t('files.download_count', { count: targetNodes.length }) : t('files.download')}
                 </ContextMenuItem>
               )}
               <ContextMenuSeparator />
@@ -485,9 +553,13 @@ export function FileTreeItem({
               {isRealFile && activeProjectUid && (
                 <>
                   <ContextMenuSeparator />
-                  <ContextMenuItem onClick={toggleVersioning}>
+                  <ContextMenuItem onClick={bulk ? handleBulkVersioning : toggleVersioning}>
                     <GitCommitVertical size={14} />
-                    {willBeVersioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned')}
+                    {bulk
+                      ? (allTargetsVersioned
+                          ? t('files.unmark_versioned_count', { count: targetNodes.length })
+                          : t('files.mark_versioned_count', { count: targetNodes.length }))
+                      : (willBeVersioned ? t('datasets.unmark_versioned') : t('datasets.mark_versioned'))}
                   </ContextMenuItem>
                 </>
               )}
@@ -498,7 +570,7 @@ export function FileTreeItem({
                 onClick={() => setDeleteConfirmOpen(true)}
               >
                 <Trash2 size={14} />
-                {t('files.delete')}
+                {bulk ? t('files.delete_count', { count: targetNodes.length }) : t('files.delete')}
               </ContextMenuItem>
             </>
           )}
@@ -523,6 +595,7 @@ export function FileTreeItem({
             getChildren={getChildren}
             expandedFolders={expandedFolders}
             selectedFileId={selectedFileId}
+            visibleIds={visibleIds}
             onNewChild={onNewChild}
           />
         ))}
@@ -533,9 +606,11 @@ export function FileTreeItem({
           <DialogHeader>
             <DialogTitle>{t('files.delete_confirm_title')}</DialogTitle>
             <DialogDescription>
-              {isFolder
-                ? t('files.delete_confirm_folder', { name: node.name })
-                : t('files.delete_confirm_file', { name: node.name })}
+              {bulk
+                ? t('files.delete_confirm_count', { count: targetNodes.length })
+                : isFolder
+                  ? t('files.delete_confirm_folder', { name: node.name })
+                  : t('files.delete_confirm_file', { name: node.name })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -543,7 +618,7 @@ export function FileTreeItem({
               {t('common.cancel')}
             </Button>
             <Button variant="destructive" onClick={handleDelete}>
-              {t('files.delete')}
+              {bulk ? t('files.delete_count', { count: targetNodes.length }) : t('files.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
