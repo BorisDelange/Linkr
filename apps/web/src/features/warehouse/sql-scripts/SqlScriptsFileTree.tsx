@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   FileCode,
@@ -38,6 +38,16 @@ import {
 } from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
+import { downloadBlob } from '@/lib/entity-io'
+import { treeNodePath } from '@/lib/entity-tree'
+import {
+  EMPTY_SELECTION,
+  actionTargets,
+  pruneSelection,
+  selectOnClick,
+  type ClickModifiers,
+  type Selection,
+} from '@/lib/tree-selection'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
 import { compareTreeNodes, contentSize } from '@/lib/file-tree-sort'
@@ -53,6 +63,8 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
   const { t } = useTranslation()
   const { files, selectedFileId, selectFile, deleteFile, updateFile, moveFile, duplicateFile } =
     useSqlScriptsStore()
+  const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION)
+  const [bulkDeleteIds, setBulkDeleteIds] = useState<string[] | null>(null)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [deleteConfirmFileId, setDeleteConfirmFileId] = useState<string | null>(null)
   const [rootDragOver, setRootDragOver] = useState(false)
@@ -94,6 +106,52 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
   )
   const getChildren = (parentId: string) =>
     files.filter((f) => f.parentId === parentId).sort(compare)
+
+  /** Ids in on-screen order, so a Shift-range cannot reach into a collapsed folder. */
+  const visibleIds = useMemo(() => {
+    const out: string[] = []
+    const walk = (list: SqlScriptFile[]) => {
+      for (const n of list) {
+        out.push(n.id)
+        if (n.type === 'folder' && expandedFolders.has(n.id)) walk(getChildren(n.id))
+      }
+    }
+    walk([...rootFiles].sort(compare))
+    return out
+  // rootFiles/getChildren/compare derive from files+sort, both listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, sort, expandedFolders])
+
+  // A deleted file must not stay selected: a bulk action would misreport its count.
+  useEffect(() => {
+    setSelection((prev) => pruneSelection(prev, files.map((f) => f.id)))
+  }, [files])
+
+  const handleClickFile = (id: string, modifiers: ClickModifiers) => {
+    setSelection((prev) => selectOnClick(prev, id, visibleIds, modifiers))
+  }
+
+  const pathOf = (id: string) => {
+    const node = files.find((f) => f.id === id)
+    return node ? treeNodePath(node, new Map(files.map((f) => [f.id, f]))) : ''
+  }
+
+  /** One file downloads as itself; several as a zip, keeping their tree paths. */
+  const handleBulkDownload = async (ids: string[]) => {
+    const targets = ids
+      .map((id) => files.find((f) => f.id === id))
+      .filter((f): f is SqlScriptFile => !!f && f.type === 'file')
+    if (targets.length === 0) return
+    if (targets.length === 1) {
+      downloadBlob(new Blob([targets[0].content ?? ''], { type: 'text/plain' }), targets[0].name)
+      return
+    }
+    // Imported lazily: JSZip is large and only a multi-file download needs it.
+    const { default: JSZip } = await import('jszip')
+    const zip = new JSZip()
+    for (const f of targets) zip.file(pathOf(f.id) || f.name, f.content ?? '')
+    downloadBlob(await zip.generateAsync({ type: 'blob' }), 'sql-scripts.zip')
+  }
   // True if another node under the same parent already has this name (rename guard).
   const nameExists = (parentId: string | null, name: string, exceptId: string) =>
     files.some(
@@ -149,10 +207,38 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
               getChildren={getChildren}
               expandedFolders={expandedFolders}
               selectedFileId={selectedFileId}
+              selection={selection}
+              onClickFile={handleClickFile}
+              onBulkDownload={handleBulkDownload}
+              onBulkDelete={setBulkDeleteIds}
             />
           ))}
         </div>
       </ScrollArea>
+
+      <AlertDialog open={!!bulkDeleteIds} onOpenChange={(open) => { if (!open) setBulkDeleteIds(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('sql_scripts.delete_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('files.delete_confirm_count', { count: bulkDeleteIds?.length ?? 0 })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                for (const id of bulkDeleteIds ?? []) deleteFile(id)
+                setBulkDeleteIds(null)
+                setSelection(EMPTY_SELECTION)
+              }}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {t('files.delete_count', { count: bulkDeleteIds?.length ?? 0 })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!deleteConfirmFileId} onOpenChange={(open) => { if (!open) setDeleteConfirmFileId(null) }}>
         <AlertDialogContent>
@@ -202,6 +288,10 @@ function SqlScriptsFileTreeItem({
   getChildren,
   expandedFolders,
   selectedFileId,
+  selection,
+  onClickFile,
+  onBulkDownload,
+  onBulkDelete,
 }: {
   file: SqlScriptFile
   depth: number
@@ -220,6 +310,10 @@ function SqlScriptsFileTreeItem({
   getChildren: (parentId: string) => SqlScriptFile[]
   expandedFolders: Set<string>
   selectedFileId: string | null
+  selection: Selection
+  onClickFile: (id: string, modifiers: ClickModifiers) => void
+  onBulkDownload: (ids: string[]) => void
+  onBulkDelete: (ids: string[]) => void
 }) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('sql-scripts:write')
@@ -273,16 +367,15 @@ function SqlScriptsFileTreeItem({
     setEditing(true)
   }
 
-  const handleDownload = () => {
-    if (isFolder) return
-    const blob = new Blob([file.content ?? ''], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = file.name
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+  // Only past one row: a plain click leaves one id selected, and decorating that
+  // would dress up ordinary file opening as a multi-selection.
+  const isMultiSelected = selection.ids.length > 1 && selection.ids.includes(file.id)
+  const targets = actionTargets(selection, file.id)
+  const targetCount = targets.filter((id) => {
+    const f = useSqlScriptsStore.getState().files.find((x) => x.id === id)
+    return f?.type === 'file'
+  }).length
+  const bulk = targetCount > 1
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('text/plain', file.id)
@@ -334,6 +427,10 @@ function SqlScriptsFileTreeItem({
             getChildren={getChildren}
             expandedFolders={expandedFolders}
             selectedFileId={selectedFileId}
+            selection={selection}
+            onClickFile={onClickFile}
+            onBulkDownload={onBulkDownload}
+            onBulkDelete={onBulkDelete}
           />
         ))
       : null
@@ -427,17 +524,26 @@ function SqlScriptsFileTreeItem({
             onDragOver={handleDragOver}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            onClick={() => {
-              if (isFolder) onToggleFolder(file.id)
-              else onSelect(file.id)
+            onClick={(e) => {
+              if (isFolder) {
+                onToggleFolder(file.id)
+                return
+              }
+              // metaKey is Cmd on Mac, ctrlKey elsewhere: accept either.
+              const modifiers = { meta: e.metaKey || e.ctrlKey, shift: e.shiftKey }
+              onClickFile(file.id, modifiers)
+              // A modified click builds the selection; it must not also open the file.
+              if (!modifiers.meta && !modifiers.shift) onSelect(file.id)
             }}
             {...nameTriggerProps}
             className={cn(
               'flex h-6 w-full min-w-0 items-center gap-1.5 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
+              // One look for every selected row, the open file included.
+              isMultiSelected && 'border-l-2 border-l-primary bg-primary/10 text-foreground',
               dragOver && 'bg-accent/70 ring-1 ring-primary/50',
             )}
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
+            style={{ paddingLeft: `${depth * 16 + 8 - (isMultiSelected ? 2 : 0)}px` }}
           >
             {icon}
             <span ref={nameRef} className="truncate">{file.name}</span>
@@ -476,19 +582,19 @@ function SqlScriptsFileTreeItem({
             </ContextMenuItem>
           )}
           {!isFolder && (
-            <ContextMenuItem onClick={handleDownload}>
+            <ContextMenuItem onClick={() => void onBulkDownload(targets)}>
               <Download size={14} />
-              {t('files.download')}
+              {bulk ? t('files.download_count', { count: targetCount }) : t('files.download')}
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"
             disabled={!canDelete}
-            onClick={() => onDelete(file.id)}
+            onClick={() => (bulk ? onBulkDelete(targets) : onDelete(file.id))}
           >
             <Trash2 size={14} />
-            {t('sql_scripts.delete_file')}
+            {bulk ? t('files.delete_count', { count: targetCount }) : t('sql_scripts.delete_file')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
