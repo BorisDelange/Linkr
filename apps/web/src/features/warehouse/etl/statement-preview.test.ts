@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currentStatementNumber, statementLine, statementPreview } from './statement-preview'
+import { currentStatementNumber, statementLineAt, statementPreview, statementTooltip } from './statement-preview'
 import { splitSqlStatements } from '@/lib/duckdb/engine'
 
 describe('statementPreview', () => {
@@ -69,7 +69,27 @@ describe('currentStatementNumber', () => {
   })
 })
 
-describe('statementLine', () => {
+describe('statementTooltip', () => {
+  const SQL = 'TRUNCATE target.concept;\nINSERT INTO target.concept SELECT 1;'
+
+  it('leads with the line, so the tooltip says where to look', () => {
+    expect(statementTooltip(SQL, 1, 'INSERT INTO target.concept SELECT 1'))
+      .toBe('Line 2: INSERT INTO target.concept SELECT 1')
+  })
+
+  it('falls back to the bare statement when the line cannot be resolved', () => {
+    // Rather than print a line the jump would not honour.
+    expect(statementTooltip(undefined, 0, 'TRUNCATE target.concept')).toBe('TRUNCATE target.concept')
+    expect(statementTooltip(SQL, 99, 'TRUNCATE target.concept')).toBe('TRUNCATE target.concept')
+  })
+
+  it('returns null when there is no statement to describe', () => {
+    expect(statementTooltip(SQL, 0, undefined)).toBeNull()
+    expect(statementTooltip(SQL, 0, '-- comment only')).toBeNull()
+  })
+})
+
+describe('statementLineAt', () => {
   const SQL = [
     '-- header comment',            // 1
     '',                             // 2
@@ -82,26 +102,63 @@ describe('statementLine', () => {
   ].join('\n')
 
   it('finds a single-line statement', () => {
-    expect(statementLine(SQL, 'DELETE FROM target.concept')).toBe(3)
+    expect(statementLineAt(SQL, 0)).toBe(3)
   })
 
   it('skips the comments a statement carries, landing on its code', () => {
     // The splitter hands back the leading comments with the statement; anchoring
     // on them would put the cursor above the SQL.
-    const stmt = '-- 2a. Target concepts\nINSERT INTO target.concept\nSELECT c.concept_id\nFROM vocab.concept c'
-    expect(statementLine(SQL, stmt)).toBe(6)
+    expect(statementLineAt(SQL, 1)).toBe(6)
   })
 
-  it('returns null when the statement is not in this file', () => {
-    expect(statementLine(SQL, 'DROP TABLE something')).toBeNull()
+  it('distinguishes statements that start with the same line', () => {
+    // The regression that motivated resolving by index: a generated vocabulary
+    // script has four `INSERT INTO "target".concept` statements. Text search
+    // matched the first every time, so Query 4/4 jumped to the line of Query 2.
+    const dup = [
+      'TRUNCATE target.concept;',            // 1
+      'INSERT INTO target.concept',          // 2
+      'SELECT 1;',                           // 3
+      'INSERT INTO target.concept',          // 4
+      'SELECT 2;',                           // 5
+      'INSERT INTO target.concept',          // 6
+      'SELECT 3;',                           // 7
+    ].join('\n')
+    expect(statementLineAt(dup, 0)).toBe(1)
+    expect(statementLineAt(dup, 1)).toBe(2)
+    expect(statementLineAt(dup, 2)).toBe(4)
+    expect(statementLineAt(dup, 3)).toBe(6)
   })
 
-  it('returns null for missing input', () => {
-    expect(statementLine(SQL, undefined)).toBeNull()
-    expect(statementLine('', 'DELETE FROM x')).toBeNull()
+  it('ignores a semicolon inside a string or comment', () => {
+    // Must agree with the splitter, or every later index is off by one.
+    const tricky = [
+      "SELECT 'a;b' AS x;",   // 1
+      '/* drop; me */',       // 2
+      'SELECT 2;',            // 3
+    ].join('\n')
+    expect(statementLineAt(tricky, 0)).toBe(1)
+    expect(statementLineAt(tricky, 1)).toBe(3)
   })
 
-  it('returns null for a comment-only statement', () => {
-    expect(statementLine(SQL, '-- just a comment')).toBeNull()
+  it('agrees with the splitter on which statement each index is', () => {
+    const statements = splitSqlStatements(SQL)
+    statements.forEach((stmt, i) => {
+      const line = statementLineAt(SQL, i)!
+      const firstCode = stmt.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('--'))
+      // The splitter drops the terminating `;`; the file line still has it.
+      expect(SQL.split('\n')[line - 1].trim().replace(/;$/, '')).toBe(firstCode)
+    })
+  })
+
+  it('handles a final statement with no trailing semicolon', () => {
+    expect(statementLineAt('SELECT 1;\nSELECT 2', 1)).toBe(2)
+  })
+
+  it('returns null past the end, and for missing input', () => {
+    expect(statementLineAt(SQL, 2)).toBeNull()
+    expect(statementLineAt(SQL, undefined)).toBeNull()
+    expect(statementLineAt(SQL, -1)).toBeNull()
+    expect(statementLineAt('', 0)).toBeNull()
   })
 })

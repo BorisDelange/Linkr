@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useEtlStore } from '@/stores/etl-store'
 import { cn } from '@/lib/utils'
-import { currentStatementNumber, statementPreview } from './statement-preview'
+import { currentStatementNumber, statementTooltip } from './statement-preview'
 import type { EtlFile } from '@/types'
 
 interface Props {
@@ -12,9 +12,10 @@ interface Props {
    *  run covers (store.runningFileIds), so running one line reports "0/1" and not
    *  "0/16" against a pipeline the user did not launch. */
   files: EtlFile[]
-  /** Open the running script at the statement being executed. Omit where there
-   *  is no editor to jump to (the Pipeline toolbar passes it through). */
-  onGoToStatement?: (fileId: string, statement: string | undefined) => void
+  /** Open the running script at the statement being executed, identified by its
+   *  0-based index. Omit where there is no editor to jump to (the Pipeline
+   *  toolbar passes it through). */
+  onGoToStatement?: (fileId: string, statementIndex: number | undefined) => void
 }
 
 /**
@@ -59,44 +60,51 @@ export function RunProgressBar({ files, onGoToStatement }: Props) {
         </span>
         {current && <span className="truncate font-medium">{current.name}</span>}
         {log?.statementsTotal != null && log.statementsTotal > 1 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                role={onGoToStatement ? 'button' : undefined}
-                tabIndex={onGoToStatement ? 0 : undefined}
-                onClick={onGoToStatement && current
-                  ? () => onGoToStatement(current.id, log.currentStatement)
-                  : undefined}
-                onKeyDown={onGoToStatement && current
-                  ? (e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        onGoToStatement(current.id, log.currentStatement)
+          /* The separator sits OUTSIDE the trigger: inside it, the hover
+             underline and the focus ring swallowed the "· " too, which read as
+             part of the link. */
+          <span className="flex shrink-0 items-baseline gap-1.5 text-muted-foreground">
+            <span aria-hidden>·</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  role={onGoToStatement ? 'button' : undefined}
+                  tabIndex={onGoToStatement ? 0 : undefined}
+                  onClick={onGoToStatement && current
+                    ? () => onGoToStatement(current.id, log.statementsDone)
+                    : undefined}
+                  onKeyDown={onGoToStatement && current
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onGoToStatement(current.id, log.statementsDone)
+                        }
                       }
-                    }
-                  : undefined}
-                className={cn(
-                  'shrink-0 tabular-nums text-muted-foreground',
-                  onGoToStatement && current
-                    ? 'cursor-pointer underline-offset-2 hover:text-foreground hover:underline'
-                    : 'cursor-default',
-                )}
-              >
-                · {t('etl.run_statement_progress', {
-                  done: currentStatementNumber(log),
-                  total: log.statementsTotal,
-                })}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-[420px]">
-              <span className="font-mono text-[10px] leading-relaxed">
-                {statementPreview(log.currentStatement) ?? t('etl.run_statement_progress', {
-                  done: currentStatementNumber(log),
-                  total: log.statementsTotal,
-                })}
-              </span>
-            </TooltipContent>
-          </Tooltip>
+                    : undefined}
+                  className={cn(
+                    'tabular-nums',
+                    onGoToStatement && current
+                      ? 'cursor-pointer underline-offset-2 hover:text-foreground hover:underline'
+                      : 'cursor-default',
+                  )}
+                >
+                  {t('etl.run_statement_progress', {
+                    done: currentStatementNumber(log),
+                    total: log.statementsTotal,
+                  })}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-[420px]">
+                <span className="font-mono text-[10px] leading-relaxed">
+                  {statementTooltip(current?.content, log.statementsDone, log.currentStatement)
+                    ?? t('etl.run_statement_progress', {
+                      done: currentStatementNumber(log),
+                      total: log.statementsTotal,
+                    })}
+                </span>
+              </TooltipContent>
+            </Tooltip>
+          </span>
         )}
         {elapsed && (
           <span className="shrink-0 tabular-nums text-muted-foreground">· {elapsed}</span>

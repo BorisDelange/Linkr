@@ -73,7 +73,7 @@ import { RunAbortedError } from './run-pipeline-sql'
 import { EtlUploadDialog } from './EtlUploadDialog'
 import { inferEtlLanguage } from './etl-file-language'
 import { RunProgressBar } from './RunProgressBar'
-import { statementLine } from './statement-preview'
+import { statementLineAt } from './statement-preview'
 import { csvDelimiterFor, parseCsvPreview } from '@/lib/csv-preview'
 import { compareByRole } from './role-presentation'
 import { PipelineDbPicker } from './PipelineDbPicker'
@@ -393,17 +393,20 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
    * put the cursor on the line. Lets "Query 10/26" answer "which one is that?"
    * without hunting through a 300-line generated file.
    */
-  const goToStatement = useCallback((fileId: string, statement: string | undefined) => {
+  const goToStatement = useCallback((fileId: string, statementIndex: number | undefined) => {
     const file = files.find((f) => f.id === fileId)
     if (!file) return
     if (fileId !== selectedFileId) selectFile(fileId)
-    const line = statementLine(file.content ?? '', statement)
-    if (line == null) return
     // After a selectFile the editor may still hold the previous model, so the
     // reveal waits for the swap rather than scrolling the wrong file.
     requestAnimationFrame(() => {
       const editor = editorRef.current
       if (!editor) return
+      // The buffer, not file.content: an unsaved edit shifts every line below it,
+      // and the run reports indices against what the editor is showing.
+      const sql = editor.getModel()?.getValue() ?? file.content ?? ''
+      const line = statementLineAt(sql, statementIndex)
+      if (line == null) return
       editor.revealLineInCenter(line)
       editor.setPosition({ lineNumber: line, column: 1 })
       editor.focus()
