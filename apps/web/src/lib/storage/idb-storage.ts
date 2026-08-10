@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, EtlQualityCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { SUGGESTION_CATEGORIES } from '@/types'
@@ -50,6 +50,10 @@ interface LinkrDB extends DBSchema {
   database_stats_cache: {
     key: string
     value: DatabaseStatsCache
+  }
+  etl_quality_cache: {
+    key: string
+    value: EtlQualityCache
   }
   pipelines: {
     key: string
@@ -295,7 +299,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 37
+const DB_VERSION = 38
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -384,7 +388,10 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
       // Version 7: readme_attachments
       if (oldVersion < 7) {
         const attachStore = db.createObjectStore('readme_attachments', { keyPath: 'id' })
-        attachStore.createIndex('by-project', 'projectUid')
+        // The index the schema had back then; v37 replaces it with by-owner. Kept so
+        // an upgrade from a pre-v7 database still walks a consistent path.
+        ;(attachStore as unknown as { createIndex: (n: string, k: string) => void })
+          .createIndex('by-project', 'projectUid')
       }
       // Version 8: schema_presets
       if (oldVersion < 8) {
@@ -788,8 +795,13 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         if (!attStore.indexNames.contains('by-owner')) {
           attStore.createIndex('by-owner', ['ownerType', 'ownerId'])
         }
-        if (attStore.indexNames.contains('by-project')) {
-          attStore.deleteIndex('by-project')
+        // by-project belonged to the old "project or workspace" shape (dropped above).
+        const legacyAttStore = attStore as unknown as {
+          indexNames: { contains: (n: string) => boolean }
+          deleteIndex: (n: string) => void
+        }
+        if (legacyAttStore.indexNames.contains('by-project')) {
+          legacyAttStore.deleteIndex('by-project')
         }
         const projectStore = transaction.objectStore('projects')
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -844,6 +856,14 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         }
         hoistTreeReadme('etl_files', 'etl_pipelines', 'pipelineId')
         hoistTreeReadme('sql_script_files', 'sql_script_collections', 'collectionId')
+      }
+
+      // Version 38: the ETL quality-check concept table is persisted instead of
+      // recomputed on every visit (a dozen COUNT queries over the target).
+      if (oldVersion < 38) {
+        if (!db.objectStoreNames.contains('etl_quality_cache')) {
+          db.createObjectStore('etl_quality_cache', { keyPath: 'pipelineId' })
+        }
       }
     },
   })
@@ -1136,6 +1156,23 @@ class IDBDatabaseStatsCacheStorage implements DatabaseStatsCacheStorage {
   async delete(dataSourceId: string): Promise<void> {
     const db = await getDB()
     await db.delete('database_stats_cache', dataSourceId)
+  }
+}
+
+class IDBEtlQualityCacheStorage implements EtlQualityCacheStorage {
+  async get(pipelineId: string): Promise<EtlQualityCache | undefined> {
+    const db = await getDB()
+    return db.get('etl_quality_cache', pipelineId)
+  }
+
+  async save(cache: EtlQualityCache): Promise<void> {
+    const db = await getDB()
+    await db.put('etl_quality_cache', cache)
+  }
+
+  async delete(pipelineId: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('etl_quality_cache', pipelineId)
   }
 }
 
@@ -2436,6 +2473,7 @@ export function createIDBStorage(): Storage {
     etlPipelines: new IDBEtlPipelineStorage(),
     etlFiles: new IDBEtlFileStorage(),
     etlRunHistory: new IDBEtlRunHistoryStorage(),
+    etlQualityCache: new IDBEtlQualityCacheStorage(),
     sqlScriptCollections: new IDBSqlScriptCollectionStorage(),
     sqlScriptFiles: new IDBSqlScriptFileStorage(),
     dqRuleSets: new IDBDqRuleSetStorage(),
