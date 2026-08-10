@@ -267,9 +267,11 @@ function StatsColumn({
           {/* Only where counting can work: with no schema mapping there is nothing
               to count, so a button would just fail. Solid and full size: it is the
               only action on an empty card, and a small outline read as a caption. */}
+          {/* h-7 sits between xs (h-6, too slight for the card's only action) and
+              sm (h-8, which dominated it). */}
           {ds.schemaMapping && (
-            <Button size="sm" onClick={() => void onCompute()}>
-              <Activity size={14} />
+            <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => void onCompute()}>
+              <Activity size={13} />
               {t('etl.quality_stats_compute')}
             </Button>
           )}
