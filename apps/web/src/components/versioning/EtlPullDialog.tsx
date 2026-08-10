@@ -24,6 +24,7 @@ interface EtlPullDialogProps {
 }
 
 const GROUP_LABEL: Record<EtlPullGroup, string> = {
+  docs: 'versioning.pull_group_docs',
   // Not `pull_group_scripts`, which reads "IDE scripts" — these are the pipeline's own.
   scripts: 'versioning.pull_group_etl_scripts',
   mappings: 'versioning.pull_group_mappings',
@@ -49,7 +50,6 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
   const [applying, setApplying] = useState(false)
   const [paths, setPaths] = useState<Set<string>>(new Set())
   const [takeSettings, setTakeSettings] = useState(false)
-  const [takeDocs, setTakeDocs] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -68,7 +68,6 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
         }
         setPaths(seed)
         setTakeSettings(false)
-        setTakeDocs(false)
         setLoading(false)
       })
       .catch((e) => {
@@ -86,12 +85,11 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
   const nothingToPull = useMemo(
     () => plan != null
       && ETL_PULL_GROUPS.every((g) => plan.groups[g].length === 0)
-      && !plan.settingsChanged
-      && !plan.docsChanged,
+      && !plan.settingsChanged,
     [plan],
   )
 
-  const selectedTotal = paths.size + (takeSettings ? 1 : 0) + (takeDocs ? 1 : 0)
+  const selectedTotal = paths.size + (takeSettings ? 1 : 0)
 
   const toggle = (key: string) => {
     setPaths((s) => {
@@ -119,7 +117,7 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
     if (!prepared || applying || selectedTotal === 0) return
     setApplying(true)
     try {
-      await applyEtlPull(pipelineId, prepared, { paths, settings: takeSettings, docs: takeDocs })
+      await applyEtlPull(pipelineId, prepared, { paths, settings: takeSettings })
       await onPulled()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -197,17 +195,6 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
                   </Section>
                 )
               })}
-
-              {/* Docs before settings: a README is content the user reads, while the
-                  settings block is machinery. */}
-              {plan?.docsChanged && (
-                <Section title={t('versioning.pull_group_docs')}>
-                  <label className="flex items-center gap-2 py-1 text-xs">
-                    <Checkbox checked={takeDocs} onCheckedChange={(v) => setTakeDocs(!!v)} />
-                    <span>{t('versioning.pull_etl_docs_replace')}</span>
-                  </label>
-                </Section>
-              )}
 
               {plan?.settingsChanged && (
                 <Section title={t('versioning.pull_group_settings')}>

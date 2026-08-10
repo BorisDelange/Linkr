@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   buildEtlPullPlan,
   ETL_PULL_GROUPS,
+  etlDocItems,
+  etlDocTarget,
   etlFilesByPath,
   etlPullGroupOf,
   etlRecordPaths,
@@ -10,7 +12,7 @@ import {
   stripInstancePipelineFields,
 } from './etl-pull'
 import { attachTreeIds } from './entity-io'
-import { entityDocsChanged, readEntityDocsFrom } from './entity-docs-pull'
+import { readEntityDocsFrom } from './entity-docs-pull'
 import type { EtlFile, EtlPipeline } from '@/types'
 import type { TreeImportNode } from './entity-io'
 
@@ -34,9 +36,14 @@ describe('etlPullGroupOf', () => {
 
   it('puts anything unrecognised in "other"', () => {
     expect(etlPullGroupOf('notes.txt')).toBe('other')
-    // A README classifies as 'other' too, but it never reaches the file list —
-    // isEtlManifest excludes it, because the entity owns it as a `readme` field.
-    expect(etlPullGroupOf('README.md')).toBe('other')
+  })
+
+  it('classifies the docs files into their own group', () => {
+    for (const p of ['README.md', 'README.fr.md', 'LICENSE.md']) {
+      expect(etlPullGroupOf(p)).toBe('docs')
+    }
+    // They are still excluded from the TREE walk: the entity owns them as fields,
+    // so their rows come from etlDocItems rather than from _tree.json.
     expect(isEtlManifest('README.md')).toBe(true)
   })
 
@@ -273,47 +280,47 @@ describe('README and LICENSE are docs, not tree files', () => {
     expect(plan.groups.scripts.map((i) => i.key)).toEqual(['10_src.sql'])
   })
 
-  it('reads the readme per language, primary suffix-free as the export writes it', () => {
-    const docs = readEntityDocsFrom({ 'README.md': '# EN', 'README.fr.md': '# FR' }, null)
-    expect(docs.readme).toEqual({ en: '# EN', fr: '# FR' })
+  it('lists each readme language and the licence as their own FILE rows', () => {
+    // The user picks files, the way the repository presents them — not an opaque
+    // "readme" block. A French-only change is then one row, not "replace docs".
+    const remote = readEntityDocsFrom(
+      { 'README.md': '# EN', 'README.fr.md': '# FR', 'LICENSE.md': 'MIT' },
+      { license: { id: 'mit' } },
+    )
+    const items = etlDocItems(remote, undefined)
+    expect(items.map((i) => i.key)).toEqual(['README.md', 'README.fr.md', 'LICENSE.md'])
+    expect(items.every((i) => !i.exists)).toBe(true)
   })
 
-  it('recombines the license id from the JSON with the text from the file', () => {
-    // Only the text is in LICENSE.md; which license it is stays in _pipeline.json.
-    const docs = readEntityDocsFrom({ 'LICENSE.md': 'Permission is hereby granted…' }, { license: { id: 'mit' } })
-    expect(docs.license).toMatchObject({ id: 'mit', text: 'Permission is hereby granted…' })
-  })
-
-  it('reports no license when the repo carries no LICENSE.md', () => {
-    expect(readEntityDocsFrom({ 'README.md': 'x' }, { license: { id: 'mit' } }).license).toBeUndefined()
-  })
-
-  it('detects a readme that the local pipeline does not have — the reported case', () => {
-    const remote = readEntityDocsFrom({ 'README.md': '# Attribution and results' }, null)
-    expect(entityDocsChanged({}, remote)).toBe(true)
-    expect(buildEtlPullPlan([], [], false, true).docsChanged).toBe(true)
-  })
-
-  it('detects a CHANGED readme, and ignores an identical one', () => {
+  it('marks a docs file the entity already has as an overwrite', () => {
     const remote = readEntityDocsFrom({ 'README.md': 'v2' }, null)
-    expect(entityDocsChanged({ readme: { en: 'v1' } }, remote)).toBe(true)
-    expect(entityDocsChanged({ readme: { en: 'v2' } }, remote)).toBe(false)
+    expect(etlDocItems(remote, { readme: { en: 'v1' } })).toEqual([
+      { key: 'README.md', exists: true },
+    ])
   })
 
-  it('normalises a legacy plain-string local readme before comparing', () => {
-    // toLocalized fills EVERY language from a bare string, so a legacy record reads
-    // as {en, fr} and a remote carrying only `en` is genuinely different — offering
-    // the pull is correct here, not a false positive.
-    const enOnly = readEntityDocsFrom({ 'README.md': 'same' }, null)
-    expect(entityDocsChanged({ readme: 'same' }, enOnly)).toBe(true)
-    // Same content in both languages → nothing to pull.
-    const both = readEntityDocsFrom({ 'README.md': 'same', 'README.fr.md': 'same' }, null)
-    expect(entityDocsChanged({ readme: 'same' }, both)).toBe(false)
+  it('omits a docs file whose content already matches', () => {
+    const remote = readEntityDocsFrom({ 'README.md': 'same', 'README.fr.md': 'neuf' }, null)
+    // Only the French one differs, so only it is offered.
+    expect(etlDocItems(remote, { readme: { en: 'same', fr: 'vieux' } }).map((i) => i.key))
+      .toEqual(['README.fr.md'])
   })
 
-  it('offers nothing when the remote has no docs at all', () => {
-    // A pull ADDS or REPLACES; it must never delete a local README because the
-    // repo happens not to have one.
-    expect(entityDocsChanged({ readme: { en: 'mine' } }, readEntityDocsFrom({}, null))).toBe(false)
+  it('offers nothing when the remote carries no docs', () => {
+    expect(etlDocItems({}, { readme: { en: 'mine' } })).toEqual([])
+  })
+
+  it('puts the docs rows in their own group, ahead of the scripts', () => {
+    const remote = readEntityDocsFrom({ 'README.md': '# doc' }, null)
+    const plan = buildEtlPullPlan([node('10_src.sql', 'X')], [], false, etlDocItems(remote, undefined))
+    expect(plan.groups.docs.map((i) => i.key)).toEqual(['README.md'])
+    expect(ETL_PULL_GROUPS.indexOf('docs')).toBeLessThan(ETL_PULL_GROUPS.indexOf('scripts'))
+  })
+
+  it('maps a chosen docs path back to the field it writes', () => {
+    expect(etlDocTarget('README.md')).toEqual({ readmeLang: 'en' })
+    expect(etlDocTarget('README.fr.md')).toEqual({ readmeLang: 'fr' })
+    expect(etlDocTarget('LICENSE.md')).toBe('license')
+    expect(etlDocTarget('10_src.sql')).toBeNull()
   })
 })

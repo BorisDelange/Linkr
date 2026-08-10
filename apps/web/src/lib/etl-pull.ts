@@ -18,7 +18,7 @@
  * data is gitignored by default, so without the mark the file would read as an
  * untracked local change the moment it landed.
  */
-import type { EtlFile, EtlPipeline } from '@/types'
+import type { EtlFile, EtlPipeline, LocalizedString } from '@/types'
 import type { Storage } from '@/lib/storage'
 import { getStorage } from '@/lib/storage'
 import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
@@ -35,17 +35,18 @@ import {
   type TreeImportNode,
 } from '@/lib/entity-io'
 import {
-  entityDocsChanged,
-  entityDocsChanges,
+  presentReadme,
   readEntityDocsFrom,
+  type DocsOwner,
   type EntityDocs,
 } from '@/lib/entity-docs-pull'
 import { setVersionedMany } from '@/features/warehouse/etl/etl-versioning'
 
 /** Pullable groups of an ETL pipeline, in display order. */
-export type EtlPullGroup = 'scripts' | 'mappings' | 'other'
+export type EtlPullGroup = 'docs' | 'scripts' | 'mappings' | 'other'
 
-export const ETL_PULL_GROUPS: EtlPullGroup[] = ['scripts', 'mappings', 'other']
+/** Docs first: they are prose the user reads, before the code. */
+export const ETL_PULL_GROUPS: EtlPullGroup[] = ['docs', 'scripts', 'mappings', 'other']
 
 /** One remote file the user can choose to pull. */
 export interface EtlPullItem {
@@ -60,15 +61,6 @@ export interface EtlPullPlan {
   groups: Record<EtlPullGroup, EtlPullItem[]>
   /** The remote pipeline settings differ from the local ones (a single block). */
   settingsChanged: boolean
-  /**
-   * The remote README / LICENSE differ from the local ones (a single block).
-   *
-   * These are NOT tree files: the export writes `README.md` / `LICENSE.md` beside
-   * `_tree.json` and the entity owns them as `readme` / `license` fields. Planning
-   * only from `_tree.json` therefore missed them entirely — a remote commit that
-   * added a README reported "nothing to pull".
-   */
-  docsChanged: boolean
 }
 
 
@@ -86,12 +78,16 @@ export interface PreparedEtlPull {
 }
 
 export interface EtlPullSelection {
-  /** Chosen paths across all groups (the group is only a UI grouping). */
+  /**
+   * Chosen paths across all groups (the group is only a UI grouping).
+   *
+   * Docs paths (README*.md / LICENSE.md) are selected here like any other file,
+   * even though applying them writes the entity's `readme` / `license` fields
+   * rather than a tree row — the user picks files, the apply knows the difference.
+   */
   paths: Set<string>
   /** Replace the local pipeline settings with the remote ones. */
   settings: boolean
-  /** Replace the local README / license with the remote ones. */
-  docs: boolean
 }
 
 /**
@@ -104,6 +100,8 @@ export function etlPullGroupOf(path: string): EtlPullGroup {
   const category = gitFileMeta('etl-pipelines', path).category
   if (category === 'scripts') return 'scripts'
   if (category === 'mappings') return 'mappings'
+  // 'readme' covers README*.md, LICENSE.md and attachments/ in the push-side rules.
+  if (category === 'readme') return 'docs'
   return 'other'
 }
 
@@ -181,10 +179,12 @@ export function buildEtlPullPlan(
   nodes: TreeImportNode[],
   localFiles: EtlFile[],
   settingsChanged: boolean,
-  docsChanged = false,
+  docItems: EtlPullItem[] = [],
 ): EtlPullPlan {
   const localByPath = etlFilesByPath(localFiles)
-  const groups: Record<EtlPullGroup, EtlPullItem[]> = { scripts: [], mappings: [], other: [] }
+  const groups: Record<EtlPullGroup, EtlPullItem[]> = {
+    docs: [...docItems], scripts: [], mappings: [], other: [],
+  }
   for (const node of nodes) {
     if (node.type !== 'file' || isEtlManifest(node.path)) continue
     const local = localByPath.get(node.path)
@@ -194,7 +194,42 @@ export function buildEtlPullPlan(
   for (const key of ETL_PULL_GROUPS) {
     groups[key].sort((a, b) => a.key.localeCompare(b.key))
   }
-  return { groups, settingsChanged, docsChanged }
+  return { groups, settingsChanged }
+}
+
+/**
+ * The docs files a pull can offer, as file items.
+ *
+ * They are listed as `README.md` / `README.<lang>.md` / `LICENSE.md` because that
+ * is what the repository actually contains and what the user recognises — even
+ * though applying one writes the entity's `readme` / `license` FIELD rather than a
+ * tree row. Each language is its own item, so a French-only change is one row
+ * rather than an opaque "readme" block.
+ *
+ * `exists` means the local entity already has that piece, so pulling replaces it.
+ * A piece whose content already matches is omitted, exactly as for scripts.
+ */
+export function etlDocItems(remote: EntityDocs, local: DocsOwner | undefined): EtlPullItem[] {
+  const items: EtlPullItem[] = []
+  const localReadme = presentReadme(local?.readme)
+  for (const [lang, text] of Object.entries(remote.readme ?? {})) {
+    if (!text) continue
+    const mine = localReadme?.[lang]
+    if (mine === text) continue
+    // The primary language is the suffix-free file, mirroring writeReadmeFiles.
+    items.push({ key: lang === 'en' ? 'README.md' : `README.${lang}.md`, exists: mine != null })
+  }
+  if (remote.license?.text && remote.license.text !== local?.license?.text) {
+    items.push({ key: 'LICENSE.md', exists: !!local?.license })
+  }
+  return items
+}
+
+/** Map a chosen docs path back to what it writes: a readme language, or the licence. */
+export function etlDocTarget(path: string): { readmeLang: string } | 'license' | null {
+  if (/^LICENSE\.md$/i.test(path)) return 'license'
+  const m = /^README(?:\.([a-z]{2}))?\.md$/i.exec(path)
+  return m ? { readmeLang: (m[1] ?? 'en').toLowerCase() } : null
 }
 
 /** Do the remote pipeline settings differ from the local ones? */
@@ -255,7 +290,7 @@ export async function prepareEtlPull(
       nodes,
       localFiles,
       etlSettingsChanged(pipeline, remotePipeline),
-      entityDocsChanged(pipeline, remoteDocs),
+      etlDocItems(remoteDocs, pipeline),
     ),
     nodes,
     remotePipeline,
@@ -279,7 +314,7 @@ export async function applyEtlPull(
   selection: EtlPullSelection,
   storage: Storage = getStorage(),
 ): Promise<void> {
-  const { nodes, remotePipeline, branch, clonedOid } = prepared
+  const { nodes, remotePipeline, remoteDocs, branch, clonedOid } = prepared
 
   const chosen = nodes.filter((n) => n.type === 'file' && selection.paths.has(n.path))
   if (chosen.length > 0) {
@@ -324,8 +359,27 @@ export async function applyEtlPull(
   // Docs are entity fields, written whether or not the settings block was taken.
   // Only what the remote actually carries is written: a repo with a README but no
   // LICENSE must not blank out a local license.
-  if (selection.docs) {
-    const changes = entityDocsChanges(prepared.remoteDocs)
+  // Docs: the user picked FILES, so only the picked pieces are written — taking
+  // README.fr.md must not also overwrite the English one.
+  const docPaths = [...selection.paths].filter((p) => etlDocTarget(p) !== null)
+  if (docPaths.length > 0) {
+    const fresh = await storage.etlPipelines.getById(pipelineId)
+    const changes: Partial<EtlPipeline> = {}
+    const readme: LocalizedString = { ...(presentReadme(fresh?.readme) ?? {}) }
+    let readmeTouched = false
+    for (const path of docPaths) {
+      const target = etlDocTarget(path)
+      if (target === 'license') {
+        if (remoteDocs.license) changes.license = remoteDocs.license
+      } else if (target) {
+        const text = remoteDocs.readme?.[target.readmeLang]
+        if (text != null) {
+          readme[target.readmeLang] = text
+          readmeTouched = true
+        }
+      }
+    }
+    if (readmeTouched) changes.readme = readme
     if (Object.keys(changes).length > 0) {
       await storage.etlPipelines.update(pipelineId, changes).catch(() => {})
     }

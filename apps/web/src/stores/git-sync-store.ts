@@ -140,6 +140,10 @@ interface GitSyncState {
    *  blob). LFS is opt-in only — there's no automatic size/extension rule. */
   lfsOverrides: Map<string, boolean>
   loadingStatus: boolean
+  /** True while the behind/diverged check is in flight. The panel waits on it so
+   *  the "remote has changes" banner appears WITH the rest — it used to arrive a
+   *  few seconds later, after the user had already read the page. */
+  loadingSyncState: boolean
   committing: boolean
   error: GitSyncError | null
   /** Identity (scope|id|branch) the current status was computed for, so remounting
@@ -186,6 +190,7 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
   selected: new Set(),
   lfsOverrides: new Map(),
   loadingStatus: false,
+  loadingSyncState: false,
   committing: false,
   error: null,
   statusKey: null,
@@ -251,15 +256,16 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
 
   loadSyncState: async (scope, id, branch) => {
     const gen = ++syncStateGen
+    set({ loadingSyncState: true })
     try {
       // Cheap oid-only check on the server — no export ZIP to build, so opening the
       // Versioning tab doesn't pay the (heavy) export cost just to show the banner.
       const syncState = await gitSyncState(scope, id, branch)
       if (gen !== syncStateGen) return // superseded by a newer load — drop this result
-      set({ syncState })
+      set({ syncState, loadingSyncState: false })
     } catch (err) {
       if (gen !== syncStateGen) return
-      set({ error: toGitError(err) })
+      set({ error: toGitError(err), loadingSyncState: false })
     }
   },
 
@@ -361,6 +367,6 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     statusGen++ // invalidate any in-flight refresh from the closing panel
     _zipCache = null // drop the cached export ZIP so the next entity rebuilds fresh
     _diffCache = new Map() // and the per-file diffs computed against it
-    set({ status: null, branches: null, syncState: null, selected: new Set(), lfsOverrides: new Map(), error: null, loadingStatus: false, committing: false, statusKey: null })
+    set({ status: null, branches: null, syncState: null, selected: new Set(), lfsOverrides: new Map(), error: null, loadingStatus: false, loadingSyncState: false, committing: false, statusKey: null })
   },
 }))

@@ -1691,7 +1691,6 @@
     "pull_group_settings": "Paramètres de la pipeline",
     "pull_group_docs": "Readme et licence",
     "pull_not_implemented": "La récupération (pull) n'est pas encore implémentée pour ce type de contenu — vous pouvez pousser vos modifications, mais celles faites sur le dépôt distant ne peuvent pas être rapatriées automatiquement.",
-    "pull_etl_docs_replace": "Remplacer mon readme et ma licence par ceux du dépôt distant",
     "pull_etl_settings_replace": "Remplacer le nom, la description et les paramètres de ma pipeline par ceux du dépôt distant",
     "pull_badge_overwrite": "écraser",
     "pull_group_select_all": "Tout sélectionner",

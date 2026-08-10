@@ -50,7 +50,7 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, syncState, selected, loadingStatus, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
+  const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
     useGitSyncStore()
   const authorName = useAppStore((s) => s.getUserDisplayName())
   // behind/diverged detection: mapping projects (built-in 3-way pull) and any scope
@@ -105,6 +105,10 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
   // through to the normal file view — the backend then sees an empty tree and
   // every file shows as "added", as if the repo were empty. Block both tabs with
   // a clear notice instead, pointing the user to add their token.
+  // One loading state for both requests: the behind/diverged check is a separate
+  // (network) round-trip, so releasing the UI on the status alone made the banner
+  // appear seconds later — long enough for the user to have moved on and missed it.
+  const loadingStatus = loadingStatusRaw || (syncStateSupported && loadingSyncState)
   const authBlocked = !loadingStatus && (error?.code === 'auth_failed' || error?.code === 'auth_required')
   const nothingToCommit = !loadingStatus && !authBlocked && files.length === 0
   const allChecked = files.length > 0 && files.every((f) => selected.has(f.path))
