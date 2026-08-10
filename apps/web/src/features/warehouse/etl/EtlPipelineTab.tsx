@@ -77,7 +77,7 @@ import { isServerMode } from '@/lib/api-client'
 import { fetchDatabaseConnectionInfo, type DatabaseConnectionInfo } from '@/lib/api/data-sources'
 import { localized } from '@/lib/localized'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
-import { orderByNamePatch } from './etl-file-language'
+import { etlLanguageLabel, orderByNamePatch } from './etl-file-language'
 import { usePipelineRunner } from './use-pipeline-runner'
 import { RunProgressBar } from './RunProgressBar'
 import { splitSentences } from './role-presentation'
@@ -393,7 +393,7 @@ function NodeDetailSidebar({ info, onViewCode, onBrowseSchema }: {
       <ScrollArea className="min-w-0 flex-1 [&>[data-slot=scroll-area-viewport]]:min-w-0">
         <div className="min-w-0 space-y-3 p-3 text-xs">
           <DetailRow label={t('etl.pipeline_script_order')} value={String(file.order)} />
-          <DetailRow label={t('etl.pipeline_script_lang')} value={file.language ?? 'sql'} />
+          <DetailRow label={t('etl.pipeline_script_lang')} value={etlLanguageLabel(file.language ?? 'sql')} />
 
           {log && (
             <div className="space-y-2 border-t pt-3">

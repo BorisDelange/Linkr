@@ -5,6 +5,7 @@ import {
   orderByNamePatch,
   safeEtlFileName,
   uniqueEtlFileName,
+  etlLanguageLabel,
 } from './etl-file-language'
 
 describe('inferEtlLanguage', () => {
@@ -137,5 +138,24 @@ describe('orderByNamePatch', () => {
 
   it('handles an empty pipeline', () => {
     expect(orderByNamePatch([]).size).toBe(0)
+  })
+})
+
+
+describe('etlLanguageLabel', () => {
+  it('writes the acronyms and names properly', () => {
+    // "Language sql" in a sidebar reads like a bug.
+    expect(etlLanguageLabel('sql')).toBe('SQL')
+    expect(etlLanguageLabel('python')).toBe('Python')
+    expect(etlLanguageLabel('r')).toBe('R')
+    expect(etlLanguageLabel('markdown')).toBe('Markdown')
+  })
+
+  it('capitalises anything it does not know, rather than dropping it', () => {
+    expect(etlLanguageLabel('julia')).toBe('Julia')
+  })
+
+  it('shows a dash when there is no language', () => {
+    expect(etlLanguageLabel(undefined)).toBe('—')
   })
 })

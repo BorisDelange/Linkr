@@ -13,6 +13,27 @@ export function inferEtlLanguage(name: string): EtlFile['language'] | undefined 
 }
 
 /**
+ * How a language is written for a reader: SQL, Python, R, Markdown.
+ *
+ * The stored value is a lowercase identifier (`sql`, `r`), which is right for
+ * code and wrong in a sidebar — "Language sql" reads like a bug. Unknown values
+ * are capitalised rather than dropped, so a language added later still shows
+ * something sensible without touching this.
+ */
+const LANGUAGE_LABELS: Record<string, string> = {
+  sql: 'SQL',
+  python: 'Python',
+  r: 'R',
+  markdown: 'Markdown',
+}
+
+export function etlLanguageLabel(language: string | undefined): string {
+  if (!language) return '—'
+  return LANGUAGE_LABELS[language.toLowerCase()]
+    ?? language.charAt(0).toUpperCase() + language.slice(1)
+}
+
+/**
  * Names an upload cannot use: they address the pipeline itself rather than a
  * script, so a file of that name would be read as pipeline structure on the next
  * export/import.

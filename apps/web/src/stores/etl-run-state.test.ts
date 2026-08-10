@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { useEtlStore } from './etl-store'
+import { statusesOf, useEtlStore } from './etl-store'
 import { initStorage } from '@/lib/storage'
 import type { EtlRunLog, EtlRunHistoryEntry } from '@/types'
 
@@ -352,5 +352,66 @@ describe('persisting the run history', () => {
     expect(useEtlStore.getState().pipelineRunning).toBe(true)
     expect(() => useEtlStore.getState().finishPipelineRun('success')).not.toThrow()
     expect(() => useEtlStore.getState().clearRunHistory()).not.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Badges restored after leaving the page
+// ---------------------------------------------------------------------------
+
+describe('restoring the per-script badges', () => {
+  it('rebuilds them from a run, keyed by file', () => {
+    // The green ticks and error marks on the DAG widgets and in the Scripts tree
+    // used to vanish on leaving the page, even though the run was persisted.
+    const map = statusesOf({
+      id: 'r1', pipelineId: 'p1', startedAt: '2026-08-10T09:00:00Z', status: 'error',
+      scripts: [
+        { id: 'l1', pipelineId: 'p1', fileId: 'f1', status: 'success' },
+        { id: 'l2', pipelineId: 'p1', fileId: 'f2', status: 'error', error: 'boom' },
+      ],
+    })
+    expect(map.get('f1')?.status).toBe('success')
+    expect(map.get('f2')?.status).toBe('error')
+    expect(map.get('f2')?.error).toBe('boom')
+  })
+
+  it('reports a script left mid-run as stopped, not running', () => {
+    // The tab was closed while it ran: nothing is executing now, so a spinner
+    // would claim work that is not happening.
+    const map = statusesOf({
+      id: 'r1', pipelineId: 'p1', startedAt: '2026-08-10T09:00:00Z', status: 'running',
+      scripts: [{ id: 'l1', pipelineId: 'p1', fileId: 'f1', status: 'running' }],
+    })
+    expect(map.get('f1')?.status).toBe('stopped')
+  })
+
+  it('is empty when there is no run to restore from', () => {
+    expect(statusesOf(undefined).size).toBe(0)
+  })
+
+  it('loadRunHistory restores the badges of the LAST run only', async () => {
+    // An older run's result is not what the pipeline looks like today; merging
+    // several would show a success that has since failed.
+    initStorage({
+      etlRunHistory: {
+        getByPipeline: async () => ([
+          {
+            id: 'old', pipelineId: 'p1', startedAt: '2026-08-10T08:00:00Z', status: 'success',
+            scripts: [{ id: 'a', pipelineId: 'p1', fileId: 'f1', status: 'success' }],
+          },
+          {
+            id: 'new', pipelineId: 'p1', startedAt: '2026-08-10T10:00:00Z', status: 'error',
+            scripts: [{ id: 'b', pipelineId: 'p1', fileId: 'f1', status: 'error' }],
+          },
+        ]),
+        save: async () => {},
+        delete: async () => {},
+        deleteByPipeline: async () => {},
+      },
+    } as unknown as Parameters<typeof initStorage>[0])
+
+    await useEtlStore.getState().loadRunHistory('p1')
+    expect(useEtlStore.getState().scriptStatuses.get('f1')?.status).toBe('error')
+    initStorage(undefined as unknown as Parameters<typeof initStorage>[0])
   })
 })

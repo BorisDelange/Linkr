@@ -103,6 +103,23 @@ interface EtlState {
 const MAX_RUN_HISTORY = 50
 
 /**
+ * The per-script badge map for a run: fileId → its log.
+ *
+ * Exported for its test, and used to restore the DAG widgets and tree marks after
+ * a reload. A script left 'running' by a run that was interrupted (the tab closed
+ * mid-run, say) is reported as 'stopped': nothing is executing now, so a spinner
+ * would claim work that is not happening.
+ */
+export function statusesOf(run: EtlRunHistoryEntry | undefined): Map<string, EtlRunLog> {
+  const out = new Map<string, EtlRunLog>()
+  if (!run) return out
+  for (const log of run.scripts) {
+    out.set(log.fileId, log.status === 'running' ? { ...log, status: 'stopped' } : log)
+  }
+  return out
+}
+
+/**
  * Mirror a run to storage, fire-and-forget.
  *
  * Deliberately not awaited by the callers: a run writes its history on every
@@ -508,10 +525,17 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     const runs = await getStorage().etlRunHistory.getByPipeline(pipelineId)
     // Newest first, as the panel lists them. The server already orders that way,
     // but the IDB index does not, so sorting here keeps both backends identical.
+    const history = runs
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .slice(0, MAX_RUN_HISTORY)
     set({
-      runHistory: runs
-        .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-        .slice(0, MAX_RUN_HISTORY),
+      runHistory: history,
+      // Rebuild the per-script badges from the LAST run, so the green ticks and
+      // error marks on the DAG widgets and in the Scripts tree survive leaving the
+      // page — they are a view of the last run, which is now persisted. Only the
+      // most recent one: an older run's result is not what the pipeline looks like
+      // today, and merging several would show a success that has since failed.
+      scriptStatuses: statusesOf(history[0]),
     })
   },
 
