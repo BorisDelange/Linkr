@@ -1,5 +1,5 @@
 import type { GitFileChange, GitScope } from '@/lib/api/git'
-import { isForeignPath } from '@/lib/git-file-classify'
+import { isDefaultSelected, isForeignPath } from '@/lib/git-file-classify'
 
 /** One changed file an action will commit, with its git change type (A/M/D) so the
  *  UI can badge it — a "deleted" row makes clear the action REMOVES that file. */
@@ -38,11 +38,12 @@ interface QuickActionDef {
    *  ALL changed paths are included ("sync everything that changed"). */
   patterns?: RegExp[]
   /** Drop foreign files Linkr doesn't manage (a stray/unknown file another tool
-   *  wrote — see isForeignPath; Linkr-managed config like .gitignore is kept even
-   *  when it falls to the 'other' category). Used by "Sync all" so a one-click
-   *  commit versions everything Linkr owns without sweeping in foreign files — the
-   *  user handles those deliberately from Details. Also marks the preset as the
-   *  "Sync all" one for the shared accent. */
+   *  wrote — see isForeignPath), plus everything the Details commit list leaves
+   *  unchecked by default (isDefaultSelected: a modified hand-enrichable
+   *  .gitignore/.gitattributes, config/foreign deletions). Used by "Sync all" so
+   *  a one-click commit versions everything Linkr owns without sweeping in what
+   *  the user should push deliberately from Details. Also marks the preset as
+   *  the "Sync all" one for the shared accent. */
   excludeForeign?: boolean
 }
 
@@ -184,7 +185,7 @@ export function buildQuickActions(
       : [...changes]
     ).map((c) => ({ path: c.path, changeType: c.changeType }))
     if (def.excludeForeign) {
-      files = files.filter((f) => !isForeignPath(scope, f.path))
+      files = files.filter((f) => !isForeignPath(scope, f.path) && isDefaultSelected(scope, f))
     }
     return {
       labelKey: def.labelKey,

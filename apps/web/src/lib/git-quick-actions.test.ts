@@ -95,11 +95,29 @@ describe('buildQuickActions', () => {
     }
   })
 
-  it('Sync all drops foreign files but keeps Linkr-managed ones (incl. .gitignore/.gitattributes)', () => {
+  it('Sync all drops foreign files and modified repo config, keeps added config', () => {
     // review/*, state.json, a custom CSV aren't Linkr's → foreign (dropped).
-    // .gitignore/.gitattributes are Linkr-managed → kept even if categorised 'other'.
-    const changed = ch('project.json', 'mappings.json', 'review/app.js', 'state.json', 'hosp_units_cleaned.csv', '.gitignore', '.gitattributes', 'source-concepts.csv')
+    // A MODIFIED .gitignore/.gitattributes may clobber a hand-enriched remote
+    // copy → left to Details, like the default selection. ADDED ones are Linkr's
+    // only copy → kept.
+    const changed = ch(
+      'project.json', 'mappings.json', 'review/app.js', 'state.json', 'hosp_units_cleaned.csv',
+      ['.gitignore', 'modified'], ['.gitattributes', 'added'], 'source-concepts.csv',
+    )
     const [all] = buildQuickActions('mapping-projects', changed)
-    expect(paths(all)).toEqual(['project.json', 'mappings.json', '.gitignore', '.gitattributes', 'source-concepts.csv'])
+    expect(paths(all)).toEqual(['project.json', 'mappings.json', '.gitattributes', 'source-concepts.csv'])
+  })
+
+  it('Sync all keeps a modified .gitignore in the projects scope (Linkr fully owns it there)', () => {
+    const changed = ch(['project.json', 'modified'], ['.gitignore', 'modified'])
+    const [all] = buildQuickActions('projects', changed)
+    expect(paths(all)).toEqual(['project.json', '.gitignore'])
+  })
+
+  it('Sync all never proposes deleting repo config or foreign files', () => {
+    const changed = ch(['mappings.json', 'deleted'], ['.gitignore', 'deleted'], ['state.json', 'deleted'])
+    const [all] = buildQuickActions('mapping-projects', changed)
+    // A Linkr-owned file deletion is genuine and stays; config/foreign deletions don't.
+    expect(paths(all)).toEqual(['mappings.json'])
   })
 })

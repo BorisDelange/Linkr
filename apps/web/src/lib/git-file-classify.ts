@@ -85,18 +85,24 @@ export function defaultSelectedPaths(
   scope: GitScope,
   files: { path: string; changeType: string }[],
 ): string[] {
-  return files
-    .filter((f) => {
-      if (isUnownedConfigModification(f, scope)) return false
-      // A deleted config file (.gitignore/.gitattributes) is left unchecked: Linkr
-      // never drops these from an export, so a deletion came from elsewhere and
-      // checking it would propose erasing a possibly hand-enriched remote copy.
-      // A deletion of a foreign file is likewise left aside (Linkr doesn't own it).
-      if (f.changeType === 'deleted') {
-        if (isConfigFile(f.path)) return false
-        return !isForeignPath(scope, f.path)
-      }
-      return true
-    })
-    .map((f) => f.path)
+  return files.filter((f) => isDefaultSelected(scope, f)).map((f) => f.path)
+}
+
+/** One change's default-checked verdict — shared by the Details selection and the
+ *  "Sync all" quick action, so a one-click push never sweeps in what the commit
+ *  list would have left unchecked. */
+export function isDefaultSelected(
+  scope: GitScope,
+  f: { path: string; changeType: string },
+): boolean {
+  if (isUnownedConfigModification(f, scope)) return false
+  // A deleted config file (.gitignore/.gitattributes) is left unchecked: Linkr
+  // never drops these from an export, so a deletion came from elsewhere and
+  // checking it would propose erasing a possibly hand-enriched remote copy.
+  // A deletion of a foreign file is likewise left aside (Linkr doesn't own it).
+  if (f.changeType === 'deleted') {
+    if (isConfigFile(f.path)) return false
+    return !isForeignPath(scope, f.path)
+  }
+  return true
 }
