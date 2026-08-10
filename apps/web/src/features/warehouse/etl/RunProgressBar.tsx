@@ -8,7 +8,9 @@ import { currentStatementNumber, statementPreview } from './statement-preview'
 import type { EtlFile } from '@/types'
 
 interface Props {
-  /** The scripts of this run, in order, so "3 / 12" counts the right set. */
+  /** Every script the tab could run. The bar narrows this to the ones the CURRENT
+   *  run covers (store.runningFileIds), so running one line reports "0/1" and not
+   *  "0/16" against a pipeline the user did not launch. */
   files: EtlFile[]
   /** Open the running script at the statement being executed. Omit where there
    *  is no editor to jump to (the Pipeline toolbar passes it through). */
@@ -28,9 +30,16 @@ export function RunProgressBar({ files, onGoToStatement }: Props) {
   const running = useEtlStore((s) => s.pipelineRunning)
   const statuses = useEtlStore((s) => s.scriptStatuses)
 
-  const current = files.find((f) => statuses.get(f.id)?.status === 'running')
+  const runningIds = useEtlStore((s) => s.runningFileIds)
+  // Keep the run's own order, and fall back to every file for a run started
+  // before this state existed (or by a caller that did not declare its set).
+  const inRun = runningIds.length > 0
+    ? runningIds.map((id) => files.find((f) => f.id === id)).filter((f): f is EtlFile => !!f)
+    : files
+
+  const current = inRun.find((f) => statuses.get(f.id)?.status === 'running')
   const log = current ? statuses.get(current.id) : undefined
-  const done = files.filter((f) => {
+  const done = inRun.filter((f) => {
     const s = statuses.get(f.id)?.status
     return s === 'success' || s === 'skipped'
   }).length
@@ -46,7 +55,7 @@ export function RunProgressBar({ files, onGoToStatement }: Props) {
           together ("stmt 4/26" + "7s" read as "stmt 4/267s"). */}
       <div className="flex min-w-0 items-baseline gap-1.5 text-[11px]">
         <span className="shrink-0 tabular-nums text-muted-foreground">
-          {done}/{files.length}
+          {done}/{inRun.length}
         </span>
         {current && <span className="truncate font-medium">{current.name}</span>}
         {log?.statementsTotal != null && log.statementsTotal > 1 && (

@@ -32,6 +32,15 @@ export const VOCAB_ROLE_PREFIX = 'vocab'
 const TARGET = 'target'
 
 /**
+ * Tables are emptied with TRUNCATE, not DELETE.
+ *
+ * Every clear here wipes a whole table, and DELETE journals row by row — on
+ * concept / concept_relationship, which run to millions of rows, that dominated
+ * the script's runtime for no benefit. Verified against DuckDB on an attached
+ * database.
+ */
+
+/**
  * OMOP columns of the ATHENA tables copied wholesale into the target, in DDL
  * order. Needed because `SELECT *` copies positionally, and ATHENA's CSV-derived
  * parquet often types the date columns as BIGINT (`20100401`) rather than DATE —
@@ -158,7 +167,7 @@ export function buildVocabularyScriptWithIds(
   parts.push('-- PART 1: source_to_concept_map')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push(`DELETE FROM ${TARGET}.source_to_concept_map;`)
+  parts.push(`TRUNCATE ${TARGET}.source_to_concept_map;`)
 
   if (mappings.length > 0) {
     // The rows are NOT written here. A mapping project is often a private
@@ -182,7 +191,7 @@ export function buildVocabularyScriptWithIds(
   parts.push('-- PART 2: concept table')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push(`DELETE FROM ${TARGET}.concept;`)
+  parts.push(`TRUNCATE ${TARGET}.concept;`)
 
   // 2a. Target concepts from STCM
   parts.push('')
@@ -309,7 +318,7 @@ export function buildVocabularyScriptWithIds(
   parts.push('-- PART 3: concept_relationship')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push(`DELETE FROM ${TARGET}.concept_relationship;`)
+  parts.push(`TRUNCATE ${TARGET}.concept_relationship;`)
   parts.push(`INSERT INTO ${TARGET}.concept_relationship`)
   parts.push(`SELECT ${athenaSelectList('concept_relationship', 'cr')}`)
   parts.push(`FROM ${vs}.concept_relationship cr`)
@@ -353,7 +362,7 @@ export function buildVocabularyScriptWithIds(
   parts.push('-- PART 4: concept_ancestor')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push(`DELETE FROM ${TARGET}.concept_ancestor;`)
+  parts.push(`TRUNCATE ${TARGET}.concept_ancestor;`)
   parts.push(`INSERT INTO ${TARGET}.concept_ancestor`)
   parts.push(`SELECT ca.*`)
   parts.push(`FROM ${vs}.concept_ancestor ca`)
@@ -371,7 +380,7 @@ export function buildVocabularyScriptWithIds(
 
   // vocabulary
   if (has('vocabulary')) {
-    parts.push(`DELETE FROM ${TARGET}.vocabulary;`)
+    parts.push(`TRUNCATE ${TARGET}.vocabulary;`)
     parts.push(`INSERT INTO ${TARGET}.vocabulary`)
     parts.push(`SELECT v.*`)
     parts.push(`FROM ${vs}.vocabulary v`)
@@ -380,7 +389,7 @@ export function buildVocabularyScriptWithIds(
     parts.push(skipped('vocabulary', vs))
     // The custom entries below are still worth inserting, so clear the table
     // here instead — otherwise a re-run would duplicate them.
-    parts.push(`DELETE FROM ${TARGET}.vocabulary;`)
+    parts.push(`TRUNCATE ${TARGET}.vocabulary;`)
   }
   parts.push('')
 
@@ -402,7 +411,7 @@ export function buildVocabularyScriptWithIds(
 
   // domain
   if (has('domain')) {
-    parts.push(`DELETE FROM ${TARGET}.domain;`)
+    parts.push(`TRUNCATE ${TARGET}.domain;`)
     parts.push(`INSERT INTO ${TARGET}.domain`)
     parts.push(`SELECT d.*`)
     parts.push(`FROM ${vs}.domain d`)
@@ -414,7 +423,7 @@ export function buildVocabularyScriptWithIds(
 
   // concept_class
   if (has('concept_class')) {
-    parts.push(`DELETE FROM ${TARGET}.concept_class;`)
+    parts.push(`TRUNCATE ${TARGET}.concept_class;`)
     parts.push(`INSERT INTO ${TARGET}.concept_class`)
     parts.push(`SELECT cc.*`)
     parts.push(`FROM ${vs}.concept_class cc`)
@@ -426,7 +435,7 @@ export function buildVocabularyScriptWithIds(
 
   // relationship
   if (has('relationship')) {
-    parts.push(`DELETE FROM ${TARGET}.relationship;`)
+    parts.push(`TRUNCATE ${TARGET}.relationship;`)
     parts.push(`INSERT INTO ${TARGET}.relationship`)
     parts.push(`SELECT r.*`)
     parts.push(`FROM ${vs}.relationship r`)
@@ -438,7 +447,7 @@ export function buildVocabularyScriptWithIds(
 
   // concept_synonym
   if (has('concept_synonym')) {
-    parts.push(`DELETE FROM ${TARGET}.concept_synonym;`)
+    parts.push(`TRUNCATE ${TARGET}.concept_synonym;`)
     parts.push(`INSERT INTO ${TARGET}.concept_synonym`)
     parts.push(`SELECT cs.*`)
     parts.push(`FROM ${vs}.concept_synonym cs`)

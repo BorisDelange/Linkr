@@ -44,11 +44,11 @@ describe('buildVocabularyScript', () => {
 
   it('qualifies every write with target.', () => {
     for (const table of TARGET_TABLES) {
-      expect(sql).not.toMatch(new RegExp(`DELETE FROM ${table}\\b`))
+      expect(sql).not.toMatch(new RegExp(`TRUNCATE ${table}\\b`))
       expect(sql).not.toMatch(new RegExp(`INSERT INTO ${table}\\b`))
       expect(sql).not.toMatch(new RegExp(`UPDATE ${table}\\b`))
     }
-    expect(sql).toContain('DELETE FROM target.concept;')
+    expect(sql).toContain('TRUNCATE target.concept;')
     expect(sql).toContain('INSERT INTO target.concept_ancestor')
     expect(sql).toContain('INSERT INTO target.source_to_concept_map')
   })
@@ -205,7 +205,7 @@ describe('vocabulary references missing the metadata tables', () => {
 
   it('still clears target.vocabulary before inserting the custom entries', () => {
     // Otherwise re-running the script would duplicate them.
-    expect(sql).toContain('DELETE FROM target.vocabulary;')
+    expect(sql).toContain('TRUNCATE target.vocabulary;')
   })
 
   it('says which parts were skipped', () => {
@@ -236,5 +236,23 @@ describe('buildCustomVocabularyScript', () => {
 
   it('is a no-op script when there are no rows', () => {
     expect(buildCustomVocabularyScript([])).toContain('No custom mappings')
+  })
+})
+
+describe('clearing tables', () => {
+  it('truncates rather than deleting, everywhere', () => {
+    // Every clear wipes a whole table, and DELETE journals row by row — on
+    // concept / concept_relationship that dominated the script's runtime.
+    const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, [
+      'concept', 'concept_relationship', 'concept_ancestor', 'concept_synonym',
+      'vocabulary', 'domain', 'concept_class', 'relationship',
+    ])
+    expect(sql).not.toContain('DELETE FROM')
+    for (const table of [
+      'source_to_concept_map', 'concept', 'concept_relationship', 'concept_ancestor',
+      'vocabulary', 'domain', 'concept_class', 'relationship', 'concept_synonym',
+    ]) {
+      expect(sql).toContain(`TRUNCATE target.${table};`)
+    }
   })
 })

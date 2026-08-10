@@ -272,6 +272,19 @@ async def run_etl(
     target_path = managed_db.path_for(target.id)
     if not target_path.exists():
         raise ValueError("the target database file is missing; recreate it")
+
+    # DuckDB refuses to attach the same FILE twice in one process, whatever the
+    # alias. Browsing a managed database leaves a warm pooled connection holding
+    # it READ_ONLY as `ext` (query_file), so a later ETL run asking for it as a
+    # writable `target` failed with "Unique file handle conflict" — and stayed
+    # broken until the server restarted, because the pool kept the handle.
+    #
+    # Evicting first hands the file to the run. `invalidate` waits for any
+    # in-flight query on that connection, so nothing is closed mid-statement; the
+    # next browse simply re-establishes a warm connection.
+    for source in (target, *roles.values()):
+        connection_pool.invalidate(source.id)
+
     attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"})
     return await asyncio.to_thread(
         db_connect.run_etl_sql, str(target_path), sql, attachments, mapping_data

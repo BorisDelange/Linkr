@@ -66,7 +66,11 @@ interface EtlState {
   scriptStatuses: Map<string, EtlRunLog>
   runHistory: { id: string; startedAt: string; completedAt?: string; status: 'running' | 'success' | 'error'; scripts: EtlRunLog[] }[]
   /** Returns false when a run is already in progress (the caller must not proceed). */
-  startPipelineRun: () => boolean
+  /** `fileIds` are the scripts THIS run covers, so progress counts the right
+   *  set: running one line must not report "0/16" against the whole pipeline. */
+  startPipelineRun: (fileIds: string[]) => boolean
+  /** Scripts of the run in progress, in order. Empty when nothing is running. */
+  runningFileIds: string[]
   stopPipelineRun: () => void
   setScriptStatus: (fileId: string, log: EtlRunLog) => void
   finishPipelineRun: (status: 'success' | 'error') => void
@@ -358,10 +362,11 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   // --- Pipeline run state ---
   pipelineRunning: false,
   pipelineRunAbort: null,
+  runningFileIds: [],
   scriptStatuses: new Map(),
   runHistory: [],
 
-  startPipelineRun: () => {
+  startPipelineRun: (fileIds) => {
     // Re-entrancy guard: the store is shared across tabs, so a Run in the Scripts
     // tab while the Pipeline tab is mid-run would otherwise replace the live
     // AbortController — Stop would then only reach the second run and the first
@@ -372,6 +377,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     set((s) => ({
       pipelineRunning: true,
       pipelineRunAbort: abort,
+      runningFileIds: fileIds,
       scriptStatuses: new Map(),
       runHistory: [
         { id: runId, startedAt: new Date().toISOString(), status: 'running' as const, scripts: [] },
@@ -408,6 +414,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       return {
         pipelineRunning: false,
         pipelineRunAbort: null,
+        runningFileIds: [],
         runHistory: history,
         scriptStatuses: statuses,
       }
@@ -443,7 +450,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       if (history.length > 0 && history[0].status === 'running') {
         history[0] = { ...history[0], status, completedAt: new Date().toISOString() }
       }
-      return { pipelineRunning: false, pipelineRunAbort: null, runHistory: history }
+      return { pipelineRunning: false, pipelineRunAbort: null, runningFileIds: [], runHistory: history }
     })
   },
 }))
