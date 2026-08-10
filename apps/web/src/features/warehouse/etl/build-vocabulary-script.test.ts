@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   athenaSelectList,
   buildCustomVocabularyScript,
+  buildPruneVocabularyScript,
   buildVocabularyScript,
   buildVocabularyScriptWithIds,
 } from './build-vocabulary-script'
@@ -66,11 +67,78 @@ describe('buildVocabularyScript', () => {
     expect(sql).toContain('vocabulary_id')
   })
 
+  it('copies the concept table without filtering on vocabulary_id', () => {
+    // A 'Maps to' can land outside whatever vocabularies the ETL reads
+    // directly (ICD -> OMOP Extension, NDC -> CVX). Filtering the copy left
+    // those targets out and the CDM ended up with concept_ids absent from
+    // target.concept - a broken foreign key. 91_prune_vocabulary.sql cuts the
+    // table back down once the CDM says which concepts are used.
+    const copy = sql.slice(sql.indexOf('-- 2b.'), sql.indexOf('-- 2c.'))
+    expect(copy).toContain('INSERT INTO target.concept')
+    expect(copy).not.toMatch(/WHERE c\.vocabulary_id IN \(/)
+    expect(copy).not.toContain("'OMOP Extension'")
+    expect(copy).not.toContain("'ICD10CM'")
+  })
+
   it('allocates custom-vocabulary concept ids with COALESCE so an empty target does not NULL them', () => {
     // Without COALESCE, MAX(concept_id) over an empty set is NULL and
     // NULL + ROW_NUMBER() inserts nothing (or violates NOT NULL).
     expect(sql).toContain('COALESCE(MAX(concept_id), 2000000000)')
     expect(sql).not.toMatch(/\(SELECT MAX\(concept_id\) FROM target\.concept WHERE concept_id >= 2000000000\) \+ ROW_NUMBER/)
+  })
+})
+
+describe('buildPruneVocabularyScript', () => {
+  const sql = buildPruneVocabularyScript()
+
+  it('finds the used concepts from the schema, not a fixed column list', () => {
+    // A hand-written list of *_concept_id columns missed half of them (43 vs the
+    // 99 a CDM 5.4 target actually holds), and would drift with the CDM version.
+    expect(sql).toContain('FROM duckdb_columns()')
+    expect(sql).toContain("column_name LIKE '%\\_concept\\_id' ESCAPE '\\'")
+  })
+
+  it('resolves the target in both engines', () => {
+    // The target is an ATTACHed database on the server and a schema in the
+    // browser engine; filtering on either alone works in one mode only.
+    expect(sql).toContain("(database_name = 'target' OR schema_name = 'target')")
+  })
+
+  it('skips the vocabulary tables when scanning for used concepts', () => {
+    // They reference concepts in order to describe them, so counting those
+    // references would keep every concept alive and prune nothing.
+    expect(sql).toMatch(/table_name NOT IN \([^)]*'concept'[^)]*\)/)
+    expect(sql).toMatch(/table_name NOT IN \([^)]*'concept_ancestor'[^)]*\)/)
+  })
+
+  it('passes the generated scan through a variable', () => {
+    // query() rejects a subquery argument: "Table function cannot contain
+    // subqueries". Verified against DuckDB on the real database.
+    expect(sql).toContain('SET VARIABLE linkr_used_concepts_sql')
+    expect(sql).toContain("query(getvariable('linkr_used_concepts_sql'))")
+    expect(sql).not.toMatch(/FROM query\(\s*\(SELECT/)
+  })
+
+  it('keeps ancestors and related concepts, not just the used ones', () => {
+    // Dropping ancestors breaks hierarchical queries ("everything under
+    // Diabetes"), and dropping relations breaks source-to-standard traceability.
+    expect(sql).toContain('a.ancestor_concept_id')
+    expect(sql).toContain('cr.concept_id_2')
+  })
+
+  it('deletes from the vocabulary tables only', () => {
+    const deleted = [...sql.matchAll(/DELETE FROM target\.(\w+)/g)].map((m) => m[1])
+    expect(deleted).toContain('concept')
+    expect(deleted).toContain('concept_ancestor')
+    // A DELETE on a clinical table here would silently drop patient data.
+    for (const clinical of ['person', 'measurement', 'condition_occurrence', 'drug_exposure']) {
+      expect(deleted).not.toContain(clinical)
+    }
+  })
+
+  it('drops its temporary tables', () => {
+    expect(sql).toContain('DROP TABLE IF EXISTS target.tmp_used_concepts;')
+    expect(sql).toContain('DROP TABLE IF EXISTS target.tmp_keep_concepts;')
   })
 })
 
