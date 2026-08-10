@@ -84,6 +84,34 @@ class EtlPipelineResponse(CamelModel):
     version: str
 
 
+class EtlRunHistoryCreate(CamelModel):
+    id: str
+    # Required, like DqRunHistoryCreate.rule_set_id: the route authorizes the write
+    # through this pipeline's workspace, so a null value must not slip past that
+    # check and let any authenticated user store an orphan run.
+    pipeline_id: str
+    started_at: str
+    completed_at: str | None = None
+    status: str
+    scripts: list | None = None
+
+
+class EtlRunHistoryUpdate(CamelModel):
+    completed_at: str | None = None
+    status: str | None = None
+    scripts: list | None = None
+
+
+class EtlRunHistoryResponse(CamelModel):
+    id: str
+    pipeline_id: str
+    started_at: str
+    completed_at: str | None = None
+    status: str
+    scripts: list | None = None
+    created_by_id: int | None = None
+
+
 class EtlFileCreate(CamelModel):
     id: str
     pipeline_id: str

@@ -50,6 +50,31 @@ class EtlPipeline(Base, TimestampMixin):
     config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
 
 
+class EtlRunHistory(Base):
+    """One persisted pipeline run: when it started, how it ended, and the per-script
+    logs (`scripts`).
+
+    Runs used to live only in the frontend store, so a reload lost every trace of
+    what had been executed against the target — the one thing an ETL run is worth
+    keeping. `scripts` holds the EtlRunLog list as JSON rather than a child table:
+    it is written once per progress tick as an opaque blob and is never queried by
+    its contents.
+    """
+
+    __tablename__ = "etl_run_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    pipeline_id: Mapped[str] = mapped_column(
+        ForeignKey("etl_pipelines.id", ondelete="CASCADE")
+    )
+    started_at: Mapped[str] = mapped_column(String(40))
+    completed_at: Mapped[str | None] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(20))
+    scripts: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    # Who launched it: a shared target makes "who ran this" a real question.
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+
 class EtlFile(Base):
     """A node (file or folder) in a pipeline's script tree. Script text is short
     and lives inline in `content` — no blob store needed (mirrors SqlScriptFile)."""

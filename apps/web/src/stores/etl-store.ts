@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
-import type { EtlPipeline, EtlFile, EtlRunLog } from '@/types'
+import type { EtlPipeline, EtlFile, EtlRunLog, EtlRunHistoryEntry } from '@/types'
 
 // --- Output tab types (mirrors useFileStore pattern) ---
 
@@ -64,7 +64,7 @@ interface EtlState {
   pipelineRunning: boolean
   pipelineRunAbort: AbortController | null
   scriptStatuses: Map<string, EtlRunLog>
-  runHistory: { id: string; startedAt: string; completedAt?: string; status: 'running' | 'success' | 'error'; scripts: EtlRunLog[] }[]
+  runHistory: EtlRunHistoryEntry[]
   /** Returns false when a run is already in progress (the caller must not proceed). */
   /** `fileIds` are the scripts THIS run covers, so progress counts the right
    *  set: running one line must not report "0/16" against the whole pipeline. */
@@ -78,6 +78,9 @@ interface EtlState {
    *  Pipeline widgets and the Scripts tree read from it. Refused while a run is
    *  in progress, which would otherwise wipe the state that run is writing. */
   clearRunHistory: () => void
+  /** Past runs of this pipeline, from storage. Runs are persisted, so a reload no
+   *  longer loses every trace of what was executed against the target. */
+  loadRunHistory: (pipelineId: string) => Promise<void>
 
   // Output tabs
   outputTabs: EtlOutputTab[]
@@ -93,6 +96,29 @@ interface EtlState {
   updateExecutionResult: (id: string, changes: Partial<EtlExecutionResult>) => void
   clearExecutionResults: () => void
   setOutputVisible: (visible: boolean) => void
+}
+
+/** How many past runs are kept. A run is rewritten on every progress tick, so an
+ *  unbounded list would grow without ever being read past the first screen. */
+const MAX_RUN_HISTORY = 50
+
+/**
+ * Mirror a run to storage, fire-and-forget.
+ *
+ * Deliberately not awaited by the callers: a run writes its history on every
+ * progress tick, and making the UI wait on a round trip (or fail with it) would
+ * turn a persistence hiccup into a broken run. The in-memory state stays
+ * authoritative for the live display; storage is the record for the next reload.
+ */
+function persistRun(entry: EtlRunHistoryEntry | undefined): void {
+  if (!entry) return
+  // try/catch AND .catch(): getStorage() throws synchronously when storage is not
+  // initialised yet, so a promise-only guard would still take the run down with it.
+  try {
+    void getStorage().etlRunHistory.save(entry).catch(() => {})
+  } catch {
+    // Swallowed on purpose: losing a history row must not interrupt the run.
+  }
 }
 
 export const useEtlStore = create<EtlState>((set, get) => ({
@@ -156,7 +182,14 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       activePipelineId: pipelineId,
       _dirtyMap: new Map(),
       _dirtyVersion: 0,
+      // Another pipeline's runs must not linger while this one's load: the panel
+      // would show them as if they belonged here.
+      runHistory: [],
+      scriptStatuses: new Map(),
     })
+    // Not awaited with the files: the editor should not wait on the history, and a
+    // storage error here must not leave the tab without its scripts.
+    void get().loadRunHistory(pipelineId).catch(() => {})
   },
 
   createFile: async (file) => {
@@ -378,16 +411,24 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     if (get().pipelineRunning) return false
     const abort = new AbortController()
     const runId = `run-${Date.now()}`
+    // Persisted rows are keyed by pipeline, so a run has to know which one it
+    // belongs to — the history panel of another pipeline must not show it.
+    const pipelineId = get().activePipelineId ?? ''
+    const entry: EtlRunHistoryEntry = {
+      id: runId,
+      pipelineId,
+      startedAt: new Date().toISOString(),
+      status: 'running',
+      scripts: [],
+    }
     set((s) => ({
       pipelineRunning: true,
       pipelineRunAbort: abort,
       runningFileIds: fileIds,
       scriptStatuses: new Map(),
-      runHistory: [
-        { id: runId, startedAt: new Date().toISOString(), status: 'running' as const, scripts: [] },
-        ...s.runHistory,
-      ].slice(0, 50),
+      runHistory: [entry, ...s.runHistory].slice(0, MAX_RUN_HISTORY),
     }))
+    if (pipelineId) persistRun(entry)
     return true
   },
 
@@ -425,6 +466,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
 
       const statuses = new Map(s.scriptStatuses)
       for (const [fileId, log] of statuses) statuses.set(fileId, stoppedNow(log))
+      persistRun(history[0])
       return {
         pipelineRunning: false,
         pipelineRunAbort: null,
@@ -453,8 +495,23 @@ export const useEtlStore = create<EtlState>((set, get) => ({
         if (existing >= 0) scripts[existing] = log
         else scripts.push(log)
         history[0] = { ...history[0], scripts }
+        // Only when a script REACHES a terminal state: this runs on every
+        // progress tick (once per SQL statement), and saving each one would
+        // hammer the API for information that is superseded a moment later.
+        if (log.status !== 'running') persistRun(history[0])
       }
       return { scriptStatuses: newStatuses, runHistory: history }
+    })
+  },
+
+  loadRunHistory: async (pipelineId) => {
+    const runs = await getStorage().etlRunHistory.getByPipeline(pipelineId)
+    // Newest first, as the panel lists them. The server already orders that way,
+    // but the IDB index does not, so sorting here keeps both backends identical.
+    set({
+      runHistory: runs
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+        .slice(0, MAX_RUN_HISTORY),
     })
   },
 
@@ -463,7 +520,15 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     // Scripts tree are views of scriptStatuses, so clearing the history alone
     // would leave green ticks for runs the user just asked to forget.
     if (get().pipelineRunning) return
+    const pipelineId = get().activePipelineId
     set({ runHistory: [], scriptStatuses: new Map() })
+    if (pipelineId) {
+      // Guarded like persistRun: clearing the list must succeed for the user even
+      // if the storage write cannot.
+      try {
+        void getStorage().etlRunHistory.deleteByPipeline(pipelineId).catch(() => {})
+      } catch { /* empty */ }
+    }
   },
 
   finishPipelineRun: (status) => {
@@ -471,6 +536,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       const history = [...s.runHistory]
       if (history.length > 0 && history[0].status === 'running') {
         history[0] = { ...history[0], status, completedAt: new Date().toISOString() }
+        persistRun(history[0])
       }
       return { pipelineRunning: false, pipelineRunAbort: null, runningFileIds: [], runHistory: history }
     })

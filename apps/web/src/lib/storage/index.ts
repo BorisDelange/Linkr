@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -259,6 +259,15 @@ export interface EtlFileStorage {
   deleteByPipeline(pipelineId: string): Promise<void>
 }
 
+/** Storage interface for ETL pipeline run history. */
+export interface EtlRunHistoryStorage {
+  getByPipeline(pipelineId: string): Promise<EtlRunHistoryEntry[]>
+  /** Upsert: a run is saved repeatedly as it progresses, under the same id. */
+  save(entry: EtlRunHistoryEntry): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByPipeline(pipelineId: string): Promise<void>
+}
+
 /** Storage interface for SQL script collection persistence. */
 export interface SqlScriptCollectionStorage {
   getAll(): Promise<SqlScriptCollection[]>
@@ -464,6 +473,7 @@ export interface Storage {
   wikiAttachments: WikiAttachmentStorage
   etlPipelines: EtlPipelineStorage
   etlFiles: EtlFileStorage
+  etlRunHistory: EtlRunHistoryStorage
   sqlScriptCollections: SqlScriptCollectionStorage
   sqlScriptFiles: SqlScriptFileStorage
   dqRuleSets: DqRuleSetStorage

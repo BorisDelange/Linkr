@@ -144,3 +144,153 @@ async def test_non_member_cannot_access(client, db):
     assert (await client.get(f"{API}/etl-pipelines?workspaceId={ws}", headers=other)).status_code == 403
     assert (await client.get(f"{API}/etl-pipelines/{p['id']}", headers=other)).status_code == 403
     assert (await client.delete(f"{API}/etl-pipelines/{p['id']}", headers=other)).status_code == 403
+
+
+# --- Run history -----------------------------------------------------------
+
+async def test_run_history_crud_and_scripts_roundtrip(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+
+    created = (await client.post(f"{API}/etl-runs", headers=headers, json={
+        "id": "run-1", "pipelineId": p["id"], "startedAt": "2026-08-10T09:00:00Z",
+        "status": "running",
+        "scripts": [{"id": "l1", "pipelineId": p["id"], "fileId": "f1", "status": "running"}],
+    })).json()
+    assert created["id"] == "run-1" and created["status"] == "running"
+
+    runs = (await client.get(f"{API}/etl-pipelines/{p['id']}/runs", headers=headers)).json()
+    assert len(runs) == 1
+    assert runs[0]["scripts"][0]["fileId"] == "f1"
+
+    # Finishing the run: the per-script logs survive the round trip intact.
+    done = (await client.patch(f"{API}/etl-runs/run-1", headers=headers, json={
+        "status": "success", "completedAt": "2026-08-10T09:05:00Z",
+        "scripts": [{"id": "l1", "pipelineId": p["id"], "fileId": "f1",
+                     "status": "success", "rowsAffected": 42, "durationMs": 1200}],
+    })).json()
+    assert done["status"] == "success"
+    assert done["scripts"][0]["rowsAffected"] == 42
+    assert done["scripts"][0]["durationMs"] == 1200
+
+    assert (await client.delete(f"{API}/etl-runs/run-1", headers=headers)).status_code == 204
+    assert (await client.get(f"{API}/etl-pipelines/{p['id']}/runs", headers=headers)).json() == []
+
+
+async def test_runs_are_listed_newest_first(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+    for i, at in enumerate(["2026-08-10T09:00:00Z", "2026-08-10T11:00:00Z", "2026-08-10T10:00:00Z"]):
+        await client.post(f"{API}/etl-runs", headers=headers, json={
+            "id": f"run-{i}", "pipelineId": p["id"], "startedAt": at, "status": "success",
+        })
+    runs = (await client.get(f"{API}/etl-pipelines/{p['id']}/runs", headers=headers)).json()
+    assert [r["id"] for r in runs] == ["run-1", "run-2", "run-0"]
+
+
+async def test_posting_the_same_run_id_updates_it(client):
+    """The store re-sends a run as it progresses; that must not duplicate rows."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+    for status_value in ("running", "success"):
+        await client.post(f"{API}/etl-runs", headers=headers, json={
+            "id": "run-1", "pipelineId": p["id"],
+            "startedAt": "2026-08-10T09:00:00Z", "status": status_value,
+        })
+    runs = (await client.get(f"{API}/etl-pipelines/{p['id']}/runs", headers=headers)).json()
+    assert len(runs) == 1 and runs[0]["status"] == "success"
+
+
+async def test_run_records_who_launched_it(client, db):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+    created = (await client.post(f"{API}/etl-runs", headers=headers, json={
+        "id": "run-1", "pipelineId": p["id"],
+        "startedAt": "2026-08-10T09:00:00Z", "status": "running",
+    })).json()
+    assert created["createdById"] is not None
+
+    # Attribution is set once: a later tick must not reassign the run.
+    again = (await client.post(f"{API}/etl-runs", headers=headers, json={
+        "id": "run-1", "pipelineId": p["id"],
+        "startedAt": "2026-08-10T09:00:00Z", "status": "success",
+    })).json()
+    assert again["createdById"] == created["createdById"]
+
+
+async def test_clearing_the_history_removes_every_run(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+    for i in range(3):
+        await client.post(f"{API}/etl-runs", headers=headers, json={
+            "id": f"run-{i}", "pipelineId": p["id"],
+            "startedAt": f"2026-08-10T0{i}:00:00Z", "status": "success",
+        })
+    assert (await client.delete(f"{API}/etl-pipelines/{p['id']}/runs", headers=headers)).status_code == 204
+    assert (await client.get(f"{API}/etl-pipelines/{p['id']}/runs", headers=headers)).json() == []
+
+
+async def test_history_is_capped_dropping_the_oldest(client):
+    """A run is written on every progress tick, so the table must not grow forever."""
+    from app.services.etl_pipeline_service import MAX_RUNS_PER_PIPELINE
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+    for i in range(MAX_RUNS_PER_PIPELINE + 3):
+        await client.post(f"{API}/etl-runs", headers=headers, json={
+            "id": f"run-{i:03d}", "pipelineId": p["id"],
+            "startedAt": f"2026-08-10T{i // 60:02d}:{i % 60:02d}:00Z", "status": "success",
+        })
+    runs = (await client.get(f"{API}/etl-pipelines/{p['id']}/runs", headers=headers)).json()
+    assert len(runs) == MAX_RUNS_PER_PIPELINE
+    # The three oldest were dropped, the newest kept.
+    assert runs[0]["id"] == f"run-{MAX_RUNS_PER_PIPELINE + 2:03d}"
+    assert "run-000" not in [r["id"] for r in runs]
+
+
+async def test_deleting_a_pipeline_takes_its_runs(client, db):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+    await client.post(f"{API}/etl-runs", headers=headers, json={
+        "id": "run-1", "pipelineId": p["id"],
+        "startedAt": "2026-08-10T09:00:00Z", "status": "success",
+    })
+    assert (await client.delete(f"{API}/etl-pipelines/{p['id']}", headers=headers)).status_code == 204
+
+    from sqlalchemy import select
+
+    from app.models.etl_pipeline import EtlRunHistory
+
+    rows = (await db.execute(select(EtlRunHistory))).scalars().all()
+    assert list(rows) == []
+
+
+async def test_run_writes_require_pipeline_access(client, db):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _pipeline(client, headers, ws)
+    other = await _create_user(db, client, "mallory")
+
+    # No pipelineId: rejected at validation, so there is no orphan-write path.
+    assert (await client.post(f"{API}/etl-runs", headers=headers, json={
+        "id": "run-x", "startedAt": "2026-08-10T09:00:00Z", "status": "running",
+    })).status_code == 422
+
+    # A non-member cannot write, read or clear another workspace's runs.
+    assert (await client.post(f"{API}/etl-runs", headers=other, json={
+        "id": "run-y", "pipelineId": p["id"],
+        "startedAt": "2026-08-10T09:00:00Z", "status": "running",
+    })).status_code in (403, 404)
+    assert (await client.get(
+        f"{API}/etl-pipelines/{p['id']}/runs", headers=other
+    )).status_code in (403, 404)
+    assert (await client.delete(
+        f"{API}/etl-pipelines/{p['id']}/runs", headers=other
+    )).status_code in (403, 404)

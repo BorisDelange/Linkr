@@ -1,9 +1,10 @@
 import { apiRequest } from '@/lib/api-client'
-import type { EtlFileStorage, EtlPipelineStorage } from '@/lib/storage'
-import type { EtlFile, EtlPipeline } from '@/types'
+import type { EtlFileStorage, EtlPipelineStorage, EtlRunHistoryStorage } from '@/lib/storage'
+import type { EtlFile, EtlPipeline, EtlRunHistoryEntry } from '@/types'
 
 const PIPE = '/etl-pipelines'
 const FILE = '/etl-files'
+const RUN = '/etl-runs'
 
 /** Server-mode ETL pipeline storage (workspace-scoped metadata + DAG config). */
 export const apiEtlPipelineStorage: EtlPipelineStorage = {
@@ -58,5 +59,25 @@ export const apiEtlFileStorage: EtlFileStorage = {
 
   deleteByPipeline: async (pipelineId) => {
     await apiRequest(`${PIPE}/${pipelineId}/files`, { method: 'DELETE' })
+  },
+}
+
+/** Server-mode ETL run history: one row per pipeline run, per-script logs inline. */
+export const apiEtlRunHistoryStorage: EtlRunHistoryStorage = {
+  getByPipeline: (pipelineId) =>
+    apiRequest<EtlRunHistoryEntry[]>(`${PIPE}/${pipelineId}/runs`),
+
+  // POST is an upsert server-side (same run id as the run progresses), so there is
+  // no separate create/update to choose between here.
+  save: async (entry) => {
+    await apiRequest(RUN, { method: 'POST', body: JSON.stringify(entry) })
+  },
+
+  delete: async (id) => {
+    await apiRequest(`${RUN}/${id}`, { method: 'DELETE' })
+  },
+
+  deleteByPipeline: async (pipelineId) => {
+    await apiRequest(`${PIPE}/${pipelineId}/runs`, { method: 'DELETE' })
   },
 }

@@ -1,6 +1,7 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { useEtlStore } from './etl-store'
-import type { EtlRunLog } from '@/types'
+import { initStorage } from '@/lib/storage'
+import type { EtlRunLog, EtlRunHistoryEntry } from '@/types'
 
 /**
  * Run state has to survive a tab switch and a Stop, because the ETL page mounts
@@ -229,5 +230,127 @@ describe('a stopped run in the history', () => {
     const log = useEtlStore.getState().runHistory[0].scripts[0]
     expect(log.durationMs).toBeGreaterThan(0)
     expect(log.completedAt).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Persistence
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs used to live only here, so a reload erased every trace of what had been
+ * executed against the target. They are now mirrored to storage — without ever
+ * letting a storage problem interrupt the run itself.
+ */
+describe('persisting the run history', () => {
+  let saved: EtlRunHistoryEntry[]
+  let deletedPipelines: string[]
+
+  beforeEach(() => {
+    saved = []
+    deletedPipelines = []
+    initStorage({
+      etlRunHistory: {
+        getByPipeline: async () => [],
+        save: async (entry: EtlRunHistoryEntry) => { saved.push(entry) },
+        delete: async () => {},
+        deleteByPipeline: async (id: string) => { deletedPipelines.push(id) },
+      },
+    } as unknown as Parameters<typeof initStorage>[0])
+
+    useEtlStore.setState({
+      pipelineRunning: false,
+      pipelineRunAbort: null,
+      runningFileIds: [],
+      scriptStatuses: new Map(),
+      runHistory: [],
+      activePipelineId: 'p1',
+    })
+  })
+
+  afterEach(() => {
+    // Leave the module-level storage unset for the tests that assert a run
+    // survives having none.
+    initStorage(undefined as unknown as Parameters<typeof initStorage>[0])
+  })
+
+  it('saves the run when it starts, tagged with its pipeline', () => {
+    useEtlStore.getState().startPipelineRun(['f1'])
+    expect(saved).toHaveLength(1)
+    expect(saved[0].pipelineId).toBe('p1')
+    expect(saved[0].status).toBe('running')
+  })
+
+  it('saves again when the run finishes, with the final status', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    useEtlStore.getState().finishPipelineRun('success')
+    expect(saved.at(-1)?.status).toBe('success')
+    expect(saved.at(-1)?.completedAt).toBeDefined()
+  })
+
+  it('does not save on every progress tick, only on a terminal script status', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    const afterStart = saved.length
+    // Three statements of the same script reported as running.
+    for (const done of [0, 1, 2]) {
+      useEtlStore.getState().setScriptStatus('f1', { ...RUNNING, statementsDone: done })
+    }
+    expect(saved).toHaveLength(afterStart)
+
+    useEtlStore.getState().setScriptStatus('f1', { ...RUNNING, status: 'success' })
+    expect(saved.length).toBe(afterStart + 1)
+  })
+
+  it('records the stop, so a reload does not show a spinner for ever', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    useEtlStore.getState().setScriptStatus('f1', RUNNING)
+    useEtlStore.getState().stopPipelineRun()
+    const last = saved.at(-1)!
+    expect(last.status).toBe('error')
+    expect(last.scripts[0].status).toBe('stopped')
+  })
+
+  it('clearing the history deletes the pipeline\'s stored runs too', () => {
+    useEtlStore.getState().startPipelineRun(['f1'])
+    useEtlStore.getState().finishPipelineRun('success')
+    useEtlStore.getState().clearRunHistory()
+    expect(deletedPipelines).toEqual(['p1'])
+  })
+
+  it('loads past runs newest first, capped', async () => {
+    initStorage({
+      etlRunHistory: {
+        getByPipeline: async () => ([
+          { id: 'a', pipelineId: 'p1', startedAt: '2026-08-10T09:00:00Z', status: 'success', scripts: [] },
+          { id: 'b', pipelineId: 'p1', startedAt: '2026-08-10T11:00:00Z', status: 'error', scripts: [] },
+          { id: 'c', pipelineId: 'p1', startedAt: '2026-08-10T10:00:00Z', status: 'success', scripts: [] },
+        ]),
+        save: async () => {},
+        delete: async () => {},
+        deleteByPipeline: async () => {},
+      },
+    } as unknown as Parameters<typeof initStorage>[0])
+
+    await useEtlStore.getState().loadRunHistory('p1')
+    expect(useEtlStore.getState().runHistory.map((r) => r.id)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('a failing storage never breaks the run', () => {
+    initStorage({
+      etlRunHistory: {
+        getByPipeline: async () => [],
+        save: async () => { throw new Error('offline') },
+        delete: async () => {},
+        deleteByPipeline: async () => { throw new Error('offline') },
+      },
+    } as unknown as Parameters<typeof initStorage>[0])
+
+    expect(() => useEtlStore.getState().startPipelineRun(['f1'])).not.toThrow()
+    expect(useEtlStore.getState().pipelineRunning).toBe(true)
+    expect(() => useEtlStore.getState().finishPipelineRun('success')).not.toThrow()
+    expect(() => useEtlStore.getState().clearRunHistory()).not.toThrow()
   })
 })

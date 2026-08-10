@@ -2,13 +2,15 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.etl_pipeline import EtlFile, EtlPipeline
+from app.models.etl_pipeline import EtlFile, EtlPipeline, EtlRunHistory
 from app.services import git_secret
 from app.schemas.etl_pipeline import (
     EtlFileCreate,
     EtlFileUpdate,
     EtlPipelineCreate,
     EtlPipelineUpdate,
+    EtlRunHistoryCreate,
+    EtlRunHistoryUpdate,
 )
 
 
@@ -99,4 +101,84 @@ async def delete_files_for_pipeline(db: AsyncSession, pipeline_id: str) -> None:
     await db.execute(
         sa_delete(EtlFile).where(EtlFile.pipeline_id == pipeline_id)
     )
+    await db.commit()
+
+
+# --- Run history -----------------------------------------------------------
+
+# A pipeline keeps its recent runs, not all of them: a run is written on every
+# progress tick, so an unbounded table would grow without ever being read past
+# the first screen. Matches the cap the frontend store applies.
+MAX_RUNS_PER_PIPELINE = 50
+
+
+async def list_runs(db: AsyncSession, pipeline_id: str) -> list[EtlRunHistory]:
+    result = await db.execute(
+        select(EtlRunHistory)
+        .where(EtlRunHistory.pipeline_id == pipeline_id)
+        .order_by(EtlRunHistory.started_at.desc())
+        .limit(MAX_RUNS_PER_PIPELINE)
+    )
+    return list(result.scalars().all())
+
+
+async def get_run(db: AsyncSession, run_id: str) -> EtlRunHistory | None:
+    return await db.get(EtlRunHistory, run_id)
+
+
+async def create_run(
+    db: AsyncSession, data: EtlRunHistoryCreate, user_id: int | None = None
+) -> EtlRunHistory:
+    payload = data.model_dump(exclude_none=True)
+    # Idempotent: the client re-sends the same run id as the run progresses
+    # (running → success), so this doubles as the upsert the store relies on.
+    run = await db.get(EtlRunHistory, data.id)
+    if run is None:
+        run = EtlRunHistory()
+        # Attributed once, at creation: later ticks must not reassign the run to
+        # whoever happened to PUT it.
+        run.created_by_id = user_id
+    for key, value in payload.items():
+        setattr(run, key, value)
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    await _prune_runs(db, data.pipeline_id)
+    return run
+
+
+async def update_run(
+    db: AsyncSession, run: EtlRunHistory, data: EtlRunHistoryUpdate
+) -> EtlRunHistory:
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(run, key, value)
+    await db.commit()
+    await db.refresh(run)
+    return run
+
+
+async def delete_run(db: AsyncSession, run: EtlRunHistory) -> None:
+    await db.delete(run)
+    await db.commit()
+
+
+async def delete_runs_for_pipeline(db: AsyncSession, pipeline_id: str) -> None:
+    await db.execute(
+        sa_delete(EtlRunHistory).where(EtlRunHistory.pipeline_id == pipeline_id)
+    )
+    await db.commit()
+
+
+async def _prune_runs(db: AsyncSession, pipeline_id: str) -> None:
+    """Drop the runs beyond the cap, oldest first."""
+    result = await db.execute(
+        select(EtlRunHistory.id)
+        .where(EtlRunHistory.pipeline_id == pipeline_id)
+        .order_by(EtlRunHistory.started_at.desc())
+        .offset(MAX_RUNS_PER_PIPELINE)
+    )
+    stale = list(result.scalars().all())
+    if not stale:
+        return
+    await db.execute(sa_delete(EtlRunHistory).where(EtlRunHistory.id.in_(stale)))
     await db.commit()

@@ -858,6 +858,21 @@ export interface EtlRunLog {
   currentStatement?: string
 }
 
+/** One pipeline run, persisted: what ran against the target and how it ended. */
+export interface EtlRunHistoryEntry {
+  id: string
+  pipelineId: string
+  startedAt: string
+  completedAt?: string
+  status: 'running' | 'success' | 'error'
+  /** Per-script logs, stored with the run rather than as separate rows: they are
+   *  written wholesale on each progress tick and never queried individually. */
+  scripts: EtlRunLog[]
+  /** Who launched it — a shared target makes that a real question. Server mode
+   *  only; the local store has no user identity to attribute. */
+  createdById?: number
+}
+
 export interface EtlColumnProfile {
   tableName: string
   columnName: string

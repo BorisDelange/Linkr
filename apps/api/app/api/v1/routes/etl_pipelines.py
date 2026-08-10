@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
-from app.models.etl_pipeline import EtlFile, EtlPipeline
+from app.models.etl_pipeline import EtlFile, EtlPipeline, EtlRunHistory
 from app.models.user import User
 from app.schemas.etl_pipeline import (
     EtlFileCreate,
@@ -13,6 +13,9 @@ from app.schemas.etl_pipeline import (
     EtlPipelineCreate,
     EtlPipelineResponse,
     EtlPipelineUpdate,
+    EtlRunHistoryCreate,
+    EtlRunHistoryResponse,
+    EtlRunHistoryUpdate,
 )
 from app.services import etl_pipeline_service
 
@@ -20,6 +23,7 @@ router = APIRouter(tags=["etl-pipelines"])
 
 _PIPE = "/etl-pipelines"
 _FILE = "/etl-files"
+_RUN = "/etl-runs"
 
 
 async def _load_pipeline(
@@ -40,6 +44,16 @@ async def _load_file(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await _load_pipeline(db, node.pipeline_id, user, permission)
     return node
+
+
+async def _load_run(
+    db: AsyncSession, run_id: str, user: User, permission: str
+) -> EtlRunHistory:
+    run = await etl_pipeline_service.get_run(db, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    await _load_pipeline(db, run.pipeline_id, user, permission)
+    return run
 
 
 # --- Pipelines -------------------------------------------------------------
@@ -156,3 +170,58 @@ async def delete_file(
 ):
     node = await _load_file(db, file_id, user, "etl:delete")
     await etl_pipeline_service.delete_file(db, node)
+
+
+# --- Run history -----------------------------------------------------------
+
+@router.get(_PIPE + "/{pipeline_id}/runs", response_model=list[EtlRunHistoryResponse])
+async def list_runs(
+    pipeline_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_pipeline(db, pipeline_id, user, "etl:read")
+    return await etl_pipeline_service.list_runs(db, pipeline_id)
+
+
+@router.post(_RUN, response_model=EtlRunHistoryResponse, status_code=status.HTTP_201_CREATED)
+async def create_run(
+    body: EtlRunHistoryCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Authorized through the pipeline's workspace, which is why pipeline_id is
+    # required on the schema rather than optional.
+    await _load_pipeline(db, body.pipeline_id, user, "etl:write")
+    return await etl_pipeline_service.create_run(db, body, user_id=user.id)
+
+
+@router.patch(_RUN + "/{run_id}", response_model=EtlRunHistoryResponse)
+async def update_run(
+    run_id: str,
+    body: EtlRunHistoryUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    run = await _load_run(db, run_id, user, "etl:write")
+    return await etl_pipeline_service.update_run(db, run, body)
+
+
+@router.delete(_RUN + "/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_run(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    run = await _load_run(db, run_id, user, "etl:delete")
+    await etl_pipeline_service.delete_run(db, run)
+
+
+@router.delete(_PIPE + "/{pipeline_id}/runs", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_runs_for_pipeline(
+    pipeline_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_pipeline(db, pipeline_id, user, "etl:delete")
+    await etl_pipeline_service.delete_runs_for_pipeline(db, pipeline_id)
