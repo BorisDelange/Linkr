@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, ArrowDownToLine, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -50,6 +50,10 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
   const [applying, setApplying] = useState(false)
   const [paths, setPaths] = useState<Set<string>>(new Set())
   const [takeSettings, setTakeSettings] = useState(false)
+  const [anchoring, setAnchoring] = useState(false)
+  // Ref, not the state: the effect must not re-run when the flag flips, and
+  // reading state inside a guard it does not depend on is a lie to the linter.
+  const anchoredRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -78,6 +82,8 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
     return () => { cancelled = true }
   }, [pipelineId, branch])
 
+
+
   const plan = prepared?.plan
   const items = (group: EtlPullGroup): EtlPullItem[] => plan?.groups[group] ?? []
 
@@ -90,6 +96,31 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
   )
 
   const selectedTotal = paths.size + (takeSettings ? 1 : 0)
+
+  /**
+   * Nothing to pull, but the anchor is behind → record that we are in sync.
+   *
+   * The local content already matches the remote (that is WHY the plan is empty),
+   * so the only thing missing is the baseline. Without this the dialog was a dead
+   * end: "up to date" with Apply disabled, while the banner outside kept saying
+   * the remote was ahead and the push stayed blocked on "pull first".
+   */
+  useEffect(() => {
+    if (!prepared || !nothingToPull || anchoredRef.current) return
+    anchoredRef.current = true
+    let cancelled = false
+    setAnchoring(true)
+    applyEtlPull(pipelineId, prepared, { paths: new Set(), settings: false })
+      .then(() => { if (!cancelled) void onPulled() })
+      .catch(() => {
+        // Leave the banner up rather than claim a sync we failed to record, and
+        // allow another attempt.
+        anchoredRef.current = false
+      })
+      .finally(() => { if (!cancelled) setAnchoring(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prepared, nothingToPull])
 
   const toggle = (key: string) => {
     setPaths((s) => {
@@ -151,7 +182,8 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
             {error}
           </div>
         ) : nothingToPull ? (
-          <div className="flex flex-1 items-center justify-center px-6 py-10 text-center text-sm text-muted-foreground">
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center text-sm text-muted-foreground">
+            {anchoring && <Loader2 size={14} className="animate-spin" />}
             {t('versioning.pull_nothing')}
           </div>
         ) : (

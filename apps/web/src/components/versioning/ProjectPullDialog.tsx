@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, ArrowDownToLine, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -49,6 +49,9 @@ export function ProjectPullDialog({ projectUid, branch, onClose, onPulled }: Pro
     dashboards: new Set(), scripts: new Set(), cohorts: new Set(), datasets: new Set(), pipeline: new Set(),
   })
   const [takeReadme, setTakeReadme] = useState(false)
+  const [anchoring, setAnchoring] = useState(false)
+  // Ref, not state: the effect must not re-run when the flag flips.
+  const anchoredRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -93,6 +96,34 @@ export function ProjectPullDialog({ projectUid, branch, onClose, onPulled }: Pro
     () => GROUP_ORDER.reduce((n, g) => n + sel[g.key].size, 0) + (takeReadme ? 1 : 0),
     [sel, takeReadme],
   )
+
+  /**
+   * Nothing to pull, but the anchor is behind → record that we are in sync.
+   *
+   * The local content already matches the remote (that is WHY the plan is empty),
+   * so the only thing missing is the baseline. Without this the dialog was a dead
+   * end: "up to date" with Apply disabled, while the banner outside kept saying the
+   * remote was ahead and the push stayed blocked on "pull first".
+   */
+  useEffect(() => {
+    if (!prepared || !nothingToPull || anchoredRef.current) return
+    anchoredRef.current = true
+    let cancelled = false
+    setAnchoring(true)
+    applyProjectPull(projectUid, prepared, {
+      dashboards: new Set(), scripts: new Set(), cohorts: new Set(),
+      datasets: new Set(), pipeline: new Set(), readme: false,
+    })
+      .then(() => { if (!cancelled) void onPulled() })
+      .catch(() => {
+        // Leave the banner up rather than claim a sync we failed to record, and
+        // allow another attempt.
+        anchoredRef.current = false
+      })
+      .finally(() => { if (!cancelled) setAnchoring(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prepared, nothingToPull])
 
   const toggle = (group: GroupKey, key: string) => {
     setSel((s) => {
@@ -153,7 +184,8 @@ export function ProjectPullDialog({ projectUid, branch, onClose, onPulled }: Pro
             {error}
           </div>
         ) : nothingToPull ? (
-          <div className="flex flex-1 items-center justify-center px-6 py-10 text-center text-sm text-muted-foreground">
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-10 text-center text-sm text-muted-foreground">
+            {anchoring && <Loader2 size={14} className="animate-spin" />}
             {t('versioning.pull_nothing')}
           </div>
         ) : (
