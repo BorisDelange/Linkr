@@ -472,9 +472,12 @@ async def test_sync_state_no_remote_branch_is_neutral():
 
 
 @pytest.mark.asyncio
-async def test_sync_state_unanchored_is_neutral_even_with_remote():
-    """No ZIP is needed: an unanchored entity with an existing remote is neither
-    behind nor diverged until the first import/push sets the anchor."""
+async def test_sync_state_unanchored_and_in_sync_adopts_head_reporting_nothing_to_pull():
+    """An unanchored entity sitting on the remote head adopts it as the baseline.
+
+    Nothing is behind or diverged (there is nothing to pull), but the anchor is
+    reported via adoptedOid so the route can persist it — without a baseline the
+    NEXT remote push could never be detected."""
     tmp = Path(tempfile.mkdtemp())
 
     def getter(_uid):
@@ -487,6 +490,54 @@ async def test_sync_state_unanchored_is_neutral_even_with_remote():
 
         s = await g.sync_state(getter, "u", "main", remote, None)  # synced_oid=None
         assert s["remoteHead"] == head
+        assert s["behind"] is False and s["diverged"] is False
+        assert s["adoptedOid"] == head
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_sync_state_unanchored_behind_adopts_local_head_and_reports_behind():
+    """The gap this closes: an entity linked before its scope had set-sync-state has
+    no DB anchor, so it reported "in sync" no matter how far the remote moved — the
+    Pull button never appeared. The local HEAD IS the missing baseline, so it is
+    adopted when it is an ancestor of the remote head."""
+    tmp = Path(tempfile.mkdtemp())
+    local, other = tmp / "repo", tmp / "other"
+
+    try:
+        remote = _bare_remote(tmp)
+        # This entity pushes v1, then FORGETS its anchor (the pre-fix state).
+        first = await g.commit_push(lambda _u: local, "u", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+        v1 = first["commit"]["oid"]
+        # Someone else advances the remote to v2 — the "modification on the git
+        # remote" case that must be detected.
+        second = await g.commit_push(lambda _u: other, "o", _zip({"project.json": '{"a":2}'}), "main", "v2", remote, None)
+        v2 = second["commit"]["oid"]
+        assert v1 != v2
+
+        s = await g.sync_state(lambda _u: local, "u", "main", remote, None)
+        assert s["remoteHead"] == v2
+        assert s["adoptedOid"] == v1, "local HEAD should become the baseline"
+        assert s["behind"] is True and s["diverged"] is False
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_sync_state_unanchored_with_no_local_commit_stays_neutral():
+    """A fresh working tree with no commit of its own has no baseline to adopt, so
+    nothing is claimed — adopting the remote head here would assert we already hold
+    content we have never had."""
+    tmp = Path(tempfile.mkdtemp())
+    local, other = tmp / "repo", tmp / "other"
+
+    try:
+        remote = _bare_remote(tmp)
+        await g.commit_push(lambda _u: other, "o", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+
+        s = await g.sync_state(lambda _u: local, "u", "main", remote, None)
+        assert s["adoptedOid"] is None
         assert s["behind"] is False and s["diverged"] is False
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

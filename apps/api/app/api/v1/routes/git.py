@@ -152,6 +152,12 @@ async def _sync_state(
             token,
         )
     )
+    # The check derived a baseline from the local HEAD because the DB had none
+    # (entity linked before this scope had set-sync-state). Persist it, so the
+    # adoption happens once instead of on every poll.
+    adopted = result.pop("adoptedOid", None)
+    if adopted:
+        await git_sync_state_service.set_oid(db, scope, entity_id, branch, adopted)
     return {"linked": remote_url is not None, "branch": branch, **result}
 
 

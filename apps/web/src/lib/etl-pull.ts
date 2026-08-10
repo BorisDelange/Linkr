@@ -30,6 +30,7 @@ import {
   dropForeignAuthorId,
   parseImportZip,
   reconstructTreeFiles,
+  stripInstanceFields,
   type TreeImportNode,
 } from '@/lib/entity-io'
 import { setVersionedMany } from '@/features/warehouse/etl/etl-versioning'
@@ -94,15 +95,23 @@ export function isEtlManifest(path: string): boolean {
 }
 
 /**
- * Instance-local fields of a pipeline that must not travel with a pull.
+ * Pipeline fields a pull must NOT take, on top of the shared export list
+ * (`stripInstanceFields`, which already drops workspaceId, gitRemoteConfig,
+ * organization, updatedAt, createdById…).
  *
- * The data source ids are the important ones: they name databases on THIS
- * instance, and taking a collaborator's would repoint the pipeline at a
- * database that does not exist here.
+ * These are what a real `_pipeline.json` turned out to carry — the export writes
+ * them, so the pull is what has to refuse them:
+ *   - the data source ids name databases on THIS instance; taking a collaborator's
+ *     would repoint the pipeline at a database that does not exist here
+ *   - mappingProjectId likewise names a local mapping project
+ *   - lastRunAt / lastRunDurationMs / status describe OUR runs, not theirs;
+ *     importing them would show a run that never happened here (and the quality
+ *     cache keys on the last run, so it would also invalidate itself)
+ *   - id / entityId / lineageId are identity, resolved locally
  */
-const INSTANCE_PIPELINE_FIELDS = [
-  'id', 'workspaceId', 'sourceDataSourceId', 'targetDataSourceId',
-  'gitRemoteConfig', 'createdAt', 'updatedAt', 'authorId', 'organizationId',
+const EXTRA_INSTANCE_PIPELINE_FIELDS = [
+  'id', 'entityId', 'sourceDataSourceId', 'targetDataSourceId', 'mappingProjectId',
+  'lastRunAt', 'lastRunDurationMs', 'status', 'createdAt',
 ] as const
 
 /** Local files as a path → file map, paths derived by walking `parentId`. */
@@ -174,10 +183,15 @@ export function etlSettingsChanged(
   )
 }
 
-/** Strip the fields that belong to this instance rather than to the repo. */
+/**
+ * Strip the fields that belong to this instance rather than to the repo.
+ *
+ * Delegates to the shared `stripInstanceFields` so the pull and the export agree
+ * on what is instance-local, then removes the pipeline-specific extras above.
+ */
 export function stripInstancePipelineFields(remote: EtlPipeline): Partial<EtlPipeline> {
-  const copy = { ...(dropForeignAuthorId(remote) as EtlPipeline) } as Record<string, unknown>
-  for (const field of INSTANCE_PIPELINE_FIELDS) delete copy[field]
+  const copy = stripInstanceFields(dropForeignAuthorId(remote)) as Record<string, unknown>
+  for (const field of EXTRA_INSTANCE_PIPELINE_FIELDS) delete copy[field]
   return copy as Partial<EtlPipeline>
 }
 

@@ -537,17 +537,47 @@ async def sync_state(
         if not remote_head:
             return {"remoteHead": None, "syncedOid": synced_oid, "behind": False, "diverged": False}
 
+        # No anchor, but a local repo that already sits on a commit the remote
+        # knows: adopt that commit as the baseline instead of staying blind.
+        # Entities linked before set-sync-state existed for their scope have no
+        # row, and without this they never report "behind" no matter how far the
+        # remote moves — the local HEAD is exactly the missing baseline, and it is
+        # only adopted when it is an ANCESTOR of the remote head (i.e. genuinely
+        # "we were here, the remote moved on"), never when it is unrelated.
+        # `anchor`, not a rebinding of the `synced_oid` parameter: assigning to the
+        # enclosing name inside this nested function would make it local to the
+        # closure and shadow the argument (UnboundLocalError on first read).
+        anchor = synced_oid
+        adopted_oid = None
+        if not anchor:
+            local_head = _run(repo, "rev-parse", "HEAD", check=False).strip()
+            if local_head and local_head != remote_head:
+                skip_lfs = {"GIT_LFS_SKIP_SMUDGE": "1"}
+                _run(repo, "fetch", "-q", ls_url, remote_head, token=token,
+                     env_extra=skip_lfs, check=False)
+                anc = subprocess.run(
+                    ["git", "-C", str(repo), "merge-base", "--is-ancestor",
+                     local_head, remote_head],
+                    capture_output=True, timeout=_GIT_TIMEOUT, env=_git_env(),
+                )
+                if anc.returncode == 0:
+                    anchor = adopted_oid = local_head
+            elif local_head:
+                # Already on the remote head: anchor here so a later remote push
+                # is detected, without reporting anything to pull now.
+                anchor = adopted_oid = local_head
+
         behind = diverged = False
-        if synced_oid and synced_oid != remote_head:
+        if anchor and anchor != remote_head:
             # The remote moved off our anchor → at least "behind". To tell a clean
             # fast-forward (behind) from a rewrite (diverged) we need both commits
             # locally and a merge-base test. Fetch the tip's history (no --depth, so
             # the shared ancestor is reachable) and the anchor object; skip LFS blobs.
             skip_lfs = {"GIT_LFS_SKIP_SMUDGE": "1"}
             _run(repo, "fetch", "-q", ls_url, remote_head, token=token, env_extra=skip_lfs, check=False)
-            _run(repo, "fetch", "-q", ls_url, synced_oid, token=token, env_extra=skip_lfs, check=False)
+            _run(repo, "fetch", "-q", ls_url, anchor, token=token, env_extra=skip_lfs, check=False)
             anc = subprocess.run(
-                ["git", "-C", str(repo), "merge-base", "--is-ancestor", synced_oid, remote_head],
+                ["git", "-C", str(repo), "merge-base", "--is-ancestor", anchor, remote_head],
                 capture_output=True, timeout=_GIT_TIMEOUT, env=_git_env(),
             )
             # exit 0 → anchor is an ancestor of remote_head (clean fast-forward = behind).
@@ -557,7 +587,15 @@ async def sync_state(
             diverged = anc.returncode == 1
             behind = not diverged
 
-        return {"remoteHead": remote_head, "syncedOid": synced_oid, "behind": behind, "diverged": diverged}
+        return {
+            "remoteHead": remote_head,
+            "syncedOid": anchor,
+            "behind": behind,
+            "diverged": diverged,
+            # Set when the baseline was derived from the local HEAD rather than read
+            # from the DB, so the caller can persist it (this function has no DB).
+            "adoptedOid": adopted_oid,
+        }
 
     async with _lock_for(repo_getter(uid)):
         return await asyncio.to_thread(work)

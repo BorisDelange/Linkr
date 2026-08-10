@@ -155,19 +155,50 @@ describe('etlSettingsChanged', () => {
 })
 
 describe('stripInstancePipelineFields', () => {
-  it('drops the ids that name databases on THIS instance', () => {
-    // Taking a collaborator's would repoint the pipeline at a database that does
-    // not exist here.
-    const remote = {
-      id: 'remote-id', workspaceId: 'ws-remote', name: { en: 'P' },
-      sourceDataSourceId: 'ds-theirs', targetDataSourceId: 'ds-theirs-2',
-      gitRemoteConfig: { url: 'x', branch: 'main' }, createdAt: 'c', updatedAt: 'u',
-    } as unknown as EtlPipeline
-    const out = stripInstancePipelineFields(remote) as Record<string, unknown>
-    for (const k of ['id', 'workspaceId', 'sourceDataSourceId', 'targetDataSourceId', 'gitRemoteConfig', 'createdAt', 'updatedAt']) {
+  /** Every key a REAL exported _pipeline.json carries (read off the mimic-iv-to-omop
+   *  repo), so this test fails if the export starts emitting something new that a
+   *  pull must not take. */
+  const REAL_EXPORT = {
+    badges: [], config: { excludedFiles: [] }, createdAt: '2026-08-06T10:00:00Z',
+    createdBy: 7, createdByDetails: { name: 'Someone' }, description: { en: 'd' },
+    entityId: 'mimic-iv-to-omop', id: 'remote-uuid', lastRunAt: '2026-08-09T17:00:00Z',
+    lastRunDurationMs: 421_000, lineageId: 'lin-1', mappingProjectId: 'mp-theirs',
+    name: { en: 'MIMIC-IV to OMOP' }, organization: { id: 'org-theirs' },
+    parentLineageId: null, sourceDataSourceId: 'ds-theirs',
+    status: 'ready', targetDataSourceId: 'ds-theirs-2', version: 3,
+    workspaceId: 'ws-theirs', gitRemoteConfig: { url: 'x', branch: 'main' },
+  } as unknown as EtlPipeline
+
+  it('drops the ids that name databases and mapping projects on THIS instance', () => {
+    // Taking a collaborator's would repoint the pipeline at things that do not
+    // exist here.
+    const out = stripInstancePipelineFields(REAL_EXPORT) as Record<string, unknown>
+    for (const k of ['sourceDataSourceId', 'targetDataSourceId', 'mappingProjectId', 'workspaceId', 'gitRemoteConfig']) {
       expect(out).not.toHaveProperty(k)
     }
-    expect(out.name).toEqual({ en: 'P' })
+  })
+
+  it('drops OUR run state, which describes runs that never happened here', () => {
+    // The quality cache keys on the last run, so importing a foreign lastRunAt
+    // would also invalidate it against a target that never changed.
+    const out = stripInstancePipelineFields(REAL_EXPORT) as Record<string, unknown>
+    for (const k of ['lastRunAt', 'lastRunDurationMs', 'status']) {
+      expect(out).not.toHaveProperty(k)
+    }
+  })
+
+  it('drops identity, which is resolved locally', () => {
+    const out = stripInstancePipelineFields(REAL_EXPORT) as Record<string, unknown>
+    for (const k of ['id', 'entityId', 'createdAt', 'organization']) {
+      expect(out).not.toHaveProperty(k)
+    }
+  })
+
+  it('keeps what the repo legitimately owns', () => {
+    const out = stripInstancePipelineFields(REAL_EXPORT) as Record<string, unknown>
+    expect(out.name).toEqual({ en: 'MIMIC-IV to OMOP' })
+    expect(out.description).toEqual({ en: 'd' })
+    expect(out.config).toEqual({ excludedFiles: [] })
   })
 })
 
