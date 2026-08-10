@@ -19,3 +19,16 @@ export function uniqueName(base: string, taken: Iterable<string>): string {
     if (!used.has(norm(candidate))) return candidate
   }
 }
+
+/**
+ * First free FILENAME in the "a.sql", "a-2.sql", "a-3.sql"… series.
+ *
+ * Distinct from `uniqueName` above: that one appends " (2)" for display names,
+ * this one inserts the counter before the EXTENSION, which is what a file tree
+ * needs. Case-insensitive, because two files differing only in case are the same
+ * file to git on macOS and Windows and the export tree could not hold both.
+ *
+ * Re-exported from the ETL module, which owns the implementation and its tests,
+ * so every file tree shares one rule instead of hand-rolling its own.
+ */
+export { uniqueEtlFileName as uniqueFileName } from '@/features/warehouse/etl/etl-file-language'

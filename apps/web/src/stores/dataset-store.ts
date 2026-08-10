@@ -892,7 +892,13 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
 
   addImportedFile: (node) => {
     set((s) => ({
-      files: s.files.some((f) => f.id === node.id) ? s.files : [...s.files, node],
+      // REPLACE a row with the same id rather than keeping the old one: an
+      // overwrite import lands on the same id (server mode keys a dataset by its
+      // path), and keeping the stale row left the previous columns and row count
+      // on screen after the file had already been replaced on disk.
+      files: s.files.some((f) => f.id === node.id)
+        ? s.files.map((f) => (f.id === node.id ? node : f))
+        : [...s.files, node],
       selectedFileId: node.id,
       openFileIds: s.openFileIds.includes(node.id) ? s.openFileIds : [...s.openFileIds, node.id],
       _dirtyVersion: s._dirtyVersion + 1,

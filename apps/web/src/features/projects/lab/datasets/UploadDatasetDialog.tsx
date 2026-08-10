@@ -23,12 +23,13 @@ import {
 } from '@/components/ui/select'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { buildColumns } from '@/lib/dataset-utils'
+import { findDatasetConflict, resolveDatasetUploadTarget } from './dataset-upload-target'
 import { isServerMode } from '@/lib/api-client'
 import { importDatasetBySha, previewDatasetBySha, previewDatasetOnServer, importDatasetOnServer, setDatasetColumnMeta } from '@/lib/api/datasets'
 import { isGoupileWorkbook, parseGoupileWorkbook, type GoupileColumnMeta, type SheetMap } from '@/lib/goupile-import'
 import { Checkbox } from '@/components/ui/checkbox'
 import { TypeBadge } from './TypeBadge'
-import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
+import type { DatasetColumn, DatasetParseOptions } from '@/types'
 
 interface UploadDatasetDialogProps {
   open: boolean
@@ -64,16 +65,6 @@ function remapRows(rows: Record<string, unknown>[], columns: DatasetColumn[]): R
   })
 }
 
-function getUniqueName(name: string, parentId: string | null, files: DatasetFile[]): string {
-  const siblings = files.filter((f) => f.parentId === parentId && f.type === 'file')
-  const existingNames = new Set(siblings.map((f) => f.name))
-  if (!existingNames.has(name)) return name
-  const base = name.replace(/\.[^.]+$/, '')
-  const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : ''
-  let i = 2
-  while (existingNames.has(`${base} (${i})${ext}`)) i++
-  return `${base} (${i})${ext}`
-}
 
 export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadDatasetDialogProps) {
   const { t } = useTranslation()
@@ -488,12 +479,10 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
 
   // Check for duplicate filename when file is parsed
   const { files: storeFiles } = useDatasetStore()
-  const existingFile = useMemo(() => {
-    if (!parsed) return null
-    return storeFiles.find(
-      (f) => f.name === parsed.fileName && f.parentId === parentId && f.type === 'file'
-    ) ?? null
-  }, [parsed, parentId, storeFiles])
+  const existingFile = useMemo(
+    () => (parsed ? findDatasetConflict(parsed.fileName, parentId, storeFiles) : null),
+    [parsed, parentId, storeFiles],
+  )
 
   const doImport = useCallback(async (mode: 'new' | 'overwrite' | 'copy') => {
     if (!parsed || !file) return
@@ -505,7 +494,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     if (parsed.goupileMeta && goupileCsvRef.current) {
       const projectUid = store.activeProjectUid ?? ''
       const csvFile = goupileCsvRef.current
-      const name = getUniqueName(parsed.fileName, parentId, store.files)
+      const { name } = resolveDatasetUploadTarget(parsed.fileName, parentId, store.files, 'copy')
       setImporting(true)
       setError(null)
       try {
@@ -546,18 +535,15 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     // open until success so any error is shown in place.
     if (isServerMode()) {
       const projectUid = store.activeProjectUid ?? ''
-      const name =
-        mode === 'copy'
-          ? getUniqueName(parsed.fileName, parentId, store.files)
-          : parsed.fileName
+      const { name } = resolveDatasetUploadTarget(parsed.fileName, parentId, store.files, mode)
       setImporting(true)
       setError(null)
       try {
-        if (mode === 'overwrite' && existingFile) {
-          const { getStorage } = await import('@/lib/storage')
-          await getStorage().datasetFiles.delete(existingFile.id)
-          store.deleteNode(existingFile.id)
-        }
+        // Overwrite does NOT delete first. In server mode a dataset's identity is
+        // its path, so importing under the same name lands on the same id and
+        // replaces the file on disk. Deleting beforehand destroyed the analyses and
+        // versioning marks attached to that id for no benefit — and the front-only
+        // branch below never did it, so the two modes disagreed on the same action.
         if (!parsed.sha) throw new Error(t('datasets.upload_parse_error'))
         const created = await importDatasetBySha({
           projectUid,
@@ -590,9 +576,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
         const { getStorage } = await import('@/lib/storage')
         await getStorage().datasetRawFiles.save({ datasetFileId: existingFile.id, ...rawFile })
       } else {
-        const fileName = mode === 'copy'
-          ? getUniqueName(parsed.fileName, parentId, store.files)
-          : parsed.fileName
+        const { name: fileName } = resolveDatasetUploadTarget(parsed.fileName, parentId, store.files, mode)
         // Single atomic method — no race conditions
         await store.createFileWithData(fileName, parentId, parsed.columns, parsed.rows, parseOpts, rawFile)
       }
