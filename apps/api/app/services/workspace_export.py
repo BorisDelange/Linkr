@@ -140,14 +140,12 @@ def _eid(entity: dict) -> str:
     return _slugify(_localized_en(entity.get("name")) or entity.get("id") or "unknown")
 
 
-def _sanitize_connection_config(config: dict, keep_credentials: bool) -> dict:
-    """Port of ``sanitizeConnectionConfig`` (entity-io.ts:1798): always strip
-    password/token + local file refs; when credentials aren't kept, also strip the
-    connection details, leaving only ``engine`` (and any other non-listed field)."""
+def _sanitize_connection_config(config: dict) -> dict:
+    """Port of ``sanitizeConnectionConfig`` (entity-io.ts): strip password/token +
+    local file refs AND the connection details, leaving only ``engine`` (and any
+    other non-listed field) — connection details never leave the machine."""
     always_strip = {"password", "token", "fileId", "fileIds", "fileNames", "fileHandleIds"}
     rest = {k: v for k, v in config.items() if k not in always_strip}
-    if keep_credentials:
-        return rest
     creds = {"host", "port", "database", "schema", "username", "baseUrl", "authType"}
     return {k: v for k, v in rest.items() if k not in creds}
 
@@ -186,9 +184,10 @@ def _build_projects_section(
     ``{"meta": <project dict>, "git": <cfg|None>, "folder": str,
        "readme": <localized|None>, "sub_tree": <dict|None>}``.
     - git-linked → pointer project.json only + a git-links entry.
-    - unlinked + ``sub_tree`` present → the full project tree nested under
-      ``projects/<folder>/`` (built by the caller with build_project_tree).
-    - unlinked, no sub_tree → lightweight project.json + README.
+    - unlinked → the full project tree nested under ``projects/<folder>/``
+      (built by the caller with build_project_tree).
+    - unlinked with no sub_tree (defensive fallback) → lightweight
+      project.json + README.
     Excludes are applied by the caller (absent from the list)."""
     for entry in projects:
         project = entry["meta"]
@@ -285,18 +284,18 @@ def _build_schemas_section(
 
 
 def _build_databases_section(
-    tree: dict[str, bytes], data_sources: list[dict], keep_credentials: bool
+    tree: dict[str, bytes], data_sources: list[dict]
 ) -> None:
-    """Port of the databases/ section (entity-io.ts:1976-1995). Vocabulary
-    references are filtered out by the caller. connectionConfig is sanitized here
-    (passwords never; credentials opt-in)."""
+    """Port of the databases/ section (entity-io.ts). Vocabulary references are
+    filtered out by the caller. connectionConfig is sanitized here — connection
+    details and passwords never leave the machine."""
     for ds in data_sources:
         connection_config = ds.get("connectionConfig")
         rest = {k: v for k, v in ds.items() if k != "connectionConfig"}
         safe = {
             **rest,
             "connectionConfig": (
-                _sanitize_connection_config(connection_config, keep_credentials)
+                _sanitize_connection_config(connection_config)
                 if connection_config
                 else None
             ),
@@ -307,11 +306,11 @@ def _build_databases_section(
 def _build_sql_scripts_section(
     tree: dict[str, bytes], collections: list[dict], git_links: _GitLinks
 ) -> None:
-    """Port of the sql-scripts/ section (entity-io.ts:1999-2018). Each entry:
+    """Port of the sql-scripts/ section (entity-io.ts). Each entry:
     ``{"meta": <collection>, "git": cfg|None, "folder": str,
        "sub_tree": <dict|None>}`` — the full-content sub-tree (built by the caller
-    with ``buildSqlCollectionFolder``'s server equivalent) is present only when the
-    per-entity include-data flag is on and the entity is unlinked."""
+    with ``buildSqlCollectionFolder``'s server equivalent) is present whenever the
+    entity is unlinked."""
     for entry in collections:
         collection = entry["meta"]
         git = entry.get("git")
@@ -401,9 +400,9 @@ def _build_mapping_projects_section(
        "entityId": str|None, "name": <localized|str>, "sub_tree": <dict|None>}``.
     - git-linked → a MINIMAL pointer project.json (id/entityId/name + gitRemoteConfig
       — the linked repo's own project.json is the source of truth) + git link.
-    - unlinked, no sub_tree → clean project.json only.
-    - unlinked + sub_tree → the full folder (built by the caller with
-      build_mapping_project_tree, WITHOUT its standalone .gitignore) nested here.
+    - unlinked → the full folder (built by the caller with
+      build_mapping_project_tree, WITHOUT its standalone .gitignore) nested here;
+      a missing sub_tree (defensive fallback) emits the clean project.json only.
     ``id_ranges`` are the already-portable workspace ranges."""
     for entry in mapping_projects:
         clean_meta = entry["meta"]
@@ -492,7 +491,6 @@ def build_workspace_tree(
     wiki_attachment_blobs: dict[str, bytes] | None,
     schemas: list[dict] | None,
     data_sources: list[dict] | None,
-    keep_credentials: bool,
     sql_collections: list[dict] | None,
     etl_pipelines: list[dict] | None,
     dq_rule_sets: list[dict] | None,
@@ -539,7 +537,7 @@ def build_workspace_tree(
     if schemas is not None:
         _build_schemas_section(tree, schemas, git_links)
     if data_sources is not None:
-        _build_databases_section(tree, data_sources, keep_credentials)
+        _build_databases_section(tree, data_sources)
     if sql_collections is not None:
         _build_sql_scripts_section(tree, sql_collections, git_links)
     if etl_pipelines is not None:

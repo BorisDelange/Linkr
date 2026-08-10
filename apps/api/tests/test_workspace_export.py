@@ -113,13 +113,12 @@ def _build_tree() -> dict[str, bytes]:
     workspace = data["workspace"]
     org = data["organization"]
 
-    include = data["includeEntityData"]
     projects = []
     for p in data["projects"]:
         git = p.get("gitRemoteConfig")
         folder = p.get("projectId") or _slugify(p["name"].get("en") or "project")
         entry = {"meta": p, "git": git, "folder": folder, "readme": p.get("readme")}
-        if not git and include.get(p["uid"]):
+        if not git:
             entry["sub_tree"] = _full_project_sub_tree(data, p, org)
         projects.append(entry)
 
@@ -135,7 +134,7 @@ def _build_tree() -> dict[str, bytes]:
             "entityId": mp.get("entityId"),
             "name": mp.get("name"),
         }
-        if not git and include.get(mp["id"]):
+        if not git:
             entry["sub_tree"] = _mapping_sub_tree(data, mp)
         mapping_projects.append(entry)
 
@@ -151,7 +150,6 @@ def _build_tree() -> dict[str, bytes]:
         wiki_attachment_blobs=wiki_blobs,
         schemas=[],
         data_sources=data["dataSources"],
-        keep_credentials=False,
         sql_collections=[],
         etl_pipelines=[],
         dq_rule_sets=[],

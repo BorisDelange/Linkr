@@ -11,10 +11,10 @@
  * The fixture (`input.json`) uses the SAME shapes the frontend's Storage yields in
  * server mode (camelCase, API field order), so the TS builder here and the Python
  * builder's twin test (apps/api/tests/test_workspace_export.py) consume identical
- * input and must emit identical bytes. It exercises: a lightweight project, a
- * full-data project (nested tree), a git-linked project (pointer), a wiki page +
- * attachment, a database (credentials stripped, password never), a full mapping
- * project, and git-links.json.
+ * input and must emit identical bytes. It exercises: two unlinked projects (full
+ * nested trees — one with IDE files, one without), a git-linked project (pointer),
+ * a wiki page + attachment, a database (connection details always stripped,
+ * password never kept), a full mapping project, and git-links.json.
  *
  * The built-in-plugin filter (buildWorkspaceZip skips workspace copies of app
  * built-ins via the registry) is deliberately NOT exercised here: the fixture's one
@@ -64,7 +64,6 @@ interface GoldenInput {
   workspace: Record<string, unknown>
   organization: Record<string, unknown>
   projects: Record<string, unknown>[]
-  includeEntityData: Record<string, boolean>
   projectIdeFiles: Record<string, Record<string, unknown>[]>
   wikiPages: Record<string, unknown>[]
   wikiAttachments: (Record<string, unknown> & { dataBase64: string })[]
@@ -150,9 +149,7 @@ const storage = {
 } as unknown as Storage
 
 async function buildTree(): Promise<Map<string, Uint8Array>> {
-  const built = await buildWorkspaceZip('ws1', storage, {
-    includeEntityData: input.includeEntityData,
-  })
+  const built = await buildWorkspaceZip('ws1', storage, {})
   if (!built) throw new Error('build returned null')
   const zip = await JSZip.loadAsync(await built.blob.arrayBuffer())
   const out = new Map<string, Uint8Array>()

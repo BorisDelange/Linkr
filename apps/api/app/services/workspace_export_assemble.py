@@ -83,13 +83,12 @@ from app.services.workspace_export import (
 @dataclass
 class WorkspaceExportOptions:
     """Mirrors the frontend ``BuildWorkspaceZipOptions``: section toggles (all on by
-    default), per-entity include-data opt-in, per-entity exclude opt-out, and the
-    credentials opt-in for databases."""
+    default) and the per-entity exclude opt-out. Unlinked entities always export
+    their full content; connection details are never exported; data files follow
+    each entity's own per-file versioning marks."""
 
     sections: dict[str, bool] = field(default_factory=dict)
-    include_entity_data: dict[str, bool] = field(default_factory=dict)
     exclude_entities: dict[str, bool] = field(default_factory=dict)
-    include_credentials: bool = False
 
     def on(self, key: str) -> bool:
         return self.sections.get(key) is not False
@@ -213,7 +212,7 @@ async def _projects_section(
             "folder": _project_folder(project),
             "readme": project.readme,
         }
-        if not git and opts.include_entity_data.get(project.uid):
+        if not git:
             # The full nested tree inlines the inherited org into project.json, like
             # buildProjectZip's attachEntityOrganization fallback (project's own org,
             # else the parent workspace's). Data files follow each project's own
@@ -294,7 +293,7 @@ async def _mapping_projects_section(
             "entityId": mp_dict.get("entityId"),
             "name": mp_dict.get("name"),
         }
-        if not git and opts.include_entity_data.get(mp.id):
+        if not git:
             entry["sub_tree"] = await _mapping_project_sub_tree(db, mp)
         entries.append(entry)
 
@@ -346,10 +345,13 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
     by_id = {f["id"]: f for f in files}
 
     # Per-file versioning marks (pipeline.config), mirroring buildEtlPipelineFolder:
-    # an excluded CODE file leaves neither the tree nor the files, since a
-    # _tree.json naming a file that is not there would break re-import.
+    # an excluded CODE file leaves neither the tree nor the files (a _tree.json
+    # naming a file that is not there would break re-import); a DATA file leaves
+    # the machine only when explicitly marked for versioning — it keeps its
+    # _tree.json entry so the file node survives re-import (content simply absent).
     config = getattr(pipeline, "config", None) or {}
     excluded = set(config.get("excludedFiles") or [])
+    marked = set(config.get("versionedDataFiles") or [])
     kept = [
         f
         for f in files
@@ -362,7 +364,10 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
     tree["_tree.json"] = _json(_to_path_tree(kept, "pipelineId"))
     for f in kept:
         if f["type"] == "file" and f.get("content") is not None:
-            tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
+            path = _tree_path(f, by_id)
+            if _is_data_ext(path) and path not in marked:
+                continue
+            tree[path] = str(f["content"]).encode("utf-8")
     return tree
 
 
@@ -486,7 +491,7 @@ async def build_workspace_tree_from_db(
             git = _resolve_git_remote(c.git_remote_config)
             meta = _badged_dump(SqlScriptCollectionResponse, c)
             entry: dict = {"meta": meta, "git": git, "folder": _eid(meta)}
-            if not git and options.include_entity_data.get(c.id):
+            if not git:
                 entry["sub_tree"] = await _sql_collection_sub_tree(db, c)
             sql_collections.append(entry)
 
@@ -499,7 +504,7 @@ async def build_workspace_tree_from_db(
             git = _resolve_git_remote(p.git_remote_config)
             meta = _badged_dump(EtlPipelineResponse, p)
             entry = {"meta": meta, "git": git, "folder": _eid(meta)}
-            if not git and options.include_entity_data.get(p.id):
+            if not git:
                 entry["sub_tree"] = await _etl_pipeline_sub_tree(db, p)
             etl_pipelines.append(entry)
 
@@ -564,7 +569,6 @@ async def build_workspace_tree_from_db(
         wiki_attachment_blobs=wiki_attachment_blobs,
         schemas=schemas,
         data_sources=data_sources,
-        keep_credentials=options.include_credentials,
         sql_collections=sql_collections,
         etl_pipelines=etl_pipelines,
         dq_rule_sets=dq_rule_sets,

@@ -1,5 +1,4 @@
 {
-  "uid": "proj-light",
   "projectId": "light-proj",
   "name": {
     "en": "Lightweight Project"
@@ -17,5 +16,24 @@
   "createdByDetails": null,
   "createdAt": "2026-01-01T00:00:00.000Z",
   "version": "0.1.0",
-  "appVersion": "2.2.1"
+  "appVersion": "2.2.1",
+  "organization": {
+    "id": "org1",
+    "name": {
+      "en": "CHU Rennes"
+    },
+    "type": "hospital",
+    "location": {
+      "en": "Rennes"
+    },
+    "country": {
+      "en": "France"
+    },
+    "website": "https://chu-rennes.fr",
+    "email": null,
+    "customType": null,
+    "referenceId": null,
+    "customFields": null,
+    "createdAt": "2026-01-01T00:00:00.000Z"
+  }
 }

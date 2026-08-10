@@ -17,14 +17,13 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 
 class WorkspaceExportRequest(BaseModel):
-    """Mirrors the frontend ``BuildWorkspaceZipOptions``: which sections to include,
-    per-entity data opt-in, per-entity exclude opt-out, and the database-credentials
-    opt-in. Absent keys default to the whole-workspace export (all sections on)."""
+    """Mirrors the frontend ``BuildWorkspaceZipOptions``: which sections to include
+    and the per-entity exclude opt-out. Absent keys default to the whole-workspace
+    export (all sections on). Connection details are never exported; data files are
+    included only when marked for versioning."""
 
     sections: dict[str, bool] = Field(default_factory=dict)
-    include_entity_data: dict[str, bool] = Field(default_factory=dict, alias="includeEntityData")
     exclude_entities: dict[str, bool] = Field(default_factory=dict, alias="excludeEntities")
-    include_credentials: bool = Field(default=False, alias="includeCredentials")
 
 
 @router.get("", response_model=list[WorkspaceResponse])
@@ -69,10 +68,10 @@ async def export_zip(
 ):
     """Build the workspace's export ZIP server-side and return it for download —
     the same git-variant tree the versioning flow commits, honoring the export
-    dialog's section / per-entity data / exclude / credentials toggles. Offloads the
-    browser: it no longer reads every entity's data just to re-zip it. See
-    docs/architecture.md ("Fullstack Storage & Compute"). POST (not GET) because the
-    options are a structured body."""
+    dialog's section / per-entity exclude toggles. Offloads the browser: it no
+    longer reads every entity's data just to re-zip it. See docs/architecture.md
+    ("Fullstack Storage & Compute"). POST (not GET) because the options are a
+    structured body."""
     from fastapi.responses import Response
 
     from app.services.workspace_export import _slugify
@@ -88,9 +87,7 @@ async def export_zip(
     opts = body or WorkspaceExportRequest()
     options = WorkspaceExportOptions(
         sections=opts.sections,
-        include_entity_data=opts.include_entity_data,
         exclude_entities=opts.exclude_entities,
-        include_credentials=opts.include_credentials,
     )
     zip_bytes = await assemble_workspace_zip(db, workspace, options)
     name = workspace.name.get("en") if isinstance(workspace.name, dict) else workspace.name

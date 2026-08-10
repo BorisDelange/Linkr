@@ -28,7 +28,7 @@ import type {
   AuthorDetails,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
-import { buildMappingProjectFolder, cleanMappingProjectMeta, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
+import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { isServerMode } from '@/lib/api-client'
 import { importDatasetOnServer } from '@/lib/api/datasets'
 
@@ -1494,19 +1494,11 @@ export interface BuildWorkspaceZipOptions {
     dataQuality?: boolean
     catalogs?: boolean
   }
-  /** Include connection credentials (host, port, database, schema, username) in database export. Passwords are never included. */
-  includeCredentials?: boolean
-  /**
-   * Per-entity opt-in to include full content for entities NOT linked to a git repo.
-   * Keyed by the entity's stable id (project.uid, mappingProject.id, sqlCollection.id, etlPipeline.id).
-   * Git-linked entities always export metadata + git pointer only and ignore this flag.
-   * Defaults to false (metadata only) when an entity id is absent.
-   */
-  includeEntityData?: Record<string, boolean>
   /**
    * Per-entity opt-out: when an entity id maps to true, that entity is omitted from the
    * export entirely (no metadata, no git-link entry). Entities are included by default.
-   * Keyed by the same stable ids as includeEntityData.
+   * Keyed by the entity's stable id (project.uid, mappingProject.id, sqlCollection.id,
+   * etlPipeline.id, dataSource.id, schemaPreset.presetId, …).
    */
   excludeEntities?: Record<string, boolean>
 }
@@ -1992,15 +1984,19 @@ export async function buildEtlPipelineFolder(
   for (const f of kept) {
     if (f.type !== 'file' || f.content == null) continue
     const path = treeNodePath(f, byId)
-    zip.file(`${prefix}${path}`, f.content)
-    // A data file is gitignored by default; the mark re-includes it below.
-    if (isDataExtension(path) && (pipeline.config?.versionedDataFiles ?? []).includes(path)) {
+    // A data file leaves the machine only when explicitly marked for versioning
+    // (same rule as project datasets). It keeps its _tree.json entry so the file
+    // node survives re-import (content simply absent); the mark also re-includes
+    // it in the standalone .gitignore below.
+    if (isDataExtension(path)) {
+      if (!(pipeline.config?.versionedDataFiles ?? []).includes(path)) continue
       includedDataPaths.push(path)
     }
+    zip.file(`${prefix}${path}`, f.content)
   }
 
-  // Standalone pipeline repo only: inside a workspace export the root .gitignore
-  // already covers these, and a nested copy would just be noise.
+  // Standalone pipeline repo only: inside a workspace export unmarked data files
+  // are physically absent (filtered above), so a nested copy would just be noise.
   //
   // A pipeline's data files are gitignored like everywhere else in the app. This
   // matters most for mapping/*.csv: those rows are a mapping project's own
@@ -2015,16 +2011,14 @@ export async function buildEtlPipelineFolder(
 }
 
 /**
- * Strip sensitive fields from a DatabaseConnectionConfig.
- * - Always removes: password, tokens, local file refs (fileId, fileIds, fileNames, fileHandleIds).
- * - When `keepCredentials` is false, also removes: host, port, database, schema, username.
- *   Only `engine` is kept so the data source entry remains useful as a reference.
+ * Strip sensitive fields from a DatabaseConnectionConfig: password, tokens, local
+ * file refs (fileId, fileIds, fileNames, fileHandleIds) AND the connection details
+ * (host, port, database, schema, username, baseUrl, authType). Only `engine` is
+ * kept so the data source entry remains useful as a reference — connection details
+ * never leave the machine.
  */
-function sanitizeConnectionConfig(config: Record<string, unknown>, keepCredentials: boolean): Record<string, unknown> {
-  // Always strip password, tokens and local file references
+function sanitizeConnectionConfig(config: Record<string, unknown>): Record<string, unknown> {
   const { password: _, token: _tk, fileId: _f, fileIds: _fi, fileNames: _fn, fileHandleIds: _fh, ...rest } = config
-  if (keepCredentials) return rest
-  // Strip connection details too — keep only engine
   const { host: _h, port: _p, database: _d, schema: _s, username: _u, baseUrl: _bu, authType: _at, ...minimal } = rest
   return minimal
 }
@@ -2067,7 +2061,6 @@ export async function buildWorkspaceZip(
 
   // Git-link manifest: collected across all sections, written as git-links.json at the end.
   const gitLinks: GitLinkEntry[] = []
-  const includeData = options.includeEntityData ?? {}
   const excluded = options.excludeEntities ?? {}
 
   // --- workspace.json (without instance-specific fields) ---
@@ -2097,7 +2090,7 @@ export async function buildWorkspaceZip(
 
   // --- projects/ ---
   // Git-linked projects: metadata + README + git pointer only (full content lives in the project's own repo).
-  // Unlinked projects: metadata only by default; full content when includeEntityData[uid] is true.
+  // Unlinked projects: full content, nested via buildProjectZip.
   if (on('projects')) {
     const allProjects = await storage.projects.getAll()
     const wsProjects = allProjects.filter(p => p.workspaceId === workspaceId)
@@ -2105,10 +2098,6 @@ export async function buildWorkspaceZip(
       if (excluded[project.uid]) continue
       const folder = project.projectId || slugify(resolveProjectName(project))
       const git = resolveGitRemote(project)
-      const { todos: _t, notes: _n, readme: _rd, ...projectMeta } = project
-      // Strip instance fields, then re-add gitRemoteConfig deliberately: here it's
-      // the git *pointer* the portal follows to clone the linked project's repo.
-      const projectMetaOut = { ...stripInstanceFields(projectMeta), ...(git ? { gitRemoteConfig: git } : {}), appVersion: APP_VERSION }
 
       if (git) {
         // Pointer only — the linked repo's own project.json is the source of truth for
@@ -2133,10 +2122,10 @@ export async function buildWorkspaceZip(
         }
         zip.file(`projects/${folder}/project.json`, json(pointer))
         gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
-      } else if (includeData[project.uid]) {
+      } else {
         // Full project content nested under projects/<folder>/ (reuses buildProjectZip layout).
         // Data files are bundled per the project's own versionedDataFiles marking
-        // (buildProjectZip reads project.config) — no blanket include flag anymore.
+        // (buildProjectZip reads project.config) — no blanket include flag.
         const sub = await buildProjectZip(project.uid, storage, {})
         if (sub) {
           const subZip = await JSZip.loadAsync(sub.blob)
@@ -2146,10 +2135,6 @@ export async function buildWorkspaceZip(
             zip.file(`projects/${folder}/${path}`, await entry.async('uint8array'))
           }))
         }
-      } else {
-        // Lightweight: catalog-relevant metadata + README only.
-        zip.file(`projects/${folder}/project.json`, json(projectMetaOut))
-        writeReadmeFiles(zip, `projects/${folder}/`, project.readme)
       }
     }
   }
@@ -2213,9 +2198,8 @@ export async function buildWorkspaceZip(
     }
   }
 
-  // --- databases/ (always exported when section enabled; credentials opt-in, passwords never) ---
+  // --- databases/ (always exported when section enabled; connection details and passwords never) ---
   if (on('databases')) {
-    const keepCreds = options.includeCredentials === true
     const dataSources = await storage.dataSources.getByWorkspace(workspaceId)
     for (const ds of dataSources) {
       if (excluded[ds.id]) continue
@@ -2229,7 +2213,7 @@ export async function buildWorkspaceZip(
       const safeDsJson = {
         ...rest,
         connectionConfig: connectionConfig
-          ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>, keepCreds)
+          ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>)
           : undefined,
       }
       zip.file(`databases/${slugify((ds as { name?: string }).name || (ds as { id: string }).id)}.json`, json(safeDsJson))
@@ -2255,10 +2239,6 @@ export async function buildWorkspaceZip(
         continue
       }
 
-      if (!includeData[collection.id]) {
-        zip.file(`sql-scripts/${folder}/_collection.json`, json(collection))
-        continue
-      }
       await buildSqlCollectionFolder(zip, `sql-scripts/${folder}/`, collection, storage)
     }
   }
@@ -2282,10 +2262,6 @@ export async function buildWorkspaceZip(
         continue
       }
 
-      if (!includeData[pipeline.id]) {
-        zip.file(`etl/${folder}/_pipeline.json`, json(pipeline))
-        continue
-      }
       await buildEtlPipelineFolder(zip, `etl/${folder}/`, pipeline, storage)
     }
   }
@@ -2330,13 +2306,6 @@ export async function buildWorkspaceZip(
         // would never correct it). Omit when absent for byte-parity with the server.
         zip.file(`mapping-projects/${folder}/project.json`, json({ id: mp.id, entityId: mp.entityId, name: mp.name, ...(mp.createdAt ? { createdAt: mp.createdAt } : {}), gitRemoteConfig: git }))
         gitLinks.push({ type: 'mapping-project', id: mp.id, folder, url: git.url, branch: git.branch })
-        continue
-      }
-
-      if (!includeData[mp.id]) {
-        // Unlinked, data not requested: metadata only (skip mappings + source concepts).
-        // Same clean, portable project.json as the full export.
-        zip.file(`mapping-projects/${folder}/project.json`, json(cleanMappingProjectMeta(mp)))
         continue
       }
 

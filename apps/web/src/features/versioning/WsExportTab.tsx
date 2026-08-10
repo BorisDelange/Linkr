@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useTranslation, Trans } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import {
   Download,
@@ -13,7 +13,6 @@ import {
   Workflow,
   ShieldCheck,
   FileSpreadsheet,
-  AlertTriangle,
   Loader2,
   GitBranch,
 } from 'lucide-react'
@@ -27,16 +26,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
@@ -51,28 +40,12 @@ interface EntityRow {
   gitHost: string | null
 }
 
-/** Section keys that expose per-entity include-data rows. */
+/** Section keys whose entities are exported as full nested folders. */
 const ENTITY_SECTIONS = ['projects', 'conceptMapping', 'sqlScripts', 'etl'] as const
 type EntitySectionKey = (typeof ENTITY_SECTIONS)[number]
 
 function resolveName(name: import('@/types').LocalizedString): string {
   return typeof name === 'string' ? name : (name.en || Object.values(name)[0] || '')
-}
-
-/** Orange warning + tooltip flagging that a control bundles potentially-sensitive data files. */
-function DataWarningIcon({ text }: { text: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex">
-          <AlertTriangle size={12} className="text-amber-500" />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-[16rem]" style={{ textWrap: 'wrap' }}>
-        {text}
-      </TooltipContent>
-    </Tooltip>
-  )
 }
 
 function hostOf(url: string): string {
@@ -144,15 +117,11 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
   const { exportZip, loading } = useWorkspaceVersioningStore()
   const [exporting, setExporting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
-  const [includeCredentials, setIncludeCredentials] = useState(false)
-  const [showExportConfirm, setShowExportConfirm] = useState(false)
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [countsLoading, setCountsLoading] = useState(true)
   const [entities, setEntities] = useState<Record<EntitySectionKey, EntityRow[]>>({
     projects: [], conceptMapping: [], sqlScripts: [], etl: [],
   })
-  /** Per-section opt-in to bundle data files (applies to every unlinked, included entity in the section). */
-  const [includeSectionData, setIncludeSectionData] = useState<Set<EntitySectionKey>>(() => new Set())
   /** Entity ids explicitly excluded from the export. Empty = every entity included by default. */
   const [excludedEntities, setExcludedEntities] = useState<Set<string>>(() => new Set())
   /** Per-item lists for sections exported whole. Each item is toggleable via excludedEntities (keyed by id). */
@@ -248,16 +217,6 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
     })
   }, [isEmpty])
 
-  /** Toggle the section-level "include data files" option. */
-  const toggleSectionData = useCallback((key: EntitySectionKey) => {
-    setIncludeSectionData(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }, [])
-
   /** Toggle whether an entity is included in the export at all. */
   const toggleEntityIncluded = useCallback((id: string) => {
     setExcludedEntities(prev => {
@@ -297,12 +256,6 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
     [entities, simpleItems],
   )
 
-  /** Unlinked + currently-included entity ids in a section — the ones a "data files" opt-in actually affects. */
-  const dataEligibleIds = useCallback(
-    (key: EntitySectionKey) => entities[key].filter(e => !e.gitHost && !excludedEntities.has(e.id)).map(e => e.id),
-    [entities, excludedEntities],
-  )
-
   /** Toggle a group parent = toggle all its non-empty children. */
   const toggleGroup = useCallback((children: ExportSection[]) => {
     setSelected(prev => {
@@ -326,15 +279,8 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
     } else {
       setSelected(new Set())
       setExcludedEntities(new Set(allEntityIds()))
-      setIncludeSectionData(new Set())
     }
   }, [isEmpty, allEntityIds])
-
-  /** Expand the per-section data opt-in to the concrete entity ids it bundles (unlinked + included). */
-  const includedDataEntityIds = useCallback(
-    () => [...includeSectionData].flatMap(key => dataEligibleIds(key)),
-    [includeSectionData, dataEligibleIds],
-  )
 
   const doExport = async () => {
     if (!wsUid) return
@@ -342,24 +288,11 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
     try {
       await exportZip(wsUid, {
         sections: Object.fromEntries(ALL_KEYS.map(k => [k, selected.has(k)])) as Record<string, boolean>,
-        includeCredentials,
-        includeEntityData: Object.fromEntries(includedDataEntityIds().map(id => [id, true])),
         excludeEntities: Object.fromEntries([...excludedEntities].map(id => [id, true])),
       })
     } finally {
       setExporting(false)
     }
-  }
-
-  /** True when at least one section bundles data files for a still-included entity. */
-  const hasIncludedData = includedDataEntityIds().length > 0
-  /** True when database connection details are bundled. */
-  const hasIncludedCredentials = includeCredentials && selected.has('databases')
-
-  const handleExport = () => {
-    // Single confirmation gate: show it whenever the archive carries sensitive content.
-    if (hasIncludedData || hasIncludedCredentials) setShowExportConfirm(true)
-    else doExport()
   }
 
   const noneSelected = ALL_KEYS.every(k => !selected.has(k))
@@ -414,7 +347,6 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
     }
 
     const count = counts[section.key]
-    const isDatabases = section.key === 'databases'
     const empty = isEmpty(section.key)
 
     return (
@@ -431,12 +363,17 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
             className={cn('flex items-center gap-1.5 text-sm font-normal', empty ? 'text-muted-foreground/50 cursor-default' : 'cursor-pointer')}
           >
             <section.icon size={14} className={cn(section.colorClass, empty && 'opacity-50')} />
-            {t(section.labelKey)}
-            {!countsLoading && count != null && (
-              <span className="text-xs text-muted-foreground ml-0.5">
-                {empty ? t('app_versioning.export_empty_hint') : `(${count})`}
-              </span>
-            )}
+            {/* Label + count share one inline text node so the count sits on the same
+                baseline as the label (a flex sibling with a smaller font box-centers
+                and looks vertically off). */}
+            <span>
+              {t(section.labelKey)}
+              {!countsLoading && count != null && (
+                <span className="text-muted-foreground">
+                  {' '}{empty ? t('app_versioning.export_empty_hint') : `(${count})`}
+                </span>
+              )}
+            </span>
           </Label>
 
           {/* Bulk Items toggle for entity sections (projects, mapping, SQL, ETL) */}
@@ -477,45 +414,6 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
           <p className={cn('text-[11px] text-muted-foreground/80 leading-relaxed pb-1', indent ? 'pl-12' : 'pl-6')}>
             {t(section.descKey)}
           </p>
-        )}
-
-        {/* Entity sections: single section-level "include data files" opt-in. */}
-        {ENTITY_SECTIONS.includes(section.key as EntitySectionKey)
-          && selected.has(section.key)
-          && dataEligibleIds(section.key as EntitySectionKey).length > 0 && (
-          <div className="flex items-center gap-2 pl-12 pb-1">
-            <Checkbox
-              id={`ws-export-secdata-${section.key}`}
-              checked={includeSectionData.has(section.key as EntitySectionKey)}
-              onCheckedChange={() => toggleSectionData(section.key as EntitySectionKey)}
-            />
-            <Label htmlFor={`ws-export-secdata-${section.key}`} className="flex items-center gap-1.5 text-xs font-normal cursor-pointer text-muted-foreground">
-              {t('app_versioning.export_include_entity_data')}
-              <DataWarningIcon text={t('app_versioning.export_data_warning_tooltip')} />
-            </Label>
-          </div>
-        )}
-
-        {/* Databases: section-level "include connection details" opt-in (first, like the data opt-in). */}
-        {isDatabases && selected.has('databases') && (
-          <div className="pl-12 space-y-2 pb-1">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="ws-export-db-credentials"
-                checked={includeCredentials}
-                onCheckedChange={(v) => setIncludeCredentials(v === true)}
-              />
-              <Label htmlFor="ws-export-db-credentials" className="flex items-center gap-1.5 text-xs font-normal cursor-pointer text-muted-foreground">
-                {t('app_versioning.export_include_credentials')}
-                <DataWarningIcon text={t('app_versioning.export_credentials_warning_tooltip')} />
-              </Label>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              {includeCredentials
-                ? t('app_versioning.export_credentials_on_hint')
-                : t('app_versioning.export_credentials_off_hint')}
-            </p>
-          </div>
         )}
 
         {/* Per-item checkboxes for sections exported whole (schemas, databases, data quality, catalogs). */}
@@ -574,85 +472,43 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
     )
   }
 
+  // No sensitive-export confirmation gate: connection details are never exported,
+  // and data files leave the machine only when explicitly marked for versioning —
+  // the mark is the consent.
   return (
-    <>
-      {/* Bounded flex column so all 4 borders stay visible and only the list scrolls. */}
-      <Card className="flex max-h-full min-h-0 flex-col overflow-hidden">
-        <CardHeader className="shrink-0">
-          <CardTitle className="text-sm">{t('versioning.export_title')}</CardTitle>
-          <CardDescription>{t('app_versioning.export_description')}</CardDescription>
-          {/* Select all / none — kept in the (non-scrolling) header so they stay visible on scroll. */}
-          <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
-            <button type="button" className="underline hover:text-foreground" onClick={() => setAllSections(true)}>
-              {t('common.select_all')}
-            </button>
-            <span>/</span>
-            <button type="button" className="underline hover:text-foreground" onClick={() => setAllSections(false)}>
-              {t('common.select_none')}
-            </button>
-          </div>
-        </CardHeader>
-        <CardContent className="min-h-0 flex-1 space-y-1 overflow-auto">
-          {/* Section checkboxes */}
-          {exportSections.map(s => renderSection(s))}
-        </CardContent>
-
-        {/* Fixed footer so the Download button (and the card's bottom border) stay visible. */}
-        <div className="shrink-0 flex justify-end border-t border-border px-6 py-3">
-          <Button
-            size="sm"
-            onClick={handleExport}
-            disabled={exporting || loading || noneSelected}
-            className="gap-1.5"
-          >
-            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-            {t('versioning.export_download')}
-          </Button>
+    // Bounded flex column so all 4 borders stay visible and only the list scrolls.
+    <Card className="flex max-h-full min-h-0 flex-col overflow-hidden">
+      <CardHeader className="shrink-0">
+        <CardTitle className="text-sm">{t('versioning.export_title')}</CardTitle>
+        <CardDescription>{t('app_versioning.export_description')}</CardDescription>
+        {/* Select all / none — kept in the (non-scrolling) header so they stay visible on scroll. */}
+        <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
+          <button type="button" className="underline hover:text-foreground" onClick={() => setAllSections(true)}>
+            {t('common.select_all')}
+          </button>
+          <span>/</span>
+          <button type="button" className="underline hover:text-foreground" onClick={() => setAllSections(false)}>
+            {t('common.select_none')}
+          </button>
         </div>
-      </Card>
+      </CardHeader>
+      <CardContent className="min-h-0 flex-1 space-y-1 overflow-auto">
+        {/* Section checkboxes */}
+        {exportSections.map(s => renderSection(s))}
+      </CardContent>
 
-      {/* Unified sensitive-export confirmation — surfaces each applicable warning (data, credentials). */}
-      <AlertDialog open={showExportConfirm} onOpenChange={setShowExportConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle size={18} className="text-amber-500" />
-              {t('app_versioning.export_confirm_title')}
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3">
-                {hasIncludedData && (
-                  <p>
-                    {hasIncludedCredentials && <span className="font-medium">1) </span>}
-                    <Trans i18nKey="app_versioning.export_data_confirm_body" components={{ b: <strong /> }} />
-                  </p>
-                )}
-                {hasIncludedCredentials && (
-                  <div className="space-y-1">
-                    <p>
-                      {hasIncludedData && <span className="font-medium">2) </span>}
-                      <Trans i18nKey="app_versioning.export_credentials_confirm_body" components={{ b: <strong /> }} />
-                    </p>
-                    <ul className="list-disc pl-4 space-y-1 text-xs">
-                      <li>{t('app_versioning.export_credentials_confirm_included')}</li>
-                      <li>{t('app_versioning.export_credentials_confirm_excluded')}</li>
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => { setShowExportConfirm(false); doExport() }}
-              className="bg-amber-600 hover:bg-amber-700"
-            >
-              {t('app_versioning.export_confirm_action')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+      {/* Fixed footer so the Download button (and the card's bottom border) stay visible. */}
+      <div className="shrink-0 flex justify-end border-t border-border px-6 py-3">
+        <Button
+          size="sm"
+          onClick={doExport}
+          disabled={exporting || loading || noneSelected}
+          className="gap-1.5"
+        >
+          {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          {t('versioning.export_download')}
+        </Button>
+      </div>
+    </Card>
   )
 }

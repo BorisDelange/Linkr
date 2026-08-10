@@ -19,7 +19,6 @@ def _pointer_json(project_meta: dict) -> dict:
         wiki_attachment_blobs=None,
         schemas=None,
         data_sources=None,
-        keep_credentials=False,
         sql_collections=None,
         etl_pipelines=None,
         dq_rule_sets=None,

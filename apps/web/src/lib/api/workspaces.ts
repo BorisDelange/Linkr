@@ -6,8 +6,8 @@ import type { BuildWorkspaceZipOptions } from '@/lib/entity-io'
 /** Fetch the server-built workspace export ZIP (git-variant tree). In server mode
  * the browser triggers + downloads instead of assembling the ZIP from data it
  * would otherwise have to pull down (offloads the browser). The export dialog's
- * section / per-entity data / exclude / credentials toggles are forwarded as a JSON
- * body. Returns null on error so the caller can fall back to the client builder. */
+ * section / per-entity exclude toggles are forwarded as a JSON body. Returns null
+ * on error so the caller can fall back to the client builder. */
 export async function fetchWorkspaceExportZipFromServer(
   workspaceId: string,
   options: BuildWorkspaceZipOptions = {},
@@ -17,9 +17,7 @@ export async function fetchWorkspaceExportZipFromServer(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       sections: options.sections ?? {},
-      includeEntityData: options.includeEntityData ?? {},
       excludeEntities: options.excludeEntities ?? {},
-      includeCredentials: options.includeCredentials ?? false,
     }),
   })
   if (!res.ok) return null
