@@ -33,6 +33,9 @@ interface CardMetaFooterProps {
   datesInAuthorTooltip?: boolean
   /** The entity's license, shown as a chip. Clicking it opens the license view. */
   license?: EntityLicense | null
+  /** Shows the "No license" chip even when nothing can be opened — on read-only
+   *  cards (catalog entries) the absence of a licence is itself worth stating. */
+  showLicenseWhenEmpty?: boolean
   /** Opens the entity's license (tab or dialog). Without it the chip is plain text. */
   onOpenLicense?: () => void
   /** Extra leading content on the meta row (e.g. a per-card stat like "3 projects"). */
@@ -240,7 +243,11 @@ function LicenseChip({
   // one that gets truncated when a card footer also carries an action button.
   const hint = license
     ? `${title}${onOpen ? ` — ${t('license.open')}` : ''}`
-    : t('license.choose')
+    // Without a licence: an invitation when the viewer can add one, a plain
+    // statement of the fact when they can't (a catalog entry isn't theirs to edit).
+    : onOpen
+      ? t('license.choose')
+      : t('license.none_hint')
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -269,7 +276,7 @@ function LicenseChip({
  * which). Renders nothing when there's nothing to show. Sits below the card body
  * so every harmonized list widget reads the same.
  */
-export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, datesInAuthorTooltip, license, onOpenLicense, leading, trailing, className }: CardMetaFooterProps) {
+export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, datesInAuthorTooltip, license, onOpenLicense, showLicenseWhenEmpty, leading, trailing, className }: CardMetaFooterProps) {
   const { t, i18n } = useTranslation()
   // Prefer the live directory name + details (reflects profile edits); fall back to
   // the snapshot taken at creation when the id can't be resolved (author gone /
@@ -293,7 +300,7 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
   const label = resolved || authorLabel(createdBy, details)
   const created = createdAt ? formatDate(createdAt, i18n.language) : ''
   const updated = updatedAt ? formatDate(updatedAt, i18n.language) : ''
-  const showLicense = !!license || !!onOpenLicense
+  const showLicense = !!license || !!onOpenLicense || !!showLicenseWhenEmpty
   const showDatesOnRow = !datesInAuthorTooltip && (created || updated)
   if (!label && !created && !updated && !showLicense && !leading && !trailing) return null
 

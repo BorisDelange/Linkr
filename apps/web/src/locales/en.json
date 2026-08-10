@@ -4459,6 +4459,7 @@
     "title": "License",
     "no_license": "No license yet. Without one, others have no legal permission to reuse this content.",
     "none_short": "No license",
+    "none_hint": "This content declares no license — its reuse terms are unknown",
     "open": "View the license",
     "choose": "Choose a license",
     "change": "Change",

@@ -4459,6 +4459,7 @@
     "title": "Licence",
     "no_license": "Aucune licence. Sans licence, personne n'a le droit de réutiliser ce contenu.",
     "none_short": "Sans licence",
+    "none_hint": "Ce contenu ne déclare aucune licence — ses conditions de réutilisation sont inconnues",
     "open": "Voir la licence",
     "choose": "Choisir une licence",
     "change": "Changer",

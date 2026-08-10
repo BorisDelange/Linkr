@@ -399,8 +399,11 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
           // This row already carries the Install button: the dates move into the
           // author tooltip so the licence has somewhere to sit.
           datesInAuthorTooltip
-          // The index carries an SPDX id, not the text: shown, never opened.
+          // The index carries an SPDX id, not the text: shown, never opened. An entry
+          // without one still shows "No license" — that absence is what a reuser
+          // needs to see before installing.
           license={entry.license ? { id: entry.license as EntityLicense['id'], text: '' } : undefined}
+          showLicenseWhenEmpty
           // The footer already swallows clicks, so the button can't reach the card's
           // open-the-repo handler.
           trailing={
