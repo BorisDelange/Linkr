@@ -415,3 +415,83 @@ describe('restoring the per-script badges', () => {
     initStorage(undefined as unknown as Parameters<typeof initStorage>[0])
   })
 })
+
+describe('loadPipelineFiles keeps the live run visible', () => {
+  const PREVIOUS_RUN: EtlRunHistoryEntry = {
+    id: 'run-old',
+    pipelineId: 'p1',
+    startedAt: '2026-08-01T10:00:00Z',
+    completedAt: '2026-08-01T10:05:00Z',
+    status: 'success',
+    scripts: [{ id: 'l', pipelineId: 'p1', fileId: 'f9', status: 'success' }],
+  }
+
+  beforeEach(() => {
+    initStorage({
+      etlFiles: {
+        getByPipeline: async () => [
+          { id: 'f1', pipelineId: 'p1', name: 'a.sql', type: 'file', parentId: null, order: 0, createdAt: '' },
+        ],
+      },
+      etlRunHistory: {
+        getByPipeline: async () => [PREVIOUS_RUN],
+        save: async () => {},
+        delete: async () => {},
+        deleteByPipeline: async () => {},
+      },
+    } as unknown as Parameters<typeof initStorage>[0])
+  })
+
+  afterEach(() => {
+    initStorage(undefined as unknown as Parameters<typeof initStorage>[0])
+  })
+
+  it('keeps the in-flight badges when the SAME pipeline re-mounts', async () => {
+    // The reported bug: navigating away and back ran loadPipelineFiles again, which
+    // cleared scriptStatuses — the run kept going but its widgets, current script
+    // and query progress all vanished.
+    useEtlStore.setState({ activePipelineId: 'p1', scriptStatuses: new Map(), runningFileIds: [] })
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    store.setScriptStatus('f1', { ...RUNNING, statementsDone: 3, statementsTotal: 26, currentStatement: 'TRUNCATE "target".concept' })
+
+    await useEtlStore.getState().loadPipelineFiles('p1')
+
+    const live = useEtlStore.getState().scriptStatuses.get('f1')
+    expect(live?.status).toBe('running')
+    expect(live?.statementsDone).toBe(3)
+    expect(live?.statementsTotal).toBe(26)
+    // The name of the query in flight is part of what vanished.
+    expect(live?.currentStatement).toBe('TRUNCATE "target".concept')
+    expect(useEtlStore.getState().runningFileIds).toEqual(['f1'])
+    useEtlStore.getState().stopPipelineRun()
+  })
+
+  it('does not let the last finished run overwrite the live badges', async () => {
+    // loadRunHistory rebuilds scriptStatuses from the last FINISHED run, so running
+    // it mid-flight would replace the in-progress state with the previous results.
+    useEtlStore.setState({ activePipelineId: 'p1', scriptStatuses: new Map() })
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    store.setScriptStatus('f1', RUNNING)
+
+    await useEtlStore.getState().loadPipelineFiles('p1')
+
+    expect(useEtlStore.getState().scriptStatuses.has('f9')).toBe(false)
+    useEtlStore.getState().stopPipelineRun()
+  })
+
+  it('still wipes the state when a DIFFERENT pipeline is loaded', async () => {
+    // Otherwise the previous pipeline's runs would show as if they belonged here.
+    useEtlStore.setState({
+      activePipelineId: 'p-other',
+      scriptStatuses: new Map([['f1', RUNNING]]),
+      pipelineRunning: false,
+    })
+
+    await useEtlStore.getState().loadPipelineFiles('p1')
+
+    // Wiped, then repopulated from p1's own history (the previous run's f9).
+    expect(useEtlStore.getState().scriptStatuses.has('f1')).toBe(false)
+  })
+})

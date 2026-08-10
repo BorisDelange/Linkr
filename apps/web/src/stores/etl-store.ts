@@ -196,6 +196,12 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   activePipelineId: null,
 
   loadPipelineFiles: async (pipelineId) => {
+    // Re-mounting the SAME pipeline (navigating away and back, switching tabs) must
+    // not clear the run state: this runs on every mount, so a run in flight lost
+    // its per-script badges, the current script and its query progress — the run
+    // itself kept going invisibly. Only a DIFFERENT pipeline needs the wipe, or its
+    // predecessor's runs would show as if they belonged here.
+    const samePipeline = get().activePipelineId === pipelineId
     const files = await getStorage().etlFiles.getByPipeline(pipelineId)
     set({
       files: files.sort((a, b) => a.order - b.order),
@@ -203,15 +209,14 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       activePipelineId: pipelineId,
       _dirtyMap: new Map(),
       _dirtyVersion: 0,
-      // Another pipeline's runs must not linger while this one's load: the panel
-      // would show them as if they belonged here.
-      runHistory: [],
-      runHistoryLoaded: false,
-      scriptStatuses: new Map(),
+      ...(samePipeline ? {} : { runHistory: [], runHistoryLoaded: false, scriptStatuses: new Map() }),
     })
     // Not awaited with the files: the editor should not wait on the history, and a
     // storage error here must not leave the tab without its scripts.
-    void get().loadRunHistory(pipelineId).catch(() => {})
+    // Skipped while a run is in flight: loadRunHistory rebuilds scriptStatuses from
+    // the LAST FINISHED run, which would overwrite the live badges of the run in
+    // progress with the previous one's results.
+    if (!get().pipelineRunning) void get().loadRunHistory(pipelineId).catch(() => {})
   },
 
   createFile: async (file) => {
