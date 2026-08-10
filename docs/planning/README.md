@@ -98,11 +98,11 @@ Livré (front + back, byte-parity des goldens vérifiée) ; `VERSION` volontaire
 
 | St | Item | Effort |
 |----|------|--------|
-| ✅ | Types, registre de licences lazy-loadé, storage attachments owner-based (IDB v37) | M |
+| ✅ | Types, registre de licences lazy-loadé (12 chunks), storage attachments owner-based (IDB v37 + alembic `c9d0e1f2a3b4`) | M |
 | ✅ | LicenseEditor + EntityDocsDialog, items Readme/Licence sur toutes les entités, onglets Licence project/workspace | M |
-| ✅ | Export/import + miroirs serveur + goldens ; noms réservés dans les arbres ; footers (une date + licence) | M |
+| ✅ | Export/import front + miroirs serveur, byte-parity des goldens (7 types), noms réservés dans les arbres | M |
+| ✅ | Footers de widgets : une seule date (les deux au survol) + chip licence cliquable ; catalogue = dates dans le survol auteur + « No license » explicite | S |
 | 🔜 | Export workspace : dq/catalogs/schemas en dossiers pour héberger leurs docs (aujourd'hui fichiers plats → docs émises seulement en export autonome) | M |
-| 🔜 | Mapping projects : licence non gérée dans `concept-mapping/export.ts` (readme OK) | S |
 | 🔜 | Seed loader : lire `LICENSE.md` (+ docs des entités) dans les données par défaut | S |
 | 🔜 | Documenter README/licence par entité dans `../linkr-website` | S |
 
