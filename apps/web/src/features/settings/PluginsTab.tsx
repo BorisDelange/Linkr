@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import type { EntityLicense } from '@/types'
 import { useTranslation } from 'react-i18next'
 import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, Search, Pencil, GitBranch } from 'lucide-react'
 import JSZip from 'jszip'
@@ -8,6 +9,7 @@ import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { EntityDocsDialog } from '@/components/ui/entity-docs-dialog'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
@@ -74,10 +76,12 @@ interface PluginCardProps {
   onDuplicate: (id: string) => void
   onDelete: (id: string) => void
   onVersioning: (id: string, tab: 'export' | 'git') => void
+  license?: EntityLicense | null
+  onOpenLicense?: () => void
   t: (key: string) => string
 }
 
-function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate, onDelete, onVersioning, t }: PluginCardProps) {
+function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate, onDelete, onVersioning, license, onOpenLicense, t }: PluginCardProps) {
   const Icon = getPluginIcon(plugin.manifest.icon)
   const readOnly = plugin.readOnly
   const iconProps = getPluginIconColorProps(plugin.manifest.iconColor)
@@ -171,6 +175,8 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
           organization={plugin.organization}
           createdAt={plugin.createdAt}
           updatedAt={plugin.updatedAt}
+          license={license}
+          onOpenLicense={onOpenLicense}
         />
       </div>
     </Card>
@@ -204,6 +210,8 @@ export function PluginsTab() {
   )
   const canWrite = useMyWorkspaceRole().can('plugins:write')
   const pluginActions = usePluginActions()
+  // A card's licence chip opens the shared readme/licence dialog on its License tab.
+  const [docsTargetId, setDocsTargetId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editTargetId, setEditTargetId] = useState<string | null>(null)
@@ -413,6 +421,8 @@ export function PluginsTab() {
             onDuplicate={duplicatePlugin}
             onDelete={setDeleteId}
             onVersioning={(id, tab) => setVersioningTarget({ id, tab })}
+            license={pluginActions.docs.getLicense({ id: plugin.id, name: plugin.manifest.name ?? plugin.id })}
+            onOpenLicense={plugin.readOnly ? undefined : () => setDocsTargetId(plugin.id)}
             t={t}
           />
         ))}
@@ -513,6 +523,25 @@ export function PluginsTab() {
           onOpenChange={(o) => { if (!o) setEditTargetId(null) }}
         />
       )}
+
+      {/* Readme + licence, opened by a card's licence chip */}
+      {docsTargetId && (() => {
+        const row = pluginList.find((p) => p.id === docsTargetId)
+        const item = { id: docsTargetId, name: row?.manifest.name ?? docsTargetId }
+        return (
+          <EntityDocsDialog
+            open
+            onOpenChange={(open) => { if (!open) setDocsTargetId(null) }}
+            initialTab="license"
+            entityName={localized(item.name, lang)}
+            readme={pluginActions.docs.getReadme(item)}
+            onSaveReadme={(readme) => pluginActions.docs.onSaveReadme(item, readme)}
+            license={pluginActions.docs.getLicense(item)}
+            onSaveLicense={(license) => pluginActions.docs.onSaveLicense(item, license)}
+            attachmentOwner={{ type: 'user-plugin', id: docsTargetId, workspaceId: activeWorkspaceId ?? undefined }}
+          />
+        )
+      })()}
 
       {/* Export & versioning (git remote) — same dialog as other entities */}
       {versioningTarget && (

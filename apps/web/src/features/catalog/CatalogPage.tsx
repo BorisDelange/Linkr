@@ -396,6 +396,9 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
           organization={entry.organization ? { ...entry.organization, name: entry.organization.name ?? '' } : undefined}
           createdAt={entry.createdAt}
           updatedAt={entry.updatedAt}
+          // This row already carries the Install button: the dates move into the
+          // author tooltip so the licence has somewhere to sit.
+          datesInAuthorTooltip
           // The index carries an SPDX id, not the text: shown, never opened.
           license={entry.license ? { id: entry.license as EntityLicense['id'], text: '' } : undefined}
           // The footer already swallows clicks, so the button can't reach the card's

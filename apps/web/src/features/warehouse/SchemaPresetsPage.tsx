@@ -76,6 +76,9 @@ import type {
   CustomSchemaPreset,
 } from '@/types/schema-mapping'
 import type { AuthorDetails } from '@/types/author'
+import type { EntityLicense } from '@/types'
+import { EntityDocsDialog } from '@/components/ui/entity-docs-dialog'
+import type { SchemaPresetItem } from './use-schema-preset-actions'
 import type * as Monaco from 'monaco-editor'
 
 // ---------------------------------------------------------------------------
@@ -912,6 +915,8 @@ function SchemaCard({
   createdBy,
   createdByDetails,
   createdById,
+  license,
+  onOpenLicense,
   onNavigate,
   actionsMenu,
 }: {
@@ -921,6 +926,8 @@ function SchemaCard({
   createdBy?: string
   createdByDetails?: AuthorDetails
   createdById?: number
+  license?: EntityLicense
+  onOpenLicense?: () => void
   onNavigate: () => void
   actionsMenu: React.ReactNode
 }) {
@@ -970,7 +977,7 @@ function SchemaCard({
             {actionsMenu}
           </div>
         </div>
-        <CardMetaFooter className="mt-auto" createdAt={createdAt} updatedAt={updatedAt} createdBy={createdBy} createdByDetails={createdByDetails} createdById={createdById} />
+        <CardMetaFooter className="mt-auto" createdAt={createdAt} updatedAt={updatedAt} createdBy={createdBy} createdByDetails={createdByDetails} createdById={createdById} license={license} onOpenLicense={onOpenLicense} />
       </div>
     </Card>
   )
@@ -1270,6 +1277,8 @@ export function SchemaPresetsPage() {
   const storeDelete = useSchemaPresetStore((s) => s.deletePreset)
   const schemaActions = useSchemaPresetActions()
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
+  // A card's license chip opens the same docs dialog as its "..." menu.
+  const [docsTarget, setDocsTarget] = useState<SchemaPresetItem | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPresetName, setNewPresetName] = useState('')
   const [newPresetDescription, setNewPresetDescription] = useState('')
@@ -1525,6 +1534,8 @@ export function SchemaPresetsPage() {
                   createdBy={preset.createdBy}
                   createdByDetails={preset.createdByDetails}
                   createdById={preset.createdById}
+                  license={preset.license}
+                  onOpenLicense={() => setDocsTarget(item)}
                   onNavigate={() => navigateToSchema(id)}
                   actionsMenu={
                     <EntityActionsMenu
@@ -1683,6 +1694,22 @@ export function SchemaPresetsPage() {
             onDuplicate={() => { if (importConflict) doPresetImport(importConflict.mapping, true, importConflict.gitRemote); setImportConflict(null) }}
             onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false, importConflict.gitRemote); setImportConflict(null) }}
           />
+
+          {/* Readme + licence, opened by a card's licence chip */}
+          {docsTarget && (
+            <EntityDocsDialog
+              open
+              onOpenChange={(open) => { if (!open) setDocsTarget(null) }}
+              initialTab="license"
+              entityName={localized(docsTarget.name, language)}
+              readme={schemaActions.docs.getReadme(docsTarget)}
+              onSaveReadme={(readme) => schemaActions.docs.onSaveReadme(docsTarget, readme)}
+              license={schemaActions.docs.getLicense(docsTarget)}
+              onSaveLicense={(license) => schemaActions.docs.onSaveLicense(docsTarget, license)}
+              canEdit={canWrite}
+              attachmentOwner={{ type: 'schema-preset', id: docsTarget.presetId, workspaceId: docsTarget.workspaceId }}
+            />
+          )}
         </div>
       </div>
     </div>

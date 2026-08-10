@@ -249,7 +249,10 @@ export function LicenseEditor({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { void onSave(null); setRemoveOpen(false) }}>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => { void onSave(null); setRemoveOpen(false) }}
+            >
               {t('license.remove')}
             </AlertDialogAction>
           </AlertDialogFooter>

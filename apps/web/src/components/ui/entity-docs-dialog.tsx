@@ -106,7 +106,9 @@ export function EntityDocsDialog({
           </DialogHeader>
 
           <Tabs value={tab} onValueChange={(v) => setTab(v as DocsTab)} className="flex min-h-0 flex-1 flex-col">
-            <TabsList variant="line" className="shrink-0">
+            {/* -ml-[11px] cancels the list's p-[3px] + the trigger's px-2, so the
+                first tab's label lines up with the dialog title above it. */}
+            <TabsList variant="line" className="-ml-[11px] shrink-0">
               <TabsTrigger value="readme">{t('summary.tab_readme')}</TabsTrigger>
               <TabsTrigger value="license">{t('license.title')}</TabsTrigger>
             </TabsList>

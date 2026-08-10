@@ -28,6 +28,9 @@ interface CardMetaFooterProps {
   organization?: OrganizationInfo
   createdAt?: string
   updatedAt?: string
+  /** Moves the dates into the author tooltip (below the organization) instead of
+   *  the row — for footers whose row is already full (e.g. the catalog cards). */
+  datesInAuthorTooltip?: boolean
   /** The entity's license, shown as a chip. Clicking it opens the license view. */
   license?: EntityLicense | null
   /** Opens the entity's license (tab or dialog). Without it the chip is plain text. */
@@ -116,11 +119,13 @@ export function orcidHref(raw: string): string | null {
  * rendered plainly (no tooltip).
  */
 function AuthorChip({
-  label, details, organization, lang, t,
+  label, details, organization, dates, lang, t,
 }: {
   label: string
   details?: AuthorDetails
   organization?: OrganizationInfo
+  /** Creation / modification dates, when the row has no space for them. */
+  dates?: { created: string; updated: string }
   lang: string
   t: (k: string) => string
 }) {
@@ -160,7 +165,11 @@ function AuthorChip({
     if (organization.referenceId) orgRows.push(<DetailRow key="oref" label={t('common.reference_id')} value={organization.referenceId} />)
   }
 
-  if (authorRows.length === 0 && orgRows.length === 0) return name
+  const dateRows: React.ReactNode[] = []
+  if (dates?.created) dateRows.push(<DetailRow key="created" label={t('common.created')} value={dates.created} />)
+  if (dates?.updated) dateRows.push(<DetailRow key="updated" label={t('common.modified')} value={dates.updated} />)
+
+  if (authorRows.length === 0 && orgRows.length === 0 && dateRows.length === 0) return name
 
   return (
     <Tooltip>
@@ -179,6 +188,10 @@ function AuthorChip({
             <div className="col-span-2 mt-1 border-t border-border/50 pt-1.5" />
           )}
           {orgRows}
+          {dateRows.length > 0 && (
+            <div className="col-span-2 mt-1 border-t border-border/50 pt-1.5" />
+          )}
+          {dateRows}
         </div>
       </TooltipContent>
     </Tooltip>
@@ -256,7 +269,7 @@ function LicenseChip({
  * which). Renders nothing when there's nothing to show. Sits below the card body
  * so every harmonized list widget reads the same.
  */
-export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, license, onOpenLicense, leading, trailing, className }: CardMetaFooterProps) {
+export function CardMetaFooter({ createdById, createdBy, createdByDetails, organizationId, organization, createdAt, updatedAt, datesInAuthorTooltip, license, onOpenLicense, leading, trailing, className }: CardMetaFooterProps) {
   const { t, i18n } = useTranslation()
   // Prefer the live directory name + details (reflects profile edits); fall back to
   // the snapshot taken at creation when the id can't be resolved (author gone /
@@ -281,6 +294,7 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
   const created = createdAt ? formatDate(createdAt, i18n.language) : ''
   const updated = updatedAt ? formatDate(updatedAt, i18n.language) : ''
   const showLicense = !!license || !!onOpenLicense
+  const showDatesOnRow = !datesInAuthorTooltip && (created || updated)
   if (!label && !created && !updated && !showLicense && !leading && !trailing) return null
 
   // Outer wrapper owns the top gap + optional mt-auto (pin to card bottom); the
@@ -300,13 +314,14 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
             label={label}
             details={details}
             organization={org}
+            dates={datesInAuthorTooltip ? { created, updated } : undefined}
             lang={i18n.language}
             t={t}
           />
         )}
-        {label && (created || updated) && <Sep />}
-        {(created || updated) && <DateChip created={created} updated={updated} t={t} />}
-        {(label || created || updated) && showLicense && <Sep />}
+        {label && showDatesOnRow && <Sep />}
+        {showDatesOnRow && <DateChip created={created} updated={updated} t={t} />}
+        {(label || showDatesOnRow) && showLicense && <Sep />}
         {showLicense && <LicenseChip license={license} onOpen={onOpenLicense} t={t} />}
         {/* ml-auto pins the action right; the meta chips above it truncate rather
             than push it off the row. */}
