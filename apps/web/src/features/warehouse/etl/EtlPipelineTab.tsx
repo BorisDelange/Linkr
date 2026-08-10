@@ -404,9 +404,9 @@ function NodeDetailSidebar({ info, onViewCode, onBrowseSchema }: {
                   value={log.durationMs < 1000 ? `${log.durationMs}ms` : `${(log.durationMs / 1000).toFixed(1)}s`}
                 />
               )}
-              {log.rowsAffected != null && (
-                <DetailRow label={t('etl.pipeline_run_rows')} value={log.rowsAffected.toLocaleString()} />
-              )}
+              {/* Row count dropped here too: same misleading number as on the
+                  card — the result set of the last statement, not what the
+                  script wrote. */}
               {log.error && (
                 <div className="min-w-0 rounded-md bg-red-500/10 p-2 text-red-600 dark:text-red-400">
                   <p className="text-[10px] font-medium">{t('etl.status_error')}</p>
@@ -1267,12 +1267,13 @@ function SortableScriptRow({
               this only ever repeated the pipeline target on every single card. The
               roles (source./target./vocab.) decide what a script reaches, and the
               target is shown once in the header. */}
+          {/* Duration only. `rowsAffected` is the row count of the statement's
+              RESULT SET, not what it wrote: an ETL script full of INSERTs ends on
+              a statement returning nothing, so the card read "0 rows" for a
+              script that had just written millions. */}
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
             {log?.durationMs != null && !isDisabled && (
               <span>{log.durationMs < 1000 ? `${log.durationMs}ms` : `${(log.durationMs / 1000).toFixed(1)}s`}</span>
-            )}
-            {log?.rowsAffected != null && !isDisabled && (
-              <span>{log.rowsAffected.toLocaleString()} rows</span>
             )}
           </div>
         </div>
