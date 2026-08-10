@@ -558,7 +558,7 @@ function SqlScriptsFileTreeItem({
           </TooltipTrigger>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          {isFolder && (
+          {isFolder && !bulk && (
             <>
               <ContextMenuItem onClick={() => onNewChild(file.id, false)} disabled={!canWrite}>
                 <FilePlus size={14} />
@@ -571,11 +571,15 @@ function SqlScriptsFileTreeItem({
               <ContextMenuSeparator />
             </>
           )}
-          <ContextMenuItem onClick={handleStartRename} disabled={!canWrite}>
-            <Pencil size={14} />
-            {t('sql_scripts.rename')}
-          </ContextMenuItem>
-          {!isFolder && (
+          {/* Single-file operations, hidden for a multi-selection: there is no one
+              name to rename to. */}
+          {!bulk && (
+            <ContextMenuItem onClick={handleStartRename} disabled={!canWrite}>
+              <Pencil size={14} />
+              {t('sql_scripts.rename')}
+            </ContextMenuItem>
+          )}
+          {!isFolder && !bulk && (
             <ContextMenuItem onClick={() => onDuplicate(file.id)} disabled={!canWrite}>
               <Copy size={14} />
               {t('files.duplicate')}

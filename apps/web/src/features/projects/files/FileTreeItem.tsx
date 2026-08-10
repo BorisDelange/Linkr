@@ -489,7 +489,7 @@ export function FileTreeItem({
             </>
           ) : (
             <>
-              {isFolder && (
+              {isFolder && !bulk && (
                 <>
                   <ContextMenuItem disabled={!canWrite} onClick={() => onNewChild(node.id, false)}>
                     <FilePlus size={14} />
@@ -502,17 +502,21 @@ export function FileTreeItem({
                   <ContextMenuSeparator />
                 </>
               )}
-              <ContextMenuItem onClick={startRename} disabled={!canWrite}>
-                <Pencil size={14} />
-                {t('files.rename')}
-              </ContextMenuItem>
-              {!isFolder && /\.(csv|tsv)$/i.test(node.name) && (
+              {/* Single-file operations, hidden for a multi-selection: there is no
+                  one name to rename to, and one path to copy. */}
+              {!bulk && (
+                <ContextMenuItem onClick={startRename} disabled={!canWrite}>
+                  <Pencil size={14} />
+                  {t('files.rename')}
+                </ContextMenuItem>
+              )}
+              {!isFolder && !bulk && /\.(csv|tsv)$/i.test(node.name) && (
                 <ContextMenuItem onClick={() => openInEditorMode(node.id)}>
                   <FileCode size={14} />
                   {t('files.edit_in_editor')}
                 </ContextMenuItem>
               )}
-              {!isFolder && (
+              {!isFolder && !bulk && (
                 <ContextMenuItem disabled={!canWrite} onClick={() => {
                   if (isBridge && bridgeDatasetFileId) {
                     datasetStore.duplicateFile(bridgeDatasetFileId)
@@ -531,25 +535,29 @@ export function FileTreeItem({
                   {bulk ? t('files.download_count', { count: targetNodes.length }) : t('files.download')}
                 </ContextMenuItem>
               )}
-              <ContextMenuSeparator />
-              <ContextMenuItem
-                onClick={() => {
-                  const path = getNodePath(files as TreeNode[], node.id)
-                  navigator.clipboard.writeText(`/project/files/${path}`)
-                }}
-              >
-                <Clipboard size={14} />
-                {t('files.copy_path')}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onClick={() => {
-                  const path = getNodePath(files as TreeNode[], node.id)
-                  navigator.clipboard.writeText(path)
-                }}
-              >
-                <Clipboard size={14} />
-                {t('files.copy_relative_path')}
-              </ContextMenuItem>
+              {!bulk && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    onClick={() => {
+                      const path = getNodePath(files as TreeNode[], node.id)
+                      navigator.clipboard.writeText(`/project/files/${path}`)
+                    }}
+                  >
+                    <Clipboard size={14} />
+                    {t('files.copy_path')}
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onClick={() => {
+                      const path = getNodePath(files as TreeNode[], node.id)
+                      navigator.clipboard.writeText(path)
+                    }}
+                  >
+                    <Clipboard size={14} />
+                    {t('files.copy_relative_path')}
+                  </ContextMenuItem>
+                </>
+              )}
               {isRealFile && activeProjectUid && (
                 <>
                   <ContextMenuSeparator />
