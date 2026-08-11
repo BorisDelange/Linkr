@@ -3,6 +3,7 @@ import { localized } from '@/lib/localized'
 import { stripInstanceFields, attachEntityOrganization, licenseMeta, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
 import { mappingKey } from '@/lib/concept-mapping/merge'
 import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
+import { buildCcrCsvs } from '@/lib/concept-mapping/ccr-export'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -237,52 +238,112 @@ export function exportToSourceToConceptMap(
   /** Optional registry entries — if provided, used to resolve source_concept_id for file projects without a conceptIdColumn */
   registryEntries?: SourceConceptIdEntry[],
 ): string {
-  // Build a per-project lookup when multiple projects are passed (global summary export)
-  const projectMap = Array.isArray(project)
-    ? new Map(project.map((p) => [p.id, p]))
-    : null
-
-  // Build registry lookup: (vocabularyId, conceptCode) → sourceConceptId
-  const registryMap = registryEntries
-    ? new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId]))
-    : null
-
   const header = [
     'source_code', 'source_concept_id', 'source_vocabulary_id',
     'source_code_description', 'target_concept_id', 'target_vocabulary_id',
     'valid_start_date', 'valid_end_date', 'invalid_reason',
   ].join(',')
 
-  const rows = mappings.map((m) => {
-    // Resolve the project for this mapping
-    const resolvedProject = projectMap ? projectMap.get(m.projectId) : project as MappingProject | undefined
-    // File project without conceptIdColumn: artificial index — try registry, fallback to 0
-    // Artificial ID = file project without conceptIdColumn, OR database project (non-OMOP source)
-    // In both cases, use registry if available, fallback to 0
-    const isArtificialId = resolvedProject?.sourceType === 'database'
-      || (resolvedProject?.sourceType === 'file' && !resolvedProject.fileSourceData?.columnMapping?.conceptIdColumn)
-    let sourceConceptId: number
-    if (!isArtificialId) {
-      sourceConceptId = m.sourceConceptId
-    } else if (registryMap && m.sourceVocabularyId && m.sourceConceptCode) {
-      sourceConceptId = registryMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`) ?? 0
-    } else {
-      sourceConceptId = 0
-    }
-    return [
-      csvEscape(m.sourceConceptCode),
-      csvEscape(sourceConceptId),
-      csvEscape(m.sourceVocabularyId),
-      csvEscape(m.sourceConceptName),
-      csvEscape(m.targetConceptId),
-      csvEscape(m.targetVocabularyId),
+  // Ids resolved once, by the same rule the C/CR export uses — the two formats
+  // describe the same concepts and must never disagree on their ids.
+  const rows = withRegistryIds(mappings, project, registryEntries).map((m) => [
+    csvEscape(m.sourceConceptCode),
+    csvEscape(m.sourceConceptId),
+    csvEscape(m.sourceVocabularyId),
+    csvEscape(m.sourceConceptName),
+    csvEscape(m.targetConceptId),
+    csvEscape(m.targetVocabularyId),
+    csvEscape('1970-01-01'),
+    csvEscape('2099-12-31'),
+    csvEscape(''),
+  ].join(','))
+
+  return [header, ...rows].join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// CONCEPT / CONCEPT_RELATIONSHIP export (the OMOP v5 way)
+// ---------------------------------------------------------------------------
+
+/**
+ * Export the alignments as OMOP CONCEPT + CONCEPT_RELATIONSHIP.
+ *
+ * The download counterpart of `buildCcrCsvs`: same canonical builder, but the
+ * source concept ids come from the workspace registry when the project has no
+ * usable id of its own (database projects and file projects without a
+ * conceptIdColumn), exactly as `exportToSourceToConceptMap` resolves them.
+ *
+ * Returns both files — the Export tab zips them, since C/CR is two tables.
+ */
+export function exportToConceptAndRelationship(
+  mappings: ConceptMapping[],
+  project?: MappingProject | MappingProject[],
+  registryEntries?: SourceConceptIdEntry[],
+): { conceptCsv: string; conceptRelationshipCsv: string } {
+  const resolved = withRegistryIds(mappings, project, registryEntries)
+  const { conceptCsv, conceptRelationshipCsv } = buildCcrCsvs(resolved)
+  return { conceptCsv, conceptRelationshipCsv }
+}
+
+/**
+ * Append the source concepts that have no mapping at all, as bare concepts.
+ *
+ * They carry no relationship — an unmapped code IS a concept with no `Maps to`.
+ * This is what lets a C/CR export still describe the whole dictionary, and what
+ * the derived STCM turns back into `target_concept_id = 0` rows.
+ */
+export function exportUnmappedToConcept(
+  allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[],
+  excludeKeys: Set<string>,
+  registryEntries?: SourceConceptIdEntry[],
+): string {
+  const registryMap = registryEntries
+    ? new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId]))
+    : null
+
+  return allSourceConcepts
+    .filter((c) => !excludeKeys.has(`${c.vocabularyId}__${c.conceptCode}`))
+    .map((c) => [
+      csvEscape(registryMap?.get(`${c.vocabularyId}__${c.conceptCode}`) ?? 0),
+      csvEscape(c.conceptName),
+      csvEscape('Observation'),
+      csvEscape(c.vocabularyId),
+      csvEscape('Observation'),
+      csvEscape(''),
+      csvEscape(c.conceptCode),
       csvEscape('1970-01-01'),
       csvEscape('2099-12-31'),
       csvEscape(''),
-    ].join(',')
-  })
+    ].join(','))
+    .join('\n')
+}
 
-  return [header, ...rows].join('\n')
+/**
+ * Overlay the registry-resolved source concept id onto each mapping.
+ *
+ * A "artificial" id — a database project, or a file project with no
+ * conceptIdColumn — carries no meaningful `sourceConceptId`, so the workspace
+ * registry is the authority. Doing it here keeps the id policy in ONE place for
+ * both the STCM and the C/CR download paths.
+ */
+function withRegistryIds(
+  mappings: ConceptMapping[],
+  project?: MappingProject | MappingProject[],
+  registryEntries?: SourceConceptIdEntry[],
+): ConceptMapping[] {
+  const projectMap = Array.isArray(project) ? new Map(project.map((p) => [p.id, p])) : null
+  const registryMap = registryEntries
+    ? new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId]))
+    : null
+
+  return mappings.map((m) => {
+    const resolvedProject = projectMap ? projectMap.get(m.projectId) : project as MappingProject | undefined
+    const isArtificialId = resolvedProject?.sourceType === 'database'
+      || (resolvedProject?.sourceType === 'file' && !resolvedProject.fileSourceData?.columnMapping?.conceptIdColumn)
+    if (!isArtificialId) return m
+    const fromRegistry = registryMap?.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`)
+    return { ...m, sourceConceptId: fromRegistry ?? 0 }
+  })
 }
 
 // ---------------------------------------------------------------------------

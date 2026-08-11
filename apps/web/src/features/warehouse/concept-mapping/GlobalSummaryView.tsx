@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown, Download, FileCode, FileText, FileSpreadsheet, Search, SlidersHorizontal, X } from 'lucide-react'
+import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown, Download, FileCode, FileText, Search, SlidersHorizontal, X } from 'lucide-react'
 import {
   flexRender,
   getCoreRowModel,
@@ -50,9 +50,20 @@ import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
   exportToSssomTsv,
+  exportToConceptAndRelationship,
   exportUnmappedToStcm,
+  exportUnmappedToConcept,
   downloadFile,
 } from '@/lib/concept-mapping/export'
+import {
+  OHDSI_FORMATS,
+  OHDSI_FORMAT_SPECS,
+  DEFAULT_OHDSI_FORMAT,
+  ohdsiExt,
+  zipCcrFiles,
+  type OhdsiFormat,
+} from '@/lib/concept-mapping/export-formats'
+import { downloadBlob } from '@/lib/entity-io'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
 import { localized } from '@/lib/localized'
@@ -362,6 +373,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [exportApprovalRule, setExportApprovalRule] = useState<'at_least_one' | 'majority' | 'no_rejections'>('at_least_one')
   const [exportGroupFilter, setExportGroupFilter] = useState<Set<string>>(new Set())
   const [exportIncludeUnmapped, setExportIncludeUnmapped] = useState(false)
+  const [exportOhdsiFormat, setExportOhdsiFormat] = useState<OhdsiFormat>(DEFAULT_OHDSI_FORMAT)
 
   useEffect(() => {
     if (!mappingProjectsLoaded) loadMappingProjects()
@@ -844,11 +856,84 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     return projects.map((p) => localized(p.name, 'en')).sort()
   }, [projects, groupMode])
 
-  const handleExportDownload = async (format: 'sssom' | 'stcm' | 'usagi') => {
+  /**
+   * Every source concept of the projects the export filter keeps — the pool the
+   * "include unmapped" option draws on. Shared by the STCM and C/CR branches,
+   * which need exactly the same set.
+   */
+  const collectAllSourceConcepts = useCallback(async () => {
+    const filteredProjectIds = exportGroupFilter.size > 0
+      ? new Set(projects.filter((p) => {
+          const labels = (p.badges ?? []).map((b) => localized(b.label, 'en'))
+          return groupMode === 'badge'
+            ? labels.some((l) => exportGroupFilter.has(l))
+            : exportGroupFilter.has(localized(p.name, 'en'))
+        }).map((p) => p.id))
+      : null
+
+    const filteredProjects = filteredProjectIds
+      ? projects.filter((p) => filteredProjectIds.has(p.id))
+      : projects
+
+    const out: { vocabularyId: string; conceptCode: string; conceptName: string }[] = []
+    for (const proj of filteredProjects) {
+      if (proj.sourceType === 'file') {
+        if (proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
+        if (proj.fileSourceData) {
+          try {
+            await mountFileSourceIntoDuckDB(proj.id, proj.fileSourceData.rows, proj.fileSourceData.columnMapping, proj.fileSourceData.rawFileBuffer)
+            const dsId = fileSourceDataSourceId(proj.id)
+            // queryDataSourceAll + SELECT *: page past the 10k server cap, and
+            // vocabulary_id may be absent from the view (see loadSourceConcepts).
+            const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
+            for (const r of rows) {
+              const code = String(r.concept_code ?? '')
+              const vocab = String(r.vocabulary_id ?? proj.name)
+              const name = String(r.concept_name ?? '')
+              if (code) out.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
+            }
+          } catch { /* skip if mount/query fails */ }
+        }
+      } else {
+        const ds = dataSources.find((s) => s.id === proj.dataSourceId)
+        if (!ds?.schemaMapping) continue
+        try {
+          await ensureMounted(ds.id)
+          const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
+          if (!sql) continue
+          const rows = await queryDataSourceAll(ds.id, sql)
+          for (const r of rows) {
+            const code = String(r.concept_code ?? '')
+            const vocab = String(r.vocabulary_id ?? ds.id)
+            const name = String(r.concept_name ?? '')
+            if (code) out.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
+          }
+        } catch { /* skip if unavailable */ }
+      }
+    }
+    return out
+  }, [projects, exportGroupFilter, groupMode, dataSources, ensureMounted])
+
+  const handleExportDownload = async (format: 'sssom' | OhdsiFormat) => {
     if (format === 'sssom') {
       // Synthetic project for the cross-project export; exportToSssomTsv only reads name + id.
       const virtualProject = { name: { en: 'global' }, id: 'global' } as unknown as MappingProject
       downloadFile(exportToSssomTsv(exportFilteredMappings, virtualProject), `global-sssom.tsv`, 'text/tab-separated-values')
+    } else if (format === 'ccr') {
+      // Ids come from the workspace registry, so two projects mapping the same
+      // code never hand out different 2-billion concepts.
+      const entries = registryEntries.length > 0 ? registryEntries : undefined
+      const { conceptCsv, conceptRelationshipCsv } =
+        exportToConceptAndRelationship(exportFilteredMappings, projects, entries)
+
+      let finalConceptCsv = conceptCsv
+      if (exportIncludeUnmapped) {
+        const allSourceConcepts = await collectAllSourceConcepts()
+        const mappedKeys = new Set(exportFilteredMappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`))
+        const extra = exportUnmappedToConcept(allSourceConcepts, mappedKeys, entries)
+        if (extra) finalConceptCsv = `${conceptCsv}\n${extra}`
+      }
+      downloadBlob(await zipCcrFiles(finalConceptCsv, conceptRelationshipCsv), 'global-concept-ccr.zip')
     } else if (format === 'stcm') {
       const entries = registryEntries.length > 0 ? registryEntries : undefined
       const mappedCsv = exportToSourceToConceptMap(exportFilteredMappings, projects, entries)
@@ -858,57 +943,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
         return
       }
 
-      // Collect ALL source concepts across all filtered projects
-      const filteredProjectIds = exportGroupFilter.size > 0
-        ? new Set(projects.filter((p) => {
-            const labels = (p.badges ?? []).map((b) => localized(b.label, 'en'))
-            return groupMode === 'badge'
-              ? labels.some((l) => exportGroupFilter.has(l))
-              : exportGroupFilter.has(localized(p.name, 'en'))
-          }).map((p) => p.id))
-        : null
-
-      const filteredProjects = filteredProjectIds
-        ? projects.filter((p) => filteredProjectIds.has(p.id))
-        : projects
-
-      const allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[] = []
-      for (const proj of filteredProjects) {
-        if (proj.sourceType === 'file') {
-          if (proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
-          if (proj.fileSourceData) {
-            try {
-              await mountFileSourceIntoDuckDB(proj.id, proj.fileSourceData.rows, proj.fileSourceData.columnMapping, proj.fileSourceData.rawFileBuffer)
-              const dsId = fileSourceDataSourceId(proj.id)
-              // queryDataSourceAll + SELECT *: page past the 10k server cap, and
-              // vocabulary_id may be absent from the view (see loadSourceConcepts).
-              const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
-              for (const r of rows) {
-                const code = String(r.concept_code ?? '')
-                const vocab = String(r.vocabulary_id ?? proj.name)
-                const name = String(r.concept_name ?? '')
-                if (code) allSourceConcepts.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
-              }
-            } catch { /* skip if mount/query fails */ }
-          }
-        } else {
-          const ds = dataSources.find((s) => s.id === proj.dataSourceId)
-          if (!ds?.schemaMapping) continue
-          try {
-            await ensureMounted(ds.id)
-            const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
-            if (!sql) continue
-            const rows = await queryDataSourceAll(ds.id, sql)
-            for (const r of rows) {
-              const code = String(r.concept_code ?? '')
-              const vocab = String(r.vocabulary_id ?? ds.id)
-              const name = String(r.concept_name ?? '')
-              if (code) allSourceConcepts.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
-            }
-          } catch { /* skip if unavailable */ }
-        }
-      }
-
+      const allSourceConcepts = await collectAllSourceConcepts()
       const mappedKeys = new Set(exportFilteredMappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`))
       const unmappedCsv = exportUnmappedToStcm(allSourceConcepts, mappedKeys, entries)
 
@@ -1902,24 +1937,6 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   color: 'text-violet-500',
                   bg: 'bg-violet-50 dark:bg-violet-950/30',
                 },
-                {
-                  id: 'stcm' as const,
-                  icon: FileText,
-                  name: t('concept_mapping.export_stcm'),
-                  description: t('concept_mapping.export_stcm_desc'),
-                  ext: 'csv',
-                  color: 'text-blue-500',
-                  bg: 'bg-blue-50 dark:bg-blue-950/30',
-                },
-                {
-                  id: 'usagi' as const,
-                  icon: FileSpreadsheet,
-                  name: t('concept_mapping.export_usagi'),
-                  description: t('concept_mapping.export_usagi_desc'),
-                  ext: 'csv',
-                  color: 'text-emerald-500',
-                  bg: 'bg-emerald-50 dark:bg-emerald-950/30',
-                },
               ].map((fmt) => (
                 <Card key={fmt.id} className="flex flex-col justify-between overflow-hidden p-0">
                   <div className={`flex items-center gap-2.5 px-4 py-3 ${fmt.bg}`}>
@@ -1944,6 +1961,47 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   </div>
                 </Card>
               ))}
+
+              {/* Same OHDSI grouping as the per-project Export tab — one picker
+                  over the formats that describe the same alignments. */}
+              <Card className="flex flex-col justify-between overflow-hidden p-0">
+                <div className="flex items-center gap-2.5 bg-blue-50 px-4 py-3 dark:bg-blue-950/30">
+                  <FileText size={16} className="shrink-0 text-blue-500" />
+                  <span className="text-sm font-medium">{t('concept_mapping.export_ohdsi')}</span>
+                  <Badge variant="outline" className="ml-auto text-[10px]">
+                    {ohdsiExt(exportOhdsiFormat)}
+                  </Badge>
+                </div>
+                {/* Picker with the description, button alone in the footer — so
+                    this card is the same height as the single-format ones. */}
+                <div className="space-y-2 px-4 py-3">
+                  <Select value={exportOhdsiFormat} onValueChange={(v) => setExportOhdsiFormat(v as OhdsiFormat)}>
+                    <SelectTrigger className="h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {OHDSI_FORMATS.map((f) => (
+                        <SelectItem key={f} value={f}>{t(OHDSI_FORMAT_SPECS[f].labelKey)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {t(`concept_mapping.export_${exportOhdsiFormat}_desc`)}
+                  </p>
+                </div>
+                <div className="px-4 pb-4">
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleExportDownload(exportOhdsiFormat)}
+                    disabled={exportFilteredMappings.length === 0 && !(exportIncludeUnmapped && totals.unmapped > 0)}
+                  >
+                    <Download size={14} />
+                    {t('concept_mapping.export_download')}
+                  </Button>
+                </div>
+              </Card>
             </div>
           </div>
         </TabsContent>

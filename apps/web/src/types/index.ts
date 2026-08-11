@@ -881,6 +881,12 @@ export interface EtlVocabularyConfig {
   statuses?: MappingStatus[]
   /** How to resolve several mappings competing for one source concept. */
   approvalRule?: 'at_least_one' | 'majority' | 'no_rejections'
+  /**
+   * Which vocabulary representation the script fills — see VocabularyMode in
+   * features/warehouse/etl/build-vocabulary-script. Absent means 'stcm', so a
+   * pipeline built before this existed regenerates unchanged.
+   */
+  mode?: 'ccr' | 'ccr+stcm' | 'stcm'
 }
 
 export interface EtlFile {

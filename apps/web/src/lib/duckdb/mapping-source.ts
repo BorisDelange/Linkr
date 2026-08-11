@@ -20,8 +20,14 @@ export const MAPPING_DIR = 'mapping'
 /** What a script writes before an export name to refer to it. */
 export const MAPPING_REF_PREFIX = 'mapping.'
 
-/** The STCM export: one row per concept mapping. */
+/** The STCM export: one row per concept mapping. Legacy — see CONCEPT_EXPORT. */
 export const STCM_EXPORT = 'source_to_concept_map'
+
+/** The concept export: one row per distinct source concept (concept_id > 2B). */
+export const CONCEPT_EXPORT = 'concept'
+
+/** The relationship export: 'Maps to' + 'Mapped from' per mapped concept. */
+export const CONCEPT_RELATIONSHIP_EXPORT = 'concept_relationship'
 
 /** `mapping.<name>` inside a string literal, the only place it is meaningful. */
 const MAPPING_REF = /(['"])mapping\.([a-z_][a-z0-9_]*)\1/gi

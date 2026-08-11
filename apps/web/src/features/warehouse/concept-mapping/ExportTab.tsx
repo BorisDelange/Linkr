@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, FileText, FileSpreadsheet, FileCode, Loader2, Archive, AlertTriangle } from 'lucide-react'
+import { Download, FileText, FileCode, Loader2, Archive, AlertTriangle } from 'lucide-react'
 import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -15,12 +15,29 @@ import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
   exportToSssomTsv,
+  exportToConceptAndRelationship,
   exportUnmappedToStcm,
   exportUnmappedToUsagi,
   exportUnmappedToSssom,
+  exportUnmappedToConcept,
   downloadFile,
   buildMappingProjectFolder,
 } from '@/lib/concept-mapping/export'
+import {
+  OHDSI_FORMATS,
+  OHDSI_FORMAT_SPECS,
+  DEFAULT_OHDSI_FORMAT,
+  ohdsiExt,
+  zipCcrFiles,
+  type OhdsiFormat,
+} from '@/lib/concept-mapping/export-formats'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { downloadBlob, slugify, attachEntityOrganization } from '@/lib/entity-io'
 import { localized } from '@/lib/localized'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
@@ -46,6 +63,9 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   // Id of the format currently generating (SSSOM/STCM/Usagi) — drives its button spinner.
   const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null)
   const [sourceCsvTooLarge, setSourceCsvTooLarge] = useState(false)
+
+  // Which OHDSI vocabulary format the widget's picker is on.
+  const [ohdsiFormat, setOhdsiFormat] = useState<OhdsiFormat>(DEFAULT_OHDSI_FORMAT)
 
   // Linkr ZIP export modal: lets the user opt into bundling the (large) scores parquet.
   const [zipDialogOpen, setZipDialogOpen] = useState(false)
@@ -249,49 +269,51 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         return withSourceOnlyRows(mappedTsv, (concepts, excludeKeys) => exportUnmappedToSssom(concepts, excludeKeys))
       },
     },
-    {
-      id: 'source_to_concept_map',
-      icon: FileText,
-      name: t('concept_mapping.export_stcm'),
-      description: t('concept_mapping.export_stcm_desc'),
-      ext: 'csv',
-      mime: 'text/csv',
-      color: 'text-blue-500',
-      bg: 'bg-blue-50 dark:bg-blue-950/30',
-      generate: async () => {
-        // Load registry entries for the project's badge labels
-        const badgeLabels = (project.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean)
-        let registryEntries = undefined
-        if (badgeLabels.length > 0 && project.workspaceId) {
-          const allEntries = await Promise.all(
-            badgeLabels.map((label) => getStorage().sourceConceptIdEntries.getByWorkspaceAndBadge(project.workspaceId, label)),
-          )
-          const flat = allEntries.flat()
-          if (flat.length > 0) registryEntries = flat
-        }
-        const mappedCsv = exportToSourceToConceptMap(filteredMappings, project, registryEntries)
-        return withSourceOnlyRows(
-          mappedCsv,
-          (concepts, excludeKeys) => exportUnmappedToStcm(concepts, excludeKeys, registryEntries),
-          true, // STCM extra block has its own header line
-        )
-      },
-    },
-    {
-      id: 'usagi',
-      icon: FileSpreadsheet,
-      name: t('concept_mapping.export_usagi'),
-      description: t('concept_mapping.export_usagi_desc'),
-      ext: 'csv',
-      mime: 'text/csv',
-      color: 'text-emerald-500',
-      bg: 'bg-emerald-50 dark:bg-emerald-950/30',
-      generate: async () => {
-        const mappedCsv = exportToUsagiCsv(filteredMappings)
-        return withSourceOnlyRows(mappedCsv, (concepts, excludeKeys) => exportUnmappedToUsagi(concepts, excludeKeys))
-      },
-    },
   ]
+
+  /**
+   * Registry entries for this project's badges, which resolve the source concept
+   * id when the project has no usable one of its own.
+   */
+  const loadRegistryEntries = useCallback(async () => {
+    const badgeLabels = (project.badges ?? []).map((b) => localized(b.label, 'en')).filter(Boolean)
+    if (badgeLabels.length === 0 || !project.workspaceId) return undefined
+    const allEntries = await Promise.all(
+      badgeLabels.map((label) => getStorage().sourceConceptIdEntries.getByWorkspaceAndBadge(project.workspaceId, label)),
+    )
+    const flat = allEntries.flat()
+    return flat.length > 0 ? flat : undefined
+  }, [project.badges, project.workspaceId])
+
+  /** Build the selected OHDSI format — a string, or a blob for the C/CR ZIP. */
+  const generateOhdsi = useCallback(async (format: OhdsiFormat): Promise<string | Blob> => {
+    const registryEntries = await loadRegistryEntries()
+
+    if (format === 'usagi') {
+      return withSourceOnlyRows(
+        exportToUsagiCsv(filteredMappings),
+        (concepts, excludeKeys) => exportUnmappedToUsagi(concepts, excludeKeys),
+      )
+    }
+
+    if (format === 'stcm') {
+      return withSourceOnlyRows(
+        exportToSourceToConceptMap(filteredMappings, project, registryEntries),
+        (concepts, excludeKeys) => exportUnmappedToStcm(concepts, excludeKeys, registryEntries),
+        true, // the STCM extra block has its own header line
+      )
+    }
+
+    // C/CR: unmapped source concepts join concept.csv with no relationship —
+    // a code with no 'Maps to' is exactly that in OMOP v5.
+    const { conceptCsv, conceptRelationshipCsv } =
+      exportToConceptAndRelationship(filteredMappings, project, registryEntries)
+    const withUnmapped = await withSourceOnlyRows(
+      conceptCsv,
+      (concepts, excludeKeys) => exportUnmappedToConcept(concepts, excludeKeys, registryEntries),
+    )
+    return zipCcrFiles(withUnmapped, conceptRelationshipCsv)
+  }, [filteredMappings, project, loadRegistryEntries, withSourceOnlyRows])
 
   const handleDownload = async (format: (typeof formats)[number]) => {
     // Generation can fetch source concepts from the server (slow); show a spinner
@@ -301,6 +323,20 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       const content = await format.generate()
       const filename = `${slug}-${format.id}.${format.ext}`
       downloadFile(content, filename, format.mime)
+    } finally {
+      setDownloadingFormat(null)
+    }
+  }
+
+  const handleOhdsiDownload = async () => {
+    setDownloadingFormat('ohdsi')
+    try {
+      const spec = OHDSI_FORMAT_SPECS[ohdsiFormat]
+      const content = await generateOhdsi(ohdsiFormat)
+      const filename = `${slug}-${spec.file}`
+      // C/CR comes back as a ZIP blob; the single-file formats as text.
+      if (content instanceof Blob) downloadBlob(content, filename)
+      else downloadFile(content, filename, spec.mime)
     } finally {
       setDownloadingFormat(null)
     }
@@ -562,6 +598,50 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
               </div>
             </Card>
           ))}
+
+          {/* The OHDSI vocabulary formats, behind one picker: they describe the
+              same alignments, so choosing between them is a format question, not
+              three separate exports. SSSOM stays its own card — it is the
+              mapping-commons interchange format, a different audience. */}
+          <Card className="flex flex-col justify-between overflow-hidden p-0">
+            <div className="flex items-center gap-2.5 bg-blue-50 px-4 py-3 dark:bg-blue-950/30">
+              <FileText size={16} className="shrink-0 text-blue-500" />
+              <span className="text-sm font-medium">{t('concept_mapping.export_ohdsi')}</span>
+              <Badge variant="outline" className="ml-auto text-[10px]">
+                {ohdsiExt(ohdsiFormat)}
+              </Badge>
+            </div>
+            {/* The picker sits WITH the description rather than above the button,
+                so the card's footer is a lone button like every other one and the
+                grid rows line up. */}
+            <div className="space-y-2 px-4 py-3">
+              <Select value={ohdsiFormat} onValueChange={(v) => setOhdsiFormat(v as OhdsiFormat)}>
+                <SelectTrigger className="h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OHDSI_FORMATS.map((f) => (
+                    <SelectItem key={f} value={f}>{t(OHDSI_FORMAT_SPECS[f].labelKey)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t(`concept_mapping.export_${ohdsiFormat}_desc`)}
+              </p>
+            </div>
+            <div className="px-4 pb-4">
+              <Button
+                className="w-full"
+                variant="outline"
+                size="sm"
+                onClick={handleOhdsiDownload}
+                disabled={downloadingFormat !== null || totalExportCount === 0}
+              >
+                {downloadingFormat === 'ohdsi' ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                {t('concept_mapping.export_download')}
+              </Button>
+            </div>
+          </Card>
         </div>
       </div>
 

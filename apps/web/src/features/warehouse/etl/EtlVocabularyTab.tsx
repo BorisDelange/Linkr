@@ -18,14 +18,30 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { schemaName } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
-import { buildVocabularyScriptWithIds, buildPruneVocabularyScript } from './build-vocabulary-script'
-import { buildStcmCsv } from '@/lib/concept-mapping/stcm-export'
-import { MAPPING_DIR, STCM_EXPORT, mappingExportPath } from '@/lib/duckdb/mapping-source'
+import {
+  buildVocabularyScriptWithIds,
+  buildPruneVocabularyScript,
+  type VocabularyMode,
+} from './build-vocabulary-script'
+import { buildCcrCsvs, stcmFromCcr } from '@/lib/concept-mapping/ccr-export'
+import {
+  MAPPING_DIR,
+  MAPPING_REF_PREFIX,
+  STCM_EXPORT,
+  CONCEPT_EXPORT,
+  CONCEPT_RELATIONSHIP_EXPORT,
+  mappingExportPath,
+} from '@/lib/duckdb/mapping-source'
 import { vocabularyReadiness } from './vocabulary-readiness'
 import type { ConceptMapping, EtlFile, EtlVocabularyConfig, MappingStatus } from '@/types'
 
 const VOCAB_SCRIPT_NAME = '00_vocabulary.sql'
 const PRUNE_SCRIPT_NAME = '99_prune_vocabulary.sql'
+
+/** Every export this tab owns — the set it may delete when the mode changes. */
+const ALL_MAPPING_EXPORTS = new Set<string>([
+  STCM_EXPORT, CONCEPT_EXPORT, CONCEPT_RELATIONSHIP_EXPORT,
+])
 
 /**
  * Where each generated script sits in the run order.
@@ -136,6 +152,28 @@ async function upsertMappingExport(
 }
 
 /**
+ * The mapping exports a mode needs, as `<name>.csv` payloads.
+ *
+ * In C/CR mode this is the concept + relationship pair; the derived STCM is NOT
+ * written as a third file — `ccr+stcm` derives it in SQL at run time, so the
+ * pipeline keeps one source of truth on disk as well as in the script.
+ */
+function buildMappingExports(
+  mappings: ConceptMapping[],
+  allProjectMappings: ConceptMapping[],
+  mode: VocabularyMode,
+): { name: string; csv: string }[] {
+  if (mode === 'stcm') {
+    return [{ name: STCM_EXPORT, csv: stcmFromCcr(mappings, allProjectMappings).csv }]
+  }
+  const { conceptCsv, conceptRelationshipCsv } = buildCcrCsvs(mappings, allProjectMappings)
+  return [
+    { name: CONCEPT_EXPORT, csv: conceptCsv },
+    { name: CONCEPT_RELATIONSHIP_EXPORT, csv: conceptRelationshipCsv },
+  ]
+}
+
+/**
  * Filter mappings by status checkboxes + approval sub-rules (same logic as ExportTab).
  */
 function filterMappings(
@@ -171,7 +209,7 @@ function filterMappings(
 export function EtlVocabularyTab({ pipelineId }: Props) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
-  const { etlPipelines, updatePipeline, files, filesLoaded, activePipelineId } = useEtlStore()
+  const { etlPipelines, updatePipeline, files, filesLoaded, activePipelineId, deleteFile } = useEtlStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings, updateMapping } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
@@ -269,6 +307,57 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     [saveVocabConfig],
   )
 
+  /**
+   * Whether this pipeline already carries STCM-shaped artefacts — the STCM
+   * export, or a vocabulary script that reads it.
+   *
+   * Read off the files rather than a stored flag: a pipeline cloned from git
+   * arrives with its scripts and no config at all, and it is the files that say
+   * which shape it was built in.
+   */
+  const hasGeneratedStcm = useMemo(() => {
+    const own = files.filter((f) => f.pipelineId === pipelineId)
+    const folder = own.find((f) => f.type === 'folder' && f.name === MAPPING_DIR && !f.parentId)
+    if (folder && own.some((f) => f.parentId === folder.id && f.name === `${STCM_EXPORT}.csv`)) return true
+    const script = own.find((f) => f.name === VOCAB_SCRIPT_NAME && !f.parentId)
+    return !!script?.content?.includes(`${MAPPING_REF_PREFIX}${STCM_EXPORT}`)
+  }, [files, pipelineId])
+
+  /**
+   * C/CR for a pipeline that has yet to generate anything, STCM for one that
+   * already has.
+   *
+   * The mode is only absent when it was never chosen, which covers two very
+   * different pipelines: a brand-new one, which should get the OMOP v5 shape,
+   * and one built before the option existed, whose files are STCM on disk.
+   * Defaulting both to C/CR would silently re-shape the second on its next
+   * generation; defaulting both to STCM would keep handing new pipelines the
+   * legacy table. The generated script tells them apart — see hasGeneratedStcm.
+   */
+  const mode: VocabularyMode = vocabConfig?.mode ?? (hasGeneratedStcm ? 'stcm' : 'ccr')
+  const usesCcr = mode !== 'stcm'
+  /** The mapping exports this mode writes, and the ones it makes obsolete. */
+  const modeExports = useMemo(
+    () => (usesCcr ? [CONCEPT_EXPORT, CONCEPT_RELATIONSHIP_EXPORT] : [STCM_EXPORT]),
+    [usesCcr],
+  )
+  const setMode = useCallback(async (next: VocabularyMode) => {
+    if (next === mode) return
+    saveVocabConfig({ mode: next })
+    // Drop the other shape's exports. Left in place they would be committed and
+    // read as current, while no script references them — vocabularyReadiness
+    // reports nothing wrong precisely because nothing reads them.
+    const keep = new Set(next === 'stcm' ? [STCM_EXPORT] : [CONCEPT_EXPORT, CONCEPT_RELATIONSHIP_EXPORT])
+    const own = files.filter((f) => f.pipelineId === pipelineId)
+    const folder = own.find((f) => f.type === 'folder' && f.name === MAPPING_DIR && !f.parentId)
+    if (!folder) return
+    for (const f of own) {
+      if (f.parentId !== folder.id) continue
+      const exportName = f.name.replace(/\.csv$/i, '')
+      if (!keep.has(exportName) && ALL_MAPPING_EXPORTS.has(exportName)) await deleteFile(f.id)
+    }
+  }, [mode, saveVocabConfig, files, pipelineId, deleteFile])
+
   const toggleStatus = (status: MappingStatus) => {
     const next = new Set(includedStatuses)
     if (next.has(status)) next.delete(status)
@@ -353,14 +442,19 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     // The CSV sits in the mapping/ folder, so it is found by parent rather than
     // by name alone — looking it up like the scripts silently found nothing.
     const folder = own.find((f) => f.type === 'folder' && f.name === MAPPING_DIR && !f.parentId)
+    const exportContent = (name: string) => folder
+      ? own.find((f) => f.parentId === folder.id && f.name === `${name}.csv`)?.content
+      : undefined
+    // The `csv` artefact is one file in STCM mode and two in C/CR mode; joining
+    // them gives one comparable value either way. Undefined as soon as any
+    // expected file is missing, so a half-written export counts as absent.
+    const parts = modeExports.map(exportContent)
     return {
-      csv: folder
-        ? own.find((f) => f.parentId === folder.id && f.name === `${STCM_EXPORT}.csv`)?.content
-        : undefined,
+      csv: parts.some((p) => p === undefined) ? undefined : parts.join('\n'),
       script: atRoot(VOCAB_SCRIPT_NAME),
       prune: atRoot(PRUNE_SCRIPT_NAME),
     } satisfies Record<Artefact, string | undefined>
-  }, [files, pipelineId])
+  }, [files, pipelineId, modeExports])
 
   const editedScripts = useMemo(() => {
     const edited = new Set<Artefact>()
@@ -374,19 +468,20 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     // nothing to compare against, so leave those boxes alone.
     if (filteredMappings.length > 0) {
       if (storedArtefacts.csv !== undefined
-        && storedArtefacts.csv !== buildStcmCsv(filteredMappings, projectMappings).csv) {
+        && storedArtefacts.csv !== buildMappingExports(filteredMappings, projectMappings, mode)
+          .map((e) => e.csv).join('\n')) {
         edited.add('csv')
       }
       // The vocabulary script also needs the reference to be generated at all.
       if (storedArtefacts.script !== undefined && vocabSchema) {
         const { sql } = buildVocabularyScriptWithIds(
-          filteredMappings, undefined, vocabTables, projectMappings,
+          filteredMappings, undefined, vocabTables, projectMappings, mode,
         )
         if (storedArtefacts.script !== sql) edited.add('script')
       }
     }
     return edited
-  }, [storedArtefacts, vocabSchema, filteredMappings, vocabTables, projectMappings])
+  }, [storedArtefacts, vocabSchema, filteredMappings, vocabTables, projectMappings, mode])
 
   /**
    * Artefacts already in the pipeline with exactly the content that would be
@@ -457,7 +552,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       // The script says `vocab.` rather than the resolved schema, so it stays
       // valid after an export/reimport (resolved at run time).
       const { sql, idsToPersist } = buildVocabularyScriptWithIds(
-        filteredMappings, undefined, vocabTables, projectMappings,
+        filteredMappings, undefined, vocabTables, projectMappings, mode,
       )
       // Store the source-concept ids this run settled on, so the next generation
       // reuses them instead of allocating new ones. Done before writing anything:
@@ -469,8 +564,9 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       // The export carries the rows the script reads; write it first so the
       // script is never the newer of the two.
       if (effectiveSelected.has('csv')) {
-        const { csv } = buildStcmCsv(filteredMappings, projectMappings)
-        await upsertMappingExport(pipelineId, STCM_EXPORT, csv)
+        for (const { name, csv } of buildMappingExports(filteredMappings, projectMappings, mode)) {
+          await upsertMappingExport(pipelineId, name, csv)
+        }
       }
       if (effectiveSelected.has('script')) {
         await upsertGeneratedScript(pipelineId, VOCAB_SCRIPT_NAME, sql, VOCAB_SCRIPT_ORDER)
@@ -487,7 +583,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     } finally {
       setCreating(false)
     }
-  }, [selectedProjectId, filteredMappings, projectMappings, pipelineId, vocabSchema, vocabTables, effectiveSelected, updateMapping, t])
+  }, [selectedProjectId, filteredMappings, projectMappings, pipelineId, vocabSchema, vocabTables, effectiveSelected, updateMapping, mode, t])
 
   // The CSV and the prune script need no vocabulary reference; only the
   // vocabulary script does, and it adds its own condition.
@@ -626,9 +722,29 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
               every clone: regenerating everything to recover the CSV used to
               throw those edits away. */}
           <div className="space-y-2">
+            {/* How the mappings are carried. C/CR is the OMOP v5 shape and what
+                the OHDSI tooling reads; STCM stays available for pipelines whose
+                own scripts still join it. */}
+            <div className="space-y-1.5 rounded-md border p-2.5">
+              <Label className="text-xs font-medium">{t('etl.vocab_mode')}</Label>
+              <Select value={mode} onValueChange={(v) => setMode(v as VocabularyMode)} disabled={creating || !canWrite}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ccr">{t('etl.vocab_mode_ccr')}</SelectItem>
+                  <SelectItem value="ccr+stcm">{t('etl.vocab_mode_ccr_stcm')}</SelectItem>
+                  <SelectItem value="stcm">{t('etl.vocab_mode_stcm')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                {t(`etl.vocab_mode_${mode === 'ccr+stcm' ? 'ccr_stcm' : mode}_hint`)}
+              </p>
+            </div>
+
             <div className="space-y-1.5 rounded-md border p-2.5">
               {([
-                { id: 'csv' as const, label: t('etl.vocab_artefact_csv'), hint: mappingExportPath(STCM_EXPORT), icon: Table2 },
+                { id: 'csv' as const, label: t('etl.vocab_artefact_csv'), hint: modeExports.map(mappingExportPath).join(' + '), icon: Table2 },
                 { id: 'script' as const, label: t('etl.vocab_artefact_script'), hint: VOCAB_SCRIPT_NAME, icon: FileCode },
                 { id: 'prune' as const, label: t('etl.vocab_artefact_prune'), hint: PRUNE_SCRIPT_NAME, icon: FileCode },
               ]).map(({ id, label, hint, icon: Icon }) => (

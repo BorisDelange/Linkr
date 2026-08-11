@@ -44,23 +44,38 @@ describe('buildVocabularyScript', () => {
     expect(sql).not.toMatch(/\bds_[0-9a-f_]{8}/i)
   })
 
-  it('qualifies every write with target.', () => {
-    for (const table of TARGET_TABLES) {
-      expect(sql).not.toMatch(new RegExp(`TRUNCATE ${table}\\b`))
-      expect(sql).not.toMatch(new RegExp(`INSERT INTO ${table}\\b`))
-      expect(sql).not.toMatch(new RegExp(`UPDATE ${table}\\b`))
+  it('qualifies every write with target., in every mode', () => {
+    // Left bare, a write would resolve through the Run dropdown's search_path —
+    // so a DELETE could hit the ATHENA reference instead of the target.
+    for (const mode of ['ccr', 'ccr+stcm', 'stcm'] as const) {
+      const modeSql = buildVocabularyScript([MAPPING], undefined, undefined, mode)
+      for (const table of TARGET_TABLES) {
+        expect(modeSql).not.toMatch(new RegExp(`TRUNCATE ${table}\\b`))
+        expect(modeSql).not.toMatch(new RegExp(`INSERT INTO ${table}\\b`))
+        expect(modeSql).not.toMatch(new RegExp(`UPDATE ${table}\\b`))
+      }
+      expect(modeSql).toContain('TRUNCATE target.concept;')
+      expect(modeSql).toContain('INSERT INTO target.concept_ancestor')
     }
-    expect(sql).toContain('TRUNCATE target.concept;')
-    expect(sql).toContain('INSERT INTO target.concept_ancestor')
-    expect(sql).toContain('INSERT INTO target.source_to_concept_map')
   })
 
-  it('qualifies target tables read in subqueries too', () => {
+  it('qualifies target tables read in subqueries too, in every mode', () => {
     // An unqualified read here would resolve via search_path, i.e. silently
     // depend on which database the Run dropdown happens to point at.
-    expect(sql).not.toMatch(/FROM concept\b(?!_)/)
-    expect(sql).not.toMatch(/FROM source_to_concept_map\b/)
-    expect(sql).toContain('FROM target.source_to_concept_map')
+    for (const mode of ['ccr', 'ccr+stcm', 'stcm'] as const) {
+      const modeSql = buildVocabularyScript([MAPPING], undefined, undefined, mode)
+      expect(modeSql).not.toMatch(/FROM concept\b(?!_)/)
+      expect(modeSql).not.toMatch(/FROM source_to_concept_map\b/)
+    }
+  })
+
+  it('writes source_to_concept_map only in the modes that own it', () => {
+    for (const mode of ['ccr+stcm', 'stcm'] as const) {
+      expect(buildVocabularyScript([MAPPING], undefined, undefined, mode))
+        .toContain('INSERT INTO target.source_to_concept_map')
+    }
+    expect(buildVocabularyScript([MAPPING], undefined, undefined, 'ccr'))
+      .not.toContain('INSERT INTO target.source_to_concept_map')
   })
 
   it('leaves column names containing a table name alone', () => {
@@ -208,10 +223,21 @@ describe('source concept ids', () => {
   it('loads source_to_concept_map from the mapping export, not inline rows', () => {
     // The rows carry a private dictionary's source codes; the CSV keeps them out
     // of this (versioned) file — see lib/duckdb/mapping-source.
+    const { sql } = buildVocabularyScriptWithIds(
+      [{ ...MAPPING, sourceConceptId: 2_000_000_042 }],
+      undefined, undefined, undefined, 'stcm',
+    )
+    expect(sql).toContain("read_csv('mapping.source_to_concept_map'")
+    expect(sql).not.toContain('50983')
+    expect(sql).not.toContain('2000000042')
+  })
+
+  it('reads the C/CR exports instead, by default', () => {
     const { sql } = buildVocabularyScriptWithIds([
       { ...MAPPING, sourceConceptId: 2_000_000_042 },
     ])
-    expect(sql).toContain("read_csv('mapping.source_to_concept_map'")
+    expect(sql).toContain("read_csv('mapping.concept'")
+    expect(sql).toContain("read_csv('mapping.concept_relationship'")
     expect(sql).not.toContain('50983')
     expect(sql).not.toContain('2000000042')
   })
@@ -247,16 +273,30 @@ describe('source concept ids', () => {
     expect(idsToPersist.size).toBe(0)
   })
 
-  it('builds the source concepts from the export, keeping ids consistent', () => {
+  it('builds the source concepts from the export, keeping ids consistent (stcm)', () => {
     // Both the STCM rows and the source concepts come from the one CSV, so the
     // id used in each cannot drift apart.
-    const { sql } = buildVocabularyScriptWithIds([
-      { ...MAPPING, sourceConceptId: 2_000_000_123 },
-    ])
+    const { sql } = buildVocabularyScriptWithIds(
+      [{ ...MAPPING, sourceConceptId: 2_000_000_123 }],
+      undefined, undefined, undefined, 'stcm',
+    )
     const reads = sql.match(/read_csv\('mapping\.source_to_concept_map'/g)
     expect(reads).toHaveLength(2)
     expect(sql).toContain('stcm.source_concept_id       AS concept_id')
     expect(sql).toContain('WHERE stcm.source_concept_id > 2000000000')
+  })
+
+  it('takes the source concepts straight from concept.csv (ccr)', () => {
+    // No derivation at all here: the CSV already carries the ids, the class and
+    // the domain, so there is nothing for the SQL to reconstruct.
+    const { sql } = buildVocabularyScriptWithIds([
+      { ...MAPPING, sourceConceptId: 2_000_000_123 },
+    ])
+    expect(sql).toContain("read_csv('mapping.concept'")
+    // No per-column derivation of the source concepts (2g still builds the
+    // custom-vocabulary rows, which is a different thing).
+    expect(sql).not.toContain('stcm.source_concept_id       AS concept_id')
+    expect(sql).not.toContain('WHERE stcm.source_concept_id > 2000000000')
   })
 
   it('allocates against the whole project, not just the filtered subset', () => {
@@ -338,19 +378,138 @@ describe('buildCustomVocabularyScript', () => {
 })
 
 describe('clearing tables', () => {
+  const ALL_TABLES = [
+    'concept', 'concept_relationship', 'concept_ancestor', 'concept_synonym',
+    'vocabulary', 'domain', 'concept_class', 'relationship',
+  ]
+
   it('truncates rather than deleting, everywhere', () => {
     // Every clear wipes a whole table, and DELETE journals row by row — on
     // concept / concept_relationship that dominated the script's runtime.
-    const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, [
-      'concept', 'concept_relationship', 'concept_ancestor', 'concept_synonym',
-      'vocabulary', 'domain', 'concept_class', 'relationship',
-    ])
+    const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, ALL_TABLES)
     expect(sql).not.toContain('DELETE FROM')
-    for (const table of [
-      'source_to_concept_map', 'concept', 'concept_relationship', 'concept_ancestor',
-      'vocabulary', 'domain', 'concept_class', 'relationship', 'concept_synonym',
-    ]) {
+    for (const table of [...ALL_TABLES, 'concept_ancestor']) {
       expect(sql).toContain(`TRUNCATE target.${table};`)
     }
+  })
+
+  it('leaves source_to_concept_map alone in ccr mode', () => {
+    // A pipeline may fill that table by other means; C/CR does not own it.
+    const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, ALL_TABLES, undefined, 'ccr')
+    expect(sql).not.toContain('TRUNCATE target.source_to_concept_map;')
+  })
+
+  it('truncates source_to_concept_map in the modes that write it', () => {
+    for (const mode of ['stcm', 'ccr+stcm'] as const) {
+      const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, ALL_TABLES, undefined, mode)
+      expect(sql).toContain('TRUNCATE target.source_to_concept_map;')
+      expect(sql).not.toContain('DELETE FROM')
+    }
+  })
+})
+
+describe('vocabulary mode', () => {
+  const stmts = (sql: string) => splitSqlStatements(sql).map((s) => s.trim()).filter(Boolean)
+
+  it('defaults to C/CR — the OMOP v5 shape', () => {
+    expect(buildVocabularyScript([MAPPING])).toBe(buildVocabularyScript([MAPPING], undefined, undefined, 'ccr'))
+  })
+
+  it('still builds the legacy shape byte for byte when asked', () => {
+    // A pipeline pinned to 'stcm' must regenerate exactly what it holds, so
+    // switching the default produces no git diff for it.
+    const sql = buildVocabularyScript([MAPPING], undefined, undefined, 'stcm')
+    expect(sql).toContain("read_csv('mapping.source_to_concept_map'")
+    expect(sql).toContain('TRUNCATE target.source_to_concept_map;')
+    expect(sql).not.toContain("read_csv('mapping.concept'")
+  })
+
+  describe('ccr', () => {
+    const sql = buildVocabularyScript([MAPPING], undefined, undefined, 'ccr')
+
+    it('reads the concept and relationship exports', () => {
+      expect(sql).toContain("read_csv('mapping.concept'")
+      expect(sql).toContain("read_csv('mapping.concept_relationship'")
+    })
+
+    it('never reads the STCM export', () => {
+      expect(sql).not.toContain("read_csv('mapping.source_to_concept_map'")
+    })
+
+    it('leaves source_to_concept_map alone — a pipeline may fill it otherwise', () => {
+      expect(sql).not.toContain('TRUNCATE target.source_to_concept_map;')
+      expect(sql).not.toContain('INSERT INTO target.source_to_concept_map')
+    })
+
+    it('drops the 2-billion guard: the CSV holds only local concepts', () => {
+      expect(sql).not.toContain('WHERE stcm.source_concept_id > 2000000000')
+    })
+
+    it('derives no Mapped from in SQL — the CSV carries both directions', () => {
+      expect(sql).not.toContain("'Mapped from'          AS relationship_id")
+    })
+
+    it('reads custom vocabularies off the 2B concepts, not the empty STCM table', () => {
+      // The trap: source_to_concept_map is empty here, so the old subquery would
+      // have produced no vocabulary rows at all.
+      expect(sql).toContain('SELECT DISTINCT vocabulary_id AS source_vocabulary_id')
+      expect(sql).toContain('WHERE concept_id >= 2000000000')
+    })
+
+    it('still leaks no mapping content into the versioned script', () => {
+      const secret = buildVocabularyScript(
+        [{ ...MAPPING, sourceConceptCode: 'SECRET_CODE', sourceConceptName: 'Secret Name' }],
+        undefined, undefined, 'ccr',
+      )
+      expect(secret).not.toContain('SECRET_CODE')
+      expect(secret).not.toContain('Secret Name')
+    })
+
+    it('pulls in target concepts via the Maps to rows', () => {
+      expect(sql).toContain("WHERE relationship_id = 'Maps to'")
+    })
+
+    it('parses into complete statements', () => {
+      expect(stmts(sql).length).toBeGreaterThan(5)
+      for (const s of stmts(sql)) expect(s).not.toContain('read_csv(\'mapping.source_to_concept_map')
+    })
+
+    it('copies no reference concepts for 2a when there are no mappings', () => {
+      // A bare INSERT ... FROM vocab.concept would duplicate the whole reference.
+      const empty = buildVocabularyScript([], undefined, undefined, 'ccr')
+      expect(empty).toContain('WHERE FALSE;')
+    })
+  })
+
+  describe('ccr+stcm', () => {
+    const sql = buildVocabularyScript([MAPPING], undefined, undefined, 'ccr+stcm')
+
+    it('fills C/CR from the exports', () => {
+      expect(sql).toContain("read_csv('mapping.concept'")
+      expect(sql).toContain("read_csv('mapping.concept_relationship'")
+    })
+
+    it('derives STCM from the tables, not from a CSV', () => {
+      expect(sql).toContain('PART 6')
+      expect(sql).toContain('INSERT INTO target.source_to_concept_map')
+      expect(sql).not.toContain("read_csv('mapping.source_to_concept_map'")
+    })
+
+    it('keeps unmapped codes as target_concept_id = 0 rows', () => {
+      // The LEFT JOIN is the whole point: the CDM scripts join STCM
+      // unconditionally, so an unmapped code still owes it a row.
+      expect(sql).toContain('LEFT JOIN target.concept_relationship cr')
+      expect(sql).toContain('COALESCE(cr.concept_id_2, 0)  AS target_concept_id')
+    })
+
+    it('derives only the local concepts', () => {
+      expect(sql).toContain('WHERE c.concept_id >= 2000000000;')
+    })
+
+    it('runs the derivation after concept_relationship is filled', () => {
+      // It reads target.concept_relationship, so PART 3 has to have run.
+      expect(sql.indexOf('-- PART 3: concept_relationship'))
+        .toBeLessThan(sql.indexOf('-- PART 6: source_to_concept_map'))
+    })
   })
 })

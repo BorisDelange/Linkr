@@ -1061,7 +1061,12 @@ async function seedEtlScripts(config: SeedEtlScripts): Promise<void> {
       if (mappings.length > 0) {
         // Defaults to the `vocab.` role prefix, resolved at run time — the seeded
         // script must be as portable as one generated from the Vocabulary tab.
-        vocabContent = buildVocabularyScript(mappings)
+        //
+        // 'stcm' is pinned rather than left to the default: the bundled MIMIC-IV
+        // scripts are written against source_to_concept_map, and re-seeding them
+        // in the C/CR shape would rewrite a pipeline the user never asked to
+        // change. Converting the bundled ETL is its own piece of work.
+        vocabContent = buildVocabularyScript(mappings, undefined, undefined, 'stcm')
       }
     } catch { /* ignore */ }
   }

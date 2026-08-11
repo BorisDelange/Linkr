@@ -739,7 +739,25 @@ function DiffBadge({ diff }: { diff: QualityDiff }) {
  * shape has no comparable columns, so comparing against it is not possible here.
  */
 async function loadConceptQuality(targetDsId: string): Promise<QualityConceptRow[]> {
-  const stcm = await duckdbEngine.queryDataSource(targetDsId, `
+  // C/CR first: since CDM 5.3 source_to_concept_map is no longer where mappings
+  // live, and a pipeline generating C/CR leaves it empty. Reading only STCM made
+  // this whole tab silently show nothing — no error, just no rows.
+  const ccr = await duckdbEngine.queryDataSource(targetDsId, `
+    SELECT c.vocabulary_id  AS source_vocabulary_id,
+           c.concept_code   AS source_code,
+           c.concept_name   AS source_code_description,
+           c.concept_id     AS source_concept_id,
+           cr.concept_id_2  AS target_concept_id,
+           t.vocabulary_id  AS target_vocabulary_id
+    FROM concept c
+    JOIN concept_relationship cr
+      ON cr.concept_id_1 = c.concept_id AND cr.relationship_id = 'Maps to'
+    LEFT JOIN concept t ON t.concept_id = cr.concept_id_2
+    WHERE c.concept_id >= 2000000000
+      AND cr.concept_id_2 != 0
+  `).catch(() => [])
+
+  const stcm = ccr.length > 0 ? ccr : await duckdbEngine.queryDataSource(targetDsId, `
     SELECT source_vocabulary_id, source_code, source_code_description,
            source_concept_id, target_concept_id, target_vocabulary_id
     FROM source_to_concept_map

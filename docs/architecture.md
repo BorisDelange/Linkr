@@ -219,6 +219,38 @@ Clinical tables: `measurement`, `condition_occurrence`, `drug_exposure`, `proced
 - Concept counts: precomputed stats cache queried via `queryConceptCache()` (`lib/api/concept-cache.ts`); single-concept detail via `buildDomainCountQuery()` in `concept-queries.ts`.
 - Measurement extras: distribution (min/max/mean/median/std) + histogram (DuckDB binning).
 
+### Local codes: CONCEPT / CONCEPT_RELATIONSHIP, not SOURCE_TO_CONCEPT_MAP (as-built)
+
+A mapping project's alignments are stored the OMOP v5 way: each local code is a
+**concept with an id ≥ 2 000 000 000** (`standard_concept` NULL), linked to its
+standard concept by a `concept_relationship` row with `relationship_id = 'Maps to'`
+(plus the reverse `'Mapped from'`). `SOURCE_TO_CONCEPT_MAP` stopped being an official
+vocabulary table in CDM 5.3 and is unread by ATLAS/Achilles/DQD.
+
+**C/CR is canonical; STCM is derived from it, never built alongside it.** The day STCM
+goes, one projection function and one enum value go with it.
+
+- `lib/concept-mapping/source-concept-ids.ts` — allocates the 2B ids, keyed on
+  `(vocabulary, code)`, reusing what is stored. Ids must stay **stable**: a renumbered
+  concept silently repoints data already loaded, and breaks Atlas cohorts.
+- `lib/concept-mapping/ccr-export.ts` — builds `concept.csv` + `concept_relationship.csv`,
+  and `stcmFromCcr()`, the STCM projection. A round-trip test holds that projection
+  byte-identical to the generator it replaced.
+- `concept_class_id` cascade: the source dictionary's class → the target's class →
+  an echo of the domain (`Drug`→`Drug`, …, else `Observation`). Never a fixed constant.
+- Deriving STCM walks the **concepts**, left-joined to the relationships — an unmapped
+  code still owes STCM a `target_concept_id = 0` row, since CDM scripts join it
+  unconditionally. Deriving from the relationships alone would drop every unmapped code.
+
+The ETL Vocabulary tab picks the representation per pipeline
+(`EtlVocabularyConfig.mode`: `ccr` | `ccr+stcm` | `stcm`). **C/CR is the default**;
+when the mode was never chosen, the tab reads the pipeline's own files to decide —
+one already holding an STCM export, or a `00_vocabulary.sql` that reads it, stays on
+`stcm` so it never silently re-shapes itself. The seed loader pins `stcm` explicitly:
+the bundled MIMIC-IV scripts join `source_to_concept_map`, and converting them is
+separate work. Export tabs offer the three OHDSI formats behind one picker
+(`lib/concept-mapping/export-formats.ts`), C/CR by default.
+
 ## Data / Caching Patterns
 
 - DuckDB as unifying query layer: all sources mounted as `ds_<id>` schemas.

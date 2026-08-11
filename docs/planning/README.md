@@ -90,6 +90,22 @@ arbitrated 2026-08-05; `xl-*` exporters are GPL-3.0 (compatible, no commercial l
 | 🔜 | 6. Presentation mode (port `splitBlocksIntoSlides` + `computeFitScale`, overlay, shortcuts) | M |
 | 🔜 | 7. Exports (md/HTML → DOCX/ODT/PDF via XL → PPTX via `pptxgenjs`) | L |
 
+## OMOP C/CR migration
+
+**Built and manually validated** (2026-08-11): a mapping project's alignments are
+CONCEPT + CONCEPT_RELATIONSHIP (`Maps to`, 2-billion local concepts); STCM is
+*derived* from them, never built alongside. **C/CR is now the default** — for new
+pipelines and for the export tabs. A pipeline that already holds STCM artefacts keeps
+generating STCM (detected from its files, not a stored flag), and the seed loader pins
+`stcm` so the bundled MIMIC-IV never re-shapes itself. As-built in
+`docs/architecture.md` (OMOP CDM Patterns).
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | User docs in `../linkr-website` (`docs/concept-mapping/export.mdx`, FR + EN, and the `CmExportFormatCard` frame) | S |
+| 💤 | Convert the bundled MIMIC-IV ETL to C/CR (would need its `2x_map_*.sql` scripts reviewed — they join `source_to_concept_map`) | M |
+| 💤 | `00b_custom_vocabulary.sql`: no ETL generates it (seed-loader only) — remove? | S |
+
 ## Permissions — [users-authorizations-audit.md](users-authorizations-audit.md)
 
 | St | Item | Effort |
