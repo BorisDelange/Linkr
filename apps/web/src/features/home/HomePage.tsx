@@ -157,7 +157,7 @@ export function HomePage() {
               <button
                 key={action.labelKey}
                 onClick={() => navigate(action.path)}
-                className="group flex cursor-pointer items-start gap-3 rounded-xl border bg-card p-4 text-left shadow-xs transition-all hover:bg-accent hover:shadow-md"
+                className="group flex cursor-pointer items-center gap-3 rounded-xl border bg-card p-4 text-left shadow-xs transition-all hover:bg-accent hover:shadow-md"
               >
                 <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-110 ${action.color}`}>
                   <action.icon size={16} />
