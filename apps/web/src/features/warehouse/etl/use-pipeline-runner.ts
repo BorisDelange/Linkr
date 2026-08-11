@@ -50,12 +50,18 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
    * `files` is the ordered list to execute. Disabled ones are marked skipped
    * rather than dropped, so the run history shows they were deliberately left out.
    */
-  const runScripts = useCallback(async (files: EtlFile[]) => {
+  const runScripts = useCallback(async (files: EtlFile[], options: { resume?: boolean } = {}) => {
     if (!pipeline || files.length === 0) return
     const store = useEtlStore.getState()
-    // A run is already in flight (possibly started from another tab): don't start
-    // a second one that would orphan the first's AbortController.
-    if (!store.startPipelineRun(files.map((f) => f.id))) return
+    if (options.resume) {
+      // Continues the held run's history entry instead of opening a new one, so
+      // a paused-then-resumed pipeline reads as ONE run, as it should.
+      if (!store.resumePipelineRun()) return
+    } else if (!store.startPipelineRun(files.map((f) => f.id))) {
+      // A run is already in flight (possibly started from another tab): don't
+      // start a second one that would orphan the first's AbortController.
+      return
+    }
     const abort = useEtlStore.getState().pipelineRunAbort
     const { testConnection } = useDataSourceStore.getState()
     const pipelineId = pipeline.id
@@ -138,6 +144,11 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
         break
       }
     }
+
+    // A pause already took the run out of flight and is holding its history entry
+    // open for the resume; closing it here would end the very run the user asked
+    // to continue.
+    if (useEtlStore.getState().pausedRun) return
 
     useEtlStore.getState().finishPipelineRun(
       hasError || abort?.signal.aborted ? 'error' : 'success',

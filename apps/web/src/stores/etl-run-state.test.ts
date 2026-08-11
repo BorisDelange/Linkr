@@ -570,3 +570,130 @@ describe('loadRunHistory resolving mid-run', () => {
     expect(useEtlStore.getState().runHistory).toEqual([])
   })
 })
+
+/**
+ * Pausing holds a run rather than ending it: the history entry stays open so
+ * resuming continues the SAME run, which is what the pipeline view claims when
+ * it says "resume" rather than "run again".
+ */
+describe('pausing and resuming a run', () => {
+  beforeEach(() => {
+    useEtlStore.setState({
+      pipelineRunning: false, pipelineRunAbort: null, pausedRun: null,
+      runningFileIds: [], scriptStatuses: new Map(), runHistory: [],
+      activePipelineId: 'p1',
+    })
+  })
+
+  it('takes the run out of flight and aborts what the runner watches', () => {
+    useEtlStore.getState().startPipelineRun(['f1', 'f2'])
+    const signal = useEtlStore.getState().pipelineRunAbort?.signal
+    useEtlStore.getState().pausePipelineRun()
+
+    expect(useEtlStore.getState().pipelineRunning).toBe(false)
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('still owes the interrupted script — a half-run script is not done', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1', 'f2', 'f3'])
+    store.setScriptStatus('f1', { ...RUNNING, fileId: 'f1', status: 'success' })
+    store.setScriptStatus('f2', { ...RUNNING, fileId: 'f2' })
+
+    const pending = useEtlStore.getState().pausePipelineRun()
+    // f2 was cut mid-way: only the statement already sent reached the database,
+    // so the script has to run again from the top.
+    expect(pending).toEqual(['f2', 'f3'])
+  })
+
+  it('counts a skipped script as settled, not as owed', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1', 'f2'])
+    store.setScriptStatus('f1', { ...RUNNING, fileId: 'f1', status: 'skipped' })
+    expect(useEtlStore.getState().pausePipelineRun()).toEqual(['f2'])
+  })
+
+  it('marks the interrupted script stopped, not running for ever', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    store.setScriptStatus('f1', RUNNING)
+    useEtlStore.getState().pausePipelineRun()
+    expect(useEtlStore.getState().scriptStatuses.get('f1')?.status).toBe('stopped')
+  })
+
+  it('keeps the history entry open, so no second run is opened', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1', 'f2'])
+    store.setScriptStatus('f1', RUNNING)
+    const runId = useEtlStore.getState().runHistory[0].id
+
+    useEtlStore.getState().pausePipelineRun()
+    expect(useEtlStore.getState().runHistory[0].status).toBe('running')
+
+    useEtlStore.getState().resumePipelineRun()
+    expect(useEtlStore.getState().runHistory).toHaveLength(1)
+    expect(useEtlStore.getState().runHistory[0].id).toBe(runId)
+
+    useEtlStore.getState().finishPipelineRun('success')
+    expect(useEtlStore.getState().runHistory).toHaveLength(1)
+    expect(useEtlStore.getState().runHistory[0].status).toBe('success')
+  })
+
+  it('resuming puts the run back in flight on a fresh signal', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1', 'f2'])
+    useEtlStore.getState().pausePipelineRun()
+
+    const resumed = useEtlStore.getState().resumePipelineRun()
+    expect(resumed?.pendingFileIds).toEqual(['f1', 'f2'])
+    expect(useEtlStore.getState().pipelineRunning).toBe(true)
+    // A fresh controller: the paused one is aborted, and reusing it would end
+    // the resumed run the moment it started.
+    expect(useEtlStore.getState().pipelineRunAbort?.signal.aborted).toBe(false)
+    expect(useEtlStore.getState().pausedRun).toBeNull()
+  })
+
+  it('reports progress against the remaining scripts only', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1', 'f2', 'f3'])
+    store.setScriptStatus('f1', { ...RUNNING, fileId: 'f1', status: 'success' })
+    useEtlStore.getState().pausePipelineRun()
+    useEtlStore.getState().resumePipelineRun()
+    expect(useEtlStore.getState().runningFileIds).toEqual(['f2', 'f3'])
+  })
+
+  it('resuming nothing is harmless, and resuming twice does not double-start', () => {
+    expect(useEtlStore.getState().resumePipelineRun()).toBeNull()
+    useEtlStore.getState().startPipelineRun(['f1'])
+    useEtlStore.getState().pausePipelineRun()
+    expect(useEtlStore.getState().resumePipelineRun()).not.toBeNull()
+    expect(useEtlStore.getState().resumePipelineRun()).toBeNull()
+  })
+
+  it('stopping a held run closes it instead of leaving it resumable', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    useEtlStore.getState().pausePipelineRun()
+    useEtlStore.getState().discardPausedRun()
+
+    expect(useEtlStore.getState().pausedRun).toBeNull()
+    expect(useEtlStore.getState().runHistory[0].status).toBe('error')
+    expect(useEtlStore.getState().runHistory[0].completedAt).toBeTruthy()
+  })
+
+  it('starting a new run abandons whatever was held', () => {
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1'])
+    useEtlStore.getState().pausePipelineRun()
+    useEtlStore.getState().startPipelineRun(['f1'])
+
+    // Otherwise the resume would write into an entry no longer at the head.
+    expect(useEtlStore.getState().pausedRun).toBeNull()
+    expect(useEtlStore.getState().runHistory).toHaveLength(2)
+  })
+
+  it('pausing when nothing runs is harmless', () => {
+    expect(useEtlStore.getState().pausePipelineRun()).toEqual([])
+    expect(useEtlStore.getState().pausedRun).toBeNull()
+  })
+})

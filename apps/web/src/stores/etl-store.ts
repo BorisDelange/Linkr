@@ -76,6 +76,22 @@ interface EtlState {
   /** Scripts of the run in progress, in order. Empty when nothing is running. */
   runningFileIds: string[]
   stopPipelineRun: () => void
+  /**
+   * A run held mid-way, keeping its history entry open so resuming continues it
+   * rather than starting a second one. Null when nothing is paused.
+   *
+   * `pendingFileIds` are the scripts still to execute, INCLUDING the one that
+   * was interrupted: a statement already sent to the database cannot be called
+   * back, so the honest thing is to re-run that script from the top rather than
+   * pretend it half-happened.
+   */
+  pausedRun: { runId: string; pendingFileIds: string[] } | null
+  /** Abandon the script in flight and hold the run. Returns the scripts left. */
+  pausePipelineRun: () => string[]
+  /** Re-open the paused run's history entry so the runner writes into it. */
+  resumePipelineRun: () => { runId: string; pendingFileIds: string[] } | null
+  /** Drop a paused run without resuming it (the Stop button, while paused). */
+  discardPausedRun: () => void
   setScriptStatus: (fileId: string, log: EtlRunLog) => void
   finishPipelineRun: (status: 'success' | 'error') => void
   /** Forget every past run: the history list AND the per-script status icons the
@@ -457,6 +473,10 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       runningFileIds: fileIds,
       scriptStatuses: new Map(),
       runHistory: [entry, ...s.runHistory].slice(0, MAX_RUN_HISTORY),
+      // Starting fresh abandons whatever was held: this is a new run, and a
+      // paused one left behind would offer to resume into an entry that is no
+      // longer at the head of the history.
+      pausedRun: null,
     }))
     if (pipelineId) persistRun(entry)
     return true
@@ -506,7 +526,92 @@ export const useEtlStore = create<EtlState>((set, get) => ({
         runningFileIds: [],
         runHistory: history,
         scriptStatuses: statuses,
+        // Stop is final, whether it ended a live run or a held one.
+        pausedRun: null,
       }
+    })
+    persistRun(toPersist)
+  },
+
+  pausedRun: null,
+
+  pausePipelineRun: () => {
+    if (!get().pipelineRunning) return []
+    let pending: string[] = []
+    let toPersist: EtlRunHistoryEntry | undefined
+    get().pipelineRunAbort?.abort()
+    set((s) => {
+      // Everything not finished is still owed, and the script that was in flight
+      // is owed too: the statement already sent runs to completion in the
+      // database, but the rest of that script never ran, so resuming re-runs it
+      // whole. Anything else would silently skip statements.
+      const done = new Set(
+        [...s.scriptStatuses]
+          .filter(([, log]) => log.status === 'success' || log.status === 'skipped')
+          .map(([fileId]) => fileId),
+      )
+      pending = s.runningFileIds.filter((id) => !done.has(id))
+
+      const interrupted = (log: EtlRunLog): EtlRunLog => (
+        log.status === 'running'
+          ? {
+              ...log,
+              status: 'stopped',
+              completedAt: new Date().toISOString(),
+              durationMs: log.startedAt ? Date.now() - new Date(log.startedAt).getTime() : undefined,
+            }
+          : log
+      )
+
+      // The history entry stays 'running': it is not over, it is waiting. That is
+      // what lets a resume write into the same run instead of opening a second.
+      const history = [...s.runHistory]
+      if (history.length > 0 && history[0].status === 'running') {
+        history[0] = { ...history[0], scripts: history[0].scripts.map(interrupted) }
+        toPersist = history[0]
+      }
+      const statuses = new Map(s.scriptStatuses)
+      for (const [fileId, log] of statuses) statuses.set(fileId, interrupted(log))
+
+      return {
+        pipelineRunning: false,
+        pipelineRunAbort: null,
+        runningFileIds: [],
+        runHistory: history,
+        scriptStatuses: statuses,
+        pausedRun: history[0] ? { runId: history[0].id, pendingFileIds: pending } : null,
+      }
+    })
+    persistRun(toPersist)
+    return pending
+  },
+
+  resumePipelineRun: () => {
+    const paused = get().pausedRun
+    if (!paused || get().pipelineRunning) return null
+    // The entry is still at the head and still 'running', so setScriptStatus and
+    // finishPipelineRun keep writing to it — no new history row, as asked.
+    const abort = new AbortController()
+    set({
+      pipelineRunning: true,
+      pipelineRunAbort: abort,
+      runningFileIds: paused.pendingFileIds,
+      pausedRun: null,
+    })
+    return paused
+  },
+
+  discardPausedRun: () => {
+    const paused = get().pausedRun
+    if (!paused) return
+    let toPersist: EtlRunHistoryEntry | undefined
+    set((s) => {
+      const history = [...s.runHistory]
+      if (history.length > 0 && history[0].id === paused.runId && history[0].status === 'running') {
+        history[0] = { ...history[0], status: 'error', completedAt: new Date().toISOString() }
+        toPersist = history[0]
+      }
+      return { runHistory: history, pausedRun: null }
     })
     persistRun(toPersist)
   },
