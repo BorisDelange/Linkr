@@ -589,143 +589,127 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   // vocabulary script does, and it adds its own condition.
   const cannotGenerate = !selectedProjectId || filteredMappings.length === 0 || !canWrite
 
+  /** The amber notices, gathered so they stack once at the top rather than
+   *  pushing the form down one by one. */
+  const notices = [
+    !selectedProjectId && (availableProjects.length > 0
+      ? t('etl.vocab_no_project_attached')
+      : t('etl.vocab_no_project_available')),
+    !readiness.ready && (readiness.missingExports.length > 0
+      ? t('etl.vocab_export_missing', {
+          files: readiness.missingExports.map((n) => mappingExportPath(n)).join(', '),
+          count: readiness.missingExports.length,
+        })
+      : t('etl.vocab_export_empty', {
+          files: readiness.emptyExports.map((n) => mappingExportPath(n)).join(', '),
+          count: readiness.emptyExports.length,
+        })),
+    selectedProjectId && !vocabSchema && t('etl.vocab_no_vocab_ds'),
+  ].filter(Boolean) as string[]
+
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 overflow-auto p-8">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center">
-          <BookOpen size={32} className="mx-auto mb-2 text-muted-foreground" />
-          <h3 className="text-sm font-medium">{t('etl.vocab_title')}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t('etl.vocab_description')}
-          </p>
+    <div className="h-full overflow-auto p-6">
+      <div className="mx-auto w-full max-w-3xl space-y-4">
+        <div className="flex items-start gap-2.5">
+          <BookOpen size={18} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium">{t('etl.vocab_title')}</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t('etl.vocab_description')}</p>
+          </div>
         </div>
 
-        {/* No dictionary attached: the generated 00_vocabulary.sql has nothing to
-            fill source_to_concept_map from, so the script fails at RUN time with a
-            SQL error that says nothing about the real cause. Say it here instead. */}
-        {!selectedProjectId && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-            <span className="flex items-start gap-2">
-              <AlertCircle size={16} className="mt-px shrink-0" />
-              <span>
-                {availableProjects.length > 0
-                  ? t('etl.vocab_no_project_attached')
-                  : t('etl.vocab_no_project_available')}
+        {notices.length > 0 && (
+          <div className="space-y-1.5 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
+            {notices.map((notice) => (
+              <span key={notice} className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-200">
+                <AlertCircle size={14} className="mt-px shrink-0" />
+                <span>{notice}</span>
               </span>
-            </span>
+            ))}
           </div>
         )}
 
-        {/* The scripts are here but the data they read is not: the CSV is
-            gitignored, so it never survives a clone. Regenerating it is the fix,
-            and it does not require touching the script. */}
-        {!readiness.ready && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-            <span className="flex items-start gap-2">
-              <AlertCircle size={16} className="mt-px shrink-0" />
-              <span>
-                {readiness.missingExports.length > 0
-                  ? t('etl.vocab_export_missing', {
-                      files: readiness.missingExports.map((n) => mappingExportPath(n)).join(', '),
-                      count: readiness.missingExports.length,
-                    })
-                  : t('etl.vocab_export_empty', {
-                      files: readiness.emptyExports.map((n) => mappingExportPath(n)).join(', '),
-                      count: readiness.emptyExports.length,
-                    })}
-              </span>
-            </span>
-          </div>
-        )}
-
-        {/* Warning if no vocabulary data source */}
-        {selectedProjectId && !vocabSchema && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-            <span className="flex items-start gap-2">
-              <AlertCircle size={16} className="mt-px shrink-0" />
-              <span>{t('etl.vocab_no_vocab_ds')}</span>
-            </span>
-          </div>
-        )}
-
-        {/* Option 1: From mapping project */}
-        <div className="space-y-2">
-          <Label className="text-xs font-medium">{t('etl.vocab_from_project')}</Label>
-          <Select value={selectedProjectId} onValueChange={handleProjectChange}>
-            <SelectTrigger className="text-xs">
-              <SelectValue placeholder={t('etl.vocab_select_project')} />
-            </SelectTrigger>
-            <SelectContent>
-              {availableProjects.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {localized(p.name, i18n.language)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {/* Status filter (shown when a project is selected) */}
-          {selectedProjectId && projectMappings.length > 0 && (
-            <div className="rounded-md border bg-muted/30 p-3 space-y-2">
-              <p className="text-xs font-medium">{t('concept_mapping.export_filter_title')}</p>
-              <div className="space-y-1.5">
-                {STATUSES.map((status) => {
-                  const count = statusCounts[status] ?? 0
-                  const checked = includedStatuses.has(status)
-                  return (
-                    <div key={status}>
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleStatus(status)}
-                          className="size-3.5 rounded border-gray-300 accent-primary"
-                        />
-                        <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
-                        <Badge variant="secondary" className="text-[10px]">{count}</Badge>
-                      </label>
-
-                      {/* Approval sub-rules */}
-                      {status === 'approved' && checked && (
-                        <div className="ml-6 mt-1 space-y-1">
-                          {(['at_least_one', 'majority', 'no_rejections'] as ApprovalRule[]).map((rule) => (
-                            <label key={rule} className="flex cursor-pointer items-center gap-2">
-                              <input
-                                type="radio"
-                                name="approval-rule"
-                                checked={approvalRule === rule}
-                                onChange={() => setApprovalRule(rule)}
-                                className="size-3 accent-primary"
-                              />
-                              <span className="text-[11px] text-muted-foreground">
-                                {t(`concept_mapping.export_rule_${rule}`)}
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="border-t pt-2">
-                <p className="text-[11px] text-muted-foreground">
-                  {t('concept_mapping.export_total')}: <strong>{filteredMappings.length}</strong> {t('concept_mapping.export_mappings_count')}
-                </p>
-              </div>
+        {/* Two columns: what goes IN on the left (the dictionary and which of its
+            mappings), what comes OUT on the right (the shape, the files). They
+            are independent choices, and stacking them made the tab a scroll. */}
+        {/* Rows stretch (no items-start) so the right column can push its
+            Generate button down to the left column's bottom edge. */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">{t('etl.vocab_from_project')}</Label>
+              <Select value={selectedProjectId} onValueChange={handleProjectChange}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder={t('etl.vocab_select_project')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableProjects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {localized(p.name, i18n.language)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          )}
 
-          {/* Pick the artefacts, write them in one go. They are separable
-              because a hand-edited script is a versioned file worth keeping,
-              while the CSV beside it is gitignored derived data rebuilt after
-              every clone: regenerating everything to recover the CSV used to
-              throw those edits away. */}
-          <div className="space-y-2">
-            {/* How the mappings are carried. C/CR is the OMOP v5 shape and what
-                the OHDSI tooling reads; STCM stays available for pipelines whose
-                own scripts still join it. */}
-            <div className="space-y-1.5 rounded-md border p-2.5">
+            {selectedProjectId && projectMappings.length > 0 && (
+              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                <p className="text-xs font-medium">{t('concept_mapping.export_filter_title')}</p>
+                <div className="space-y-1.5">
+                  {STATUSES.map((status) => {
+                    const count = statusCounts[status] ?? 0
+                    const checked = includedStatuses.has(status)
+                    return (
+                      <div key={status}>
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleStatus(status)}
+                            className="size-3.5 rounded border-gray-300 accent-primary"
+                          />
+                          <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
+                          <Badge variant="secondary" className="text-[10px]">{count}</Badge>
+                        </label>
+
+                        {/* Approval sub-rules */}
+                        {status === 'approved' && checked && (
+                          <div className="ml-6 mt-1 space-y-1">
+                            {(['at_least_one', 'majority', 'no_rejections'] as ApprovalRule[]).map((rule) => (
+                              <label key={rule} className="flex cursor-pointer items-center gap-2">
+                                <input
+                                  type="radio"
+                                  name="approval-rule"
+                                  checked={approvalRule === rule}
+                                  onChange={() => setApprovalRule(rule)}
+                                  className="size-3 accent-primary"
+                                />
+                                <span className="text-[11px] text-muted-foreground">
+                                  {t(`concept_mapping.export_rule_${rule}`)}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="border-t pt-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('concept_mapping.export_total')}: <strong>{filteredMappings.length}</strong> {t('concept_mapping.export_mappings_count')}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right: the shape the mappings take, then the files to write. The
+              artefacts are separable because a hand-edited script is a versioned
+              file worth keeping, while the CSV beside it is gitignored derived
+              data rebuilt after every clone. */}
+          <div className="flex flex-col gap-3">
+            <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('etl.vocab_mode')}</Label>
               <Select value={mode} onValueChange={(v) => setMode(v as VocabularyMode)} disabled={creating || !canWrite}>
                 <SelectTrigger className="h-8 text-xs">
@@ -737,12 +721,10 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                   <SelectItem value="stcm">{t('etl.vocab_mode_stcm')}</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-[11px] text-muted-foreground">
-                {t(`etl.vocab_mode_${mode === 'ccr+stcm' ? 'ccr_stcm' : mode}_hint`)}
-              </p>
             </div>
 
-            <div className="space-y-1.5 rounded-md border p-2.5">
+            <div className="space-y-1.5 rounded-md border bg-muted/30 p-3">
+              <p className="text-xs font-medium">{t('etl.vocab_artefacts')}</p>
               {([
                 { id: 'csv' as const, label: t('etl.vocab_artefact_csv'), hint: modeExports.map(mappingExportPath).join(' + '), icon: Table2 },
                 { id: 'script' as const, label: t('etl.vocab_artefact_script'), hint: VOCAB_SCRIPT_NAME, icon: FileCode },
@@ -780,9 +762,10 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                 </label>
               ))}
             </div>
+
             <Button
               size="sm"
-              className="w-full"
+              className="mt-auto w-full"
               onClick={generate}
               disabled={cannotGenerate || creating || effectiveSelected.size === 0}
             >
@@ -791,7 +774,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             </Button>
           </div>
         </div>
-
 
         {/* Result */}
         {result && (
@@ -806,7 +788,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                 {t('etl.vocab_generated', {
                   count: result.count,
                   files: (result.written ?? []).map((a) => (
-                    a === 'csv' ? mappingExportPath(STCM_EXPORT)
+                    a === 'csv' ? modeExports.map(mappingExportPath).join(', ')
                       : a === 'script' ? VOCAB_SCRIPT_NAME
                         : PRUNE_SCRIPT_NAME
                   )).join(', '),

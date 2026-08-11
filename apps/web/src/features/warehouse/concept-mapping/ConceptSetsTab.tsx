@@ -1111,7 +1111,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
 
   return (
     <div className="h-full overflow-auto p-4">
-      <Tabs defaultValue="concept-sets">
+      {/* The vocabulary reference comes first: importing ATHENA is what makes
+          mapping possible at all, and concept sets are a refinement on top. */}
+      <Tabs defaultValue="vocabulary">
         <div className="flex justify-center">
           <TabsList className="w-fit">
             <TabsTrigger value="vocabulary">{t('concept_mapping.cs_vocabulary_ref')}</TabsTrigger>

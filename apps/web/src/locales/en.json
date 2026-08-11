@@ -3089,10 +3089,7 @@
     "vocab_mode": "Vocabulary representation",
     "vocab_mode_ccr": "CONCEPT + CONCEPT_RELATIONSHIP",
     "vocab_mode_ccr_stcm": "CONCEPT + CONCEPT_RELATIONSHIP, and SOURCE_TO_CONCEPT_MAP",
-    "vocab_mode_stcm": "SOURCE_TO_CONCEPT_MAP (legacy)",
-    "vocab_mode_ccr_hint": "The OMOP v5 way: local codes become concepts above 2 billion, related to the standard ones by 'Maps to'. This is what ATLAS and the OHDSI tools read.",
-    "vocab_mode_ccr_stcm_hint": "The same, plus source_to_concept_map derived from those tables — for pipelines whose own scripts still join it.",
-    "vocab_mode_stcm_hint": "Legacy shape: no longer an official vocabulary table since CDM 5.3, and invisible to the OHDSI tools.",
+    "vocab_mode_stcm": "SOURCE_TO_CONCEPT_MAP",
     "vocab_artefact_csv": "Mapping export (CSV)",
     "vocab_artefact_script": "Vocabulary script",
     "vocab_artefact_prune": "Prune script",
@@ -3282,10 +3279,12 @@
     "vocab_generate_csv_only": "CSV only",
     "vocab_generate_script_only_hint": "Regenerate 00_vocabulary.sql only, leaving the source_to_concept_map CSV untouched.",
     "vocab_generate_csv_only_hint": "Regenerate the source_to_concept_map CSV only, keeping any custom edits you made to 00_vocabulary.sql.",
-    "vocab_csv_generated": "source_to_concept_map CSV generated with {{count}} mappings.",
-    "vocab_export_missing": "Missing {{files}} — the mapping data is not versioned, so it never arrives with a pipeline cloned from git. The scripts will fail until you regenerate it below (\"CSV only\" keeps your 00_vocabulary.sql as it is).",
-    "vocab_export_empty": "{{files}} holds no rows. The scripts will run but leave source_to_concept_map empty. Check the status filter below, then regenerate.",
-    "attention_vocab_export_missing": "The source_to_concept_map CSV is missing"
+    "vocab_export_missing_one": "Missing {{files}} — the mapping data is not versioned, so it never arrives with a pipeline cloned from git. The scripts will fail until you regenerate it (ticking the mapping export alone keeps your 00_vocabulary.sql as it is).",
+    "vocab_export_missing_other": "Missing {{files}} — the mapping data is not versioned, so it never arrives with a pipeline cloned from git. The scripts will fail until you regenerate them (ticking the mapping export alone keeps your 00_vocabulary.sql as it is).",
+    "vocab_export_empty_one": "{{files}} holds no rows. The scripts will run but write no mappings. Check the status filter, then regenerate.",
+    "vocab_export_empty_other": "{{files}} hold no rows. The scripts will run but write no mappings. Check the status filter, then regenerate.",
+    "attention_vocab_export_missing": "The mapping export is missing",
+    "vocab_artefacts": "Files to write"
   },
   "sql_scripts": {
     "title": "Script Collections",

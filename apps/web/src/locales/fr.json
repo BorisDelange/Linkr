@@ -3089,10 +3089,7 @@
     "vocab_mode": "Représentation du vocabulaire",
     "vocab_mode_ccr": "CONCEPT + CONCEPT_RELATIONSHIP",
     "vocab_mode_ccr_stcm": "CONCEPT + CONCEPT_RELATIONSHIP, et SOURCE_TO_CONCEPT_MAP",
-    "vocab_mode_stcm": "SOURCE_TO_CONCEPT_MAP (hérité)",
-    "vocab_mode_ccr_hint": "La forme OMOP v5 : les codes locaux deviennent des concepts au-delà de 2 milliards, reliés aux concepts standards par « Maps to ». C'est ce que lisent ATLAS et les outils OHDSI.",
-    "vocab_mode_ccr_stcm_hint": "La même chose, plus source_to_concept_map dérivée de ces tables — pour les pipelines dont les scripts la joignent encore.",
-    "vocab_mode_stcm_hint": "Forme héritée : ce n'est plus une table officielle du vocabulaire depuis le CDM 5.3, et elle est invisible aux outils OHDSI.",
+    "vocab_mode_stcm": "SOURCE_TO_CONCEPT_MAP",
     "vocab_artefact_csv": "Export des alignements (CSV)",
     "vocab_artefact_script": "Script de vocabulaire",
     "vocab_artefact_prune": "Script d'élagage",
@@ -3282,10 +3279,12 @@
     "vocab_generate_csv_only": "CSV seulement",
     "vocab_generate_script_only_hint": "Régénère uniquement 00_vocabulary.sql, sans toucher au CSV source_to_concept_map.",
     "vocab_generate_csv_only_hint": "Régénère uniquement le CSV source_to_concept_map, en conservant vos modifications personnelles de 00_vocabulary.sql.",
-    "vocab_csv_generated": "CSV source_to_concept_map généré avec {{count}} mappings.",
-    "vocab_export_missing": "{{files}} est absent — les données de mapping ne sont pas versionnées, elles n'arrivent donc jamais avec une pipeline clonée depuis git. Les scripts échoueront jusqu'à ce que vous le régénériez ci-dessous (« CSV seulement » conserve votre 00_vocabulary.sql tel quel).",
-    "vocab_export_empty": "{{files}} ne contient aucune ligne. Les scripts s'exécuteront mais laisseront source_to_concept_map vide. Vérifiez le filtre de statuts ci-dessous, puis régénérez.",
-    "attention_vocab_export_missing": "Le CSV source_to_concept_map est absent"
+    "vocab_export_missing_one": "{{files}} manquant — les données d'alignement ne sont pas versionnées, elles n'arrivent donc jamais avec un pipeline cloné depuis git. Les scripts échoueront tant que vous ne l'aurez pas régénéré (ne cocher que l'export des alignements laisse votre 00_vocabulary.sql tel quel).",
+    "vocab_export_missing_other": "{{files}} manquants — les données d'alignement ne sont pas versionnées, elles n'arrivent donc jamais avec un pipeline cloné depuis git. Les scripts échoueront tant que vous ne les aurez pas régénérés (ne cocher que l'export des alignements laisse votre 00_vocabulary.sql tel quel).",
+    "vocab_export_empty_one": "{{files}} ne contient aucune ligne. Les scripts s'exécuteront mais n'écriront aucun alignement. Vérifiez le filtre de statuts, puis régénérez.",
+    "vocab_export_empty_other": "{{files}} ne contiennent aucune ligne. Les scripts s'exécuteront mais n'écriront aucun alignement. Vérifiez le filtre de statuts, puis régénérez.",
+    "attention_vocab_export_missing": "L'export des alignements est manquant",
+    "vocab_artefacts": "Fichiers à écrire"
   },
   "sql_scripts": {
     "title": "Collections de scripts",
