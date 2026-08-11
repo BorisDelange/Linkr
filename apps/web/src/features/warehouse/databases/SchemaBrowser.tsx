@@ -33,6 +33,7 @@ import { getStorage } from '@/lib/storage'
 import { compactCount, escSql, quoteIdent } from '@/lib/format-helpers'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
+import { countAllTables as countAll, subscribeTableCounts } from '@/lib/duckdb/table-counts'
 
 // --- Types ---
 
@@ -221,6 +222,13 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
   // table up front). No auto-selection: the user picks a table to trigger work.
   useEffect(() => {
     let cancelled = false
+    // Everything below belongs to the PREVIOUS database. Callers used to force a
+    // remount with a `key` to clear it, which also threw away the table list and
+    // the loaded stats on every switch; resetting here means a caller can keep
+    // this component mounted and only pay for what actually changed.
+    setTables([])
+    setSelectedTable(null)
+    setPersistedCounts(new Map())
     async function loadTables() {
       setLoading(true)
       try {
@@ -237,13 +245,19 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
 
   useEffect(() => {
     let cancelled = false
-    getStorage().databaseStatsCache.get(dataSourceId)
-      .then((cache) => {
-        if (cancelled || !cache?.tableCounts) return
-        setPersistedCounts(new Map(cache.tableCounts.map((t) => [t.tableName, t.rowCount])))
-      })
-      .catch(() => { /* no cache yet */ })
-    return () => { cancelled = true }
+    const refresh = () => {
+      getStorage().databaseStatsCache.get(dataSourceId)
+        .then((cache) => {
+          if (cancelled || !cache?.tableCounts) return
+          setPersistedCounts(new Map(cache.tableCounts.map((t) => [t.tableName, t.rowCount])))
+        })
+        .catch(() => { /* no cache yet */ })
+    }
+    refresh()
+    // Counting from elsewhere (the Quality tab's Recompute) writes the SAME
+    // cache entry, so this view has to hear about it rather than keep showing
+    // "never counted" until it is remounted.
+    return subscribeTableCounts(dataSourceId, refresh, () => { cancelled = true })
   }, [dataSourceId])
 
   const applyEntry = useCallback((entry: TableCacheEntry) => {
@@ -479,56 +493,26 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
     setCountingAll(true)
     setCountProgress(0)
     try {
-      const counts = new Map(persistedCounts)
-      const BATCH = 6
-      for (let i = 0; i < tables.length; i += BATCH) {
-        const batch = tables.slice(i, i + BATCH)
-        const rows = await Promise.all(batch.map(async (table) => {
-          try {
-            const r = await duckdbEngine.queryDataSource(
-              dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteIdent(table)}`,
-            )
-            return [table, Number(r[0]?.cnt ?? 0)] as const
-          } catch {
-            return null
+      // Shared with the Quality-check statistics, which counts the same tables of
+      // the same database — see lib/duckdb/table-counts.
+      const counts = await countAll(dataSourceId, {
+        tables,
+        seed: persistedCounts,
+        onProgress: (done) => setCountProgress(done),
+        onBatch: (partial) => {
+          setPersistedCounts(partial)
+          // A table already open in this session keeps its own cached count,
+          // which would otherwise win over the fresh one in the sidebar.
+          for (const [table, n] of partial) {
+            const key = tableCacheKey(dataSourceId, table)
+            const entry = tableCache.get(key)
+            // Replace, don't mutate in place: a held reference to the old value
+            // must not change without a re-render.
+            if (entry) tableCache.set(key, { ...entry, rowCount: n })
           }
-        }))
-        for (const row of rows) if (row) counts.set(row[0], row[1])
-        setPersistedCounts(new Map(counts))
-        setCountProgress(Math.min(i + BATCH, tables.length))
-        // A table already open in this session keeps its own cached count, which
-        // would otherwise win over the fresh one in the sidebar.
-        for (const [table, n] of counts) {
-          const key = tableCacheKey(dataSourceId, table)
-          const entry = tableCache.get(key)
-          // Replace, don't mutate in place: a held reference to the old value
-          // must not change without a re-render.
-          if (entry) tableCache.set(key, { ...entry, rowCount: n })
-        }
-      }
-      const existing = await getStorage().databaseStatsCache.get(dataSourceId)
-      await getStorage().databaseStatsCache.save({
-        // Only the row counts are ours to fill; the clinical figures belong to the
-        // Statistics tab, so an entry created here leaves them empty rather than
-        // claiming zeros.
-        ...(existing ?? {
-          dataSourceId,
-          summary: { patientCount: 0, visitCount: 0, visitDetailCount: 0, tableCount: tables.length },
-          genderDistribution: { male: 0, female: 0, other: 0 },
-          agePyramid: [],
-          admissionTimeline: [],
-          descriptiveStats: {},
-          tableCounts: [],
-        }),
-        summary: {
-          ...(existing?.summary ?? { patientCount: 0, visitCount: 0, visitDetailCount: 0 }),
-          tableCount: tables.length,
         },
-        computedAt: new Date().toISOString(),
-        tableCounts: [...counts]
-          .map(([tableName, rowCount]) => ({ tableName, rowCount }))
-          .sort((a, b) => b.rowCount - a.rowCount),
       })
+      setPersistedCounts(counts)
     } finally {
       setCountingAll(false)
     }

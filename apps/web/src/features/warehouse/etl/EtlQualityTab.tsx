@@ -26,10 +26,16 @@ import {
   type ConceptColumn,
 } from '@/components/ui/concept-data-table'
 import { cn } from '@/lib/utils'
-import { isServerMode } from '@/lib/api-client'
 import { getStorage } from '@/lib/storage'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
+import {
+  countAllTables,
+  loadTableCounts,
+  notifyTableCounts,
+  sortedCounts,
+  subscribeTableCounts,
+} from '@/lib/duckdb/table-counts'
 import { formatDateTimeLocale, validateIntegerIds } from '@/lib/format-helpers'
 import { csvBlob, toCsv } from '@/lib/csv-export'
 import { downloadBlob } from '@/lib/entity-io'
@@ -164,9 +170,20 @@ function StatisticsView({
       // Merge, not replace: tableCounts belong to the schema browser, which fills
       // them separately — overwriting with our empty list would erase them.
       const existing = await getStorage().databaseStatsCache.get(ds.id).catch(() => undefined)
-      const merged = { ...fresh, tableCounts: fresh.tableCounts.length ? fresh.tableCounts : existing?.tableCounts ?? [] }
-      await getStorage().databaseStatsCache.save(merged).catch(() => {})
-      return merged
+      let tableCounts = fresh.tableCounts.length ? fresh.tableCounts : existing?.tableCounts ?? []
+      await getStorage().databaseStatsCache.save({ ...fresh, tableCounts }).catch(() => {})
+
+      // Count the tables here too when nobody has yet. The per-table list was
+      // only ever filled by the schema browser, so a user who came straight to
+      // Quality check got the clinical figures and an empty table list, with
+      // nothing on screen saying which button would fill it.
+      if (tableCounts.length === 0) {
+        tableCounts = sortedCounts(await countAllTables(ds.id))
+      } else {
+        // Someone else may be showing these; keep them in step either way.
+        notifyTableCounts(ds.id)
+      }
+      return { ...fresh, tableCounts }
     } catch {
       return null
     }
@@ -232,15 +249,21 @@ function StatisticsView({
       setSourceStats(srcCached ?? null)
       setTargetStats(tgtCached ?? null)
 
-      // Server mode never auto-counts: COUNT(*) could run over very large tables,
-      // so the user asks for it with the button.
-      if (isServerMode()) {
+      // A side with a data model but no saved figures is computed on arrival,
+      // in EVERY mode. Server mode used to withhold this to avoid COUNT(*) over
+      // a huge database, which left the tab half-filled — one column of numbers
+      // and one saying "not computed" — and the user had to find the button to
+      // get the comparison the tab exists for. The guard that matters is the
+      // saved result: once counted, arriving here costs nothing.
+      const needsSource = !srcCached && !!sourceDs?.schemaMapping
+      const needsTarget = !tgtCached && !!targetDs?.schemaMapping
+      if (!needsSource && !needsTarget) {
         setLoading(false)
         return
       }
       const [src, tgt] = await Promise.all([
-        srcCached ? Promise.resolve(srcCached) : computeOne(sourceDs),
-        tgtCached ? Promise.resolve(tgtCached) : computeOne(targetDs),
+        needsSource ? computeOne(sourceDs) : Promise.resolve(srcCached ?? null),
+        needsTarget ? computeOne(targetDs) : Promise.resolve(tgtCached ?? null),
       ])
       if (cancelled) return
       setSourceStats(src)
@@ -252,6 +275,27 @@ function StatisticsView({
   // computeOne only reads the two data sources, both listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
+
+  // Counting from the Browse-schema tab writes the same cache entry, so the
+  // table list here follows along instead of staying at whatever it was when
+  // this view last computed.
+  useEffect(() => {
+    const adopt = (
+      id: string | undefined,
+      set: React.Dispatch<React.SetStateAction<DatabaseStatsCache | null>>,
+    ) => {
+      if (!id) return undefined
+      const refresh = () => {
+        void loadTableCounts(id).then((counts) => {
+          set((prev) => (prev ? { ...prev, tableCounts: sortedCounts(counts) } : prev))
+        })
+      }
+      return subscribeTableCounts(id, refresh)
+    }
+    const offSource = adopt(sourceDs?.id, setSourceStats)
+    const offTarget = adopt(targetDs?.id, setTargetStats)
+    return () => { offSource?.(); offTarget?.() }
+  }, [sourceDs?.id, targetDs?.id])
 
   return (
     <ScrollArea className="h-full">
@@ -310,16 +354,13 @@ function StatsColumn({
       {!loading && !stats && (
         <div className="space-y-2 py-1">
           <p className="text-[11px] text-muted-foreground">
-            {/* The MISSING MODEL is checked first, whatever the mode: it is the
-                specific reason nothing can be counted, and it says what to do
-                about it. Testing server mode first told the user the counts were
-                merely not automatic, then withheld the button with no explanation
-                — leaving "why is there one on target and not on source?". */}
+            {/* A missing data model is the specific reason nothing can be
+                counted, and it says what to do about it. Anything else reaching
+                here means the computation ran and failed, in either mode — this
+                view now counts on arrival rather than waiting for the button. */}
             {!ds.schemaMapping
               ? t('etl.quality_stats_no_model')
-              : isServerMode()
-                ? t('etl.quality_stats_server')
-                : t('etl.quality_stats_unavailable')}
+              : t('etl.quality_stats_unavailable')}
           </p>
         </div>
       )}
