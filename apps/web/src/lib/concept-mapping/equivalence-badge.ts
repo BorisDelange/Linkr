@@ -1,5 +1,10 @@
 import type { MappingEquivalence } from '@/types/concept-mapping'
 
+/** Canonical SKOS predicates, in the order the mapping UI offers them. */
+export const EQUIVALENCE_OPTIONS: readonly MappingEquivalence[] = [
+  'skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch',
+]
+
 /** Coerce a suggestion/score equivalence (which may be a legacy alias like `equal`
  *  or `wider`, or an unknown value) to a canonical SKOS predicate the mapping UI
  *  understands, falling back to exactMatch. */

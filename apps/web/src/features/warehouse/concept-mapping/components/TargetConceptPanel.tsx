@@ -17,10 +17,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,6 +66,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { EQUIV_BADGE, normalizeEquivalence } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
+import { EquivalenceMenuItems, EquivalencePickerButton } from './EquivalenceMenuItems'
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
 import { ConceptDetailSheet, type ConceptInfoTarget } from './ConceptDetailSheet'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
@@ -225,7 +228,7 @@ function ResolvedMultiSelect({
 export function TargetConceptPanel({ project, dataSource, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
-  const { mappings, conceptSets, createMapping, deleteMapping } = useConceptMappingStore()
+  const { mappings, conceptSets, createMapping, updateMapping, deleteMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
   const allDataSources = useDataSourceStore((s) => s.dataSources)
@@ -375,6 +378,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         (m.sourceConceptCode && sourceConcept.concept_code && m.sourceConceptCode === sourceConcept.concept_code)
       )
     : []
+
+  // The mapping the selected target already has, if any: selecting an already-mapped
+  // target switches the action bar from "add" to "edit the existing mapping".
+  const selectedTargetMapping = selectedTarget
+    ? existingMappings.find((m) => m.targetConceptId === selectedTarget.conceptId) ?? null
+    : null
+  // A mapping that has been reviewed or commented is frozen: changing its equivalence
+  // (or deleting it) would silently invalidate someone else's assessment.
+  const selectedTargetMappingLocked = !!selectedTargetMapping &&
+    ((selectedTargetMapping.reviews?.length ?? 0) > 0 || (selectedTargetMapping.comments?.length ?? 0) > 0)
 
   // Unique dropdown options for category, subcategory, provenance
   const csCategoryOptions = useMemo(() => [...new Set(linkedSets.map((cs) => getConceptSetI18n(cs, lang).category).filter(Boolean) as string[])].sort(), [linkedSets, lang])
@@ -636,6 +649,22 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       createdAt: now,
       updatedAt: now,
     }).catch((err) => console.error('Failed to persist mapping', err))
+  }
+
+  /** Change the equivalence of the mapping the selected target already has. */
+  const handleChangeSelectedEquivalence = async (predicate: MappingEquivalence) => {
+    if (!selectedTargetMapping || selectedTargetMappingLocked) return
+    if (!requireIdentity()) return
+    setSelectedEquivalence(predicate)
+    updateMapping(selectedTargetMapping.id, { equivalence: predicate, updatedAt: new Date().toISOString() })
+      .catch((err) => console.error('Failed to update mapping equivalence', err))
+  }
+
+  /** Remove the mapping the selected target already has. */
+  const handleRemoveSelectedMapping = async () => {
+    if (!selectedTargetMapping || selectedTargetMappingLocked) return
+    setSelectedTarget(null)
+    deleteMapping(selectedTargetMapping.id).catch((err) => console.error('Failed to delete mapping', err))
   }
 
   /** Align the current source concept onto a resolved concept-set concept (from
@@ -1215,10 +1244,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                       key={rc.conceptId}
                       className={`grid w-full items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors border-b border-border/40 ${
                         isSelected ? 'bg-accent' : 'hover:bg-accent/50'
-                      } ${alreadyMapped ? 'opacity-50' : ''}`}
+                      } ${alreadyMapped && !isSelected ? 'opacity-50' : ''}`}
                       style={{ gridTemplateColumns: gridTemplate }}
                       onClick={() => {
-                        if (!alreadyMapped && sourceConcept) {
+                        if (sourceConcept) {
                           setSelectedTarget(isSelected ? null : {
                             conceptId: rc.conceptId,
                             conceptName: rc.conceptName,
@@ -2019,9 +2048,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                 return (
                   <TableRow
                     key={row.original.concept_id}
-                    className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped ? 'opacity-50' : ''}`}
+                    className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped && !isSelected ? 'opacity-50' : ''}`}
                     onClick={() => {
-                      if (!alreadyMapped && sourceConcept) {
+                      if (sourceConcept) {
                         setSelectedTarget(isSelected ? null : {
                           conceptId: row.original.concept_id,
                           conceptName: row.original.concept_name,
@@ -2310,6 +2339,46 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           {sourceConcept && (
             <div className="ml-auto flex items-center gap-1">
               {selectedTarget ? (
+                selectedTargetMapping ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      {/* Wrapper so the tooltip still fires while the buttons are disabled. */}
+                      <div className="flex" ref={equivButtonGroupRef}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={selectedTargetMappingLocked}
+                          className={`h-6 rounded-r-none gap-1 px-2 text-[10px] border-r-0 ${EQUIV_BADGE[normalizeEquivalence(selectedTargetMapping.equivalence)].className}`}
+                        >
+                          <Check size={10} />
+                          {EQUIV_BADGE[normalizeEquivalence(selectedTargetMapping.equivalence)].label}
+                        </Button>
+                        <DropdownMenu onOpenChange={(open) => { if (open) setEquivDropdownWidth(equivButtonGroupRef.current?.offsetWidth) }}>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className={`h-6 rounded-l-none px-1 ${EQUIV_BADGE[normalizeEquivalence(selectedTargetMapping.equivalence)].className}`} disabled={selectedTargetMappingLocked}>
+                              <ChevronDown className="size-2.5 text-current" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          {/* minWidth, not width: the button's width sizes the badges, but the
+                              "remove mapping" label needs room to grow past it. */}
+                          <DropdownMenuContent align="end" style={{ minWidth: equivDropdownWidth }} className="min-w-0">
+                            <EquivalenceMenuItems onPick={handleChangeSelectedEquivalence} />
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem variant="destructive" className="gap-1.5 text-[11px]" onClick={() => handleRemoveSelectedMapping()}>
+                              <Trash2 className="size-3" />
+                              {t('concept_mapping.remove_mapping')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="text-xs">
+                      {selectedTargetMappingLocked
+                        ? t('concept_mapping.mapping_locked_hint')
+                        : t('concept_mapping.change_mapping_hint')}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
                 <>
                   <div className="flex" ref={equivButtonGroupRef}>
                     <Button
@@ -2323,18 +2392,12 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                     </Button>
                     <DropdownMenu onOpenChange={(open) => { if (open) setEquivDropdownWidth(equivButtonGroupRef.current?.offsetWidth) }}>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-6 rounded-l-none px-1">
-                          <ChevronDown size={10} />
+                        <Button variant="outline" size="sm" className={`h-6 rounded-l-none px-1 ${EQUIV_BADGE[selectedEquivalence].className}`}>
+                          <ChevronDown className="size-2.5 text-current" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" style={{ width: equivDropdownWidth }} className="min-w-0">
-                        {(['skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch'] as const).map((pred) => (
-                          <DropdownMenuItem key={pred} onClick={() => pickManualEquivalence(pred)}>
-                            <span className={`inline-flex w-full items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium ${EQUIV_BADGE[pred].className}`}>
-                              {EQUIV_BADGE[pred].label}
-                            </span>
-                          </DropdownMenuItem>
-                        ))}
+                        <EquivalenceMenuItems onPick={pickManualEquivalence} />
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -2348,6 +2411,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                     <MessageSquare size={10} />
                   </Button>
                 </>
+                )
               ) : (
                 <>
                   <Button
@@ -2396,38 +2460,23 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
       {/* "Map with comment" dialog */}
       <Dialog open={commentDialogOpen} onOpenChange={setCommentDialogOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm">{t('concept_mapping.map_with_comment')}</DialogTitle>
+            <DialogTitle>{t('concept_mapping.map_with_comment')}</DialogTitle>
+            <DialogDescription>{t('concept_mapping.map_with_comment_desc')}</DialogDescription>
           </DialogHeader>
           {selectedTarget && (
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-medium">{selectedTarget.conceptName}</p>
-                <div className="mt-1 flex gap-1">
-                  <Badge variant="outline" className="text-[10px]">ID: {selectedTarget.conceptId}</Badge>
-                  <Badge variant="outline" className="text-[10px]">{selectedTarget.vocabularyId}</Badge>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>{t('concept_mapping.equivalence')}</Label>
+                <div>
+                  <EquivalencePickerButton value={commentEquivalence} onPick={setCommentEquivalence} />
                 </div>
               </div>
-              <div>
-                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.equivalence')}</p>
-                <Select value={commentEquivalence} onValueChange={(v) => setCommentEquivalence(v as MappingEquivalence)}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="skos:exactMatch">{t('concept_mapping.skos_exact_match')}</SelectItem>
-                    <SelectItem value="skos:closeMatch">{t('concept_mapping.skos_close_match')}</SelectItem>
-                    <SelectItem value="skos:broadMatch">{t('concept_mapping.skos_broad_match')}</SelectItem>
-                    <SelectItem value="skos:narrowMatch">{t('concept_mapping.skos_narrow_match')}</SelectItem>
-                    <SelectItem value="skos:relatedMatch">{t('concept_mapping.skos_related_match')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.comment_placeholder')}</p>
+              <div className="space-y-2">
+                <Label htmlFor="map-comment">{t('concept_mapping.comment')}</Label>
                 <Textarea
-                  className="text-xs"
+                  id="map-comment"
                   rows={3}
                   placeholder={t('concept_mapping.comment_placeholder')}
                   value={commentText}
@@ -2437,10 +2486,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setCommentDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setCommentDialogOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button size="sm" onClick={handleCommentDialogSubmit}>
+            <Button onClick={handleCommentDialogSubmit}>
               {t('concept_mapping.save_mapping')}
             </Button>
           </DialogFooter>
@@ -2449,41 +2498,29 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
       {/* "Ignore with comment" dialog */}
       <Dialog open={ignoreDialogOpen} onOpenChange={setIgnoreDialogOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm">{t('concept_mapping.ignore_with_comment')}</DialogTitle>
+            <DialogTitle>{t('concept_mapping.ignore_with_comment')}</DialogTitle>
+            <DialogDescription>{t('concept_mapping.ignore_with_comment_desc')}</DialogDescription>
           </DialogHeader>
           {sourceConcept && (
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-medium">{sourceConcept.concept_name}</p>
-                <div className="mt-1 flex gap-1">
-                  {sourceConcept.concept_code && (
-                    <Badge variant="outline" className="text-[10px]">{sourceConcept.concept_code}</Badge>
-                  )}
-                  {sourceConcept.vocabulary_id && (
-                    <Badge variant="outline" className="text-[10px]">{sourceConcept.vocabulary_id}</Badge>
-                  )}
-                </div>
-              </div>
-              <div>
-                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.comment_placeholder')}</p>
-                <Textarea
-                  className="text-xs"
-                  rows={3}
-                  placeholder={t('concept_mapping.comment_placeholder')}
-                  value={ignoreCommentText}
-                  onChange={(e) => setIgnoreCommentText(e.target.value)}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="ignore-comment">{t('concept_mapping.comment')}</Label>
+              <Textarea
+                id="ignore-comment"
+                rows={3}
+                placeholder={t('concept_mapping.comment_placeholder')}
+                value={ignoreCommentText}
+                onChange={(e) => setIgnoreCommentText(e.target.value)}
+              />
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setIgnoreDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIgnoreDialogOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button size="sm" onClick={handleIgnoreDialogSubmit}>
-              <EyeOff size={12} className="mr-1" />
+            <Button onClick={handleIgnoreDialogSubmit}>
+              <EyeOff size={14} />
               {t('concept_mapping.ignore')}
             </Button>
           </DialogFooter>

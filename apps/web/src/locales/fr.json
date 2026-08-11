@@ -3996,7 +3996,14 @@
     "prog_col_mapped": "Mappés",
     "prog_col_approved": "Validés",
     "prog_show_all": "Tout afficher",
-    "prog_no_match": "Aucun groupe correspondant"
+    "prog_no_match": "Aucun groupe correspondant",
+    "remove_mapping": "Supprimer l'alignement",
+    "change_mapping_hint": "Modifier l'équivalence ou supprimer cet alignement",
+    "mapping_locked_hint": "Cet alignement a été évalué ou commenté et ne peut plus être modifié",
+    "change_equivalence_hint": "Modifier l'équivalence",
+    "comment": "Commentaire",
+    "map_with_comment_desc": "Choisissez l'équivalence et ajoutez un commentaire expliquant cet alignement.",
+    "ignore_with_comment_desc": "Marquez ce concept source comme ne nécessitant aucun alignement, avec une raison facultative."
   },
   "data_catalog": {
     "title": "Catalogue de données",

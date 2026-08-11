@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeEquivalence } from './equivalence-badge'
+import { EQUIVALENCE_OPTIONS, EQUIV_BADGE, normalizeEquivalence } from './equivalence-badge'
 
 describe('normalizeEquivalence', () => {
   it('passes canonical SKOS predicates through unchanged', () => {
@@ -23,5 +23,21 @@ describe('normalizeEquivalence', () => {
     expect(normalizeEquivalence('nonsense')).toBe('skos:exactMatch')
     expect(normalizeEquivalence(undefined)).toBe('skos:exactMatch')
     expect(normalizeEquivalence(null)).toBe('skos:exactMatch')
+  })
+})
+
+describe('EQUIVALENCE_OPTIONS', () => {
+  it('lists every canonical predicate exactly once, exact first', () => {
+    expect(EQUIVALENCE_OPTIONS).toEqual([
+      'skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch',
+    ])
+    expect(new Set(EQUIVALENCE_OPTIONS).size).toBe(EQUIVALENCE_OPTIONS.length)
+  })
+
+  it('offers only options the badge map can render, and only canonical ones', () => {
+    for (const pred of EQUIVALENCE_OPTIONS) {
+      expect(EQUIV_BADGE[pred]).toBeDefined()
+      expect(normalizeEquivalence(pred)).toBe(pred)
+    }
   })
 })

@@ -566,8 +566,8 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
                 return (
                   <TableRow
                     key={row.original.concept_id}
-                    className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped ? 'opacity-40' : ''}`}
-                    onClick={() => { if (!alreadyMapped) onSelect(isSelected ? null : row.original) }}
+                    className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped && !isSelected ? 'opacity-40' : ''}`}
+                    onClick={() => onSelect(isSelected ? null : row.original)}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell

@@ -4,15 +4,11 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
+import { EquivalenceMenuItems } from './EquivalenceMenuItems'
 import type { MappingEquivalence } from '@/types'
-
-const EQUIVALENCES: MappingEquivalence[] = [
-  'skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch',
-]
 
 interface AlignConceptButtonProps {
   /** Create the mapping with the chosen equivalence. */
@@ -49,18 +45,12 @@ export function AlignConceptButton({ onAlign, alreadyMapped }: AlignConceptButto
       </Button>
       <DropdownMenu onOpenChange={(open) => { if (open) setWidth(groupRef.current?.offsetWidth) }}>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="h-6 rounded-l-none px-1" onClick={(e) => e.stopPropagation()}>
-            <ChevronDown size={10} />
+          <Button variant="outline" size="sm" className={`h-6 rounded-l-none px-1 ${EQUIV_BADGE[equivalence].className}`} onClick={(e) => e.stopPropagation()}>
+            <ChevronDown className="size-2.5 text-current" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" style={{ width }} className="min-w-0">
-          {EQUIVALENCES.map((pred) => (
-            <DropdownMenuItem key={pred} onClick={(e) => { e.stopPropagation(); setEquivalence(pred) }}>
-              <span className={`inline-flex w-full items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium ${EQUIV_BADGE[pred].className}`}>
-                {EQUIV_BADGE[pred].label}
-              </span>
-            </DropdownMenuItem>
-          ))}
+          <EquivalenceMenuItems onPick={setEquivalence} stopPropagation />
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

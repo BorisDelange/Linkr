@@ -11,7 +11,7 @@ import {
   Check, Flag, X, MessageSquare, EyeOff, Eye,
   Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
-  Upload, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
+  Upload, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown,
   FileJson, FolderInput, Search,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -73,11 +73,12 @@ import { useConceptMappingStore, type ExternalMappingInfo } from '@/stores/conce
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
-import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, DataSource } from '@/types'
+import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, MappingEquivalence, EffectiveMappingStatus, DataSource } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
+import { EquivalenceMenuItems } from './components/EquivalenceMenuItems'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { fuzzyTextMatch } from '@/lib/fuzzy-search'
 import { escSql } from '@/lib/format-helpers'
@@ -554,7 +555,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
               >
                 <MessageSquare size={14} />
                 {commentsCount > 0 && (
-                  <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                  <span className="absolute -right-1 -top-1 flex size-3 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
                     {commentsCount}
                   </span>
                 )}
@@ -572,7 +573,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
               >
                 <Users size={14} />
                 {reviewsCount > 0 && (
-                  <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                  <span className="absolute -right-1 -top-1 flex size-3 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
                     {reviewsCount}
                   </span>
                 )}
@@ -832,6 +833,52 @@ interface ReviewActionsCellProps {
   onReview: (mappingId: string, status: MappingStatus) => void
   t: ReturnType<typeof useTranslation>['t']
 }
+interface EquivalenceEditCellProps {
+  equivalence: MappingEquivalence
+  /** Reviewed or commented → frozen, since changing it would invalidate that assessment. */
+  locked: boolean
+  onChange: (predicate: MappingEquivalence) => void
+  t: ReturnType<typeof useTranslation>['t']
+}
+
+/** Equivalence badge that becomes a picker in edit mode. */
+const EquivalenceEditCell = memo(function EquivalenceEditCell({
+  equivalence, locked, onChange, t,
+}: EquivalenceEditCellProps) {
+  const badge = EQUIV_BADGE[equivalence]
+  const trigger = (
+    <button
+      type="button"
+      disabled={locked}
+      className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0 text-[9px] font-medium ${badge?.className ?? ''} ${locked ? 'cursor-not-allowed opacity-60' : 'hover:brightness-95'}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {badge?.label ?? equivalence}
+      {!locked && <ChevronDown className="size-2.5 text-current" />}
+    </button>
+  )
+  return (
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>
+        {/* Wrapper span so the tooltip still fires while the trigger is disabled. */}
+        <span className="inline-flex">
+          {locked ? trigger : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-0">
+                <EquivalenceMenuItems onPick={onChange} stopPropagation />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">
+        {locked ? t('concept_mapping.mapping_locked_hint') : t('concept_mapping.change_equivalence_hint')}
+      </TooltipContent>
+    </Tooltip>
+  )
+})
+
 const ReviewActionsCell = memo(function ReviewActionsCell({
   mappingId, isOwn, canWrite, myReview, commentsCount, reviewsCount,
   onOpenDetail, onOpenComments, onOpenReviews, onReview, t,
@@ -841,22 +888,22 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
       <Button
         variant="outline"
         size="icon-sm"
-        className="size-6"
+        className="size-5"
         title={t('concept_mapping.view_detail')}
         onClick={(e) => { e.stopPropagation(); onOpenDetail(mappingId) }}
       >
-        <Eye size={12} />
+        <Eye size={11} />
       </Button>
       <Button
         variant="outline"
         size="icon-sm"
-        className={`relative size-6 ${commentsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
+        className={`relative size-5 ${commentsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
         title={t('concept_mapping.comments')}
         onClick={(e) => { e.stopPropagation(); onOpenComments(mappingId) }}
       >
-        <MessageSquare size={12} />
+        <MessageSquare size={11} />
         {commentsCount > 0 && (
-          <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+          <span className="absolute -right-1 -top-1 flex size-3 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
             {commentsCount}
           </span>
         )}
@@ -864,13 +911,13 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
       <Button
         variant="outline"
         size="icon-sm"
-        className={`relative size-6 ${reviewsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
+        className={`relative size-5 ${reviewsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
         title={t('concept_mapping.reviews_title')}
         onClick={(e) => { e.stopPropagation(); onOpenReviews(mappingId) }}
       >
-        <Users size={12} />
+        <Users size={11} />
         {reviewsCount > 0 && (
-          <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+          <span className="absolute -right-1 -top-1 flex size-3 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
             {reviewsCount}
           </span>
         )}
@@ -878,32 +925,32 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
       <Button
         variant={myReview === 'approved' ? 'default' : 'outline'}
         size="icon-sm"
-        className={`size-6 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
+        className={`size-5 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
         title={isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.approve')}
         onClick={(e) => { e.stopPropagation(); onReview(mappingId, 'approved') }}
         disabled={isOwn || !canWrite}
       >
-        <Check size={13} />
+        <Check size={12} />
       </Button>
       <Button
         variant={myReview === 'rejected' ? 'default' : 'outline'}
         size="icon-sm"
-        className={`size-6 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
+        className={`size-5 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
         title={isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.reject')}
         onClick={(e) => { e.stopPropagation(); onReview(mappingId, 'rejected') }}
         disabled={isOwn || !canWrite}
       >
-        <X size={13} />
+        <X size={12} />
       </Button>
       <Button
         variant={myReview === 'flagged' ? 'default' : 'outline'}
         size="icon-sm"
-        className={`size-6 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
+        className={`size-5 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
         title={t('concept_mapping.flag')}
         onClick={(e) => { e.stopPropagation(); onReview(mappingId, 'flagged') }}
         disabled={!canWrite}
       >
-        <Flag size={13} />
+        <Flag size={12} />
       </Button>
     </span>
   )
@@ -2063,6 +2110,13 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     })
   }, [updateMapping, getUserDisplayName, getAuthorDetails, requireIdentity])
 
+  /** Change a mapping's equivalence from the table's edit mode. */
+  const handleChangeEquivalence = useCallback(async (mappingId: string, predicate: MappingEquivalence) => {
+    if (!requireIdentity()) return
+    updateMapping(mappingId, { equivalence: predicate, updatedAt: new Date().toISOString() })
+      .catch((err) => console.error('Failed to update mapping equivalence', err))
+  }, [updateMapping, requireIdentity])
+
   /** Stable handlers for the memoized ReviewActionsCell. They take a mapping id and
    *  resolve the full mapping via the store's id index — this lets the cell pass only
    *  primitive props through React.memo for shallow-compare to short-circuit. */
@@ -2216,8 +2270,19 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         header: () => t('concept_mapping.col_equivalence'),
         accessorFn: (row) => row.equivalence,
         cell: ({ row }) => {
-          const equiv = row.original.equivalence
+          const m = row.original
+          const equiv = m.equivalence
           const badge = EQUIV_BADGE[equiv]
+          if (editMode) {
+            return (
+              <EquivalenceEditCell
+                equivalence={equiv}
+                locked={(m.reviews?.length ?? 0) > 0 || (m.comments?.length ?? 0) > 0}
+                onChange={(pred) => handleChangeEquivalence(m.id, pred)}
+                t={t}
+              />
+            )
+          }
           if (!badge) return <span className="text-[10px] text-muted-foreground">{equiv}</span>
           return (
             <Badge
@@ -2396,7 +2461,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, onOpenDetail, onOpenComments, onOpenReviews, toggleSelect, currentUser, rowDerived, sourceConceptIdMap, useRegistryForId])
+  }, [t, editMode, selected, pageAllSelected, handleReview, handleChangeEquivalence, onOpenDetail, onOpenComments, onOpenReviews, toggleSelect, currentUser, rowDerived, sourceConceptIdMap, useRegistryForId])
 
   const table = useReactTable({
     data: visibleItems,
@@ -3106,7 +3171,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                     return (
                       <TableCell
                         key={cell.id}
-                        className="overflow-hidden truncate text-xs"
+                        className="overflow-hidden truncate px-2 py-1 text-xs"
                         style={{ maxWidth: cell.column.getSize() }}
                         title={title}
                       >

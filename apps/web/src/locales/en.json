@@ -3996,7 +3996,14 @@
     "prog_col_mapped": "Mapped",
     "prog_col_approved": "Approved",
     "prog_show_all": "Show all",
-    "prog_no_match": "No matching group"
+    "prog_no_match": "No matching group",
+    "remove_mapping": "Remove mapping",
+    "change_mapping_hint": "Change the equivalence or remove this mapping",
+    "mapping_locked_hint": "This mapping has been reviewed or commented and can no longer be changed",
+    "change_equivalence_hint": "Change the equivalence",
+    "comment": "Comment",
+    "map_with_comment_desc": "Choose the equivalence and add a comment explaining this mapping.",
+    "ignore_with_comment_desc": "Mark this source concept as needing no mapping, with an optional reason."
   },
   "data_catalog": {
     "title": "Data Catalog",
