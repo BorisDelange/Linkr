@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
@@ -233,7 +234,20 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
    */
   const [selectedProjectId, setSelectedProjectId] = useState<string>(pipeline?.mappingProjectId ?? '')
   const workspaceId = pipeline?.workspaceId
-  const availableProjects = mappingProjects.filter((p) => !workspaceId || p.workspaceId === workspaceId)
+  // Sorted on the DISPLAYED name, and with localeCompare: a workspace's
+  // dictionaries arrive in creation order, which tells the reader nothing, and a
+  // plain `<` would file "Épilepsie" after "Zoonoses" in French.
+  const availableProjects = useMemo(() => (
+    mappingProjects
+      .filter((p) => !workspaceId || p.workspaceId === workspaceId)
+      .sort((a, b) => localized(a.name, i18n.language)
+        .localeCompare(localized(b.name, i18n.language), i18n.language))
+  ), [mappingProjects, workspaceId, i18n.language])
+
+  const projectOptions = useMemo(() => availableProjects.map((p) => ({
+    value: p.id,
+    label: localized(p.name, i18n.language),
+  })), [availableProjects, i18n.language])
 
   // Adopt the pipeline's persisted choice once it loads (the pipeline may arrive
   // after the first render), but never invent one.
@@ -638,18 +652,12 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('etl.vocab_from_project')}</Label>
-              <Select value={selectedProjectId} onValueChange={handleProjectChange}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder={t('etl.vocab_select_project')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableProjects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {localized(p.name, i18n.language)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={selectedProjectId}
+                options={projectOptions}
+                placeholder={t('etl.vocab_select_project')}
+                onChange={handleProjectChange}
+              />
             </div>
 
             {selectedProjectId && projectMappings.length > 0 && (
