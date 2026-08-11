@@ -5,6 +5,7 @@ import { resolveRolePrefixes, usedRoles } from '@/lib/duckdb/role-prefix'
 import { RunAbortedError, runPipelineSql } from './run-pipeline-sql'
 import { mappingExportNameOf } from '@/lib/duckdb/mapping-source'
 import { treeNodePath } from '@/lib/entity-tree'
+import { formatDuration } from '@/lib/format-helpers'
 import { useRoleSchemas } from './use-role-schemas'
 import type { EtlFile, EtlPipeline } from '@/types'
 
@@ -126,7 +127,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
           completedAt: new Date().toISOString(),
           durationMs,
           rowsAffected: rows.length,
-          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} in ${durationMs}ms`,
+          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} in ${formatDuration(durationMs)}`,
         })
       } catch (err) {
         // A stop is not a failure: stopPipelineRun already relabels the script
@@ -208,7 +209,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
         completedAt: new Date().toISOString(),
         durationMs,
         rowsAffected: rows.length,
-        output: `${rows.length} row${rows.length !== 1 ? 's' : ''} in ${durationMs}ms`,
+        output: `${rows.length} row${rows.length !== 1 ? 's' : ''} in ${formatDuration(durationMs)}`,
       })
       useEtlStore.getState().finishPipelineRun('success')
       return rows

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDuration } from './OutputPanel'
+import { formatDuration } from './format-helpers'
 
 describe('formatDuration', () => {
   it('sub-second stays in milliseconds', () => {
@@ -24,5 +24,11 @@ describe('formatDuration', () => {
     expect(formatDuration(3_600_000)).toBe('1h00min')
     expect(formatDuration(3_600_000 + 5 * 60_000)).toBe('1h05min')
     expect(formatDuration(2 * 3_600_000 + 30 * 60_000)).toBe('2h30min')
+  })
+
+  it('formats a long ETL run rather than dumping raw milliseconds', () => {
+    // The ETL sidebar used to print "1034893ms" for this, while the script card
+    // beside it showed seconds — the two now share this one formatter.
+    expect(formatDuration(1_034_893)).toBe('17min14s')
   })
 })

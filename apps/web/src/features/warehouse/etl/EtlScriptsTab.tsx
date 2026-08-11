@@ -76,7 +76,7 @@ import { inferEtlLanguage } from './etl-file-language'
 import { RunProgressBar } from './RunProgressBar'
 import { statementLineAt } from './statement-preview'
 import { csvDelimiterFor, parseCsvPreview } from '@/lib/csv-preview'
-import { formatTimeLocale } from '@/lib/format-helpers'
+import { formatDuration, formatTimeLocale } from '@/lib/format-helpers'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import { compareByRole } from './role-presentation'
 import { PipelineDbPicker } from './PipelineDbPicker'
@@ -352,7 +352,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
           timestamp: start,
           duration,
           success: true,
-          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} returned in ${duration}ms`,
+          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} returned in ${formatDuration(duration)}`,
           code: sql,
         })
         if (rows.length > 0) {
@@ -1307,7 +1307,7 @@ function EtlResultCard({ result }: { result: EtlExecutionResult }) {
           </span>
           {result.duration > 0 && (
             <span className="text-[10px] text-muted-foreground">
-              {result.duration >= 1000 ? `${(result.duration / 1000).toFixed(1)}s` : `${result.duration}ms`}
+              {formatDuration(result.duration)}
             </span>
           )}
         </div>

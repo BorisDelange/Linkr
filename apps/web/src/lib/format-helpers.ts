@@ -237,3 +237,29 @@ export function validateIntegerIds(ids: number[]): boolean {
 export function naturalCompare(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
 }
+
+/**
+ * Adaptive elapsed-time label. Precision is kept high at short durations and
+ * coarsens as the run gets longer — the user prefers "1min30s" over a bare
+ * "1min":
+ *   < 1s   → "820ms"
+ *   < 1min → "6.6s"   (one decimal)
+ *   < 1h   → "1min30s"
+ *   ≥ 1h   → "2h05min"
+ *
+ * Every elapsed time goes through here: a bare `${ms}ms` is unreadable once a
+ * step runs for minutes, and an ETL script routinely does.
+ */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const totalSec = ms / 1000
+  if (totalSec < 60) return `${totalSec.toFixed(1)}s`
+  const totalMin = Math.floor(totalSec / 60)
+  if (totalMin < 60) {
+    const sec = Math.floor(totalSec % 60)
+    return `${totalMin}min${String(sec).padStart(2, '0')}s`
+  }
+  const hours = Math.floor(totalMin / 60)
+  const min = totalMin % 60
+  return `${hours}h${String(min).padStart(2, '0')}min`
+}

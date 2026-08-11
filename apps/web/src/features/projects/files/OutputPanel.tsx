@@ -4,6 +4,7 @@ import { CodeViewer } from '@/components/editor/CodeViewer'
 import { useFileStore, type ExecutionResult } from '@/stores/file-store'
 import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check, ChevronsUpDown, Package } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { formatDuration } from '@/lib/format-helpers'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { OutputTable } from './OutputTable'
@@ -504,26 +505,9 @@ function InstallOfferButton({
   )
 }
 
-/** Adaptive elapsed-time label. Precision is kept high at short durations and
- *  coarsens as the run gets longer — the user prefers "1min30s" over a bare
- *  "1min":
- *    < 1s   → "820ms"
- *    < 1min → "6.6s"   (one decimal)
- *    < 1h   → "1min30s"
- *    ≥ 1h   → "2h05min"                                                        */
-export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`
-  const totalSec = ms / 1000
-  if (totalSec < 60) return `${totalSec.toFixed(1)}s`
-  const totalMin = Math.floor(totalSec / 60)
-  if (totalMin < 60) {
-    const sec = Math.floor(totalSec % 60)
-    return `${totalMin}min${String(sec).padStart(2, '0')}s`
-  }
-  const hours = Math.floor(totalMin / 60)
-  const min = totalMin % 60
-  return `${hours}h${String(min).padStart(2, '0')}min`
-}
+// Moved to lib/format-helpers so the ETL views share one duration format;
+// re-exported because this module's own consumers import it from here.
+export { formatDuration }
 
 /** Live-ticking elapsed time for a still-running result — counts up from the
  *  run's start (its `timestamp`) so the user sees progress in real time. The
