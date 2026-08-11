@@ -228,3 +228,29 @@ describe('formatTimeLocale', () => {
     expect(formatTimeLocale(undefined, 'en')).toBe('—')
   })
 })
+
+describe('humanBytes unit boundaries', () => {
+  // The unit has to be decided AFTER rounding: testing the raw byte count while
+  // printing the rounded one produced "1024 KB", a label wider than the unit it
+  // shortens, for every value in a 512-byte window below 1 MiB.
+  it('promotes to MB rather than printing 1024 KB', () => {
+    expect(humanBytes(1048575)).toBe('1.0 MB')
+    expect(humanBytes(1048064)).toBe('1.0 MB')
+    expect(humanBytes(1048576)).toBe('1.0 MB')
+  })
+
+  it('promotes to GB rather than printing 1024.0 MB', () => {
+    expect(humanBytes(1024 * 1024 * 1024 - 1)).toBe('1.0 GB')
+  })
+
+  it('still prints the units below the boundary', () => {
+    expect(humanBytes(1047552)).toBe('1023 KB')
+    expect(humanBytes(512)).toBe('512 B')
+    expect(humanBytes(2048)).toBe('2 KB')
+  })
+
+  it('counts in octets in French', () => {
+    expect(humanBytes(1048575, 'fr')).toBe('1.0 Mo')
+    expect(humanBytes(512, 'fr')).toBe('512 o')
+  })
+})

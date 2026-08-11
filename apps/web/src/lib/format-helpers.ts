@@ -179,11 +179,15 @@ export function humanBytes(n: number | undefined, lang = 'en'): string {
   const fr = lang.startsWith('fr')
   const [b, kb, mb_, gb_] = fr ? ['o', 'ko', 'Mo', 'Go'] : ['B', 'KB', 'MB', 'GB']
   if (n < 1024) return `${n} ${b}`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} ${kb}`
+  // The unit is decided AFTER rounding, like compactCount: testing the raw byte
+  // count while printing the rounded one made 1048575 read "1024 KB" — a label
+  // wider than the unit it shortens, and one that cannot exist.
+  const kbVal = n / 1024
+  if (Math.round(kbVal) < 1024) return `${kbVal.toFixed(0)} ${kb}`
   // A tenth of a MB is a meaningful difference; a tenth of a GB is not, so the
   // larger unit keeps a decimal only below 10.
   const mb = n / 1024 / 1024
-  if (mb < 1024) return `${mb.toFixed(1)} ${mb_}`
+  if (Number(mb.toFixed(1)) < 1024) return `${mb.toFixed(1)} ${mb_}`
   const gb = mb / 1024
   return `${gb < 10 ? gb.toFixed(1) : gb.toFixed(0)} ${gb_}`
 }

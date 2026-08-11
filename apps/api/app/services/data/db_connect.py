@@ -54,7 +54,12 @@ def _ext_dir() -> str:
 # into SQL. Role names come from client `roles` keys and table names from
 # uploaded Parquet filenames, so both are untrusted and must match this before
 # being quoted into ATTACH / CREATE VIEW.
-_SAFE_IDENT = re.compile(r"[a-z_][a-z0-9_]*", re.IGNORECASE)
+# re.ASCII, because IGNORECASE on a str pattern enables Unicode case-folding:
+# `[a-z]` then also matches İ (U+0130), ı (U+0131), ſ (U+017F) and K (U+212A).
+# None of them can break out of the quoting, so this was never an injection
+# vector — but a name could validate here and not round-trip under DuckDB's own
+# case-insensitive matching.
+_SAFE_IDENT = re.compile(r"[a-z_][a-z0-9_]*", re.IGNORECASE | re.ASCII)
 
 
 def _require_ident(value: str, what: str) -> str:

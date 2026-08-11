@@ -226,7 +226,7 @@ export async function applyProjectPull(
 
   // Delete existing local entities the user chose to overwrite, so the insert-only
   // import loops don't hit a duplicate-key error and we replace rather than dupe.
-  await deleteOverwrittenEntities(projectUid, prepared, selection)
+  await deleteOverwrittenEntities(projectUid, selection)
 
   // Narrow the parsed content to exactly the picked items within each chosen group.
   const filtered = narrowParsed(parsed, selection)
@@ -326,7 +326,6 @@ function keepTreeSelection<T extends { id: string; name: string; parentId: strin
  *  within the selected groups, before the insert-only import recreates them. */
 async function deleteOverwrittenEntities(
   projectUid: string,
-  prepared: PreparedProjectPull,
   sel: ProjectPullSelection,
 ): Promise<void> {
   const storage = getStorage()
@@ -374,5 +373,4 @@ async function deleteOverwrittenEntities(
       await storage.datasetFiles.delete(f.id)
     }
   }
-  void prepared
 }

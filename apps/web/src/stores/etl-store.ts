@@ -463,6 +463,9 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   },
 
   stopPipelineRun: () => {
+    // Computed in the updater, persisted after it returns: a `set` updater must
+    // stay pure, or a double-render would save twice.
+    let toPersist: EtlRunHistoryEntry | undefined
     const { pipelineRunAbort } = get()
     pipelineRunAbort?.abort()
     set((s) => {
@@ -496,7 +499,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
 
       const statuses = new Map(s.scriptStatuses)
       for (const [fileId, log] of statuses) statuses.set(fileId, stoppedNow(log))
-      persistRun(history[0])
+      toPersist = history[0]
       return {
         pipelineRunning: false,
         pipelineRunAbort: null,
@@ -505,9 +508,13 @@ export const useEtlStore = create<EtlState>((set, get) => ({
         scriptStatuses: statuses,
       }
     })
+    persistRun(toPersist)
   },
 
   setScriptStatus: (fileId, log) => {
+    // Computed in the updater, persisted after it returns: a `set` updater must
+    // stay pure, or a double-render would save twice.
+    let toPersist: EtlRunHistoryEntry | undefined
     set((s) => {
       // A statement already in flight when Stop was pressed keeps running and its
       // next progress callback would otherwise flip the script back from 'stopped'
@@ -528,10 +535,11 @@ export const useEtlStore = create<EtlState>((set, get) => ({
         // Only when a script REACHES a terminal state: this runs on every
         // progress tick (once per SQL statement), and saving each one would
         // hammer the API for information that is superseded a moment later.
-        if (log.status !== 'running') persistRun(history[0])
+        if (log.status !== 'running') toPersist = history[0]
       }
       return { scriptStatuses: newStatuses, runHistory: history }
     })
+    persistRun(toPersist)
   },
 
   loadRunHistory: async (pipelineId) => {
@@ -578,13 +586,17 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   },
 
   finishPipelineRun: (status) => {
+    // Computed in the updater, persisted after it returns (like clearRunHistory):
+    // a `set` updater must stay pure, or a double-render would save twice.
+    let toPersist: EtlRunHistoryEntry | undefined
     set((s) => {
       const history = [...s.runHistory]
       if (history.length > 0 && history[0].status === 'running') {
         history[0] = { ...history[0], status, completedAt: new Date().toISOString() }
-        persistRun(history[0])
+        toPersist = history[0]
       }
       return { pipelineRunning: false, pipelineRunAbort: null, runningFileIds: [], runHistory: history }
     })
+    persistRun(toPersist)
   },
 }))

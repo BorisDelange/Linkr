@@ -87,3 +87,25 @@ describe('sizeColumnWidthCh', () => {
     expect(sizeColumnWidthCh(['9 o'])).toBe(4)
   })
 })
+
+describe('ties are broken deterministically', () => {
+  // naturalCompare uses sensitivity:'base', so these compare EQUAL and the order
+  // fell through to whatever the store happened to hold — it could shuffle across
+  // a reload, despite the comment promising a stable fallback.
+  const f = (name: string, size = 0) => ({ name, type: 'file' as const, size })
+
+  it('orders case-variant siblings the same way every time', () => {
+    const nodes = [f('B.sql'), f('a.sql'), f('A.sql'), f('b.sql')]
+    const asc = [...nodes].sort((x, y) => compareTreeNodes(x, y, { key: 'name', desc: false }))
+    const shuffled = [nodes[2], nodes[0], nodes[3], nodes[1]]
+    const again = [...shuffled].sort((x, y) => compareTreeNodes(x, y, { key: 'name', desc: false }))
+    expect(again.map((n) => n.name)).toEqual(asc.map((n) => n.name))
+  })
+
+  it('breaks a size tie by name, case included', () => {
+    const nodes = [f('a.sql', 10), f('A.sql', 10)]
+    const sorted = [...nodes].sort((x, y) => compareTreeNodes(x, y, { key: 'size', desc: false }))
+    const reversed = [...nodes].reverse().sort((x, y) => compareTreeNodes(x, y, { key: 'size', desc: false }))
+    expect(reversed.map((n) => n.name)).toEqual(sorted.map((n) => n.name))
+  })
+})

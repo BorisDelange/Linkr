@@ -27,11 +27,26 @@ export function compareTreeNodes(a: SortableNode, b: SortableNode, sort: FileTre
     const diff = (a.size ?? 0) - (b.size ?? 0)
     // Ties fall back to the name, so the order does not shuffle between renders.
     if (diff !== 0) return sort.desc ? -diff : diff
-    return naturalCompare(a.name, b.name)
+    return byNameThenCodepoint(a.name, b.name)
   }
 
-  const byName = naturalCompare(a.name, b.name)
+  const byName = byNameThenCodepoint(a.name, b.name)
   return sort.desc ? -byName : byName
+}
+
+/**
+ * `naturalCompare`, with a codepoint tiebreak.
+ *
+ * `naturalCompare` compares with `sensitivity: 'base'`, so `a.sql` and `A.sql`
+ * (and NFC vs NFD) come back EQUAL — which left the "ties fall back to the name"
+ * promise above unfulfilled for exactly those pairs: the order then depended on
+ * the store's insertion order and could shuffle across a reload.
+ *
+ * Display-only. The export tree sorts by raw path (`entity-tree.ts`), so this
+ * cannot perturb the byte-parity the golden twins guard.
+ */
+function byNameThenCodepoint(a: string, b: string): number {
+  return naturalCompare(a, b) || (a < b ? -1 : a > b ? 1 : 0)
 }
 
 /**
