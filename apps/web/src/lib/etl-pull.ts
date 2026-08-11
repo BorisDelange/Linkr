@@ -307,13 +307,44 @@ export async function prepareEtlPull(
   }
 }
 
+/** Every actionable path the plan offers — what a COMPLETE pull would take. */
+export function etlPullPlanPaths(plan: EtlPullPlan): Set<string> {
+  const out = new Set<string>()
+  for (const items of Object.values(plan.groups)) {
+    for (const item of items) out.add(item.key)
+  }
+  return out
+}
+
+/**
+ * Did this selection take everything the plan offered?
+ *
+ * The anchor may only advance for a COMPLETE pull: it means "the content of this
+ * commit is what we hold". Taking three of five files and then claiming the
+ * commit hides the other two for good — the behind banner clears and the plan is
+ * rebuilt against the new anchor, so they are never offered again.
+ */
+export function isCompleteEtlPull(plan: EtlPullPlan, selection: EtlPullSelection): boolean {
+  if (plan.settingsChanged && !selection.settings) return false
+  for (const path of etlPullPlanPaths(plan)) {
+    if (!selection.paths.has(path)) return false
+  }
+  return true
+}
+
 /**
  * Apply the resolved pull: write the chosen files (replacing the local ones at
- * the same paths), optionally the pipeline settings, then advance the sync anchor.
+ * the same paths), optionally the pipeline settings, then advance the sync anchor
+ * — but only when the pull was COMPLETE and every write succeeded.
  *
  * Ids are derived from (pipelineId, path) exactly as on import, so a pulled file
  * lands on the id it would have had on a fresh clone — the determinism that keeps
  * run history and versioning marks attached to it.
+ *
+ * Throws when a write failed. Every write used to be `.catch(() => {})`, so this
+ * resolved successfully after a TOTAL failure and anchored anyway — which also
+ * made the dialog's rollback ("leave the banner up rather than claim a sync we
+ * failed to record") unreachable.
  */
 export async function applyEtlPull(
   pipelineId: string,
@@ -321,7 +352,17 @@ export async function applyEtlPull(
   selection: EtlPullSelection,
   storage: Storage = getStorage(),
 ): Promise<void> {
-  const { nodes, remotePipeline, remoteDocs, branch, clonedOid } = prepared
+  const { nodes, remotePipeline, remoteDocs, branch, clonedOid, plan } = prepared
+  // Collected, not swallowed: a failed row must not read as a successful pull.
+  let failed = false
+  const track = async (op: Promise<unknown>): Promise<void> => {
+    try {
+      await op
+    } catch (e) {
+      failed = true
+      console.warn('[etl-pull] write failed:', e)
+    }
+  }
 
   const chosen = nodes.filter((n) => n.type === 'file' && selection.paths.has(n.path))
   if (chosen.length > 0) {
@@ -340,9 +381,9 @@ export async function applyEtlPull(
       if (existing) {
         // Update rather than delete+create: deleting would drop whatever else
         // references the row, and a local file keeps its own (random) id.
-        await storage.etlFiles.update(existing.id, { content: node.content }).catch(() => {})
+        await track(storage.etlFiles.update(existing.id, { content: node.content }))
       } else {
-        await storage.etlFiles.create(dropForeignAuthorId(node) as EtlFile).catch(() => {})
+        await track(storage.etlFiles.create(dropForeignAuthorId(node) as EtlFile))
       }
     }
   }
@@ -353,14 +394,14 @@ export async function applyEtlPull(
   if (pulledData.length > 0) {
     const fresh = await storage.etlPipelines.getById(pipelineId)
     if (fresh) {
-      await storage.etlPipelines.update(pipelineId, {
+      await track(storage.etlPipelines.update(pipelineId, {
         config: setVersionedMany(pulledData, true, fresh.config),
-      }).catch(() => {})
+      }))
     }
   }
 
   if (selection.settings && remotePipeline) {
-    await storage.etlPipelines.update(pipelineId, remotePipeline).catch(() => {})
+    await track(storage.etlPipelines.update(pipelineId, remotePipeline))
   }
 
   // Docs are entity fields, written whether or not the settings block was taken.
@@ -388,13 +429,20 @@ export async function applyEtlPull(
     }
     if (readmeTouched) changes.readme = readme
     if (Object.keys(changes).length > 0) {
-      await storage.etlPipelines.update(pipelineId, changes).catch(() => {})
+      await track(storage.etlPipelines.update(pipelineId, changes))
     }
   }
 
-  // Now in sync with the cloned commit — anchor to it so the behind/diverged
-  // banner clears (server mode only; front-only has no anchor to set).
-  if (clonedOid) {
+  // A write failed: the local content is NOT what the commit says, so surface it
+  // and leave the anchor alone. The caller shows the error and keeps the banner.
+  if (failed) throw new Error('etl-pull: some changes could not be written')
+
+  // Anchor ONLY after a complete pull. The anchor asserts "we hold the content of
+  // this commit"; advancing it after a partial pull would clear the behind banner
+  // and rebuild every later plan against it, so the files the user did not take
+  // would never be offered again — their remote changes silently lost.
+  // (Server mode only; front-only has no anchor to set.)
+  if (clonedOid && isCompleteEtlPull(plan, selection)) {
     await gitSetSyncState('etl-pipelines', pipelineId, branch, clonedOid).catch(() => {})
   }
 }

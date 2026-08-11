@@ -122,7 +122,12 @@ export function withEntityDocs<T extends DocsOwner>(
   entity: T,
   parsed: Record<string, unknown>,
 ): T {
-  const docs = readEntityDocsFrom(parsed, entity as { license?: EntityLicense })
+  // `readmeLang` rides on the manifest and names the language of the suffix-free
+  // README.md — forwarded, or a French-only readme lands in the English field.
+  const docs = readEntityDocsFrom(
+    parsed,
+    entity as { license?: EntityLicense; readmeLang?: string },
+  )
   if (docs.readme && !presentReadme(entity.readme)) entity.readme = docs.readme
   if (docs.license) entity.license = docs.license
   return entity

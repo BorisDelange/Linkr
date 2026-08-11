@@ -30,6 +30,7 @@ vi.mock('@/lib/entity-io', async (importOriginal) => {
 import {
   prepareProjectPull,
   applyProjectPull,
+  isCompleteProjectPull,
   type ProjectPullSelection,
   type PreparedProjectPull,
 } from './project-pull'
@@ -550,5 +551,47 @@ describe('applyProjectPull — failure paths (what is guaranteed today)', () => 
     gitMocks.gitSetSyncState.mockClear()
     await applyProjectPull(P, preparedWith(emptyParsed(), null), sel({ readme: false }))
     expect(gitMocks.gitSetSyncState).not.toHaveBeenCalled()
+  })
+})
+
+describe('isCompleteProjectPull', () => {
+  const plan = (over: Partial<Record<string, unknown>> = {}) => ({
+    dashboards: [{ key: 'd1', label: 'd1', exists: false }],
+    scripts: [{ key: 's1', label: 's1', exists: false }],
+    cohorts: [], datasets: [], pipeline: [],
+    readmeChanged: false,
+    ...over,
+  }) as never
+
+  const sel = (over: Partial<Record<string, unknown>> = {}) => ({
+    dashboards: new Set<string>(), scripts: new Set<string>(), cohorts: new Set<string>(),
+    datasets: new Set<string>(), pipeline: new Set<string>(), readme: false,
+    ...over,
+  }) as never
+
+  it('is false when an offered item was left out', () => {
+    // The anchor must not move: the un-taken script would never be offered again.
+    expect(isCompleteProjectPull(
+      plan(), sel({ dashboards: new Set(['d1']) }),
+    )).toBe(false)
+  })
+
+  it('is true once every offered item was taken', () => {
+    expect(isCompleteProjectPull(
+      plan(), sel({ dashboards: new Set(['d1']), scripts: new Set(['s1']) }),
+    )).toBe(true)
+  })
+
+  it('is false when the readme block was offered but declined', () => {
+    expect(isCompleteProjectPull(
+      plan({ readmeChanged: true }),
+      sel({ dashboards: new Set(['d1']), scripts: new Set(['s1']) }),
+    )).toBe(false)
+  })
+
+  it('is true for an empty plan — the "nothing to pull" anchor still works', () => {
+    expect(isCompleteProjectPull(
+      plan({ dashboards: [], scripts: [] }), sel(),
+    )).toBe(true)
   })
 })

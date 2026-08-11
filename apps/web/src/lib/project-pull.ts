@@ -184,9 +184,27 @@ async function computeReadmeChanged(local: Project | undefined, remote: Project)
 }
 
 /**
+ * Did this selection take everything the plan offered?
+ *
+ * The anchor may only advance for a COMPLETE pull — it asserts "we hold the
+ * content of this commit". Taking three of five dashboards and then claiming the
+ * commit hides the other two for good: the behind banner clears and every later
+ * plan is rebuilt against the new anchor, so they are never offered again.
+ */
+export function isCompleteProjectPull(
+  plan: ProjectPullPlan,
+  selection: ProjectPullSelection,
+): boolean {
+  if (plan.readmeChanged && !selection.readme) return false
+  const groups = ['dashboards', 'scripts', 'cohorts', 'datasets', 'pipeline'] as const
+  return groups.every((g) => plan[g].every((item) => selection[g].has(item.key)))
+}
+
+/**
  * Apply the resolved pull: overwrite the selected existing entities (delete first,
  * since the import loops are insert-only), import the chosen groups, update the
- * README block if picked, then advance the sync anchor to the cloned commit.
+ * README block if picked, then advance the sync anchor to the cloned commit — but
+ * only when everything on offer was taken.
  */
 export async function applyProjectPull(
   projectUid: string,
@@ -228,9 +246,11 @@ export async function applyProjectPull(
     })
   }
 
-  // We're now in sync with the cloned commit — anchor to it so the behind/diverged
-  // banner clears (server mode only; front-only has no anchor to set).
-  if (clonedOid) {
+  // Anchor ONLY after a complete pull: it asserts we hold this commit's content,
+  // and advancing it after a partial pull would clear the behind banner and hide
+  // the un-taken items for good (see isCompleteProjectPull).
+  // (Server mode only; front-only has no anchor to set.)
+  if (clonedOid && isCompleteProjectPull(prepared.plan, selection)) {
     await gitSetSyncState('projects', projectUid, branch, clonedOid).catch(() => {})
   }
 }

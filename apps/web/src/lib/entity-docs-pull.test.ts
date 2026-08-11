@@ -5,6 +5,7 @@ import {
   presentReadme,
   readEntityDocsFrom,
   withEntityDocs,
+  type DocsOwner,
 } from './entity-docs-pull'
 
 describe('presentReadme', () => {
@@ -147,7 +148,7 @@ describe('README language round-trip', () => {
 describe('withEntityDocs', () => {
   it('folds the README and the licence text onto the manifest', () => {
     const entity = withEntityDocs(
-      { license: { id: 'Apache-2.0' } } as { readme?: unknown; license?: { id: string; text?: string } },
+      { license: { id: 'Apache-2.0' } } as DocsOwner,
       { 'README.md': '# Pipeline', 'LICENSE.md': 'Apache text' },
     )
     expect(entity.readme).toEqual({ en: '# Pipeline' })
@@ -163,8 +164,20 @@ describe('withEntityDocs', () => {
   })
 
   it('adds nothing when the export carried no docs', () => {
-    const entity = withEntityDocs({ license: { id: 'mit' } }, { '_tree.json': [] })
+    const entity = withEntityDocs({ license: { id: 'MIT' } } as DocsOwner, { '_tree.json': [] })
     expect(entity.readme).toBeUndefined()
-    expect(entity.license).toEqual({ id: 'mit' })
+    expect(entity.license).toEqual({ id: 'MIT' })
+  })
+})
+
+describe('withEntityDocs honours the readme language marker', () => {
+  it('folds a French-only README.md onto the FRENCH field', () => {
+    // The list-page import path must not re-introduce the relabelling bug: the
+    // manifest's `readmeLang` says which language the suffix-free file holds.
+    const entity = withEntityDocs(
+      { readmeLang: 'fr' } as DocsOwner & { readmeLang?: string },
+      { 'README.md': 'bonjour' },
+    )
+    expect(entity.readme).toEqual({ fr: 'bonjour' })
   })
 })
