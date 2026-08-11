@@ -405,29 +405,28 @@ async def _etl_pipeline_sub_tree(db: AsyncSession, pipeline) -> dict[str, bytes]
     by_id = {f["id"]: f for f in files}
 
     # Per-file versioning marks (pipeline.config), mirroring buildEtlPipelineFolder:
-    # an excluded CODE file leaves neither the tree nor the files (a _tree.json
-    # naming a file that is not there would break re-import); a DATA file leaves
-    # the machine only when explicitly marked for versioning — it keeps its
-    # _tree.json entry so the file node survives re-import (content simply absent).
+    # a file that does not leave the machine is dropped from the tree as well as
+    # from the zip. A _tree.json naming a file the repo cannot contain breaks
+    # re-import — it created an empty mapping/source_to_concept_map.csv — and made
+    # every pull offer the phantom as an incoming change.
     config = getattr(pipeline, "config", None) or {}
     excluded = set(config.get("excludedFiles") or [])
     marked = set(config.get("versionedDataFiles") or [])
+
+    def _is_versioned(path: str) -> bool:
+        if _is_data_ext(path):
+            return path in marked
+        return path not in excluded
+
     kept = [
         f
         for f in files
-        if not (
-            f["type"] == "file"
-            and not _is_data_ext(_tree_path(f, by_id))
-            and _tree_path(f, by_id) in excluded
-        )
+        if f["type"] != "file" or _is_versioned(_tree_path(f, by_id))
     ]
     tree["_tree.json"] = _json(_to_path_tree(kept, "pipelineId"))
     for f in kept:
         if f["type"] == "file" and f.get("content") is not None:
-            path = _tree_path(f, by_id)
-            if _is_data_ext(path) and path not in marked:
-                continue
-            tree[path] = str(f["content"]).encode("utf-8")
+            tree[_tree_path(f, by_id)] = str(f["content"]).encode("utf-8")
     return tree
 
 

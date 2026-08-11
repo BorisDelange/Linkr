@@ -134,6 +134,51 @@ async def test_etl_pipeline_matches_golden(db):
 
 
 @pytest.mark.asyncio
+async def test_etl_unmarked_data_file_leaves_no_tree_entry(db):
+    """An unmarked data file is absent from _tree.json, not just from the zip.
+
+    The server used to keep the entry and omit only the content, so a re-import
+    created an empty mapping/source_to_concept_map.csv the repo never held — and
+    every pull offered that phantom as an incoming change. Unlike a project's IDE
+    folder, an ETL pipeline is never rebound to an existing directory: nothing can
+    restore the content later, so a contentless node has nothing to survive for.
+    buildEtlPipelineFolder (entity-io.ts) already dropped both; this is the twin.
+    """
+    data, _ = _golden("etl-pipeline")
+    await _seed_ws_org(db, data)
+    p = data["pipeline"]
+    pipeline = EtlPipeline(
+        id=p["id"], workspace_id=p["workspaceId"], entity_id=p["entityId"],
+        name=p["name"], status=p["status"], created_at=_dt(p["createdAt"]),
+        updated_at=_dt(p["updatedAt"]),
+        config={"versionedDataFiles": ["mapping/kept.csv"]},
+    )
+    db.add(pipeline)
+    await db.commit()
+    db.add(EtlFile(
+        id="fold", pipeline_id=pipeline.id, name="mapping", type="folder",
+        parent_id=None, order=0, created_at=data["files"][0]["createdAt"],
+    ))
+    for fid, name, content in [
+        ("keep", "kept.csv", "a,b\n1,2\n"),
+        ("drop", "source_to_concept_map.csv", "a,b\n3,4\n"),
+    ]:
+        db.add(EtlFile(
+            id=fid, pipeline_id=pipeline.id, name=name, type="file",
+            parent_id="fold", content=content, order=0,
+            created_at=data["files"][0]["createdAt"],
+        ))
+    await db.commit()
+
+    tree = await build_etl_pipeline_tree(db, pipeline)
+    paths = [n["path"] for n in json.loads(tree["_tree.json"])]
+    assert "mapping/kept.csv" in paths
+    assert "mapping/source_to_concept_map.csv" not in paths
+    assert "mapping/source_to_concept_map.csv" not in tree
+    assert tree["mapping/kept.csv"] == b"a,b\n1,2\n"
+
+
+@pytest.mark.asyncio
 async def test_dq_rule_set_matches_golden(db):
     data, expected = _golden("dq-rule-set")
     await _seed_ws_org(db, data)

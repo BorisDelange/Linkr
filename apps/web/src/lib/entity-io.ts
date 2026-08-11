@@ -29,14 +29,48 @@ import type {
   AuthorDetails,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
+import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { isServerMode } from '@/lib/api-client'
 import { importDatasetOnServer } from '@/lib/api/datasets'
+
+
+/**
+ * Which language `README.md` holds, when it is not English.
+ *
+ * A French-only readme used to be written to the suffix-free `README.md` (the
+ * primary is the first language when there is no English) while the reader mapped
+ * a suffix-free name to `'en'` unconditionally — so it came back as English, and
+ * a pull then overwrote the real English readme with French text. The primary
+ * language now travels in the entity JSON, the same split the license already
+ * uses (text in the file, identity in the JSON): `README.md` stays the name git
+ * and the portal render, and the round-trip stays lossless.
+ */
+export function readmeLangMeta(
+  readme: LocalizedString | string | null | undefined,
+): string | undefined {
+  const primary = primaryReadmeLang(readme)
+  return primary && primary !== 'en' ? primary : undefined
+}
+
+/** The language written to the suffix-free `README.md`, or undefined if empty. */
+function primaryReadmeLang(
+  readme: LocalizedString | string | null | undefined,
+): string | undefined {
+  if (!readme) return undefined
+  const byLang = toLocalized(readme)
+  const langs = Object.keys(byLang).filter((l) => byLang[l])
+  if (langs.length === 0) return undefined
+  return langs.includes('en') ? 'en' : langs[0]
+}
 
 /**
  * Write a project/workspace README as `README.md` (English or first language)
  * plus `README.<lang>.md` siblings, so it round-trips per language while
  * staying git/portal-readable. Accepts legacy plain strings.
+ *
+ * Which language landed in the suffix-free file is recorded by `readmeLangMeta`
+ * in the entity JSON — see its note.
  */
 export function writeReadmeFiles(
   zip: JSZip,
@@ -47,7 +81,7 @@ export function writeReadmeFiles(
   const byLang = toLocalized(readme)
   const langs = Object.keys(byLang).filter((l) => byLang[l])
   if (langs.length === 0) return
-  const primary = langs.includes('en') ? 'en' : langs[0]
+  const primary = primaryReadmeLang(readme)
   for (const lang of langs) {
     const suffix = lang === primary ? '' : `.${lang}`
     zip.file(`${dir}README${suffix}.md`, byLang[lang])
@@ -115,13 +149,25 @@ export async function writeAttachmentFiles(
  * An entity's JSON metadata without the documentation that travels as files:
  * `readme` is dropped (it becomes README.md) and `license` keeps only its
  * identity (the text becomes LICENSE.md).
+ *
+ * `readmeLang` is kept when the suffix-free README.md is NOT English, so the
+ * import knows which language it holds (see `readmeLangMeta`). Omitted for the
+ * English case, so the common export is byte-identical to before.
  */
 function stripEntityDocs<T extends { readme?: unknown; license?: EntityLicense }>(
   meta: T,
-): Omit<T, 'readme' | 'license'> & { license?: { id: string; name?: string } } {
-  const { readme: _readme, license, ...rest } = meta
+): Omit<T, 'readme' | 'license'> & {
+  license?: { id: string; name?: string }
+  readmeLang?: string
+} {
+  const { readme, license, ...rest } = meta
   const licence = licenseMeta(license)
-  return licence ? { ...rest, license: licence } : rest
+  const lang = readmeLangMeta(readme as LocalizedString | string | null | undefined)
+  return {
+    ...rest,
+    ...(licence ? { license: licence } : {}),
+    ...(lang ? { readmeLang: lang } : {}),
+  }
 }
 
 /** An entity's README attachments as they travel in a ZIP, owner-agnostic. */
@@ -158,7 +204,7 @@ export async function createEntityAttachments(
 async function readEntityDocs(
   zipData: JSZip,
   prefix: string,
-  meta: { license?: { id?: string; name?: string } },
+  meta: { license?: { id?: string; name?: string }; readmeLang?: string },
 ): Promise<{
   readme?: LocalizedString
   license?: EntityLicense
@@ -168,8 +214,10 @@ async function readEntityDocs(
   const readmeByLang: LocalizedString = {}
   for (const path of Object.keys(zipData.files)) {
     if (!path.startsWith(prefix)) continue
-    const m = /^README(?:\.([a-z]{2}))?\.md$/.exec(path.slice(prefix.length))
-    if (m) readmeByLang[m[1] ?? 'en'] = await zipData.files[path].async('string')
+    const m = README_FILE_RE.exec(path.slice(prefix.length))
+    if (m) {
+      readmeByLang[m[1] ?? meta.readmeLang ?? 'en'] = await zipData.files[path].async('string')
+    }
   }
   const licenseEntry = zipData.files[`${prefix}LICENSE.md`]
   const licenseText = licenseEntry ? await licenseEntry.async('string') : undefined
@@ -195,25 +243,32 @@ async function readEntityDocs(
 
 /**
  * Split README paths back into a LocalizedString, the inverse of
- * `writeReadmeFiles`: the primary language carries no suffix (so a bare
- * `README.md` is 'en') and `README.<lang>.md` names the others.
+ * `writeReadmeFiles`: the suffix-free file holds `readmeLang` (English unless the
+ * entity JSON says otherwise) and `README.<lang>.md` names the others.
+ *
+ * `readmeLang` is what stops a French-only readme coming back as English — see
+ * `readmeLangMeta`. A repo written before that marker existed simply has none, so
+ * the suffix-free file reads as English exactly as it did then.
  *
  * Takes already-read text keyed by path, so it serves every caller regardless of
  * where the bytes came from — a JSZip walk (project import), a parsed clone
  * record (entity pull), or a plain map. One rule, three call sites.
  */
-export function readReadmeByLang(textByPath: Record<string, string>): LocalizedString | undefined {
+export function readReadmeByLang(
+  textByPath: Record<string, string>,
+  readmeLang?: string | null,
+): LocalizedString | undefined {
   const byLang: LocalizedString = {}
   for (const [path, text] of Object.entries(textByPath)) {
-    const m = /^README(?:\.([a-z]{2}))?\.md$/i.exec(path)
-    if (m) byLang[m[1] ?? 'en'] = text
+    const m = README_FILE_RE.exec(path)
+    if (m) byLang[m[1] ?? readmeLang ?? 'en'] = text
   }
   return Object.keys(byLang).length > 0 ? byLang : undefined
 }
 
 /** Whether a path inside an entity folder is one of the docs files the export owns. */
 export function isEntityDocsFile(path: string): boolean {
-  return /^README(\.[a-z-]+)?\.md$/i.test(path) || /^LICENSE\.md$/i.test(path) || path.startsWith('attachments/')
+  return README_FILE_RE.test(path) || /^LICENSE\.md$/i.test(path) || path.startsWith('attachments/')
 }
 
 /** README.md + LICENSE.md + attachments/ for one entity folder. */
@@ -1399,12 +1454,17 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   }
   const organization = projectMeta.organization as Organization | undefined
 
-  // Reconstruct readme (README.md = en, README.<lang>.md = other langs), todos, notes
+  // Reconstruct readme (README.md holds readmeLang, README.<lang>.md the others)
   const readmeTexts: Record<string, string> = {}
   for (const [path, file] of Object.entries(zipData.files)) {
-    if (/^README(?:\.[a-z]{2})?\.md$/i.test(path)) readmeTexts[path] = await file.async('string')
+    if (README_FILE_RE.test(path)) readmeTexts[path] = await file.async('string')
   }
-  const readmeByLang = readReadmeByLang(readmeTexts)
+  // `readmeLang` is an export-only marker: it says which language the suffix-free
+  // README.md holds, and must not survive onto the imported record.
+  const withLang = projectMeta as typeof projectMeta & { readmeLang?: string }
+  const readmeLang = withLang.readmeLang
+  delete withLang.readmeLang
+  const readmeByLang = readReadmeByLang(readmeTexts, readmeLang)
   if (readmeByLang) {
     projectMeta.readme = readmeByLang
   }
@@ -1991,6 +2051,13 @@ export async function buildUserPluginZip(
  * `parsed` keys are zip paths relative to the collection/pipeline root (after any
  * prefix is stripped by the caller). Folders carry no content.
  *
+ * A file the tree declares but the ZIP has no blob for is dropped: data files are
+ * gitignored unless marked for versioning, so a repo legitimately carries a tree
+ * entry with no content behind it. Importing those produced empty files the user
+ * never had — a phantom `mapping/source_to_concept_map.csv`. Folders are kept
+ * (having no content is what they are), and so are legacy nodes carrying inline
+ * content, which never had a raw file beside them.
+ *
  * Nodes come back carrying their `path` but NO id: the caller only knows the
  * target collection/pipeline id (which namespaces the derived ids) once the
  * user has resolved an import conflict. Finish with `attachTreeIds`.
@@ -2001,11 +2068,21 @@ export function reconstructTreeFiles(
   tree: unknown,
   parsed: Record<string, unknown>,
 ): TreeImportNode[] {
-  return readPathTree(tree).map((node) => {
-    if (node.type !== 'file') return node
+  const out: TreeImportNode[] = []
+  for (const node of readPathTree(tree)) {
+    if (node.type !== 'file') { out.push(node); continue }
     const raw = parsed[node.path]
-    return typeof raw === 'string' ? { ...node, content: raw } : node
-  })
+    if (raw === undefined) {
+      // No blob in the ZIP. The oldest layout (files.json) carried content inline
+      // on the node, so keep those; otherwise the tree is declaring a file the
+      // repo does not have and there is nothing to import.
+      if ((node as TreeImportNode).content != null) out.push(node)
+      continue
+    }
+    // A `.json` file in the tree comes back parsed, not as a string.
+    out.push({ ...node, content: typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2) })
+  }
+  return out
 }
 
 /**
@@ -2695,12 +2772,15 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     ? (JSON.parse(await orgFile.async('string')) as Organization)
     : undefined
 
-  // --- README.md (README.md = en, README.<lang>.md = other langs) ---
+  // --- README.md (suffix-free = workspace.readmeLang, README.<lang>.md the rest) ---
+  const wsWithLang = workspace as typeof workspace & { readmeLang?: string }
+  const wsReadmeLang = wsWithLang.readmeLang
+  delete wsWithLang.readmeLang
   const wsReadmeByLang: LocalizedString = {}
   for (const [path, file] of Object.entries(zipData.files)) {
-    const m = /^README(?:\.([a-z]{2}))?\.md$/.exec(path)
+    const m = README_FILE_RE.exec(path)
     if (!m) continue
-    wsReadmeByLang[m[1] ?? 'en'] = await file.async('string')
+    wsReadmeByLang[m[1] ?? wsReadmeLang ?? 'en'] = await file.async('string')
   }
   if (Object.keys(wsReadmeByLang).length > 0) {
     workspace.readme = wsReadmeByLang
@@ -2723,11 +2803,11 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   // A lightweight entry (catalog-only) and a git-linked pointer carry only
   // project.json + README*.md; anything else under the folder means full nested
   // content in the buildProjectZip layout.
-  const lightweightFile = /^(?:project\.json|README(?:\.[a-z]{2})?\.md)$/
+  const lightweightFile = (name: string) => name === 'project.json' || README_FILE_RE.test(name)
   for (const folder of projectFolders) {
     const prefix = `projects/${folder}/`
     const hasFullContent = Object.entries(zipData.files).some(([p, entry]) =>
-      !entry.dir && p.startsWith(prefix) && !lightweightFile.test(p.slice(prefix.length))
+      !entry.dir && p.startsWith(prefix) && !lightweightFile(p.slice(prefix.length))
     )
 
     if (hasFullContent) {
@@ -2744,11 +2824,15 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
       // Lightweight entry (catalog-only)
       const projectJson = await readJsonFile<Project & { appVersion?: string }>(zipData, `${prefix}project.json`)
       if (!projectJson) continue
+      const lightWithLang = projectJson as typeof projectJson & { readmeLang?: string }
+      const lightReadmeLang = lightWithLang.readmeLang
+      delete lightWithLang.readmeLang
       const readmeByLang: LocalizedString = {}
       for (const [path, file] of Object.entries(zipData.files)) {
-        const m = new RegExp(`^${prefix}README(?:\\.([a-z]{2}))?\\.md$`).exec(path)
+        if (!path.startsWith(prefix)) continue
+        const m = README_FILE_RE.exec(path.slice(prefix.length))
         if (!m) continue
-        readmeByLang[m[1] ?? 'en'] = await file.async('string')
+        readmeByLang[m[1] ?? lightReadmeLang ?? 'en'] = await file.async('string')
       }
       const readme = Object.keys(readmeByLang).length > 0 ? readmeByLang : undefined
       projectEntries.push({ project: projectJson, readme })

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
@@ -1519,5 +1519,46 @@ describe('project / workspace license — LICENSE.md round-trip', () => {
     })
     expect(parsed!.workspaceAttachments!.meta.map((m) => m.fileName)).toEqual(['logo.png'])
     expect(parsed!.workspaceAttachments!.blobs.get('att-9')).toBeDefined()
+  })
+})
+
+// A tree entry with no blob behind it is normal: data files are gitignored unless
+// marked for versioning. Importing them anyway created empty files the repo never
+// held, and the user then ran a pipeline against a phantom mapping table.
+describe('reconstructTreeFiles', () => {
+  const tree = [
+    { path: '00_vocabulary.sql', type: 'file' },
+    { path: 'mapping', type: 'folder' },
+    { path: 'mapping/source_to_concept_map.csv', type: 'file' },
+  ]
+
+  it('drops a file the tree declares but the ZIP does not carry', () => {
+    const nodes = reconstructTreeFiles(tree, { '00_vocabulary.sql': 'SELECT 1;' })
+    expect(nodes.map((n) => n.path)).toEqual(['00_vocabulary.sql', 'mapping'])
+  })
+
+  it('keeps the file once the repo carries it', () => {
+    const nodes = reconstructTreeFiles(tree, {
+      '00_vocabulary.sql': 'SELECT 1;',
+      'mapping/source_to_concept_map.csv': 'source_code,target_concept_id\nA,1\n',
+    })
+    expect(nodes.map((n) => n.path)).toEqual([
+      '00_vocabulary.sql', 'mapping', 'mapping/source_to_concept_map.csv',
+    ])
+  })
+
+  it('keeps legacy nodes whose content is inline', () => {
+    // files.json carried content on the node itself, with no raw file beside it.
+    const legacy = [{ id: 'f1', name: 'a.sql', type: 'file', content: 'SELECT 2;' }]
+    expect(reconstructTreeFiles(legacy, {})).toEqual([
+      expect.objectContaining({ path: 'a.sql', content: 'SELECT 2;' }),
+    ])
+  })
+
+  it('re-serialises a JSON file, which parseImportZip returns parsed', () => {
+    const nodes = reconstructTreeFiles([{ path: 'conf.json', type: 'file' }], {
+      'conf.json': { a: 1 },
+    })
+    expect(nodes[0].content).toBe('{\n  "a": 1\n}')
   })
 })
