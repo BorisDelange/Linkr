@@ -102,6 +102,18 @@ describe('runEtlStream', () => {
     await expect(p).rejects.toBeInstanceOf(EtlStreamClosedError)
   })
 
+  it('refuses a signal that is already aborted, without opening a socket', async () => {
+    // The caller awaits the role lookup between its own aborted-check and this
+    // call, so a Stop can land in that window. Sending the script anyway ran it
+    // server-side, and nothing settled the promise until the server closed.
+    const ctrl = new AbortController()
+    ctrl.abort()
+    const before = FakeSocket.last
+    const p = runEtlStream('ds-1', 'SELECT 1;', {}, {}, { signal: ctrl.signal })
+    await expect(p).rejects.toBeInstanceOf(EtlStreamClosedError)
+    expect(FakeSocket.last).toBe(before)
+  })
+
   it('does not resolve twice when done is followed by close', async () => {
     const p = runEtlStream('ds-1', 'SELECT 1;', {})
     const ws = FakeSocket.last

@@ -295,8 +295,15 @@ async def etl_run_stream(websocket: WebSocket, source_id: str):
     try:
         async with async_session() as db:
             target = await _load_source(db, source_id, user, "databases:write")
-    except Exception:  # noqa: BLE001 — unknown source, no permission, or a DB error
+    except HTTPException:
+        # Unknown source or no permission — the client asked for something it may
+        # not have, which is a policy violation.
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    except Exception:
+        # Anything else is our fault, not the client's; say so rather than
+        # reporting a server fault as a permission denial.
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
         return
 
     await websocket.accept()
@@ -319,8 +326,11 @@ async def etl_run_stream(websocket: WebSocket, source_id: str):
                 if role == "target" or not ds_id:
                     continue
                 roles[role] = await _load_source(db, ds_id, user, "databases:read")
-    except Exception:  # noqa: BLE001 — same: a role the user may not read
+    except HTTPException:  # a role that does not exist, or one the user may not read
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    except Exception:
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
         return
 
     # Called from the DuckDB worker thread, so the send is marshalled back onto

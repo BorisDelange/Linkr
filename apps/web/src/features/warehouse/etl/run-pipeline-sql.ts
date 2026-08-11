@@ -1,5 +1,4 @@
 import { isServerMode } from '@/lib/api-client'
-import { runEtlOnServer } from '@/lib/api/data-sources'
 import { runEtlStream } from '@/lib/api/etl-run-ws'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import type { DatabaseConnectionConfig, DataSource, EtlPipeline } from '@/types'
@@ -90,7 +89,7 @@ export async function runPipelineSql(
   // sending them one at a time changes nothing but the reporting.
   const statements = duckdbEngine.splitSqlStatements(sql)
   const total = statements.length
-  const run = await statementRunner(pipeline, dataSourceId, mappingData)
+  const run = statementRunner(dataSourceId)
 
   // Front-only resolves the `mapping.` references itself: DuckDB-WASM reads the
   // CSV out of its virtual filesystem, registered under the reference's own
@@ -186,23 +185,17 @@ async function serverRoles(
 }
 
 /**
- * Pick how a single statement reaches the database, once per script rather than
- * once per statement — the role lookup can hit the store and the network.
+ * How a single statement reaches the database on the non-streaming path.
  *
- * Only reached when `serverStreamTarget` declined, so this is the front-only /
- * unmanaged-target path.
+ * Only reached when `serverStreamTarget` declined — front-only, or a server run
+ * with no managed target — so a plain query against the picked source is the
+ * whole story. The server-side branch that used to live here was unreachable:
+ * it re-asked `serverStreamTarget`, the same gate the caller had already passed.
  */
-async function statementRunner(
-  pipeline: EtlPipeline | undefined,
+function statementRunner(
   dataSourceId: string,
-  mappingData: Record<string, string>,
-): Promise<(sql: string) => Promise<Record<string, unknown>[]>> {
-  const targetId = serverStreamTarget(pipeline)
-  if (!targetId) {
-    return (stmt) => duckdbEngine.queryDataSource(dataSourceId, stmt)
-  }
-  const roles = await serverRoles(pipeline, targetId)
-  return (stmt) => runEtlOnServer(targetId, stmt, roles, mappingData)
+): (sql: string) => Promise<Record<string, unknown>[]> {
+  return (stmt) => duckdbEngine.queryDataSource(dataSourceId, stmt)
 }
 
 /**

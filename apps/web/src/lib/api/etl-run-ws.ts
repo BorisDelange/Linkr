@@ -42,6 +42,13 @@ export function runEtlStream(
   options: { onStatement?: EtlStatementProgress; signal?: AbortSignal } = {},
 ): Promise<Record<string, unknown>[]> {
   const { onStatement, signal } = options
+  // Checked here, not only by the caller: it awaits the role lookup between its
+  // own check and this call, so a Stop landing in that window would otherwise
+  // open the socket and run the script anyway — and nothing would settle the
+  // promise until the server closed it.
+  if (signal?.aborted) {
+    return Promise.reject(new EtlStreamClosedError('The run was stopped before it started'))
+  }
   const token = localStorage.getItem('linkr-access-token') ?? ''
   const params = new URLSearchParams({ token })
   const url = `${wsBaseUrl()}/api/v1/data-sources/${dataSourceId}/etl-run-stream?${params}`
