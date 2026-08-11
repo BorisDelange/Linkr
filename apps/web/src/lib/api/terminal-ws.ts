@@ -35,7 +35,7 @@ export interface TerminalSocketHandlers {
   onClose?: (info: { authFailed: boolean; clean: boolean }) => void
 }
 
-function wsBaseUrl(): string {
+export function wsBaseUrl(): string {
   // Derive the WS origin from VITE_API_URL (http→ws, https→wss). Empty base
   // (dev proxy) falls back to the current page origin.
   const base = getApiBaseUrl() || window.location.origin

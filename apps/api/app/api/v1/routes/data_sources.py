@@ -1,12 +1,15 @@
 import asyncio
+import contextlib
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.websockets import WebSocketDisconnect
 
-from app.core.database import get_db
+from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
+from app.core.ws_auth import authenticate_ws
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.schemas.concept_cache import (
@@ -268,6 +271,111 @@ async def etl_run(
     except Exception as e:  # noqa: BLE001 — surface SQL errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return QueryResult(rows=rows)
+
+
+@router.websocket("/{source_id}/etl-run-stream")
+async def etl_run_stream(websocket: WebSocket, source_id: str):
+    """Run one ETL script on ONE connection, streaming per-statement progress.
+
+    The HTTP twin above takes a single statement, so a script split by the client
+    got a fresh connection per statement and lost everything session-scoped:
+    `SET VARIABLE` set in one statement was gone by the next, and
+    `query(getvariable(...))` then failed with `syntax error at or near "NULL"`.
+
+    Here the script arrives whole, the server splits it (the same splitter the
+    client uses) and reports each statement as it starts — so progress stays live
+    without paying for it in lost session state.
+
+    Auth via ?token= (a WebSocket carries no Authorization header).
+    """
+    user = await authenticate_ws(websocket)
+    if user is None:
+        return  # authenticate_ws already closed with WS_AUTH_FAILED
+
+    try:
+        async with async_session() as db:
+            target = await _load_source(db, source_id, user, "databases:write")
+    except Exception:  # noqa: BLE001 — unknown source, no permission, or a DB error
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await websocket.accept()
+    loop = asyncio.get_running_loop()
+
+    try:
+        msg = await websocket.receive_json()
+    except (WebSocketDisconnect, ValueError):
+        return  # client went away, or sent something that is not JSON
+
+    sql = msg.get("sql")
+    if not isinstance(sql, str):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    try:
+        async with async_session() as db:
+            roles: dict[str, DataSource] = {}
+            for role, ds_id in (msg.get("roles") or {}).items():
+                if role == "target" or not ds_id:
+                    continue
+                roles[role] = await _load_source(db, ds_id, user, "databases:read")
+    except Exception:  # noqa: BLE001 — same: a role the user may not read
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # Called from the DuckDB worker thread, so the send is marshalled back onto
+    # the loop rather than awaited here. Fire-and-forget: a progress event that
+    # loses the race with a closing socket must not break the run.
+    def on_statement(index: int, total: int, stmt: str) -> None:
+        def send() -> None:
+            asyncio.ensure_future(_send_quietly(websocket, {
+                "type": "statement", "index": index, "total": total,
+                "sql": stmt[:2000],
+            }))
+        loop.call_soon_threadsafe(send)
+
+    async def run() -> None:
+        async with async_session() as db:
+            rows = await data_source_service.run_etl(
+                db, target, sql, roles, msg.get("mappingData") or {},
+                on_statement=on_statement,
+            )
+        await _send_quietly(websocket, {"type": "done", "rows": rows})
+
+    task = asyncio.create_task(run())
+    # The client stops a run by CLOSING the socket, so watch for that alongside
+    # the run itself rather than waiting on the run alone.
+    closed = asyncio.create_task(websocket.receive_text())
+    try:
+        done, _ = await asyncio.wait(
+            {task, closed}, return_when=asyncio.FIRST_COMPLETED,
+        )
+        # `.exception()` itself raises if the task was cancelled, so only ask a
+        # task that finished on its own.
+        if task in done and not task.cancelled():
+            exc = task.exception()
+            # A cancelled run is the user pressing Stop, not a failure to report.
+            if exc is not None and not isinstance(exc, db_connect.EtlRunCancelled):
+                await _send_quietly(websocket, {"type": "error", "message": str(exc)})
+    finally:
+        closed.cancel()
+        if not task.done():
+            # Cancelling is what stops the run: run_etl shields the worker thread
+            # and, on CancelledError, interrupts the statement and waits for the
+            # file to be released. Abandoning the await instead would leave the
+            # thread holding the target ATTACHed (see EtlRunHandle).
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task
+        with contextlib.suppress(BaseException):
+            await websocket.close()
+
+
+async def _send_quietly(websocket: WebSocket, payload: dict) -> None:
+    """Send, tolerating an already-closed socket: a run that finishes just after
+    the client navigated away must unwind normally, not raise."""
+    with contextlib.suppress(BaseException):
+        await websocket.send_json(payload)
 
 
 @router.post("/{source_id}/retest", response_model=TestConnectionResult)

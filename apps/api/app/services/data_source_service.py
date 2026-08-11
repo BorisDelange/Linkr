@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -269,8 +270,13 @@ async def run_etl(
     sql: str,
     roles: dict[str, DataSource],
     mapping_data: dict[str, str] | None = None,
+    on_statement: Callable[[int, int, str], None] | None = None,
 ) -> list[dict]:
-    """Run ETL SQL with the target writable and the other roles attached read-only."""
+    """Run ETL SQL with the target writable and the other roles attached read-only.
+
+    `on_statement(index, total, sql)` is invoked from the worker THREAD before
+    each statement, so a streaming caller must marshal it back to the loop
+    (`call_soon_threadsafe`) rather than await inside it."""
     if not is_managed(target):
         raise ValueError(
             "the pipeline target must be a database created from a schema"
@@ -309,6 +315,7 @@ async def run_etl(
             attachments,
             mapping_data,
             handle,
+            on_statement,
         )
     )
     try:

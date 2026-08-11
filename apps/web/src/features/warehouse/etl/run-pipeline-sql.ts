@@ -1,5 +1,6 @@
 import { isServerMode } from '@/lib/api-client'
 import { runEtlOnServer } from '@/lib/api/data-sources'
+import { runEtlStream } from '@/lib/api/etl-run-ws'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import type { DatabaseConnectionConfig, DataSource, EtlPipeline } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -54,6 +55,35 @@ export async function runPipelineSql(
   options: RunOptions = {},
 ): Promise<Record<string, unknown>[]> {
   const { onProgress, signal, mappingData = {} } = options
+
+  // Server mode with a managed target: send the script WHOLE over the streaming
+  // endpoint. Splitting it here meant one request — and one DuckDB connection —
+  // per statement, so a script could not carry `SET VARIABLE` or a temp table
+  // from one statement to the next. The server splits it instead and reports
+  // each statement, so progress survives without the session being cut up.
+  const streamTarget = serverStreamTarget(pipeline)
+  if (streamTarget) {
+    if (signal?.aborted) throw new RunAbortedError()
+    const roles = await serverRoles(pipeline, streamTarget)
+    // Last count seen, so completion can report `total/total` — the server
+    // announces a statement BEFORE running it, exactly like the loop below.
+    let seen = 0
+    try {
+      const rows = await runEtlStream(streamTarget, sql, roles, mappingData, {
+        signal,
+        onStatement: (index, total, next) => {
+          seen = total
+          onProgress?.(index, total, next)
+        },
+      })
+      onProgress?.(seen, seen, undefined)
+      return rows
+    } catch (err) {
+      // A socket closed by Stop is the stop, not a failure.
+      if (signal?.aborted) throw new RunAbortedError()
+      throw err
+    }
+  }
 
   // Statement by statement, so progress is real rather than interpolated: the
   // server splits the batch the same way (db_connect._split_statements), so
@@ -125,34 +155,53 @@ async function runStatements(
 }
 
 /**
- * Pick how a single statement reaches the database, once per script rather than
- * once per statement — the role lookup can hit the store and the network.
+ * The managed target a script should stream against, or undefined when this run
+ * does not go through the ETL endpoint (front-only, or no managed target — a
+ * plain read-only query then serves).
  */
-async function statementRunner(
-  pipeline: EtlPipeline | undefined,
-  dataSourceId: string,
-  mappingData: Record<string, string>,
-): Promise<(sql: string) => Promise<Record<string, unknown>[]>> {
-  if (!isServerMode()) {
-    return (stmt) => duckdbEngine.queryDataSource(dataSourceId, stmt)
-  }
-
-  const { dataSources } = useDataSourceStore.getState()
+function serverStreamTarget(pipeline: EtlPipeline | undefined): string | undefined {
+  if (!isServerMode()) return undefined
   const targetId = pipeline?.targetDataSourceId
+  if (!targetId) return undefined
+  const { dataSources } = useDataSourceStore.getState()
   const target = dataSources.find((ds) => ds.id === targetId)
-  if (!targetId || !isManaged(target)) {
-    return (stmt) => duckdbEngine.queryDataSource(dataSourceId, stmt)
-  }
+  return isManaged(target) ? targetId : undefined
+}
 
-  // The endpoint runs against the target; every other role is attached beside
-  // it, including the picked database when that is not the target itself.
+/**
+ * The databases attached beside the target, by role. The endpoint runs against
+ * the target; every other role is attached beside it.
+ */
+async function serverRoles(
+  pipeline: EtlPipeline | undefined,
+  targetId: string,
+): Promise<Record<string, string>> {
   const roles: Record<string, string> = {}
   if (pipeline?.sourceDataSourceId && pipeline.sourceDataSourceId !== targetId) {
     roles.source = pipeline.sourceDataSourceId
   }
   const vocabId = await vocabDataSourceId(pipeline)
   if (vocabId && vocabId !== targetId) roles.vocab = vocabId
+  return roles
+}
 
+/**
+ * Pick how a single statement reaches the database, once per script rather than
+ * once per statement — the role lookup can hit the store and the network.
+ *
+ * Only reached when `serverStreamTarget` declined, so this is the front-only /
+ * unmanaged-target path.
+ */
+async function statementRunner(
+  pipeline: EtlPipeline | undefined,
+  dataSourceId: string,
+  mappingData: Record<string, string>,
+): Promise<(sql: string) => Promise<Record<string, unknown>[]>> {
+  const targetId = serverStreamTarget(pipeline)
+  if (!targetId) {
+    return (stmt) => duckdbEngine.queryDataSource(dataSourceId, stmt)
+  }
+  const roles = await serverRoles(pipeline, targetId)
   return (stmt) => runEtlOnServer(targetId, stmt, roles, mappingData)
 }
 

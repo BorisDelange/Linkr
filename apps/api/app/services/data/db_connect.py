@@ -251,6 +251,7 @@ def _reject_forbidden_statements(sql: str) -> None:
 def _run_statements(
     con: duckdb.DuckDBPyConnection, search_path: str, sql: str,
     max_rows: int | None = MAX_QUERY_ROWS,
+    on_statement: Callable[[int, int, str], None] | None = None,
 ) -> list[dict]:
     """Execute each statement in `sql` sequentially, returning the last result's
     rows. `search_path` puts DuckDB's writable `memory` catalog first (so CREATE
@@ -258,10 +259,18 @@ def _run_statements(
 
     `max_rows` caps the payload (a `SELECT *` on a billion-row table would blow
     up the response). Pass `None` for internal server-side consumers that need
-    the full result (e.g. materializing the cross-project table cache)."""
+    the full result (e.g. materializing the cross-project table cache).
+
+    `on_statement(index, total, sql)` is called BEFORE each statement runs, so a
+    caller can report progress. Every statement shares this one connection, which
+    is what lets a script carry `SET VARIABLE` or a temp table from one statement
+    to the next — splitting the script across requests loses that."""
     con.execute(f"SET search_path='{search_path}'")
     result: duckdb.DuckDBPyConnection | None = None
-    for stmt in _split_statements(sql):
+    statements = _split_statements(sql)
+    for i, stmt in enumerate(statements):
+        if on_statement is not None:
+            on_statement(i, len(statements), stmt)
         result = con.execute(stmt)
     if result is None or result.description is None:
         return []
@@ -777,6 +786,7 @@ def run_etl_sql(
     roles: dict[str, dict] | None = None,
     mapping_data: dict[str, str] | None = None,
     handle: EtlRunHandle | None = None,
+    on_statement: Callable[[int, int, str], None] | None = None,
 ) -> list[dict]:
     """Run an ETL script against a writable managed DuckDB file.
 
@@ -797,6 +807,11 @@ def run_etl_sql(
     written to a temp file for the duration of the run and the matching
     `'mapping.<name>'` literal is rewritten to that path, so the script can
     read rows that are deliberately absent from the versioned SQL.
+
+    `on_statement(index, total, sql)` reports progress as the script advances.
+    The whole script runs on ONE connection, so session state (`SET VARIABLE`,
+    temp tables) carries from one statement to the next; sending the statements
+    as separate requests would give each its own connection and lose it.
     """
     # An in-memory hub, with every role ATTACHed onto it. Opening the target file
     # directly would name that database after the file and make it impossible to
@@ -852,7 +867,7 @@ def run_etl_sql(
             # Unqualified names must not silently fall back to another attached
             # database: keep the writable target first.
             search_path = "target,memory"
-            return _run_statements(con, search_path, sql)
+            return _run_statements(con, search_path, sql, on_statement=on_statement)
         except duckdb.InterruptException as e:
             # Only a cancel raises this — report it as such rather than as a SQL
             # error, so the caller does not surface "Interrupted!" to the user.
