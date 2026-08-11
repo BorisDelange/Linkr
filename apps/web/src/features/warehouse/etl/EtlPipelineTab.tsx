@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -25,6 +25,7 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   Workflow,
   Play,
+  Pause,
   Square,
   PanelRight,
   Code,
@@ -49,6 +50,7 @@ import {
   Trash2,
   Copy,
   Check,
+  CornerDownRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -79,6 +81,7 @@ import { localized } from '@/lib/localized'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { etlLanguageLabel, orderByNamePatch } from './etl-file-language'
 import { usePipelineRunner } from './use-pipeline-runner'
+import { columnCountFor, splitIntoColumns } from './script-columns'
 import { RunProgressBar } from './RunProgressBar'
 import { splitSentences } from './role-presentation'
 import type { EtlFile, DatabaseStatsCache } from '@/types'
@@ -97,7 +100,18 @@ interface Props {
 export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
-  const { etlPipelines, files, pipelineRunning, scriptStatuses, runHistory, stopPipelineRun, updateFile } = useEtlStore()
+  const {
+    etlPipelines,
+    files,
+    pipelineRunning,
+    scriptStatuses,
+    runHistory,
+    stopPipelineRun,
+    pausePipelineRun,
+    pausedRun,
+    discardPausedRun,
+    updateFile,
+  } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
@@ -154,6 +168,29 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
     await runScripts(sqlFiles)
   }, [pipeline?.targetDataSourceId, sqlFiles, runScripts])
 
+  const handlePausePipeline = useCallback(() => { pausePipelineRun() }, [pausePipelineRun])
+
+  /** Continue the held run: the scripts it still owes, in the pipeline's order. */
+  const handleResumePipeline = useCallback(async () => {
+    if (!pausedRun) return
+    const pending = new Set(pausedRun.pendingFileIds)
+    const rest = sqlFiles.filter((f) => pending.has(f.id))
+    if (rest.length === 0) return
+    await runScripts(rest, { resume: true })
+  }, [pausedRun, sqlFiles, runScripts])
+
+  /**
+   * Run ONE script, as its own run.
+   *
+   * A fresh history entry covering just this script, so the run reads as what it
+   * was — not as a pipeline that mysteriously skipped fifteen steps. Disabled
+   * scripts are runnable this way on purpose: singling one out IS the ask.
+   */
+  const handleRunScript = useCallback(async (file: EtlFile) => {
+    if (!pipeline?.targetDataSourceId) return
+    await runScripts([{ ...file, disabled: false }])
+  }, [pipeline?.targetDataSourceId, runScripts])
+
   // Get selected node info for sidebar
   const selectedNodeInfo = useMemo(() => {
     if (!selectedNodeId) return null
@@ -182,24 +219,58 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
       <div className="flex h-full flex-col">
         {/* Toolbar */}
         <div className="flex items-center gap-2 border-b px-3 py-1.5">
-          {!pipelineRunning ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={handleRunPipeline}>
-                  <Play size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('etl.run_pipeline')}</TooltipContent>
-            </Tooltip>
+          {/* Running: Pause and Stop. Idle: Start, or Resume plus Stop when a run
+              is held — a paused run is neither finished nor in flight, and both
+              ways out of it have to be reachable. */}
+          {pipelineRunning ? (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-xs" onClick={handlePausePipeline}>
+                    <Pause size={14} className="text-amber-500" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[280px]">{t('etl.pause_pipeline_hint')}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon-xs" onClick={stopPipelineRun}>
+                    <Square size={14} className="text-red-500" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('etl.stop')}</TooltipContent>
+              </Tooltip>
+            </>
           ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-xs" onClick={stopPipelineRun}>
-                  <Square size={14} className="text-red-500" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('etl.stop')}</TooltipContent>
-            </Tooltip>
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    disabled={!canWrite}
+                    onClick={pausedRun ? handleResumePipeline : handleRunPipeline}
+                  >
+                    <Play size={14} className={pausedRun ? 'text-amber-500' : undefined} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[280px]">
+                  {pausedRun
+                    ? t('etl.resume_pipeline_hint', { count: pausedRun.pendingFileIds.length })
+                    : t('etl.run_pipeline')}
+                </TooltipContent>
+              </Tooltip>
+              {pausedRun && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon-xs" onClick={discardPausedRun}>
+                      <Square size={14} className="text-red-500" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('etl.stop')}</TooltipContent>
+                </Tooltip>
+              )}
+            </>
           )}
 
           <span className="text-xs text-muted-foreground">
@@ -310,6 +381,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
                     setSidebarView('node')
                     setSidebarVisible(true)
                   }}
+                  onRunScript={handleRunScript}
                   onBrowseSchema={onBrowseSchema}
                 />
               )}
@@ -825,6 +897,10 @@ function RunStatusIcon({ status }: { status: string }) {
       case 'success': return <CheckCircle2 size={12} className="text-emerald-500" />
       case 'error': return <AlertCircle size={12} className="text-red-500" />
       case 'running': return <Loader2 size={12} className="animate-spin text-blue-500" />
+      // A held run is still 'running' in the history — that is what lets a
+      // resume continue it — but a spinner claims work is happening, so the
+      // panel asks for this status explicitly instead.
+      case 'paused': return <Pause size={12} className="text-amber-500" />
       case 'pending': return <Clock size={12} className="text-muted-foreground/50" />
       case 'skipped': return <AlertCircle size={12} className="text-amber-500" />
       case 'stopped': return <Square size={12} className="text-amber-500" />
@@ -863,6 +939,7 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('etl:write')
   const running = useEtlStore((s) => s.pipelineRunning)
+  const pausedRun = useEtlStore((s) => s.pausedRun)
   const clearRunHistory = useEtlStore((s) => s.clearRunHistory)
   const [confirmClear, setConfirmClear] = useState(false)
   const fileMap = useMemo(() => new Map(files.map((f) => [f.id, f])), [files])
@@ -919,7 +996,7 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-accent/50"
               >
                 {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                <RunStatusIcon status={run.status} />
+                <RunStatusIcon status={run.id === pausedRun?.runId ? 'paused' : run.status} />
                 <span className="flex-1 font-medium">
                   {formatDateTimeLocale(run.startedAt, i18n.language)}
                 </span>
@@ -1002,6 +1079,8 @@ interface ScriptOrderListProps {
   updateFile: (id: string, changes: Partial<EtlFile>) => Promise<void>
   onSelectFile?: (fileId: string) => void
   onSelectNode: (id: string) => void
+  /** Run a single script as its own run, from the card's play button. */
+  onRunScript?: (file: EtlFile) => void
   /** Double-clicking a database node opens its tables, as the sidebar button does. */
   onBrowseSchema?: (dataSourceId: string) => void
 }
@@ -1016,6 +1095,7 @@ function ScriptOrderList({
   updateFile,
   onSelectFile,
   onSelectNode,
+  onRunScript,
   onBrowseSchema,
 }: ScriptOrderListProps) {
   const { t } = useTranslation()
@@ -1023,6 +1103,22 @@ function ScriptOrderList({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor),
   )
+
+  // Columns are chosen from the space actually available, not a breakpoint: this
+  // pane is resizable (the detail sidebar takes from it), so a media query would
+  // describe the window rather than the list.
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const columns = columnCountFor(width - 32, sqlFiles.length)
+  const columnised = useMemo(() => splitIntoColumns(sqlFiles, columns), [sqlFiles, columns])
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -1043,8 +1139,8 @@ function ScriptOrderList({
   )
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-lg space-y-0 p-4">
+    <div ref={containerRef} className="h-full overflow-auto">
+      <div className="mx-auto space-y-0 p-4" style={{ maxWidth: columns > 1 ? undefined : '32rem' }}>
         {/* Source node (static) */}
           {/* Always shown, even undefined: a pipeline whose databases are missing
               still HAS a source and a target conceptually, and hiding the widget
@@ -1086,25 +1182,55 @@ function ScriptOrderList({
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+            // Vertical-only locking is right for ONE column; across several it
+            // would stop a card ever reaching another column, which is exactly
+            // the move a long pipeline needs.
+            modifiers={columnised.length > 1
+              ? [restrictToParentElement]
+              : [restrictToVerticalAxis, restrictToParentElement]}
             onDragEnd={handleDragEnd}
           >
             <SortableContext items={sqlFiles.map((f) => f.id)} strategy={verticalListSortingStrategy}>
-              {sqlFiles.map((file, idx) => {
-                const log = scriptStatuses.get(file.id)
-                return (
-                  <SortableScriptRow
-                    key={file.id}
-                    file={file}
-                    index={idx}
-                    log={log}
-                    isLast={idx === sqlFiles.length - 1}
-                    onSelectFile={onSelectFile}
-                    onSelectNode={onSelectNode}
-                    onToggleDisabled={(id) => updateFile(id, { disabled: !file.disabled })}
-                  />
-                )
-              })}
+              <div
+                className="grid items-start gap-x-4"
+                style={{ gridTemplateColumns: `repeat(${columnised.length}, minmax(0, 1fr))` }}
+              >
+                {columnised.map((column, colIdx) => {
+                  // Where this column starts in the pipeline, so every card keeps
+                  // its true execution number rather than restarting at 1.
+                  const offset = columnised
+                    .slice(0, colIdx)
+                    .reduce((n, c) => n + c.length, 0)
+                  const isLastColumn = colIdx === columnised.length - 1
+                  return (
+                    <div key={colIdx} className="min-w-0">
+                      {column.map((file, idx) => (
+                        <SortableScriptRow
+                          key={file.id}
+                          file={file}
+                          index={offset + idx}
+                          log={scriptStatuses.get(file.id)}
+                          isLast={idx === column.length - 1}
+                          onSelectFile={onSelectFile}
+                          onSelectNode={onSelectNode}
+                          onRunScript={onRunScript}
+                          onToggleDisabled={(id) => updateFile(id, { disabled: !file.disabled })}
+                        />
+                      ))}
+                      {/* Says the sequence continues at the TOP of the next
+                          column. Without it, a reader reaching the bottom of
+                          column 1 has no way to tell whether the pipeline ends
+                          there or carries on to the right. */}
+                      {!isLastColumn && (
+                        <div className="mt-2 flex items-center justify-end gap-1 pr-1 text-[10px] text-muted-foreground">
+                          {t('etl.pipeline_continues_next_column')}
+                          <CornerDownRight size={11} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </SortableContext>
           </DndContext>
 
@@ -1155,6 +1281,7 @@ function SortableScriptRow({
   isLast,
   onSelectFile,
   onSelectNode,
+  onRunScript,
   onToggleDisabled,
 }: {
   file: EtlFile
@@ -1163,9 +1290,11 @@ function SortableScriptRow({
   isLast: boolean
   onSelectFile?: (fileId: string) => void
   onSelectNode: (id: string) => void
+  onRunScript?: (file: EtlFile) => void
   onToggleDisabled: (fileId: string) => void
 }) {
   const { t } = useTranslation()
+  const running = useEtlStore((s) => s.pipelineRunning)
   const {
     attributes,
     listeners,
@@ -1277,6 +1406,24 @@ function SortableScriptRow({
             )}
           </div>
         </div>
+
+        {/* Run just this script — its own run, from scratch. Refused while
+            something is already in flight: the store allows one run at a time,
+            and a click that silently did nothing would read as a broken button. */}
+        {onRunScript && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={(e) => { e.stopPropagation(); onRunScript(file) }}
+                disabled={running}
+                className="shrink-0 rounded p-1 text-muted-foreground/40 transition-colors hover:bg-accent hover:text-emerald-600 disabled:pointer-events-none disabled:opacity-30"
+              >
+                <Play size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-[280px]">{t('etl.pipeline_run_script_hint')}</TooltipContent>
+          </Tooltip>
+        )}
 
         {/* View code button */}
         {onSelectFile && (
