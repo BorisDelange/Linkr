@@ -88,6 +88,15 @@ export interface EtlPullSelection {
   paths: Set<string>
   /** Replace the local pipeline settings with the remote ones. */
   settings: boolean
+  /**
+   * Deliberate "keep mine": take nothing, but still anchor on the remote commit.
+   *
+   * Distinct from an empty selection, which is merely an unfinished choice. The
+   * user is resolving the divergence in favour of the local content, so the
+   * behind banner must clear and the next push carry their version over the
+   * remote's. Nothing is written — only the anchor moves.
+   */
+  keepLocal?: boolean
 }
 
 /**
@@ -333,6 +342,19 @@ export function isCompleteEtlPull(plan: EtlPullPlan, selection: EtlPullSelection
 }
 
 /**
+ * May the anchor advance for this selection?
+ *
+ * Either the pull took everything on offer, or the user explicitly discarded the
+ * remote changes to keep their own — a resolution, not a partial pull. The
+ * keep-local branch requires an EMPTY selection: a half-taken pull that also
+ * claims the commit would still bury the un-taken items.
+ */
+export function mayAnchorEtlPull(plan: EtlPullPlan, selection: EtlPullSelection): boolean {
+  if (selection.keepLocal) return selection.paths.size === 0 && !selection.settings
+  return isCompleteEtlPull(plan, selection)
+}
+
+/**
  * Apply the resolved pull: write the chosen files (replacing the local ones at
  * the same paths), optionally the pipeline settings, then advance the sync anchor
  * — but only when the pull was COMPLETE and every write succeeded.
@@ -437,12 +459,13 @@ export async function applyEtlPull(
   // and leave the anchor alone. The caller shows the error and keeps the banner.
   if (failed) throw new Error('etl-pull: some changes could not be written')
 
-  // Anchor ONLY after a complete pull. The anchor asserts "we hold the content of
-  // this commit"; advancing it after a partial pull would clear the behind banner
-  // and rebuild every later plan against it, so the files the user did not take
-  // would never be offered again — their remote changes silently lost.
+  // Anchor after a complete pull, or when the user explicitly kept their version.
+  // The anchor asserts "we hold the content of this commit"; advancing it after a
+  // partial pull would clear the behind banner and rebuild every later plan
+  // against it, so the files the user did not take would never be offered again —
+  // their remote changes silently lost.
   // (Server mode only; front-only has no anchor to set.)
-  if (clonedOid && isCompleteEtlPull(plan, selection)) {
+  if (clonedOid && mayAnchorEtlPull(plan, selection)) {
     await gitSetSyncState('etl-pipelines', pipelineId, branch, clonedOid).catch(() => {})
   }
 }

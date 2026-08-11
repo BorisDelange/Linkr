@@ -65,6 +65,15 @@ export interface ProjectPullSelection {
   datasets: Set<string>
   pipeline: Set<string>
   readme: boolean
+  /**
+   * Deliberate "keep mine": take nothing, but still anchor on the remote commit.
+   *
+   * Distinct from an empty selection, which is merely an unfinished choice. The
+   * user is resolving the divergence in favour of the local content, so the
+   * behind banner must clear and the next push carry their version over the
+   * remote's. Nothing is written — only the anchor moves.
+   */
+  keepLocal?: boolean
 }
 
 const localizedEn = (s: LocalizedString | string | undefined | null): string => {
@@ -201,6 +210,25 @@ export function isCompleteProjectPull(
 }
 
 /**
+ * May the anchor advance for this selection?
+ *
+ * Either the pull took everything on offer, or the user explicitly discarded the
+ * remote changes to keep their own — a resolution, not a partial pull. The
+ * keep-local branch requires an EMPTY selection: a half-taken pull that also
+ * claims the commit would still bury the un-taken items.
+ */
+export function mayAnchorProjectPull(
+  plan: ProjectPullPlan,
+  selection: ProjectPullSelection,
+): boolean {
+  if (selection.keepLocal) {
+    const groups = ['dashboards', 'scripts', 'cohorts', 'datasets', 'pipeline'] as const
+    return groups.every((g) => selection[g].size === 0) && !selection.readme
+  }
+  return isCompleteProjectPull(plan, selection)
+}
+
+/**
  * Apply the resolved pull: overwrite the selected existing entities (delete first,
  * since the import loops are insert-only), import the chosen groups, update the
  * README block if picked, then advance the sync anchor to the cloned commit — but
@@ -246,11 +274,12 @@ export async function applyProjectPull(
     })
   }
 
-  // Anchor ONLY after a complete pull: it asserts we hold this commit's content,
-  // and advancing it after a partial pull would clear the behind banner and hide
-  // the un-taken items for good (see isCompleteProjectPull).
+  // Anchor after a complete pull, or when the user explicitly kept their version:
+  // it asserts we hold this commit's content, and advancing it after a PARTIAL
+  // pull would clear the behind banner and hide the un-taken items for good
+  // (see isCompleteProjectPull / mayAnchorProjectPull).
   // (Server mode only; front-only has no anchor to set.)
-  if (clonedOid && isCompleteProjectPull(prepared.plan, selection)) {
+  if (clonedOid && mayAnchorProjectPull(prepared.plan, selection)) {
     await gitSetSyncState('projects', projectUid, branch, clonedOid).catch(() => {})
   }
 }

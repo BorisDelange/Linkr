@@ -31,6 +31,7 @@ import {
   prepareProjectPull,
   applyProjectPull,
   isCompleteProjectPull,
+  mayAnchorProjectPull,
   type ProjectPullSelection,
   type PreparedProjectPull,
 } from './project-pull'
@@ -552,6 +553,29 @@ describe('applyProjectPull — failure paths (what is guaranteed today)', () => 
     await applyProjectPull(P, preparedWith(emptyParsed(), null), sel({ readme: false }))
     expect(gitMocks.gitSetSyncState).not.toHaveBeenCalled()
   })
+
+  it('keep-local writes nothing but anchors, so the behind banner clears', async () => {
+    const { storage, t } = makeStore()
+    storageHolder.current = storage
+    const parsed = emptyParsed({
+      cohorts: [{ id: 'c-1', name: 'Sepsis' } as unknown as ParsedProjectZip['cohorts'][number]],
+    })
+    // A plan with something on offer — the user is declining it, not pulling an
+    // already-empty plan.
+    const prepared = {
+      ...preparedWith(parsed),
+      plan: {
+        dashboards: [], scripts: [], datasets: [], pipeline: [],
+        cohorts: [{ key: 'sepsis', label: 'Sepsis', exists: false }],
+        readmeChanged: false,
+      },
+    } as PreparedProjectPull
+
+    await applyProjectPull(P, prepared, sel({ keepLocal: true }))
+
+    expect(t.cohorts.get(did('c-1'))).toBeUndefined()
+    expect(gitMocks.gitSetSyncState).toHaveBeenCalledOnce()
+  })
 })
 
 describe('isCompleteProjectPull', () => {
@@ -593,5 +617,32 @@ describe('isCompleteProjectPull', () => {
     expect(isCompleteProjectPull(
       plan({ dashboards: [], scripts: [] }), sel(),
     )).toBe(true)
+  })
+
+  describe('mayAnchorProjectPull', () => {
+    it('anchors on an explicit keep-local even though the plan offered items', () => {
+      // "Discard the remote, keep mine" is a resolution: the banner must clear.
+      expect(mayAnchorProjectPull(plan(), sel({ keepLocal: true }))).toBe(true)
+    })
+
+    it('does not anchor a half-taken pull that also claims keep-local', () => {
+      // Otherwise the un-taken script would be buried exactly as a partial pull.
+      expect(mayAnchorProjectPull(
+        plan(), sel({ keepLocal: true, dashboards: new Set(['d1']) }),
+      )).toBe(false)
+    })
+
+    it('does not anchor a keep-local that still took the readme block', () => {
+      expect(mayAnchorProjectPull(
+        plan({ readmeChanged: true }), sel({ keepLocal: true, readme: true }),
+      )).toBe(false)
+    })
+
+    it('without keep-local it still requires a complete pull', () => {
+      expect(mayAnchorProjectPull(plan(), sel())).toBe(false)
+      expect(mayAnchorProjectPull(
+        plan(), sel({ dashboards: new Set(['d1']), scripts: new Set(['s1']) }),
+      )).toBe(true)
+    })
   })
 })

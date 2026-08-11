@@ -8,7 +8,9 @@ import {
   etlPullGroupOf,
   etlRecordPaths,
   etlSettingsChanged,
+  isCompleteEtlPull,
   isEtlManifest,
+  mayAnchorEtlPull,
   stripInstancePipelineFields,
 } from './etl-pull'
 import { attachTreeIds } from './entity-io'
@@ -345,5 +347,35 @@ describe('README and LICENSE are docs, not tree files', () => {
     expect(etlDocTarget('README.fr.md')).toEqual({ readmeLang: 'fr' })
     expect(etlDocTarget('LICENSE.md')).toBe('license')
     expect(etlDocTarget('10_src.sql')).toBeNull()
+  })
+})
+
+describe('mayAnchorEtlPull', () => {
+  // One offered file, nothing local: a real plan the user can decline.
+  const plan = (settingsChanged = false) =>
+    buildEtlPullPlan([node('10_src.sql', 'X')], [], settingsChanged)
+  const sel = (over: Partial<{ paths: Set<string>; settings: boolean; keepLocal: boolean }> = {}) => ({
+    paths: new Set<string>(), settings: false, ...over,
+  })
+
+  it('anchors on an explicit keep-local even though the plan offered a file', () => {
+    // "Discard the remote, keep mine" is a resolution: the banner must clear.
+    expect(mayAnchorEtlPull(plan(), sel({ keepLocal: true }))).toBe(true)
+    expect(isCompleteEtlPull(plan(), sel({ keepLocal: true }))).toBe(false)
+  })
+
+  it('does not anchor a half-taken pull that also claims keep-local', () => {
+    expect(mayAnchorEtlPull(
+      plan(), sel({ keepLocal: true, paths: new Set(['10_src.sql']) }),
+    )).toBe(false)
+  })
+
+  it('does not anchor a keep-local that still replaces the settings', () => {
+    expect(mayAnchorEtlPull(plan(true), sel({ keepLocal: true, settings: true }))).toBe(false)
+  })
+
+  it('without keep-local it still requires a complete pull', () => {
+    expect(mayAnchorEtlPull(plan(), sel())).toBe(false)
+    expect(mayAnchorEtlPull(plan(), sel({ paths: new Set(['10_src.sql']) }))).toBe(true)
   })
 })

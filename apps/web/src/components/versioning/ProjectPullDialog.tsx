@@ -142,8 +142,12 @@ export function ProjectPullDialog({ projectUid, branch, onClose, onPulled }: Pro
     })
   }
 
+  // Zero selection is a valid outcome: discard the remote changes, keep the local
+  // content, and anchor so the behind banner clears and the push unblocks.
+  const keepLocal = selectedTotal === 0
+
   const handleApply = async () => {
-    if (!prepared || applying || selectedTotal === 0) return
+    if (!prepared || applying) return
     setApplying(true)
     try {
       const selection: ProjectPullSelection = {
@@ -153,6 +157,7 @@ export function ProjectPullDialog({ projectUid, branch, onClose, onPulled }: Pro
         datasets: sel.datasets,
         pipeline: sel.pipeline,
         readme: takeReadme,
+        keepLocal,
       }
       await applyProjectPull(projectUid, prepared, selection)
       await onPulled()
@@ -246,12 +251,13 @@ export function ProjectPullDialog({ projectUid, branch, onClose, onPulled }: Pro
           </Button>
           <Button
             size="sm"
+            variant={keepLocal ? 'outline' : 'default'}
             onClick={handleApply}
-            disabled={loading || !!error || nothingToPull || applying || selectedTotal === 0}
+            disabled={loading || !!error || nothingToPull || applying}
             className="gap-1.5"
           >
             {applying ? <Loader2 size={14} className="animate-spin" /> : <ArrowDownToLine size={14} />}
-            {t('versioning.pull_apply')}
+            {keepLocal ? t('versioning.pull_keep_local') : t('versioning.pull_apply')}
           </Button>
         </div>
       </DialogContent>

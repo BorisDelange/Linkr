@@ -144,11 +144,15 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
     })
   }
 
+  // Zero selection is a valid outcome: discard the remote changes, keep the local
+  // content, and anchor so the behind banner clears and the push unblocks.
+  const keepLocal = selectedTotal === 0
+
   const handleApply = async () => {
-    if (!prepared || applying || selectedTotal === 0) return
+    if (!prepared || applying) return
     setApplying(true)
     try {
-      await applyEtlPull(pipelineId, prepared, { paths, settings: takeSettings })
+      await applyEtlPull(pipelineId, prepared, { paths, settings: takeSettings, keepLocal })
       await onPulled()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -249,12 +253,13 @@ export function EtlPullDialog({ pipelineId, branch, onClose, onPulled }: EtlPull
           </Button>
           <Button
             size="sm"
+            variant={keepLocal ? 'outline' : 'default'}
             onClick={handleApply}
-            disabled={loading || !!error || nothingToPull || applying || selectedTotal === 0}
+            disabled={loading || !!error || nothingToPull || applying}
             className="gap-1.5"
           >
             {applying ? <Loader2 size={14} className="animate-spin" /> : <ArrowDownToLine size={14} />}
-            {t('versioning.pull_apply')}
+            {keepLocal ? t('versioning.pull_keep_local') : t('versioning.pull_apply')}
           </Button>
         </div>
       </DialogContent>
