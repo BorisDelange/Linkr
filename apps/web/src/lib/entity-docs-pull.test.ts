@@ -106,3 +106,36 @@ describe('entityDocsChanges', () => {
     expect(entityDocsChanges({ readme: { en: 'd' }, license })).toEqual({ readme: { en: 'd' }, license })
   })
 })
+
+describe('README language round-trip', () => {
+  it('reads a French-only README.md as FRENCH, not English', () => {
+    // The bug: writeReadmeFiles puts the primary language in the suffix-free
+    // README.md, and the primary is the first language when there is no English.
+    // The reader mapped a suffix-free name to 'en' unconditionally, so a
+    // French-only readme came back as English — and a pull then overwrote the
+    // real English readme with French text. `readmeLang` names the language.
+    const docs = readEntityDocsFrom({ 'README.md': 'bonjour' }, { readmeLang: 'fr' })
+    expect(docs.readme).toEqual({ fr: 'bonjour' })
+  })
+
+  it('still reads a suffix-free README.md as English when no marker is set', () => {
+    // Repos written before the marker existed must keep reading exactly as before.
+    const docs = readEntityDocsFrom({ 'README.md': 'hello' }, {})
+    expect(docs.readme).toEqual({ en: 'hello' })
+  })
+
+  it('keeps explicit per-language siblings whatever the marker says', () => {
+    const docs = readEntityDocsFrom(
+      { 'README.md': 'bonjour', 'README.en.md': 'hello' },
+      { readmeLang: 'fr' },
+    )
+    expect(docs.readme).toEqual({ fr: 'bonjour', en: 'hello' })
+  })
+
+  it('accepts a regional language tag', () => {
+    // README.pt-BR.md used to be classified as docs but matched by no reader, so
+    // its content was silently dropped on import.
+    const docs = readEntityDocsFrom({ 'README.pt-BR.md': 'olá' }, {})
+    expect(docs.readme).toEqual({ 'pt-BR': 'olá' })
+  })
+})

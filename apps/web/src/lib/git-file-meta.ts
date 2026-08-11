@@ -9,6 +9,7 @@
  * Category keys + descriptions are i18n keys under `versioning.file_*`.
  */
 import type { GitScope } from '@/lib/api/git'
+import { README_FILE_RE } from '@/lib/entity-tree'
 
 export interface GitFileMeta {
   /** Category key (stable id; label is `versioning.file_cat_<key>`). */
@@ -81,7 +82,7 @@ const GITIGNORE_RULE: Rule = {
 }
 
 const README_RULE: Rule = {
-  test: /^README(\.[a-z]{2})?\.md$/i,
+  test: README_FILE_RE,
   category: 'readme',
   order: CAT.readme,
   descriptionKey: 'versioning.file_desc_readme',

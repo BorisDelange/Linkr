@@ -15,6 +15,7 @@ import type { ConceptMapping, GitRemoteConfig, LocalizedString, MappingProject, 
 import type { Storage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { readLicense } from '@/lib/entity-io'
+import { README_FILE_RE } from '@/lib/entity-tree'
 import { restoreFileSourceDataFromCsv } from './export'
 import { parseSourceConceptIdEntries } from './source-concept-ids-io'
 
@@ -58,7 +59,9 @@ export async function importMappingProjectContent(
   const { targetId, workspaceId, replaceExisting, gitRemoteConfig } = options
   const now = new Date().toISOString()
 
-  const project = files['project.json'] as MappingProject | undefined
+  // `readmeLang` is an export-only marker (which language the suffix-free
+  // README.md holds); it rides on project.json but is not part of the entity.
+  const project = files['project.json'] as (MappingProject & { readmeLang?: string }) | undefined
   if (!project?.id) return false
 
   if (replaceExisting) {
@@ -79,8 +82,10 @@ export async function importMappingProjectContent(
   // onto the entity (the licence's id comes from project.json, its text from the file).
   const readmeByLang: LocalizedString = {}
   for (const [path, content] of Object.entries(files)) {
-    const m = /^README(?:\.([a-z]{2}))?\.md$/.exec(path)
-    if (m && typeof content === 'string') readmeByLang[m[1] ?? 'en'] = content
+    const m = README_FILE_RE.exec(path)
+    if (m && typeof content === 'string') {
+      readmeByLang[m[1] ?? project.readmeLang ?? 'en'] = content
+    }
   }
   const licenseText = files['LICENSE.md']
   const license = typeof licenseText === 'string'

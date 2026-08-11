@@ -152,12 +152,10 @@ async def _sync_state(
             token,
         )
     )
-    # The check derived a baseline from the local HEAD because the DB had none
-    # (entity linked before this scope had set-sync-state). Persist it, so the
-    # adoption happens once instead of on every poll.
-    adopted = result.pop("adoptedOid", None)
-    if adopted:
-        await git_sync_state_service.set_oid(db, scope, entity_id, branch, adopted)
+    # Deliberately writes nothing: the anchor is recorded by a pull/import that
+    # actually applied the content (set-sync-state), never inferred here. See the
+    # note in git_service.sync_state — the scratch repo's HEAD tracks the remote,
+    # so adopting it persisted a sync that never happened.
     return {"linked": remote_url is not None, "branch": branch, **result}
 
 

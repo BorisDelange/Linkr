@@ -214,6 +214,35 @@ def _split_statements(sql: str) -> list[str]:
     return stmts
 
 
+# Statements a user script may never run. `enable_external_access` is the real
+# filesystem/network gate, but it can only be set at connect time and must stay ON
+# whenever a legitimate role reads Parquet files or a mapping CSV — which is the
+# NORMAL pipeline shape, not an edge case. In that state `_lock_down_user_sql` is
+# not enough on its own: it only disables AUTO-install/load, so an explicit
+# `INSTALL httpfs; LOAD httpfs` still succeeded and handed the script outbound
+# network access. DuckDB's `allowed_directories` cannot help either — it is
+# refused before startup and, after it, only enforced while external access is
+# disabled. So the extension surface is closed here instead.
+#
+# ATTACH is included because it opens arbitrary database files (and would also
+# collide with the role attaches the runner owns); the roles it legitimately needs
+# are attached by the server before the script runs.
+_FORBIDDEN_IN_USER_SQL = re.compile(
+    r"^\s*(?:FORCE\s+)?(INSTALL|LOAD|ATTACH)\b", re.IGNORECASE
+)
+
+
+def _reject_forbidden_statements(sql: str) -> None:
+    """Raise when a user script contains a statement it must never run.
+
+    Checked per split statement, and the splitter has already dropped comments and
+    string literals, so `SELECT '-- install httpfs'` is not a false positive."""
+    for stmt in _split_statements(sql):
+        m = _FORBIDDEN_IN_USER_SQL.match(stmt)
+        if m:
+            raise ValueError(f"{m.group(1).upper()} is not allowed in a pipeline script")
+
+
 def _run_statements(
     con: duckdb.DuckDBPyConnection, search_path: str, sql: str,
     max_rows: int | None = MAX_QUERY_ROWS,
@@ -354,13 +383,16 @@ def query_file_source(
         )
         # The `sql` here is arbitrary client SQL (editor-authored, mirroring the
         # in-browser DuckDB-WASM path). Harden the connection before running it:
-        # block INSTALL/LOAD of unknown/community extensions and lock the config
-        # so the query can't re-enable anything. NOTE: DuckDB 1.5 cannot confine
-        # the local filesystem once the DB is running (allowed_directories can't
-        # be set at/after connect and enable_external_access can't be toggled),
-        # so this does NOT sandbox arbitrary local-file reads — that residual is
-        # accepted because /query is now editor-only, and editors already hold
-        # ide:execute (Python/R/SQL IDE) in this app.
+        # reject INSTALL/LOAD/ATTACH outright, block auto-loading unknown/community
+        # extensions, and lock the config so the query can't re-enable anything.
+        # NOTE: DuckDB 1.5 cannot confine the local filesystem once the DB is
+        # running (allowed_directories can't be set at/after connect and
+        # enable_external_access can't be toggled), so this does NOT sandbox
+        # arbitrary local-file reads — that residual is accepted because /query is
+        # now editor-only, and editors already hold ide:execute in this app. What
+        # the statement check adds is the network: without it, httpfs could be
+        # loaded explicitly and turn a file read into outbound egress.
+        _reject_forbidden_statements(sql)
         _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql, max_rows=max_rows)
     finally:
@@ -797,6 +829,10 @@ def run_etl_sql(
                     needs_file_access = True
 
             sql = _resolve_mapping_refs(sql, mapping_data or {}, tmp)
+
+            # Checked on the FINAL sql, after mapping refs are resolved, so nothing
+            # can be smuggled in through a `'mapping.<name>'` substitution.
+            _reject_forbidden_statements(sql)
 
             # The role databases (sqlite/postgres/mysql) needed their extensions
             # loaded above; now that every legitimate attach is done, forbid the

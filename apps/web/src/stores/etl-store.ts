@@ -201,8 +201,10 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     // its per-script badges, the current script and its query progress — the run
     // itself kept going invisibly. Only a DIFFERENT pipeline needs the wipe, or its
     // predecessor's runs would show as if they belonged here.
-    const samePipeline = get().activePipelineId === pipelineId
     const files = await getStorage().etlFiles.getByPipeline(pipelineId)
+    // Read AFTER the await: computing it before meant a run (or a pipeline switch)
+    // starting during the fetch was judged against a stale activePipelineId.
+    const samePipeline = get().activePipelineId === pipelineId
     set({
       files: files.sort((a, b) => a.order - b.order),
       filesLoaded: true,
@@ -534,6 +536,14 @@ export const useEtlStore = create<EtlState>((set, get) => ({
 
   loadRunHistory: async (pipelineId) => {
     const runs = await getStorage().etlRunHistory.getByPipeline(pipelineId)
+    // Re-checked AFTER the await, not only by the caller before it: a run started
+    // while this read was in flight would otherwise be overwritten by the stale
+    // history. That evicted the live entry, and since finishPipelineRun only
+    // updates history[0] when it is still 'running', the run could then NEVER
+    // reach a terminal status — it stayed 'running' in storage for good, and
+    // statusesOf relabelled it 'stopped' on every later reload. Same for a
+    // pipeline switch mid-read: the answer belongs to the pipeline we asked about.
+    if (get().pipelineRunning || get().activePipelineId !== pipelineId) return
     // Newest first, as the panel lists them. The server already orders that way,
     // but the IDB index does not, so sorting here keeps both backends identical.
     const history = runs

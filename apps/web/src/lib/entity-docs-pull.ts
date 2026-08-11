@@ -58,7 +58,10 @@ export interface DocsOwner {
  */
 export function readEntityDocsFrom(
   parsed: Record<string, unknown>,
-  meta: { license?: { id?: string; name?: string } } | null | undefined,
+  meta:
+    | { license?: { id?: string; name?: string }; readmeLang?: string }
+    | null
+    | undefined,
 ): EntityDocs {
   const textByPath: Record<string, string> = {}
   for (const [path, value] of Object.entries(parsed)) {
@@ -66,7 +69,9 @@ export function readEntityDocsFrom(
   }
   const licenseText = textByPath['LICENSE.md']
   return {
-    readme: presentReadme(readReadmeByLang(textByPath)),
+    // `readmeLang` names the language of the suffix-free README.md: without it a
+    // French-only readme pulled back in as English and overwrote the English one.
+    readme: presentReadme(readReadmeByLang(textByPath, meta?.readmeLang)),
     license: readLicense(meta?.license, licenseText),
   }
 }
@@ -100,4 +105,25 @@ export function entityDocsChanges(remote: EntityDocs): EntityDocs {
   if (remote.readme) changes.readme = remote.readme
   if (remote.license) changes.license = remote.license
   return changes
+}
+
+/**
+ * Fold README.md / LICENSE.md back onto the manifest an import just read.
+ *
+ * Every scope's export writes those two files beside the manifest, but the
+ * manifest itself carries no readme and only the licence ID — so an import that
+ * reads the manifest alone silently drops both. Each list page did exactly that:
+ * export then re-import, and the README was gone.
+ *
+ * The manifest wins where it already has a value: only the parts that live in
+ * the files are filled in.
+ */
+export function withEntityDocs<T extends DocsOwner>(
+  entity: T,
+  parsed: Record<string, unknown>,
+): T {
+  const docs = readEntityDocsFrom(parsed, entity as { license?: EntityLicense })
+  if (docs.readme && !presentReadme(entity.readme)) entity.readme = docs.readme
+  if (docs.license) entity.license = docs.license
+  return entity
 }

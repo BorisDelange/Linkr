@@ -495,3 +495,78 @@ describe('loadPipelineFiles keeps the live run visible', () => {
     expect(useEtlStore.getState().scriptStatuses.has('f1')).toBe(false)
   })
 })
+
+describe('loadRunHistory resolving mid-run', () => {
+  /**
+   * The guard has to be re-read AFTER the storage await, not just by the caller
+   * before it. A run starting during the read used to be overwritten by the stale
+   * history — and because finishPipelineRun only touches history[0] while it is
+   * 'running', the evicted run could never reach a terminal status: it stayed
+   * 'running' in storage for good and was relabelled 'stopped' on every reload.
+   */
+  const STALE: EtlRunHistoryEntry = {
+    id: 'run-old',
+    pipelineId: 'p1',
+    startedAt: '2026-08-01T10:00:00Z',
+    completedAt: '2026-08-01T10:05:00Z',
+    status: 'success',
+    scripts: [{ id: 'l', pipelineId: 'p1', fileId: 'f9', status: 'success' }],
+  }
+
+  let release: (() => void) | null = null
+
+  beforeEach(() => {
+    useEtlStore.setState({
+      pipelineRunning: false,
+      pipelineRunAbort: null,
+      runningFileIds: [],
+      scriptStatuses: new Map(),
+      runHistory: [],
+      activePipelineId: 'p1',
+    })
+    initStorage({
+      etlRunHistory: {
+        // Held open so a run can start while the read is still in flight.
+        getByPipeline: () => new Promise((resolve) => { release = () => resolve([STALE]) }),
+        save: async () => {},
+        delete: async () => {},
+        deleteByPipeline: async () => {},
+      },
+      etlPipelines: { getById: async () => null, update: async () => {} },
+    } as unknown as Parameters<typeof initStorage>[0])
+  })
+
+  afterEach(() => {
+    release = null
+    initStorage(undefined as unknown as Parameters<typeof initStorage>[0])
+  })
+
+  it('does not clobber a run that started while the read was in flight', async () => {
+    const inflight = useEtlStore.getState().loadRunHistory('p1')
+
+    useEtlStore.getState().startPipelineRun(['f2'])
+    useEtlStore.getState().setScriptStatus('f2', RUNNING)
+    const liveRunId = useEtlStore.getState().runHistory[0].id
+
+    release?.()
+    await inflight
+
+    // The live run is still on top, with its badge, and can still be finished.
+    expect(useEtlStore.getState().runHistory[0].id).toBe(liveRunId)
+    expect(useEtlStore.getState().scriptStatuses.get('f2')?.status).toBe('running')
+
+    useEtlStore.getState().finishPipelineRun('success')
+    expect(useEtlStore.getState().runHistory[0].status).toBe('success')
+  })
+
+  it('drops the answer when the pipeline changed while the read was in flight', async () => {
+    const inflight = useEtlStore.getState().loadRunHistory('p1')
+    useEtlStore.setState({ activePipelineId: 'p-other' })
+
+    release?.()
+    await inflight
+
+    // p1's history must not land on p-other.
+    expect(useEtlStore.getState().runHistory).toEqual([])
+  })
+})

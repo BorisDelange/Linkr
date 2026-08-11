@@ -186,6 +186,45 @@ def test_etl_sql_cannot_install_extensions_or_read_the_filesystem(data_dir):
         )
 
 
+def test_etl_sql_cannot_install_httpfs_even_when_a_role_needs_the_filesystem(data_dir):
+    """The case the previous guard missed, and the common one in practice.
+
+    `enable_external_access` can only be cut when NOTHING legitimate needs the
+    filesystem. As soon as mapping data or a parquet/external role is present — the
+    normal shape of a real pipeline — it has to stay on, and `_lock_down_user_sql`
+    alone does not stop an EXPLICIT `INSTALL httpfs; LOAD httpfs` (it only disables
+    auto-loading). That handed any script outbound network access. The statement
+    check closes it regardless of the external-access state."""
+    sid = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    target = managed_db.create_from_ddl(sid, DDL)
+    mapping = {"codes": "code,label\nA,HR\n"}
+
+    for sql in ("INSTALL httpfs;", "LOAD httpfs;", "FORCE INSTALL httpfs;"):
+        with pytest.raises(ValueError, match="not allowed in a pipeline script"):
+            db_connect.run_etl_sql(target, sql, None, mapping)
+
+    # ATTACH would open an arbitrary database file (and collide with the role
+    # attaches the runner owns).
+    with pytest.raises(ValueError, match="not allowed in a pipeline script"):
+        db_connect.run_etl_sql(target, "ATTACH '/etc/passwd' AS evil;", None, mapping)
+
+    # A statement hidden behind a legitimate one is still caught.
+    with pytest.raises(ValueError, match="not allowed in a pipeline script"):
+        db_connect.run_etl_sql(target, "SELECT 1;\nINSTALL httpfs;", None, mapping)
+
+
+def test_etl_sql_still_runs_normal_statements_mentioning_those_words(data_dir):
+    """The check must not fire on the words inside strings or comments — the
+    splitter drops both before it looks at the leading keyword."""
+    sid = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    target = managed_db.create_from_ddl(sid, DDL)
+    rows = db_connect.run_etl_sql(
+        target,
+        "-- install httpfs\nSELECT 'ATTACH is fine in a literal' AS s;",
+    )
+    assert rows == [{"s": "ATTACH is fine in a literal"}]
+
+
 def test_etl_rejects_a_role_name_that_is_not_an_identifier(data_dir):
     sid = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     target = managed_db.create_from_ddl(sid, DDL)

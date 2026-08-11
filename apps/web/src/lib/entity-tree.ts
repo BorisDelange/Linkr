@@ -54,6 +54,20 @@ export interface PathNode {
  * the entity's licence while the real one lives on the entity and overwrites
  * nothing. Reserving them sends the user to the licence field instead.
  */
+/**
+ * The one rule for what a README file is called, and which language it holds.
+ *
+ * Shared because it was written seven times with two different language grammars
+ * (`[a-z]{2}` in the readers, `[a-z-]+` in the docs classifier), and the halves
+ * disagreed: `README.pt-BR.md` was classified as docs — so skipped from the file
+ * tree — yet matched by no reader, so its content was silently dropped on import.
+ * Accepts a bare language (`fr`) and a regional one (`pt-BR`, `zh-Hans`).
+ *
+ * Lives here, in a leaf module, rather than in entity-io: the git panel and the
+ * pull dialogs need it without pulling in the whole export/import machinery.
+ */
+export const README_FILE_RE = /^README(?:\.([a-z]{2,3}(?:-[A-Za-z]{2,4})?))?\.md$/i
+
 const RESERVED_LICENSE_NAMES = new Set([
   'license',
   'license.md',

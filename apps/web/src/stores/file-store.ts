@@ -4,6 +4,7 @@ import type { IdeFile } from '@/types'
 import { getStorage } from '@/lib/storage'
 import {
   EMPTY_SELECTION,
+  pruneSelection,
   selectOnClick,
   type ClickModifiers,
   type Selection,
@@ -674,12 +675,17 @@ export const useFileStore = create<FileState>((set, get) => ({
     const expandedFolders = keepActive
       ? prev.expandedFolders.filter((id) => ids.has(id))
       : stored.filter((f) => f.type === 'folder' && f.parentId === null).map((f) => f.id)
+    // Same rule for the multi-selection, which this reset used to omit: dropped
+    // entirely for another project (ids are path-derived, so they would otherwise
+    // still "match" over there), pruned to what survived the re-scan for this one.
+    const selection = keepActive ? pruneSelection(prev.selection, ids) : EMPTY_SELECTION
     set({
       files: stored,
       activeProjectUid: projectUid,
       selectedFileId,
       openFileIds,
       expandedFolders,
+      selection,
       _dirtyVersion: 0,
     })
   },
@@ -696,7 +702,18 @@ export const useFileStore = create<FileState>((set, get) => ({
 
     // Switching projects: the console/output belongs to the previous project.
     // Clear it so results and tabs don't bleed across projects.
-    set({ outputTabs: [], activeOutputTab: null, executionResults: [] })
+    //
+    // The multi-selection goes with it, and that one is not cosmetic. Server-mode
+    // IDE ids are sha1(relative path) with no project in the hash, so the SAME
+    // script name in two projects has the SAME id: a selection carried over from
+    // project A still matched rows in project B, survived pruneSelection, stayed
+    // visibly tinted, and a bulk delete then removed B's files. Two projects made
+    // from one template is all it took. (See also the per-branch resets below,
+    // which never covered `selection`.)
+    set({
+      outputTabs: [], activeOutputTab: null, executionResults: [],
+      selection: EMPTY_SELECTION,
+    })
 
     // Server mode: the disk (projects/<uid>/scripts/) is the single source of
     // truth — just scan it. None of the IndexedDB/demo-seeding logic below applies.

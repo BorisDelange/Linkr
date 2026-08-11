@@ -472,12 +472,16 @@ async def test_sync_state_no_remote_branch_is_neutral():
 
 
 @pytest.mark.asyncio
-async def test_sync_state_unanchored_and_in_sync_adopts_head_reporting_nothing_to_pull():
-    """An unanchored entity sitting on the remote head adopts it as the baseline.
+async def test_sync_state_never_adopts_an_anchor_from_the_scratch_repo_head():
+    """An unanchored entity stays unanchored — the scratch HEAD is not evidence.
 
-    Nothing is behind or diverged (there is nothing to pull), but the anchor is
-    reported via adoptedOid so the route can persist it — without a baseline the
-    NEXT remote push could never be detected."""
+    The regression this pins: the baseline used to be backfilled from
+    `rev-parse HEAD` when the DB had no row. But `_sync_remote_branch` resets this
+    shared scratch repo to FETCH_HEAD on every status/diff/push, so its HEAD tracks
+    the REMOTE, not what was applied to the database. A status call landing first
+    (both run from the same mount, on the same repo lock) left HEAD == remote_head,
+    the adoption fired, and the route PERSISTED it — clearing the behind banner and
+    disarming the pull-first guard for content that was never imported."""
     tmp = Path(tempfile.mkdtemp())
 
     def getter(_uid):
@@ -490,55 +494,58 @@ async def test_sync_state_unanchored_and_in_sync_adopts_head_reporting_nothing_t
 
         s = await g.sync_state(getter, "u", "main", remote, None)  # synced_oid=None
         assert s["remoteHead"] == head
-        assert s["behind"] is False and s["diverged"] is False
-        assert s["adoptedOid"] == head
+        # No anchor is invented, and none is handed back for the route to persist.
+        assert s["syncedOid"] is None
+        assert "adoptedOid" not in s
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 @pytest.mark.asyncio
-async def test_sync_state_unanchored_behind_adopts_local_head_and_reports_behind():
-    """The gap this closes: an entity linked before its scope had set-sync-state has
-    no DB anchor, so it reported "in sync" no matter how far the remote moved — the
-    Pull button never appeared. The local HEAD IS the missing baseline, so it is
-    adopted when it is an ancestor of the remote head."""
+async def test_sync_state_unanchored_reports_nothing_rather_than_a_false_sync():
+    """Unanchored + the remote has moved: report neither behind nor in-sync.
+
+    Reporting nothing is honest — the server cannot know which commit's content
+    the database holds. The old code adopted the scratch HEAD here and, when a
+    status call had already reset it to the remote head, silently swallowed the
+    remote's changes for good. An entity gets its anchor when a pull or an import
+    applies content (set-sync-state), not from this read-only check."""
     tmp = Path(tempfile.mkdtemp())
     local, other = tmp / "repo", tmp / "other"
 
     try:
         remote = _bare_remote(tmp)
-        # This entity pushes v1, then FORGETS its anchor (the pre-fix state).
         first = await g.commit_push(lambda _u: local, "u", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
         v1 = first["commit"]["oid"]
-        # Someone else advances the remote to v2 — the "modification on the git
-        # remote" case that must be detected.
         second = await g.commit_push(lambda _u: other, "o", _zip({"project.json": '{"a":2}'}), "main", "v2", remote, None)
         v2 = second["commit"]["oid"]
         assert v1 != v2
 
         s = await g.sync_state(lambda _u: local, "u", "main", remote, None)
         assert s["remoteHead"] == v2
-        assert s["adoptedOid"] == v1, "local HEAD should become the baseline"
-        assert s["behind"] is True and s["diverged"] is False
+        assert s["syncedOid"] is None
+        assert s["behind"] is False and s["diverged"] is False
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 @pytest.mark.asyncio
-async def test_sync_state_unanchored_with_no_local_commit_stays_neutral():
-    """A fresh working tree with no commit of its own has no baseline to adopt, so
-    nothing is claimed — adopting the remote head here would assert we already hold
-    content we have never had."""
+async def test_sync_state_with_a_real_anchor_still_detects_behind():
+    """The anchor path that DOES carry evidence keeps working: an oid recorded by a
+    pull/import is compared against the remote head as before."""
     tmp = Path(tempfile.mkdtemp())
     local, other = tmp / "repo", tmp / "other"
 
     try:
         remote = _bare_remote(tmp)
-        await g.commit_push(lambda _u: other, "o", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+        first = await g.commit_push(lambda _u: local, "u", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+        v1 = first["commit"]["oid"]
+        second = await g.commit_push(lambda _u: other, "o", _zip({"project.json": '{"a":2}'}), "main", "v2", remote, None)
+        v2 = second["commit"]["oid"]
 
-        s = await g.sync_state(lambda _u: local, "u", "main", remote, None)
-        assert s["adoptedOid"] is None
-        assert s["behind"] is False and s["diverged"] is False
+        s = await g.sync_state(lambda _u: local, "u", "main", remote, v1)
+        assert s["remoteHead"] == v2 and s["syncedOid"] == v1
+        assert s["behind"] is True and s["diverged"] is False
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

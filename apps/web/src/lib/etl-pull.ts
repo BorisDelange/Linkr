@@ -24,7 +24,7 @@ import { getStorage } from '@/lib/storage'
 import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
 import { gitFileMeta } from '@/lib/git-file-meta'
-import { treeNodePath } from '@/lib/entity-tree'
+import { README_FILE_RE, treeNodePath } from '@/lib/entity-tree'
 import {
   attachTreeIds,
   dropForeignAuthorId,
@@ -235,7 +235,7 @@ export function etlDocItems(remote: EntityDocs, local: DocsOwner | undefined): E
 /** Map a chosen docs path back to what it writes: a readme language, or the licence. */
 export function etlDocTarget(path: string): { readmeLang: string } | 'license' | null {
   if (/^LICENSE\.md$/i.test(path)) return 'license'
-  const m = /^README(?:\.([a-z]{2}))?\.md$/i.exec(path)
+  const m = README_FILE_RE.exec(path)
   return m ? { readmeLang: (m[1] ?? 'en').toLowerCase() } : null
 }
 

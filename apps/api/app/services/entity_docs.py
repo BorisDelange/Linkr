@@ -61,15 +61,43 @@ def license_meta(license: Any) -> dict | None:
     return {"id": license.get("id")}
 
 
+def primary_readme_lang(readme: Any) -> str | None:
+    """Port of ``primaryReadmeLang``: the language written to the suffix-free
+    ``README.md`` — English when present, else the first non-empty one."""
+    if not readme:
+        return None
+    by_lang = to_localized(readme)
+    langs = [lang for lang in by_lang if by_lang[lang]]
+    if not langs:
+        return None
+    return "en" if "en" in langs else langs[0]
+
+
+def readme_lang_meta(readme: Any) -> str | None:
+    """Port of ``readmeLangMeta``: the marker naming the language of the
+    suffix-free README.md, omitted when it is English (so the common export stays
+    byte-identical to what it was before the marker existed)."""
+    primary = primary_readme_lang(readme)
+    return primary if primary and primary != "en" else None
+
+
 def strip_entity_docs(meta: dict) -> dict:
     """Port of ``stripEntityDocs``: drop ``readme`` (it becomes README.md) and
     reduce ``license`` to its identity (the text becomes LICENSE.md). An absent
     licence drops the key entirely — the client's JSON.stringify omits undefined,
-    so emitting a null here would break byte-parity."""
+    so emitting a null here would break byte-parity.
+
+    ``readmeLang`` is added when the suffix-free README.md is not English, so the
+    import knows which language it holds (a French-only readme used to come back
+    as English). Key ORDER matters for byte-parity: the client spreads `license`
+    then `readmeLang`, so they are appended here in the same order."""
     out = {k: v for k, v in meta.items() if k not in ("readme", "license")}
     licence = license_meta(meta.get("license"))
     if licence is not None:
         out["license"] = licence
+    lang = readme_lang_meta(meta.get("readme"))
+    if lang is not None:
+        out["readmeLang"] = lang
     return out
 
 

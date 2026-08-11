@@ -537,35 +537,20 @@ async def sync_state(
         if not remote_head:
             return {"remoteHead": None, "syncedOid": synced_oid, "behind": False, "diverged": False}
 
-        # No anchor, but a local repo that already sits on a commit the remote
-        # knows: adopt that commit as the baseline instead of staying blind.
-        # Entities linked before set-sync-state existed for their scope have no
-        # row, and without this they never report "behind" no matter how far the
-        # remote moves — the local HEAD is exactly the missing baseline, and it is
-        # only adopted when it is an ANCESTOR of the remote head (i.e. genuinely
-        # "we were here, the remote moved on"), never when it is unrelated.
-        # `anchor`, not a rebinding of the `synced_oid` parameter: assigning to the
-        # enclosing name inside this nested function would make it local to the
-        # closure and shadow the argument (UnboundLocalError on first read).
+        # The anchor is ONLY ever what a pull/import recorded (`set-sync-state`).
+        #
+        # It used to be backfilled from the scratch repo's `rev-parse HEAD` when
+        # the DB had no row, on the reasoning "we were here, the remote moved on".
+        # That reasoning does not hold here: this repo is a shared scratch area
+        # that `_sync_remote_branch` resets to FETCH_HEAD on every status/diff/push,
+        # so its HEAD tracks the REMOTE, never the content applied to the database.
+        # A status call landing before sync_state (both run from the same mount and
+        # serialize on the same repo lock) left HEAD == remote_head, the adoption
+        # fired, and the anchor was persisted — clearing the behind banner and
+        # disarming the pull-first push guard for content that was never imported,
+        # permanently. An entity with no anchor stays unanchored: reporting nothing
+        # is honest, claiming a sync that never happened is not.
         anchor = synced_oid
-        adopted_oid = None
-        if not anchor:
-            local_head = _run(repo, "rev-parse", "HEAD", check=False).strip()
-            if local_head and local_head != remote_head:
-                skip_lfs = {"GIT_LFS_SKIP_SMUDGE": "1"}
-                _run(repo, "fetch", "-q", ls_url, remote_head, token=token,
-                     env_extra=skip_lfs, check=False)
-                anc = subprocess.run(
-                    ["git", "-C", str(repo), "merge-base", "--is-ancestor",
-                     local_head, remote_head],
-                    capture_output=True, timeout=_GIT_TIMEOUT, env=_git_env(),
-                )
-                if anc.returncode == 0:
-                    anchor = adopted_oid = local_head
-            elif local_head:
-                # Already on the remote head: anchor here so a later remote push
-                # is detected, without reporting anything to pull now.
-                anchor = adopted_oid = local_head
 
         behind = diverged = False
         if anchor and anchor != remote_head:
@@ -592,9 +577,6 @@ async def sync_state(
             "syncedOid": anchor,
             "behind": behind,
             "diverged": diverged,
-            # Set when the baseline was derived from the local HEAD rather than read
-            # from the DB, so the caller can persist it (this function has no DB).
-            "adoptedOid": adopted_oid,
         }
 
     async with _lock_for(repo_getter(uid)):
@@ -662,7 +644,12 @@ _PULL_TEXT_FILES = ("mappings.json", "project.json")
 # Enumerated from the commit instead of hardcoded, because the README has one file
 # per language (README.md + README.<lang>.md, see writeReadmeFiles) and a fixed
 # tuple would silently drop every translation.
-_DOCS_RE = re.compile(r"^(README(\.[a-z]{2})?|LICENSE)\.md$", re.IGNORECASE)
+# Twin of README_FILE_RE in apps/web/src/lib/entity-tree.ts — keep the language
+# shape in sync (bare `fr` or regional `pt-BR`). They diverged once, and the
+# narrower half silently dropped regional translations.
+_DOCS_RE = re.compile(
+    r"^(README(\.[a-z]{2,3}(-[A-Za-z]{2,4})?)?|LICENSE)\.md$", re.IGNORECASE
+)
 
 
 def _docs_files_at(repo: Path, commit: str) -> list[str]:
