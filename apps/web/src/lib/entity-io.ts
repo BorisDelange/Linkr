@@ -128,10 +128,17 @@ export async function writeAttachmentFiles(
 ): Promise<void> {
   // Tolerate a storage without the attachment store (older server adapter, or a
   // narrow test double): an entity's docs must still export.
-  const attachments = await (storage.readmeAttachments
+  const unordered = await (storage.readmeAttachments
     ?.getByOwner(ownerType, ownerId)
     .catch(() => [] as ReadmeAttachment[]) ?? Promise.resolve([] as ReadmeAttachment[]))
-  if (attachments.length === 0) return
+  if (unordered.length === 0) return
+  // Sorted by id, because neither backend promises an order: the IDB index yields
+  // insertion order and the server's SELECT has no ORDER BY (arbitrary by SQL
+  // contract). With two attachments on one entity the two runtimes could emit
+  // `_meta.json` in different orders — a false git diff flipping on every export,
+  // which is exactly what the golden twins exist to prevent. Every other list in
+  // these exporters is explicitly sorted for the same reason.
+  const attachments = [...unordered].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   const meta = attachments.map((att) => ({
     id: att.id,
     fileName: att.fileName,

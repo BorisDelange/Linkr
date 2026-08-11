@@ -585,6 +585,13 @@ def build_project_tree(
                     included_data_paths.append(f"datasets/{folder_name}/{base_name}.csv")
 
     if attachments:
+        # Sorted by id, like writeAttachmentFiles: the caller's order is whatever
+        # the query returned, and with two attachments the client and the server
+        # emitted _meta.json differently — a false git diff on every export.
+        # Sorted by id, like writeAttachmentFiles: the caller's order is whatever
+        # the query returned, and with two attachments the client and the server
+        # emitted _meta.json differently — a false git diff on every export.
+        attachments = sorted(attachments, key=lambda a: a["id"])
         # Exactly the five portable keys, in this order — the owner fields are
         # re-stamped from context on import, so they never travel (mirrors
         # writeAttachmentFiles in entity-io.ts).

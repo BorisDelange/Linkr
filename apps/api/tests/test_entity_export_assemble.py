@@ -118,6 +118,10 @@ async def test_etl_pipeline_matches_golden(db):
         created_by_details=p["createdByDetails"], lineage_id=p["lineageId"],
         parent_lineage_id=p["parentLineageId"], version=p["version"],
         readme=p.get("readme"), license=p.get("license"),
+        # Seeded so the per-file versioning marks are actually exercised: without
+        # a config the fixture only ever covered the "no marks" branch, and the
+        # filtering that decides WHICH files reach the repo went untested.
+        config=p.get("config"),
         created_at=_dt(p["createdAt"]), updated_at=_dt(p["updatedAt"]),
     )
     db.add(pipeline)

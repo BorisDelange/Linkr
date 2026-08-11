@@ -3,17 +3,48 @@
     "uid": "proj-uid-1",
     "projectId": "demo-project",
     "workspaceId": "ws-1",
-    "name": { "en": "Demo Project", "fr": "Projet démo" },
-    "description": { "en": "A demo" },
-    "shortDescription": { "en": "demo" },
-    "config": { "theme": "light" },
-    "gitRemoteConfig": { "url": "https://example.com/repo.git", "branch": "main" },
+    "name": {
+      "en": "Demo Project",
+      "fr": "Projet démo"
+    },
+    "description": {
+      "en": "A demo"
+    },
+    "shortDescription": {
+      "en": "demo"
+    },
+    "config": {
+      "theme": "light"
+    },
+    "gitRemoteConfig": {
+      "url": "https://example.com/repo.git",
+      "branch": "main"
+    },
     "status": "active",
-    "badges": [{ "label": "ICU" }],
-    "todos": [{ "id": "t1", "text": { "en": "Do the thing" }, "done": false }],
-    "notes": { "en": "Some notes" },
-    "readme": { "en": "# Demo\nHello", "fr": "# Démo\nBonjour" },
-    "linkedDataSourceIds": ["ds-local-1"],
+    "badges": [
+      {
+        "label": "ICU"
+      }
+    ],
+    "todos": [
+      {
+        "id": "t1",
+        "text": {
+          "en": "Do the thing"
+        },
+        "done": false
+      }
+    ],
+    "notes": {
+      "en": "Some notes"
+    },
+    "readme": {
+      "en": "# Demo\nHello",
+      "fr": "# Démo\nBonjour"
+    },
+    "linkedDataSourceIds": [
+      "ds-local-1"
+    ],
     "organization": null,
     "lineageId": "lin-1",
     "parentLineageId": null,
@@ -22,14 +53,23 @@
     "ownerId": 3,
     "createdById": 3,
     "createdBy": "Ada Lovelace",
-    "createdByDetails": { "orcid": "0000-0000-0000-0001" },
+    "createdByDetails": {
+      "orcid": "0000-0000-0000-0001"
+    },
     "version": "0.3.0",
     "createdAt": "2026-01-02T03:04:05.000Z",
-    "updatedAt": "2026-06-30T10:00:00.000Z"
+    "updatedAt": "2026-06-30T10:00:00.000Z",
+    "license": {
+      "id": "MIT",
+      "name": "MIT License",
+      "text": "MIT License\n\nCopyright (c) 2026\n"
+    }
   },
   "organization": {
     "id": "org-1",
-    "name": { "en": "InterHop" },
+    "name": {
+      "en": "InterHop"
+    },
     "type": "hospital",
     "location": "Rennes",
     "country": "FR",
@@ -41,32 +81,145 @@
     "createdAt": "2025-12-01T00:00:00.000Z",
     "updatedAt": "2026-06-01T00:00:00.000Z"
   },
-  "workspace": { "id": "ws-1", "organizationId": "org-1" },
+  "workspace": {
+    "id": "ws-1",
+    "organizationId": "org-1"
+  },
   "ideFiles": [
-    { "id": "ide-da39a3ee5e6b4b0d", "projectUid": "proj-uid-1", "name": "scripts", "type": "folder", "parentId": null, "content": null, "language": null, "createdAt": "" },
-    { "id": "ide-d988e7fc56cd7301", "projectUid": "proj-uid-1", "name": "utils", "type": "folder", "parentId": "ide-da39a3ee5e6b4b0d", "content": null, "language": null, "createdAt": "" },
-    { "id": "ide-b03568913cadf18a", "projectUid": "proj-uid-1", "name": "helpers.py", "type": "file", "parentId": "ide-d988e7fc56cd7301", "content": "def f():\n    return 1\n", "language": "python", "createdAt": "" },
-    { "id": "ide-f1bdda93d9a278e3", "projectUid": "proj-uid-1", "name": "main.py", "type": "file", "parentId": "ide-da39a3ee5e6b4b0d", "content": "print('hello')\n", "language": "python", "createdAt": "" }
+    {
+      "id": "ide-da39a3ee5e6b4b0d",
+      "projectUid": "proj-uid-1",
+      "name": "scripts",
+      "type": "folder",
+      "parentId": null,
+      "content": null,
+      "language": null,
+      "createdAt": ""
+    },
+    {
+      "id": "ide-d988e7fc56cd7301",
+      "projectUid": "proj-uid-1",
+      "name": "utils",
+      "type": "folder",
+      "parentId": "ide-da39a3ee5e6b4b0d",
+      "content": null,
+      "language": null,
+      "createdAt": ""
+    },
+    {
+      "id": "ide-b03568913cadf18a",
+      "projectUid": "proj-uid-1",
+      "name": "helpers.py",
+      "type": "file",
+      "parentId": "ide-d988e7fc56cd7301",
+      "content": "def f():\n    return 1\n",
+      "language": "python",
+      "createdAt": ""
+    },
+    {
+      "id": "ide-f1bdda93d9a278e3",
+      "projectUid": "proj-uid-1",
+      "name": "main.py",
+      "type": "file",
+      "parentId": "ide-da39a3ee5e6b4b0d",
+      "content": "print('hello')\n",
+      "language": "python",
+      "createdAt": ""
+    }
   ],
   "pipelines": [
-    { "id": "pl-1", "projectUid": "proj-uid-1", "name": { "en": "Main pipeline" }, "nodes": [{ "id": "n1" }], "edges": [], "createdAt": "2026-01-03T00:00:00.000Z", "updatedAt": "2026-06-01T00:00:00.000Z" }
+    {
+      "id": "pl-1",
+      "projectUid": "proj-uid-1",
+      "name": {
+        "en": "Main pipeline"
+      },
+      "nodes": [
+        {
+          "id": "n1"
+        }
+      ],
+      "edges": [],
+      "createdAt": "2026-01-03T00:00:00.000Z",
+      "updatedAt": "2026-06-01T00:00:00.000Z"
+    }
   ],
   "cohorts": [
-    { "id": "co-1", "projectUid": "proj-uid-1", "name": "Adults", "description": "age >= 18", "level": "patient", "criteriaTree": { "op": "and", "rules": [] }, "customSql": null, "resultCount": 42, "attrition": null, "materialization": null, "schemaVersion": 3, "createdAt": "2026-01-04T00:00:00.000Z", "updatedAt": "2026-06-02T00:00:00.000Z", "version": "0.1.0" }
+    {
+      "id": "co-1",
+      "projectUid": "proj-uid-1",
+      "name": "Adults",
+      "description": "age >= 18",
+      "level": "patient",
+      "criteriaTree": {
+        "op": "and",
+        "rules": []
+      },
+      "customSql": null,
+      "resultCount": 42,
+      "attrition": null,
+      "materialization": null,
+      "schemaVersion": 3,
+      "createdAt": "2026-01-04T00:00:00.000Z",
+      "updatedAt": "2026-06-02T00:00:00.000Z",
+      "version": "0.1.0"
+    }
   ],
   "connections": [
-    { "id": "cx-1", "projectUid": "proj-uid-1", "name": "Warehouse", "source": "postgres", "dataSourceId": null, "connectionConfig": { "host": "db.local" }, "status": "connected", "errorMessage": null, "createdAt": "2026-01-05T00:00:00.000Z" }
+    {
+      "id": "cx-1",
+      "projectUid": "proj-uid-1",
+      "name": "Warehouse",
+      "source": "postgres",
+      "dataSourceId": null,
+      "connectionConfig": {
+        "host": "db.local"
+      },
+      "status": "connected",
+      "errorMessage": null,
+      "createdAt": "2026-01-05T00:00:00.000Z"
+    }
   ],
   "dashboards": [
     {
       "dashboard": {
         "id": "dash-1",
         "projectUid": "proj-uid-1",
-        "name": { "en": "Overview" },
-        "description": { "en": "Main dashboard" },
+        "name": {
+          "en": "Overview"
+        },
+        "description": {
+          "en": "Main dashboard"
+        },
         "filterConfig": [
-          { "id": "flt-1", "datasetFileId": "cohort.csv", "columnId": "col_age", "columnName": "age", "type": "numeric", "inputType": "range", "scope": { "type": "tabs", "tabIds": ["tab-1"] } },
-          { "id": "flt-2", "datasetFileId": "cohort.csv", "columnId": "col_sex", "columnName": "sex", "type": "categorical", "inputType": "select", "scope": { "type": "widgets", "widgetIds": ["wid-1"] } }
+          {
+            "id": "flt-1",
+            "datasetFileId": "cohort.csv",
+            "columnId": "col_age",
+            "columnName": "age",
+            "type": "numeric",
+            "inputType": "range",
+            "scope": {
+              "type": "tabs",
+              "tabIds": [
+                "tab-1"
+              ]
+            }
+          },
+          {
+            "id": "flt-2",
+            "datasetFileId": "cohort.csv",
+            "columnId": "col_sex",
+            "columnName": "sex",
+            "type": "categorical",
+            "inputType": "select",
+            "scope": {
+              "type": "widgets",
+              "widgetIds": [
+                "wid-1"
+              ]
+            }
+          }
         ],
         "showWidgetTitles": true,
         "defaultDatasetFileId": null,
@@ -77,34 +230,186 @@
         "origin": "user",
         "createdById": 3,
         "createdBy": "Ada Lovelace",
-        "createdByDetails": { "orcid": "0000-0000-0000-0001" },
+        "createdByDetails": {
+          "orcid": "0000-0000-0000-0001"
+        },
         "createdAt": "2026-01-06T00:00:00.000Z",
         "updatedAt": "2026-06-03T00:00:00.000Z",
         "version": "0.1.0"
       },
       "tabs": [
-        { "id": "tab-1", "dashboardId": "dash-1", "name": { "en": "Summary" }, "description": null, "displayOrder": 0, "parentTabId": null },
-        { "id": "tab-2", "dashboardId": "dash-1", "name": { "en": "Details" }, "description": null, "displayOrder": 1, "parentTabId": "tab-1" }
+        {
+          "id": "tab-1",
+          "dashboardId": "dash-1",
+          "name": {
+            "en": "Summary"
+          },
+          "description": null,
+          "displayOrder": 0,
+          "parentTabId": null
+        },
+        {
+          "id": "tab-2",
+          "dashboardId": "dash-1",
+          "name": {
+            "en": "Details"
+          },
+          "description": null,
+          "displayOrder": 1,
+          "parentTabId": "tab-1"
+        }
       ],
       "widgets": [
-        { "id": "wid-1", "tabId": "tab-1", "name": { "en": "KPI" }, "description": null, "datasetFileId": "cohort.csv", "layout": { "x": 0, "y": 0, "w": 4, "h": 2 }, "source": { "kind": "plugin", "pluginId": "kpi" } },
-        { "id": "wid-2", "tabId": "tab-2", "name": { "en": "Chart" }, "description": null, "datasetFileId": "cohort.csv", "layout": { "x": 0, "y": 2, "w": 6, "h": 4 }, "source": { "kind": "plugin", "pluginId": "bar" } }
+        {
+          "id": "wid-1",
+          "tabId": "tab-1",
+          "name": {
+            "en": "KPI"
+          },
+          "description": null,
+          "datasetFileId": "cohort.csv",
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 4,
+            "h": 2
+          },
+          "source": {
+            "kind": "plugin",
+            "pluginId": "kpi"
+          }
+        },
+        {
+          "id": "wid-2",
+          "tabId": "tab-2",
+          "name": {
+            "en": "Chart"
+          },
+          "description": null,
+          "datasetFileId": "cohort.csv",
+          "layout": {
+            "x": 0,
+            "y": 2,
+            "w": 6,
+            "h": 4
+          },
+          "source": {
+            "kind": "plugin",
+            "pluginId": "bar"
+          }
+        }
       ]
     }
   ],
   "datasetFiles": [
-    { "id": "sub", "projectUid": "proj-uid-1", "name": "sub", "type": "folder", "parentId": null, "path": "sub", "createdAt": "", "updatedAt": "" },
-    { "id": "sub/labs.csv", "projectUid": "proj-uid-1", "name": "labs.csv", "type": "file", "parentId": "sub", "path": "sub/labs.csv", "columns": [{ "id": "col_val", "name": "val", "type": "number", "order": 0 }], "rowCount": 2, "createdAt": "", "updatedAt": "" },
-    { "id": "cohort.csv", "projectUid": "proj-uid-1", "name": "cohort.csv", "type": "file", "parentId": null, "path": "cohort.csv", "columns": [{ "id": "col_age", "name": "age", "type": "number", "order": 0, "label": "Age", "description": "Age in years at inclusion" }, { "id": "col_sex", "name": "sex", "type": "string", "order": 1, "valueLabels": { "m": "Male", "f": "Female" } }], "rowCount": 3, "parseOptions": { "columnTypes": { "col_age": "number" }, "columnFilterMode": { "col_sex": "list" } }, "createdAt": "", "updatedAt": "" }
+    {
+      "id": "sub",
+      "projectUid": "proj-uid-1",
+      "name": "sub",
+      "type": "folder",
+      "parentId": null,
+      "path": "sub",
+      "createdAt": "",
+      "updatedAt": ""
+    },
+    {
+      "id": "sub/labs.csv",
+      "projectUid": "proj-uid-1",
+      "name": "labs.csv",
+      "type": "file",
+      "parentId": "sub",
+      "path": "sub/labs.csv",
+      "columns": [
+        {
+          "id": "col_val",
+          "name": "val",
+          "type": "number",
+          "order": 0
+        }
+      ],
+      "rowCount": 2,
+      "createdAt": "",
+      "updatedAt": ""
+    },
+    {
+      "id": "cohort.csv",
+      "projectUid": "proj-uid-1",
+      "name": "cohort.csv",
+      "type": "file",
+      "parentId": null,
+      "path": "cohort.csv",
+      "columns": [
+        {
+          "id": "col_age",
+          "name": "age",
+          "type": "number",
+          "order": 0,
+          "label": "Age",
+          "description": "Age in years at inclusion"
+        },
+        {
+          "id": "col_sex",
+          "name": "sex",
+          "type": "string",
+          "order": 1,
+          "valueLabels": {
+            "m": "Male",
+            "f": "Female"
+          }
+        }
+      ],
+      "rowCount": 3,
+      "parseOptions": {
+        "columnTypes": {
+          "col_age": "number"
+        },
+        "columnFilterMode": {
+          "col_sex": "list"
+        }
+      },
+      "createdAt": "",
+      "updatedAt": ""
+    }
   ],
   "datasetAnalyses": {
     "cohort.csv": [
-      { "id": "an-1", "projectUid": "proj-uid-1", "datasetPath": "cohort.csv", "name": "Age histogram", "type": "chart", "config": { "col": "col_age" }, "createdAt": "2026-01-07T00:00:00.000Z", "updatedAt": "2026-06-04T00:00:00.000Z", "datasetFileId": "cohort.csv" }
+      {
+        "id": "an-1",
+        "projectUid": "proj-uid-1",
+        "datasetPath": "cohort.csv",
+        "name": "Age histogram",
+        "type": "chart",
+        "config": {
+          "col": "col_age"
+        },
+        "createdAt": "2026-01-07T00:00:00.000Z",
+        "updatedAt": "2026-06-04T00:00:00.000Z",
+        "datasetFileId": "cohort.csv"
+      }
     ]
   },
   "datasetData": {},
   "datasetRawFiles": {},
   "attachments": [
-    { "id": "att-1", "projectUid": "proj-uid-1", "workspaceId": null, "fileName": "diagram.png", "mimeType": "image/png", "fileSize": 4, "createdAt": "2026-01-08T00:00:00.000Z", "dataBase64": "AAECAw==" }
+    {
+      "id": "att-1",
+      "projectUid": "proj-uid-1",
+      "workspaceId": null,
+      "fileName": "diagram.png",
+      "mimeType": "image/png",
+      "fileSize": 4,
+      "createdAt": "2026-01-08T00:00:00.000Z",
+      "dataBase64": "AAECAw=="
+    },
+    {
+      "id": "att-0",
+      "projectUid": "proj-uid-1",
+      "workspaceId": null,
+      "fileName": "schema.png",
+      "mimeType": "image/png",
+      "fileSize": 3,
+      "createdAt": "2026-01-09T00:00:00.000Z",
+      "dataBase64": "BAUG"
+    }
   ]
 }

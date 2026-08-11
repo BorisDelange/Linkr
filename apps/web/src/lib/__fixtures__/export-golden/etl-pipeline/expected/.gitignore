@@ -3,3 +3,4 @@
 **/*.pq
 **/*.xlsx
 **/*.xls
+!mapping/kept.csv

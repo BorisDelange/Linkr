@@ -25,6 +25,14 @@
   "parentLineageId": null,
   "createdAt": "2026-01-02T03:04:05.000Z",
   "version": "0.1.0",
+  "config": {
+    "versionedDataFiles": [
+      "mapping/kept.csv"
+    ],
+    "excludedFiles": [
+      "scratch.sql"
+    ]
+  },
   "license": {
     "id": "MIT"
   },

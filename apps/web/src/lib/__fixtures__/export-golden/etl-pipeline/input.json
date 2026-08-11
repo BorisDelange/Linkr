@@ -41,6 +41,14 @@
     "license": {
       "id": "MIT",
       "text": "MIT License\n\nCopyright (c) 2026 University Hospital of Rennes\n"
+    },
+    "config": {
+      "versionedDataFiles": [
+        "mapping/kept.csv"
+      ],
+      "excludedFiles": [
+        "scratch.sql"
+      ]
     }
   },
   "files": [
@@ -81,6 +89,58 @@
       "order": 1,
       "dataSourceId": null,
       "disabled": false,
+      "createdAt": "2026-01-02T03:04:05.000Z"
+    },
+    {
+      "id": "f-mapdir",
+      "pipelineId": "pipe-1",
+      "name": "mapping",
+      "type": "folder",
+      "parentId": null,
+      "content": null,
+      "language": null,
+      "order": 2,
+      "dataSourceId": null,
+      "disabled": null,
+      "createdAt": "2026-01-02T03:04:05.000Z"
+    },
+    {
+      "id": "f-map-kept",
+      "pipelineId": "pipe-1",
+      "name": "kept.csv",
+      "type": "file",
+      "parentId": "f-mapdir",
+      "content": "code,label\nA,HR\n",
+      "language": null,
+      "order": 0,
+      "dataSourceId": null,
+      "disabled": null,
+      "createdAt": "2026-01-02T03:04:05.000Z"
+    },
+    {
+      "id": "f-map-dropped",
+      "pipelineId": "pipe-1",
+      "name": "private.csv",
+      "type": "file",
+      "parentId": "f-mapdir",
+      "content": "code,label\nB,SECRET\n",
+      "language": null,
+      "order": 1,
+      "dataSourceId": null,
+      "disabled": null,
+      "createdAt": "2026-01-02T03:04:05.000Z"
+    },
+    {
+      "id": "f-scratch",
+      "pipelineId": "pipe-1",
+      "name": "scratch.sql",
+      "type": "file",
+      "parentId": null,
+      "content": "SELECT 'wip';",
+      "language": "sql",
+      "order": 3,
+      "dataSourceId": null,
+      "disabled": null,
       "createdAt": "2026-01-02T03:04:05.000Z"
     }
   ],

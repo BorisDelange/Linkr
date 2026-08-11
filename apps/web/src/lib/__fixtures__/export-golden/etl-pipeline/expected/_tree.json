@@ -9,6 +9,24 @@
     "createdAt": "2026-01-02T03:04:05.000Z"
   },
   {
+    "path": "mapping",
+    "type": "folder",
+    "language": null,
+    "order": 2,
+    "dataSourceId": null,
+    "disabled": null,
+    "createdAt": "2026-01-02T03:04:05.000Z"
+  },
+  {
+    "path": "mapping/kept.csv",
+    "type": "file",
+    "language": null,
+    "order": 0,
+    "dataSourceId": null,
+    "disabled": null,
+    "createdAt": "2026-01-02T03:04:05.000Z"
+  },
+  {
     "path": "steps",
     "type": "folder",
     "language": null,

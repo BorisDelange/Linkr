@@ -77,6 +77,9 @@ async def _seed(db) -> Project:
         todos=p["todos"],
         notes=p["notes"],
         readme=p["readme"],
+        # Seeded so the DB-backed path actually emits LICENSE.md: without it the
+        # project/workspace licence export had no end-to-end coverage at all.
+        license=p.get("license"),
         linked_data_source_ids=p["linkedDataSourceIds"],
         organization=data["organization"],
         lineage_id=p["lineageId"],

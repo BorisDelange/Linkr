@@ -87,10 +87,14 @@ class EtlPipelineResponse(CamelModel):
     organization: dict | None = None
     lineage_id: str | None = None
     parent_lineage_id: str | None = None
-    config: dict | None = None
     created_at: datetime
     updated_at: datetime
     version: str
+    # AFTER version/createdAt, not before: this schema's declaration order IS the
+    # exported key order, and the client emits config here. Declaring it earlier
+    # produced JSON with identical content but different bytes — a false git diff
+    # between a front-only and a server client versioning the same pipeline.
+    config: dict | None = None
 
 
 class EtlRunHistoryCreate(CamelModel):

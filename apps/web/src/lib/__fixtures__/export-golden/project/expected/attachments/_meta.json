@@ -1,5 +1,12 @@
 [
   {
+    "id": "att-0",
+    "fileName": "schema.png",
+    "mimeType": "image/png",
+    "fileSize": 3,
+    "createdAt": "2026-01-09T00:00:00.000Z"
+  },
+  {
     "id": "att-1",
     "fileName": "diagram.png",
     "mimeType": "image/png",

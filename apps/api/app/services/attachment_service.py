@@ -24,11 +24,18 @@ async def _blob_unreferenced(db: AsyncSession, model, sha: str) -> bool:
 async def list_readme_by_owner(
     db: AsyncSession, owner_type: str, owner_id: str
 ) -> list[ReadmeAttachment]:
+    """Ordered by id — the twin of `writeAttachmentFiles`' sort.
+
+    Without an ORDER BY the row order is arbitrary by SQL contract, so an entity
+    with two attachments could export `attachments/_meta.json` in a different
+    order here than in the browser: a false git diff flipping on every export."""
     result = await db.execute(
-        select(ReadmeAttachment).where(
+        select(ReadmeAttachment)
+        .where(
             ReadmeAttachment.owner_type == owner_type,
             ReadmeAttachment.owner_id == owner_id,
         )
+        .order_by(ReadmeAttachment.id)
     )
     return list(result.scalars().all())
 
