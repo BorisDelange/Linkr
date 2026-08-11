@@ -13,6 +13,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip } from '@/lib/entity-io'
+import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -133,6 +134,7 @@ export function CatalogListPage() {
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
     if (gitRemote) catalog.gitRemoteConfig = gitRemote
+    withEntityDocs(catalog, parsed)
     const existing = await getStorage().dataCatalogs.getById(catalog.id)
     if (existing) {
       setConflict({ name: localized(existing.name, language), pending: catalog })

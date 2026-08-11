@@ -14,6 +14,7 @@ import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSetti
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { attachTreeIds, parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
+import { withEntityDocs } from '@/lib/entity-docs-pull'
 import type { TreeImportNode } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
@@ -147,6 +148,7 @@ export function EtlListPage() {
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
     if (gitRemote) pipeline.gitRemoteConfig = gitRemote
+    withEntityDocs(pipeline, parsed)
     const files = reconstructTreeFiles(parsed['_tree.json'] ?? parsed['files.json'], parsed)
     const existing = await getStorage().etlPipelines.getById(pipeline.id)
     if (existing) {

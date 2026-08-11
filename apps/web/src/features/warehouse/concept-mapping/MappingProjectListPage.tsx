@@ -19,6 +19,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip, readBinaryFromImportZip } from '@/lib/entity-io'
+import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
@@ -306,6 +307,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       // the token, if supplied), mirroring project import. buildMappingProjectFolder
       // strips gitRemoteConfig on export, so it's only ever set from the import source.
       if (gitRemote) project.gitRemoteConfig = gitRemote
+      withEntityDocs(project, parsed)
       const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
       // Precomputed suggestion scores (optional, large binary — read as bytes, not
       // via parseImportZip which decodes every entry as text and corrupts parquet).

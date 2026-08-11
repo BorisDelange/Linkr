@@ -4,6 +4,7 @@ import {
   entityDocsChanges,
   presentReadme,
   readEntityDocsFrom,
+  withEntityDocs,
 } from './entity-docs-pull'
 
 describe('presentReadme', () => {
@@ -137,5 +138,33 @@ describe('README language round-trip', () => {
     // its content was silently dropped on import.
     const docs = readEntityDocsFrom({ 'README.pt-BR.md': 'olá' }, {})
     expect(docs.readme).toEqual({ 'pt-BR': 'olá' })
+  })
+})
+
+// Every scope's export writes README.md/LICENSE.md beside the manifest, but the
+// manifest carries no readme and only the licence id. Each list page imported the
+// manifest alone, so an export→import round trip silently lost both.
+describe('withEntityDocs', () => {
+  it('folds the README and the licence text onto the manifest', () => {
+    const entity = withEntityDocs(
+      { license: { id: 'Apache-2.0' } } as { readme?: unknown; license?: { id: string; text?: string } },
+      { 'README.md': '# Pipeline', 'LICENSE.md': 'Apache text' },
+    )
+    expect(entity.readme).toEqual({ en: '# Pipeline' })
+    expect(entity.license).toEqual({ id: 'Apache-2.0', text: 'Apache text' })
+  })
+
+  it('leaves a manifest that already carries a readme alone', () => {
+    const entity = withEntityDocs(
+      { readme: { en: 'from the manifest' } },
+      { 'README.md': 'from the file' },
+    )
+    expect(entity.readme).toEqual({ en: 'from the manifest' })
+  })
+
+  it('adds nothing when the export carried no docs', () => {
+    const entity = withEntityDocs({ license: { id: 'mit' } }, { '_tree.json': [] })
+    expect(entity.readme).toBeUndefined()
+    expect(entity.license).toEqual({ id: 'mit' })
   })
 })

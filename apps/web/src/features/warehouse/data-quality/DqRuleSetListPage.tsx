@@ -14,6 +14,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip } from '@/lib/entity-io'
+import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -156,6 +157,7 @@ export function DqRuleSetListPage() {
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.
     if (gitRemote) rs.gitRemoteConfig = gitRemote
+    withEntityDocs(rs, parsed)
     const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
     const existing = await getStorage().dqRuleSets.getById(rs.id)
     if (existing) {
