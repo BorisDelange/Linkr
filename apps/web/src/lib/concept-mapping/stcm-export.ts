@@ -1,4 +1,5 @@
 import type { ConceptMapping } from '@/types'
+import { csvField } from '@/lib/csv-export'
 import { assignSourceConceptIds, sourceConceptKey } from './source-concept-ids'
 
 /**
@@ -77,15 +78,15 @@ export function buildStcmCsv(
 }
 
 /**
- * Quote a CSV field when it needs it. Beyond the usual separator / quote /
- * newline (concept names routinely contain commas, "Sodium [Moles/volume] in
- * Serum, Plasma"), also quote a value that starts with a spreadsheet
- * formula-trigger (`= + - @`, tab, CR) or has leading/trailing whitespace:
- * quoting is lossless on the DuckDB `read_csv` round-trip, and keeps the field
- * from being interpreted as a formula if the CSV is opened in Excel.
+ * Quote a CSV field when it needs it: the usual separator / quote / newline
+ * (concept names routinely contain commas — "Sodium [Moles/volume] in Serum,
+ * Plasma"), plus leading/trailing whitespace and a leading spreadsheet
+ * formula-trigger.
+ *
+ * Re-exported from `@/lib/csv-export`, which now carries that rule for every
+ * CSV this app writes: the two implementations had drifted, and the shared one
+ * — used by the ETL quality export, whose rows carry the same source-derived
+ * names — was the weaker of the pair.
  */
-export function csvField(value: string | undefined): string {
-  const s = value ?? ''
-  if (!/[",\n\r]/.test(s) && !/^[=+\-@\t\r]/.test(s) && !/^\s|\s$/.test(s)) return s
-  return `"${s.replace(/"/g, '""')}"`
-}
+export { csvField } from '@/lib/csv-export'
+

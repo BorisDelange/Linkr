@@ -14,6 +14,7 @@ import { Upload, Loader2 } from 'lucide-react'
 import {
   findConflicts,
   planUpload,
+  safeUploadFileName,
   type ConflictResolution,
   type ExistingFile,
   type UploadCandidate,
@@ -83,8 +84,22 @@ export function UploadDialog({
     setError(null)
     try {
       const candidates: UploadCandidate[] = []
+      const rejected: string[] = []
       for (const file of Array.from(fileList)) {
-        candidates.push({ name: file.name, content: await file.text() })
+        // Upload was the one entry point taking the browser's name verbatim: a
+        // directory drop could nest via `sub/file.sql`, and README.md/LICENSE.md/
+        // attachments could land at the root, where the export overwrites them
+        // from the entity's own fields and the uploaded file quietly vanishes.
+        const safe = safeUploadFileName(file.name, parentId)
+        if (!safe) {
+          rejected.push(file.name)
+          continue
+        }
+        candidates.push({ name: safe, content: await file.text() })
+      }
+      if (rejected.length > 0) {
+        setError(t('files.upload_rejected', { names: rejected.join(', ') }))
+        return
       }
       const conflicts = findConflicts(candidates, siblings())
       // Nothing to decide: straight through, so the common case is unchanged.

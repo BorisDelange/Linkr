@@ -44,7 +44,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { contentSize } from '@/lib/file-tree-sort'
-import { actionTargets } from '@/lib/tree-selection'
+import { actionableTargets, isRowInBulkSelection } from '@/lib/tree-selection'
 import { downloadBlob } from '@/lib/entity-io'
 import { humanBytes } from '@/lib/format-helpers'
 
@@ -141,7 +141,11 @@ export function FileTreeItem({
   const isSelected = selectedFileId === node.id
   // Only past one row: a plain click leaves a single id selected, and decorating
   // that would dress up ordinary file opening as a multi-selection.
-  const isMultiSelected = selection.ids.length > 1 && selection.ids.includes(node.id)
+  const isActionableId = (id: string) => {
+    const f = (files as TreeNode[]).find((x) => x.id === id)
+    return !!f && f.type === 'file' && f.virtual !== true
+  }
+  const isMultiSelected = isRowInBulkSelection(selection, node.id, isActionableId)
   const children = isFolder ? getChildren(node.id) : []
 
   // Every real file has a versioning state. A data file is gitignored by default
@@ -283,12 +287,14 @@ export function FileTreeItem({
   }
 
   // Right-clicking inside a multi-selection acts on all of it; outside, on this
-  // row alone (see lib/tree-selection.actionTargets).
-  const targets = actionTargets(selection, node.id)
-  const targetNodes = targets
+  // row alone (see lib/tree-selection.actionTargets). The tint above and `bulk`
+  // read the SAME actionable set: a shift-range can sweep in a folder (or a
+  // virtual node), and these actions are file-only, so deriving them apart made a
+  // row look selected for a Delete that would skip it.
+  const { ids: targetIds, bulk } = actionableTargets(selection, node.id, isActionableId)
+  const targetNodes = targetIds
     .map((id) => (files as TreeNode[]).find((f) => f.id === id))
-    .filter((f): f is TreeNode => !!f && f.type === 'file' && f.virtual !== true)
-  const bulk = targetNodes.length > 1
+    .filter((f): f is TreeNode => !!f)
 
   /** One file downloads as itself; several as a zip, keeping their tree paths. */
   const handleBulkDownload = async () => {

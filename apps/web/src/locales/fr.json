@@ -1430,6 +1430,7 @@
     "move": "Déplacer vers...",
     "upload_description": "Importez des fichiers dans le projet.",
     "upload_drop": "Cliquez ou glissez des fichiers ici",
+    "upload_rejected": "Non ajouté, le nom est réservé ou invalide : {{names}}",
     "upload_conflict_intro": "{{count}} fichier(s) existent déjà ici :",
     "upload_conflict_hint": "Garder les deux ajoute les nouveaux fichiers sous un nom suffixé. Remplacer écrase le contenu des fichiers existants, en conservant leur place dans le pipeline et leurs marques de versioning.",
     "upload_keep_both": "Garder les deux",

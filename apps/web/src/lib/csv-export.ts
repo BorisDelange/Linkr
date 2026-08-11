@@ -16,6 +16,12 @@ function needsQuoting(value: string, delimiter: string): boolean {
     || value.includes('\r')
     // Leading/trailing spaces survive only inside quotes.
     || value !== value.trim()
+    // A leading `= + - @` (or tab/CR) makes Excel and LibreOffice read the field
+    // as a FORMULA rather than text, and these rows carry names that came from
+    // the source data. Quoting is lossless on the DuckDB read-back, so it costs
+    // nothing to refuse. Same rule as concept-mapping/stcm-export, which is where
+    // it was first needed — both now share this implementation.
+    || /^[=+\-@\t\r]/.test(value)
   )
 }
 

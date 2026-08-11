@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findConflicts, planUpload } from './upload-conflicts'
+import { findConflicts, planUpload, safeUploadFileName } from './upload-conflicts'
 
 const EXISTING = [
   { id: 'f1', name: '00_vocabulary.sql' },
@@ -98,5 +98,39 @@ describe('planUpload', () => {
     )
     expect(plan.replaces).toHaveLength(1)
     expect(plan.creates.map((c) => c.name)).toEqual(['brand_new.sql'])
+  })
+})
+
+describe('safeUploadFileName', () => {
+  it('strips a path handed back by a directory drop', () => {
+    // The tree stores hierarchy in parentId, not in the name: `sub/file.sql`
+    // would otherwise create a file literally called "sub/file.sql".
+    expect(safeUploadFileName('sub/file.sql')).toBe('file.sql')
+    expect(safeUploadFileName('a\\b\\file.sql')).toBe('file.sql')
+  })
+
+  it('refuses the names the export owns, at the root', () => {
+    // The export writes these from the entity's own fields, so an uploaded file
+    // of the same name is silently overwritten and the user loses it.
+    for (const name of ['README.md', 'readme.md', 'LICENSE.md', 'LICENSE', 'attachments']) {
+      expect(safeUploadFileName(name, null)).toBeUndefined()
+    }
+  })
+
+  it('allows those names inside a folder, where nothing collides', () => {
+    expect(safeUploadFileName('README.md', 'folder-1')).toBe('README.md')
+  })
+
+  it('refuses names that address nothing', () => {
+    expect(safeUploadFileName('')).toBeUndefined()
+    expect(safeUploadFileName('   ')).toBeUndefined()
+    expect(safeUploadFileName('.')).toBeUndefined()
+    expect(safeUploadFileName('..')).toBeUndefined()
+    expect(safeUploadFileName('sub/')).toBeUndefined()
+  })
+
+  it('leaves an ordinary name alone', () => {
+    expect(safeUploadFileName('analysis.py')).toBe('analysis.py')
+    expect(safeUploadFileName('  spaced.sql  ')).toBe('spaced.sql')
   })
 })

@@ -42,7 +42,8 @@ import { downloadBlob } from '@/lib/entity-io'
 import { isReservedTreeName, reservedTreeNameReason, treeNodePath } from '@/lib/entity-tree'
 import {
   EMPTY_SELECTION,
-  actionTargets,
+  actionableTargets,
+  isRowInBulkSelection,
   pruneSelection,
   selectOnClick,
   type ClickModifiers,
@@ -64,6 +65,11 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
   const { files, selectedFileId, selectFile, deleteFile, updateFile, moveFile, duplicateFile } =
     useSqlScriptsStore()
   const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION)
+  // From the subscribed `files`, so every row's bulk state re-renders with the tree.
+  const isFileId = useCallback(
+    (id: string) => files.find((f) => f.id === id)?.type === 'file',
+    [files],
+  )
   const [bulkDeleteIds, setBulkDeleteIds] = useState<string[] | null>(null)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
   const [deleteConfirmFileId, setDeleteConfirmFileId] = useState<string | null>(null)
@@ -211,6 +217,7 @@ export function SqlScriptsFileTree({ onNewChild }: Props) {
               onClickFile={handleClickFile}
               onBulkDownload={handleBulkDownload}
               onBulkDelete={setBulkDeleteIds}
+              isFileId={isFileId}
             />
           ))}
         </div>
@@ -290,6 +297,7 @@ function SqlScriptsFileTreeItem({
   selectedFileId,
   selection,
   onClickFile,
+  isFileId,
   onBulkDownload,
   onBulkDelete,
 }: {
@@ -314,6 +322,7 @@ function SqlScriptsFileTreeItem({
   onClickFile: (id: string, modifiers: ClickModifiers) => void
   onBulkDownload: (ids: string[]) => void
   onBulkDelete: (ids: string[]) => void
+  isFileId: (id: string) => boolean
 }) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('sql-scripts:write')
@@ -371,13 +380,14 @@ function SqlScriptsFileTreeItem({
 
   // Only past one row: a plain click leaves one id selected, and decorating that
   // would dress up ordinary file opening as a multi-selection.
-  const isMultiSelected = selection.ids.length > 1 && selection.ids.includes(file.id)
-  const targets = actionTargets(selection, file.id)
-  const targetCount = targets.filter((id) => {
-    const f = useSqlScriptsStore.getState().files.find((x) => x.id === id)
-    return f?.type === 'file'
-  }).length
-  const bulk = targetCount > 1
+  // Tint and `bulk` from the SAME actionable set: a shift-range can sweep in a
+  // folder, and these actions are file-only — deriving them apart made a row look
+  // selected for a Delete that would skip it. `isFileId` comes from the subscribed
+  // root rather than a getState() read, which bypassed the subscription and left
+  // this stale until some other prop forced a re-render.
+  const isMultiSelected = isRowInBulkSelection(selection, file.id, isFileId)
+  const { ids: targetIds, bulk } = actionableTargets(selection, file.id, isFileId)
+  const targetCount = targetIds.length
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('text/plain', file.id)
@@ -433,6 +443,7 @@ function SqlScriptsFileTreeItem({
             onClickFile={onClickFile}
             onBulkDownload={onBulkDownload}
             onBulkDelete={onBulkDelete}
+            isFileId={isFileId}
           />
         ))
       : null
@@ -588,7 +599,7 @@ function SqlScriptsFileTreeItem({
             </ContextMenuItem>
           )}
           {!isFolder && (
-            <ContextMenuItem onClick={() => void onBulkDownload(targets)}>
+            <ContextMenuItem onClick={() => void onBulkDownload(targetIds)}>
               <Download size={14} />
               {bulk ? t('files.download_count', { count: targetCount }) : t('files.download')}
             </ContextMenuItem>
@@ -597,7 +608,7 @@ function SqlScriptsFileTreeItem({
           <ContextMenuItem
             variant="destructive"
             disabled={!canDelete}
-            onClick={() => (bulk ? onBulkDelete(targets) : onDelete(file.id))}
+            onClick={() => (bulk ? onBulkDelete(targetIds) : onDelete(file.id))}
           >
             <Trash2 size={14} />
             {bulk ? t('files.delete_count', { count: targetCount }) : t('sql_scripts.delete_file')}

@@ -1430,6 +1430,7 @@
     "move": "Move to...",
     "upload_description": "Upload files to the project.",
     "upload_drop": "Click or drag files here",
+    "upload_rejected": "Not added, the name is reserved or invalid: {{names}}",
     "upload_conflict_intro": "{{count}} file(s) already exist here:",
     "upload_conflict_hint": "Keeping both adds the new files under a suffixed name. Replacing overwrites the contents of the existing files, keeping their place in the pipeline and their versioning marks.",
     "upload_keep_both": "Keep both",

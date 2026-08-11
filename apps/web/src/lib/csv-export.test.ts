@@ -77,3 +77,22 @@ describe('toCsv', () => {
     expect(toCsv([], COLS)).toBe('source_code,description,rows\r\n')
   })
 })
+
+describe('csvField refuses spreadsheet formula triggers', () => {
+  // These rows carry names that came from the source data, and Excel/LibreOffice
+  // execute a field starting with = + - @. Quoting is lossless on the DuckDB
+  // read-back, so it costs nothing. The mapping export already did this; the
+  // shared module (used by the ETL quality export) did not.
+  it.each(['=1+1', '+1', '-1', '@SUM(A1)', '\tlead', '\rlead'])('quotes %j', (value) => {
+    expect(csvField(value)).toBe(`"${value}"`)
+  })
+
+  it('quotes a formula trigger hidden behind the classic SUM payload', () => {
+    expect(csvField('=cmd|\' /c calc\'!A1')).toBe('"=cmd|\' /c calc\'!A1"')
+  })
+
+  it('still leaves an ordinary value bare', () => {
+    expect(csvField('Heart rate')).toBe('Heart rate')
+    expect(csvField('a-b')).toBe('a-b')
+  })
+})

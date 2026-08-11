@@ -50,7 +50,8 @@ import { downloadBlob } from '@/lib/entity-io'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import {
   EMPTY_SELECTION,
-  actionTargets,
+  actionableTargets,
+  isRowInBulkSelection,
   pruneSelection,
   selectOnClick,
   type ClickModifiers,
@@ -374,14 +375,17 @@ function EtlFileTreeItem({
   // Only once the selection actually spans several rows: a plain click leaves one
   // id selected, and marking that row would decorate ordinary single-file opening
   // as if a multi-selection were under way.
-  const isMultiSelected = selection.ids.length > 1 && selection.ids.includes(file.id)
   // Right-clicking inside a multi-selection acts on all of it; outside, on this
-  // row alone (see lib/tree-selection.actionTargets).
-  const targets = actionTargets(selection, file.id)
-  const targetFiles = targets
+  // row alone (see lib/tree-selection.actionTargets). The tint and `bulk` come
+  // from the SAME actionable set, so a row never looks selected for an action
+  // that would skip it (a shift-range can sweep in a folder, and the actions
+  // here are file-only).
+  const isFileId = (id: string) => files.find((f) => f.id === id)?.type === 'file'
+  const isMultiSelected = isRowInBulkSelection(selection, file.id, isFileId)
+  const { ids: targetIds, bulk } = actionableTargets(selection, file.id, isFileId)
+  const targetFiles = targetIds
     .map((id) => files.find((f) => f.id === id))
-    .filter((f): f is EtlFile => !!f && f.type === 'file')
-  const bulk = targetFiles.length > 1
+    .filter((f): f is EtlFile => !!f)
   // A mixed selection offers "mark": the useful default is to bring everything
   // into the same state rather than to invert each file.
   const allVersioned = targetFiles.length > 0
@@ -565,7 +569,7 @@ function EtlFileTreeItem({
             </ContextMenuItem>
           )}
           {targetFiles.length > 0 && (
-            <ContextMenuItem onClick={() => void onBulkDownload(targets)}>
+            <ContextMenuItem onClick={() => void onBulkDownload(targetIds)}>
               <Download size={14} />
               {/* Several files come down as one zip — a browser blocks a burst of
                   individual downloads anyway. */}
@@ -583,7 +587,7 @@ function EtlFileTreeItem({
                   versioned by default; this is the per-file exception either way. */}
               <ContextMenuItem
                 onClick={() => (bulk
-                  ? onBulkVersioning(targets, !allVersioned)
+                  ? onBulkVersioning(targetIds, !allVersioned)
                   : handleToggleVersioned())}
                 disabled={!canWrite}
               >
@@ -600,7 +604,7 @@ function EtlFileTreeItem({
           <ContextMenuItem
             variant="destructive"
             disabled={!canDelete}
-            onClick={() => (bulk ? onBulkDelete(targets) : onDelete(file.id))}
+            onClick={() => (bulk ? onBulkDelete(targetIds) : onDelete(file.id))}
           >
             <Trash2 size={14} />
             {bulk

@@ -891,6 +891,13 @@ export const useFileStore = create<FileState>((set, get) => ({
   },
 
   createFileWithContent: async (name, parentId, content) => {
+    // Same guard createFolder has: a reserved root name is written by the export
+    // from the entity's own fields, so a file of that name is silently overwritten.
+    // Kept here as well as in the dialog, so no future caller reopens the hole.
+    if (isReservedTreeName(name, parentId)) {
+      console.warn(`[file-store] Cannot create reserved file name: ${name}`)
+      return null
+    }
     const projectUid = get().activeProjectUid ?? ''
     const id = newFileId('file')
     const node: FileNode = {

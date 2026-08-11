@@ -45,7 +45,8 @@ import { compareTreeNodes } from '@/lib/file-tree-sort'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useDatasetStore } from '@/stores/dataset-store'
 import {
-  actionTargets,
+  actionableTargets,
+  isRowInBulkSelection,
   EMPTY_SELECTION,
   pruneSelection,
   selectOnClick,
@@ -149,11 +150,15 @@ function DatasetTreeItem({
   const isFolder = node.type === 'folder'
   const isExpanded = expandedFolders.includes(node.id)
   const isSelected = selectedFileId === node.id
-  const isMultiSelected = selection.ids.length > 1 && selection.ids.includes(node.id)
+  // Delete genuinely handles a folder here (it removes the subtree), so unlike the
+  // other trees a folder IS an actionable target — the tint and `bulk` therefore
+  // count folders too, and stay consistent with what Delete will do.
+  const isRowId = (id: string) => files.some((f) => f.id === id)
+  const isMultiSelected = isRowInBulkSelection(selection, node.id, isRowId)
   // Right-clicking inside a multi-selection acts on all of it; outside, on this
   // row alone (see lib/tree-selection.actionTargets).
-  const targets = actionTargets(selection, node.id)
-  const bulk = targets.length > 1
+  const { ids: targets, bulk } = actionableTargets(selection, node.id, isRowId)
+  // Versioning applies to files only, so it is counted (and offered) separately.
   const targetFiles = bulk
     ? targets.map((id) => files.find((f) => f.id === id)).filter((f): f is DatasetFile => !!f && f.type === 'file')
     : []

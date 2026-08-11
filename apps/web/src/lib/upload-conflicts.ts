@@ -1,4 +1,5 @@
 import { uniqueEtlFileName } from '@/features/warehouse/etl/etl-file-language'
+import { isReservedTreeName } from '@/lib/entity-tree'
 
 /**
  * What to do when an upload lands on a name that already exists.
@@ -8,6 +9,29 @@ import { uniqueEtlFileName } from '@/features/warehouse/etl/etl-file-language'
  * is a step that never executes and a diff nobody asked for. So the user chooses,
  * and this module holds the decision logic — the dialog only renders it.
  */
+
+/**
+ * The name an uploaded file may take, or undefined when it must be refused.
+ *
+ * Every other entry point (create, rename, new folder) already guarded this;
+ * upload was the hole. It took `file.name` verbatim, so a directory drop could
+ * hand back `sub/file.sql` and create unintended nesting — the tree stores
+ * hierarchy in `parentId`, not in the name — and `README.md` / `LICENSE.md` /
+ * `attachments` could be uploaded at the root, where the export overwrites them
+ * from the entity's own fields and the user's file silently disappears.
+ *
+ * `parentId` is what decides the reserved names: they only collide at the root of
+ * an entity's export folder, so inside a subfolder they are ordinary files.
+ */
+export function safeUploadFileName(
+  rawName: string,
+  parentId: string | null = null,
+): string | undefined {
+  const base = rawName.split(/[\\/]/).pop()?.trim()
+  if (!base || base === '.' || base === '..') return undefined
+  if (isReservedTreeName(base, parentId)) return undefined
+  return base
+}
 
 /** How to resolve every clash in one upload. */
 export type ConflictResolution = 'keep-both' | 'replace'

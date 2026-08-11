@@ -95,3 +95,40 @@ export function actionTargets(current: Selection, clickedId: string): string[] {
     ? current.ids
     : [clickedId]
 }
+
+/**
+ * The ids a bulk action will actually touch, and whether it IS a bulk action.
+ *
+ * The two must be decided together. Each tree derived them separately — the row
+ * tint from the raw `selection.ids.length > 1`, but `bulk` from the ids left
+ * after dropping folders (the actions are file-only) — so a shift-range that
+ * swept a folder in showed two rows highlighted while Delete removed only the
+ * one clicked. The dataset tree counted folders in both, and could offer a menu
+ * whose every other entry was hidden. One result, one truth.
+ *
+ * `isActionable` is the per-tree rule for what an action can apply to (a file
+ * that exists, is not virtual, …); ids it rejects are simply not targets.
+ */
+export function actionableTargets(
+  current: Selection,
+  clickedId: string,
+  isActionable: (id: string) => boolean,
+): { ids: string[]; bulk: boolean } {
+  const ids = actionTargets(current, clickedId).filter(isActionable)
+  return { ids, bulk: ids.length > 1 }
+}
+
+/**
+ * Should this row render as part of a multi-selection?
+ *
+ * Keyed off the same actionable count as `actionableTargets`, so a row never
+ * looks selected for an action that would skip it.
+ */
+export function isRowInBulkSelection(
+  current: Selection,
+  rowId: string,
+  isActionable: (id: string) => boolean,
+): boolean {
+  if (!current.ids.includes(rowId)) return false
+  return current.ids.filter(isActionable).length > 1
+}

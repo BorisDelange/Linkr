@@ -5,6 +5,8 @@ import {
   pruneSelection,
   selectOnClick,
   type Selection,
+  actionableTargets,
+  isRowInBulkSelection,
 } from './tree-selection'
 
 const VISIBLE = ['a', 'b', 'c', 'd', 'e']
@@ -113,5 +115,39 @@ describe('actionTargets', () => {
 
   it('acts on the clicked row when only one thing is selected', () => {
     expect(actionTargets({ ids: ['a'], anchorId: 'a' }, 'a')).toEqual(['a'])
+  })
+})
+
+describe('actionableTargets / isRowInBulkSelection', () => {
+  // Folders can enter a selection: a shift-range sweeps whatever lies between two
+  // visible rows. The trees' actions are file-only, so the two must agree on what
+  // "a multi-selection" means — deriving them apart made a row render as selected
+  // for a Delete that would silently skip it.
+  const isFile = (id: string) => id.startsWith('file')
+
+  it('drops non-actionable ids and is not bulk when one target survives', () => {
+    const sel = { ids: ['file-1', 'folder-1'], anchorId: 'file-1' }
+    const { ids, bulk } = actionableTargets(sel, 'file-1', isFile)
+    expect(ids).toEqual(['file-1'])
+    expect(bulk).toBe(false)
+  })
+
+  it('the row tint agrees: not shown as multi when only one target survives', () => {
+    const sel = { ids: ['file-1', 'folder-1'], anchorId: 'file-1' }
+    expect(isRowInBulkSelection(sel, 'file-1', isFile)).toBe(false)
+  })
+
+  it('is bulk, and tinted, once two actionable rows are selected', () => {
+    const sel = { ids: ['file-1', 'file-2', 'folder-1'], anchorId: 'file-1' }
+    const { ids, bulk } = actionableTargets(sel, 'file-1', isFile)
+    expect(ids).toEqual(['file-1', 'file-2'])
+    expect(bulk).toBe(true)
+    expect(isRowInBulkSelection(sel, 'file-2', isFile)).toBe(true)
+  })
+
+  it('a row outside the selection is never tinted, and acts alone', () => {
+    const sel = { ids: ['file-1', 'file-2'], anchorId: 'file-1' }
+    expect(isRowInBulkSelection(sel, 'file-9', isFile)).toBe(false)
+    expect(actionableTargets(sel, 'file-9', isFile).ids).toEqual(['file-9'])
   })
 })
