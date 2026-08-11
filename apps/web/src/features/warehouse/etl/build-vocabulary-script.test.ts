@@ -72,7 +72,7 @@ describe('buildVocabularyScript', () => {
     // A 'Maps to' can land outside whatever vocabularies the ETL reads
     // directly (ICD -> OMOP Extension, NDC -> CVX). Filtering the copy left
     // those targets out and the CDM ended up with concept_ids absent from
-    // target.concept - a broken foreign key. 91_prune_vocabulary.sql cuts the
+    // target.concept - a broken foreign key. 99_prune_vocabulary.sql cuts the
     // table back down once the CDM says which concepts are used.
     const copy = sql.slice(sql.indexOf('-- 2b.'), sql.indexOf('-- 2c.'))
     expect(copy).toContain('INSERT INTO target.concept')

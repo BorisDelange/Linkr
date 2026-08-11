@@ -25,18 +25,21 @@ import { vocabularyReadiness } from './vocabulary-readiness'
 import type { ConceptMapping, EtlFile, EtlVocabularyConfig, MappingStatus } from '@/types'
 
 const VOCAB_SCRIPT_NAME = '00_vocabulary.sql'
-const PRUNE_SCRIPT_NAME = '91_prune_vocabulary.sql'
+const PRUNE_SCRIPT_NAME = '99_prune_vocabulary.sql'
 
 /**
  * Where each generated script sits in the run order.
  *
- * The vocabulary script fills the concept tables, so it runs before everything
- * (-1). The prune script reads the CDM tables to see which concepts were
- * written, so it can only run once they are populated: 91 puts it after the
- * user scripts but before a 99 cleanup step.
+ * These two names are imposed on every pipeline, so they bracket the run and
+ * leave the whole middle to the user. The vocabulary script fills the concept
+ * tables, so it runs before everything (-1). The prune reads the CDM tables to
+ * see which concepts were written, so it runs last (99): after the user's own
+ * tests and provenance steps, and after any cleanup that drops staging tables
+ * — a staging table left in place would be scanned for *_concept_id columns
+ * and keep concepts alive that no CDM row references.
  */
 const VOCAB_SCRIPT_ORDER = -1
-const PRUNE_SCRIPT_ORDER = 91
+const PRUNE_SCRIPT_ORDER = 99
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 
