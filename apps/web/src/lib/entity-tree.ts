@@ -80,11 +80,17 @@ const RESERVED_LICENSE_NAMES = new Set([
 
 export function isReservedTreeName(name: string, parentId: string | null): boolean {
   if (parentId !== null) return false
-  const n = name.trim().toLowerCase()
+  // Trailing dots and zero-width characters are stripped before matching: Windows
+  // silently drops a trailing dot, so `readme.md.` lands on disk as `readme.md` —
+  // and the docstring's whole rationale is how git behaves on Windows and macOS.
+  const n = name.normalize('NFC').trim().replace(/[.\s\u200b-\u200d\ufeff]+$/, '').toLowerCase()
   return (
     n === 'attachments'
     || RESERVED_LICENSE_NAMES.has(n)
-    || /^readme(\.[a-z-]+)?\.md$/.test(n)
+    // Bare `readme` and `readme.txt` too: the reasoning that reserves a bare
+    // LICENSE (it "sits in the repo looking like the entity's licence while the
+    // real one lives on the entity") applies word for word to a README.
+    || /^readme(\.md|\.markdown|\.txt|\.[a-z]{2,3}(-[a-z]{2,4})?(\.md|\.markdown|\.txt))?$/.test(n)
   )
 }
 

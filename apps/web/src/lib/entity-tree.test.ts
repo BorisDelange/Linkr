@@ -217,3 +217,28 @@ describe('isReservedTreeName', () => {
     expect(isReservedTreeName('  README.md  ', null)).toBe(true)
   })
 })
+
+describe('isReservedTreeName covers the README spellings too', () => {
+  // The rationale that reserves a bare LICENSE — it "sits in the repo looking like
+  // the entity's licence while the real one lives on the entity" — applies word for
+  // word to a README, but only `README*.md` was refused.
+  it.each(['README', 'readme', 'README.txt', 'README.markdown'])('refuses %s at the root', (n) => {
+    expect(isReservedTreeName(n, null)).toBe(true)
+  })
+
+  it('refuses a name Windows would strip back to a reserved one', () => {
+    // Windows silently drops a trailing dot, so this lands on disk as readme.md.
+    expect(isReservedTreeName('readme.md.', null)).toBe(true)
+    expect(isReservedTreeName('LICENSE. ', null)).toBe(true)
+  })
+
+  it('does not swallow an ordinary file that merely starts with readme', () => {
+    expect(isReservedTreeName('readme.sql', null)).toBe(false)
+    expect(isReservedTreeName('readme-notes.md', null)).toBe(false)
+    expect(isReservedTreeName('my-readme.md', null)).toBe(false)
+  })
+
+  it('still allows all of them inside a folder', () => {
+    expect(isReservedTreeName('README', 'folder-1')).toBe(false)
+  })
+})
