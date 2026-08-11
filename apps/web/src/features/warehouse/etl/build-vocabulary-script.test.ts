@@ -146,6 +146,13 @@ describe('buildPruneVocabularyScript', () => {
     expect(sql).not.toContain("ESCAPE '\\'")
   })
 
+  it('keeps the None vocabulary row', () => {
+    // 'None' carries the vocabulary bundle release and owns no concept, so a
+    // prune on concept ownership alone deleted it — and cdm_source then fell
+    // back to the SNOMED edition dates instead of the bundle version.
+    expect(sql).toMatch(/DELETE FROM target\.vocabulary[\s\S]*?vocabulary_id <> 'None';/)
+  })
+
   it('drops its temporary tables', () => {
     expect(sql).toContain('DROP TABLE IF EXISTS target.tmp_used_concepts;')
     expect(sql).toContain('DROP TABLE IF EXISTS target.tmp_keep_concepts;')

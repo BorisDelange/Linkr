@@ -235,8 +235,12 @@ export function buildPruneVocabularyScript(): string {
   parts.push('-- 4. Metadata tables, realigned on what is left')
   parts.push('-- =================================================================')
   parts.push('')
+  // 'None' owns no concept of its own: it is the row that carries the
+  // vocabulary bundle release, which cdm_source reads. Pruning on concept
+  // ownership alone would delete it and lose that provenance.
   parts.push(`DELETE FROM ${T}.vocabulary`)
-  parts.push(`WHERE vocabulary_id NOT IN (SELECT DISTINCT vocabulary_id FROM ${T}.concept);`)
+  parts.push(`WHERE vocabulary_id NOT IN (SELECT DISTINCT vocabulary_id FROM ${T}.concept)`)
+  parts.push(`  AND vocabulary_id <> 'None';`)
   parts.push('')
   parts.push(`DELETE FROM ${T}.domain`)
   parts.push(`WHERE domain_id NOT IN (SELECT DISTINCT domain_id FROM ${T}.concept);`)
