@@ -37,6 +37,12 @@ def path_for(sha: str) -> Path:
     return _files_dir() / sha
 
 
+def is_sha(name: str) -> bool:
+    """True if `name` is a well-formed blob key — lets a sweep tell stored blobs
+    apart from stray files that share the directory."""
+    return bool(_SHA_RE.match(name))
+
+
 def exists(sha: str) -> bool:
     """True if a blob with this sha is stored. A malformed sha is simply 'not
     stored' (False) rather than an error, so route guards return a clean 400."""

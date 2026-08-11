@@ -46,6 +46,7 @@ from app.api.v1.routes.llm_providers import router as llm_providers_router
 from app.api.v1.routes.agent_conversations import router as agent_conversations_router
 from app.api.v1.routes.llm_proxy import router as llm_proxy_router
 from app.api.v1.routes.sql_scripts import router as sql_scripts_router
+from app.api.v1.routes.storage import router as storage_router
 from app.api.v1.routes.uploads import router as uploads_router
 from app.api.v1.routes.users import router as users_router
 from app.api.v1.routes.wiki_pages import router as wiki_pages_router
@@ -91,11 +92,18 @@ async def lifespan(app: FastAPI):
     from app.services.execution.jobs import reconcile_on_startup
 
     await reconcile_on_startup()
+    # Reclaim abandoned upload sessions and other unreferenced disk, then keep
+    # sweeping on a timer. Held in a local so the reference isn't dropped (a bare
+    # create_task can be garbage-collected mid-flight).
+    from app.services import storage_gc
+
+    gc_task = asyncio.create_task(storage_gc.run_periodic())
     yield
     from app.services.execution.kernel import manager as kernel_manager
     from app.services.execution.kernel import warm_pool
     from app.services.execution.pty_kernel import manager as pty_manager
 
+    gc_task.cancel()
     await kernel_manager.shutdown_all()
     await warm_pool.shutdown_all()
     pty_manager.shutdown_all()
@@ -171,6 +179,7 @@ app.include_router(wiki_pages_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(roles_router, prefix="/api/v1")
 app.include_router(uploads_router, prefix="/api/v1")
+app.include_router(storage_router, prefix="/api/v1")
 app.include_router(cohorts_router, prefix="/api/v1")
 app.include_router(dashboards_router, prefix="/api/v1")
 app.include_router(readme_router, prefix="/api/v1")

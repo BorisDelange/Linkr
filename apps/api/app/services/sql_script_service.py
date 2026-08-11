@@ -61,11 +61,15 @@ async def update(
 
 
 async def delete(db: AsyncSession, collection: SqlScriptCollection) -> None:
+    from app.services import git_service
+
     collection_id = collection.id
     await db.delete(collection)  # cascades to files via FK
     await db.commit()
     # The README attachments' owner is polymorphic (no FK), so clean them here.
     await attachment_service.delete_readme_for_owner(db, "sql-collection", collection_id)
+    # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
+    git_service.remove_repo("sql-collections", collection_id)
 
 
 # --- Files -----------------------------------------------------------------

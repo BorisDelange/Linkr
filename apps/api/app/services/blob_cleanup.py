@@ -104,6 +104,17 @@ async def collect_workspace_blob_shas(db: AsyncSession, workspace_id: str) -> se
     return shas
 
 
+async def all_referenced_shas(db: AsyncSession) -> set[str]:
+    """Every sha any row anywhere still points at. Used by the storage sweep to
+    find blobs on disk that nothing references (the inverse of deref_blobs,
+    which starts from a known candidate set)."""
+    shas: set[str] = set()
+    for _model, column in _SHA_COLUMNS:
+        result = await db.execute(select(column).where(column.isnot(None)))
+        shas.update(sha for (sha,) in result.all() if sha)
+    return shas
+
+
 async def _sha_still_referenced(db: AsyncSession, sha: str) -> bool:
     for model, column in _SHA_COLUMNS:
         result = await db.execute(select(model.id).where(column == sha).limit(1))

@@ -74,8 +74,12 @@ async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
 
 
 async def delete(db: AsyncSession, preset: SchemaPreset) -> None:
+    from app.services import git_service
+
     preset_id = preset.preset_id
     await db.delete(preset)
     await db.commit()
     # The README attachments' owner is polymorphic (no FK), so clean them here.
     await attachment_service.delete_readme_for_owner(db, "schema-preset", preset_id)
+    # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
+    git_service.remove_repo("schema-presets", preset_id)

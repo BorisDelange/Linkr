@@ -57,11 +57,15 @@ async def update(
 
 
 async def delete(db: AsyncSession, rule_set: DqRuleSet) -> None:
+    from app.services import git_service
+
     rule_set_id = rule_set.id
     await db.delete(rule_set)  # cascades to checks via FK
     await db.commit()
     # The README attachments' owner is polymorphic (no FK), so clean them here.
     await attachment_service.delete_readme_for_owner(db, "dq-rule-set", rule_set_id)
+    # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
+    git_service.remove_repo("dq-rule-sets", rule_set_id)
 
 
 # --- Custom checks ---------------------------------------------------------

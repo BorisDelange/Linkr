@@ -47,8 +47,12 @@ async def update(
 
 
 async def delete(db: AsyncSession, catalog: DataCatalog) -> None:
+    from app.services import git_service
+
     catalog_id = catalog.id
     await db.delete(catalog)
     await db.commit()
     # The README attachments' owner is polymorphic (no FK), so clean them here.
     await attachment_service.delete_readme_for_owner(db, "data-catalog", catalog_id)
+    # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
+    git_service.remove_repo("data-catalogs", catalog_id)
