@@ -179,33 +179,93 @@ def _row_to_json(row: dict) -> dict:
     return out
 
 
+def _dollar_tag(sql: str, at: int) -> str | None:
+    """The dollar-quote tag opening at `at` (`$$` or `$name$`), or None.
+
+    A tag is `$` + optional identifier + `$`, and the identifier may not start
+    with a digit (`$1` is a parameter, not a tag)."""
+    if sql[at] != "$":
+        return None
+    j = at + 1
+    while j < len(sql) and (sql[j].isalnum() or sql[j] == "_"):
+        if j == at + 1 and sql[j].isdigit():
+            return None
+        j += 1
+    return sql[at:j + 1] if j < len(sql) and sql[j] == "$" else None
+
+
+def _strip_leading_noise(stmt: str) -> str:
+    """A statement without the comments and blank space in front of its first
+    keyword, so a check anchored on that keyword cannot be dodged by prefixing
+    one. `/* x */ INSTALL httpfs` reads as `INSTALL httpfs`."""
+    i = 0
+    n = len(stmt)
+    while i < n:
+        if stmt[i].isspace():
+            i += 1
+        elif stmt.startswith("--", i):
+            nl = stmt.find("\n", i)
+            i = n if nl == -1 else nl + 1
+        elif stmt.startswith("/*", i):
+            end = stmt.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+        else:
+            break
+    return stmt[i:]
+
+
 def _split_statements(sql: str) -> list[str]:
-    """Split SQL on semicolons, ignoring those inside single-quoted strings and
-    line comments. Mirrors the frontend's splitSqlStatements so multi-statement
-    scripts (CREATE VIEW …; SELECT …;) behave the same server-side."""
+    """Split SQL on top-level semicolons — those not inside a string, a quoted
+    identifier, a comment or a dollar-quoted block.
+
+    Mirrors the frontend's splitSqlStatements (lib/duckdb/sql-tokenizer.ts) so
+    multi-statement scripts behave the same in both engines. Block comments and
+    dollar quotes are part of that contract, not a detail: without them a `;`
+    inside `/* ... */` or `$$ ... $$` cuts a statement in half, and a leading
+    block comment hides the statement's first keyword from
+    `_reject_forbidden_statements` — which is how `/* x */ INSTALL httpfs`
+    slipped past the extension guard.
+
+    An unterminated region runs to end-of-input rather than being dropped, so the
+    rest of the script is never silently treated as executable structure."""
     stmts: list[str] = []
     current = ""
     i = 0
     n = len(sql)
     while i < n:
         ch = sql[i]
-        if ch == "'":
-            current += ch
-            i += 1
-            while i < n:
-                if sql[i] == "'" and i + 1 < n and sql[i + 1] == "'":
-                    current += "''"
-                    i += 2
-                elif sql[i] == "'":
-                    current += "'"
-                    i += 1
-                    break
-                else:
-                    current += sql[i]
-                    i += 1
-        elif ch == "-" and i + 1 < n and sql[i + 1] == "-":
+        if ch == "-" and i + 1 < n and sql[i + 1] == "-":
             nl = sql.find("\n", i)
-            i = n if nl == -1 else nl + 1
+            stop = n if nl == -1 else nl + 1
+            current += sql[i:stop]
+            i = stop
+        elif ch == "/" and i + 1 < n and sql[i + 1] == "*":
+            end = sql.find("*/", i + 2)
+            stop = n if end == -1 else end + 2
+            current += sql[i:stop]
+            i = stop
+        elif ch == "$" and (tag := _dollar_tag(sql, i)) is not None:
+            close = sql.find(tag, i + len(tag))
+            stop = n if close == -1 else close + len(tag)
+            current += sql[i:stop]
+            i = stop
+        elif ch in ("'", '"', "`"):
+            j = i + 1
+            while j < n:
+                # Backslash escapes the next char inside a single-quoted run
+                # (DuckDB's E'...\'...'), so it does not end the literal early.
+                if ch == "'" and sql[j] == "\\" and j + 1 < n:
+                    j += 2
+                    continue
+                if sql[j] == ch:
+                    if j + 1 < n and sql[j + 1] == ch:
+                        j += 2
+                        continue
+                    break
+                j += 1
+            stop = n if j >= n else j + 1
+            current += sql[i:stop]
+            i = stop
         elif ch == ";":
             if current.strip():
                 stmts.append(current.strip())
@@ -240,10 +300,14 @@ _FORBIDDEN_IN_USER_SQL = re.compile(
 def _reject_forbidden_statements(sql: str) -> None:
     """Raise when a user script contains a statement it must never run.
 
-    Checked per split statement, and the splitter has already dropped comments and
-    string literals, so `SELECT '-- install httpfs'` is not a false positive."""
+    Checked per split statement, with whatever comments precede the first keyword
+    stripped: the pattern is anchored, so `/* x */ INSTALL httpfs` would otherwise
+    not match and the extension guard could be dodged with a two-character prefix.
+
+    The splitter keeps string literals intact, so `SELECT '-- install httpfs'` is
+    still not a false positive."""
     for stmt in _split_statements(sql):
-        m = _FORBIDDEN_IN_USER_SQL.match(stmt)
+        m = _FORBIDDEN_IN_USER_SQL.match(_strip_leading_noise(stmt))
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a pipeline script")
 

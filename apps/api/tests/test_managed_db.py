@@ -213,6 +213,51 @@ def test_etl_sql_cannot_install_httpfs_even_when_a_role_needs_the_filesystem(dat
         db_connect.run_etl_sql(target, "SELECT 1;\nINSTALL httpfs;", None, mapping)
 
 
+def test_etl_sql_cannot_hide_a_forbidden_statement_behind_a_comment(data_dir):
+    """A leading comment must not hide the statement's first keyword.
+
+    `_FORBIDDEN_IN_USER_SQL` is anchored, and the splitter keeps comments attached
+    to the statement they precede. A block comment therefore used to sit in front
+    of the keyword and defeat the anchor: `/* x */ INSTALL httpfs` was ALLOWED, and
+    with a parquet/mapping role present (external access necessarily on) it really
+    did load the extension and reach the network."""
+    sid = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+    target = managed_db.create_from_ddl(sid, DDL)
+    mapping = {"codes": "code,label\nA,HR\n"}
+
+    for sql in (
+        "/* x */ INSTALL httpfs;",
+        "/* x */ LOAD httpfs;",
+        "/* multi\n   line */ INSTALL httpfs;",
+        "-- line\nINSTALL httpfs;",
+        "/* a */ -- b\n /* c */ LOAD httpfs;",
+        "SELECT 1; /* x */ ATTACH '/etc/passwd' AS evil;",
+    ):
+        with pytest.raises(ValueError, match="not allowed in a pipeline script"):
+            db_connect.run_etl_sql(target, sql, None, mapping)
+
+
+def test_split_statements_does_not_cut_inside_comments_or_dollar_quotes(data_dir):
+    """Parity with the frontend tokenizer: a `;` inside a block comment, a dollar
+    quote or a quoted identifier is not a statement boundary. Splitting there
+    produced syntax-error fragments from a script that runs fine in the browser."""
+    assert db_connect._split_statements("/* a; b */ SELECT 1;") == [
+        "/* a; b */ SELECT 1"
+    ]
+    assert db_connect._split_statements("SELECT $$a;b$$ AS s;") == [
+        "SELECT $$a;b$$ AS s"
+    ]
+    assert db_connect._split_statements('SELECT 1 AS "a;b";') == [
+        'SELECT 1 AS "a;b"'
+    ]
+    assert db_connect._split_statements("SELECT 'a;b';") == ["SELECT 'a;b'"]
+    # Two real statements still split.
+    assert db_connect._split_statements("SELECT 1; SELECT 2;") == [
+        "SELECT 1",
+        "SELECT 2",
+    ]
+
+
 def test_etl_sql_still_runs_normal_statements_mentioning_those_words(data_dir):
     """The check must not fire on the words inside strings or comments — the
     splitter drops both before it looks at the leading keyword."""
