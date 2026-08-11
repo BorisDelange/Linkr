@@ -132,6 +132,10 @@ const OMOP_VOCAB_TABLES = [
  *
  * Kept: the used concepts, their ancestors (so hierarchical queries still
  * resolve), and everything they relate to.
+ *
+ * Aborts when the scan finds no referenced concept: the DELETEs keep what the
+ * scan found, so an empty scan would empty the vocabulary rather than prune
+ * nothing.
  */
 export function buildPruneVocabularyScript(): string {
   const parts: string[] = []
@@ -146,6 +150,9 @@ export function buildPruneVocabularyScript(): string {
   parts.push('-- Disable this script while mappings are still being added: a concept')
   parts.push('-- dropped here has to be reloaded from the reference before it can be')
   parts.push('-- mapped again.')
+  parts.push('--')
+  parts.push('-- It stops with an error if no CDM table references a concept, rather')
+  parts.push('-- than pruning everything.')
   parts.push('')
 
   // 1. Concepts the CDM actually references.
@@ -184,6 +191,19 @@ export function buildPruneVocabularyScript(): string {
   parts.push(`SELECT DISTINCT concept_id`)
   parts.push(`FROM query(getvariable('linkr_used_concepts_sql'))`)
   parts.push('WHERE concept_id IS NOT NULL AND concept_id <> 0;')
+  parts.push('')
+  // Stop rather than delete everything. Every DELETE below is
+  // `NOT IN (SELECT ... FROM tmp_keep_concepts)`, so an empty scan does not prune
+  // "nothing" — it prunes the WHOLE vocabulary, silently and with no error. That
+  // is what an empty scan means in practice: the script ran before the CDM tables
+  // were populated (wrong order, or a run that stopped early). Recovering means
+  // re-copying the vocabulary from the reference, so fail loudly instead.
+  parts.push('-- Refuse to run on an empty scan: see the note on the DELETEs below.')
+  parts.push(`SELECT CASE WHEN (SELECT count(*) FROM ${T}.tmp_used_concepts) = 0`)
+  parts.push("    THEN error('No concept is referenced by the CDM tables. "
+    + "Run this script AFTER the tables are populated: pruning now would delete "
+    + "the entire vocabulary.')")
+  parts.push('    END;')
   parts.push('')
 
   // 2. Closure: ancestors + related concepts.

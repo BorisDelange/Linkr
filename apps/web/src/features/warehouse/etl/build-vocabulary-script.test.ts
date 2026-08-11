@@ -120,6 +120,19 @@ describe('buildPruneVocabularyScript', () => {
     expect(sql).not.toMatch(/FROM query\(\s*\(SELECT/)
   })
 
+  it('aborts instead of pruning when no concept is referenced', () => {
+    // Every DELETE keeps what the scan found, so an empty scan does not prune
+    // nothing — it deletes the WHOLE vocabulary, silently. Verified against real
+    // DuckDB: without this guard, a run before the CDM tables are populated took
+    // the concept table from 5 rows to 0 with no error. The script is generated
+    // enabled and ordered last, so a wrong run order is the expected way in.
+    expect(sql).toContain('error(')
+    const guard = sql.indexOf('error(')
+    const firstDelete = sql.indexOf('DELETE FROM target.')
+    expect(guard).toBeGreaterThan(-1)
+    expect(guard).toBeLessThan(firstDelete)
+  })
+
   it('keeps ancestors and related concepts, not just the used ones', () => {
     // Dropping ancestors breaks hierarchical queries ("everything under
     // Diabetes"), and dropping relations breaks source-to-standard traceability.
