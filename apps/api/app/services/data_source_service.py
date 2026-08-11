@@ -46,6 +46,18 @@ def _is_parquet_folder(config: dict, files: list[tuple[str, str]]) -> bool:
         return True
     return bool(files) and files[0][0].lower().endswith((".parquet", ".pq"))
 
+
+def parquet_table_paths(
+    source: DataSource, files: list[tuple[str, str]]
+) -> dict[str, list[str]]:
+    """Table name → blob path(s) for a Parquet source.
+
+    Delegates the grouping to db_connect so the names shown match the ones the
+    SQL editor resolves; a file whose name yields no safe identifier is dropped
+    there, and is therefore absent here too.
+    """
+    return db_connect.group_parquet_tables(files, _known_tables(source))
+
 # Connection-config keys holding a secret credential. Pulled out of the JSON
 # config (which the API returns) and stored encrypted in `connection_secret`.
 _SECRET_KEYS = ("password", "token")

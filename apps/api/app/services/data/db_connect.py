@@ -574,6 +574,14 @@ def _group_parquet(files: list[tuple[str, str]], known: list[str]) -> dict[str, 
     return groups
 
 
+def group_parquet_tables(
+    files: list[tuple[str, str]], known: list[str]
+) -> dict[str, list[str]]:
+    """Public view of the table grouping, for callers that need to report which
+    table maps to which blob path without opening a connection."""
+    return _group_parquet(files, known)
+
+
 def _reader(paths: list[str]) -> str:
     if len(paths) == 1:
         return f"read_parquet('{paths[0]}')"

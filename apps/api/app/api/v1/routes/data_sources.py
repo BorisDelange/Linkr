@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
 from fastapi.responses import Response
@@ -30,6 +31,7 @@ from app.schemas.data_source import (
     DataSourceUpdate,
     EtlRunRequest,
     IntrospectedTable,
+    ParquetTablePath,
     QueryRequest,
     QueryResult,
     TestConnectionRequest,
@@ -455,17 +457,27 @@ async def get_database_connection_info(
 
     paths = [blob_store.path_for(f.content_hash) for f in files]
     names = [f.file_name for f in files]
-    # A parquet folder is addressed as the DIRECTORY holding the tables — which is
-    # what a script outside Linkr would glob. Uploaded blobs all live in the same
-    # directory, so the parent of any of them is that folder.
+    # A Parquet source is addressed table by table, NOT by the directory holding
+    # the blobs: that directory is the shared content-addressed store, so it mixes
+    # in every other source's files and its entries have no .parquet suffix for a
+    # glob to match. `path` is deliberately left unset.
     if len(files) > 1 or names[0].lower().endswith((".parquet", ".pq")):
+        pairs = [(f.file_name, str(blob_store.path_for(f.content_hash))) for f in files]
+        groups = data_source_service.parquet_table_paths(source, pairs)
         return DatabaseConnectionInfo(
             engine=engine,
             kind="parquet-folder",
-            path=str(paths[0].parent),
-            exists=paths[0].parent.is_dir(),
+            exists=all(p.is_file() for p in paths),
             blob=True,
             file_names=names,
+            tables=[
+                ParquetTablePath(
+                    table=table,
+                    paths=table_paths,
+                    exists=all(Path(p).is_file() for p in table_paths),
+                )
+                for table, table_paths in sorted(groups.items())
+            ],
         )
 
     return DatabaseConnectionInfo(

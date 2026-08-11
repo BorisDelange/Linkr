@@ -133,18 +133,27 @@ export function fetchDataSourceSchema(
   return apiRequest<IntrospectedTable[]>(`/data-sources/${dataSourceId}/schema`)
 }
 
+/** One queryable table of a Parquet source, with the path(s) a script would read. */
+export interface ParquetTablePath {
+  table: string
+  paths: string[]
+  exists: boolean
+}
+
 /** How to reach a database from outside Linkr (R/Python, a SQL client). */
 export interface DatabaseConnectionInfo {
   engine: string | null
   /** 'file' | 'parquet-folder' | 'external', or null when undetermined. */
   kind: string | null
-  /** File or folder sources. */
+  /** File sources. Never set for 'parquet-folder' — see `tables`. */
   path: string | null
   exists: boolean
   /** The path is a content-addressed blob (named by its hash, no extension). */
   blob: boolean
   /** Parquet folders: the table files found there. */
   fileNames: string[]
+  /** Parquet folders: table name → the blob path(s) holding it. */
+  tables: ParquetTablePath[]
   /** External engines. The password is never returned. */
   host: string | null
   port: number | null

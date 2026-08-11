@@ -146,13 +146,26 @@ class EtlRunRequest(CamelModel):
         return out
 
 
+class ParquetTablePath(CamelModel):
+    """One queryable table of a Parquet source, with the absolute path(s) to read.
+
+    Uploaded Parquet lives in the content-addressed blob store, so the path is a
+    sha with no extension and the logical table name is NOT recoverable from it.
+    Pairing them is the only way a script outside Linkr can reach the same table.
+    """
+
+    table: str
+    paths: list[str]
+    exists: bool = False
+
+
 class DatabaseConnectionInfo(CamelModel):
     """How to reach this database from OUTSIDE Linkr — an R/Python script, a SQL
     client. What that means depends on the source:
 
       * managed DuckDB  → the .duckdb file the server owns
       * uploaded file   → the blob path (content-addressed, so no extension)
-      * parquet folder  → the directory holding the .parquet tables
+      * parquet folder  → one blob path per table (see `tables`)
       * postgres/mysql  → host/port/database/schema/user, never the password
     """
 
@@ -167,6 +180,9 @@ class DatabaseConnectionInfo(CamelModel):
     blob: bool = False
     # Parquet folders: the table files found there, for a quick sanity check.
     file_names: list[str] = []
+    # Parquet folders: table name → blob path(s), resolved the same way the SQL
+    # editor resolves bare table names. Empty for other kinds.
+    tables: list[ParquetTablePath] = []
     # External engines. The password is NEVER returned (see strip_secrets).
     host: str | None = None
     port: int | None = None
