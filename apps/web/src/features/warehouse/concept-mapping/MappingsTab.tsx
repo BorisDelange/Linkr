@@ -77,7 +77,7 @@ import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFile
 import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, MappingEquivalence, EffectiveMappingStatus, DataSource } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
-import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
+import { effectiveMappingStatus, isMappingLocked } from '@/lib/concept-mapping/mapping-status'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { EquivalenceMenuItems } from './components/EquivalenceMenuItems'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
@@ -2273,7 +2273,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
             return (
               <EquivalenceEditCell
                 equivalence={equiv}
-                locked={(m.reviews?.length ?? 0) > 0 || (m.comments?.length ?? 0) > 0}
+                locked={isMappingLocked(m)}
                 onChange={(pred) => handleChangeEquivalence(m.id, pred)}
                 t={t}
               />

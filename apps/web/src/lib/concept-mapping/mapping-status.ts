@@ -6,6 +6,28 @@ export function sourceKey(m: Pick<ConceptMapping, 'sourceVocabularyId' | 'source
   return `${m.sourceVocabularyId ?? ''}\0${m.sourceConceptCode ?? ''}`
 }
 
+/**
+ * Whether a mapping is frozen against edits (changing its equivalence, deleting it).
+ *
+ * A mapping is locked once someone else has assessed it: any review, or a comment
+ * from anyone other than its author. Editing it then would silently invalidate that
+ * assessment.
+ *
+ * The author's own comments do NOT lock it — annotating your own work while you
+ * refine it is part of making the mapping, not an assessment of it.
+ *
+ * Attribution must be provable on both sides: a comment with no `authorId`, or a
+ * mapping with no `mappedBy`, locks as if it were someone else's. Treating an
+ * unknown author as a match would unlock exactly the untraceable cases.
+ */
+export function isMappingLocked(m: Pick<ConceptMapping, 'reviews' | 'comments' | 'mappedBy'>): boolean {
+  if ((m.reviews?.length ?? 0) > 0) return true
+  const comments = m.comments ?? []
+  if (comments.length === 0) return false
+  if (!m.mappedBy) return true
+  return comments.some((c) => c.authorId !== m.mappedBy)
+}
+
 /** Compute the effective status of a mapping based on review votes.
  *  - No reviews → fall back to the mapping's stored status.
  *  - Reviewers disagree (≥2 distinct non-unchecked statuses present) → 'disputed'.

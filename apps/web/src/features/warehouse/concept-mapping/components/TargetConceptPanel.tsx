@@ -66,6 +66,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { EQUIV_BADGE, normalizeEquivalence } from '@/lib/concept-mapping/equivalence-badge'
+import { isMappingLocked } from '@/lib/concept-mapping/mapping-status'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { EquivalenceMenuItems, EquivalencePickerButton } from './EquivalenceMenuItems'
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
@@ -477,10 +478,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const selectedTargetMapping = selectedTarget
     ? existingMappings.find((m) => m.targetConceptId === selectedTarget.conceptId) ?? null
     : null
-  // A mapping that has been reviewed or commented is frozen: changing its equivalence
-  // (or deleting it) would silently invalidate someone else's assessment.
-  const selectedTargetMappingLocked = !!selectedTargetMapping &&
-    ((selectedTargetMapping.reviews?.length ?? 0) > 0 || (selectedTargetMapping.comments?.length ?? 0) > 0)
+  const selectedTargetMappingLocked = !!selectedTargetMapping && isMappingLocked(selectedTargetMapping)
 
   // Unique dropdown options for category, subcategory, provenance
   const csCategoryOptions = useMemo(() => [...new Set(linkedSets.map((cs) => getConceptSetI18n(cs, lang).category).filter(Boolean) as string[])].sort(), [linkedSets, lang])

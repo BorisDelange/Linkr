@@ -4012,7 +4012,7 @@
     "prog_no_match": "Aucun groupe correspondant",
     "remove_mapping": "Supprimer l'alignement",
     "change_mapping_hint": "Modifier l'équivalence ou supprimer cet alignement",
-    "mapping_locked_hint": "Cet alignement a été évalué ou commenté et ne peut plus être modifié",
+    "mapping_locked_hint": "Cet alignement a été évalué, ou commenté par quelqu'un d'autre, et ne peut plus être modifié",
     "change_equivalence_hint": "Modifier l'équivalence",
     "comment": "Commentaire",
     "map_with_comment_desc": "Choisissez l'équivalence et ajoutez un commentaire expliquant cet alignement.",
