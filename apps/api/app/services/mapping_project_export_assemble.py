@@ -83,13 +83,24 @@ def _entry_dict(e) -> dict:
 
 
 async def build_mapping_project_tree_from_db(
-    db: AsyncSession, project: MappingProject
+    db: AsyncSession, project: MappingProject, only_path: str | None = None
 ) -> dict[str, bytes]:
-    """Assemble the export file tree for a mapping project from DB + blob store."""
-    mappings_res = await db.execute(
-        select(ConceptMapping).where(ConceptMapping.project_id == project.id)
-    )
-    mappings = [_mapping_dict(m) for m in mappings_res.scalars().all()]
+    """Assemble the export file tree for a mapping project from DB + blob store.
+
+    `only_path` builds just enough for that one file. A diff needs a single file,
+    but the full tree here is ~38 MB for a real project (the source CSV alone is
+    35 MB, read out of the blob store) — assembling, zipping, unzipping and
+    `git add -A`-ing all of it to compare one 2 MB JSON took about a minute per
+    click. Skipping the payloads the caller did not ask for makes it instant.
+    """
+    want_source_csv = only_path in (None, "source-concepts.csv")
+    want_mappings = only_path in (None, "mappings.json")
+    mappings = []
+    if want_mappings:
+        mappings_res = await db.execute(
+            select(ConceptMapping).where(ConceptMapping.project_id == project.id)
+        )
+        mappings = [_mapping_dict(m) for m in mappings_res.scalars().all()]
 
     ranges, entries, all_badge_entries = await scoped_source_concept_ids(db, project)
 
@@ -100,7 +111,8 @@ async def build_mapping_project_tree_from_db(
 
     source_csv = None
     if (
-        project.source_type == "file"
+        want_source_csv
+        and project.source_type == "file"
         and project.raw_file_sha
         and blob_store.exists(project.raw_file_sha)
     ):
@@ -122,6 +134,18 @@ def _zip_tree(tree: dict[str, bytes]) -> bytes:
         for path, content in tree.items():
             zf.writestr(path, content)
     return buf.getvalue()
+
+
+async def assemble_mapping_project_file_zip(
+    db: AsyncSession, project: MappingProject, path: str
+) -> bytes:
+    """A ZIP carrying only `path` (plus whatever the builder emits for free).
+
+    Used by the diff endpoint, which compares one file: see the note on
+    `build_mapping_project_tree_from_db`.
+    """
+    tree = await build_mapping_project_tree_from_db(db, project, only_path=path)
+    return await asyncio.to_thread(_zip_tree, tree)
 
 
 async def assemble_mapping_project_zip(

@@ -5,13 +5,24 @@ from app.models.base import Base
 
 
 class GitSyncState(Base):
-    """The last remote commit an entity was known to be in sync with, per branch.
+    """Where an entity stands against a remote branch: two distinct commits.
 
-    This is the *anchor* the pull flow needs: with it we can tell "behind" (the
-    remote moved past our anchor) from "diverged" (both sides moved) via
-    merge-base, and later compute the 3-way object merge. Written on every push
-    and on every resolved pull; adopted lazily on the first clean sync when
-    missing (import / after-the-fact git-link — see git_service.sync_state).
+    `synced_oid` — **content anchor**: "we hold this commit's content". It is the
+    BASE of the 3-way merge, so it may only advance when a pull took *everything*
+    on offer. Moving it on a partial pull would clear the banner and bury the
+    un-taken items for good: every later plan is rebuilt against the new base, so
+    what was skipped is never offered again.
+
+    `reviewed_oid` — **decision cursor**: "every item this commit brought got an
+    explicit decision (taken, or deliberately declined)". This is what gates the
+    push. Splitting it from the anchor is what makes a *partial* pull expressible:
+    take three mappings, keep yours on two, and you are done deliberating — the
+    two you kept simply reappear as local changes to push, which is the truth.
+    Without the split, `synced_oid` had to mean both things at once, so a partial
+    pull either buried the remainder or blocked the push forever.
+
+    `behind` is computed against `reviewed_oid` when set, else `synced_oid` (rows
+    predating the split keep their previous behaviour).
 
     Keyed by (scope, entity_id, branch), shared across every versionable scope
     (projects, mapping-projects, sql-collections, etl-pipelines, data-catalogs,
@@ -30,4 +41,7 @@ class GitSyncState(Base):
     entity_id: Mapped[str] = mapped_column(String(64))
     branch: Mapped[str] = mapped_column(String(255))
     synced_oid: Mapped[str] = mapped_column(String(40))
+    # Nullable: rows written before the split have no decision cursor, and
+    # `behind` falls back to synced_oid for them.
+    reviewed_oid: Mapped[str | None] = mapped_column(String(40), nullable=True)
     checked_at: Mapped[str] = mapped_column(String(40))

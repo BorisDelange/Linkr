@@ -23,7 +23,7 @@ caches in the shared server `stats_cache`; IndexedDB retained for front-only onl
   bounded executor + cancel, git round-trip of the env spec, streaming Run + live R flush,
   and warm-pool ephemeral runs for parallel dashboard widgets. As-built in
   `docs/architecture.md` (Fullstack section).
-- **Versioning offloading** (→ `versioning-plan.md`, items 6–7): extend `serverBuildsZip`
+- **Versioning offloading** (→ `versioning-plan.md`, Part I): extend `serverBuildsZip`
   to the 6 remaining scopes (server builders already exist), and the bigger one —
   **server-side ZIP import** (`POST /projects/import`, `/workspaces/import`): today import
   is fully client-orchestrated (JSZip in the browser + per-entity HTTP calls), the main

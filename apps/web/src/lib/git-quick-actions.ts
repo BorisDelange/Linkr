@@ -49,18 +49,19 @@ interface QuickActionDef {
 
 // Per-scope presets, in display order (first is the primary/"all" action).
 const DEFS: Partial<Record<GitScope, QuickActionDef[]>> = {
+  // ONE card, deliberately (matches lib/pull-quick-actions.ts).
+  //
+  // A per-kind card commits a SUBSET, and this scope's files are not independent:
+  // `stats` in project.json is derived from mappings.json, so "Sync mappings"
+  // pushed rows whose counters stayed behind in a project.json it did not touch —
+  // a repo contradicting itself. Anyone wanting a genuine subset has the Details
+  // tab, where the choice is explicit and the whole file list is in view.
   'mapping-projects': [
     {
       labelKey: 'versioning.quick_sync_all',
       descriptionKey: 'versioning.quick_desc_all',
       messageKey: 'versioning.quick_msg_all',
       excludeForeign: true,
-    },
-    {
-      labelKey: 'versioning.quick_sync_mappings',
-      descriptionKey: 'versioning.quick_desc_mappings',
-      messageKey: 'versioning.quick_msg_mappings',
-      patterns: [/^project\.json$/, /^mappings\.(json|csv)$/],
     },
   ],
   projects: [

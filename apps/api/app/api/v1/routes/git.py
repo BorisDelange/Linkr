@@ -45,6 +45,7 @@ from app.schemas.git import (
 )
 from app.services import (
     app_settings_service,
+    blob_store,
     git_content_status_service,
     git_credential_service,
     git_service,
@@ -52,7 +53,10 @@ from app.services import (
     settings_import_service,
     workspace_service,
 )
-from app.services.mapping_project_export_assemble import assemble_mapping_project_zip
+from app.services.mapping_project_export_assemble import (
+    assemble_mapping_project_file_zip,
+    assemble_mapping_project_zip,
+)
 from app.services.project_export_assemble import assemble_project_zip
 from app.services.settings_export_assemble import (
     SettingsSelection,
@@ -148,8 +152,9 @@ async def _sync_state(
             entity_id,
             branch,
             remote_url,
-            row.synced_oid if row else None,
+            (row.synced_oid or None) if row else None,
             token,
+            reviewed_oid=row.reviewed_oid if row else None,
         )
     )
     # Deliberately writes nothing: the anchor is recorded by a pull/import that
@@ -157,6 +162,23 @@ async def _sync_state(
     # note in git_service.sync_state — the scratch repo's HEAD tracks the remote,
     # so adopting it persisted a sync that never happened.
     return {"linked": remote_url is not None, "branch": branch, **result}
+
+
+async def _apply_sync_state(db, scope: str, entity_id: str, body) -> None:
+    """Record a `set-sync-state` request, honouring `reviewedOnly`.
+
+    A partial-but-fully-deliberated pull advances only the decision cursor: we do
+    not hold this commit's content, so the 3-way base must not move or it would
+    absorb what the user explicitly declined.
+    """
+    if body.reviewed_only:
+        await git_sync_state_service.set_reviewed_oid(
+            db, scope, entity_id, body.branch, body.synced_oid
+        )
+    else:
+        await git_sync_state_service.set_oid(
+            db, scope, entity_id, body.branch, body.synced_oid
+        )
 
 
 def _default_branch(entity, fallback: str | None) -> str:
@@ -291,9 +313,7 @@ async def project_set_sync_state(
     """Anchor the project's sync state to a known remote commit — called after a
     git import or a pull so it has a base to compare against (a later push
     elsewhere is then detected as 'behind'). Write access required."""
-    await git_sync_state_service.set_oid(
-        db, "projects", project.uid, body.branch, body.synced_oid
-    )
+    await _apply_sync_state(db, "projects", project.uid, body)
 
 
 # --- Workspace scope ------------------------------------------------------
@@ -451,11 +471,18 @@ async def mapping_project_diff(
     mp = await _load_mapping_project(
         mapping_project_id, db, user, "concept-mapping:read"
     )
+    # Only the requested file is assembled: the full export tree is ~38 MB for a
+    # real project, and building it per diff click cost about a minute.
+    zip_bytes = (
+        await file.read()
+        if file is not None
+        else await assemble_mapping_project_file_zip(db, mp, path)
+    )
     return await _guard(
         git_service.diff(
             git_service.mapping_project_repo_getter,
             mp.id,
-            await _mapping_project_zip_bytes(db, mp, file),
+            zip_bytes,
             _default_branch(mp, branch),
             path,
             _remote_url(mp),
@@ -527,14 +554,28 @@ async def mapping_project_pull_preview(
     row = await git_sync_state_service.get(
         db, "mapping-projects", mp.id, _default_branch(mp, branch)
     )
+    # The local source CSV rides along so the preview can diff the concept list
+    # row by row (added/removed/modified) rather than just "the blob changed".
+    local_source_csv = None
+    if (
+        mp.source_type == "file"
+        and mp.raw_file_sha
+        and blob_store.exists(mp.raw_file_sha)
+    ):
+        local_source_csv = await blob_store.read_bytes(mp.raw_file_sha)
+    # The project NAMES its identity columns; a source CSV is the user's own file,
+    # so its headers are whatever they were on import.
+    source_column_mapping = (mp.file_source_data or {}).get("columnMapping")
     return await _guard(
         git_service.pull_preview(
             git_service.mapping_project_repo_getter,
             mp.id,
             _default_branch(mp, branch),
             _remote_url(mp),
-            row.synced_oid if row else None,
+            (row.synced_oid or None) if row else None,
             await _token(db, user, mp),
+            local_source_csv=local_source_csv,
+            source_column_mapping=source_column_mapping,
         )
     )
 
@@ -552,7 +593,7 @@ async def mapping_project_pull_file(
     for a whole-list family. Only the pull's managed heavy files are allowed."""
     from fastapi.responses import Response
 
-    if path not in ("source-concepts.csv", "similarity-scores.parquet"):
+    if path != "source-concepts.csv":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "path is not a pullable file")
     mp = await _load_mapping_project(
         mapping_project_id, db, user, "concept-mapping:read"
@@ -586,9 +627,7 @@ async def mapping_project_set_sync_state(
     mp = await _load_mapping_project(
         mapping_project_id, db, user, "concept-mapping:write"
     )
-    await git_sync_state_service.set_oid(
-        db, "mapping-projects", mp.id, body.branch, body.synced_oid
-    )
+    await _apply_sync_state(db, "mapping-projects", mp.id, body)
 
 
 @router.post(
@@ -625,7 +664,7 @@ async def mapping_project_commit_push(
             _remote_url(mp),
             await _token(db, user, mp),
             paths,
-            row.synced_oid if row else None,
+            (row.synced_oid or None) if row else None,
         )
     )
     # A successful push means the pushed commit is now the synced point → move the anchor.
@@ -907,7 +946,7 @@ def _register_entity_git_routes(
                 _remote_url(e),
                 await _token(db, user, e),
                 paths,
-                row.synced_oid if row else None,
+                (row.synced_oid or None) if row else None,
             )
         )
         # A successful push means the pushed commit is now the synced point.
@@ -960,9 +999,7 @@ def _register_entity_git_routes(
         e = await _load_workspace_entity(
             get_fn, entity_id, db, user, write_perm, not_found
         )
-        await git_sync_state_service.set_oid(
-            db, prefix, _entity_id(e), body.branch, body.synced_oid
-        )
+        await _apply_sync_state(db, prefix, _entity_id(e), body)
 
 
 def _entity_id(entity):
@@ -1285,7 +1322,7 @@ async def settings_commit_push(
             remote,
             await _settings_token(db, user),
             paths,
-            row.synced_oid if row else None,
+            (row.synced_oid or None) if row else None,
         )
     )
     if result.get("pushed") and result.get("commit"):
@@ -1301,9 +1338,7 @@ async def settings_set_sync_state(
     _admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    await git_sync_state_service.set_oid(
-        db, "settings", SETTINGS_ID, body.branch, body.synced_oid
-    )
+    await _apply_sync_state(db, "settings", SETTINGS_ID, body)
 
 
 def _read_zip_tree(zip_bytes: bytes) -> dict[str, bytes]:

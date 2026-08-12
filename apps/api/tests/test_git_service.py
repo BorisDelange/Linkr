@@ -737,3 +737,338 @@ def test_docs_regex_matches_readme_variants_only():
         assert g._DOCS_RE.match(ok), ok
     for bad in ("README", "READMEX.md", "docs/README.md", "LICENSE.txt", "README.french.md"):
         assert not g._DOCS_RE.match(bad), bad
+
+
+# --- Source-concept row diff (twin of source-concepts-diff.ts) ---------------
+
+_HEADER = "vocabulary_id,concept_code,concept_name,domain"
+
+
+def _csv(*rows: str) -> str:
+    return "\n".join([_HEADER, *rows])
+
+
+def test_key_source_concepts_keys_by_vocabulary_and_code():
+    rows = g._key_source_concepts(_csv("LOCAL,VC,Volume courant,Measurement"))
+    assert rows is not None
+    assert set(rows) == {"LOCAL|VC"}
+
+
+def test_key_source_concepts_accepts_alternative_headers():
+    assert g._key_source_concepts("terminology,code\nLOCAL,VC") is not None
+    assert g._key_source_concepts("Vocabulary_ID,Concept_Code\nLOCAL,VC") is not None
+
+
+def test_key_source_concepts_handles_quoted_commas():
+    rows = g._key_source_concepts(_csv('LOCAL,VC,"Volume, courant",Measurement'))
+    assert rows is not None and len(rows) == 1
+    assert "Volume, courant" in rows["LOCAL|VC"]
+
+
+def test_key_source_concepts_unkeyable_inputs():
+    """An LFS pointer, an empty file or a CSV without the identity columns must
+    yield None so the UI falls back to a whole-file choice."""
+    assert g._key_source_concepts("version https://git-lfs.github.com/spec/v1\noid x") is None
+    assert g._key_source_concepts("") is None
+    assert g._key_source_concepts(None) is None
+    assert g._key_source_concepts("concept_name,domain\nVolume,Measurement") is None
+
+
+def test_key_source_concepts_skips_rows_without_a_code():
+    rows = g._key_source_concepts(_csv("LOCAL,,No code,M", "LOCAL,VC,Volume,M"))
+    assert rows is not None and set(rows) == {"LOCAL|VC"}
+
+
+def test_diff_source_concepts_counts_added_removed_modified():
+    local = _csv("LOCAL,A,Alpha,M", "LOCAL,B,Beta,M", "LOCAL,C,Gamma,M")
+    remote = _csv("LOCAL,A,Alpha,M", "LOCAL,B,Beta renamed,M", "LOCAL,D,Delta,M")
+    d = g._diff_source_concepts(local, remote)
+    assert d["keyed"] is True
+    assert (d["added"], d["removed"], d["modified"], d["unchanged"]) == (1, 1, 1, 1)
+    assert d["localTotal"] == 3 and d["remoteTotal"] == 3
+
+
+def test_diff_source_concepts_same_code_other_vocabulary_is_a_different_concept():
+    d = g._diff_source_concepts(_csv("LOINC,1234-5,X,M"), _csv("SNOMED,1234-5,X,M"))
+    assert (d["added"], d["removed"], d["modified"]) == (1, 1, 0)
+
+
+def test_diff_source_concepts_identical_sides_report_no_change():
+    same = _csv("LOCAL,A,Alpha,M")
+    d = g._diff_source_concepts(same, same)
+    assert (d["added"], d["removed"], d["modified"]) == (0, 0, 0)
+    assert d["unchanged"] == 1
+
+
+def test_diff_source_concepts_not_keyed_when_a_side_is_unreadable():
+    d = g._diff_source_concepts(None, _csv("LOCAL,A,Alpha,M"))
+    assert d["keyed"] is False
+
+
+def test_diff_matches_the_typescript_twin_on_the_same_fixture():
+    """The TS twin (source-concepts-diff.test.ts) asserts these exact numbers on
+    this exact fixture; the two implementations must not drift apart."""
+    local = _csv("LOCAL,A,Alpha,Measurement", "LOCAL,B,Beta,Measurement", "LOCAL,C,Gamma,Measurement")
+    remote = _csv("LOCAL,A,Alpha,Measurement", "LOCAL,B,Beta renamed,Measurement", "LOCAL,D,Delta,Measurement")
+    d = g._diff_source_concepts(local, remote)
+    assert {k: d[k] for k in ("added", "removed", "modified", "unchanged")} == {
+        "added": 1, "removed": 1, "modified": 1, "unchanged": 1,
+    }
+
+
+# --- reviewed_oid: the decision cursor, split from the content anchor --------
+
+
+@pytest.mark.asyncio
+async def test_sync_state_measures_behind_against_the_reviewed_cursor():
+    """A partial pull leaves the content anchor behind on purpose but records the
+    decision cursor at the remote head. The banner must clear and the push unblock,
+    even though `synced_oid` deliberately stayed put — that is the whole point of
+    the split (see models/git_sync_state.py)."""
+    tmp = Path(tempfile.mkdtemp())
+    local, other = tmp / "repo", tmp / "other"
+
+    try:
+        remote = _bare_remote(tmp)
+        first = await g.commit_push(lambda _u: local, "u", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+        v1 = first["commit"]["oid"]
+        second = await g.commit_push(lambda _u: other, "o", _zip({"project.json": '{"a":2}'}), "main", "v2", remote, None)
+        v2 = second["commit"]["oid"]
+
+        # Anchor still at v1 (we did NOT take everything) but every incoming item
+        # was decided on → not behind.
+        s = await g.sync_state(lambda _u: local, "u", "main", remote, v1, reviewed_oid=v2)
+        assert s["behind"] is False and s["diverged"] is False
+        # Both cursors are echoed truthfully: the anchor did not move.
+        assert s["syncedOid"] == v1 and s["reviewedOid"] == v2
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_sync_state_falls_back_to_the_anchor_when_never_reviewed():
+    """Rows predating the split (reviewed_oid NULL) keep their old behaviour."""
+    tmp = Path(tempfile.mkdtemp())
+    local, other = tmp / "repo", tmp / "other"
+
+    try:
+        remote = _bare_remote(tmp)
+        first = await g.commit_push(lambda _u: local, "u", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+        v1 = first["commit"]["oid"]
+        await g.commit_push(lambda _u: other, "o", _zip({"project.json": '{"a":2}'}), "main", "v2", remote, None)
+
+        s = await g.sync_state(lambda _u: local, "u", "main", remote, v1, reviewed_oid=None)
+        assert s["behind"] is True
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_sync_state_behind_again_when_the_remote_moves_past_the_review():
+    """Deciding on v2 does not immunise against v3: a later remote commit brings
+    items the user has never seen, so it must be offered."""
+    tmp = Path(tempfile.mkdtemp())
+    local, other = tmp / "repo", tmp / "other"
+
+    try:
+        remote = _bare_remote(tmp)
+        first = await g.commit_push(lambda _u: local, "u", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+        v1 = first["commit"]["oid"]
+        second = await g.commit_push(lambda _u: other, "o", _zip({"project.json": '{"a":2}'}), "main", "v2", remote, None)
+        v2 = second["commit"]["oid"]
+        await g.commit_push(lambda _u: other, "o", _zip({"project.json": '{"a":3}'}), "main", "v3", remote, None)
+
+        s = await g.sync_state(lambda _u: local, "u", "main", remote, v1, reviewed_oid=v2)
+        assert s["behind"] is True
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_sync_state_rejects_a_malicious_reviewed_oid():
+    """The new cursor reaches git as a positional refspec like the anchor, so it
+    needs the same validation — an option-looking value must not slip through."""
+    with pytest.raises(g.GitError):
+        await g.sync_state(
+            lambda _u: Path("/tmp/nope"), "u", "main",
+            "https://example.invalid/r.git", None, reviewed_oid="--upload-pack=x",
+        )
+
+
+def test_diff_lists_the_rows_that_moved_with_their_names():
+    """Counts alone don't let a user judge a pull — "5 concepts disappear" is only
+    actionable if they can see WHICH ones."""
+    header = "vocabulary_id,concept_code,concept_name,domain"
+    local = "\n".join([header, "LOCAL,A,Alpha,M", "LOCAL,B,Beta,M", "LOCAL,C,Gamma,M"])
+    remote = "\n".join([header, "LOCAL,A,Alpha,M", "LOCAL,B,Beta renamed,M", "LOCAL,D,Delta,M"])
+    d = g._diff_source_concepts(local, remote)
+
+    by_state = {c["state"]: c for c in d["changes"]}
+    assert by_state["add"]["code"] == "D" and by_state["add"]["name"] == "Delta"
+    assert by_state["modify"]["code"] == "B" and by_state["modify"]["name"] == "Beta renamed"
+    # A removed row is gone remotely, so its name can only come from the LOCAL side.
+    assert by_state["delete"]["code"] == "C" and by_state["delete"]["name"] == "Gamma"
+    assert d["changesTruncated"] is False
+
+
+def test_diff_omits_unchanged_rows_from_the_listing():
+    header = "vocabulary_id,concept_code,concept_name"
+    same = "\n".join([header, "LOCAL,A,Alpha", "LOCAL,B,Beta"])
+    d = g._diff_source_concepts(same, same)
+    assert d["changes"] == []
+
+
+def test_diff_caps_the_listing_but_never_the_counts():
+    """A 60 000-row list would be pointless to scroll and expensive to ship, so the
+    listing is capped — but the counts must stay exact or the cap would understate
+    the change the user is accepting."""
+    header = "vocabulary_id,concept_code,concept_name"
+    n = g._MAX_LISTED_CONCEPT_CHANGES + 50
+    remote = "\n".join([header, *(f"LOCAL,C{i},Name {i}" for i in range(n))])
+    d = g._diff_source_concepts(header, remote)  # local: header only = empty
+    assert d["added"] == n
+    assert len(d["changes"]) == g._MAX_LISTED_CONCEPT_CHANGES
+    assert d["changesTruncated"] is True
+
+
+def test_diff_tolerates_a_csv_without_a_name_column():
+    """The name is optional — its absence must not drop the row from the listing."""
+    local = "vocabulary_id,concept_code\nLOCAL,A"
+    remote = "vocabulary_id,concept_code\nLOCAL,A\nLOCAL,B"
+    d = g._diff_source_concepts(local, remote)
+    assert [c["code"] for c in d["changes"]] == ["B"]
+    assert d["changes"][0]["name"] == ""
+
+
+def test_unkeyable_diff_lists_nothing():
+    d = g._diff_source_concepts(None, "vocabulary_id,concept_code\nLOCAL,A")
+    assert d["keyed"] is False and d["changes"] == []
+
+
+def test_keying_uses_the_project_column_mapping_not_guessed_names():
+    """A source CSV is the USER's file: its headers are whatever they were on
+    import. The real RiCDC/mimic-iv export uses `terminology_code`, which is in no
+    guess list — keying it by name alone declared a perfectly good file "not
+    comparable", so the pull offered no row diff at all."""
+    csv_text = "terminology_code,concept_code,concept_label\nmimic_outputevents,226559,Foley"
+    mapping = {
+        "terminologyColumn": "terminology_code",
+        "conceptCodeColumn": "concept_code",
+        "conceptNameColumn": "concept_label",
+    }
+    assert g._key_source_concepts_named(csv_text) is None  # guesses alone: unkeyable
+    keyed = g._key_source_concepts_named(csv_text, mapping)
+    assert keyed is not None
+    rows, names = keyed
+    assert set(rows) == {"mimic_outputevents|226559"}
+    assert names["mimic_outputevents|226559"] == "Foley"
+
+
+def test_column_mapping_falls_back_to_guessed_names_when_stale():
+    """A mapping naming a column the CSV no longer has must not break keying —
+    the standard names still resolve it."""
+    csv_text = "vocabulary_id,concept_code,concept_name\nLOCAL,A,Alpha"
+    stale = {"terminologyColumn": "gone_column", "conceptCodeColumn": "also_gone"}
+    keyed = g._key_source_concepts_named(csv_text, stale)
+    assert keyed is not None and set(keyed[0]) == {"LOCAL|A"}
+
+
+def test_diff_with_a_user_named_csv_reports_real_row_changes():
+    header = "terminology_code,concept_code,concept_label"
+    mapping = {
+        "terminologyColumn": "terminology_code",
+        "conceptCodeColumn": "concept_code",
+        "conceptNameColumn": "concept_label",
+    }
+    local = "\n".join([header, "mimic,A,Alpha", "mimic,B,Beta"])
+    remote = "\n".join([header, "mimic,A,Alpha", "mimic,C,Gamma"])
+    d = g._diff_source_concepts(local, remote, mapping)
+    assert (d["added"], d["removed"], d["modified"]) == (1, 1, 0)
+    assert {c["code"] for c in d["changes"]} == {"B", "C"}
+
+
+def test_condense_hunks_skips_the_untouched_head_and_tail():
+    """difflib is ~O(n*m) and these files are generated: a 59 000-line
+    mappings.json where 3 blocks changed cost 5.5s to diff line-by-line, because
+    every identical line was still compared. Trimming the common affixes first
+    brings the same file down to ~80 compared lines (13ms)."""
+    old = "\n".join(["same"] * 5000 + ["OLD"] + ["tail"] * 5000)
+    new = "\n".join(["same"] * 5000 + ["NEW"] + ["tail"] * 5000)
+    old_h, new_h, truncated = g._condense_hunks(old, new)
+    assert truncated is False
+    assert "OLD" in old_h and "NEW" in new_h
+    # Only the changed block plus its context survives, not the 10 000 same lines.
+    assert len(old_h.split("\n")) < 20
+
+
+def test_condense_hunks_keeps_real_line_numbers_after_trimming():
+    """The @@ markers must still point at the file's real lines, or the viewer
+    would place every change at the top."""
+    old = "\n".join(["same"] * 100 + ["OLD"])
+    new = "\n".join(["same"] * 100 + ["NEW"])
+    old_h, _, _ = g._condense_hunks(old, new)
+    marker = old_h.split("\n")[0]
+    assert marker.startswith("@@ -") and "-98" in marker  # 100 lines + context
+
+
+def test_condense_hunks_handles_a_change_at_the_very_start():
+    old_h, new_h, _ = g._condense_hunks("OLD\nsame\nsame", "NEW\nsame\nsame")
+    assert "OLD" in old_h and "NEW" in new_h
+
+
+def test_condense_hunks_on_identical_text_produces_nothing():
+    old_h, new_h, truncated = g._condense_hunks("a\nb\nc", "a\nb\nc")
+    assert old_h == "" and new_h == "" and truncated is False
+
+
+def test_condense_hunks_finds_several_separated_changes():
+    old = "\n".join(["A"] + ["x"] * 50 + ["B"] + ["y"] * 50 + ["C"])
+    new = "\n".join(["A2"] + ["x"] * 50 + ["B2"] + ["y"] * 50 + ["C"])
+    old_h, new_h, _ = g._condense_hunks(old, new)
+    assert "A" in old_h and "B" in old_h
+    assert "A2" in new_h and "B2" in new_h
+    # Each marker contains "@@" twice, so two blocks read as four occurrences.
+    assert len([l for l in old_h.split("\n") if l.startswith("@@")]) == 2
+
+
+@pytest.mark.asyncio
+async def test_diff_accepts_a_zip_holding_only_the_requested_file():
+    """The diff endpoint assembles ONE file, not the whole export: a real project's
+    tree is ~38 MB (the source CSV alone is 35 MB) and rebuilding it per click cost
+    about a minute. Since _unpack_zip_into wipes the tree first, the change type
+    must come from this file alone — a global `git add -A` status would report
+    every absent file as deleted."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        remote = _bare_remote(tmp)
+        await g.commit_push(
+            lambda _u: tmp / "repo", "u",
+            _zip({"project.json": '{"a":1}', "mappings.json": "[]", "source-concepts.csv": "v,c\nA,1"}),
+            "main", "v1", remote, None,
+        )
+        # A partial ZIP: only the file being diffed.
+        out = await g.diff(
+            lambda _u: tmp / "repo", "u",
+            _zip({"mappings.json": '[{"x":1}]'}),
+            "main", "mappings.json", remote, None,
+        )
+        assert out["changeType"] == "modified"  # NOT "added", and not "deleted"
+        assert out["oldContent"] == "[]"
+        assert '"x": 1' in out["newContent"] or '"x":1' in out["newContent"]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_diff_reports_added_for_a_file_absent_from_head():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        remote = _bare_remote(tmp)
+        await g.commit_push(lambda _u: tmp / "repo", "u", _zip({"project.json": "{}"}), "main", "v1", remote, None)
+        out = await g.diff(
+            lambda _u: tmp / "repo", "u", _zip({"mappings.json": "[]"}),
+            "main", "mappings.json", remote, None,
+        )
+        assert out["changeType"] == "added"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

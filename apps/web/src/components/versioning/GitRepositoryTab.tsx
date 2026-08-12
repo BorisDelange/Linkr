@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GitBranch, KeyRound, Link2Off, Loader2 } from 'lucide-react'
+import { GitBranch, Loader2, Settings } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { gitVerifyRemote, gitSetHostToken, gitHostTokenStatus } from '@/lib/api/git'
@@ -17,7 +16,7 @@ import { useGitSyncStore } from '@/stores/git-sync-store'
 import { GitSyncPanel } from './GitSyncPanel'
 import { GitErrorInline } from './GitErrorInline'
 import { GitTokenDialog } from './GitTokenDialog'
-import { GitTokenHelp } from './GitTokenHelp'
+import { GitConfigDialog } from './GitConfigDialog'
 
 interface GitRepositoryTabProps {
   /** Current git link, or null when unlinked. */
@@ -48,6 +47,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<{ code: GitErrorCode; raw: string } | null>(null)
   const [editingToken, setEditingToken] = useState(false)
+  const [configOpen, setConfigOpen] = useState(false)
   // Whether the CURRENT USER has a token stored for this repo's host. Tokens are
   // per (user, host) server-side; the token itself is never returned, only its
   // presence — so this is fetched from the backend, not derived from the config.
@@ -137,69 +137,52 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
   if (linked) {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        {/* Compact connection summary — keeps the config out of the way so the
-            sync panel below owns the space. */}
-        <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
-          <GitBranch size={15} className="shrink-0 text-muted-foreground" />
-          <a
-            href={linkedUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="min-w-0 flex-1 truncate text-xs font-medium hover:underline"
-            title={linkedUrl}
-          >
-            {linkedUrl}
-          </a>
-          {/* Token status — shown once known so an absent token is visible (a private
-              repo with no token otherwise looks like a public one). Hidden while the
-              status fetch is in flight to avoid flashing a wrong "No token". */}
-          {hasToken !== null && (
-            <span
-              className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${
-                hasToken
-                  ? 'bg-muted text-muted-foreground'
-                  : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
-              }`}
+        {/* No permanent settings bar: the repo URL, token and Disconnect live in
+            the Config dialog, opened from the panel's toolbar. They are touched
+            once when linking and never again, so they don't earn the space. */}
+        {syncScope && syncId ? (
+          <GitSyncPanel
+            scope={syncScope}
+            id={syncId}
+            defaultBranch={branch}
+            renderPullDialog={renderPullDialog}
+            onOpenConfig={() => setConfigOpen(true)}
+          />
+        ) : (
+          // Without a sync panel there is no toolbar to hang Config off, so the
+          // repo summary stays inline — otherwise the link would be unreachable.
+          <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm">
+            <GitBranch size={15} className="shrink-0 text-muted-foreground" />
+            <a
+              href={linkedUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="min-w-0 flex-1 truncate text-xs font-medium hover:underline"
+              title={linkedUrl}
             >
-              <KeyRound size={10} />
-              {hasToken ? t('versioning.remote_token_set') : t('versioning.remote_no_token')}
-            </span>
-          )}
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 shrink-0 gap-1 text-xs text-muted-foreground"
-                  onClick={() => setEditingToken(true)}
-                  disabled={saving}
-                >
-                  <KeyRound size={13} />
-                  {/* Until the status resolves, keep the neutral "Edit"; only assert
-                      "Add" once we know there is no token. */}
-                  {hasToken === false ? t('versioning.remote_add_token') : t('versioning.remote_edit_token')}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                <GitTokenHelp />
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 gap-1 text-xs text-muted-foreground hover:text-destructive"
-            onClick={handleDisconnect}
-            disabled={saving}
-          >
-            {saving ? <Loader2 size={13} className="animate-spin" /> : <Link2Off size={13} />}
-            {t('versioning.remote_disconnect')}
-          </Button>
-        </div>
+              {linkedUrl}
+            </a>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 gap-1 text-xs text-muted-foreground"
+              onClick={() => setConfigOpen(true)}
+            >
+              <Settings size={13} />
+              {t('versioning.config_button')}
+            </Button>
+          </div>
+        )}
 
-        {syncScope && syncId && (
-          <GitSyncPanel scope={syncScope} id={syncId} defaultBranch={branch} renderPullDialog={renderPullDialog} />
+        {configOpen && (
+          <GitConfigDialog
+            url={linkedUrl}
+            hasToken={hasToken}
+            saving={saving}
+            onEditToken={() => { setConfigOpen(false); setEditingToken(true) }}
+            onDisconnect={async () => { setConfigOpen(false); await handleDisconnect() }}
+            onClose={() => setConfigOpen(false)}
+          />
         )}
 
         {editingToken && (

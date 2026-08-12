@@ -9,7 +9,13 @@
 import type { ConceptMapping, MappingProject } from '@/types'
 import { getStorage } from '@/lib/storage'
 import { readEntityDocsFrom } from '@/lib/entity-docs-pull'
-import { gitPullPreview, gitPullFile, gitSetSyncState, type GitPullSide } from '@/lib/api/git'
+import {
+  gitPullPreview,
+  gitPullFile,
+  gitSetSyncState,
+  type GitPullSide,
+  type SourceConceptsDiff,
+} from '@/lib/api/git'
 import {
   mergeMappings,
   mergeMetadata,
@@ -25,6 +31,12 @@ export interface PreparedPull {
   /** Local mappings, kept so apply can resolve a merge key back to its local id. */
   localMappings: ConceptMapping[]
   localProject: MappingProject | undefined
+  /** Remote `source-concept-ids/` files — merged monotonically on apply, with no
+   *  user choice (see pull-source-concept-ids.ts). */
+  remoteRegistry: { ranges: string | null | undefined; entries: string | null | undefined }
+  /** Row-level source-concept diff by (vocabulary, code), computed server-side.
+   *  `keyed: false` means a side was unparseable → whole-file choice only. */
+  sourceConceptsDiff: SourceConceptsDiff | undefined
 }
 
 /** Parse a managed JSON file from a preview side; [] / {} on absence or bad JSON. */
@@ -47,6 +59,26 @@ function listChangedByOid(preview: { base: GitPullSide; remote: GitPullSide }, n
   if (!r?.present) return false // nothing remote → nothing to take
   if (!b?.present) return true // remote has it, base didn't → a change to pull
   return b.oid !== r.oid
+}
+
+/**
+ * Is there anything to take from the remote source list?
+ *
+ * Prefers the server's ROW diff, which compares LOCAL to REMOTE directly. The
+ * oid test answers a different question — "did the remote move since our anchor?"
+ * — and on its own hid the common case where the remote never moved but our local
+ * list drifted from it: the file then never appeared in the pull at all.
+ *
+ * The oid test remains the fallback for a CSV that could not be keyed (unsmudged
+ * LFS pointer, missing identity column): there are no rows to compare, so a moved
+ * blob is the only evidence of a change we have.
+ */
+export function sourceConceptsChanged(
+  rowDiff: SourceConceptsDiff | undefined,
+  changedByOid: boolean,
+): boolean {
+  if (rowDiff?.keyed) return rowDiff.added > 0 || rowDiff.removed > 0 || rowDiff.modified > 0
+  return changedByOid
 }
 
 /**
@@ -77,33 +109,29 @@ export async function prepareMappingProjectPull(projectId: string, branch?: stri
     localProject ?? {},
   )
 
-  // Source concepts: whole-list block choice — "changed" iff the remote blob oid
-  // differs from BASE (reliable for LFS; a row count would need smudging). The
-  // remote row count/size is informational for the UI (may be absent for LFS).
+  // Source concepts: whole-list block choice — see sourceConceptsChanged.
   const remoteCsv = preview.remote.stats['source-concepts.csv']
   const localCsvCount = localProject?.fileSourceData?.totalRowCount ?? 0
   const sourceConcepts = listDiffStat(
     localCsvCount,
     remoteCsv?.rowCount ?? 0,
-    listChangedByOid(preview, 'source-concepts.csv'),
+    sourceConceptsChanged(
+      preview.sourceConceptsDiff,
+      listChangedByOid(preview, 'source-concepts.csv'),
+    ),
     { remoteByteSize: remoteCsv?.byteSize, remoteLfs: remoteCsv?.lfs },
   )
 
-  // Scores: remote-wins block, changed iff the remote parquet oid differs from BASE.
-  const remoteScores = preview.remote.stats['similarity-scores.parquet']
-  const localScores = await getLocalScoreCount(projectId)
-  const scores = listDiffStat(
-    localScores,
-    remoteScores?.rowCount ?? 0,
-    listChangedByOid(preview, 'similarity-scores.parquet'),
-    { remoteByteSize: remoteScores?.byteSize, remoteLfs: remoteScores?.lfs },
-  )
-
   return {
-    merge: { mappings, metadata, sourceConcepts, scores },
+    merge: { mappings, metadata, sourceConcepts },
     remoteHead: preview.remoteHead,
     localMappings,
     localProject: localProject ?? undefined,
+    sourceConceptsDiff: preview.sourceConceptsDiff,
+    remoteRegistry: {
+      ranges: preview.remote.files['source-concept-ids/ranges.json'],
+      entries: preview.remote.files['source-concept-ids/entries.json'],
+    },
   }
 }
 
@@ -135,12 +163,6 @@ function withDocs(
   }
 }
 
-/** Best-effort local scores count — the store may not expose it, so 0 is fine
- *  (the count is informational; the merge choice is "take remote"). */
-async function getLocalScoreCount(_projectId: string): Promise<number> {
-  return 0
-}
-
 // --- Applying the resolved pull -------------------------------------------
 
 export interface PullResolution {
@@ -151,7 +173,18 @@ export interface PullResolution {
   metadataUpdates: { field: string; value: unknown }[]
   metadataConflictChoices: Record<string, 'remote' | 'local'>
   takeRemoteSourceConcepts: boolean
-  takeRemoteScores: boolean
+  /** `vocab|code` pairs whose remote change the user refused. The applier rebuilds
+   *  the CSV around them, so a per-row refusal actually holds. */
+  declinedSourceConcepts?: ReadonlySet<string>
+  /**
+   * The user accepted EVERYTHING the plan offered.
+   *
+   * Decides which cursor advances: a complete pull moves the content anchor (we
+   * hold this commit), a partial-but-decided one moves only the review cursor
+   * (we deliberated, but kept our own version of some items — so the 3-way base
+   * must stay put or it would absorb what was declined).
+   */
+  complete: boolean
 }
 
 /**
@@ -192,17 +225,37 @@ export async function applyMappingProjectPull(
     await storage.mappingProjects.update(projectId, metaChanges as Partial<MappingProject>)
   }
 
-  // 4) Heavy whole-list families — fetch the remote bytes and write them.
+  // 4) Heavy whole-list family — fetch the remote bytes and write them.
   if (resolution.takeRemoteSourceConcepts) {
-    await replaceSourceConcepts(storage, projectId, branch, prepared.localProject)
-  }
-  if (resolution.takeRemoteScores) {
-    await replaceScores(projectId, branch)
+    await replaceSourceConcepts(
+      storage,
+      projectId,
+      branch,
+      prepared.localProject,
+      resolution.declinedSourceConcepts ?? new Set(),
+    )
   }
 
-  // 5) Advance the anchor: we're now in sync with the remote head.
+  // 4b) Badge allocation registry — always merged, never offered as a choice: the
+  //     merge is monotone (local id wins, nextId = max), so declining it could only
+  //     leave the two instances' allocations diverged.
+  const workspaceId = prepared.localProject?.workspaceId
+  if (workspaceId) {
+    const { pullSourceConceptIds } = await import('./pull-source-concept-ids')
+    await pullSourceConceptIds(storage, workspaceId, prepared.remoteRegistry)
+  }
+
+  // 5) Advance the cursors. A complete pull moves both (we hold this commit's
+  //    content); a partial one moves only the review cursor, so the banner clears
+  //    and the push unblocks while the 3-way base stays honest about what we hold.
   if (prepared.remoteHead) {
-    await gitSetSyncState('mapping-projects', projectId, branch, prepared.remoteHead)
+    await gitSetSyncState(
+      'mapping-projects',
+      projectId,
+      branch,
+      prepared.remoteHead,
+      /* reviewedOnly */ !resolution.complete,
+    )
   }
 }
 
@@ -234,14 +287,35 @@ async function applyMappingChange(
   }
 }
 
+/**
+ * Write the remote source list into the project.
+ *
+ * `declinedKeys` are `vocab|code` pairs the user refused. The applier does not
+ * take the remote CSV verbatim in that case: it rebuilds the file, keeping the
+ * local row wherever the remote change was declined. That is what makes a
+ * per-row choice honest rather than decorative — the CSV is still written as one
+ * blob, but the blob is the user's resolution, not the remote's.
+ */
 async function replaceSourceConcepts(
   storage: ReturnType<typeof getStorage>,
   projectId: string,
   branch: string,
   localProject: MappingProject | undefined,
+  declinedKeys: ReadonlySet<string>,
 ): Promise<void> {
   const bytes = await gitPullFile('mapping-projects', projectId, 'source-concepts.csv', branch)
-  const csv = new TextDecoder().decode(bytes)
+  let csv = new TextDecoder().decode(bytes)
+
+  if (declinedKeys.size > 0) {
+    const localCsv = decodeLocalSourceCsv(localProject)
+    const { mergeSourceConceptsCsv } = await import('./source-concepts-diff')
+    const merged = mergeSourceConceptsCsv(localCsv, csv, declinedKeys, sourceColumnMapping(localProject))
+    // A merge we couldn't compute (unkeyable side) must not silently fall back to
+    // "take everything" — that would apply changes the user explicitly refused.
+    if (merged == null) throw new Error('Cannot apply a partial source-concept pull on an uncomparable file')
+    csv = merged
+  }
+
   const { restoreFileSourceDataFromCsv } = await import('./export')
   // Reuse the import path's reconstruction of fileSourceData from a CSV string.
   const p = { ...(localProject ?? { id: projectId }), sourceType: 'file', fileSourceData: localProject?.fileSourceData ?? { fileName: 'source-concepts.csv', columnMapping: {}, columns: [], rows: [] } } as MappingProject
@@ -249,10 +323,17 @@ async function replaceSourceConcepts(
   await storage.mappingProjects.update(projectId, { fileSourceData: p.fileSourceData })
 }
 
-async function replaceScores(projectId: string, branch: string): Promise<void> {
-  const bytes = await gitPullFile('mapping-projects', projectId, 'similarity-scores.parquet', branch)
-  if (!bytes || bytes.byteLength === 0) return
-  const file = new File([bytes as BlobPart], `${projectId}.parquet`, { type: 'application/octet-stream' })
-  const { useSuggestionScoresStore } = await import('@/stores/suggestion-scores-store')
-  await useSuggestionScoresStore.getState().importScores(projectId, file)
+/** The local source CSV text, from the raw buffer the project keeps. */
+function decodeLocalSourceCsv(project: MappingProject | undefined): string | null {
+  const buf = project?.fileSourceData?.rawFileBuffer
+  if (!buf) return null
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
+  return new TextDecoder().decode(bytes)
 }
+
+/** The project's declared identity columns, for keying its own CSV. */
+function sourceColumnMapping(project: MappingProject | undefined) {
+  const m = project?.fileSourceData?.columnMapping
+  return m ? { terminologyColumn: m.terminologyColumn, conceptCodeColumn: m.conceptCodeColumn } : undefined
+}
+

@@ -8,9 +8,21 @@ The as-built is in `docs/architecture.md`; details for each item live in the lin
 
 ## Versioning — [versioning-plan.md](versioning-plan.md)
 
+Part II of that plan is the **pull redesign** (arbitrated 2026-08-12): a bidirectional
+panel where pull *replaces* the push file list in place (no modal), with the same files,
+diffs and cards pointing the other way. Prior art surveyed (ServiceNow *Skip Remote
+Update*, SNOMED Concept Merges, Redgate; Figma as a cautionary tale). Key move: split
+`synced_oid` ("I hold this content") from `reviewed_oid` ("every incoming item got a
+decision") so a **partial** pull can unblock the push.
+
+**Steps 1–8 shipped 2026-08-12** (needs manual testing against a real remote).
+
 | St | Item | Effort |
 |----|------|--------|
-| 🤔 | Pull for the 6 entity scopes + workspaces — as **pull-overwrite** (reuse `applyClonedEntity`) or drop | M |
+| ✅ | Pull 1–8: `reviewed_oid`, pull plan, inline pull mode, Details list, 4 cards, per-item decisions + Finalize, `source-concept-ids/` merge, Config dialog | L |
+| 🔜 | **[TO TEST]** Manual end-to-end: partial pull → push unblocked, conflicts, LFS path | S |
+| 🔜 | Pull 9. Scope generalisation: converge Project/Etl dialogs onto the shell, then the 6 push-only scopes | M |
+| 🔜 | `attachments/` pull — a pulled README can reference images that never arrive | S/M |
 | 🔜 | Server-side guard: refuse `paths=None` (git add -A) on the commit-push HTTP route | S |
 | 💤 | Server-side import (`POST /projects/import`, `/workspaces/import`) — last big client-offload | L |
 

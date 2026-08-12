@@ -63,8 +63,11 @@ class GitSyncStateResponse(CamelModel):
     branch: str
     remote_head: str | None = None
     synced_oid: str | None = None
-    behind: bool = False  # the remote moved past our anchor (fast-forward)
-    diverged: bool = False  # the anchor is not an ancestor of the remote head (rewrite)
+    # Last commit every incoming item of which got an explicit decision. behind/
+    # diverged are measured against THIS when set (see models/git_sync_state.py).
+    reviewed_oid: str | None = None
+    behind: bool = False  # the remote moved past our cursor (fast-forward)
+    diverged: bool = False  # the cursor is not an ancestor of the remote head (rewrite)
 
 
 class GitPullSide(CamelModel):
@@ -76,12 +79,44 @@ class GitPullSide(CamelModel):
     stats: dict[str, dict] = {}
 
 
+class SourceConceptChange(CamelModel):
+    """One source concept the remote list would add, remove or change."""
+
+    key: str
+    state: str  # add | delete | modify
+    vocabulary: str
+    code: str
+    name: str = ""
+
+
+class SourceConceptsDiff(CamelModel):
+    """Row-level diff of the source concept list, keyed by (vocabulary, code).
+
+    `keyed` is False when a side couldn't be parsed (absent file, unsmudged LFS
+    pointer, missing identity column) — the counts are then meaningless and the
+    UI must offer the file as a whole rather than show a bogus 0/0.
+    """
+
+    keyed: bool = False
+    added: int = 0
+    removed: int = 0
+    modified: int = 0
+    unchanged: int = 0
+    local_total: int = 0
+    remote_total: int = 0
+    # The rows that moved, for the review dialog. Capped — the counts above stay
+    # exact, so a truncated listing never understates the change.
+    changes: list[SourceConceptChange] = []
+    changes_truncated: bool = False
+
+
 class GitPullPreviewResponse(CamelModel):
     branch: str
     remote_head: str | None = None
     synced_oid: str | None = None
     base: GitPullSide
     remote: GitPullSide
+    source_concepts_diff: SourceConceptsDiff = SourceConceptsDiff()
 
 
 class GitSetSyncStateRequest(CamelModel):
@@ -90,6 +125,11 @@ class GitSetSyncStateRequest(CamelModel):
 
     branch: str
     synced_oid: str
+    # True → advance ONLY the decision cursor: the user deliberated over every
+    # incoming item but kept their own version of some, so we do NOT hold this
+    # commit's content and the 3-way base must stay put. Default False = a
+    # complete pull / import / push, where both cursors move together.
+    reviewed_only: bool = False
 
     @field_validator("synced_oid")
     @classmethod

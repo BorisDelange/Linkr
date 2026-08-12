@@ -45,23 +45,17 @@ describe('buildQuickActions', () => {
     expect(paths(all)).toEqual(['project.json', 'mappings.json', 'source-concepts.csv', 'source-concept-ids/ranges.json'])
   })
 
-  it('mapping-projects: Sync mappings narrows to project.json + mappings.{json,csv}', () => {
+  it('mapping-projects: Sync all is the ONLY card, and takes everything owned', () => {
+    // Per-kind cards were dropped: `stats` in project.json is derived from
+    // mappings.json, so a card pushing one without the other committed a repo
+    // contradicting itself. A genuine subset belongs in the Details tab.
     const changed = ch('project.json', 'mappings.json', 'source-concepts.csv', 'source-concept-ids/entries.json')
-    const [, mappings] = buildQuickActions('mapping-projects', changed)
-    expect(mappings.labelKey).toBe('versioning.quick_sync_mappings')
-    expect(paths(mappings)).toEqual(['project.json', 'mappings.json'])
-  })
-
-  it('an action whose patterns match nothing gets an empty file list', () => {
-    // Only a source-concepts change: "Sync mappings" matches nothing.
-    const [all, mappings] = buildQuickActions('mapping-projects', ch('source-concepts.csv'))
-    expect(paths(all)).toEqual(['source-concepts.csv'])
-    expect(paths(mappings)).toEqual([])
-  })
-
-  it('matches mappings.csv as well as mappings.json', () => {
-    const [, mappings] = buildQuickActions('mapping-projects', ch('mappings.csv'))
-    expect(paths(mappings)).toEqual(['mappings.csv'])
+    const actions = buildQuickActions('mapping-projects', changed)
+    expect(actions).toHaveLength(1)
+    expect(actions[0].labelKey).toBe('versioning.quick_sync_all')
+    expect(paths(actions[0])).toEqual([
+      'project.json', 'mappings.json', 'source-concepts.csv', 'source-concept-ids/entries.json',
+    ])
   })
 
   it('sql-script-collections: Sync all only, taking every changed path', () => {

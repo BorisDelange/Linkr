@@ -21,6 +21,7 @@ asyncio.to_thread to keep the event loop responsive (mirrors blob_store).
 """
 
 import asyncio
+import csv
 import difflib
 import io
 import ipaddress
@@ -493,9 +494,16 @@ async def sync_state(
     remote_url: str | None,
     synced_oid: str | None,
     token: str | None = None,
+    reviewed_oid: str | None = None,
 ) -> dict:
-    """Report where the entity stands vs the remote branch, given the DB anchor
-    `synced_oid` (last commit we know we were in sync with; None if never).
+    """Report where the entity stands vs the remote branch, given the DB cursors.
+
+    `synced_oid` is the content anchor (last commit whose content we hold);
+    `reviewed_oid` is the decision cursor (last commit every item of which got an
+    explicit decision). **behind/diverged are computed against the decision
+    cursor**, falling back to the anchor when it is unset — a partial pull that
+    was fully deliberated must clear the banner and unblock the push even though
+    the content anchor deliberately stayed behind (see models/git_sync_state.py).
 
     Cheap by design: it only fetches the remote ref and compares oids via
     merge-base — it does NOT need the local export (no ZIP upload, no unpack), so
@@ -518,12 +526,23 @@ async def sync_state(
     _safe_ref(branch)
     if synced_oid is not None:
         _safe_oid(synced_oid)
+    if reviewed_oid is not None:
+        _safe_oid(reviewed_oid)
+    # What "up to date" is measured against: the user's last complete deliberation
+    # if there is one, else the content anchor.
+    cursor = reviewed_oid or synced_oid
 
     def work() -> dict:
         repo = repo_getter(uid)
         _ensure_repo(repo, remote_url)
+        base = {
+            "syncedOid": synced_oid,
+            "reviewedOid": reviewed_oid,
+            "behind": False,
+            "diverged": False,
+        }
         if not remote_url:
-            return {"remoteHead": None, "syncedOid": synced_oid, "behind": False, "diverged": False}
+            return {"remoteHead": None, **base}
         _reject_internal_host(remote_url)
         ls_url = _with_credentials(remote_url, token)
         # A single ls-remote gives the remote head without fetching any objects —
@@ -535,7 +554,7 @@ async def sync_state(
                 remote_head = line.split()[0].strip()
                 break
         if not remote_head:
-            return {"remoteHead": None, "syncedOid": synced_oid, "behind": False, "diverged": False}
+            return {"remoteHead": None, **base}
 
         # The anchor is ONLY ever what a pull/import recorded (`set-sync-state`).
         #
@@ -550,7 +569,7 @@ async def sync_state(
         # disarming the pull-first push guard for content that was never imported,
         # permanently. An entity with no anchor stays unanchored: reporting nothing
         # is honest, claiming a sync that never happened is not.
-        anchor = synced_oid
+        anchor = cursor
 
         behind = diverged = False
         if anchor and anchor != remote_head:
@@ -574,7 +593,8 @@ async def sync_state(
 
         return {
             "remoteHead": remote_head,
-            "syncedOid": anchor,
+            "syncedOid": synced_oid,
+            "reviewedOid": reviewed_oid,
             "behind": behind,
             "diverged": diverged,
         }
@@ -609,36 +629,62 @@ async def pull_file_bytes(
         if not has_remote:
             raise GitError("remote branch not found", "not_found")
         remote_head = _run(repo, "rev-parse", "FETCH_HEAD", check=False).strip()
-        # Materialise the file from the fetched commit, then resolve LFS if it's a
-        # pointer (the fetch skipped smudge). We check out just this path.
-        _run(repo, "checkout", remote_head, "--", path, check=False)
-        target = _safe_join(repo, path)
-        if not target.is_file():
+        data = _materialize_at(repo, remote_head, path, remote_url, token)
+        if data is None:
             raise GitError(f"file not found at remote head: {path}", "not_found")
-        data = target.read_bytes()
-        if data[:40].startswith(b"version https://git-lfs") and _has_git_lfs():
-            # The pointer needs smudging. `lfs pull` fetches via the origin remote,
-            # which _ensure_repo set WITHOUT credentials — point it at the tokenized
-            # URL for the pull, then restore the clean URL (mirrors clone_to_zip).
-            ls_url = _with_credentials(remote_url, token)
-            _run(repo, "lfs", "install", "--local", check=False)
-            _run(repo, "remote", "set-url", "origin", ls_url, check=False)
-            try:
-                subprocess.run(
-                    ["git", "-C", str(repo), "lfs", "pull", "--include", path],
-                    capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env(),
-                )
-            finally:
-                _run(repo, "remote", "set-url", "origin", remote_url, check=False)
-            data = target.read_bytes()
         return data
 
     async with _lock_for(repo_getter(uid)):
         return await asyncio.to_thread(work)
 
 
+def _materialize_at(
+    repo: Path, commit: str, path: str, remote_url: str, token: str | None
+) -> bytes | None:
+    """Check `path` out of `commit` and return its real bytes, LFS resolved.
+
+    `git show <commit>:<path>` is NOT enough for an LFS-tracked file: it returns
+    the 3-line pointer, since our fetches deliberately skip the smudge filter. Any
+    caller that needs the actual content (and not just a content fingerprint) must
+    go through here, or it silently gets the pointer text instead of the file.
+    """
+    _safe_join(repo, path)  # reject a traversing path before any git use
+    _run(repo, "checkout", commit, "--", path, check=False)
+    target = _safe_join(repo, path)
+    if not target.is_file():
+        return None
+    data = target.read_bytes()
+    if data[:40].startswith(b"version https://git-lfs") and _has_git_lfs():
+        # The pointer needs smudging. `lfs pull` fetches via the origin remote,
+        # which _ensure_repo set WITHOUT credentials — point it at the tokenized
+        # URL for the pull, then restore the clean URL (mirrors clone_to_zip).
+        ls_url = _with_credentials(remote_url, token)
+        _run(repo, "lfs", "install", "--local", check=False)
+        _run(repo, "remote", "set-url", "origin", ls_url, check=False)
+        try:
+            subprocess.run(
+                ["git", "-C", str(repo), "lfs", "pull", "--include", path],
+                capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env(),
+            )
+        finally:
+            _run(repo, "remote", "set-url", "origin", remote_url, check=False)
+        data = target.read_bytes()
+    return data
+
+
 # Files a mapping-project pull merges as JSON (small — full content is returned).
-_PULL_TEXT_FILES = ("mappings.json", "project.json")
+#
+# source-concept-ids/ rides along because the badge registry was pushed but never
+# pulled: two instances allocating ids in parallel diverged silently, and those ids
+# end up in generated OMOP concepts. Its merge is monotone (keep the local id on a
+# collision, nextId = max), so it needs no user choice — it is applied on every
+# pull like a CRDT counter.
+_PULL_TEXT_FILES = (
+    "mappings.json",
+    "project.json",
+    "source-concept-ids/entries.json",
+    "source-concept-ids/ranges.json",
+)
 
 # Docs the entity owns as fields (readme / license) rather than as tree content.
 # Enumerated from the commit instead of hardcoded, because the README has one file
@@ -657,8 +703,12 @@ def _docs_files_at(repo: Path, commit: str) -> list[str]:
     out = _run(repo, "ls-tree", "--name-only", commit, check=False)
     return [line.strip() for line in out.splitlines() if _DOCS_RE.match(line.strip())]
 # Whole-list families: too big to ship for a 3-way, so we return stats only; the
-# actual bytes are pulled on resolution. (line count for CSV; presence for parquet.)
-_PULL_STAT_FILES = ("source-concepts.csv", "similarity-scores.parquet")
+# actual bytes are pulled on resolution. (line count for CSV.)
+#
+# similarity-scores.parquet is NOT here: scores are gitignored (re-derivable, and
+# ~100 MB), so they are never in a repo — offering them left the pull proposing a
+# file that could not exist, with an unknowable "?" row count.
+_PULL_STAT_FILES = ("source-concepts.csv",)
 
 
 def _blob_at(repo: Path, commit: str, path: str) -> str | None:
@@ -676,6 +726,212 @@ def _csv_line_count(text: str) -> int:
     return max(0, n - 1)  # minus the header row
 
 
+# Column names the source-concepts CSV may use for the identity pair. Twin of
+# VOCAB_COLUMNS/CODE_COLUMNS in apps/web/src/lib/concept-mapping/source-concepts-diff.ts.
+_VOCAB_COLUMNS = ("vocabulary_id", "terminology", "terminology_name")
+_CODE_COLUMNS = ("concept_code", "code")
+_NAME_COLUMNS = ("concept_name", "name", "label")
+
+# The review dialog lists the rows that moved; a full 60 000-row list would be
+# pointless to scroll and expensive to ship, so we cap it and tell the client the
+# list was truncated (the COUNTS above stay exact — only the listing is capped).
+_MAX_LISTED_CONCEPT_CHANGES = 2000
+
+
+def _key_source_concepts_named(
+    text: str | None,
+    column_mapping: dict | None = None,
+) -> tuple[dict[str, str], dict[str, str]] | None:
+    """Like `_key_source_concepts`, plus a `{key: concept_name}` map for the UI.
+
+    The name is what makes a review meaningful — "5 concepts disappear" is only
+    actionable if the user can see WHICH ones.
+
+    `column_mapping` is the project's own `fileSourceData.columnMapping`, which
+    NAMES the identity columns. It takes priority over the guessed names: a source
+    CSV is the user's file, so its headers are whatever they were on import
+    (`terminology_code`, …) and guessing from a fixed list mis-declared real files
+    as "not comparable". The guesses remain as the fallback for a project whose
+    mapping is absent or stale.
+    """
+    if not text or text.startswith("version https://git-lfs"):
+        return None
+    reader = csv.reader(io.StringIO(text))
+    try:
+        headers = next(reader)
+    except StopIteration:
+        return None
+    lower = [h.strip().lower() for h in headers]
+
+    def find(names: tuple[str, ...], mapped: str | None = None) -> int:
+        # The project's declared column wins when the CSV actually carries it.
+        if mapped and mapped.strip().lower() in lower:
+            return lower.index(mapped.strip().lower())
+        for name in names:
+            if name in lower:
+                return lower.index(name)
+        return -1
+
+    mapping = column_mapping or {}
+    vocab_idx = find(_VOCAB_COLUMNS, mapping.get("terminologyColumn"))
+    code_idx = find(_CODE_COLUMNS, mapping.get("conceptCodeColumn"))
+    if vocab_idx < 0 or code_idx < 0:
+        return None
+    name_idx = find(_NAME_COLUMNS, mapping.get("conceptNameColumn"))
+
+    rows: dict[str, str] = {}
+    names: dict[str, str] = {}
+    # A (vocabulary, code) pair is NOT unique in a real source file: MIMIC ships
+    # "Acetaminophen" and "Acetaminophen " (trailing space) as separate concepts,
+    # 345 such pairs in the RiCDC export alone. Keying on the pair alone collapsed
+    # them silently, under-counting the diff. A repeat gets an occurrence suffix so
+    # every physical row keeps its own identity. Twin of source-concepts-diff.ts.
+    seen: dict[str, int] = {}
+    for cells in reader:
+        if not cells:
+            continue
+        vocabulary = (cells[vocab_idx] if vocab_idx < len(cells) else "").strip()
+        code = (cells[code_idx] if code_idx < len(cells) else "").strip()
+        if not code:
+            continue
+        pair = f"{vocabulary}|{code}"
+        n = seen.get(pair, 0)
+        seen[pair] = n + 1
+        key = pair if n == 0 else f"{pair}#{n}"
+        rows[key] = "".join(
+            c for i, c in enumerate(cells) if i not in (vocab_idx, code_idx)
+        )
+        if 0 <= name_idx < len(cells):
+            names[key] = cells[name_idx].strip()
+    return rows, names
+
+
+def _key_source_concepts(text: str | None) -> dict[str, str] | None:
+    """Map every row of a source-concepts CSV to ``{vocabulary|code: content}``.
+
+    None when the file cannot be keyed (absent, an unsmudged LFS pointer, or a
+    CSV without both identity columns) — the caller must then fall back to a
+    whole-file choice instead of reporting a diff computed from nothing.
+
+    Done server-side because both sides are already on disk here: shipping two
+    ~5 MB CSVs to the browser just to count rows would cost more than the pull.
+    """
+    if not text or text.startswith("version https://git-lfs"):
+        return None
+    reader = csv.reader(io.StringIO(text))
+    try:
+        headers = next(reader)
+    except StopIteration:
+        return None
+    lower = [h.strip().lower() for h in headers]
+
+    def find(names: tuple[str, ...]) -> int:
+        for name in names:
+            if name in lower:
+                return lower.index(name)
+        return -1
+
+    vocab_idx = find(_VOCAB_COLUMNS)
+    code_idx = find(_CODE_COLUMNS)
+    if vocab_idx < 0 or code_idx < 0:
+        return None
+
+    rows: dict[str, str] = {}
+    for cells in reader:
+        if not cells:
+            continue
+        vocabulary = (cells[vocab_idx] if vocab_idx < len(cells) else "").strip()
+        code = (cells[code_idx] if code_idx < len(cells) else "").strip()
+        # A row with no code has no identity — counting it would be pure churn.
+        if not code:
+            continue
+        content = "".join(
+            c for i, c in enumerate(cells) if i not in (vocab_idx, code_idx)
+        )
+        rows[f"{vocabulary}|{code}"] = content
+    return rows
+
+
+def _diff_source_concepts(
+    local_csv: str | None,
+    remote_csv: str | None,
+    column_mapping: dict | None = None,
+) -> dict[str, object]:
+    """Added / removed / modified source concepts, keyed by (vocabulary, code).
+
+    "The blob changed" is useless for a 60 000-row file — it reads the same
+    whether two concepts were added or every one was replaced. This gives the
+    pull UI the same +N/-M vocabulary the mappings merge already speaks.
+
+    Both sides are keyed with the project's own `columnMapping`, so a user CSV
+    keeps working whatever its headers are called.
+    """
+    local_keyed = _key_source_concepts_named(local_csv, column_mapping)
+    remote_keyed = _key_source_concepts_named(remote_csv, column_mapping)
+    if local_keyed is None or remote_keyed is None:
+        return {
+            "keyed": False,
+            "added": 0,
+            "removed": 0,
+            "modified": 0,
+            "unchanged": 0,
+            "localTotal": len(local_keyed[0]) if local_keyed is not None else 0,
+            "remoteTotal": len(remote_keyed[0]) if remote_keyed is not None else 0,
+            "changes": [],
+            "changesTruncated": False,
+        }
+    local, local_names = local_keyed
+    remote, remote_names = remote_keyed
+
+    added = modified = unchanged = 0
+    changes: list[dict] = []
+
+    def record(key: str, state: str, names: dict[str, str]) -> None:
+        if len(changes) >= _MAX_LISTED_CONCEPT_CHANGES:
+            return
+        # Strip the occurrence suffix a duplicated pair carries (see the keying).
+        base = key.rsplit("#", 1)[0] if "#" in key else key
+        vocabulary, _, code = base.partition("|")
+        changes.append(
+            {
+                "key": key,
+                "state": state,
+                "vocabulary": vocabulary,
+                "code": code,
+                "name": names.get(key, ""),
+            }
+        )
+
+    for key, remote_content in remote.items():
+        if key not in local:
+            added += 1
+            record(key, "add", remote_names)
+        elif local[key] != remote_content:
+            modified += 1
+            record(key, "modify", remote_names)
+        else:
+            unchanged += 1
+    removed = 0
+    for key in local:
+        if key not in remote:
+            removed += 1
+            # Names come from the LOCAL side here: the row is gone remotely, so
+            # only we still know what it was called.
+            record(key, "delete", local_names)
+
+    return {
+        "keyed": True,
+        "added": added,
+        "removed": removed,
+        "modified": modified,
+        "unchanged": unchanged,
+        "localTotal": len(local),
+        "remoteTotal": len(remote),
+        "changes": changes,
+        "changesTruncated": (added + removed + modified) > len(changes),
+    }
+
+
 async def pull_preview(
     repo_getter,
     uid: str,
@@ -683,14 +939,17 @@ async def pull_preview(
     remote_url: str | None,
     synced_oid: str | None,
     token: str | None = None,
+    local_source_csv: bytes | None = None,
+    source_column_mapping: dict | None = None,
 ) -> dict:
     """Fetch BASE (synced_oid) and REMOTE (remote head), returning the managed
     files' content for the client to 3-way merge against its own DB (LOCAL).
 
-    JSON families (mappings/project) come back as full text; heavy whole-list
-    families (source CSV, scores parquet) come back as stats only — their bytes
-    are fetched on resolution, not for the preview. LOCAL is NOT read here: the
-    client already has it in the database.
+    JSON families (mappings/project) come back as full text; the heavy source CSV
+    comes back as stats only — its bytes are fetched on resolution, not for the
+    preview. LOCAL is NOT read here (the client has it in the database), with one
+    exception: `local_source_csv` lets us diff the source concept list row by row
+    server-side, where both sides already sit on disk.
     """
     _safe_ref(branch)
     if synced_oid is not None:
@@ -748,12 +1007,34 @@ async def pull_preview(
                 stats[name] = stat
             return {"files": files, "stats": stats}
 
+        # Row-level source-concept diff: LOCAL (from the DB blob) vs REMOTE, so
+        # the UI can say "+2 / -5 concepts" instead of "the file changed".
+        #
+        # Materialised, not `git show`: the CSV is routinely LFS-tracked (it is the
+        # big file in a mapping-project repo), and `git show` hands back the 3-line
+        # pointer, which cannot be keyed — the diff then reported "not comparable"
+        # for exactly the repos that need it most.
+        remote_csv_bytes = (
+            _materialize_at(repo, remote_head, "source-concepts.csv", remote_url, token)
+            if remote_head
+            else None
+        )
+        remote_csv = (
+            remote_csv_bytes.decode("utf-8", "replace") if remote_csv_bytes else None
+        )
+        source_concepts_diff = _diff_source_concepts(
+            local_source_csv.decode("utf-8", "replace") if local_source_csv else None,
+            remote_csv,
+            source_column_mapping,
+        )
+
         return {
             "branch": branch,
             "remoteHead": remote_head,
             "syncedOid": synced_oid,
             "base": side(synced_oid),
             "remote": side(remote_head),
+            "sourceConceptsDiff": source_concepts_diff,
         }
 
     async with _lock_for(repo_getter(uid)):
@@ -772,7 +1053,10 @@ _DIFF_HUNK_CONTEXT = 3
 _DIFF_MAX_HUNKS = 1000
 # difflib is ~O(n·m); on a huge file where most lines differ it can take minutes.
 # Above this line count on either side we don't attempt a hunk diff and fall back
-# to the head preview, keeping the request responsive.
+# to the head preview, keeping the request responsive. _condense_hunks trims the
+# common prefix/suffix first, so a large-but-barely-changed file (the usual case
+# for a generated mappings.json) costs almost nothing and this cap only bites when
+# the content genuinely differs throughout.
 _DIFF_HUNK_MAX_LINES = 200_000
 
 
@@ -814,7 +1098,30 @@ def _condense_hunks(old_text: str, new_text: str) -> tuple[str, str, bool]:
     old_lines = old_text.split("\n")
     new_lines = new_text.split("\n")
     ctx = _DIFF_HUNK_CONTEXT
-    opcodes = difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False).get_opcodes()
+
+    # Trim the common prefix/suffix before diffing. difflib is ~O(n*m), and these
+    # files are generated: a 59 000-line mappings.json where 3 blocks changed still
+    # cost 5.5s to diff line-by-line, because every identical line was compared.
+    # Skipping the untouched head and tail leaves ~80 lines and takes 13ms.
+    # Offsets are added back below so the @@ markers keep their real line numbers.
+    head = 0
+    while head < len(old_lines) and head < len(new_lines) and old_lines[head] == new_lines[head]:
+        head += 1
+    tail = 0
+    while (
+        tail < min(len(old_lines), len(new_lines)) - head
+        and old_lines[len(old_lines) - 1 - tail] == new_lines[len(new_lines) - 1 - tail]
+    ):
+        tail += 1
+    core_old = old_lines[head : len(old_lines) - tail]
+    core_new = new_lines[head : len(new_lines) - tail]
+
+    opcodes = [
+        (tag, o1 + head, o2 + head, n1 + head, n2 + head)
+        for tag, o1, o2, n1, n2 in difflib.SequenceMatcher(
+            a=core_old, b=core_new, autojunk=False
+        ).get_opcodes()
+    ]
 
     # Group each change with its surrounding context, merging groups whose context
     # windows touch, so adjacent edits read as one block rather than many tiny ones.
@@ -858,10 +1165,23 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
         _sync_remote_branch(repo, branch, remote_url, token)
         old_raw = _run(repo, "show", f"HEAD:{path}", check=False)
         _unpack_zip_into(zip_bytes, repo)
-        _run(repo, "add", "-A")
-        status_files = {f["path"]: f["changeType"] for f in _porcelain_status(repo)}
         new_file = _safe_join(repo, path)
         new_raw = new_file.read_text(encoding="utf-8", errors="replace") if new_file.is_file() else ""
+        # Derived from this file alone, NOT from `git add -A` + porcelain status:
+        # the caller may hand us a ZIP holding only the requested file (assembling
+        # a real project's whole export costs ~38 MB per diff click), and since
+        # _unpack_zip_into wipes the tree first, a global status would then report
+        # every other file as deleted. Presence on each side is all we need here.
+        # ls-tree prints a line only when the path exists at HEAD. (`cat-file -e`
+        # is no good here: _run swallows the exit code under check=False, so a
+        # missing file and an empty one both come back as "".)
+        had_old = bool(
+            _run(repo, "ls-tree", "--name-only", "HEAD", "--", path, check=False).strip()
+        )
+        has_new = new_file.is_file()
+        change_type = (
+            "modified" if had_old and has_new else "added" if has_new else "deleted"
+        )
         # HEAD content of an LFS-tracked file is just its pointer (we fetch with
         # SKIP_SMUDGE), so a text diff against it is meaningless — flag as binary.
         if old_raw.startswith("version https://git-lfs"):
@@ -884,7 +1204,6 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
         new, new_trunc, new_bin = _diff_payload(new_raw)
         old_bin = old_bin or old_is_lfs
         binary = old_bin or new_bin
-        change_type = status_files.get(path, "modified")
         oversized = old_trunc or new_trunc
 
         def result(content_old: str, content_new: str, mode: str, trunc: bool) -> dict:

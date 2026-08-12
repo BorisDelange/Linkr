@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, UploadCloud } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, Settings, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -24,7 +24,7 @@ import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
 import { changeTypeMeta } from './git-change-meta'
 import type { GitFileChange, GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
-import { PullResolveDialog } from './PullResolveDialog'
+import { MappingProjectPull } from './MappingProjectPull'
 import { ChangeBadge } from './ChangeBadge'
 import { GitErrorInline } from './GitErrorInline'
 
@@ -41,6 +41,8 @@ interface GitSyncPanelProps {
    * refreshes the push status + sync anchor, exactly like the built-in flow.
    */
   renderPullDialog?: (args: { branch: string; onClose: () => void; onPulled: () => void | Promise<void> }) => ReactNode
+  /** Open the repository settings (URL / token / disconnect). Absent → no button. */
+  onOpenConfig?: () => void
 }
 
 /**
@@ -48,7 +50,7 @@ interface GitSyncPanelProps {
  * pick a branch, tick the files to include (data files unchecked by default),
  * review each file's diff in a full-size viewer, and commit + push the selection.
  */
-export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: GitSyncPanelProps) {
+export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, onOpenConfig }: GitSyncPanelProps) {
   const { t } = useTranslation()
   const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
     useGitSyncStore()
@@ -66,6 +68,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
   const [diffPath, setDiffPath] = useState<string | null>(null)
   const [pushed, setPushed] = useState(false)
   const [pullOpen, setPullOpen] = useState(false)
+  // Mapping projects pull INLINE (the panel switches direction); the other scopes
+  // still open their own dialog from the banner until they move to the same shell.
+  const inlinePull = scope === 'mapping-projects' && !renderPullDialog
   // Which quick action is mid-commit (its messageKey), so ONLY that card spins
   // while the others merely disable — a shared `committing` would spin them all.
   const [runningQuickAction, setRunningQuickAction] = useState<string | null>(null)
@@ -151,10 +156,14 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
     >
       <ArrowDownToLine size={14} className="shrink-0" />
       <span className="flex-1">{t(syncState.diverged ? 'versioning.sync_diverged' : 'versioning.sync_behind')}</span>
-      <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-xs" onClick={() => setPullOpen(true)}>
-        <ArrowDownToLine size={12} />
-        {t('versioning.pull_action')}
-      </Button>
+      {/* Inline pull needs no button: the panel below IS the pull. The other
+          scopes still open their dialog from here. */}
+      {!inlinePull && (
+        <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-xs" onClick={() => setPullOpen(true)}>
+          <ArrowDownToLine size={12} />
+          {t('versioning.pull_action')}
+        </Button>
+      )}
     </div>
   ) : pullNotImplemented ? (
     <div className="flex shrink-0 items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
@@ -196,17 +205,55 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
           </SelectContent>
         </Select>
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-8 gap-1.5 text-xs"
-        onClick={() => refreshStatus(scope, id, branch)}
-        disabled={loadingStatus}
-      >
-        <RefreshCw size={13} className={loadingStatus ? 'animate-spin' : undefined} />
-        {t('versioning.sync_refresh')}
-      </Button>
+      <div className="flex items-center gap-1">
+        {onOpenConfig && (
+          <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={onOpenConfig}>
+            <Settings size={13} />
+            {t('versioning.config_button')}
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          onClick={() => refreshStatus(scope, id, branch)}
+          disabled={loadingStatus}
+        >
+          <RefreshCw size={13} className={loadingStatus ? 'animate-spin' : undefined} />
+          {t('versioning.sync_refresh')}
+        </Button>
+      </div>
     </div>
+  )
+
+  // While the remote is ahead, the panel switches direction: the push list and
+  // commit box are HIDDEN rather than disabled. Showing a file list that ends in
+  // a greyed-out button next to a banner explaining why is telling the user what
+  // they cannot do; replacing it with what they CAN do is the point of the mode.
+  const pullMode = inlinePull && mustPullFirst
+  const afterPull = async () => {
+    await refreshStatus(scope, id, branch)
+    await loadSyncState(scope, id, branch)
+    // The pull wrote to the DB; the mapping-project views read the in-memory
+    // stores, so reload them or the table keeps showing pre-pull rows.
+    const { useConceptMappingStore } = await import('@/stores/concept-mapping-store')
+    const cm = useConceptMappingStore.getState()
+    await cm.loadProjectMappings(id, { force: true })
+    // `stats` is DERIVED from the mappings, and a pull writes them straight to the
+    // DB — bypassing the store paths that normally schedule a recompute. Without
+    // this the counters keep describing the pre-pull state, and the next push
+    // would commit a project.json contradicting the mappings.json beside it.
+    await cm.recomputeProjectStats(id)
+    await cm.loadMappingProjects()
+  }
+  const pullBody = (mode: 'quick' | 'details') => (
+    <MappingProjectPull
+      projectId={id}
+      branch={branch}
+      remoteHead={syncState?.remoteHead ?? null}
+      mode={mode}
+      onPulled={afterPull}
+    />
   )
 
   // Data-file versioning is per-file: a data file is committed only when marked in
@@ -245,6 +292,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
             </div>
           ) : authBlocked ? (
             authBlock
+          ) : pullMode ? (
+            pullBody('quick')
           ) : nothingToCommit ? (
             <p className="py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
           ) : (
@@ -265,7 +314,10 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
                   />
                 ))}
               </div>
-              {mustPullFirst && (
+              {/* A scope without the inline pull can still be blocked here, and
+                  then needs telling why. With the inline pull the panel has
+                  already become the pull, so the notice would restate itself. */}
+              {mustPullFirst && !inlinePull && (
                 <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
                   <Info size={14} className="mt-0.5 shrink-0" />
                   <span>{t('versioning.quick_pull_required')}</span>
@@ -293,7 +345,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
 
       {authBlocked && authBlock}
 
-      {!authBlocked && <>
+      {!authBlocked && pullMode && pullBody('details')}
+
+      {!authBlocked && !pullMode && <>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2">
           <div className="flex items-center gap-2">
@@ -420,32 +474,6 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog }: Git
         },
       })}
 
-      {pullOpen && !renderPullDialog && (
-        <PullResolveDialog
-          projectId={id}
-          branch={branch}
-          remoteHead={syncState?.remoteHead ?? null}
-          onClose={() => setPullOpen(false)}
-          onResolve={async (prepared, resolution) => {
-            const { applyMappingProjectPull } = await import('@/lib/concept-mapping/pull')
-            await applyMappingProjectPull(id, branch, prepared, resolution)
-            setPullOpen(false)
-            // The pull wrote to the DB, but the mapping-project views read from the
-            // in-memory stores — reload them so the mappings table + summary/metadata
-            // reflect the pulled changes without a manual page refresh. (Scores, if
-            // taken, are already re-indexed inside applyMappingProjectPull.)
-            const { useConceptMappingStore } = await import('@/stores/concept-mapping-store')
-            const cm = useConceptMappingStore.getState()
-            await cm.loadProjectMappings(id, { force: true })
-            await cm.loadMappingProjects()
-            // The DB changed and the anchor advanced → recompute the versioning view
-            // against the fresh state (refreshStatus drops the cached export ZIP so
-            // the pulled rows aren't re-shown as local changes to push).
-            await refreshStatus(scope, id, branch)
-            if (syncStateSupported) await loadSyncState(scope, id, branch)
-          }}
-        />
-      )}
     </div>
   )
 }

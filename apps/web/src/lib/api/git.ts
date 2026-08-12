@@ -66,11 +66,17 @@ export interface GitSyncState {
   branch: string
   /** oid of origin/<branch>, or null when the remote/branch doesn't exist yet. */
   remoteHead: string | null
-  /** Last commit we know we were in sync with, or null if never anchored. */
+  /** Content anchor: last commit whose content we hold (the 3-way merge base).
+   *  Advances only on a COMPLETE pull — moving it on a partial one would bury
+   *  the items the user declined. Null if never anchored. */
   syncedOid: string | null
-  /** The remote moved past our anchor (there are commits to pull). */
+  /** Decision cursor: last commit every incoming item of which got an explicit
+   *  decision (taken, or deliberately declined). This is what gates the push, and
+   *  what behind/diverged are measured against. Null if never reviewed. */
+  reviewedOid: string | null
+  /** The remote moved past our decision cursor (there are commits to pull). */
   behind: boolean
-  /** The anchor isn't an ancestor of the remote head (history rewritten). */
+  /** The cursor isn't an ancestor of the remote head (history rewritten). */
   diverged: boolean
 }
 
@@ -240,12 +246,42 @@ export interface GitPullSide {
   stats: Record<string, { present: boolean; oid?: string; rowCount?: number; byteSize?: number; lfs?: boolean }>
 }
 
+/** Row-level diff of the source concept list, keyed by (vocabulary_id, concept_code).
+ *  Computed server-side (both sides are already on disk there — shipping two ~5 MB
+ *  CSVs to the browser to count rows would cost more than the pull). */
+/** One source concept the remote list would add, remove or change. */
+export interface SourceConceptChange {
+  key: string
+  state: 'add' | 'delete' | 'modify'
+  vocabulary: string
+  code: string
+  name: string
+}
+
+export interface SourceConceptsDiff {
+  /** False when a side couldn't be parsed (unsmudged LFS pointer, missing identity
+   *  column, absent file) — the counts are then meaningless and the UI must offer
+   *  the file as a whole rather than show a bogus 0/0. */
+  keyed: boolean
+  added: number
+  removed: number
+  modified: number
+  unchanged: number
+  localTotal: number
+  remoteTotal: number
+  /** The rows that moved, for the review dialog. Capped server-side; the counts
+   *  above stay exact, so a truncated listing never understates the change. */
+  changes: SourceConceptChange[]
+  changesTruncated: boolean
+}
+
 export interface GitPullPreview {
   branch: string
   remoteHead: string | null
   syncedOid: string | null
   base: GitPullSide
   remote: GitPullSide
+  sourceConceptsDiff: SourceConceptsDiff
 }
 
 /** Fetch BASE + REMOTE managed-file content for a 3-way merge against the local DB.
@@ -265,11 +301,22 @@ export async function gitPullFile(scope: GitScope, id: string, path: string, bra
 }
 
 /** Anchor an entity's sync state to a known remote commit (used right after a git
- *  import). Without this the entity has no base and "behind" can't be detected. */
-export async function gitSetSyncState(scope: GitScope, id: string, branch: string, syncedOid: string): Promise<void> {
+ *  import). Without this the entity has no base and "behind" can't be detected.
+ *
+ *  `reviewedOnly` records a *partial but fully deliberated* pull: the user decided
+ *  on every incoming item and kept their own version of some, so the content
+ *  anchor must NOT move (it would absorb what they declined) while the decision
+ *  cursor does — clearing the banner and unblocking the push. */
+export async function gitSetSyncState(
+  scope: GitScope,
+  id: string,
+  branch: string,
+  syncedOid: string,
+  reviewedOnly = false,
+): Promise<void> {
   const res = await apiFetch(`/api/v1${base(scope, id)}/set-sync-state`, {
     method: 'POST',
-    body: JSON.stringify({ branch, syncedOid }),
+    body: JSON.stringify({ branch, syncedOid, reviewedOnly }),
   })
   if (!res.ok) throw await gitError(res)
 }

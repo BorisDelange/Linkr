@@ -107,9 +107,11 @@ export interface ListDiffStat {
 export interface MappingProjectMerge {
   mappings: MappingChange[]
   metadata: MetadataMerge
-  /** Whole-list families: block choice + a preview stat (details fetched separately). */
+  /** Whole-list family: block choice + a preview stat (rows fetched separately).
+   *  Similarity scores are NOT here — they are gitignored (re-derivable, ~100 MB),
+   *  so a repo never carries them and offering them proposed a file that could not
+   *  exist. */
   sourceConcepts: ListDiffStat
-  scores: ListDiffStat
 }
 
 // --- Mapping 3-way ---------------------------------------------------------
