@@ -1015,7 +1015,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   }, [project.workspaceId, project.badges])
 
   const [colFilters, setColFilters] = useState<MappingColumnFilters>({})
-  const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
+  const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>({ columnId: 'createdAt', desc: true })
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [editMode, setEditMode] = useState(false)
   const [detailMapping, setDetailMapping] = useState<ConceptMapping | null>(null)
@@ -1112,7 +1112,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const [commentsMappingId, setCommentsMappingId] = useState<string | null>(null)
   const [approvalRule, setApprovalRule] = useState<ApprovalRule>('at_least_one')
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
-    createdAt: false,
     sourceCategoryId: false,
     sourceSubcategoryId: false,
     sourceConceptCode: false,
