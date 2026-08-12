@@ -268,6 +268,13 @@ Key fields to populate:
 - `comments`: one comment with two lines — description of the mapping, then equivalence justification
 - `matchScore`: 0.0–1.0 based on your confidence (exactMatch + strong pre-computed score → 0.95+; closeMatch with uncertainty → 0.6–0.75)
 
+Then refresh the project's counters — Linkr displays `project.json`'s `stats`
+as-is and never recomputes them on import:
+
+```bash
+python .claude/skills/concept-mapping/scripts/update_project_stats.py --project-dir <project_dir>
+```
+
 After writing, refresh `state.json` (orchestrator Step 6 hook) and return to the
 orchestrator's Step 7 summary.
 

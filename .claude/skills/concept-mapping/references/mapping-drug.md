@@ -271,8 +271,16 @@ For `mappings` mode, key fields:
 
 For `suggestions` mode, use `method = "ai/<model-id>"` and the same 10-column
 parquet schema as `mapping-ai.md` Step D (`concept_set_*` null unless a data
-dictionary drove the target). Then refresh `state.json` and return to the
-orchestrator's Step 7 summary.
+dictionary drove the target).
+
+After a `mappings` batch, refresh the project's counters — Linkr displays
+`project.json`'s `stats` as-is and never recomputes them on import:
+
+```bash
+python .claude/skills/concept-mapping/scripts/update_project_stats.py --project-dir <project_dir>
+```
+
+Then refresh `state.json` and return to the orchestrator's Step 7 summary.
 
 ## Guidelines
 

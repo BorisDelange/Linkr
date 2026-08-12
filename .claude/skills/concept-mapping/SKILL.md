@@ -1,6 +1,6 @@
 ---
 name: concept-mapping
-version: 1.0.1
+version: 1.0.2
 description: >-
   Maps local hospital terminology codes to OMOP standard vocabularies (SNOMED CT,
   LOINC, UCUM, RxNorm, etc.) for a Linkr project. Single entry point: loads inputs,
@@ -255,6 +255,12 @@ python .claude/skills/concept-mapping/scripts/update_state.py \
   --project-dir <project_dir> \
   --vocab-dir   <vocab_dir> \
   --session '{"domain":"Measurement","concepts":["REA/x","REA/y"],"outcomes":{"accepted":8,"flagged":1,"skipped":1}}'
+```
+
+And **if the batch wrote to `mappings.json`**, refresh the project's counters — Linkr displays `project.json`'s `stats` as-is and never recomputes them at import, so skipping this shows a stale `mappedCount`:
+
+```bash
+python .claude/skills/concept-mapping/scripts/update_project_stats.py --project-dir <project_dir>
 ```
 
 ## Step 7: Summary

@@ -8,6 +8,15 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `version:` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
+## 1.0.2 — 2026-08-12
+
+- **`project.json` stats are now refreshed after every `mappings.json` write.**
+  The skill appended mappings without touching `project.json`, so a re-imported
+  project kept displaying a stale `mappedCount`. New script
+  `scripts/update_project_stats.py` recomputes the `stats` block, mirroring the
+  app's own rule (`compute_project_stats` / `getStats`). Wired into `SKILL.md`
+  Step 6, `mapping-ai.md` Step D and `mapping-drug.md` Step 7.
+
 ## 1.0.1 — 2026-07-21
 
 Drug mapping (`references/mapping-drug.md`) reworked around a benchmark on the
