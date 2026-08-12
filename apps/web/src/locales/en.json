@@ -3580,6 +3580,8 @@
     "prog_domain_unknown": "No category",
     "prog_concept_set_progress": "Concept set progress",
     "prog_recent_activity": "Recent activity",
+    "prog_session_mapped_one": "{{count}} source code mapped",
+    "prog_session_mapped_other": "{{count}} source codes mapped",
     "prog_no_data": "No data yet",
     "prog_empty": "No mappings yet. Go to the Mapping Editor tab to start mapping concepts.",
     "export_filter_title": "Select statuses to export",

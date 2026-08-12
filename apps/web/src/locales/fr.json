@@ -3580,6 +3580,8 @@
     "prog_domain_unknown": "Aucune catégorie",
     "prog_concept_set_progress": "Progression par concept set",
     "prog_recent_activity": "Activité récente",
+    "prog_session_mapped_one": "{{count}} code source aligné",
+    "prog_session_mapped_other": "{{count}} codes sources alignés",
     "prog_no_data": "Pas encore de données",
     "prog_empty": "Aucun alignement pour l'instant. Rendez-vous dans l'onglet Éditeur d'alignement pour commencer.",
     "export_filter_title": "Sélectionner les statuts à exporter",

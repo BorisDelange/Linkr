@@ -43,6 +43,11 @@ type BreakdownRow = {
   byStatus: Record<string, number>
 }
 
+/** Rows shown in the breakdown card before the "expand" modal is needed. */
+const BREAKDOWN_PREVIEW_ROWS = 5
+/** Work sessions listed under recent activity. */
+const RECENT_SESSIONS = 5
+
 export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   const { t } = useTranslation()
   const { mappings } = useConceptMappingStore()
@@ -205,10 +210,38 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       return byGroup
     }
 
-    // Recent activity (last 10)
-    const recent = [...mappings]
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, 10)
+    // Recent activity, grouped into work sessions: one author, one day. `mappedOn`
+    // is when the mapping was actually made — `updatedAt` moves on any later edit or
+    // vote, which would drag an old mapping into a recent session.
+    const sessionMap = new Map<string, {
+      author: string
+      day: string
+      count: number
+      byVocab: Map<string, number>
+    }>()
+    for (const m of mappings) {
+      const when = m.mappedOn ?? m.updatedAt
+      if (!when) continue
+      const day = when.slice(0, 10)
+      const author = m.mappedBy || unknown
+      const key = `${author} ${day}`
+      let s = sessionMap.get(key)
+      if (!s) {
+        s = { author, day, count: 0, byVocab: new Map() }
+        sessionMap.set(key, s)
+      }
+      s.count += 1
+      const vocab = m.sourceVocabularyId || unknown
+      s.byVocab.set(vocab, (s.byVocab.get(vocab) ?? 0) + 1)
+    }
+    const recentSessions = [...sessionMap.values()]
+      .sort((a, b) => b.day.localeCompare(a.day))
+      .slice(0, RECENT_SESSIONS)
+      .map((s) => ({
+        ...s,
+        // Biggest terminology first: that is what identifies the session's subject.
+        vocabs: [...s.byVocab.entries()].sort((a, b) => b[1] - a[1]),
+      }))
 
     return {
       totalMappings: mappings.length,
@@ -219,7 +252,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       sourceStatusCounts,
       statusByVocab: groupStatus('vocab'),
       statusByCategory: groupStatus('category'),
-      recent,
+      recentSessions,
     }
   }, [mappings, t])
 
@@ -460,7 +493,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
               </div>
             </div>
             {breakdownRows.length > 0 ? (
-              renderBreakdownRows(sortedFilteredRows.slice(0, 10))
+              renderBreakdownRows(sortedFilteredRows.slice(0, BREAKDOWN_PREVIEW_ROWS))
             ) : (
               <div className="flex h-[180px] items-center justify-center">
                 <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_no_data')}</p>
@@ -469,30 +502,31 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
           </Card>
         </div>
 
-        {/* Recent activity */}
-        {stats.recent.length > 0 && (
-          <Card className="p-4">
-            <p className="mb-3 text-sm font-medium">{t('concept_mapping.prog_recent_activity')}</p>
+        {/* Recent activity, by work session. gap-0 because Card's default flex gap
+            would sit between the title and the list, far more space than the
+            heading needs. */}
+        {stats.recentSessions.length > 0 && (
+          <Card className="gap-0 p-4">
+            <p className="mb-2 text-sm font-medium">{t('concept_mapping.prog_recent_activity')}</p>
             <div className="space-y-2">
-              {stats.recent.map((m) => (
-                <div key={m.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">
-                  <div className="min-w-0 flex-1">
-                    <span className="font-medium">{m.sourceConceptName}</span>
-                    <span className="mx-1.5 text-muted-foreground">&rarr;</span>
-                    <span>{m.targetConceptName}</span>
-                  </div>
-                  <div className="ml-3 flex shrink-0 items-center gap-2">
-                    <span
-                      className="inline-block size-2 rounded-full"
-                      style={{ backgroundColor: STATUS_COLORS[m.status] }}
-                    />
-                    {m.mappedBy && (
-                      <span className="max-w-[100px] truncate text-muted-foreground" title={m.mappedBy}>{m.mappedBy}</span>
-                    )}
-                    <span className="text-muted-foreground">
-                      {new Date(m.updatedAt).toLocaleDateString()}
+              {stats.recentSessions.map((s) => (
+                <div key={`${s.author} ${s.day}`} className="rounded-md border px-3 py-2 text-xs">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 truncate font-medium" title={s.author}>{s.author}</span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {new Date(`${s.day}T00:00:00`).toLocaleDateString()}
                     </span>
                   </div>
+                  <p className="mt-0.5 text-muted-foreground">
+                    {t('concept_mapping.prog_session_mapped', { count: s.count })}
+                    <span className="mx-1">·</span>
+                    {s.vocabs.map(([vocab, n], i) => (
+                      <span key={vocab}>
+                        {i > 0 && ', '}
+                        <span className="text-foreground">{n}</span> {vocab}
+                      </span>
+                    ))}
+                  </p>
                 </div>
               ))}
             </div>
