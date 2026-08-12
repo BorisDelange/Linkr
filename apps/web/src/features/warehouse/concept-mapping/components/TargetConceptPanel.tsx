@@ -64,6 +64,7 @@ import { SuggestionsTable, DEFAULT_SUGGESTIONS_VIEW, type SuggestionsTableView }
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { EQUIV_BADGE, normalizeEquivalence } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { EquivalenceMenuItems, EquivalencePickerButton } from './EquivalenceMenuItems'
@@ -108,6 +109,13 @@ function getResolvedUrl(sourceUrl?: string): string | null {
 
 const CS_PAGE_SIZE = 50
 const RESOLVED_PAGE_SIZE = 50
+
+// Text columns that get the styled truncate+hover tooltip on overflow (matching
+// the source table). Badge and action columns are excluded: their cell renderer
+// is not plain text, so the raw value would lose it.
+const SEARCH_TOOLTIP_COLUMNS = new Set(['vocabulary_id', 'concept_id', 'concept_name', 'concept_code', 'domain_id', 'concept_class_id'])
+const SEARCH_MONO_COLUMNS = new Set(['concept_id', 'concept_code'])
+const CS_TOOLTIP_COLUMNS = new Set(['category', 'subcategory', 'name', 'version', 'provenance'])
 
 /** Placeholder shown while a tab switch's heavy table mounts in a transition. */
 function TabSkeleton() {
@@ -225,10 +233,78 @@ function ResolvedMultiSelect({
 
 /** Fuzzy match: all query characters appear in order in the target. */
 
+/**
+ * "Map with comment" dialog. Its own component so the comment is typed into
+ * state held *here*: keeping it in the panel re-rendered the whole target panel
+ * (search results, suggestions, concept-set tables) on every keystroke.
+ *
+ * Closing the dialog hands the draft back to the parent via `onClose` so a
+ * half-written comment survives a round trip to the tables. That runs once per
+ * close, not per keystroke, so it costs nothing.
+ */
+function MapWithCommentDialog({
+  onClose,
+  onSubmit,
+  initialEquivalence,
+  initialText,
+}: {
+  onClose: (draft: { equivalence: MappingEquivalence; text: string }) => void
+  onSubmit: (equivalence: MappingEquivalence, comment: string) => void
+  initialEquivalence: MappingEquivalence
+  initialText: string
+}) {
+  const { t } = useTranslation()
+  const [equivalence, setEquivalence] = useState(initialEquivalence)
+  const [text, setText] = useState(initialText)
+
+  return (
+    <Dialog open onOpenChange={(next) => { if (!next) onClose({ equivalence, text }) }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('concept_mapping.map_with_comment')}</DialogTitle>
+          <DialogDescription>{t('concept_mapping.map_with_comment_desc')}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>{t('concept_mapping.equivalence')}</Label>
+            <div>
+              <EquivalencePickerButton value={equivalence} onPick={setEquivalence} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="map-comment">{t('concept_mapping.comment')}</Label>
+            <Textarea
+              id="map-comment"
+              rows={3}
+              placeholder={t('concept_mapping.comment_placeholder')}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onClose({ equivalence, text })}>
+            {t('common.cancel')}
+          </Button>
+          <Button onClick={() => onSubmit(equivalence, text.trim())}>
+            {t('concept_mapping.save_mapping')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function TargetConceptPanel({ project, dataSource, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
-  const { mappings, conceptSets, createMapping, updateMapping, deleteMapping } = useConceptMappingStore()
+  // Per-field selectors, not the whole store: subscribing to the object re-rendered
+  // this panel on every unrelated store change (suggestion scores, other projects…).
+  const mappings = useConceptMappingStore((s) => s.mappings)
+  const conceptSets = useConceptMappingStore((s) => s.conceptSets)
+  const createMapping = useConceptMappingStore((s) => s.createMapping)
+  const updateMapping = useConceptMappingStore((s) => s.updateMapping)
+  const deleteMapping = useConceptMappingStore((s) => s.deleteMapping)
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
   const allDataSources = useDataSourceStore((s) => s.dataSources)
@@ -248,9 +324,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [searchMaxResults, setSearchMaxResults] = useState(1000)
   const [searchFilterOptions, setSearchFilterOptions] = useState<{ vocabs: string[]; domains: string[]; classes: string[]; standards: string[] }>({ vocabs: [], domains: [], classes: [], standards: [] })
 
-  // "Map with comment" dialog
+  // "Map with comment" dialog. While open, the text is typed into the dialog's own
+  // state; on close it comes back here as a draft so reopening resumes it. The
+  // draft is tied to one source concept — carrying a half-written comment over to
+  // the next concept would attach it to the wrong mapping.
   const [commentDialogOpen, setCommentDialogOpen] = useState(false)
-  const [commentEquivalence, setCommentEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
+  const [commentDraft, setCommentDraft] = useState<{
+    conceptId: number | null
+    equivalence: MappingEquivalence
+    text: string
+  } | null>(null)
   // `selectedEquivalence` is what the add button uses right now; `manualEquivalence` is
   // the user's sticky preference set via the dropdown. Clicking a suggestion overrides
   // `selectedEquivalence` with the suggestion's value for that target only; selecting a
@@ -263,7 +346,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   }, [])
   const equivButtonGroupRef = useRef<HTMLDivElement>(null)
   const [equivDropdownWidth, setEquivDropdownWidth] = useState<number | undefined>(undefined)
-  const [commentText, setCommentText] = useState('')
 
   // "Ignore with comment" dialog
   const [ignoreDialogOpen, setIgnoreDialogOpen] = useState(false)
@@ -292,7 +374,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     name?: string; id?: string; code?: string
     vocab?: Set<string>; domain?: Set<string>; class?: Set<string>; std?: Set<string>
   }>({})
-  const [resolvedColVisibility, setResolvedColVisibility] = useState({ vocab: true, id: false, name: true, code: false, domain: false, class: false, std: true })
+  const [resolvedColVisibility, setResolvedColVisibility] = useState<VisibilityState>({
+    concept_id: false, concept_code: false, domain_id: false, concept_class_id: false,
+  })
+  const [resolvedColSizing, setResolvedColSizing] = useState<Record<string, number>>({})
+  const [resolvedSorting, setResolvedSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
 
   // Browse mode toggle. `browseMode` is the urgent value driving the tab highlight
   // and action bar (painted instantly on click); `deferredBrowseMode` decides which
@@ -337,6 +423,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   useEffect(() => {
     setSelectedTarget(null)
     setSelectedEquivalence(manualEquivalenceRef.current)
+    setCommentDraft(null)
   }, [sourceConcept?.concept_id])
 
   // Active vocabulary data source + concept table name (shared for detail sheet)
@@ -371,13 +458,19 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [csNotLocal, setCsNotLocal] = useState<{ uid: string; sourceRepo: string | null } | null>(null)
 
 
-  // Existing mappings for selected source concept (match by ID or by code for code-only tables)
-  const existingMappings = sourceConcept
-    ? mappings.filter((m) =>
-        m.sourceConceptId === sourceConcept.concept_id ||
-        (m.sourceConceptCode && sourceConcept.concept_code && m.sourceConceptCode === sourceConcept.concept_code)
-      )
-    : []
+  // Existing mappings for selected source concept (match by ID or by code for code-only tables).
+  // Memoized: this scans every mapping in the project, so leaving it to run on each
+  // render made unrelated state (typing in a dialog) cost a full pass.
+  const existingMappings = useMemo(
+    () =>
+      sourceConcept
+        ? mappings.filter((m) =>
+            m.sourceConceptId === sourceConcept.concept_id ||
+            (m.sourceConceptCode && sourceConcept.concept_code && m.sourceConceptCode === sourceConcept.concept_code)
+          )
+        : [],
+    [mappings, sourceConcept],
+  )
 
   // The mapping the selected target already has, if any: selecting an already-mapped
   // target switches the action bar from "add" to "edit the existing mapping".
@@ -504,8 +597,35 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     })
   }, [resolvedConcepts, resolvedSearch, resolvedFilters])
 
-  const resolvedTotalPages = Math.max(1, Math.ceil(filteredResolved.length / RESOLVED_PAGE_SIZE))
-  const resolvedPageItems = filteredResolved.slice(
+  const sortedResolved = useMemo(() => {
+    if (!resolvedSorting) return filteredResolved
+    const { columnId, desc } = resolvedSorting
+    const dir = desc ? -1 : 1
+    const accessor = (c: ResolvedConcept): unknown => {
+      switch (columnId) {
+        case 'vocabulary_id': return c.vocabularyId
+        case 'concept_id': return c.conceptId
+        case 'concept_name': return c.conceptName
+        case 'concept_code': return c.conceptCode
+        case 'domain_id': return c.domainId
+        case 'concept_class_id': return c.conceptClassId
+        case 'standard_concept': return c.standardConcept
+        default: return ''
+      }
+    }
+    return [...filteredResolved].sort((a, b) => {
+      const av = accessor(a)
+      const bv = accessor(b)
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
+      return dir * String(av).localeCompare(String(bv))
+    })
+  }, [filteredResolved, resolvedSorting])
+
+  const resolvedTotalPages = Math.max(1, Math.ceil(sortedResolved.length / RESOLVED_PAGE_SIZE))
+  const resolvedPageItems = sortedResolved.slice(
     resolvedPage * RESOLVED_PAGE_SIZE,
     (resolvedPage + 1) * RESOLVED_PAGE_SIZE,
   )
@@ -704,12 +824,15 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     }).catch((err) => console.error('Failed to persist mapping', err))
   }, [sourceConcept, existingMappings, requireIdentity, createMapping, project.id, getUserDisplayName, getAuthorDetails])
 
+  /** The pending draft, only if it belongs to the concept currently selected. */
+  const draftForConcept =
+    commentDraft && commentDraft.conceptId === (sourceConcept?.concept_id ?? null) ? commentDraft : null
+
   /** Submit from the "Map with comment" dialog. */
-  const handleCommentDialogSubmit = () => {
-    handleAddSelectedMapping(commentEquivalence, commentText.trim())
+  const handleCommentDialogSubmit = (equivalence: MappingEquivalence, comment: string) => {
+    handleAddSelectedMapping(equivalence, comment)
     setCommentDialogOpen(false)
-    setCommentText('')
-    setCommentEquivalence('skos:exactMatch')
+    setCommentDraft(null)
   }
 
   /** Toggle ignored status: create or delete the ignored mapping. */
@@ -950,9 +1073,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     },
   ], [t])
 
-  /** Get human-readable label for a concept set column. */
-  const getCsColLabel = (id: string): string => {
-    const def = csColumns.find((c) => 'id' in c && c.id === id)
+  /** Get the human-readable label of a column, for the column-visibility menus. */
+  const getColLabelFrom = <R,>(cols: ColumnDef<R>[], id: string): string => {
+    const def = cols.find((c) => 'id' in c && c.id === id)
     if (def && typeof def.header === 'function') {
       const result = (def.header as () => unknown)()
       if (typeof result === 'string') return result
@@ -973,6 +1096,118 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     manualSorting: true,
     pageCount: csFullTotalPages,
   })
+
+  // Resolved concepts of an opened concept set. Same TanStack setup as the search
+  // table so both read and resize identically.
+  const resolvedColumns = useMemo<ColumnDef<ResolvedConcept>[]>(() => [
+    {
+      id: 'vocabulary_id',
+      header: () => t('concept_mapping.col_vocabulary'),
+      accessorFn: (row) => row.vocabularyId,
+      cell: ({ row }) => row.original.vocabularyId,
+      size: 80, minSize: 50,
+    },
+    {
+      id: 'concept_id',
+      header: () => t('concept_mapping.col_concept_id'),
+      accessorFn: (row) => row.conceptId,
+      cell: ({ row }) => <span className="font-mono">{row.original.conceptId}</span>,
+      size: 70, minSize: 50,
+    },
+    {
+      id: 'concept_name',
+      header: () => t('concept_mapping.col_name'),
+      accessorFn: (row) => row.conceptName,
+      cell: ({ row }) => row.original.conceptName,
+      size: 200, minSize: 100,
+    },
+    {
+      id: 'concept_code',
+      header: () => t('concept_mapping.col_concept_code'),
+      accessorFn: (row) => row.conceptCode,
+      cell: ({ row }) => <span className="font-mono">{row.original.conceptCode}</span>,
+      size: 80, minSize: 50,
+    },
+    {
+      id: 'domain_id',
+      header: () => t('concept_mapping.col_domain'),
+      accessorFn: (row) => row.domainId,
+      cell: ({ row }) => row.original.domainId ?? '',
+      size: 80, minSize: 50,
+    },
+    {
+      id: 'concept_class_id',
+      header: () => t('concept_mapping.col_concept_class'),
+      accessorFn: (row) => row.conceptClassId,
+      cell: ({ row }) => row.original.conceptClassId ?? '',
+      size: 90, minSize: 50,
+    },
+    {
+      id: 'standard_concept',
+      header: () => t('concept_mapping.col_std'),
+      accessorFn: (row) => row.standardConcept,
+      cell: ({ row }) => <StandardConceptBadge value={row.original.standardConcept} />,
+      size: 40, minSize: 30,
+    },
+    {
+      id: '_check',
+      header: '',
+      cell: ({ row }) => {
+        const alreadyMapped = sourceConcept
+          ? existingMappings.some((m) => m.targetConceptId === row.original.conceptId)
+          : false
+        return (
+          <span className="flex justify-center">
+            {alreadyMapped && <Check size={11} className="shrink-0 text-green-600" />}
+          </span>
+        )
+      },
+      size: 30, minSize: 24, enableResizing: false,
+    },
+  ], [t, sourceConcept, existingMappings])
+
+  const resolvedTable = useReactTable({
+    data: resolvedPageItems,
+    columns: resolvedColumns,
+    state: { columnVisibility: resolvedColVisibility, columnSizing: resolvedColSizing },
+    onColumnVisibilityChange: setResolvedColVisibility,
+    onColumnSizingChange: setResolvedColSizing,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    manualFiltering: true,
+    manualSorting: true,
+    pageCount: resolvedTotalPages,
+  })
+
+  const handleResolvedSort = (columnId: string) => {
+    if (columnId === '_check') return
+    setResolvedSorting((s) =>
+      s?.columnId === columnId ? (s.desc ? { columnId, desc: false } : null) : { columnId, desc: true },
+    )
+  }
+
+  /** Inline filter for a resolved-concepts column, mirroring the search table. */
+  const renderResolvedColumnFilter = (columnId: string) => {
+    switch (columnId) {
+      case 'vocabulary_id':
+        return <ResolvedMultiSelect options={resolvedFilterOptions.vocab} selected={resolvedFilters.vocab} onChange={(v) => setResolvedFilters((f) => ({ ...f, vocab: v }))} />
+      case 'concept_id':
+        return <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="ID..." value={resolvedFilters.id ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, id: e.target.value || undefined }))} />
+      case 'concept_name':
+        return <input className={RESOLVED_FILTER_INPUT} placeholder="..." value={resolvedFilters.name ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, name: e.target.value || undefined }))} />
+      case 'concept_code':
+        return <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="Code..." value={resolvedFilters.code ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, code: e.target.value || undefined }))} />
+      case 'domain_id':
+        return <ResolvedMultiSelect options={resolvedFilterOptions.domain} selected={resolvedFilters.domain} onChange={(v) => setResolvedFilters((f) => ({ ...f, domain: v }))} />
+      case 'concept_class_id':
+        return <ResolvedMultiSelect options={resolvedFilterOptions.class} selected={resolvedFilters.class} onChange={(v) => setResolvedFilters((f) => ({ ...f, class: v }))} />
+      case 'standard_concept':
+        return <ResolvedMultiSelect options={resolvedFilterOptions.std} selected={resolvedFilters.std} onChange={(v) => setResolvedFilters((f) => ({ ...f, std: v }))} />
+      default:
+        return null
+    }
+  }
 
   const renderConceptSetsBrowse = () => (
     <div className="flex h-full flex-col overflow-hidden">
@@ -1073,15 +1308,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                   onClick={() => handleSelectCs(row.original.raw)}
                 >
                   {row.getVisibleCells().map((cell) => {
-                    const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
                     const raw = cell.getValue()
-                    const title = raw != null ? String(raw) : undefined
+                    const useTooltip = CS_TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
+                    const rendered = useTooltip
+                      ? <TruncatedText text={String(raw)} className={cell.column.id === 'name' ? undefined : 'text-muted-foreground'} />
+                      : flexRender(cell.column.columnDef.cell, cell.getContext())
                     return (
                       <TableCell
                         key={cell.id}
                         className="overflow-hidden truncate text-xs px-2 py-1"
                         style={{ maxWidth: cell.column.getSize() }}
-                        title={title}
                       >
                         {rendered}
                       </TableCell>
@@ -1124,7 +1360,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                     onSelect={(e) => e.preventDefault()}
                     className="text-xs"
                   >
-                    {getCsColLabel(col.id)}
+                    {getColLabelFrom(csColumns, col.id)}
                   </DropdownMenuCheckboxItem>
                 ))}
             </DropdownMenuContent>
@@ -1181,105 +1417,143 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         </div>
       </div>
 
-      {/* Table header */}
-      {(() => {
-        const cols = resolvedColVisibility
-        const gridParts: string[] = []
-        if (cols.vocab) gridParts.push('70px')
-        if (cols.id) gridParts.push('60px')
-        if (cols.name) gridParts.push('1fr')
-        if (cols.code) gridParts.push('60px')
-        if (cols.domain) gridParts.push('70px')
-        if (cols.class) gridParts.push('70px')
-        if (cols.std) gridParts.push('24px')
-        gridParts.push('20px')
-        const gridTemplate = gridParts.join(' ')
-        return (
-          <>
-            <div className="grid items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider" style={{ gridTemplateColumns: gridTemplate }}>
-              {cols.vocab && <span>{t('concept_mapping.col_vocabulary')}</span>}
-              {cols.id && <span>ID</span>}
-              {cols.name && <span>{t('concept_mapping.col_name')}</span>}
-              {cols.code && <span>{t('concept_mapping.col_concept_code')}</span>}
-              {cols.domain && <span>{t('concept_mapping.col_domain')}</span>}
-              {cols.class && <span>{t('concept_mapping.col_concept_class')}</span>}
-              {cols.std && <span title={t('concept_mapping.col_std')}>Std</span>}
-              <span />
-            </div>
-
-            {/* Filter row */}
-            <div className="grid items-center gap-1 border-b bg-muted/10 px-3 py-1" style={{ gridTemplateColumns: gridTemplate }}>
-              {cols.vocab && <ResolvedMultiSelect options={resolvedFilterOptions.vocab} selected={resolvedFilters.vocab} onChange={(v) => setResolvedFilters((f) => ({ ...f, vocab: v }))} />}
-              {cols.id && <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="ID..." value={resolvedFilters.id ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, id: e.target.value || undefined }))} />}
-              {cols.name && <input className={RESOLVED_FILTER_INPUT} placeholder="..." value={resolvedFilters.name ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, name: e.target.value || undefined }))} />}
-              {cols.code && <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="Code..." value={resolvedFilters.code ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, code: e.target.value || undefined }))} />}
-              {cols.domain && <ResolvedMultiSelect options={resolvedFilterOptions.domain} selected={resolvedFilters.domain} onChange={(v) => setResolvedFilters((f) => ({ ...f, domain: v }))} />}
-              {cols.class && <ResolvedMultiSelect options={resolvedFilterOptions.class} selected={resolvedFilters.class} onChange={(v) => setResolvedFilters((f) => ({ ...f, class: v }))} />}
-              {cols.std && <ResolvedMultiSelect options={resolvedFilterOptions.std} selected={resolvedFilters.std} onChange={(v) => setResolvedFilters((f) => ({ ...f, std: v }))} />}
-              <span />
-            </div>
-
-            {/* Table body */}
-            <div className="flex-1 overflow-auto">
-              {resolvedLoading ? (
-                <div className="flex h-32 items-center justify-center">
-                  <Loader2 size={20} className="animate-spin text-muted-foreground" />
-                </div>
-              ) : resolvedError ? (
-                <div className="flex h-32 items-center justify-center px-4">
-                  <p className="text-xs text-destructive">{resolvedError}</p>
-                </div>
-              ) : resolvedPageItems.length === 0 ? (
-                <div className="flex h-32 items-center justify-center">
-                  <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
-                </div>
-              ) : (
-                resolvedPageItems.map((rc) => {
-                  const alreadyMapped = sourceConcept
-                    ? existingMappings.some((m) => m.targetConceptId === rc.conceptId)
-                    : false
-                  const isSelected = selectedTarget?.conceptId === rc.conceptId
-                  return (
-                    <button
-                      key={rc.conceptId}
-                      className={`grid w-full items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors border-b border-border/40 ${
-                        isSelected ? 'bg-accent' : 'hover:bg-accent/50'
-                      } ${alreadyMapped && !isSelected ? 'opacity-50' : ''}`}
-                      style={{ gridTemplateColumns: gridTemplate }}
-                      onClick={() => {
-                        if (sourceConcept) {
-                          setSelectedTarget(isSelected ? null : {
-                            conceptId: rc.conceptId,
-                            conceptName: rc.conceptName,
-                            vocabularyId: rc.vocabularyId,
-                            domainId: rc.domainId,
-                            conceptCode: rc.conceptCode,
-                            conceptClassId: rc.conceptClassId,
-                            standardConcept: rc.standardConcept ?? undefined,
-                          })
-                          // Non-suggestion target: fall back to the manual preference.
-                          if (!isSelected) setSelectedEquivalence(manualEquivalence)
-                        }
-                      }}
-                    >
-                      {cols.vocab && <span className="truncate text-muted-foreground" title={rc.vocabularyId}>{rc.vocabularyId}</span>}
-                      {cols.id && <span className="text-muted-foreground">{rc.conceptId}</span>}
-                      {cols.name && <span className="truncate" title={rc.conceptName}>{rc.conceptName}</span>}
-                      {cols.code && <span className="truncate text-muted-foreground" title={rc.conceptCode}>{rc.conceptCode}</span>}
-                      {cols.domain && <span className="truncate text-muted-foreground" title={rc.domainId}>{rc.domainId}</span>}
-                      {cols.class && <span className="truncate text-muted-foreground" title={rc.conceptClassId}>{rc.conceptClassId}</span>}
-                      {cols.std && <StandardConceptBadge value={rc.standardConcept} />}
-                      <span className="flex justify-center">
-                        {alreadyMapped && <Check size={12} className="text-green-600" />}
-                      </span>
-                    </button>
-                  )
-                })
-              )}
-            </div>
-          </>
-        )
-      })()}
+      {/* Table */}
+      <div className="min-h-0 flex-1 overflow-auto">
+            {resolvedLoading ? (
+              <div className="flex h-32 items-center justify-center">
+                <Loader2 size={20} className="animate-spin text-muted-foreground" />
+              </div>
+            ) : resolvedError ? (
+              <div className="flex h-32 items-center justify-center px-4">
+                <p className="text-xs text-destructive">{resolvedError}</p>
+              </div>
+            ) : (
+              <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+                <TableHeader>
+                  <TableRow>
+                    {resolvedTable.getHeaderGroups().map((hg) =>
+                      hg.headers.map((header) => {
+                        const colId = header.column.id
+                        const isSortable = colId !== '_check'
+                        const sortIcon = !resolvedSorting || resolvedSorting.columnId !== colId
+                          ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
+                          : resolvedSorting.desc
+                            ? <ArrowDown size={10} className="shrink-0 text-primary" />
+                            : <ArrowUp size={10} className="shrink-0 text-primary" />
+                        return (
+                          <TableHead
+                            key={header.id}
+                            className="relative select-none overflow-hidden text-xs"
+                            style={{ width: header.getSize(), maxWidth: header.getSize() }}
+                          >
+                            {isSortable ? (
+                              <button
+                                type="button"
+                                className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground"
+                                onClick={() => handleResolvedSort(colId)}
+                              >
+                                <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
+                                  {flexRender(header.column.columnDef.header, header.getContext())}
+                                </TruncatedHeader>
+                                {sortIcon}
+                              </button>
+                            ) : (
+                              <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
+                                {flexRender(header.column.columnDef.header, header.getContext())}
+                              </TruncatedHeader>
+                            )}
+                            {header.column.getCanResize() && (
+                              <div
+                                onMouseDown={header.getResizeHandler()}
+                                onTouchStart={header.getResizeHandler()}
+                                onDoubleClick={() => header.column.resetSize()}
+                                className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                              >
+                                <div
+                                  className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                                    header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                                  }`}
+                                />
+                              </div>
+                            )}
+                          </TableHead>
+                        )
+                      })
+                    )}
+                  </TableRow>
+                  {/* Inline column filters */}
+                  <TableRow className="hover:bg-transparent">
+                    {resolvedTable.getHeaderGroups().map((hg) =>
+                      hg.headers.map((header) => (
+                        <TableHead
+                          key={`filter-${header.id}`}
+                          className="px-1 py-1"
+                          style={{ width: header.getSize() }}
+                        >
+                          {renderResolvedColumnFilter(header.column.id)}
+                        </TableHead>
+                      ))
+                    )}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {resolvedTable.getRowModel().rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={resolvedTable.getVisibleLeafColumns().length} className="h-16 text-center text-xs text-muted-foreground">
+                        {t('common.no_results')}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    resolvedTable.getRowModel().rows.map((row) => {
+                      const rc = row.original
+                      const alreadyMapped = sourceConcept
+                        ? existingMappings.some((m) => m.targetConceptId === rc.conceptId)
+                        : false
+                      const isSelected = selectedTarget?.conceptId === rc.conceptId
+                      return (
+                        <TableRow
+                          key={rc.conceptId}
+                          className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped && !isSelected ? 'opacity-50' : ''}`}
+                          onClick={() => {
+                            if (sourceConcept) {
+                              setSelectedTarget(isSelected ? null : {
+                                conceptId: rc.conceptId,
+                                conceptName: rc.conceptName,
+                                vocabularyId: rc.vocabularyId,
+                                domainId: rc.domainId,
+                                conceptCode: rc.conceptCode,
+                                conceptClassId: rc.conceptClassId,
+                                standardConcept: rc.standardConcept ?? undefined,
+                              })
+                              // Non-suggestion target: fall back to the manual preference.
+                              if (!isSelected) setSelectedEquivalence(manualEquivalence)
+                            }
+                          }}
+                        >
+                          {row.getVisibleCells().map((cell) => {
+                            const raw = cell.getValue()
+                            const useTooltip = SEARCH_TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
+                            const rendered = useTooltip
+                              ? <TruncatedText text={String(raw)} className={SEARCH_MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined} />
+                              : flexRender(cell.column.columnDef.cell, cell.getContext())
+                            return (
+                              <TableCell
+                                key={cell.id}
+                                className="overflow-hidden truncate px-2 py-1 text-xs"
+                                style={{ maxWidth: cell.column.getSize() }}
+                              >
+                                {rendered}
+                              </TableCell>
+                            )
+                          })}
+                        </TableRow>
+                      )
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            )}
+      </div>
 
       {/* Pagination */}
       <div className="flex items-center justify-between border-t px-3 py-1.5">
@@ -1301,23 +1575,15 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             <DropdownMenuContent align="start" className="w-[180px]">
               <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {([
-                ['vocab', t('concept_mapping.col_vocabulary')],
-                ['id', t('concept_mapping.col_concept_id')],
-                ['name', t('concept_mapping.col_name')],
-                ['code', t('concept_mapping.col_concept_code')],
-                ['domain', t('concept_mapping.col_domain')],
-                ['class', t('concept_mapping.col_concept_class')],
-                ['std', t('concept_mapping.col_std')],
-              ] as const).map(([col, label]) => (
+              {resolvedTable.getAllColumns().filter((col) => !col.id.startsWith('_')).map((col) => (
                 <DropdownMenuCheckboxItem
-                  key={col}
-                  checked={resolvedColVisibility[col]}
-                  onCheckedChange={(v) => setResolvedColVisibility((prev) => ({ ...prev, [col]: v }))}
+                  key={col.id}
+                  checked={col.getIsVisible()}
+                  onCheckedChange={(v) => col.toggleVisibility(!!v)}
                   onSelect={(e) => e.preventDefault()}
                   className="text-xs"
                 >
-                  {label}
+                  {getColLabelFrom(resolvedColumns, col.id)}
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
@@ -2066,15 +2332,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                     }}
                   >
                     {row.getVisibleCells().map((cell) => {
-                      const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
                       const raw = cell.getValue()
-                      const title = raw != null ? String(raw) : undefined
+                      const useTooltip = SEARCH_TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
+                      const rendered = useTooltip
+                        ? <TruncatedText text={String(raw)} className={SEARCH_MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined} />
+                        : flexRender(cell.column.columnDef.cell, cell.getContext())
                       return (
                         <TableCell
                           key={cell.id}
                           className="overflow-hidden truncate px-2 py-1 text-xs"
                           style={{ maxWidth: cell.column.getSize() }}
-                          title={title}
                         >
                           {rendered}
                         </TableCell>
@@ -2459,42 +2726,17 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       </div>
 
       {/* "Map with comment" dialog */}
-      <Dialog open={commentDialogOpen} onOpenChange={setCommentDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('concept_mapping.map_with_comment')}</DialogTitle>
-            <DialogDescription>{t('concept_mapping.map_with_comment_desc')}</DialogDescription>
-          </DialogHeader>
-          {selectedTarget && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>{t('concept_mapping.equivalence')}</Label>
-                <div>
-                  <EquivalencePickerButton value={commentEquivalence} onPick={setCommentEquivalence} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="map-comment">{t('concept_mapping.comment')}</Label>
-                <Textarea
-                  id="map-comment"
-                  rows={3}
-                  placeholder={t('concept_mapping.comment_placeholder')}
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCommentDialogOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button onClick={handleCommentDialogSubmit}>
-              {t('concept_mapping.save_mapping')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {commentDialogOpen && selectedTarget && (
+        <MapWithCommentDialog
+          initialEquivalence={draftForConcept?.equivalence ?? selectedEquivalence}
+          initialText={draftForConcept?.text ?? ''}
+          onClose={(draft) => {
+            setCommentDraft({ conceptId: sourceConcept?.concept_id ?? null, ...draft })
+            setCommentDialogOpen(false)
+          }}
+          onSubmit={handleCommentDialogSubmit}
+        />
+      )}
 
       {/* "Ignore with comment" dialog */}
       <Dialog open={ignoreDialogOpen} onOpenChange={setIgnoreDialogOpen}>
