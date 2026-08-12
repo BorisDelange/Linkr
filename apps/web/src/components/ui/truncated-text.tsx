@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import { Check, Copy } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -15,6 +17,16 @@ interface TruncatedTextProps {
  * (default styled: dark background, light text, rounded). Overflow is measured
  * on hover (after layout settles), so the tooltip only appears when the text is
  * actually cut. `block` + width clamp keeps it from widening a flex container.
+ *
+ * The tooltip is readable, not just glanceable: its text is selectable and it
+ * carries a copy button, so a long concept name can be lifted out of a narrow
+ * column. That means it must NOT close the moment the pointer leaves the cell —
+ * `closeDelay` keeps it alive long enough to move into it, and hovering the
+ * tooltip itself keeps it open.
+ *
+ * Cost note: until the text actually overflows this renders a bare <p>. The
+ * Radix tooltip only mounts once hover proves the text is cut, so a table of
+ * these is not a table of live tooltips.
  */
 export function TruncatedText({ text, lines = 1, className }: TruncatedTextProps) {
   const ref = useRef<HTMLParagraphElement>(null)
@@ -47,12 +59,45 @@ export function TruncatedText({ text, lines = 1, className }: TruncatedTextProps
 
   return (
     <TooltipProvider delayDuration={200}>
+      {/* Hoverable content (Radix default) is what lets the pointer travel into
+          the tooltip to select or copy without it closing. */}
       <Tooltip>
         <TooltipTrigger asChild>{content}</TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs whitespace-pre-wrap">
-          {text}
+        <TooltipContent side="top" className="max-w-xs text-wrap whitespace-pre-wrap break-words">
+          <div className="flex items-start gap-1.5">
+            <span className="select-text">{text}</span>
+            <CopyButton text={text} />
+          </div>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  )
+}
+
+/** Copy-to-clipboard control shown inside the tooltip, with a brief tick on success. */
+function CopyButton({ text }: { text: string }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setCopied(false), 1200)
+    })
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={copied ? t('common.copied') : t('common.copy')}
+      className="mt-px shrink-0 rounded p-0.5 opacity-70 hover:bg-white/15 hover:opacity-100"
+    >
+      {copied ? <Check size={11} /> : <Copy size={11} />}
+    </button>
   )
 }

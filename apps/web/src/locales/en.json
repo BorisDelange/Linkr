@@ -2840,6 +2840,7 @@
     "import": "Import",
     "export": "Export",
     "copied": "Copied",
+    "copy": "Copy",
     "close": "Close",
     "clear": "Clear",
     "page": "Page",
