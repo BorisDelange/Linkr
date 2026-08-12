@@ -199,7 +199,6 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
       sorting,
       mappingStatusFilter,
       suggestionCategories: [...suggestionCategories],
-      columnVisibility: {},
     })
   }, [filters, sorting, mappingStatusFilter, suggestionCategories, project.id, saveFilterState])
 
