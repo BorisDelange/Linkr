@@ -17,6 +17,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { Badge } from '@/components/ui/badge'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
@@ -1788,7 +1789,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       id: 'sourceProjectName',
       header: () => t('concept_mapping.col_source_project'),
       accessorFn: (r) => r.sourceProjectName,
-      cell: ({ row }) => <span className="truncate" title={row.original.sourceProjectName}>{row.original.sourceProjectName}</span>,
+      cell: ({ row }) => <TruncatedText text={row.original.sourceProjectName} />,
       size: 120,
       minSize: 80,
     },
@@ -1820,7 +1821,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       id: 'sourceConceptName',
       header: () => t('concept_mapping.col_source_concept_name'),
       accessorFn: (r) => r.sourceConceptName,
-      cell: ({ row }) => <span className="truncate" title={row.original.sourceConceptName}>{row.original.sourceConceptName}</span>,
+      cell: ({ row }) => <TruncatedText text={row.original.sourceConceptName} />,
       size: 200,
       minSize: 100,
     },
@@ -1869,7 +1870,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       id: 'targetConceptName',
       header: () => t('concept_mapping.col_target_concept_name'),
       accessorFn: (r) => r.targetConceptName,
-      cell: ({ row }) => <span className="truncate" title={row.original.targetConceptName}>{row.original.targetConceptName}</span>,
+      cell: ({ row }) => <TruncatedText text={row.original.targetConceptName} />,
       size: 200,
       minSize: 100,
     },
@@ -2238,11 +2239,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         id: 'sourceConceptName',
         header: () => t('concept_mapping.col_source_concept_name'),
         accessorFn: (row) => row.sourceConceptName,
-        cell: ({ row }) => (
-          <span className="block truncate" title={row.original.sourceConceptName}>
-            {row.original.sourceConceptName}
-          </span>
-        ),
+        cell: ({ row }) => <TruncatedText text={row.original.sourceConceptName} />,
         size: 200,
         minSize: 100,
       },
@@ -2327,9 +2324,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
               </span>
             )
           }
-          return (
-            <span className="block truncate" title={m.targetConceptName}>{m.targetConceptName}</span>
-          )
+          return <TruncatedText text={m.targetConceptName} />
         },
         size: 200,
         minSize: 100,

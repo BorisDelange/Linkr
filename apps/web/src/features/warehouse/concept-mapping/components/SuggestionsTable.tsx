@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { ValidityBadge } from '@/lib/concept-mapping/validity-badge'
 import { Badge } from '@/components/ui/badge'
@@ -56,32 +57,6 @@ function DebouncedInput({ value: ext, onChange, className, placeholder }: {
   }
   useEffect(() => () => clearTimeout(timer.current), [])
   return <input className={className} placeholder={placeholder} value={local} onChange={handle} />
-}
-
-/**
- * Cell text that shows an instant black tooltip only when the content is visually
- * truncated. The tooltip is mounted lazily on pointer-enter (checking scrollWidth vs
- * clientWidth) so non-truncated cells never trigger it.
- */
-function TruncatedText({ children, className }: { children: string; className?: string }) {
-  const ref = useRef<HTMLSpanElement>(null)
-  const [truncated, setTruncated] = useState(false)
-  const check = () => {
-    const el = ref.current
-    setTruncated(!!el && el.scrollWidth > el.clientWidth)
-  }
-  const span = (
-    <span ref={ref} className={`block truncate ${className ?? ''}`} onPointerEnter={check}>
-      {children}
-    </span>
-  )
-  if (!truncated) return span
-  return (
-    <Tooltip disableHoverableContent>
-      <TooltipTrigger asChild>{span}</TooltipTrigger>
-      <TooltipContent side="top" className="pointer-events-none max-w-xs">{children}</TooltipContent>
-    </Tooltip>
-  )
 }
 
 type Sorting = { columnId: string; desc: boolean } | null
@@ -317,7 +292,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       accessorFn: (r) => r.vocabulary_id,
       cell: ({ row }) =>
         row.original.vocabulary_id
-          ? <TruncatedText className="text-xs">{row.original.vocabulary_id}</TruncatedText>
+          ? <TruncatedText text={row.original.vocabulary_id} className="text-xs" />
           : <span className="text-xs italic text-muted-foreground/60">—</span>,
       size: 80,
       minSize: 50,
@@ -338,7 +313,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       accessorFn: (r) => r.concept_name,
       cell: ({ row }) =>
         row.original.concept_name
-          ? <TruncatedText className="text-xs">{row.original.concept_name}</TruncatedText>
+          ? <TruncatedText text={row.original.concept_name} className="text-xs" />
           : (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -369,7 +344,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       header: () => t('concept_mapping.col_domain'),
       accessorFn: (r) => r.domain_id,
       cell: ({ row }) =>
-        row.original.domain_id ? <TruncatedText className="text-xs">{row.original.domain_id}</TruncatedText> : null,
+        row.original.domain_id ? <TruncatedText text={row.original.domain_id} className="text-xs" /> : null,
       size: 80,
       minSize: 50,
       enableResizing: true,
@@ -379,7 +354,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       header: () => t('concept_mapping.col_concept_class'),
       accessorFn: (r) => r.concept_class_id,
       cell: ({ row }) =>
-        row.original.concept_class_id ? <TruncatedText className="text-xs">{row.original.concept_class_id}</TruncatedText> : null,
+        row.original.concept_class_id ? <TruncatedText text={row.original.concept_class_id} className="text-xs" /> : null,
       size: 90,
       minSize: 50,
       enableResizing: true,

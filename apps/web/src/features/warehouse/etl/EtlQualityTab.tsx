@@ -22,9 +22,9 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
   ConceptDataTable,
-  TruncatedText,
   type ConceptColumn,
 } from '@/components/ui/concept-data-table'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { cn } from '@/lib/utils'
 import { getStorage } from '@/lib/storage'
 import * as duckdbEngine from '@/lib/duckdb/engine'
@@ -673,7 +673,7 @@ function ConceptQualityView({
       id: 'sourceDescription',
       header: tRef.current('etl.comparison_description'),
       accessor: (r) => r.sourceDescription,
-      cell: (r) => <TruncatedText>{r.sourceDescription}</TruncatedText>,
+      cell: (r) => <TruncatedText text={r.sourceDescription} />,
       filter: 'text',
       size: 260,
     },

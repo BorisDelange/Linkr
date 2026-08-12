@@ -11,6 +11,7 @@ import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Settings2 }
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import {
   Table,
   TableBody,
@@ -59,27 +60,6 @@ function DebouncedInput({ value: ext, onChange, className, placeholder }: {
 }
 
 /** Cell text with an instant tooltip shown only when the content is truncated. */
-export function TruncatedText({ children, className }: { children: string; className?: string }) {
-  const ref = useRef<HTMLSpanElement>(null)
-  const [truncated, setTruncated] = useState(false)
-  const check = () => {
-    const el = ref.current
-    setTruncated(!!el && el.scrollWidth > el.clientWidth)
-  }
-  const span = (
-    <span ref={ref} className={`block truncate ${className ?? ''}`} onPointerEnter={check}>
-      {children}
-    </span>
-  )
-  if (!truncated) return span
-  return (
-    <Tooltip disableHoverableContent>
-      <TooltipTrigger asChild>{span}</TooltipTrigger>
-      <TooltipContent side="top" className="pointer-events-none max-w-xs">{children}</TooltipContent>
-    </Tooltip>
-  )
-}
-
 type Sorting = { columnId: string; desc: boolean } | null
 
 /** Kind of inline column filter to render under a column header. */
@@ -103,6 +83,14 @@ export interface ConceptColumn<T> {
   hidden?: boolean
   /** Center the cell content (used for boolean/flag columns). */
   center?: boolean
+  /**
+   * Only needed alongside a custom `cell`: columns without one already show the
+   * full value in a tooltip when truncated. Setting this replaces that renderer
+   * with the raw accessor value, so use it when the renderer was merely styling
+   * text (and pass a class string rather than `true` to keep that styling) —
+   * never when it produces a badge, button or link.
+   */
+  tooltip?: boolean | string
 }
 
 interface ConceptDataTableProps<T> {
@@ -244,7 +232,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     cell: ({ row }) =>
       c.cell
         ? c.cell(row.original)
-        : <TruncatedText className="text-xs">{String(c.accessor(row.original) ?? '')}</TruncatedText>,
+        : <TruncatedText text={String(c.accessor(row.original) ?? '')} className="text-xs" />,
     size: c.size ?? 120,
     minSize: c.minSize ?? 50,
     enableResizing: true,
@@ -340,15 +328,22 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                     selectedRowKey != null && key === selectedRowKey ? 'bg-accent' : onRowClick && 'hover:bg-accent/50',
                   )}
                 >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      className={`overflow-hidden truncate px-2 py-1 text-xs${colById.get(cell.column.id)?.center ? ' text-center' : ''}`}
-                      style={{ maxWidth: cell.column.getSize() }}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
+                  {row.getVisibleCells().map((cell) => {
+                    const col = colById.get(cell.column.id)
+                    const raw = cell.getValue()
+                    const useTooltip = col?.tooltip && raw != null && String(raw) !== ''
+                    return (
+                      <TableCell
+                        key={cell.id}
+                        className={`overflow-hidden truncate px-2 py-1 text-xs${col?.center ? ' text-center' : ''}`}
+                        style={{ maxWidth: cell.column.getSize() }}
+                      >
+                        {useTooltip
+                          ? <TruncatedText text={String(raw)} className={typeof col?.tooltip === 'string' ? col.tooltip : undefined} />
+                          : flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    )
+                  })}
                 </TableRow>
                 )
               })

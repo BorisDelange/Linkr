@@ -144,7 +144,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
       accessor: (r) => r.check.description,
       filter: 'text',
       size: 260, minSize: 120,
-      cell: (r) => <span className="font-medium">{r.check.description}</span>,
+      tooltip: 'font-medium',
     },
     {
       id: 'category',
