@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
+import { resolveTab, restorableTab } from './url-tab'
 
 /**
  * Active tab held in the URL (`?tab=`), so a tab is shareable, bookmarkable and
@@ -12,9 +13,17 @@ import { useSearchParams } from 'react-router'
  * page you use tab-first tedious. An explicit `?tab=` still wins, so deep links
  * keep working.
  *
+ * A restored tab is shown without rewriting the URL: doing that from an effect
+ * cost a render pass and made the address bar flicker on arrival. The URL fills
+ * in on the first tab click, which is also the point at which it becomes worth
+ * sharing.
+ *
  * The last tab is remembered in memory, not localStorage: it should survive
  * moving around the app while an entity stays open, not come back a session
  * later.
+ *
+ * The resolution rules live in `./url-tab` — see the ambiguity around an absent
+ * `?tab=` documented there.
  */
 const lastTabByKey = new Map<string, string>()
 
@@ -27,24 +36,25 @@ export function useUrlTab<T extends string>(options: {
   const { key, tabs, defaultTab } = options
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const isTab = useCallback(
-    (value: string | null | undefined): value is T => !!value && (tabs as readonly string[]).includes(value),
-    [tabs],
-  )
+  // Read on mount only: once the user acts, the memory must not override them.
+  const [restored] = useState<T | null>(() => restorableTab(lastTabByKey.get(key), tabs, defaultTab))
+  // Cleared on the first tab click, so a later empty `?tab=` reads as "the
+  // default tab" rather than a fresh arrival — otherwise picking the default
+  // tab would bounce straight back to the restored one.
+  const [restorePending, setRestorePending] = useState(restored !== null)
 
-  // Seeds the first render only. Re-reading the remembered tab on later renders
-  // would fight the URL once the user goes back to the default tab, which
-  // deliberately clears the param.
-  const [remembered] = useState<T>(() => {
-    const saved = lastTabByKey.get(key)
-    return saved && (tabs as readonly string[]).includes(saved) ? (saved as T) : defaultTab
+  const { activeTab } = resolveTab<T>({
+    fromUrl: searchParams.get('tab'),
+    tabs,
+    defaultTab,
+    restored,
+    restorePending,
   })
-
-  const fromUrl = searchParams.get('tab')
-  const activeTab = isTab(fromUrl) ? fromUrl : remembered
 
   const setActiveTab = useCallback(
     (tab: T) => {
+      setRestorePending(false)
+      lastTabByKey.set(key, tab)
       setSearchParams(
         (prev) => {
           if (tab === defaultTab) prev.delete('tab')
@@ -54,22 +64,8 @@ export function useUrlTab<T extends string>(options: {
         { replace: true },
       )
     },
-    [defaultTab, setSearchParams],
+    [key, defaultTab, setSearchParams],
   )
-
-  // Reflect a remembered non-default tab in the URL, so the address bar matches
-  // what is on screen and a reload stays on it.
-  useEffect(() => {
-    if (activeTab !== defaultTab && !isTab(fromUrl)) {
-      setSearchParams(
-        (prev) => {
-          prev.set('tab', activeTab)
-          return prev
-        },
-        { replace: true },
-      )
-    }
-  }, [activeTab, defaultTab, fromUrl, isTab, setSearchParams])
 
   useEffect(() => {
     lastTabByKey.set(key, activeTab)
