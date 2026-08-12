@@ -1,4 +1,5 @@
 import { ChevronDown } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -6,8 +7,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { EQUIV_BADGE, EQUIVALENCE_OPTIONS } from '@/lib/concept-mapping/equivalence-badge'
 import type { MappingEquivalence } from '@/types'
+
+/** i18n key holding the plain-language meaning of each SKOS predicate. Direction
+ *  follows SKOS/SSSOM: the source concept is the subject, the target the object,
+ *  so `broadMatch` means the *target* is the broader of the two. */
+const EQUIV_HINT_KEY: Record<MappingEquivalence, string> = {
+  'skos:exactMatch': 'concept_mapping.skos_exact_match_hint',
+  'skos:closeMatch': 'concept_mapping.skos_close_match_hint',
+  'skos:broadMatch': 'concept_mapping.skos_broad_match_hint',
+  'skos:narrowMatch': 'concept_mapping.skos_narrow_match_hint',
+  'skos:relatedMatch': 'concept_mapping.skos_related_match_hint',
+}
 
 interface EquivalenceMenuItemsProps {
   onPick: (predicate: MappingEquivalence) => void
@@ -18,19 +31,28 @@ interface EquivalenceMenuItemsProps {
 /** The SKOS equivalence choices, rendered as coloured badges. Shared by every
  *  equivalence picker so they stay visually identical. */
 export function EquivalenceMenuItems({ onPick, stopPropagation }: EquivalenceMenuItemsProps) {
+  const { t } = useTranslation()
   return (
-    <>
+    // Own provider: this menu is rendered from several places, not all of which
+    // sit under one.
+    <TooltipProvider delayDuration={300}>
       {EQUIVALENCE_OPTIONS.map((pred) => (
-        <DropdownMenuItem
-          key={pred}
-          onClick={(e) => { if (stopPropagation) e.stopPropagation(); onPick(pred) }}
-        >
-          <span className={`inline-flex w-full items-center justify-center rounded px-2 py-1 text-[11px] font-medium ${EQUIV_BADGE[pred].className}`}>
-            {EQUIV_BADGE[pred].label}
-          </span>
-        </DropdownMenuItem>
+        <Tooltip key={pred}>
+          <TooltipTrigger asChild>
+            <DropdownMenuItem
+              onClick={(e) => { if (stopPropagation) e.stopPropagation(); onPick(pred) }}
+            >
+              <span className={`inline-flex w-full items-center justify-center rounded px-2 py-1 text-[11px] font-medium ${EQUIV_BADGE[pred].className}`}>
+                {EQUIV_BADGE[pred].label}
+              </span>
+            </DropdownMenuItem>
+          </TooltipTrigger>
+          <TooltipContent side="right" className="max-w-[260px] text-xs">
+            {t(EQUIV_HINT_KEY[pred])}
+          </TooltipContent>
+        </Tooltip>
       ))}
-    </>
+    </TooltipProvider>
   )
 }
 
