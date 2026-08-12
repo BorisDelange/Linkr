@@ -17,6 +17,7 @@ import {
 } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
+import { useMappingEditorFiltersStore } from '@/stores/mapping-editor-filters-store'
 import { getStorage } from '@/lib/storage'
 import { localized } from '@/lib/localized'
 import { SourceConceptTable, type MappingStatusFilter } from './components/SourceConceptTable'
@@ -105,15 +106,29 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
   const [queryError, setQueryError] = useState<string | null>(null)
-  const [filters, setFilters] = useState<SourceConceptFilters>({})
+  // Filters are restored from the editor-filters store so they survive navigating
+  // away and back. Read non-reactively: it only seeds the useState initializers
+  // below, and re-reading it on later renders must not clobber live edits.
+  const savedFilters = useMappingEditorFiltersStore.getState().get(project.id)
+  const saveFilterState = useMappingEditorFiltersStore((s) => s.save)
+
+  const [filters, setFilters] = useState<SourceConceptFilters>(() => savedFilters?.filters ?? {})
   const [sorting, setSorting] = useState<SourceConceptSorting | null>(
-    isFileSource ? { columnId: 'concept_name', desc: false } : { columnId: 'record_count', desc: true },
+    savedFilters
+      ? savedFilters.sorting
+      : isFileSource
+        ? { columnId: 'concept_name', desc: false }
+        : { columnId: 'record_count', desc: true },
   )
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
-  const [mappingStatusFilter, setMappingStatusFilter] = useState<MappingStatusFilter>('all')
+  const [mappingStatusFilter, setMappingStatusFilter] = useState<MappingStatusFilter>(
+    savedFilters?.mappingStatusFilter ?? 'all',
+  )
   const [detailConcept, setDetailConcept] = useState<SourceConceptRow | null>(null)
   const [fileSourceReady, setFileSourceReady] = useState(false)
-  const [suggestionCategories, setSuggestionCategories] = useState<Set<SuggestionCategory>>(new Set())
+  const [suggestionCategories, setSuggestionCategories] = useState<Set<SuggestionCategory>>(
+    () => new Set(savedFilters?.suggestionCategories ?? []),
+  )
 
   // Multi-selection (Ctrl/Cmd/Shift click) + a persistent "copy list" the user
   // builds up to copy source concepts as SQL/R/Python IN-lists.
@@ -163,6 +178,30 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   /** Monotonic request id — incremented for each load. Stale completions are ignored. */
   const requestIdRef = useRef(0)
   const savedScrollTop = useRef(0)
+
+  // Persist the user-set filters. The derived key lists (mappedKeys,
+  // suggestionCategoryKeys…) are rebuilt from live store state on each load, so
+  // only the column filters are kept — persisting the rest would restore stale keys.
+  useEffect(() => {
+    saveFilterState(project.id, {
+      filters: {
+        searchText: filters.searchText,
+        searchId: filters.searchId,
+        searchCode: filters.searchCode,
+        searchTextFuzzy: filters.searchTextFuzzy,
+        vocabularyId: filters.vocabularyId,
+        terminologyName: filters.terminologyName,
+        category: filters.category,
+        subcategory: filters.subcategory,
+        domainId: filters.domainId,
+        conceptClassId: filters.conceptClassId,
+      },
+      sorting,
+      mappingStatusFilter,
+      suggestionCategories: [...suggestionCategories],
+      columnVisibility: {},
+    })
+  }, [filters, sorting, mappingStatusFilter, suggestionCategories, project.id, saveFilterState])
 
   // Refs for the SQL-side mapping-status filter — read inside loadConcepts
   // without making them deps (we don't want every vote to retrigger the query).
