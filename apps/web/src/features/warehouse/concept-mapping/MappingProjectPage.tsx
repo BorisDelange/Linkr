@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
-import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useUrlTab } from '@/hooks/use-url-tab'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useVisitStore } from '@/stores/visit-store'
@@ -17,17 +17,16 @@ interface MappingProjectPageProps {
   projectId: string
 }
 
+const TABS = ['progress', 'concept-sets', 'editor', 'mappings', 'export', 'versioning'] as const
+type TabId = (typeof TABS)[number]
+
 export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const { t } = useTranslation()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const activeTab = searchParams.get('tab') ?? 'progress'
-  const setActiveTab = (value: string) => {
-    setSearchParams((prev) => {
-      if (value === 'progress') prev.delete('tab')
-      else prev.set('tab', value)
-      return prev
-    })
-  }
+  const [activeTab, setActiveTab] = useUrlTab<TabId>({
+    key: `mapping-project:${projectId}`,
+    tabs: TABS,
+    defaultTab: 'progress',
+  })
   // Once the editor has been opened at least once, keep its component mounted so
   // its (expensive) source-concepts query and DuckDB cache survive tab switches.
   // The other tabs stay lazy — their store subscriptions are too heavy to leave
@@ -84,7 +83,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Tabs — centered */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)} className="flex flex-1 flex-col overflow-hidden">
         <div className="flex justify-center">
           <TabsList className="mt-2 mb-0 w-fit">
             <TabsTrigger value="progress">{t('concept_mapping.tab_progress')}</TabsTrigger>

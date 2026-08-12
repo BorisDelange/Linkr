@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ArrowLeft, Code, BarChart3, Database } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useUrlTab } from '@/hooks/use-url-tab'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
@@ -20,7 +21,8 @@ import { DqChecksTab } from './DqChecksTab'
 import { DqResultsView } from './DqResultsView'
 import type { DqReport } from '@/lib/duckdb/data-quality'
 
-type TabId = 'checks' | 'results'
+const TAB_IDS = ['checks', 'results'] as const
+type TabId = (typeof TAB_IDS)[number]
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'checks', labelKey: 'data_quality.tab_checks', icon: Code },
@@ -49,7 +51,11 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
-  const [activeTab, setActiveTab] = useState<TabId>('checks')
+  const [activeTab, setActiveTab] = useUrlTab<TabId>({
+    key: `dq:${ruleSetId}`,
+    tabs: TAB_IDS,
+    defaultTab: 'checks',
+  })
 
   useEffect(() => {
     if (!dqRuleSetsLoaded) loadDqRuleSets()

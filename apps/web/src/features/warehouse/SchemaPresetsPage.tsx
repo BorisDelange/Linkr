@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, Suspense, lazy, useMemo, useRef } fro
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useUrlTab } from '@/hooks/use-url-tab'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import {
@@ -987,6 +988,9 @@ function SchemaCard({
 // Schema detail page (full page with 4 tabs)
 // ---------------------------------------------------------------------------
 
+const SCHEMA_TAB_IDS = ['erd-ddl', 'ddl', 'mapping', 'erd-mapping'] as const
+type SchemaTabId = (typeof SCHEMA_TAB_IDS)[number]
+
 function SchemaDetailView({
   schemaId,
   customPresets,
@@ -1019,7 +1023,11 @@ function SchemaDetailView({
   const [isEditing, setIsEditing] = useState(false)
   const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
-  const [activeTab, setActiveTab] = useState('erd-ddl')
+  const [activeTab, setActiveTab] = useUrlTab<SchemaTabId>({
+    key: `schema:${schemaId}`,
+    tabs: SCHEMA_TAB_IDS,
+    defaultTab: 'erd-ddl',
+  })
   // ERD (Schema DDL tab) controls, lifted out of DdlERD so they sit on the tabs row.
   const [layoutEditing, setLayoutEditing] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -1089,7 +1097,7 @@ function SchemaDetailView({
     <div className="flex h-full flex-col">
       {/* Tabs — the Edit/Save controls sit on this row, top-right. The schema's
           name, export and delete now live in the global header badge menu. */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SchemaTabId)} className="flex-1 flex flex-col min-h-0">
         <div className="flex items-center px-6 pt-2 shrink-0">
           <div className="flex-1" />
           <TabsList>

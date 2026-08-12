@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ArrowLeft, ArrowRight, Code, Workflow, Table2, Database, BookOpen, GitCompare } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useUrlTab } from '@/hooks/use-url-tab'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
@@ -23,7 +24,8 @@ import { EtlVocabularyTab } from './EtlVocabularyTab'
 import { EtlQualityTab } from './EtlQualityTab'
 import { vocabularyReadiness } from './vocabulary-readiness'
 
-type TabId = 'scripts' | 'pipeline' | 'schemas' | 'vocabulary' | 'quality'
+const TAB_IDS = ['pipeline', 'scripts', 'schemas', 'vocabulary', 'quality'] as const
+type TabId = (typeof TAB_IDS)[number]
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'pipeline', labelKey: 'etl.tab_pipeline', icon: Workflow },
@@ -45,7 +47,11 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
-  const [activeTab, setActiveTab] = useState<TabId>('pipeline')
+  const [activeTab, setActiveTab] = useUrlTab<TabId>({
+    key: `etl:${pipelineId}`,
+    tabs: TAB_IDS,
+    defaultTab: 'pipeline',
+  })
   // Database the schemas tab should open on when the scripts tab sends the user
   // there ("Browse schema"), rather than its own default.
   const [schemasDbId, setSchemasDbId] = useState<string | undefined>(undefined)
@@ -68,14 +74,14 @@ export function EtlPipelinePage({ pipelineId }: Props) {
     const { selectFile } = useEtlStore.getState()
     selectFile(fileId)
     setActiveTab('scripts')
-  }, [])
+  }, [setActiveTab])
 
   /** "Browse schema" in the scripts editor: same view as the Schemas tab, so go
    *  there on the right database instead of opening a modal over the editor. */
   const handleBrowseSchema = useCallback((dataSourceId: string) => {
     setSchemasDbId(dataSourceId)
     setActiveTab('schemas')
-  }, [])
+  }, [setActiveTab])
 
   /**
    * Why the Vocabulary tab needs attention, if it does.

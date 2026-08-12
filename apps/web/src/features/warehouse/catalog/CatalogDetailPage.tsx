@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useUrlTab } from '@/hooks/use-url-tab'
 import { localized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -27,12 +28,20 @@ const STATUS_BADGE: Record<CatalogStatus, { variant: 'default' | 'secondary' | '
   error: { variant: 'destructive', label: 'data_catalog.status_error' },
 }
 
+const TAB_IDS = ['config', 'data', 'anonymization', 'dcat', 'export'] as const
+type TabId = (typeof TAB_IDS)[number]
+
 interface Props {
   catalogId: string
 }
 
 export function CatalogDetailPage({ catalogId }: Props) {
   const { t } = useTranslation()
+  const [activeTab, setActiveTab] = useUrlTab<TabId>({
+    key: `catalog:${catalogId}`,
+    tabs: TAB_IDS,
+    defaultTab: 'config',
+  })
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, loadResultCache } = useCatalogStore()
@@ -111,7 +120,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="config" className="mt-6">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)} className="mt-6">
           <TabsList className="mx-auto w-fit">
             <TabsTrigger value="config">{t('data_catalog.tab_config')}</TabsTrigger>
             <TabsTrigger value="data">{t('data_catalog.tab_data')}</TabsTrigger>
