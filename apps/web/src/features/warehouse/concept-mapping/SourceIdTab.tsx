@@ -464,6 +464,19 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                           // how many ids the range would hold before it is saved.
                           const liveError = validateRange(range.badgeLabel, edit)
                           const capacity = rangeCapacity(parseRangeBound(edit.rangeStart), parseRangeBound(edit.rangeEnd))
+                          const cancelEdit = () => setEdits((prev) => { const n = { ...prev }; delete n[range.badgeLabel]; return n })
+                          // Enter saves from either bound, Escape backs out: the two
+                          // inputs read as one field, and reaching for the button to
+                          // commit a number you just typed breaks that.
+                          const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+                            if (e.key === 'Enter' && canWrite && !liveError) {
+                              e.preventDefault()
+                              void saveEdit(range.badgeLabel)
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault()
+                              cancelEdit()
+                            }
+                          }
                           return (
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
@@ -472,6 +485,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                                 inputMode="numeric"
                                 value={formatRangeBound(edit.rangeStart)}
                                 onChange={(e) => setEdits((prev) => ({ ...prev, [range.badgeLabel]: { ...edit, rangeStart: e.target.value } }))}
+                                onKeyDown={onKeyDown}
                               />
                               <span className="text-xs text-muted-foreground">→</span>
                               <Input
@@ -479,9 +493,10 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                                 inputMode="numeric"
                                 value={formatRangeBound(edit.rangeEnd)}
                                 onChange={(e) => setEdits((prev) => ({ ...prev, [range.badgeLabel]: { ...edit, rangeEnd: e.target.value } }))}
+                                onKeyDown={onKeyDown}
                               />
                               <Button size="sm" className="h-7 text-xs" disabled={!canWrite || !!liveError} onClick={() => saveEdit(range.badgeLabel)}>{t('common.save')}</Button>
-                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEdits((prev) => { const n = { ...prev }; delete n[range.badgeLabel]; return n })}>{t('common.cancel')}</Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={cancelEdit}>{t('common.cancel')}</Button>
                             </div>
                             {liveError
                               ? <p className="text-[11px] text-destructive">{liveError}</p>
