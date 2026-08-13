@@ -761,6 +761,11 @@ def _key_source_concepts_named(
         headers = next(reader)
     except StopIteration:
         return None
+    except csv.Error:
+        # Not actually delimited text: some sites export source-concepts.csv as
+        # Parquet under the .csv name, and its bytes decode into stray newlines
+        # the csv module rejects. Unkeyable, like an LFS pointer — not a crash.
+        return None
     lower = [h.strip().lower() for h in headers]
 
     def find(names: tuple[str, ...], mapped: str | None = None) -> int:
@@ -787,7 +792,13 @@ def _key_source_concepts_named(
     # them silently, under-counting the diff. A repeat gets an occurrence suffix so
     # every physical row keeps its own identity. Twin of source-concepts-diff.ts.
     seen: dict[str, int] = {}
-    for cells in reader:
+    try:
+        rows_iter = list(reader)
+    except csv.Error:
+        # csv parses lazily, so a binary payload can survive the header read and
+        # blow up mid-iteration instead.
+        return None
+    for cells in rows_iter:
         if not cells:
             continue
         vocabulary = (cells[vocab_idx] if vocab_idx < len(cells) else "").strip()
@@ -821,7 +832,7 @@ def _key_source_concepts(text: str | None) -> dict[str, str] | None:
     reader = csv.reader(io.StringIO(text))
     try:
         headers = next(reader)
-    except StopIteration:
+    except (StopIteration, csv.Error):
         return None
     lower = [h.strip().lower() for h in headers]
 
@@ -837,7 +848,11 @@ def _key_source_concepts(text: str | None) -> dict[str, str] | None:
         return None
 
     rows: dict[str, str] = {}
-    for cells in reader:
+    try:
+        rows_iter = list(reader)
+    except csv.Error:
+        return None
+    for cells in rows_iter:
         if not cells:
             continue
         vocabulary = (cells[vocab_idx] if vocab_idx < len(cells) else "").strip()
@@ -875,8 +890,8 @@ def _diff_source_concepts(
             "removed": 0,
             "modified": 0,
             "unchanged": 0,
-            "localTotal": len(local_keyed[0]) if local_keyed is not None else 0,
-            "remoteTotal": len(remote_keyed[0]) if remote_keyed is not None else 0,
+            "localTotal": len(local_keyed[0]) if local_keyed else 0,
+            "remoteTotal": len(remote_keyed[0]) if remote_keyed else 0,
             "changes": [],
             "changesTruncated": False,
         }

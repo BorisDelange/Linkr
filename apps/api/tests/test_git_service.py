@@ -809,6 +809,11 @@ def test_docs_regex_matches_readme_variants_only():
 # --- Source-concept row diff (twin of source-concepts-diff.ts) ---------------
 
 _HEADER = "vocabulary_id,concept_code,concept_name,domain"
+_COLUMN_MAPPING = {
+    "terminologyColumn": "vocabulary_id",
+    "conceptCodeColumn": "concept_code",
+    "conceptNameColumn": "concept_name",
+}
 
 
 def _csv(*rows: str) -> str:
@@ -839,6 +844,28 @@ def test_key_source_concepts_unkeyable_inputs():
     assert g._key_source_concepts("") is None
     assert g._key_source_concepts(None) is None
     assert g._key_source_concepts("concept_name,domain\nVolume,Measurement") is None
+
+
+def test_key_source_concepts_survives_binary_content():
+    """Some sites export source-concepts.csv as Parquet under the .csv name. Its
+    bytes decode into stray newlines that csv.reader rejects mid-parse; that has
+    to read as "unkeyable", not raise out of the pull-preview endpoint."""
+    # A bare \r inside an unquoted field is what csv.reader refuses; real Parquet
+    # bytes are riddled with them once decoded as text.
+    parquet = 'PAR1\x15\x00"a\rb"x\rvocabulary_id,concept_code\r\nLOCAL,VC'
+    assert g._key_source_concepts(parquet) is None
+    assert g._key_source_concepts_named(parquet, _COLUMN_MAPPING) is None
+
+
+def test_diff_source_concepts_reports_not_comparable_for_binary_side():
+    parquet = b"PAR1\r\x00\rcode\r\nA\x00\r\rB".decode("utf-8", "replace")
+    csv_text = _csv("LOCAL,A,Alpha,M")
+    d = g._diff_source_concepts(parquet, csv_text, _COLUMN_MAPPING)
+    assert d["keyed"] is False
+    assert d["localTotal"] == 0 and d["remoteTotal"] == 1
+    d = g._diff_source_concepts(csv_text, parquet, _COLUMN_MAPPING)
+    assert d["keyed"] is False
+    assert d["localTotal"] == 1 and d["remoteTotal"] == 0
 
 
 def test_key_source_concepts_skips_rows_without_a_code():
