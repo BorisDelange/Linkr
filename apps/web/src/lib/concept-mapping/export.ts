@@ -9,6 +9,50 @@ import { buildCcrCsvs } from '@/lib/concept-mapping/ccr-export'
 // CSV helpers
 // ---------------------------------------------------------------------------
 
+/** Apache Parquet's magic number, the first four bytes of every such file. */
+const PARQUET_MAGIC = [0x50, 0x41, 0x52, 0x31] // "PAR1"
+
+export function isParquetBuffer(buf: Uint8Array): boolean {
+  return buf.byteLength >= 4 && PARQUET_MAGIC.every((b, i) => buf[i] === b)
+}
+
+/**
+ * Convert a Parquet source buffer to CSV text, keeping the file's own column
+ * names.
+ *
+ * A mapping project imported from a .parquet file used to have its raw bytes
+ * written verbatim to `source-concepts.csv`, so the name said CSV and the
+ * content was binary. Re-importing then decoded it as text and produced a
+ * project with zero source concepts, and the pull preview's CSV diff crashed on
+ * it. Headers are preserved rather than normalized to the canonical role names:
+ * the re-import keeps an existing columnMapping when every mapped column is
+ * still present, so renaming them here would break projects that already
+ * round-trip correctly.
+ */
+export async function parquetBufferToCsv(buf: Uint8Array): Promise<string | null> {
+  try {
+    const { getDuckDB } = await import('@/lib/duckdb/engine')
+    const db = await getDuckDB()
+    const name = `__source_concepts_export.parquet`
+    await db.registerFileBuffer(name, buf)
+    const conn = await db.connect()
+    try {
+      const res = await conn.query(`SELECT * FROM read_parquet('${name}')`)
+      const columns = res.schema.fields.map((f: { name: string }) => f.name)
+      if (columns.length === 0) return null
+      const header = columns.map((c) => csvEscape(c)).join(',')
+      const lines = res.toArray().map((row: Record<string, unknown>) =>
+        columns.map((c) => csvEscape(row[c] as string | number | null | undefined)).join(','),
+      )
+      return [header, ...lines].join('\n')
+    } finally {
+      await conn.close()
+    }
+  } catch {
+    return null
+  }
+}
+
 export function csvEscape(value: string | number | undefined | null): string {
   if (value == null) return ''
   const str = String(value)
@@ -722,11 +766,16 @@ export async function buildMappingProjectFolder(
   // Source concepts (file-based or DB-based)
   if (!options.skipSourceConcepts && project.sourceType === 'file' && project.fileSourceData) {
     if (project.fileSourceData.rawFileBuffer && project.fileSourceData.rawFileBuffer.byteLength > 0) {
-      // Pass the raw buffer directly without compression (avoids memory overflow on large files)
       const buf = project.fileSourceData.rawFileBuffer instanceof Uint8Array
         ? project.fileSourceData.rawFileBuffer
         : new Uint8Array(project.fileSourceData.rawFileBuffer)
-      zip.file(`${prefix}source-concepts.csv`, buf, { compression: 'STORE' })
+      const asCsv = isParquetBuffer(buf) ? await parquetBufferToCsv(buf) : null
+      if (asCsv) {
+        zip.file(`${prefix}source-concepts.csv`, asCsv)
+      } else {
+        // Pass the raw buffer directly without compression (avoids memory overflow on large files)
+        zip.file(`${prefix}source-concepts.csv`, buf, { compression: 'STORE' })
+      }
     } else if (project.fileSourceData.rows.length > 0) {
       // Legacy format: export from parsed rows
       zip.file(
@@ -747,7 +796,9 @@ export async function buildMappingProjectFolder(
           const { fetchRawFileFromServer } = await import('@/lib/api/mapping-projects')
           const buf = await fetchRawFileFromServer(project.id)
           if (buf && buf.byteLength > 0) {
-            zip.file(`${prefix}source-concepts.csv`, buf, { compression: 'STORE' })
+            const asCsv = isParquetBuffer(buf) ? await parquetBufferToCsv(buf) : null
+            if (asCsv) zip.file(`${prefix}source-concepts.csv`, asCsv)
+            else zip.file(`${prefix}source-concepts.csv`, buf, { compression: 'STORE' })
           }
         }
       } catch {

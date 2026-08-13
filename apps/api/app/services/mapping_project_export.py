@@ -155,6 +155,62 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
     return _json(out)
 
 
+_PARQUET_MAGIC = b"PAR1"
+
+
+def _csv_escape(value: Any) -> str:
+    """Twin of ``csvEscape`` (export.ts): quote only when the value carries a
+    comma, a quote or a newline, and double any embedded quote."""
+    if value is None:
+        return ""
+    s = str(value)
+    if "," in s or '"' in s or "\n" in s:
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+def _as_csv_bytes(source: bytes) -> bytes:
+    """Return the source concepts as CSV text.
+
+    A project imported from a .parquet file used to have its raw bytes written
+    verbatim under the ``source-concepts.csv`` name, so the name said CSV and the
+    content was binary: re-importing decoded it as text and yielded a project
+    with no source concepts, and the pull preview's CSV diff raised on it.
+
+    The file's own column names are kept rather than normalized to the canonical
+    role headers — the re-import preserves an existing columnMapping when all its
+    columns are still present, so renaming here would churn projects that already
+    round-trip. Twin of ``parquetBufferToCsv`` (export.ts); both must emit the
+    same bytes or a front-only and a server client would fight over the file.
+    """
+    if not source.startswith(_PARQUET_MAGIC):
+        return source
+    try:
+        import tempfile
+
+        import duckdb
+
+        # read_parquet needs a path: the bytes come from the blob store, not disk.
+        with tempfile.NamedTemporaryFile(suffix=".parquet") as tmp:
+            tmp.write(source)
+            tmp.flush()
+            con = duckdb.connect()
+            try:
+                rel = con.execute("SELECT * FROM read_parquet(?)", [tmp.name])
+                columns = [d[0] for d in rel.description]
+                rows = rel.fetchall()
+            finally:
+                con.close()
+    except Exception:
+        # Unreadable parquet: keep the original bytes rather than losing the file.
+        return source
+    if not columns:
+        return source
+    lines = [",".join(_csv_escape(c) for c in columns)]
+    lines.extend(",".join(_csv_escape(v) for v in row) for row in rows)
+    return "\n".join(lines).encode("utf-8")
+
+
 def build_mapping_project_tree(
     project: dict,
     mappings: list[dict],
@@ -178,7 +234,7 @@ def build_mapping_project_tree(
     tree["mappings.json"] = _serialize_mappings(mappings)
 
     if project.get("sourceType") == "file" and source_csv:
-        tree["source-concepts.csv"] = source_csv
+        tree["source-concepts.csv"] = _as_csv_bytes(source_csv)
 
     # source-concept-ids/: written only when the project has assigned ids. The
     # whole folder is skipped when both are empty (matches the TS no-op).

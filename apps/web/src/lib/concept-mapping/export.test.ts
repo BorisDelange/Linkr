@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import JSZip from 'jszip'
-import { exportToJson, buildMappingProjectFolder, restoreFileSourceDataFromCsv } from './export'
+import { exportToJson, buildMappingProjectFolder, restoreFileSourceDataFromCsv, isParquetBuffer } from './export'
 import type { Storage } from '@/lib/storage'
 import type { ConceptMapping, MappingProject } from '@/types'
 
@@ -212,5 +212,21 @@ describe('restoreFileSourceDataFromCsv — LFS pointer guard', () => {
     ])
     // Columns + row count still refreshed from the CSV.
     expect(p.fileSourceData!.columns).toHaveLength(7)
+  })
+})
+
+describe('isParquetBuffer', () => {
+  it('detects the PAR1 magic number', () => {
+    expect(isParquetBuffer(new Uint8Array([0x50, 0x41, 0x52, 0x31, 0x15]))).toBe(true)
+  })
+
+  it('leaves CSV text alone', () => {
+    // A project imported from .parquet used to be exported verbatim under the
+    // source-concepts.csv name; only those buffers get converted, never a real CSV.
+    expect(isParquetBuffer(new TextEncoder().encode('terminology_code,concept_code\nccam,A'))).toBe(false)
+  })
+
+  it('is false for a buffer shorter than the magic number', () => {
+    expect(isParquetBuffer(new Uint8Array([0x50, 0x41]))).toBe(false)
   })
 })

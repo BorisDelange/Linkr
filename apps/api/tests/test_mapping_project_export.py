@@ -101,3 +101,33 @@ def test_whole_float_matchscore_serializes_like_js():
     assert '"matchScore": 1' in out and '"matchScore": 1.0' not in out
     assert '"matchScore": 0' in out and '"matchScore": 0.0' not in out
     assert '"matchScore": 0.85' in out
+
+
+def test_parquet_source_is_converted_to_csv(tmp_path):
+    """A project imported from .parquet used to have its raw bytes written under
+    the source-concepts.csv name, so re-import decoded binary as text and the
+    project came back with no source concepts. The tree must carry real CSV."""
+    import duckdb
+
+    from app.services.mapping_project_export import _as_csv_bytes
+
+    pq = tmp_path / "src.parquet"
+    duckdb.connect().execute(
+        "COPY (SELECT * FROM (VALUES ('ccam', 'AAFA002', 'Exérèse, par craniotomie'))"
+        " t(terminology_code, concept_code, concept_name))"
+        f" TO '{pq}' (FORMAT PARQUET)"
+    )
+    out = _as_csv_bytes(pq.read_bytes()).decode()
+
+    assert out.splitlines()[0] == "terminology_code,concept_code,concept_name"
+    # the comma inside the label has to be quoted, not split the row
+    assert out.splitlines()[1] == 'ccam,AAFA002,"Exérèse, par craniotomie"'
+
+
+def test_real_csv_source_passes_through_untouched():
+    """Only parquet is converted: a CSV source must keep its exact bytes, or every
+    already-versioned project would show a whole-file diff on the next export."""
+    from app.services.mapping_project_export import _as_csv_bytes
+
+    csv = b"terminology_code,concept_code\nccam,AAFA002"
+    assert _as_csv_bytes(csv) == csv
