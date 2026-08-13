@@ -27,8 +27,11 @@ interface PullPanelProps {
   onDecide: (ids: string[], decision: PullDecision) => void
   /** Quick actions vs Details — driven by the parent's tab so both stay in step. */
   mode: 'quick' | 'details'
-  onOpenDiff: (path: string) => void
-  onOpenTable: (file: PullFile) => void
+  /** Open the merge projection for a file. Omitted by scopes whose rows ARE whole
+   *  files (ETL): there the row's label already says everything a viewer would. */
+  onOpenDiff?: (path: string) => void
+  /** Open a file's per-item picker. Omitted where no file carries sub-items. */
+  onOpenTable?: (file: PullFile) => void
   /** Apply the decisions. `complete` tells the caller which cursor may advance. */
   onFinalize: (complete: boolean) => void | Promise<void>
   applying: boolean
@@ -196,8 +199,8 @@ function PullCard({
   files: PullFile[]
   decisions: Map<string, PullDecision>
   onDecide: (decision: PullDecision) => void
-  onOpenTable: (file: PullFile) => void
-  onOpenDiff: (path: string) => void
+  onOpenTable?: (file: PullFile) => void
+  onOpenDiff?: (path: string) => void
 }) {
   const { t } = useTranslation()
   const accent = !!card.isAll
@@ -239,15 +242,24 @@ function PullCard({
         <ul className="min-h-0 flex-1 space-y-0.5">
           {files.map((f) => (
             <li key={f.path} className="flex items-center gap-1.5 text-[11px]">
-              <button
-                type="button"
-                onClick={() => onOpenDiff(f.path)}
-                className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground hover:text-foreground hover:underline"
-                title={f.path}
-              >
-                {f.path}
-              </button>
-              {f.pickable && f.items.length > 0 && (
+              {/* Only render a button where there is a viewer to open: a scope
+                  without one would otherwise show a clickable path that does
+                  nothing at all. */}
+              {onOpenDiff ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenDiff(f.path)}
+                  className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground hover:text-foreground hover:underline"
+                  title={f.path}
+                >
+                  {f.path}
+                </button>
+              ) : (
+                <span className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground" title={f.path}>
+                  {f.path}
+                </span>
+              )}
+              {onOpenTable && f.pickable && f.items.length > 0 && (
                 <button
                   type="button"
                   onClick={() => onOpenTable(f)}

@@ -5,7 +5,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useVersioningStore } from '@/stores/versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
 import { useRememberedVersioningTab } from '@/components/versioning/use-remembered-versioning-tab'
-import { ProjectPullDialog } from '@/components/versioning/ProjectPullDialog'
+import { ProjectPull } from '@/components/versioning/ProjectPull'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useFileStore } from '@/stores/file-store'
@@ -55,24 +55,25 @@ export function VersioningPage() {
           onTabChange={(v) => { setTab(v); onTabChange(v) }}
           syncScope="projects"
           syncId={projectUid ?? undefined}
-          renderPullDialog={projectUid ? ({ branch, onClose, onPulled }) => (
-            <ProjectPullDialog
+          renderInlinePull={projectUid ? ({ branch, remoteHead, mode, onPulled }) => (
+            <ProjectPull
               projectUid={projectUid}
               branch={branch}
-              onClose={onClose}
-              onPulled={async () => {
-                // The pull wrote to storage; the project views read from in-memory
-                // stores — invalidate them so the pulled dashboards/datasets/scripts/
-                // cohorts/pipelines show without a manual refresh (mirrors import).
-                useDashboardStore.setState({ activeProjectUid: null, loaded: false })
-                useDatasetStore.setState({ activeProjectUid: null })
-                useFileStore.setState({ activeProjectUid: null })
-                await usePipelineStore.getState().loadPipelines()
-                await useCohortStore.getState().loadCohorts()
-                await onPulled()
-              }}
+              remoteHead={remoteHead}
+              mode={mode}
+              onPulled={onPulled}
             />
           ) : undefined}
+          onAfterPull={async () => {
+            // The pull wrote to storage; the project views read from in-memory
+            // stores — invalidate them so the pulled dashboards/datasets/scripts/
+            // cohorts/pipelines show without a manual refresh (mirrors import).
+            useDashboardStore.setState({ activeProjectUid: null, loaded: false })
+            useDatasetStore.setState({ activeProjectUid: null })
+            useFileStore.setState({ activeProjectUid: null })
+            await usePipelineStore.getState().loadPipelines()
+            await useCohortStore.getState().loadCohorts()
+          }}
         />
       </div>
     </div>

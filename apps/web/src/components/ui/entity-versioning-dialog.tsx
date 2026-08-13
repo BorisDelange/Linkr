@@ -38,6 +38,8 @@ interface EntityVersioningDialogProps {
   /** Custom pull UI, forwarded to the sync panel. Supplying it is also what turns
    *  ON behind/diverged detection for the scope (see GitSyncPanel). */
   renderPullDialog?: React.ComponentProps<typeof VersioningTabs>['renderPullDialog']
+  renderInlinePull?: React.ComponentProps<typeof VersioningTabs>['renderInlinePull']
+  onAfterPull?: React.ComponentProps<typeof VersioningTabs>['onAfterPull']
 }
 
 /** Export tab body for a single entity: include-data option + download (or git-linked hint). */
@@ -103,6 +105,8 @@ export function EntityVersioningDialog({
   syncScope,
   syncId,
   renderPullDialog,
+  renderInlinePull,
+  onAfterPull,
 }: EntityVersioningDialogProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<VersioningTab>(gitOnly ? 'git' : initialTab)
@@ -132,6 +136,8 @@ export function EntityVersioningDialog({
           syncScope={syncScope}
           syncId={syncId}
           renderPullDialog={renderPullDialog}
+          renderInlinePull={renderInlinePull}
+          onAfterPull={onAfterPull}
           gitRemote={gitRemote}
           onSaveGitRemote={onSaveGitRemote}
           exportContent={

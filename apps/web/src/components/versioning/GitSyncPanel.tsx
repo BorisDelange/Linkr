@@ -24,6 +24,7 @@ import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
 import { changeTypeMeta } from './git-change-meta'
 import type { GitFileChange, GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
+import { PushMappingsDialog } from './PushMappingsDialog'
 import { MappingProjectPull } from './MappingProjectPull'
 import { ChangeBadge } from './ChangeBadge'
 import { GitErrorInline } from './GitErrorInline'
@@ -41,6 +42,23 @@ interface GitSyncPanelProps {
    * refreshes the push status + sync anchor, exactly like the built-in flow.
    */
   renderPullDialog?: (args: { branch: string; onClose: () => void; onPulled: () => void | Promise<void> }) => ReactNode
+  /**
+   * Inline pull for scopes that took the shared shell: the panel REPLACES its push
+   * list with this while the remote is ahead, instead of opening a dialog.
+   *
+   * Preferred over `renderPullDialog` — deciding item by item beside the file list
+   * is the whole point of the redesign (docs/planning/versioning-plan.md, Part II).
+   * `refresh` runs after a successful pull so the scope can reload whatever the
+   * pull wrote straight into the DB behind its stores.
+   */
+  renderInlinePull?: (args: {
+    branch: string
+    remoteHead: string | null
+    mode: 'quick' | 'details'
+    onPulled: () => void | Promise<void>
+  }) => ReactNode
+  /** Scope-specific store refresh after a pull, run before the panel reloads status. */
+  onAfterPull?: () => void | Promise<void>
   /** Open the repository settings (URL / token / disconnect). Absent → no button. */
   onOpenConfig?: () => void
 }
@@ -50,14 +68,14 @@ interface GitSyncPanelProps {
  * pick a branch, tick the files to include (data files unchecked by default),
  * review each file's diff in a full-size viewer, and commit + push the selection.
  */
-export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, onOpenConfig }: GitSyncPanelProps) {
+export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, renderInlinePull, onAfterPull, onOpenConfig }: GitSyncPanelProps) {
   const { t } = useTranslation()
   const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
     useGitSyncStore()
   const authorName = useAppStore((s) => s.getUserDisplayName())
   // behind/diverged detection: mapping projects (built-in 3-way pull) and any scope
   // that supplies its own pull dialog (settings uses an upsert dialog).
-  const syncStateSupported = scope === 'mapping-projects' || !!renderPullDialog
+  const syncStateSupported = scope === 'mapping-projects' || !!renderPullDialog || !!renderInlinePull
   // A scope with no pull flow can push but cannot take remote changes back. Say so
   // instead of silently omitting the banner: the gap is invisible otherwise, and it
   // reads as "there is nothing to pull" rather than "this is not built yet".
@@ -66,11 +84,13 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, onOpe
   const [branch, setBranch] = useState(defaultBranch)
   const [message, setMessage] = useState('')
   const [diffPath, setDiffPath] = useState<string | null>(null)
+  const [mappingsOpen, setMappingsOpen] = useState(false)
   const [pushed, setPushed] = useState(false)
   const [pullOpen, setPullOpen] = useState(false)
-  // Mapping projects pull INLINE (the panel switches direction); the other scopes
-  // still open their own dialog from the banner until they move to the same shell.
-  const inlinePull = scope === 'mapping-projects' && !renderPullDialog
+  // A scope pulls INLINE (the panel switches direction) as soon as it supplies a
+  // renderer; the rest still open their own dialog from the banner until they move
+  // to the same shell. Mapping projects keep their built-in renderer below.
+  const inlinePull = (scope === 'mapping-projects' || !!renderInlinePull) && !renderPullDialog
   // Which quick action is mid-commit (its messageKey), so ONLY that card spins
   // while the others merely disable — a shared `committing` would spin them all.
   const [runningQuickAction, setRunningQuickAction] = useState<string | null>(null)
@@ -234,27 +254,33 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, onOpe
   const afterPull = async () => {
     await refreshStatus(scope, id, branch)
     await loadSyncState(scope, id, branch)
-    // The pull wrote to the DB; the mapping-project views read the in-memory
-    // stores, so reload them or the table keeps showing pre-pull rows.
-    const { useConceptMappingStore } = await import('@/stores/concept-mapping-store')
-    const cm = useConceptMappingStore.getState()
-    await cm.loadProjectMappings(id, { force: true })
-    // `stats` is DERIVED from the mappings, and a pull writes them straight to the
-    // DB — bypassing the store paths that normally schedule a recompute. Without
-    // this the counters keep describing the pre-pull state, and the next push
-    // would commit a project.json contradicting the mappings.json beside it.
-    await cm.recomputeProjectStats(id)
-    await cm.loadMappingProjects()
+    // The pull wrote straight to the DB, behind whatever in-memory stores the
+    // scope's own views read — only it knows what to reload.
+    if (onAfterPull) await onAfterPull()
+    if (scope === 'mapping-projects') {
+      const { useConceptMappingStore } = await import('@/stores/concept-mapping-store')
+      const cm = useConceptMappingStore.getState()
+      await cm.loadProjectMappings(id, { force: true })
+      // `stats` is DERIVED from the mappings, and a pull writes them straight to
+      // the DB — bypassing the store paths that normally schedule a recompute.
+      // Without this the counters keep describing the pre-pull state, and the next
+      // push would commit a project.json contradicting the mappings.json beside it.
+      await cm.recomputeProjectStats(id)
+      await cm.loadMappingProjects()
+    }
   }
-  const pullBody = (mode: 'quick' | 'details') => (
-    <MappingProjectPull
-      projectId={id}
-      branch={branch}
-      remoteHead={syncState?.remoteHead ?? null}
-      mode={mode}
-      onPulled={afterPull}
-    />
-  )
+  const pullBody = (mode: 'quick' | 'details') =>
+    renderInlinePull
+      ? renderInlinePull({ branch, remoteHead: syncState?.remoteHead ?? null, mode, onPulled: afterPull })
+      : (
+        <MappingProjectPull
+          projectId={id}
+          branch={branch}
+          remoteHead={syncState?.remoteHead ?? null}
+          mode={mode}
+          onPulled={afterPull}
+        />
+      )
 
   // Data-file versioning is per-file: a data file is committed only when marked in
   // its sidebar (project.config.versionedDataFiles), which re-includes it via a
@@ -310,6 +336,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, onOpe
                     disabled={mustPullFirst || (runningQuickAction != null && runningQuickAction !== qa.messageKey)}
                     onRun={() => runQuickAction(qa)}
                     onOpenDiff={setDiffPath}
+                    onViewMappings={scope === 'mapping-projects' ? () => setMappingsOpen(true) : undefined}
                     t={t}
                   />
                 ))}
@@ -394,6 +421,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, onOpe
                         onToggleSelect={() => togglePath(f.path)}
                         onToggleLfs={() => toggleLfs(f.path)}
                         onOpenDiff={() => setDiffPath(f.path)}
+                        onViewMappings={scope === 'mapping-projects' ? () => setMappingsOpen(true) : undefined}
                       />
                     ))}
                   </ul>
@@ -464,6 +492,15 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, onOpe
         />
       )}
 
+      {mappingsOpen && (
+        <PushMappingsDialog
+          scope={scope}
+          id={id}
+          branch={branch}
+          onClose={() => setMappingsOpen(false)}
+        />
+      )}
+
       {pullOpen && renderPullDialog && renderPullDialog({
         branch,
         onClose: () => setPullOpen(false),
@@ -486,7 +523,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, onOpe
  * or a pull is required.
  */
 function QuickActionCard({
-  action, primary, running, disabled, onRun, onOpenDiff, t,
+  action, primary, running, disabled, onRun, onOpenDiff, onViewMappings, t,
 }: {
   action: QuickAction
   primary: boolean
@@ -497,6 +534,8 @@ function QuickActionCard({
   onRun: () => void
   /** Open the full-size diff viewer on a file — same as clicking a row in Details. */
   onOpenDiff: (path: string) => void
+  /** Open the mappings review table. Absent for scopes without a mappings.json. */
+  onViewMappings?: () => void
   t: (k: string) => string
 }) {
   const nothing = action.files.length === 0
@@ -537,6 +576,18 @@ function QuickActionCard({
                       >
                         {f.path}
                       </button>
+                      {/* A text diff of ~1500 generated JSON objects hides the one
+                          thing being asked here — which mappings move. Mirrors the
+                          pull side's Choose button. */}
+                      {onViewMappings && f.path === 'mappings.json' && (
+                        <button
+                          type="button"
+                          onClick={onViewMappings}
+                          className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                        >
+                          {t('versioning.push_view_mappings')}
+                        </button>
+                      )}
                     </li>
                   )
                 })}
@@ -567,12 +618,14 @@ interface GitFileRowProps {
   onToggleSelect: () => void
   onToggleLfs: () => void
   onOpenDiff: () => void
+  /** Open the mappings review table. Absent for scopes without a mappings.json. */
+  onViewMappings?: () => void
 }
 
 /** One row of the changes list: commit checkbox, change badge, path, an LFS chip
  *  (click to toggle), an info icon (hover = what the file is for), and a
  *  right-click menu to add/remove LFS tracking. */
-function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, onOpenDiff }: GitFileRowProps) {
+function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, onOpenDiff, onViewMappings }: GitFileRowProps) {
   const { t } = useTranslation()
   const descriptionKey = gitFileMeta(scope, file.path).descriptionKey
   const description = descriptionKey ? t(descriptionKey) : null
@@ -589,6 +642,17 @@ function GitFileRow({ scope, file, checked, isLfs, onToggleSelect, onToggleLfs, 
             <ChangeBadge changeType={file.changeType} />
             <span className="truncate font-mono">{file.path}</span>
           </button>
+          {/* Mirrors the pull row's Choose: a text diff of a generated JSON hides
+              which mappings actually move. */}
+          {onViewMappings && file.path === 'mappings.json' && (
+            <button
+              type="button"
+              onClick={onViewMappings}
+              className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              {t('versioning.push_view_mappings')}
+            </button>
+          )}
           {isLfs && (
             <button
               type="button"

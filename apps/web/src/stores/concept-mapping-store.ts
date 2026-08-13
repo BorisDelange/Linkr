@@ -10,10 +10,28 @@ import type { ConceptSet, MappingProject, ConceptMapping, MappingStatus, Mapping
 const _statsRecomputeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const STATS_RECOMPUTE_DELAY_MS = 250
 
+/**
+ * The Versioning panel caches its status per entity+branch, and neither key
+ * changes when a mapping is edited — so returning to the tab after adding one
+ * re-rendered the PREVIOUS status (and the cached export ZIP behind it), showing
+ * the pre-edit file list until the user hit Refresh by hand. Every mutation that
+ * moves the exported content must therefore mark that cache stale.
+ *
+ * Called from the same places as the stats recompute because the trigger is
+ * identical: the mappings changed, so both the counters and the export are out
+ * of date.
+ */
+function markVersioningStale(): void {
+  void import('./git-sync-store')
+    .then((m) => m.useGitSyncStore.getState().markStale())
+    .catch(() => {})
+}
+
 function scheduleStatsRecompute(
   projectId: string,
   run: (projectId: string) => Promise<unknown>,
 ): void {
+  markVersioningStale()
   const existing = _statsRecomputeTimers.get(projectId)
   if (existing) clearTimeout(existing)
   _statsRecomputeTimers.set(

@@ -354,7 +354,9 @@ describe('applyProjectPull — dashboard overwrite', () => {
     expect(t.dashboards.get('other-d')?.name).toEqual({ en: 'Other' })
     expect(t.dashboardTabs.has('tab-other')).toBe(true)
 
-    expect(gitMocks.gitSetSyncState).toHaveBeenCalledExactlyOnceWith('projects', P, 'main', 'oid-123')
+    // reviewedOnly=false: a complete pull advances the CONTENT anchor, not just
+    // the review cursor.
+    expect(gitMocks.gitSetSyncState).toHaveBeenCalledExactlyOnceWith('projects', P, 'main', 'oid-123', false)
   })
 
   it('key-based export: tabs and widgets ride with their dashboard via the key prefix', async () => {

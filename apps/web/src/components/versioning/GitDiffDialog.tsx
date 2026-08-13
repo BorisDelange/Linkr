@@ -14,6 +14,7 @@ import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
 import { monacoLanguageFor } from '@/lib/monaco-language'
 import { groupGitFiles } from '@/lib/git-file-meta'
 import { ChangeBadge } from './ChangeBadge'
+import { DiffTooLargeNotice } from './DiffTooLargeNotice'
 import type { GitDiff, GitFileChange, GitScope } from '@/lib/api/git'
 
 interface GitDiffDialogProps {
@@ -37,6 +38,7 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
   const { t } = useTranslation()
   const darkMode = useAppStore((s) => s.darkMode)
   const getDiff = useGitSyncStore((s) => s.getDiff)
+  const getRawSides = useGitSyncStore((s) => s.getRawSides)
   const [path, setPath] = useState(initialPath)
   const [diff, setDiff] = useState<GitDiff | null>(null)
   const [loading, setLoading] = useState(false)
@@ -140,6 +142,8 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
                   <FileWarning size={28} />
                   <p className="text-sm">{t('versioning.diff_binary')}</p>
                 </div>
+              ) : diff?.truncationMode === 'too_large' ? (
+                <DiffTooLargeNotice path={path} fetchSides={() => getRawSides(scope, id, path, branch)} />
               ) : diff?.truncationMode === 'eol_only' || diff?.truncationMode === 'no_content_change' ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground">
                   <FileWarning size={28} />

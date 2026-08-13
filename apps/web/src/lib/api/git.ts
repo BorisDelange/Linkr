@@ -52,7 +52,7 @@ export interface GitDiff {
    * 'eol_only'          — flagged modified but only the line-ending style differs (CRLF↔LF)
    * 'no_content_change' — identical bytes; flagged modified by a storage-mode switch (e.g. text→LFS)
    */
-  truncationMode: 'none' | 'head' | 'hunks' | 'eol_only' | 'no_content_change'
+  truncationMode: 'none' | 'head' | 'hunks' | 'eol_only' | 'no_content_change' | 'too_large'
   binary: boolean
 }
 
@@ -113,8 +113,15 @@ export async function gitStatus(scope: GitScope, id: string, zip: Blob | null, b
   return postForm<GitStatus>(`${base(scope, id)}/status`, zipForm(zip, { ...(branch ? { branch } : {}) }))
 }
 
-export async function gitDiff(scope: GitScope, id: string, zip: Blob | null, path: string, branch?: string): Promise<GitDiff> {
-  return postForm<GitDiff>(`${base(scope, id)}/diff`, zipForm(zip, { path, ...(branch ? { branch } : {}) }))
+/** `full` returns both sides verbatim, skipping every size guard — for callers
+ *  that PARSE the content rather than render it (a truncated payload is not valid
+ *  JSON). Supported by the mapping-project scope only. */
+export async function gitDiff(scope: GitScope, id: string, zip: Blob | null, path: string, branch?: string, full?: boolean): Promise<GitDiff> {
+  return postForm<GitDiff>(`${base(scope, id)}/diff`, zipForm(zip, {
+    path,
+    ...(branch ? { branch } : {}),
+    ...(full ? { full: 'true' } : {}),
+  }))
 }
 
 export async function gitCommitPush(

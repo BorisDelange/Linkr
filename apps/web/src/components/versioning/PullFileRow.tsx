@@ -6,6 +6,7 @@ import { gitFileMeta } from '@/lib/git-file-meta'
 import { changeTypeMeta } from './git-change-meta'
 import {
   conflictCount,
+  itemId,
   pendingCount,
   pullChangeType,
   wholeFileId,
@@ -22,8 +23,9 @@ interface PullFileRowProps {
   onDecideAll: (file: PullFile, decision: PullDecision) => void
   /** Accept or decline one item — used by the expanded sub-rows. */
   onDecideItem: (id: string, decision: PullDecision) => void
-  /** Open the diff viewer on this file. */
-  onOpenDiff: (path: string) => void
+  /** Open the diff viewer on this file. Absent where the row IS the whole file
+   *  (ETL): the label already says everything a viewer would show. */
+  onOpenDiff?: (path: string) => void
   /** Open the per-item table (mappings) — absent when the file has no picker. */
   onOpenTable?: (file: PullFile) => void
 }
@@ -56,7 +58,7 @@ export function PullFileRow({ scope, file, decisions, onDecideAll, onDecideItem,
   // a mixed file stays neutral so the row never overstates the user's intent.
   const verdicts = file.wholeFile
     ? [decisions.get(wholeFileId(file))]
-    : file.items.map((i) => decisions.get(`${file.path} ${i.key}`))
+    : file.items.map((i) => decisions.get(itemId(file, i)))
   const allAccepted = verdicts.length > 0 && verdicts.every((v) => v === 'accept')
   const allDeclined = verdicts.length > 0 && verdicts.every((v) => v === 'decline')
 
@@ -69,21 +71,34 @@ export function PullFileRow({ scope, file, decisions, onDecideAll, onDecideItem,
   return (
     <li className={cn(allAccepted && 'bg-emerald-500/5', allDeclined && 'bg-muted/40')}>
     <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-muted/50">
-      <button
-        type="button"
-        onClick={() => onOpenDiff(file.path)}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
-      >
-        <span
-          className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-[9px] font-bold', badge.badgeClass)}
-          title={t(badge.labelKey)}
-        >
-          {badge.letter}
-        </span>
-        <span className={cn('truncate font-mono', allDeclined && 'text-muted-foreground line-through')}>
-          {file.path}
-        </span>
-      </button>
+      {/* A plain span when there is no viewer to open: a button that does nothing
+          reads as broken, so the row only looks clickable where it is. */}
+      {(() => {
+        const label = (
+          <>
+            <span
+              className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-[9px] font-bold', badge.badgeClass)}
+              title={t(badge.labelKey)}
+            >
+              {badge.letter}
+            </span>
+            <span className={cn('truncate font-mono', allDeclined && 'text-muted-foreground line-through')}>
+              {file.path}
+            </span>
+          </>
+        )
+        return onOpenDiff ? (
+          <button
+            type="button"
+            onClick={() => onOpenDiff(file.path)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
+          >
+            {label}
+          </button>
+        ) : (
+          <span className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs">{label}</span>
+        )
+      })()}
 
       {/* Item counts — what is actually coming in through this file. */}
       {!file.wholeFile && (
@@ -178,7 +193,7 @@ export function PullFileRow({ scope, file, decisions, onDecideAll, onDecideItem,
     {showItems && (
       <ul className="border-t bg-muted/20">
         {file.items.map((item) => {
-          const id = `${file.path} ${item.key}`
+          const id = itemId(file, item)
           const verdict = decisions.get(id)
           return (
             <li key={item.key} className="flex items-center gap-2 py-1 pl-9 pr-3 text-xs">

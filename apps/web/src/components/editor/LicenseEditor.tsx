@@ -97,7 +97,7 @@ export function LicenseEditor({
     })
   }
 
-  const saveDisabled = !draft?.text.trim() || (draft.id === 'custom' && !draft.name?.trim())
+  const saveDisabled = !draft?.text?.trim() || (draft.id === 'custom' && !draft.name?.trim())
 
   return (
     <div className={className}>
@@ -117,7 +117,12 @@ export function LicenseEditor({
                 variant="ghost"
                 size="sm"
                 className="h-5 px-2 text-xs text-muted-foreground"
-                onClick={() => { setDraft(license); setMode('edit') }}
+                // `text` is normally guaranteed (readLicense refuses a textless
+                // licence), but a stored record can predate that or arrive from a
+                // manifest that only carried id+name — editing one then crashed on
+                // `draft.text`. Default it so the editor can repair the record
+                // rather than being the thing that breaks on it.
+                onClick={() => { setDraft({ ...license, text: license.text ?? '' }); setMode('edit') }}
               >
                 <Pencil size={12} />
                 {t('summary.edit')}

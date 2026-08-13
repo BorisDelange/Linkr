@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { prepareMappingProjectPull, applyMappingProjectPull, type PreparedPull } from '@/lib/concept-mapping/pull'
 import { buildMappingProjectPullPlan } from '@/lib/concept-mapping/pull-plan-builder'
-import { itemId, wholeFileId, type PullDecision, type PullFile, type PullPlan } from '@/lib/pull-plan'
+import { itemId, itemIdFor, wholeFileId, type PullDecision, type PullFile, type PullPlan } from '@/lib/pull-plan'
 import type { MappingChange } from '@/lib/concept-mapping/merge'
 import { buildPullDiff } from '@/lib/concept-mapping/pull-diff'
 import { PullPanel } from './PullPanel'
@@ -181,7 +181,7 @@ export function MappingProjectPull({ projectId, branch, remoteHead, mode, onPull
           // still counts as decided only once they confirm (see onApply).
           selected={new Set(
             mappingChanges
-              .filter((c) => decisions.get(`mappings.json ${c.key}`) !== 'decline')
+              .filter((c) => decisions.get(itemIdFor('mappings.json', c.key)) !== 'decline')
               .map((c) => c.key),
           )}
           conflictChoices={{}}
@@ -193,7 +193,7 @@ export function MappingProjectPull({ projectId, branch, remoteHead, mode, onPull
             setDecisions((prev) => {
               const next = new Map(prev)
               for (const change of mappingChanges) {
-                next.set(`mappings.json ${change.key}`, selected.has(change.key) ? 'accept' : 'decline')
+                next.set(itemIdFor('mappings.json', change.key), selected.has(change.key) ? 'accept' : 'decline')
               }
               return next
             })
@@ -242,7 +242,7 @@ function buildResolution(
   complete: boolean,
   declinedConcepts: ReadonlySet<string>,
 ) {
-  const accepted = (path: string, key: string) => decisions.get(`${path} ${key}`) === 'accept'
+  const accepted = (path: string, key: string) => decisions.get(itemIdFor(path, key)) === 'accept'
 
   const mappings = prepared.merge.mappings.filter(
     (c) => c.type !== 'conflict' && accepted('mappings.json', c.key),

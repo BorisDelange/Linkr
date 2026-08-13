@@ -28,6 +28,10 @@ interface GitRepositoryTabProps {
   syncId?: string
   /** Custom pull UI (forwarded to GitSyncPanel) for scopes with their own pull flow. */
   renderPullDialog?: React.ComponentProps<typeof GitSyncPanel>['renderPullDialog']
+  /** Inline pull (forwarded to GitSyncPanel) — preferred over renderPullDialog. */
+  renderInlinePull?: React.ComponentProps<typeof GitSyncPanel>['renderInlinePull']
+  /** Scope-specific store refresh after a pull (forwarded to GitSyncPanel). */
+  onAfterPull?: React.ComponentProps<typeof GitSyncPanel>['onAfterPull']
 }
 
 /**
@@ -38,7 +42,7 @@ interface GitRepositoryTabProps {
  *    disconnect) so the sync panel below gets the room to show the repo's files.
  * The branch is detected on connect and switched from the sync panel's dropdown.
  */
-export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderPullDialog }: GitRepositoryTabProps) {
+export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderPullDialog, renderInlinePull, onAfterPull }: GitRepositoryTabProps) {
   const { t } = useTranslation()
   const refreshStatus = useGitSyncStore((s) => s.refreshStatus)
   const [url, setUrl] = useState(gitRemote?.url ?? '')
@@ -146,6 +150,8 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
             id={syncId}
             defaultBranch={branch}
             renderPullDialog={renderPullDialog}
+            renderInlinePull={renderInlinePull}
+            onAfterPull={onAfterPull}
             onOpenConfig={() => setConfigOpen(true)}
           />
         ) : (

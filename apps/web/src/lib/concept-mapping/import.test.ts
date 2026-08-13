@@ -4,13 +4,27 @@ import { importMappingProjectContent } from './import'
 
 vi.mock('@/lib/api-client', () => ({ isServerMode: () => false }))
 
-/** Minimal storage double that records the calls the importer makes. */
+/** Minimal storage double that records the calls the importer makes.
+ *  `getStats` answers from whatever createBatch received, like the real
+ *  backends do (one mapped key per distinct source code). */
 function makeStore() {
   const calls: Record<string, unknown[][]> = {}
   const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }
+  const written: Array<{ sourceConceptCode?: string; status?: string }> = []
   const store = {
-    mappingProjects: { create: rec('mp.create'), delete: rec('mp.delete') },
-    conceptMappings: { createBatch: rec('cm.createBatch'), deleteByProject: rec('cm.deleteByProject') },
+    mappingProjects: { create: rec('mp.create'), delete: rec('mp.delete'), update: rec('mp.update') },
+    conceptMappings: {
+      createBatch: (batch: Array<{ sourceConceptCode?: string; status?: string }>) => {
+        written.push(...batch)
+        return rec('cm.createBatch')(batch)
+      },
+      deleteByProject: rec('cm.deleteByProject'),
+      getStats: async () => {
+        const mapped = new Set(written.filter(m => m.status !== 'ignored').map(m => m.sourceConceptCode))
+        const ignored = new Set(written.filter(m => m.status === 'ignored').map(m => m.sourceConceptCode))
+        return { mappedCount: mapped.size, approvedCount: 0, flaggedCount: 0, ignoredCount: ignored.size }
+      },
+    },
     sourceConceptIdRanges: { save: rec('range.save') },
     sourceConceptIdEntries: { saveBatch: rec('entries.saveBatch') },
   } as unknown as Storage
@@ -77,6 +91,52 @@ describe('importMappingProjectContent — full restore parity', () => {
     const range = calls['range.save']![0][0] as { workspaceId: string; badgeLabel: string }
     expect(range.workspaceId).toBe('ws-1')
     expect(calls['entries.saveBatch']?.[0][0]).toBeDefined()
+  })
+
+  it('recomputes stats from the imported mappings, ignoring the stale ones in project.json', async () => {
+    // The real symptom: a repo whose project.json says 1472 while mappings.json
+    // holds 1474. Importing `stats` verbatim carried the wrong number over, and
+    // since mapping ids are regenerated here nothing downstream ever fixed it.
+    const { store, calls } = makeStore()
+    const files: Record<string, unknown> = {
+      'project.json': { ...structuredClone(PROJECT_JSON), stats: { totalSourceConcepts: 10, mappedCount: 1, approvedCount: 9, flaggedCount: 9, ignoredCount: 9, unmappedCount: 9 } },
+      'source-concepts.csv': CSV,
+      'mappings.json': [
+        { id: 'm1', sourceConceptCode: 'HR', targetConceptId: 42, comments: [] },
+        { id: 'm2', sourceConceptCode: 'SPO2', targetConceptId: 43, comments: [] },
+      ],
+    }
+    await importMappingProjectContent(
+      { files, scoresBytes: null },
+      { targetId: 'local-target', workspaceId: 'ws-1' },
+      store,
+    )
+
+    const [id, changes] = calls['mp.update']![0] as [string, { stats: Record<string, number> }]
+    expect(id).toBe('local-target')
+    expect(changes.stats.mappedCount).toBe(2)
+    expect(changes.stats.approvedCount).toBe(0)
+    // totalSourceConcepts describes the SOURCE, not the mappings: the imported
+    // value stands, and unmapped follows from it.
+    expect(changes.stats.totalSourceConcepts).toBe(10)
+    expect(changes.stats.unmappedCount).toBe(8)
+  })
+
+  it('falls back to the restored CSV row count when the import carries no total', async () => {
+    const { store, calls } = makeStore()
+    const files: Record<string, unknown> = {
+      'project.json': structuredClone(PROJECT_JSON),
+      'source-concepts.csv': CSV,
+      'mappings.json': [{ id: 'm1', sourceConceptCode: 'HR', targetConceptId: 42, comments: [] }],
+    }
+    await importMappingProjectContent(
+      { files, scoresBytes: null },
+      { targetId: 'local-target', workspaceId: 'ws-1' },
+      store,
+    )
+    const [, changes] = calls['mp.update']![0] as [string, { stats: Record<string, number> }]
+    expect(changes.stats.totalSourceConcepts).toBe(2)
+    expect(changes.stats.unmappedCount).toBe(1)
   })
 
   it('returns false when the ZIP has no project.json', async () => {

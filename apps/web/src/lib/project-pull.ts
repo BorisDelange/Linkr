@@ -74,6 +74,14 @@ export interface ProjectPullSelection {
    * remote's. Nothing is written — only the anchor moves.
    */
   keepLocal?: boolean
+  /**
+   * Every item on offer got an explicit verdict (taken or refused).
+   *
+   * Set by the inline pull, where refusing is a real act rather than an unfinished
+   * selection. It advances the REVIEW cursor only — enough to unblock the push
+   * without ever claiming we hold content we declined.
+   */
+  decided?: boolean
 }
 
 const localizedEn = (s: LocalizedString | string | undefined | null): string => {
@@ -274,13 +282,19 @@ export async function applyProjectPull(
     })
   }
 
-  // Anchor after a complete pull, or when the user explicitly kept their version:
-  // it asserts we hold this commit's content, and advancing it after a PARTIAL
-  // pull would clear the behind banner and hide the un-taken items for good
-  // (see isCompleteProjectPull / mayAnchorProjectPull).
+  // Two cursors, two meanings. `syncedOid` asserts "we hold this commit's
+  // content", so only a complete pull (or an explicit keep-mine) may advance it —
+  // advancing it after a PARTIAL pull would clear the behind banner and hide the
+  // un-taken items for good (see isCompleteProjectPull / mayAnchorProjectPull).
+  // `reviewedOid` only asserts "we have decided about this commit", which is what
+  // unblocks the push: a user who took some items and knowingly refused the rest
+  // has resolved the divergence and must not stay stuck behind it.
   // (Server mode only; front-only has no anchor to set.)
-  if (clonedOid && mayAnchorProjectPull(prepared.plan, selection)) {
-    await gitSetSyncState('projects', projectUid, branch, clonedOid).catch(() => {})
+  if (clonedOid) {
+    const complete = mayAnchorProjectPull(prepared.plan, selection)
+    if (complete || selection.decided) {
+      await gitSetSyncState('projects', projectUid, branch, clonedOid, !complete).catch(() => {})
+    }
   }
 }
 

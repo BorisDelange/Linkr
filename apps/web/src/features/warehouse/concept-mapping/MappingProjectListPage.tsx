@@ -254,6 +254,13 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       })
       if (toCreate.length > 0) await getStorage().conceptMappings.createBatch(toCreate)
 
+      // `stats` rides in on project.json but is DERIVED from the mappings, so an
+      // export written with stale counters would keep showing the wrong number
+      // here forever (mapping ids are regenerated above — nothing reconciles it
+      // later). Recompute from the rows we just wrote.
+      const { recomputeImportedStats } = await import('@/lib/concept-mapping/import')
+      await recomputeImportedStats(projectId, entity, getStorage())
+
       // Restore assigned source-concept-ids into the workspace registry (retargeted
       // to this workspace). Best-effort: never let it fail the whole import.
       if (children.sourceIdRanges || children.sourceIdEntries) {

@@ -65,6 +65,11 @@ const CAT = {
   other: 99,
 } as const
 
+/** Every category a file row can carry. Its label is `versioning.file_cat_<key>`,
+ *  interpolated at render time — exported so a test can assert each one has a
+ *  translation (a dynamic key is invisible to a grep for literal key names). */
+export const GIT_FILE_CATEGORIES = Object.keys(CAT) as (keyof typeof CAT)[]
+
 const ATTRS_RULE: Rule = {
   test: /^\.gitattributes$/,
   category: 'attrs',

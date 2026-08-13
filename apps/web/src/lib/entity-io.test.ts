@@ -1040,6 +1040,55 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     expect((calls['preset.save']![0][0] as { presetId: string }).presetId).toBe('preset-target')
   })
 
+  it('applyClonedEntity recombines LICENSE.md/README.md with the entity JSON', async () => {
+    // The entity JSON carries only HALF a licence: `stripEntityDocs` writes its
+    // id + name there and the TEXT to LICENSE.md beside it. Applying the JSON
+    // alone replaced a complete local licence with a text-less stub — the export
+    // then omitted LICENSE.md (it read as "deleted" on the next push) and the
+    // licence editor crashed on the missing text. Same bug as the ETL settings
+    // block, found on these three scopes by auditing the others.
+    const calls: Record<string, unknown[][]> = {}
+    const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }
+    const store = new Proxy({}, {
+      get: (_t, prop) => {
+        switch (prop) {
+          case 'dataCatalogs': return { update: rec('catalog.update') }
+          case 'dqRuleSets': return { update: rec('rs.update') }
+          case 'dqCustomChecks': return { deleteByRuleSet: rec('chk.delete'), create: rec('chk.create') }
+          case 'schemaPresets': return { save: rec('preset.save') }
+          default: return new Proxy({}, { get: () => async () => {} })
+        }
+      },
+    }) as unknown as Storage
+
+    const withDocs = (zip: JSZip) => {
+      zip.file('LICENSE.md', 'MIT License\n\nFull text here.')
+      zip.file('README.md', '# Docs')
+      return zip
+    }
+    // What the export actually writes: id + name only, no text.
+    const licenseMeta = { license: { id: 'mit', name: 'MIT' } }
+
+    const catZip = withDocs(new JSZip())
+    catZip.file('catalog.json', JSON.stringify({ ...CATALOG({ id: 'x' }), ...licenseMeta }))
+    await applyClonedEntity(catZip, 'data-catalog', 'cat-target', store)
+    const cat = calls['catalog.update']![0][1] as { license?: { text?: string }; readme?: Record<string, string> }
+    expect(cat.license?.text).toContain('Full text here.')
+    expect(cat.readme?.en).toBe('# Docs')
+
+    const rsZip = withDocs(new JSZip())
+    rsZip.file('rule-set.json', JSON.stringify({ ...RULESET({ id: 'x' }), ...licenseMeta }))
+    await applyClonedEntity(rsZip, 'dq-rule-set', 'rs-target', store)
+    expect((calls['rs.update']![0][1] as { license?: { text?: string } }).license?.text)
+      .toContain('Full text here.')
+
+    const spZip = withDocs(new JSZip())
+    spZip.file('preset.json', JSON.stringify({ ...PRESET(), ...licenseMeta }))
+    await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)
+    expect((calls['preset.save']![0][0] as { license?: { text?: string } }).license?.text)
+      .toContain('Full text here.')
+  })
+
   it('applyClonedEntity restores a mapping project with source concepts + mappings (not metadata only)', async () => {
     const calls: Record<string, unknown[][]> = {}
     const rec = (name: string) => (...args: unknown[]) => { (calls[name] ??= []).push(args); return Promise.resolve() }

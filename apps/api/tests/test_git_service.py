@@ -250,10 +250,14 @@ def test_condense_hunks_shows_change_past_line_cap():
     assert f"row{edit_line - 1}" in new_c and f"row{edit_line + 1}" in new_c
 
 
-def test_condense_hunks_caps_number_of_hunks():
+def test_condense_hunks_caps_number_of_hunks(monkeypatch):
     # More separated changes than the hunk cap → truncated=True and bounded output.
+    # Lower the cap rather than generating a file big enough to reach the real one:
+    # that many scattered changes now trips the core-size guard first (and would
+    # take minutes in difflib, which is exactly why the guard exists).
+    monkeypatch.setattr(g, "_DIFF_MAX_HUNKS", 20)
     step = 2 * g._DIFF_HUNK_CONTEXT + 4  # spacing so hunks never merge
-    count = g._DIFF_MAX_HUNKS + 50
+    count = g._DIFF_MAX_HUNKS + 5
     n = count * step
     old = "\n".join(f"row{i}" for i in range(n))
     changed = {k * step for k in range(count)}
@@ -263,6 +267,34 @@ def test_condense_hunks_caps_number_of_hunks():
     assert trunc is True
     markers = sum(1 for line in old_c.split("\n") if line.startswith("@@"))
     assert markers == g._DIFF_MAX_HUNKS
+
+
+def test_condense_hunks_gives_up_when_changes_are_scattered_through_a_big_file():
+    # The real mappings.json case: ~1500 JSON objects, one changed line in each.
+    # The affix trim can't help (the changes reach both ends), so difflib would
+    # run for minutes — measured quadratic: 1.7s at 2k lines, 110s at 8k. None
+    # means "undiffable", and the route turns that into a download offer.
+    n = g._DIFF_HUNK_MAX_CORE_LINES + 500
+    old = "\n".join(f'  "id": 0,  // row{i}' for i in range(n))
+    new = "\n".join(f'  "id": {2_000_000 + i},  // row{i}' for i in range(n))
+    assert g._condense_hunks(old, new) is None
+
+
+def test_condense_hunks_still_diffs_a_huge_file_with_clustered_changes():
+    # The guard measures the core LEFT AFTER trimming, not raw size: a generated
+    # file where only a few adjacent lines changed must still get a real diff.
+    n = 60_000
+    lines = [f"row{i}" for i in range(n)]
+    old = "\n".join(lines)
+    changed = list(lines)
+    changed[30_000] = "CHANGED"
+    new = "\n".join(changed)
+
+    condensed = g._condense_hunks(old, new)
+    assert condensed is not None
+    old_c, new_c, trunc = condensed
+    assert "CHANGED" in new_c and "CHANGED" not in old_c
+    assert trunc is False
 
 
 def test_condense_hunks_identical_is_empty():
@@ -450,6 +482,41 @@ async def test_diff_reports_no_content_change_for_byte_identical_content():
         assert d["truncationMode"] == "no_content_change"
         assert d["oldContent"] == "" and d["newContent"] == ""
         assert d["binary"] is False
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_diff_full_returns_both_sides_verbatim_past_every_size_guard():
+    """`full=True` is for callers that PARSE the payload (the mappings review
+    table keys JSON objects by mapping key). A head preview or a condensed hunk
+    view is not valid JSON, so the guards must not apply — and in server mode this
+    is the ONLY way the client can read the local side, since it builds no export
+    ZIP of its own."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        # Comfortably past _DIFF_MAX_LINES so the normal path would truncate.
+        old_body = "\n".join(f'{{"i": {i}}}' for i in range(g._DIFF_MAX_LINES + 500))
+        new_body = old_body.replace('"i": 0', '"i": 999')
+        await g.commit_push(getter, "u", _zip({"mappings.json": old_body}), "main", "init", None, None)
+
+        # The normal path condenses this to its changed blocks — readable, but not
+        # parseable JSON, which is exactly why `full` exists.
+        normal = await g.diff(getter, "u", _zip({"mappings.json": new_body}), "main", "mappings.json", None)
+        assert normal["truncationMode"] == "hunks"
+        assert normal["newContent"] != new_body
+
+        full = await g.diff(
+            getter, "u", _zip({"mappings.json": new_body}), "main", "mappings.json", None, None, True
+        )
+        assert full["truncated"] is False
+        assert full["truncationMode"] == "none"
+        assert full["oldContent"] == old_body
+        assert full["newContent"] == new_body
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

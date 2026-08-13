@@ -224,6 +224,9 @@ describe('stripInstancePipelineFields', () => {
     parentLineageId: null, sourceDataSourceId: 'ds-theirs',
     status: 'ready', targetDataSourceId: 'ds-theirs-2', version: 3,
     workspaceId: 'ws-theirs', gitRemoteConfig: { url: 'x', branch: 'main' },
+    // The manifest carries the licence's id + name ONLY; its text lives in
+    // LICENSE.md beside it. Same for the readme, whose text is in README*.md.
+    license: { id: 'mit', name: 'MIT' }, readme: { en: 'stale' },
   } as unknown as EtlPipeline
 
   it('drops the ids that name databases and mapping projects on THIS instance', () => {
@@ -249,6 +252,16 @@ describe('stripInstancePipelineFields', () => {
     for (const k of ['id', 'entityId', 'createdAt', 'organization']) {
       expect(out).not.toHaveProperty(k)
     }
+  })
+
+  it('drops readme/license: they are DOCS, and the manifest holds only half of them', () => {
+    // The regression: taking the settings block wrote the manifest's `{id, name}`
+    // over a complete local licence. The export then omitted LICENSE.md (it read
+    // as "deleted" on the next push) and the licence editor crashed on the
+    // missing text. Docs come from remoteDocs, which recombines JSON + .md.
+    const out = stripInstancePipelineFields(REAL_EXPORT) as Record<string, unknown>
+    expect(out).not.toHaveProperty('license')
+    expect(out).not.toHaveProperty('readme')
   })
 
   it('keeps what the repo legitimately owns', () => {

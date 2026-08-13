@@ -30,6 +30,10 @@ interface VersioningTabsProps {
   syncId?: string
   /** Custom pull UI for scopes with their own pull flow (forwarded to the sync panel). */
   renderPullDialog?: React.ComponentProps<typeof GitSyncPanel>['renderPullDialog']
+  /** Inline pull (forwarded to the sync panel) — preferred over renderPullDialog. */
+  renderInlinePull?: React.ComponentProps<typeof GitSyncPanel>['renderInlinePull']
+  /** Scope-specific store refresh after a pull (forwarded to the sync panel). */
+  onAfterPull?: React.ComponentProps<typeof GitSyncPanel>['onAfterPull']
   /** Hide the Export tab and show only Git (e.g. entities whose export lives elsewhere). */
   gitOnly?: boolean
 }
@@ -51,6 +55,8 @@ export function VersioningTabs({
   syncScope,
   syncId,
   renderPullDialog,
+  renderInlinePull,
+  onAfterPull,
   gitOnly = false,
 }: VersioningTabsProps) {
   const { t } = useTranslation()
@@ -84,7 +90,7 @@ export function VersioningTabs({
       </TabsList>
 
       <TabsContent value="git" className={sideContentClass}>
-        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} syncScope={syncScope} syncId={syncId} renderPullDialog={renderPullDialog} />
+        <GitRepositoryTab gitRemote={gitRemote} onSave={onSaveGitRemote} syncScope={syncScope} syncId={syncId} renderPullDialog={renderPullDialog} renderInlinePull={renderInlinePull} onAfterPull={onAfterPull} />
       </TabsContent>
 
       {!gitOnly && (

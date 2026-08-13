@@ -482,7 +482,9 @@ never by local id.
 
 ## Implementation status
 
-Steps 1–8 shipped 2026-08-12 on `feature/fastapi-backend`. Step 9 remains.
+Steps 1–8 shipped 2026-08-12 on `feature/fastapi-backend`; step 9 followed on
+2026-08-13 for the two scopes that had a pull flow. The six push-only scopes are
+what remains.
 
 | # | Item | Status |
 |---|---|---|
@@ -494,7 +496,8 @@ Steps 1–8 shipped 2026-08-12 on `feature/fastapi-backend`. Step 9 remains.
 | 6 | Per-item decisions + Finalize gate | ✅ |
 | 7 | `source-concept-ids/` monotone merge | ✅ |
 | 8 | Config dialog (URL / token / disconnect) | ✅ |
-| 9 | Scope generalisation: converge Project/Etl dialogs, then the 6 scopes | 🔜 |
+| 9a | Converge Project/Etl dialogs onto the inline shell | ✅ |
+| 9b | The 6 push-only scopes (sql-collections, catalogs, dq-rule-sets, …) | 🔜 |
 
 ### As built — where things live
 
@@ -582,12 +585,45 @@ Steps 1–8 shipped 2026-08-12 on `feature/fastapi-backend`. Step 9 remains.
   is why the pull felt instant while the push diff hung: the pull renders a
   projection of the merge plan (a few objects) and never diffs text at all.
 
-### Left for step 9
+### Step 9a — as built (2026-08-13)
 
-Converge `ProjectPullDialog` / `EtlPullDialog` onto the same shell (they already
-group by `gitFileMeta` categories), then give the six push-only scopes the
-behind/diverged banner plus a pull-overwrite action via `applyClonedEntity`. The
-plan layer is already scope-agnostic, so this is mostly wiring a builder per scope.
+`GitSyncPanel` no longer hard-codes `scope === 'mapping-projects'`: a scope opts
+into the inline shell by passing `renderInlinePull`, and `onAfterPull` carries the
+store refresh that only that scope knows how to do (the mapping-project branch
+stays inline because it is the panel's own default). Both props are forwarded
+through `GitRepositoryTab` → `VersioningTabs` → `EntityVersioningDialog`.
+
+`ProjectPullDialog` and `EtlPullDialog` are **deleted**, replaced by `ProjectPull`
+and `EtlPipelinePull` over `project-pull-plan-builder.ts` and
+`etl-pull-plan-builder.ts`. Their appliers were kept as-is — only the anchoring
+changed (below).
+
+Three differences from the mapping-project builder, each forced by the domain:
+
+- **No `conflict` state.** Neither pull has a merge base, so it cannot tell "they
+  changed it" from "we both did". Marking every overwrite a conflict would drain
+  the word of meaning; `update` already warns that something local is replaced.
+- **No diff viewer.** An ETL row *is* a whole file and a project row is a folder
+  of named entities, so there is no merge projection to read. `onOpenDiff` and
+  `onOpenTable` became optional on `PullPanel`/`PullFileRow`, and the row renders
+  a plain span rather than a button that would do nothing.
+- **Row granularity differs.** ETL gives each remote file its own row (the file is
+  the unit both ticked and written). A project gives each *group* one row carrying
+  its entities as items — sixty scripts as sixty rows would push the README off
+  the panel.
+
+The two cursors reached both scopes: `applyEtlPull` / `applyProjectPull` take a
+`decided` flag and pass `reviewedOnly` to `gitSetSyncState`, so a partial-but-
+decided pull unblocks the push without ever claiming content that was declined.
+Previously these anchored only on a complete pull, leaving a partial pull stuck
+behind forever — the exact deadlock the cursor split exists to fix.
+
+### Left for step 9b
+
+Give the six push-only scopes (sql-script-collections, data-catalogs,
+dq-rule-sets, schema-presets, user-plugins, settings) the behind/diverged banner
+plus a pull action via `applyClonedEntity`. The shell and the plan layer are now
+proven across three scopes, so this is a builder per scope plus its wiring.
 
 Also still open, from "Not yet pullable": `attachments/` (§2) — a pulled README can
 reference images that never arrive.

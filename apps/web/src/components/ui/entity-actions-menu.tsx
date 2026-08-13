@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Trash2, Pencil, Download, GitBranch, MoreHorizontal, BookOpen, Scale } from 'lucide-react'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
-import { EtlPullDialog } from '@/components/versioning/EtlPullDialog'
+import { EtlPipelinePull } from '@/components/versioning/EtlPipelinePull'
 import { useEtlStore } from '@/stores/etl-store'
 import type { GitScope } from '@/lib/api/git'
 import type { EntityLicense, GitRemoteConfig, LocalizedString, ReadmeOwnerType } from '@/types'
@@ -233,20 +233,23 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             // Chosen from the scope rather than passed in by each caller: the pull
             // flow is a property of the entity kind, and an ETL pipeline is reached
             // from both the list page and the header menu.
-            renderPullDialog={syncScope === 'etl-pipelines'
-              ? ({ branch, onClose, onPulled }) => (
-                <EtlPullDialog
+            renderInlinePull={syncScope === 'etl-pipelines'
+              ? ({ branch, remoteHead, mode, onPulled }) => (
+                <EtlPipelinePull
                   pipelineId={versioning.item.id}
                   branch={branch}
-                  onClose={onClose}
-                  onPulled={async () => {
-                    // The pull wrote to storage; the ETL views read from the store.
-                    await useEtlStore.getState().loadEtlPipelines()
-                    await useEtlStore.getState().loadPipelineFiles(versioning.item.id)
-                    await onPulled()
-                  }}
+                  remoteHead={remoteHead}
+                  mode={mode}
+                  onPulled={onPulled}
                 />
               )
+              : undefined}
+            onAfterPull={syncScope === 'etl-pipelines'
+              ? async () => {
+                // The pull wrote to storage; the ETL views read from the store.
+                await useEtlStore.getState().loadEtlPipelines()
+                await useEtlStore.getState().loadPipelineFiles(versioning.item.id)
+              }
               : undefined}
             supportsIncludeData={exportSupportsIncludeData}
             gitRemote={getGitRemote(versioning.item)}

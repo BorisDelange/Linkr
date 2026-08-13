@@ -72,6 +72,10 @@ export interface PreparedEtlPull {
   remotePipeline: Partial<EtlPipeline> | null
   /** Remote README / LICENSE, read from the files beside the manifests. */
   remoteDocs: EntityDocs
+  /** Local files by tree path — the "mine" side of a file's diff. */
+  localByPath: Map<string, EtlFile>
+  /** The local pipeline row — the "mine" side of the settings diff. */
+  localPipeline: EtlPipeline | undefined
   /** The commit the clone landed on — the sync anchor after a successful pull. */
   clonedOid: string | null
   branch: string
@@ -97,6 +101,14 @@ export interface EtlPullSelection {
    * remote's. Nothing is written — only the anchor moves.
    */
   keepLocal?: boolean
+  /**
+   * Every item on offer got an explicit verdict (taken or refused).
+   *
+   * Set by the inline pull, where refusing is a real act rather than an unfinished
+   * selection. It advances the REVIEW cursor only — enough to unblock the push
+   * without ever claiming we hold content we declined.
+   */
+  decided?: boolean
 }
 
 /**
@@ -143,10 +155,18 @@ export function isEtlManifest(path: string): boolean {
  *     importing them would show a run that never happened here (and the quality
  *     cache keys on the last run, so it would also invalidate itself)
  *   - id / entityId / lineageId are identity, resolved locally
+ *   - readme / license are DOCS, not settings: `_pipeline.json` carries only the
+ *     licence's id and name, its text living in LICENSE.md beside it. Writing the
+ *     manifest's copy would replace a complete local licence with a text-less
+ *     stub — the export then omits LICENSE.md (it reads as "deleted" on the next
+ *     push) and the licence editor crashes on the missing text. Docs are applied
+ *     from `remoteDocs`, which recombines the two halves, and only for the files
+ *     the user actually picked.
  */
 const EXTRA_INSTANCE_PIPELINE_FIELDS = [
   'id', 'entityId', 'sourceDataSourceId', 'targetDataSourceId', 'mappingProjectId',
   'lastRunAt', 'lastRunDurationMs', 'status', 'createdAt',
+  'readme', 'license',
 ] as const
 
 /** Local files as a path → file map, paths derived by walking `parentId`. */
@@ -311,6 +331,10 @@ export async function prepareEtlPull(
     nodes,
     remotePipeline,
     remoteDocs,
+    // Keyed by the SAME tree path as the remote nodes, which is what lets the
+    // pull show a real before/after for a file it is about to overwrite.
+    localByPath: etlFilesByPath(localFiles),
+    localPipeline: pipeline,
     clonedOid: cloned.oid,
     branch,
   }
@@ -459,13 +483,18 @@ export async function applyEtlPull(
   // and leave the anchor alone. The caller shows the error and keeps the banner.
   if (failed) throw new Error('etl-pull: some changes could not be written')
 
-  // Anchor after a complete pull, or when the user explicitly kept their version.
-  // The anchor asserts "we hold the content of this commit"; advancing it after a
-  // partial pull would clear the behind banner and rebuild every later plan
-  // against it, so the files the user did not take would never be offered again —
-  // their remote changes silently lost.
+  // Two cursors, two meanings. `syncedOid` asserts "we hold this commit's
+  // content", so only a complete pull (or an explicit keep-mine) may advance it —
+  // moving it after a partial pull would rebuild every later plan against a base
+  // we do not have, and the files left untaken would never be offered again.
+  // `reviewedOid` only asserts "we have decided about this commit", which is what
+  // unblocks the push: a user who took some files and knowingly refused the rest
+  // has resolved the divergence, and must not stay stuck behind it.
   // (Server mode only; front-only has no anchor to set.)
-  if (clonedOid && mayAnchorEtlPull(plan, selection)) {
-    await gitSetSyncState('etl-pipelines', pipelineId, branch, clonedOid).catch(() => {})
+  if (clonedOid) {
+    const complete = mayAnchorEtlPull(plan, selection)
+    if (complete || selection.decided) {
+      await gitSetSyncState('etl-pipelines', pipelineId, branch, clonedOid, !complete).catch(() => {})
+    }
   }
 }

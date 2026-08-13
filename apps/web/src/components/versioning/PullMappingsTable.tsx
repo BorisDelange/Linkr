@@ -16,10 +16,17 @@ import type { ConceptMapping } from '@/types'
 
 interface PullMappingsTableProps {
   changes: MappingChange[]
-  selected: Set<string>
-  conflictChoices: Record<string, 'remote' | 'local'>
+  selected?: Set<string>
+  conflictChoices?: Record<string, 'remote' | 'local'>
   onClose: () => void
-  onApply: (selected: Set<string>, conflictChoices: Record<string, 'remote' | 'local'>) => void
+  onApply?: (selected: Set<string>, conflictChoices: Record<string, 'remote' | 'local'>) => void
+  /**
+   * Review-only: no checkboxes, no Confirm — just the rows.
+   *
+   * Used by the push side, where the changes are already decided (they are what
+   * the local content holds); the question is only "what am I about to send?".
+   */
+  readOnly?: boolean
 }
 
 const CHANGE_CLS: Record<MappingChange['type'], string> = {
@@ -63,7 +70,7 @@ type SortState = { columnId: string; desc: boolean } | null
  * per-column filters, column resizing) so it feels identical — plus a checkbox
  * column, a change-type column and a per-conflict mine/theirs toggle.
  */
-export function PullMappingsTable({ changes, selected, conflictChoices, onClose, onApply }: PullMappingsTableProps) {
+export function PullMappingsTable({ changes, selected, conflictChoices, onClose, onApply, readOnly }: PullMappingsTableProps) {
   const { t } = useTranslation()
   const [sel, setSel] = useState<Set<string>>(new Set(selected))
   // Conflict resolutions are no longer editable in this table (the resolution
@@ -121,7 +128,8 @@ export function PullMappingsTable({ changes, selected, conflictChoices, onClose,
   }
 
   const columns = useMemo<ColumnDef<Row>[]>(() => [
-    {
+    // Nothing to tick when the changes are already decided (push side).
+    ...(readOnly ? [] : [{
       id: '_select',
       header: () => (
         <button className="flex w-full justify-center" onClick={() => setAllVisible(!allVisibleSelected)}>
@@ -136,7 +144,7 @@ export function PullMappingsTable({ changes, selected, conflictChoices, onClose,
       size: 36,
       minSize: 36,
       enableResizing: false,
-    },
+    } as ColumnDef<Row>]),
     {
       id: 'type',
       header: () => t('versioning.pull_col_change'),
@@ -173,7 +181,9 @@ export function PullMappingsTable({ changes, selected, conflictChoices, onClose,
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex h-[90vh] w-[97vw] max-w-[1500px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1500px]">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
-          <DialogTitle className="text-sm">{t('versioning.pull_mappings_pick')}</DialogTitle>
+          <DialogTitle className="text-sm">
+            {t(readOnly ? 'versioning.push_mappings_review' : 'versioning.pull_mappings_pick')}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
@@ -248,8 +258,14 @@ export function PullMappingsTable({ changes, selected, conflictChoices, onClose,
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t px-4 py-3">
-          <Button variant="ghost" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button size="sm" onClick={() => onApply(sel, choices)}>{t('common.confirm')}</Button>
+          {readOnly ? (
+            <Button size="sm" onClick={onClose}>{t('common.close')}</Button>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
+              <Button size="sm" onClick={() => onApply?.(sel, choices)}>{t('common.confirm')}</Button>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -2195,10 +2195,32 @@ export async function applyClonedEntity(
   // data-catalog / dq-rule-set / schema-preset repos hold the entity's full
   // metadata (and, for DQ, its checks) at the repo root. The record was created
   // at import from the workspace marker; the clone re-applies the repo's content.
+  // The entity JSON carries only HALF of readme/license: `stripEntityDocs` writes
+  // the licence's id + name there and its text to LICENSE.md beside it. Re-applying
+  // the JSON alone would replace a complete local licence with a text-less stub —
+  // the export then omits LICENSE.md (it reads as "deleted" on the next push) and
+  // the licence editor breaks on the missing text. `readEntityDocs` recombines the
+  // two halves, exactly as the sql/etl branch above does.
+  const withEntityDocs = async <T extends object>(
+    meta: T & { license?: { id?: string; name?: string }; readmeLang?: string },
+    ownerType: Parameters<typeof createEntityAttachments>[2],
+  ): Promise<T> => {
+    const docs = await readEntityDocs(zip, '', meta)
+    await createEntityAttachments(
+      storage,
+      { meta: docs.attachmentsMeta, blobs: docs.attachmentBlobs },
+      ownerType,
+      targetId,
+      workspaceId,
+    )
+    return { ...meta, readme: docs.readme, license: docs.license }
+  }
+
   if (type === 'data-catalog') {
     const catalog = await readJson<DataCatalog>('catalog.json')
     if (!catalog) return false
-    const { id: _id, workspaceId: _ws, ...changes } = dropForeignAuthorId(catalog) as DataCatalog
+    const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(catalog) as DataCatalog
+    const changes = await withEntityDocs(rest, 'data-catalog')
     await storage.dataCatalogs.update(targetId, changes).catch(() => {})
     return true
   }
@@ -2206,7 +2228,8 @@ export async function applyClonedEntity(
   if (type === 'dq-rule-set') {
     const ruleSet = await readJson<DqRuleSet>('rule-set.json')
     if (!ruleSet) return false
-    const { id: _id, workspaceId: _ws, ...changes } = dropForeignAuthorId(ruleSet) as DqRuleSet
+    const { id: _id, workspaceId: _ws, ...rest } = dropForeignAuthorId(ruleSet) as DqRuleSet
+    const changes = await withEntityDocs(rest, 'dq-rule-set')
     await storage.dqRuleSets.update(targetId, changes).catch(() => {})
     const checks = (await readJson<DqCustomCheck[]>('checks.json')) ?? []
     await storage.dqCustomChecks.deleteByRuleSet(targetId).catch(() => {})
@@ -2222,7 +2245,11 @@ export async function applyClonedEntity(
   if (type === 'schema-preset') {
     const preset = await readJson<CustomSchemaPreset>('preset.json')
     if (!preset) return false
-    await storage.schemaPresets.save(dropForeignAuthorId({ ...preset, presetId: targetId }) as CustomSchemaPreset).catch(() => {})
+    const withDocs = await withEntityDocs(
+      dropForeignAuthorId({ ...preset, presetId: targetId }) as CustomSchemaPreset,
+      'schema-preset',
+    )
+    await storage.schemaPresets.save(withDocs).catch(() => {})
     return true
   }
 

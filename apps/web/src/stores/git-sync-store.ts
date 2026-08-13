@@ -19,6 +19,7 @@ import {
   gitBranches,
   gitCommitPush,
   gitDiff,
+  gitPullFile,
   gitStatus,
   gitSyncState,
   type GitBranches,
@@ -157,6 +158,9 @@ interface GitSyncState {
   /** Load where the entity stands vs the remote (behind/diverged banner). */
   loadSyncState: (scope: GitScope, id: string, branch?: string) => Promise<void>
   getDiff: (scope: GitScope, id: string, path: string, branch?: string) => Promise<GitDiff | null>
+  /** Both sides of one file as raw text, for the download offered when the file
+   *  is too large to diff. Bypasses the diff cache — nothing was computed. */
+  getRawSides: (scope: GitScope, id: string, path: string, branch?: string) => Promise<{ old: string; new: string }>
   commitPush: (scope: GitScope, id: string, message: string, branch?: string) => Promise<GitCommitResult | null>
   /** Commit + push an EXPLICIT path list (Quick actions), independent of the
    *  checkbox selection. Same flow as commitPush otherwise. */
@@ -285,6 +289,36 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       set({ error: toGitError(err) })
       return null
     }
+  },
+
+  getRawSides: async (scope, id, path, branch) => {
+    // Both sides WHOLE, bypassing the diff endpoint's truncation: used when the
+    // caller needs the real content rather than a rendering of it — the download
+    // offered for an undiffable file, and the mappings review table, which parses
+    // the JSON and would choke on a condensed payload.
+    //
+    // In SERVER mode the client builds no export ZIP (the server does), so there
+    // is no local side to read here — reading it from a null ZIP silently yielded
+    // an empty file, i.e. "no changes" however much had changed. Ask the server
+    // for both sides verbatim instead.
+    if (serverBuildsZip()) {
+      const diff = await gitDiff(scope, id, null, path, branch, true)
+      return { old: diff.oldContent, new: diff.newContent }
+    }
+    // Standalone: the remote blob straight from the repo, the local side out of
+    // the export ZIP. A file absent from the remote yields '' (an empty list),
+    // which is the honest answer for a first push.
+    const [remoteBytes, zip] = await Promise.all([
+      gitPullFile(scope, id, path, branch).catch(() => new Uint8Array()),
+      buildZip(scope, id, get().lfsOverrides),
+    ])
+    let localText = ''
+    if (zip) {
+      const JSZip = (await import('jszip')).default
+      const archive = await JSZip.loadAsync(zip)
+      localText = (await archive.file(path)?.async('string')) ?? ''
+    }
+    return { old: new TextDecoder().decode(remoteBytes), new: localText }
   },
 
   commitPush: async (scope, id, message, branch) =>

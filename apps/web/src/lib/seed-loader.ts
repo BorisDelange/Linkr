@@ -582,6 +582,10 @@ async function loadStructuralEntity(
       const mappings = await fetchJson<ConceptMapping[]>(`${base}/mapping-projects/${mpFolder}/mappings.json`) ?? []
       if (mappings.length > 0) {
         await storage.conceptMappings.createBatch(mappings.map(m => ({ ...m, projectId: project.id }))).catch(() => {})
+        // Derived from the mappings above, so a seed built with stale counters
+        // would otherwise ship the wrong number to every portal visitor.
+        const { recomputeImportedStats } = await import('@/lib/concept-mapping/import')
+        await recomputeImportedStats(project.id, project, storage)
       }
       // Optional precomputed similarity scores (present only when the export bundled them)
       const scoresBuf = await fetchBinary(`${base}/mapping-projects/${mpFolder}/similarity-scores.parquet`)

@@ -40,6 +40,45 @@ export interface MappingProjectImportOptions {
 }
 
 /**
+ * Recompute a freshly imported project's derived counters from its own rows.
+ *
+ * The four dedup counts come from the mappings we just wrote.
+ * `totalSourceConcepts` describes the SOURCE, not the mappings: keep the
+ * imported value when it is populated, and fall back to the restored CSV row
+ * count for file projects (mirrors getTotalSourceConcepts in the list page).
+ * A database project's total needs a DuckDB query we can't run here, so it
+ * keeps the imported value and is refreshed when the project is opened.
+ *
+ * Exported because the standalone ZIP/git import in MappingProjectListPage
+ * restores a project through its own code path (conflict handling, duplicate
+ * naming, lineage) rather than through importMappingProjectContent — both must
+ * recompute, or the stale counter survives on whichever path is left out.
+ */
+export async function recomputeImportedStats(
+  projectId: string,
+  entity: MappingProject,
+  storage: Storage,
+): Promise<void> {
+  try {
+    const counts = await storage.conceptMappings.getStats(projectId)
+    let total = entity.stats?.totalSourceConcepts ?? 0
+    if (total === 0 && entity.sourceType === 'file' && entity.fileSourceData) {
+      total = entity.fileSourceData.totalRowCount ?? entity.fileSourceData.rows?.length ?? 0
+    }
+    const stats = {
+      totalSourceConcepts: total,
+      mappedCount: counts.mappedCount,
+      approvedCount: counts.approvedCount,
+      flaggedCount: counts.flaggedCount,
+      ignoredCount: counts.ignoredCount,
+      unmappedCount: Math.max(0, total - counts.mappedCount),
+    }
+    await storage.mappingProjects.update(projectId, { stats })
+    entity.stats = stats
+  } catch { /* keep the imported counters rather than losing the project */ }
+}
+
+/**
  * Restore a mapping project's full content from a parsed export/repo ZIP.
  *
  * Order matters: the project row (carrying `fileSourceData` restored from
@@ -120,6 +159,13 @@ export async function importMappingProjectContent(
     })
     await storage.conceptMappings.createBatch(toCreate)
   }
+
+  // `stats` in project.json is DERIVED from the mappings, so importing it
+  // verbatim propagates whatever counters the exporting instance happened to
+  // hold — including stale ones. Mapping ids are regenerated just above, so
+  // nothing downstream would ever reconcile it. Recompute from what we actually
+  // wrote instead.
+  await recomputeImportedStats(targetId, entity, storage)
 
   // Assigned source-concept-ids → workspace registry (retargeted to this ws).
   const rawRanges = files['source-concept-ids/ranges.json'] as

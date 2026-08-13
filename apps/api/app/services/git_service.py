@@ -1058,6 +1058,13 @@ _DIFF_MAX_HUNKS = 1000
 # for a generated mappings.json) costs almost nothing and this cap only bites when
 # the content genuinely differs throughout.
 _DIFF_HUNK_MAX_LINES = 200_000
+# The cap above is on the RAW size, which the affix trim usually reduces to
+# nothing — but only when the changes are clustered. Scattered edits (one changed
+# line in each of ~1500 JSON objects) trim to almost the whole file and difflib
+# then runs for minutes: measured 1.7s at 2k lines, 14s at 4k, 110s at 8k, i.e.
+# quadratic. So cap the CORE that actually reaches difflib; past this we can't
+# show a diff at all and the viewer offers a download instead.
+_DIFF_HUNK_MAX_CORE_LINES = 3_000
 
 
 def _normalize_eol(text: str) -> str:
@@ -1086,12 +1093,14 @@ def _diff_payload(text: str) -> tuple[str, bool, bool]:
     return preview, True, False
 
 
-def _condense_hunks(old_text: str, new_text: str) -> tuple[str, str, bool]:
+def _condense_hunks(old_text: str, new_text: str) -> tuple[str, str, bool] | None:
     """Condense a large file's diff to just the changed blocks + context, so the
     viewer shows every real change (even past line 1000) instead of a positional
     head-of-file preview. Returns (old_condensed, new_condensed, truncated), where
     each side is the changed regions joined by "@@ …" markers; truncated is True
-    when more than _DIFF_MAX_HUNKS change groups were dropped.
+    when more than _DIFF_MAX_HUNKS change groups were dropped. Returns None when
+    the changes are too scattered to diff in reasonable time (see
+    _DIFF_HUNK_MAX_CORE_LINES) — the caller then reports the file as undiffable.
 
     Both sides share the same marker lines, so Monaco renders them as identical
     context and only the real +/- lines get highlighted."""
@@ -1115,6 +1124,12 @@ def _condense_hunks(old_text: str, new_text: str) -> tuple[str, str, bool]:
         tail += 1
     core_old = old_lines[head : len(old_lines) - tail]
     core_new = new_lines[head : len(new_lines) - tail]
+
+    # Bail out BEFORE difflib when the trim left too much: this is the only place
+    # the quadratic cost is knowable, and past the cap it runs for minutes with
+    # nothing to show for it. None tells the caller to offer a download instead.
+    if max(len(core_old), len(core_new)) > _DIFF_HUNK_MAX_CORE_LINES:
+        return None
 
     opcodes = [
         (tag, o1 + head, o2 + head, n1 + head, n2 + head)
@@ -1151,11 +1166,17 @@ def _condense_hunks(old_text: str, new_text: str) -> tuple[str, str, bool]:
     return "\n".join(old_out), "\n".join(new_out), truncated
 
 
-async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, remote_url: str | None, token: str | None = None) -> dict:
+async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, remote_url: str | None, token: str | None = None, full: bool = False) -> dict:
     """Old (remote HEAD) vs new (export) content for one file in the export tree.
 
     Oversized/binary files return no content (too_large/binary flags) so the
-    viewer never tries to render a multi-megabyte or non-text diff."""
+    viewer never tries to render a multi-megabyte or non-text diff.
+
+    `full` skips every size guard and returns both sides verbatim. It is for
+    callers that PARSE the content rather than render it (the mappings review
+    table, which keys JSON objects by mapping key): a condensed or head-truncated
+    payload is not valid JSON, and in server mode the client has no export ZIP of
+    its own to read the local side from."""
     _safe_ref(branch)
 
     def work() -> dict:
@@ -1189,6 +1210,18 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
             old_is_lfs = True
         else:
             old_is_lfs = False
+        # Verbatim, before any guard: the caller parses this rather than rendering
+        # it, so truncating would hand it invalid JSON (see the `full` docstring).
+        if full:
+            return {
+                "path": path,
+                "changeType": change_type,
+                "oldContent": old_raw,
+                "newContent": new_raw,
+                "truncated": False,
+                "truncationMode": "none",
+                "binary": old_is_lfs,
+            }
         # Byte-identical already? Then git flags "modified" for a reason unrelated to
         # content — most often a storage-mode switch, e.g. a file committed as plain
         # text that .gitattributes now routes through the Git LFS clean filter (HEAD
@@ -1234,8 +1267,14 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
             old_raw.count("\n") < _DIFF_HUNK_MAX_LINES and new_raw.count("\n") < _DIFF_HUNK_MAX_LINES
         )
         if not binary and oversized and both_sides and within_hunk_budget:
-            old_h, new_h, hunk_trunc = _condense_hunks(old_raw, new_raw)
-            return result(old_h, new_h, "hunks", hunk_trunc)
+            condensed = _condense_hunks(old_raw, new_raw)
+            if condensed is not None:
+                old_h, new_h, hunk_trunc = condensed
+                return result(old_h, new_h, "hunks", hunk_trunc)
+            # Too scattered to condense. A head preview would be a lie here (the
+            # changes are everywhere, not in the first 1000 lines), so show no
+            # content and let the viewer offer the full file as a download.
+            return result("", "", "too_large", True)
 
         return result(old, new, "head" if oversized else "none", oversized)
 

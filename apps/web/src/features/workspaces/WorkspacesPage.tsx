@@ -647,6 +647,11 @@ export function WorkspacesPage() {
             await yieldToBrowser()
           }
         }
+        // `stats` came in on the project.json we just wrote, but it is DERIVED
+        // from these mappings — an export with stale counters would otherwise
+        // keep displaying the wrong number here for good.
+        const { recomputeImportedStats } = await import('@/lib/concept-mapping/import')
+        await recomputeImportedStats(id, mp, storage)
       }
       reportPhase('workspaces.import_phase_mappings', totalMappings, totalMappings)
       await yieldToBrowser()

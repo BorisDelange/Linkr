@@ -465,6 +465,9 @@ async def mapping_project_diff(
     file: UploadFile | None = File(None),
     path: str = Form(...),
     branch: str | None = Form(None),
+    # Both sides verbatim, for callers that PARSE the content (the mappings review
+    # table) rather than render it — a truncated payload is not valid JSON.
+    full: bool = Form(False),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -487,6 +490,7 @@ async def mapping_project_diff(
             path,
             _remote_url(mp),
             await _token(db, user, mp),
+            full,
         )
     )
 

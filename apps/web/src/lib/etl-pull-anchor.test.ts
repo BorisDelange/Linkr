@@ -45,8 +45,9 @@ describe('applyEtlPull anchors even with nothing selected', () => {
     // since Apply is disabled when there is nothing to pull.
     const s = storage()
     await applyEtlPull('p1', prepared(), { paths: new Set(), settings: false }, s)
+    // reviewedOnly=false: an empty plan means we DO hold the commit's content.
     expect(gitMocks.gitSetSyncState).toHaveBeenCalledWith(
-      'etl-pipelines', 'p1', 'main', '6ced4a58497fdc24d1e703f63a00f41f65c5ebac',
+      'etl-pipelines', 'p1', 'main', '6ced4a58497fdc24d1e703f63a00f41f65c5ebac', false,
     )
   })
 
@@ -101,9 +102,33 @@ describe('the anchor only moves on a COMPLETE, successful pull', () => {
     await applyEtlPull(
       'p1', withPlan(), { paths: new Set(['a.sql', 'b.sql']), settings: false }, storage(),
     )
+    // reviewedOnly=false: everything was taken, so the CONTENT anchor may move.
     expect(gitMocks.gitSetSyncState).toHaveBeenCalledWith(
-      'etl-pipelines', 'p1', 'main', 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+      'etl-pipelines', 'p1', 'main', 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', false,
     )
+  })
+
+  it('a decided-but-partial pull advances the REVIEW cursor only', async () => {
+    // The whole point of the two cursors: the user took one file and knowingly
+    // refused the other. That resolves the divergence (the push unblocks) without
+    // ever claiming we hold content we declined — so reviewedOnly is true, and a
+    // later plan is still built against the old content anchor.
+    await applyEtlPull(
+      'p1', withPlan(), { paths: new Set(['a.sql']), settings: false, decided: true }, storage(),
+    )
+    expect(gitMocks.gitSetSyncState).toHaveBeenCalledWith(
+      'etl-pipelines', 'p1', 'main', 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', true,
+    )
+  })
+
+  it('a partial pull that was NOT decided still anchors nothing', async () => {
+    // Without `decided`, an incomplete selection is merely an unfinished choice —
+    // the old behaviour, and the guard that keeps a half-made review from
+    // clearing the banner.
+    await applyEtlPull(
+      'p1', withPlan(), { paths: new Set(['a.sql']), settings: false }, storage(),
+    )
+    expect(gitMocks.gitSetSyncState).not.toHaveBeenCalled()
   })
 
   it('does NOT anchor when the settings block was offered but declined', async () => {
