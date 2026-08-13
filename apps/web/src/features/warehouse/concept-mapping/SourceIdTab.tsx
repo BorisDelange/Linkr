@@ -21,6 +21,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
+import { clampNextId } from './source-id-range'
 import type { MappingProject, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
 
 // OMOP convention: custom source concept IDs start at 2,000,000,001
@@ -175,7 +176,17 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     const existing = ranges.find((r) => r.badgeLabel === badgeLabel)
     if (!existing) return
     const now = new Date().toISOString()
-    await getStorage().sourceConceptIdRanges.save({ ...existing, rangeStart: start, rangeEnd: end, updatedAt: now })
+    await getStorage().sourceConceptIdRanges.save({
+      ...existing,
+      rangeStart: start,
+      rangeEnd: end,
+      // Moving the bounds has to move the cursor with them: it was allocated
+      // against the old range, and assignIds starts from it verbatim. Left
+      // behind, a cursor below the new start silently hands out ids outside
+      // the range the user just asked for.
+      nextId: clampNextId(existing.nextId, start, end),
+      updatedAt: now,
+    })
     setEdits((prev) => { const n = { ...prev }; delete n[badgeLabel]; return n })
     await load()
   }
@@ -257,7 +268,11 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       const allEntries = await getStorage().sourceConceptIdEntries.getByWorkspace(workspaceId)
       const globalMap = new Map(allEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId]))
 
-      let nextId = range.nextId
+      // Never allocate from a cursor that sits outside the range: ranges edited
+      // before this was enforced carry one from their previous bounds, and the
+      // loop's only check is against rangeEnd, so a low cursor would quietly
+      // fill the range's quota with ids belonging to another badge's band.
+      let nextId = clampNextId(range.nextId, range.rangeStart, range.rangeEnd)
       const now = new Date().toISOString()
       let newlyAssigned = 0 // IDs consumed from this range (truly new)
 
@@ -412,7 +427,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                 const edit = edits[range.badgeLabel]
                 const err = errors[range.badgeLabel]
                 const capacity = range.rangeEnd - range.rangeStart + 1
-                const used = range.nextId - range.rangeStart
+                const used = clampNextId(range.nextId, range.rangeStart, range.rangeEnd) - range.rangeStart
                 const rangePct = Math.round((used / capacity) * 100)
                 return (
                   <Card key={range.badgeLabel} className="p-4">
