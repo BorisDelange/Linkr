@@ -1109,7 +1109,14 @@ export function SourceConceptTable({
                     onClick={(e) => handleRowClick(cid, e)}
                   >
                     {row.getVisibleCells().map((cell) => {
-                      const raw = cell.getValue()
+                      // Read the registry id straight from the map rather than
+                      // through getValue(): the accessor closes over the map, and
+                      // TanStack caches what it returned, so a row rendered before
+                      // the ids arrived keeps reporting null for the rest of the
+                      // session even though the cell itself shows the id.
+                      const raw = cell.column.id === 'concept_id' && isFileSourceWithoutConceptId
+                        ? sourceConceptIdMap?.get(`${row.original.vocabulary_id ?? ''}__${row.original.concept_code ?? ''}`) ?? null
+                        : cell.getValue()
                       // Every value-bearing column gets the tooltip, shown whether
                       // or not the text is cut: it carries the copy button, and
                       // lifting a code out of a cell is worth as much when the
