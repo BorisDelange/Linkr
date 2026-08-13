@@ -124,6 +124,7 @@ function getColLabel(colDefs: ColumnDef<ConceptMapping>[], id: string): string {
 
 /** Column filter state for MappingsTab. Multi-select dropdowns use arrays — empty/undefined = no filter. */
 interface MappingColumnFilters {
+  sourceConceptId?: string
   sourceConceptName?: string
   sourceConceptCode?: string
   sourceVocabularyId?: string[]
@@ -1032,6 +1033,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
    *  artificial row-number index, not a real OMOP concept_id. The registry is authoritative. */
   const useRegistryForId = isFileSource && !project.fileSourceData?.columnMapping?.conceptIdColumn
 
+  /** The source concept id as displayed: registry-assigned, or the row's own. */
+  const resolveSourceConceptId = useCallback((m: ConceptMapping): number | null => {
+    const fromRegistry = sourceConceptIdMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`) ?? null
+    if (useRegistryForId) return fromRegistry
+    if (m.sourceConceptId && m.sourceConceptId !== 0) return m.sourceConceptId
+    return fromRegistry
+  }, [sourceConceptIdMap, useRegistryForId])
+
   /** Parse a raw info_json value (string or object) into a Record. */
   const parseInfoJson = (raw: unknown): Record<string, unknown> | null => {
     if (raw && typeof raw === 'string') {
@@ -1211,6 +1220,10 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   // Apply column filters + status popover filter (client-side)
   const filtered = useMemo(() => allDisplayMappings.filter((m) => {
     const f = colFilters
+    // Matched against the id actually shown: for a registry-backed project the
+    // stored sourceConceptId is a row-number index nobody sees, so filtering on
+    // it would reject the very value the user copied off the column.
+    if (f.sourceConceptId && !String(resolveSourceConceptId(m) ?? '').includes(f.sourceConceptId)) return false
     if (f.sourceConceptName && !m.sourceConceptName.toLowerCase().includes(f.sourceConceptName.toLowerCase())) return false
     if (f.sourceConceptCode && !(m.sourceConceptCode || String(m.sourceConceptId)).toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
     if (f.sourceVocabularyId?.length && !f.sourceVocabularyId.includes(m.sourceVocabularyId)) return false
@@ -1245,7 +1258,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       if (approvalRule === 'no_rejections' && rejectedCount > 0) return false
     }
     return true
-  }), [allDisplayMappings, colFilters, myReviewFilter, includedStatuses, approvalRule, rowDerived])
+  }), [allDisplayMappings, colFilters, myReviewFilter, includedStatuses, approvalRule, rowDerived, resolveSourceConceptId])
 
   /** Frozen row order: captured the first time a filter/sort combination is applied
    *  and reused as long as those settings stay the same, so a vote that changes a
@@ -1370,6 +1383,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     // Text inputs
     if (columnId === 'sourceConceptName') {
       return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.sourceConceptName ?? ''} onChange={(e) => updateFilter('sourceConceptName', e.target.value || null)} />
+    }
+    if (columnId === 'sourceConceptId') {
+      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={colFilters.sourceConceptId ?? ''} onChange={(e) => updateFilter('sourceConceptId', e.target.value || null)} />
     }
     if (columnId === 'sourceConceptCode') {
       return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={colFilters.sourceConceptCode ?? ''} onChange={(e) => updateFilter('sourceConceptCode', e.target.value || null)} />
@@ -2213,23 +2229,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         //   falling back to the registry if the native id is missing.
         id: 'sourceConceptId',
         header: () => t('concept_mapping.col_source_concept_id'),
-        accessorFn: (row) => {
-          const key = `${row.sourceVocabularyId}__${row.sourceConceptCode}`
-          if (useRegistryForId) return sourceConceptIdMap.get(key) ?? null
-          if (row.sourceConceptId && row.sourceConceptId !== 0) return row.sourceConceptId
-          return sourceConceptIdMap.get(key) ?? null
-        },
+        accessorFn: (row) => resolveSourceConceptId(row),
         cell: ({ row }) => {
-          const m = row.original
-          const key = `${m.sourceVocabularyId}__${m.sourceConceptCode}`
-          let id: number | null
-          if (useRegistryForId) {
-            id = sourceConceptIdMap.get(key) ?? null
-          } else if (m.sourceConceptId && m.sourceConceptId !== 0) {
-            id = m.sourceConceptId
-          } else {
-            id = sourceConceptIdMap.get(key) ?? null
-          }
+          const id = resolveSourceConceptId(row.original)
           return <span className="font-mono text-muted-foreground">{id ?? <span className="text-muted-foreground/60">—</span>}</span>
         },
         size: 100,
