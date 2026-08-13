@@ -175,6 +175,9 @@ export function MappingProjectPull({ projectId, branch, remoteHead, mode, onPull
       {tableIsMappings && (
         <PullMappingsTable
           changes={mappingChanges}
+          // Scoped like the draft: the same review, reopened, keeps its sort,
+          // filters and column widths.
+          viewKey={`pull-mappings|${key}`}
           // Everything ticked until the user says otherwise: taking the remote
           // changes is the reason they opened the pull, so the table starts from
           // "take it all" and unticking is the deliberate act. An untouched row

@@ -37,6 +37,14 @@ describe('dynamically built i18n keys resolve', () => {
       }
     })
 
+    it(`${name}: every change type has a pull_filter_* label`, () => {
+      // PullMappingsTable's type filter, which adds an "all" alongside the four.
+      const keys = versioning(locale)
+      for (const type of ['all', ...CHANGE_TYPES]) {
+        expect(keys[`pull_filter_${type}`], `pull_filter_${type}`).toBeTruthy()
+      }
+    })
+
     it(`${name}: every pull card id has a pull_card_* title`, () => {
       const keys = versioning(locale)
       const ids = new Set(SCOPES.flatMap((s) => cardsForScope(s).map((c) => c.id)))
