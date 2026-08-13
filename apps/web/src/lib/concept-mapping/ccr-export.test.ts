@@ -77,7 +77,7 @@ describe('buildCcrCsvs — concept.csv', () => {
 
   it('gives the source concept a 2-billion id', () => {
     const { conceptCsv } = buildCcrCsvs([m({ id: 'a' })])
-    expect(Number(field(rows(conceptCsv)[1], 'concept_id'))).toBeGreaterThan(2_000_000_000)
+    expect(Number(field(rows(conceptCsv)[1], 'concept_id'))).toBeGreaterThanOrEqual(2_000_000_000)
   })
 
   it('reuses a stored id rather than allocating a new one', () => {
@@ -131,7 +131,7 @@ describe('buildCcrCsvs — concept_relationship.csv', () => {
   it('points Maps to from the 2B source at the standard target', () => {
     const { conceptRelationshipCsv } = buildCcrCsvs([m({ id: 'a', targetConceptId: 3027018 })])
     const [from, to] = rows(conceptRelationshipCsv)[1].split(',')
-    expect(Number(from)).toBeGreaterThan(2_000_000_000)
+    expect(Number(from)).toBeGreaterThanOrEqual(2_000_000_000)
     expect(to).toBe('3027018')
   })
 
@@ -139,7 +139,7 @@ describe('buildCcrCsvs — concept_relationship.csv', () => {
     const { conceptRelationshipCsv } = buildCcrCsvs([m({ id: 'a', targetConceptId: 3027018 })])
     const [from, to] = rows(conceptRelationshipCsv)[2].split(',')
     expect(from).toBe('3027018')
-    expect(Number(to)).toBeGreaterThan(2_000_000_000)
+    expect(Number(to)).toBeGreaterThanOrEqual(2_000_000_000)
   })
 
   it('emits no relationship for an unmapped concept', () => {
@@ -172,7 +172,7 @@ describe('buildCcrCsvs — concept_relationship.csv', () => {
 describe('id allocation', () => {
   it('reports ids that still need persisting', () => {
     const { idsToPersist } = buildCcrCsvs([m({ id: 'a' })])
-    expect(idsToPersist.get('a')).toBeGreaterThan(2_000_000_000)
+    expect(idsToPersist.get('a')).toBeGreaterThanOrEqual(2_000_000_000)
   })
 
   it('allocates over the whole project, not the exported subset', () => {

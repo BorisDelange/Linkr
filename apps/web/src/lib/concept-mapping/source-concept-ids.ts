@@ -40,7 +40,9 @@ export function assignSourceConceptIds(mappings: ConceptMapping[]): SourceConcep
   const toPersist = new Map<string, number>()
 
   // Existing ids first, so a fresh allocation can never collide with one.
-  let maxUsed = SOURCE_CONCEPT_ID_BASE
+  // Starts one below the base because allocation pre-increments: the first id
+  // handed out is SOURCE_CONCEPT_ID_BASE itself, which the band includes.
+  let maxUsed = SOURCE_CONCEPT_ID_BASE - 1
   for (const m of mappings) {
     const stored = m.sourceConceptId
     if (!isAssigned(stored)) continue

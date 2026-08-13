@@ -263,7 +263,7 @@ describe('source concept ids', () => {
 
   it('reports a newly allocated id so the caller can persist it', () => {
     const { idsToPersist } = buildVocabularyScriptWithIds([MAPPING])
-    expect(idsToPersist.get(MAPPING.id)).toBeGreaterThan(2_000_000_000)
+    expect(idsToPersist.get(MAPPING.id)).toBeGreaterThanOrEqual(2_000_000_000)
   })
 
   it('persists nothing when every mapping already has an id', () => {
@@ -283,7 +283,7 @@ describe('source concept ids', () => {
     const reads = sql.match(/read_csv\('mapping\.source_to_concept_map'/g)
     expect(reads).toHaveLength(2)
     expect(sql).toContain('stcm.source_concept_id       AS concept_id')
-    expect(sql).toContain('WHERE stcm.source_concept_id > 2000000000')
+    expect(sql).toContain('WHERE stcm.source_concept_id >= 2000000000')
   })
 
   it('takes the source concepts straight from concept.csv (ccr)', () => {
@@ -296,7 +296,7 @@ describe('source concept ids', () => {
     // No per-column derivation of the source concepts (2g still builds the
     // custom-vocabulary rows, which is a different thing).
     expect(sql).not.toContain('stcm.source_concept_id       AS concept_id')
-    expect(sql).not.toContain('WHERE stcm.source_concept_id > 2000000000')
+    expect(sql).not.toContain('WHERE stcm.source_concept_id >= 2000000000')
   })
 
   it('allocates against the whole project, not just the filtered subset', () => {
@@ -442,7 +442,7 @@ describe('vocabulary mode', () => {
     })
 
     it('drops the 2-billion guard: the CSV holds only local concepts', () => {
-      expect(sql).not.toContain('WHERE stcm.source_concept_id > 2000000000')
+      expect(sql).not.toContain('WHERE stcm.source_concept_id >= 2000000000')
     })
 
     it('derives no Mapped from in SQL — the CSV carries both directions', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampNextId } from './source-id-range'
+import { clampNextId, formatRangeBound, parseRangeBound, rangeCapacity } from './source-id-range'
 
 /**
  * The cursor and the bounds are stored side by side and can disagree: editing a
@@ -85,5 +85,59 @@ describe('clampNextId', () => {
         if (mark == null) expect(got).toBeLessThanOrEqual(e)
       }
     }
+  })
+})
+
+describe('parseRangeBound', () => {
+  it('accepts the grouped form the inputs display', () => {
+    expect(parseRangeBound('2 002 000 001')).toBe(2002000001)
+    expect(parseRangeBound('2002000001')).toBe(2002000001)
+  })
+
+  it('accepts the separators toLocaleString actually emits', () => {
+    // Written as escapes on purpose: these are invisible in a source file, and a
+    // value copied out of the read-only display carries them verbatim.
+    expect(parseRangeBound('2\u00a0002\u00a0000\u00a0001')).toBe(2002000001)
+    expect(parseRangeBound('2\u202f002\u202f000\u202f001')).toBe(2002000001)
+    expect(parseRangeBound('2,002,000,001')).toBe(2002000001)
+  })
+
+  it('rejects anything that is not a plain number', () => {
+    // parseInt would take the leading digits and call these valid.
+    expect(parseRangeBound('2e9')).toBeNull()
+    expect(parseRangeBound('12abc')).toBeNull()
+    expect(parseRangeBound('-5')).toBeNull()
+    expect(parseRangeBound('')).toBeNull()
+    expect(parseRangeBound('   ')).toBeNull()
+  })
+
+  it('rejects values past the safe-integer boundary', () => {
+    expect(parseRangeBound('99999999999999999999')).toBeNull()
+  })
+})
+
+describe('formatRangeBound', () => {
+  it('groups digits in threes so billions read apart from millions', () => {
+    expect(formatRangeBound(2002000001)).toBe('2 002 000 001')
+    expect(formatRangeBound('2000000')).toBe('2 000 000')
+    expect(formatRangeBound(999)).toBe('999')
+  })
+
+  it('formats partial input as it is typed', () => {
+    expect(formatRangeBound('2002')).toBe('2 002')
+    expect(formatRangeBound('')).toBe('')
+  })
+})
+
+describe('rangeCapacity', () => {
+  it('counts both bounds', () => {
+    expect(rangeCapacity(2000000001, 2002000000)).toBe(2000000)
+    expect(rangeCapacity(10, 10)).toBe(1)
+  })
+
+  it('has nothing to report until the bounds make a range', () => {
+    expect(rangeCapacity(null, 100)).toBeNull()
+    expect(rangeCapacity(100, null)).toBeNull()
+    expect(rangeCapacity(100, 99)).toBeNull()
   })
 })

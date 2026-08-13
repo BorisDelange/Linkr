@@ -42,7 +42,7 @@ describe('sourceConceptKey', () => {
 describe('assignSourceConceptIds', () => {
   it('allocates above the OMOP local-concept threshold', () => {
     const { byKey } = assignSourceConceptIds([m({ id: 'a' })])
-    expect([...byKey.values()][0]).toBeGreaterThan(SOURCE_CONCEPT_ID_BASE)
+    expect([...byKey.values()][0]).toBeGreaterThanOrEqual(SOURCE_CONCEPT_ID_BASE)
   })
 
   it('reuses an id that is already stored', () => {
@@ -92,13 +92,13 @@ describe('assignSourceConceptIds', () => {
 
   it('treats 0 as never assigned — it is the field default', () => {
     const { toPersist } = assignSourceConceptIds([m({ id: 'a', sourceConceptId: 0 })])
-    expect(toPersist.get('a')).toBeGreaterThan(SOURCE_CONCEPT_ID_BASE)
+    expect(toPersist.get('a')).toBeGreaterThanOrEqual(SOURCE_CONCEPT_ID_BASE)
   })
 
   it('ignores a stored value below the threshold rather than trusting it', () => {
     // A target concept id (e.g. 3027018) in that field is not a local source id.
     const { byKey } = assignSourceConceptIds([m({ id: 'a', sourceConceptId: 3_027_018 })])
-    expect([...byKey.values()][0]).toBeGreaterThan(SOURCE_CONCEPT_ID_BASE)
+    expect([...byKey.values()][0]).toBeGreaterThanOrEqual(SOURCE_CONCEPT_ID_BASE)
   })
 
   it('is deterministic: the same input yields the same ids', () => {

@@ -83,7 +83,7 @@ describe('buildStcmCsv', () => {
 
   it('reports ids that still need persisting', () => {
     const { idsToPersist } = buildStcmCsv([m({ id: 'a' })])
-    expect(idsToPersist.get('a')).toBeGreaterThan(2_000_000_000)
+    expect(idsToPersist.get('a')).toBeGreaterThanOrEqual(2_000_000_000)
   })
 
   it('allocates over the whole project, not the exported subset', () => {

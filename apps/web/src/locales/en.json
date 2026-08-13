@@ -2866,7 +2866,8 @@
     "type": "Type",
     "location": "Location",
     "website": "Website",
-    "reference_id": "Reference ID"
+    "reference_id": "Reference ID",
+    "remove": "Remove"
   },
   "user_menu": {
     "profile": "User settings",
@@ -3880,6 +3881,7 @@
     "source_id_shared": "{{own}} from this range, {{shared}} shared",
     "source_id_shared_hint": "A concept already assigned under another badge keeps its ID: the same vocabulary and code designate the same concept, so it must have one ID across the workspace. Only new concepts consume IDs from this range.",
     "source_id_used": "used",
+    "source_id_capacity": "{{formatted}} ids available in this range",
     "source_id_assign": "Assign IDs",
     "source_id_reset": "Reset IDs",
     "source_id_reset_all": "Reset all",

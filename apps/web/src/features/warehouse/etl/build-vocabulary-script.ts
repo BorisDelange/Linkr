@@ -497,7 +497,7 @@ export function buildVocabularyScriptWithIds(
       parts.push(`    DATE '2099-12-31'            AS valid_end_date,`)
       parts.push(`    NULL                         AS invalid_reason`)
       parts.push(`FROM read_csv('${MAPPING_REF_PREFIX}${STCM_EXPORT}', header = true) stcm`)
-      parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE};`)
+      parts.push(`WHERE stcm.source_concept_id >= ${SOURCE_CONCEPT_ID_BASE};`)
     }
   }
 
@@ -584,7 +584,7 @@ export function buildVocabularyScriptWithIds(
     parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
     parts.push(`    NULL                   AS invalid_reason`)
     parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
-    parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
+    parts.push(`WHERE stcm.source_concept_id >= ${SOURCE_CONCEPT_ID_BASE}`)
     parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
     parts.push(`  AND stcm.target_concept_id != 0;`)
     parts.push('')
@@ -597,7 +597,7 @@ export function buildVocabularyScriptWithIds(
     parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
     parts.push(`    NULL                   AS invalid_reason`)
     parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
-    parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
+    parts.push(`WHERE stcm.source_concept_id >= ${SOURCE_CONCEPT_ID_BASE}`)
     parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
     parts.push(`  AND stcm.target_concept_id != 0;`)
   }
@@ -851,7 +851,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`FROM ${TARGET}.concept c`)
   parts.push(`WHERE c.concept_code = source_to_concept_map.source_code`)
   parts.push(`  AND c.vocabulary_id = source_to_concept_map.source_vocabulary_id`)
-  parts.push(`  AND c.concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
+  parts.push(`  AND c.concept_id >= ${SOURCE_CONCEPT_ID_BASE}`)
   parts.push(`  AND source_to_concept_map.source_concept_id = 0;`)
 
   // --- PART 4: concept_relationship Maps to + Mapped from ---
@@ -869,7 +869,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
   parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
-  parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
+  parts.push(`WHERE stcm.source_concept_id >= ${SOURCE_CONCEPT_ID_BASE}`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0`)
   parts.push(`  AND NOT EXISTS (`)
@@ -888,7 +888,7 @@ export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
   parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
   parts.push(`    NULL                   AS invalid_reason`)
   parts.push(`FROM ${TARGET}.source_to_concept_map stcm`)
-  parts.push(`WHERE stcm.source_concept_id > ${SOURCE_CONCEPT_ID_BASE}`)
+  parts.push(`WHERE stcm.source_concept_id >= ${SOURCE_CONCEPT_ID_BASE}`)
   parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
   parts.push(`  AND stcm.target_concept_id != 0`)
   parts.push(`  AND NOT EXISTS (`)
