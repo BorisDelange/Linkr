@@ -393,9 +393,9 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
               <span className="text-blue-600 dark:text-blue-400">{t('concept_mapping.source_id_range_label')}</span>
               {' '}
               <span className="font-mono font-medium">
-                {formatNumber(OMOP_CUSTOM_MIN)}–{formatNumber(OMOP_CUSTOM_MAX)}
+                {formatNumber(OMOP_CUSTOM_MIN)} – {formatNumber(OMOP_CUSTOM_MAX)}
               </span>
-              <span className="ml-1 text-blue-600/70 dark:text-blue-400/70">
+              <span className="ml-1.5 text-blue-600/70 dark:text-blue-400/70">
                 {t('concept_mapping.source_id_range_hint')}
               </span>
             </p>

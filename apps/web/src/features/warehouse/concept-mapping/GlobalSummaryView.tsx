@@ -32,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useUrlTab } from '@/hooks/use-url-tab'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 import { MultiSelectFilter as SharedMultiSelectFilter } from '@/components/ui/multi-select-filter'
@@ -111,6 +112,8 @@ const EQUIV_BADGE: Record<string, { label: string; className: string }> = {
 
 const PAGE_SIZE = 50
 const TOP_N = 10
+const GLOBAL_TABS = ['summary', 'table', 'source-ids', 'export'] as const
+type GlobalTabId = (typeof GLOBAL_TABS)[number]
 
 /** Server-mode cross-project cache metadata, kept at MODULE scope so it survives
  * the component unmount/remount when the user leaves and returns to the page.
@@ -332,7 +335,14 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [allSourceConceptsByProject, setAllSourceConceptsByProject] = useState<Map<string, SourceConceptRaw[]>>(new Map())
   const [registryEntries, setRegistryEntries] = useState<SourceConceptIdEntry[]>([])
   const [groupMode, setGroupMode] = useState<'project' | 'badge'>('project')
-  const [activeTab, setActiveTab] = useState('summary')
+  // Same treatment as a mapping project's tabs: shareable via `?tab=`, and the
+  // tab you left is reopened when you come back without one. Not scoped to an
+  // entity — there is one cross-project overview per workspace.
+  const [activeTab, setActiveTab] = useUrlTab<GlobalTabId>({
+    key: 'concept-mapping:overview',
+    tabs: GLOBAL_TABS,
+    defaultTab: 'summary',
+  })
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   const [colFilters, setColFilters] = useState<GlobalTableFilters>({})
   // Search bar: typed text is local, commits to colFilters.globalSearch on Enter / button.
@@ -1448,7 +1458,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
         </Badge>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as GlobalTabId)} className="flex flex-1 flex-col overflow-hidden">
         <div className="flex justify-center border-b">
           <TabsList className="my-2 w-fit">
             <TabsTrigger value="summary">{t('concept_mapping.global_tab_summary')}</TabsTrigger>
