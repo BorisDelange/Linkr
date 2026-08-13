@@ -374,6 +374,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
 
   const unregisteredBadges = allBadgeLabels.filter((l) => !ranges.some((r) => r.badgeLabel === l))
 
+  // Ids issued, counted once: a concept shared between badges has one id, and
+  // summing per-badge totals would count it once per badge.
   const totalAssigned = ranges.reduce((s, r) => s + r.ownCount, 0)
 
   return (
@@ -440,8 +442,22 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium">{range.badgeLabel}</span>
                           <Badge variant="secondary" className="text-[10px]">
-                            {range.ownCount.toLocaleString()} {t('concept_mapping.source_id_assigned')}
+                            {range.assignedCount.toLocaleString()} {t('concept_mapping.source_id_assigned')}
                           </Badge>
+                          {/* A concept shared with another badge keeps that badge's id -
+                              same (vocabulary, code) is the same concept - so it costs
+                              nothing here. Without this the badge looks short of ids. */}
+                          {range.assignedCount > range.ownCount && (
+                            <span
+                              className="text-[10px] text-muted-foreground"
+                              title={t('concept_mapping.source_id_shared_hint')}
+                            >
+                              {t('concept_mapping.source_id_shared', {
+                                own: range.ownCount.toLocaleString(),
+                                shared: (range.assignedCount - range.ownCount).toLocaleString(),
+                              })}
+                            </span>
+                          )}
                           {used > 0 && rangePct > 0 && (
                             <span className="text-[10px] text-muted-foreground">{rangePct}% {t('concept_mapping.source_id_used')}</span>
                           )}

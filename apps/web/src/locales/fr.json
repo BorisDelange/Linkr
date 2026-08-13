@@ -3877,6 +3877,8 @@
     "source_id_range_info": "Plage valide : {{min}}–{{max}}",
     "source_id_ranges": "Plages par badge",
     "source_id_assigned": "attribués",
+    "source_id_shared": "{{own}} depuis cette plage, {{shared}} partagés",
+    "source_id_shared_hint": "Un concept déjà attribué sous un autre badge conserve son identifiant : mêmes vocabulaire et code désignent le même concept, qui doit donc avoir un seul identifiant dans l'espace de travail. Seuls les nouveaux concepts consomment des identifiants de cette plage.",
     "source_id_used": "utilisés",
     "source_id_assign": "Attribuer les IDs",
     "source_id_reset": "Réinitialiser les IDs",
