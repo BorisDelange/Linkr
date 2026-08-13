@@ -3757,6 +3757,7 @@
     "vocab_browse_filter_domain": "Domaine",
     "vocab_browse_all_vocabs": "Tous les vocabulaires",
     "vocab_browse_all_domains": "Tous les domaines",
+    "vocab_browse_all_classes": "Toutes les classes",
     "vocab_browse_standard_only": "Standards uniquement",
     "col_terminology": "Vocabulaire",
     "col_terminology_id": "ID vocabulaire",

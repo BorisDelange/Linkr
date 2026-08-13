@@ -15,6 +15,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
+import { TruncatedText } from '@/components/ui/truncated-text'
+import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
+import { normalizeConceptFlag } from '@/lib/concept-mapping/concept-flags'
+import { ValidityBadge } from '@/lib/concept-mapping/validity-badge'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
@@ -65,7 +69,7 @@ import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
 import type { MappingProject, DataSource, ConceptSet, SchemaMapping, SchemaPresetId } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { localized } from '@/lib/localized'
-import { buildStandardConceptSearchQuery, buildStandardConceptSearchCountQuery } from '@/lib/concept-mapping/mapping-queries'
+import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import {
   compareVocabFiles,
   displayTableNameOf,
@@ -96,6 +100,7 @@ const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
       domain_id: 'domain_id',
       concept_class_id: 'concept_class_id',
       standard_concept: 'standard_concept',
+      invalid_reason: 'invalid_reason',
     },
   }],
   knownTables: ATHENA_KNOWN_TABLES,
@@ -103,8 +108,15 @@ const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
 
 
 const BROWSE_PAGE_SIZE = 25
+/** Rows fetched per search, mirroring the target search's own cap. */
+const BROWSE_MAX_RESULTS = 1000
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
+
+// Text columns get the shared truncating cell (hover tooltip, copyable); the
+// badge column renders itself. Same split as TargetConceptPanel.
+const BROWSE_TOOLTIP_COLUMNS = new Set(['vocabulary_id', 'concept_id', 'concept_name', 'concept_code', 'domain_id', 'concept_class_id'])
+const BROWSE_MONO_COLUMNS = new Set(['concept_id', 'concept_code'])
 
 interface CsSorting {
   columnId: string
@@ -194,9 +206,13 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [appliedSearch, setAppliedSearch] = useState('')
   const [browseVocabs, setBrowseVocabs] = useState<string[]>([])
   const [browseDomains, setBrowseDomains] = useState<string[]>([])
+  const [browseClasses, setBrowseClasses] = useState<string[]>([])
   const [browseStandards, setBrowseStandards] = useState<string[]>([])
+  const [browseMaxResults, setBrowseMaxResults] = useState(BROWSE_MAX_RESULTS)
   const [browseResults, setBrowseResults] = useState<Record<string, unknown>[]>([])
-  const [browseTotal, setBrowseTotal] = useState(0)
+  // Until the user searches or picks a filter the table stays on its hint,
+  // rather than showing an arbitrary slice of a multi-million-row table.
+  const [browseSubmitted, setBrowseSubmitted] = useState(false)
   const [browsePage, setBrowsePage] = useState(0)
   // Warning shown when the user submits a text search with no other filter applied.
   const [searchWarningOpen, setSearchWarningOpen] = useState(false)
@@ -204,9 +220,10 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [browseLoading, setBrowseLoading] = useState(false)
   const [browseVocabOptions, setBrowseVocabOptions] = useState<string[]>([])
   const [browseDomainOptions, setBrowseDomainOptions] = useState<string[]>([])
+  const [browseClassOptions, setBrowseClassOptions] = useState<string[]>([])
   // TanStack column visibility / sizing for the browse-results datatable.
-  // `concept_id` and `concept_code` are hidden by default to match TargetConceptPanel.
-  const [browseColVisibility, setBrowseColVisibility] = useState<VisibilityState>({ concept_id: false, concept_code: false })
+  // The verbose columns are hidden by default, matching TargetConceptPanel.
+  const [browseColVisibility, setBrowseColVisibility] = useState<VisibilityState>({ concept_id: false, concept_code: false, valid: false })
   const [browseColSizing, setBrowseColSizing] = useState<Record<string, number>>({})
   const [browseSorting, setBrowseSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   // Inline column filters applied client-side to the visible page (server-side
@@ -831,6 +848,11 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
           `SELECT DISTINCT domain_id AS val FROM concept ORDER BY domain_id`,
         )
         setBrowseDomainOptions(domains.map((r) => String(r.val ?? '')).filter(Boolean))
+        const classes = await queryDataSource(
+          project.vocabularyDataSourceId!,
+          `SELECT DISTINCT concept_class_id AS val FROM concept ORDER BY concept_class_id`,
+        )
+        setBrowseClassOptions(classes.map((r) => String(r.val ?? '')).filter(Boolean))
       } catch (err) {
         console.error('Failed to load vocabulary filter options:', err)
       }
@@ -853,39 +875,44 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       const filters = {
         vocabularyIds: browseVocabs.length > 0 ? browseVocabs : undefined,
         domainIds: browseDomains.length > 0 ? browseDomains : undefined,
+        conceptClassIds: browseClasses.length > 0 ? browseClasses : undefined,
         standardConcepts: browseStandards.length > 0 ? browseStandards : undefined,
       }
 
-      // The ranked search returns top N rows globally. We over-fetch (page size × pages
-      // visited so far + buffer) so the user can paginate through the most relevant
-      // matches without re-issuing the heavy ranking query each page change.
-      const fetchLimit = Math.max(BROWSE_PAGE_SIZE * (browsePage + 4), 200)
-      const sql = buildStandardConceptSearchQuery(ATHENA_SCHEMA_MAPPING, term, filters, fetchLimit)
-
-      const countSql = buildStandardConceptSearchCountQuery(ATHENA_SCHEMA_MAPPING, term, filters)
-      const [countResult] = await queryDataSource(project.vocabularyDataSourceId, countSql)
-      setBrowseTotal(Number(countResult?.total ?? 0))
-
-      const allRows = sql ? await queryDataSource(project.vocabularyDataSourceId, sql) : []
-      // Slice to the requested page (the ranked query already returned top N globally).
-      const offset = browsePage * BROWSE_PAGE_SIZE
-      setBrowseResults(allRows.slice(offset, offset + BROWSE_PAGE_SIZE))
+      // One query for up to `browseMaxResults` rows, then page/sort/filter that
+      // set client-side — same model as the target search. Paging server-side
+      // would be cheaper per query, but the inline column filters could then
+      // only ever offer the values present on the current page.
+      const sql = buildStandardConceptSearchQuery(ATHENA_SCHEMA_MAPPING, term, filters, browseMaxResults)
+      setBrowseResults(sql ? await queryDataSource(project.vocabularyDataSourceId, sql) : [])
     } catch (err) {
       console.error('Browse vocabulary query failed:', err)
       setBrowseResults([])
     } finally {
       setBrowseLoading(false)
     }
-  }, [project.vocabularyDataSourceId, vocabDs, appliedSearch, browseVocabs, browseDomains, browseStandards, browsePage, ensureMounted])
+  }, [project.vocabularyDataSourceId, vocabDs, appliedSearch, browseVocabs, browseDomains, browseClasses, browseStandards, browseMaxResults, ensureMounted])
 
+  // Nothing is loaded until the user searches or picks a filter: an unprompted
+  // scan of the whole concept table is seconds of work nobody asked for.
   useEffect(() => {
-    if (project.vocabularyDataSourceId) loadBrowseResults()
-  }, [loadBrowseResults, project.vocabularyDataSourceId])
+    if (!project.vocabularyDataSourceId) return
+    if (!browseSubmitted) return
+    loadBrowseResults()
+  }, [loadBrowseResults, project.vocabularyDataSourceId, browseSubmitted])
+
+  // Picking a filter is itself a search: it narrows the query, so it should
+  // fill the table without making the user hit Enter on an empty box.
+  useEffect(() => {
+    if (browseVocabs.length || browseDomains.length || browseClasses.length || browseStandards.length) {
+      setBrowseSubmitted(true)
+    }
+  }, [browseVocabs, browseDomains, browseClasses, browseStandards])
 
   // Reset page when applied search or filters change
   useEffect(() => {
     setBrowsePage(0)
-  }, [appliedSearch, browseVocabs, browseDomains, browseStandards])
+  }, [appliedSearch, browseVocabs, browseDomains, browseClasses, browseStandards, browseMaxResults])
 
   /** Submit the search input. If the user typed text without picking any filter, warn
    *  them first (a fully-fuzzy scan over millions of OHDSI concepts can take seconds). */
@@ -894,22 +921,24 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     const noFilter =
       browseVocabs.length === 0 &&
       browseDomains.length === 0 &&
+      browseClasses.length === 0 &&
       browseStandards.length === 0
     if (term && noFilter) {
       pendingSearchRef.current = term
       setSearchWarningOpen(true)
       return
     }
+    setBrowseSubmitted(true)
     setAppliedSearch(term)
-  }, [browseSearch, browseVocabs, browseDomains, browseStandards])
+  }, [browseSearch, browseVocabs, browseDomains, browseClasses, browseStandards])
 
   const confirmUnfilteredSearch = useCallback(() => {
+    setBrowseSubmitted(true)
     setAppliedSearch(pendingSearchRef.current)
     pendingSearchRef.current = ''
     setSearchWarningOpen(false)
   }, [])
 
-  const browseTotalPages = Math.max(1, Math.ceil(browseTotal / BROWSE_PAGE_SIZE))
 
   // ─── OHDSI vocab browse — TanStack column defs (mirrors TargetConceptPanel) ──
   type BrowseRow = Record<string, unknown>
@@ -965,20 +994,24 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     {
       id: 'standard_concept',
       header: () => t('concept_mapping.col_std'),
-      accessorFn: (row) => row.standard_concept,
-      cell: ({ row }) => {
-        const sc = row.original.standard_concept
-        if (sc === 'S') return <Badge variant="default" className="bg-green-600 px-1 py-0 text-[8px]">S</Badge>
-        if (sc === 'C') return <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge>
-        return null
-      },
-      size: 50,
+      accessorFn: (row) => normalizeConceptFlag(row.standard_concept),
+      cell: ({ row }) => <StandardConceptBadge value={normalizeConceptFlag(row.original.standard_concept)} />,
+      size: 40,
+      minSize: 30,
+    },
+    {
+      id: 'valid',
+      header: () => t('concept_mapping.col_valid'),
+      accessorFn: (row) => row.invalid_reason ?? '',
+      cell: ({ row }) => <ValidityBadge value={normalizeConceptFlag(row.original.invalid_reason)} />,
+      size: 40,
       minSize: 30,
     },
   ], [t])
 
-  // Distinct values for inline column filter dropdowns (computed from the loaded
-  // page, like TargetConceptPanel — filters narrow what's already visible).
+  // Distinct values for the inline column filters, taken from the whole loaded
+  // result set rather than the visible page — so the dropdowns offer every
+  // combination the search returned, not just what page 1 happens to show.
   const browseFilterOptions = useMemo(() => {
     const unique = (key: string) =>
       [...new Set(browseResults.map((r) => String(r[key] ?? '')).filter(Boolean))].sort()
@@ -999,7 +1032,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       if (f.vocabulary_id?.length && !f.vocabulary_id.includes(String(r.vocabulary_id ?? ''))) return false
       if (f.domain_id?.length && !f.domain_id.includes(String(r.domain_id ?? ''))) return false
       if (f.concept_class_id?.length && !f.concept_class_id.includes(String(r.concept_class_id ?? ''))) return false
-      if (f.standard_concept && String(r.standard_concept ?? '') !== f.standard_concept) return false
+      if (f.standard_concept && normalizeConceptFlag(r.standard_concept) !== f.standard_concept) return false
       return true
     })
   }, [browseResults, browseColFilters])
@@ -1008,9 +1041,12 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     if (!browseSorting) return filteredBrowseResults
     const { columnId, desc } = browseSorting
     const dir = desc ? -1 : 1
+    // The validity column is named for what it shows, not for the column it
+    // reads — sorting on its own id would compare undefined on every row.
+    const field = columnId === 'valid' ? 'invalid_reason' : columnId
     return [...filteredBrowseResults].sort((a, b) => {
-      const av = a[columnId]
-      const bv = b[columnId]
+      const av = a[field]
+      const bv = b[field]
       if (av == null && bv == null) return 0
       if (av == null) return 1
       if (bv == null) return -1
@@ -1018,6 +1054,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       return dir * String(av).localeCompare(String(bv))
     })
   }, [filteredBrowseResults, browseSorting])
+
+  const browseTotalPages = Math.max(1, Math.ceil(sortedBrowseResults.length / BROWSE_PAGE_SIZE))
+  const browsePageItems = sortedBrowseResults.slice(browsePage * BROWSE_PAGE_SIZE, (browsePage + 1) * BROWSE_PAGE_SIZE)
 
   /** Render the inline filter input for a given column id. */
   const renderBrowseColumnFilter = (columnId: string) => {
@@ -1087,7 +1126,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   }
 
   const browseTable = useReactTable({
-    data: sortedBrowseResults,
+    data: browsePageItems,
     columns: browseColumns,
     state: { columnVisibility: browseColVisibility, columnSizing: browseColSizing },
     onColumnVisibilityChange: setBrowseColVisibility,
@@ -1095,6 +1134,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     columnResizeMode: 'onChange',
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
+    pageCount: browseTotalPages,
   })
 
   /** Human-readable label for a TanStack column. */
@@ -1475,7 +1515,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              className={`h-8 w-8 shrink-0 ${(browseVocabs.length + browseDomains.length + browseStandards.length) > 0 ? 'text-primary' : ''}`}
+                              className={`h-8 w-8 shrink-0 ${(browseVocabs.length + browseDomains.length + browseClasses.length + browseStandards.length) > 0 ? 'text-primary' : ''}`}
                             >
                               <SlidersHorizontal size={14} />
                             </Button>
@@ -1494,8 +1534,8 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                               options={browseVocabOptions}
                               placeholder={t('concept_mapping.vocab_browse_all_vocabs')}
                               onChange={setBrowseVocabs}
-                              popoverWidthClass="w-[var(--radix-popover-trigger-width)]"
-                              triggerClass="h-7 w-full justify-start text-xs"
+                              popoverWidthClass="w-[220px]"
+                              triggerClass={`${FILTER_INPUT_CLASS} justify-between`}
                             />
                           </div>
                         )}
@@ -1508,8 +1548,22 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                               options={browseDomainOptions}
                               placeholder={t('concept_mapping.vocab_browse_all_domains')}
                               onChange={setBrowseDomains}
-                              popoverWidthClass="w-[var(--radix-popover-trigger-width)]"
-                              triggerClass="h-7 w-full justify-start text-xs"
+                              popoverWidthClass="w-[220px]"
+                              triggerClass={`${FILTER_INPUT_CLASS} justify-between`}
+                            />
+                          </div>
+                        )}
+                        {/* Concept Class */}
+                        {browseClassOptions.length > 0 && (
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_concept_class')}</label>
+                            <MultiSelectFilter
+                              value={browseClasses}
+                              options={browseClassOptions}
+                              placeholder={t('concept_mapping.vocab_browse_all_classes')}
+                              onChange={setBrowseClasses}
+                              popoverWidthClass="w-[220px]"
+                              triggerClass={`${FILTER_INPUT_CLASS} justify-between`}
                             />
                           </div>
                         )}
@@ -1536,6 +1590,21 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                               )
                             })}
                           </div>
+                        </div>
+                        {/* Max results */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.search_max_results')}</label>
+                          <Input
+                            type="number"
+                            className="h-7 text-xs"
+                            value={browseMaxResults}
+                            min={1}
+                            max={100000}
+                            onChange={(e) => setBrowseMaxResults(Math.max(1, parseInt(e.target.value) || BROWSE_MAX_RESULTS))}
+                          />
+                          {browseMaxResults > 10000 && (
+                            <p className="text-[10px] text-destructive">{t('concept_mapping.search_max_results_warning')}</p>
+                          )}
                         </div>
                       </PopoverContent>
                     </Popover>
@@ -1571,6 +1640,10 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                       {browseLoading ? (
                         <div className="flex h-32 items-center justify-center">
                           <Loader2 size={16} className="animate-spin text-muted-foreground" />
+                        </div>
+                      ) : !browseSubmitted ? (
+                        <div className="flex h-32 items-center justify-center">
+                          <p className="text-xs text-muted-foreground">{t('concept_mapping.search_hint')}</p>
                         </div>
                       ) : browseResults.length === 0 ? (
                         <div className="flex h-32 items-center justify-center">
@@ -1642,15 +1715,16 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                             {browseTable.getRowModel().rows.map((row) => (
                               <TableRow key={String(row.original.concept_id)}>
                                 {row.getVisibleCells().map((cell) => {
-                                  const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
                                   const raw = cell.getValue()
-                                  const title = raw != null ? String(raw) : undefined
+                                  const useTooltip = BROWSE_TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
+                                  const rendered = useTooltip
+                                    ? <TruncatedText text={String(raw)} className={BROWSE_MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined} />
+                                    : flexRender(cell.column.columnDef.cell, cell.getContext())
                                   return (
                                     <TableCell
                                       key={cell.id}
-                                      className="overflow-hidden truncate text-xs"
+                                      className="overflow-hidden truncate px-2 py-1 text-xs"
                                       style={{ maxWidth: cell.column.getSize() }}
-                                      title={title}
                                     >
                                       {rendered}
                                     </TableCell>
@@ -1666,8 +1740,13 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                     {/* Footer: count + column-visibility toggle + pagination */}
                     <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
                       <div className="flex items-center gap-2">
+                        {/* The ratio only says something while an inline column
+                            filter is hiding rows. */}
                         <span className="text-[10px] text-muted-foreground">
-                          {browseTotal.toLocaleString()} {t('concept_mapping.total_concepts')}
+                          {filteredBrowseResults.length < browseResults.length
+                            ? `${filteredBrowseResults.length} / ${browseResults.length}`
+                            : browseResults.length}{' '}
+                          {t('common.results').toLowerCase()}
                         </span>
                         <DropdownMenu>
                           <Tooltip>

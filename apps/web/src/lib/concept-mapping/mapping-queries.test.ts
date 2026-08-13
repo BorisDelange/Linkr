@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery } from './mapping-queries'
+import { buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery } from './mapping-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 const mapping: SchemaMapping = {
@@ -200,5 +200,57 @@ describe('buildFileSourceConceptsGroupCountQuery — per-group totals over the f
   it('returns empty string when the requested column is absent (avoids a Binder Error)', () => {
     expect(buildFileSourceConceptsGroupCountQuery('vocabulary_id', { vocabulary: false, category: true })).toBe('')
     expect(buildFileSourceConceptsGroupCountQuery('category', { vocabulary: true, category: false })).toBe('')
+  })
+})
+
+const vocabMapping: SchemaMapping = {
+  eventTables: [],
+  conceptTables: [
+    {
+      key: 'concept',
+      table: 'concept',
+      idColumn: 'concept_id',
+      nameColumn: 'concept_name',
+      codeColumn: 'concept_code',
+      vocabularyColumn: 'vocabulary_id',
+      extraColumns: {
+        domain_id: 'domain_id',
+        concept_class_id: 'concept_class_id',
+        standard_concept: 'standard_concept',
+        invalid_reason: 'invalid_reason',
+      },
+    },
+  ],
+} as unknown as SchemaMapping
+
+describe('buildStandardConceptSearchQuery', () => {
+  it('caps the result set at the requested limit', () => {
+    const sql = buildStandardConceptSearchQuery(vocabMapping, '', undefined, 25)
+    expect(sql).toContain('LIMIT 25')
+  })
+
+  // Rows sharing a rank would otherwise come back in scan order, so the same
+  // search could list them differently from one run to the next.
+  it('orders a ranked search by rank then concept_id, for a stable listing', () => {
+    const sql = buildStandardConceptSearchQuery(vocabMapping, 'aspirin', undefined, 25)
+    expect(sql).toContain('ORDER BY _rank, d.concept_id')
+  })
+
+  it('selects the columns the browse table renders', () => {
+    const sql = buildStandardConceptSearchQuery(vocabMapping, '', undefined, 25)
+    expect(sql).toContain('AS standard_concept')
+    expect(sql).toContain('AS invalid_reason')
+  })
+
+  it('applies the popover filters to the query', () => {
+    const sql = buildStandardConceptSearchQuery(
+      vocabMapping,
+      '',
+      { vocabularyIds: ['SNOMED'], conceptClassIds: ['Clinical Finding'], standardConcepts: ['S'] },
+      25,
+    )
+    expect(sql).toContain("vocabulary_id IN ('SNOMED')")
+    expect(sql).toContain("concept_class_id IN ('Clinical Finding')")
+    expect(sql).toContain("standard_concept IN ('S')")
   })
 })

@@ -529,11 +529,14 @@ export function buildStandardConceptSearchQuery(
     return `SELECT ${selectCols} FROM ${dict.table} d${wherePart} LIMIT ${limit}`
   }
 
+  // Paging a ranked search needs a total order: `_rank` alone leaves ties in
+  // whatever order the scan produced, so a row could repeat on page 2 or be
+  // skipped entirely. concept_id breaks the tie deterministically.
   const where = `${fuzzy.where}${filterClause}`
   return `SELECT ${selectCols}, ${fuzzy.rankExpr} AS _rank
   FROM ${dict.table} d
   WHERE ${where}
-  ORDER BY _rank
+  ORDER BY _rank, d.${idCol}
   LIMIT ${limit}`
 }
 
