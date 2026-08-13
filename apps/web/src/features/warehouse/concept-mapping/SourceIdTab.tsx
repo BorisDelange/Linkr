@@ -116,6 +116,10 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     rangeCache.set(workspaceId, rows)
     setRanges(rows)
     setLoading(false)
+    // Returned as well as set: a caller that reloads and then acts on a range
+    // cannot read the new state through its own closure, which still holds the
+    // pre-reload array.
+    return rows
   }, [workspaceId])
 
   useEffect(() => { load() }, [load])
@@ -194,12 +198,15 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     await load()
   }
 
-  const assignIds = async (badgeLabel: string) => {
+  // `fromRanges` lets a caller that just reloaded pass the fresh rows: reading
+  // `ranges` here would see the pre-reload array through this closure, and
+  // allocate from a cursor that no longer reflects the database.
+  const assignIds = async (badgeLabel: string, fromRanges?: RangeRow[]) => {
     setAssignLoading(badgeLabel)
     setAssignResult(null)
     setAssignProgress(null)
     try {
-      const range = ranges.find((r) => r.badgeLabel === badgeLabel)
+      const range = (fromRanges ?? ranges).find((r) => r.badgeLabel === badgeLabel)
       if (!range) return
 
       // Gather all (vocabularyId, conceptCode) pairs from projects that have this badge
@@ -342,28 +349,39 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     }
   }
 
-  const resetBadge = async (badgeLabel: string) => {
+  /**
+   * Clear a badge's ids and hand them out again from the start of its range, in
+   * one action. Splitting it left the range empty until someone remembered to
+   * press Assign — and an emptied range is not a state anyone wants to stop at.
+   *
+   * Clearing first is the point: ids are only reused once nothing holds them, so
+   * a range whose bounds moved (or whose entries drifted outside them) comes
+   * back packed from rangeStart.
+   */
+  const reassignBadge = async (badgeLabel: string) => {
     await getStorage().sourceConceptIdEntries.deleteByWorkspaceAndBadge(workspaceId, badgeLabel)
     const range = ranges.find((r) => r.badgeLabel === badgeLabel)
     if (range) {
       await getStorage().sourceConceptIdRanges.save({ ...range, nextId: range.rangeStart, updatedAt: new Date().toISOString() })
     }
-    // The previous run's outcome describes ids that no longer exist. Left on
-    // screen it reads as the result of the reset itself — "all N already
-    // assigned" right after everything was cleared.
+    // The previous run's outcome describes ids that no longer exist.
     setAssignResult(null)
     setResetConfirm(null)
-    await load()
+    const fresh = await load()
+    await assignIds(badgeLabel, fresh)
   }
 
-  const resetAll = async () => {
+  const reassignAll = async () => {
     await getStorage().sourceConceptIdEntries.deleteByWorkspace(workspaceId)
     for (const range of ranges) {
       await getStorage().sourceConceptIdRanges.save({ ...range, nextId: range.rangeStart, updatedAt: new Date().toISOString() })
     }
     setAssignResult(null)
     setResetConfirm(null)
-    await load()
+    const fresh = await load()
+    // Sequentially: each badge queries its projects' source concepts, and running
+    // those together would contend for the same DuckDB connection.
+    for (const range of fresh) await assignIds(range.badgeLabel, fresh)
   }
 
   const removeBadge = async (badgeLabel: string) => {
@@ -606,7 +624,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
 
       </div>
 
-      {/* Reset confirmation */}
+      {/* Reassign confirmation */}
       <AlertDialog open={!!resetConfirm} onOpenChange={(open) => { if (!open) setResetConfirm(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -622,8 +640,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
               onClick={() => {
-                if (resetConfirm === 'all') resetAll()
-                else if (resetConfirm) resetBadge(resetConfirm)
+                if (resetConfirm === 'all') reassignAll()
+                else if (resetConfirm) reassignBadge(resetConfirm)
               }}
             >
               {t('concept_mapping.source_id_reset_confirm_action')}
