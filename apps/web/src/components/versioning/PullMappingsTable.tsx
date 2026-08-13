@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -111,23 +111,26 @@ const DEFAULT_HIDDEN = [
 ]
 
 /** Plain-text labels for the visibility menu, which searches on text and so
- *  cannot use the columns' rendered headers. */
+ *  cannot use the columns' rendered headers. Kept in the columns' own order —
+ *  source, then target (vocabulary first, its attributes trailing the name),
+ *  then how the mapping was made, then who touched it — so the menu reads like
+ *  the table. */
 const COLUMN_LABELS = (t: (k: string) => string): Record<string, string> => ({
   type: t('versioning.pull_col_change'),
   sourceVocab: t('concept_mapping.col_source_vocabulary'),
   sourceCode: t('concept_mapping.col_source_concept_code'),
   sourceName: t('concept_mapping.col_source_concept_name'),
+  targetVocab: t('concept_mapping.col_target_vocabulary'),
   targetCode: t('concept_mapping.col_target_concept_code'),
   targetName: t('concept_mapping.col_target_concept_name'),
-  mappedBy: t('concept_mapping.col_mapped_by'),
-  targetVocab: t('concept_mapping.col_target_vocabulary'),
   targetDomain: t('concept_mapping.col_domain'),
   targetStandard: t('concept_mapping.col_standard'),
   equivalence: t('concept_mapping.col_equivalence'),
   status: t('concept_mapping.col_status'),
-  mappedOn: t('concept_mapping.col_mapped_on'),
   comments: t('concept_mapping.comments'),
   reviews: t('concept_mapping.col_reviews'),
+  mappedBy: t('concept_mapping.col_mapped_by'),
+  mappedOn: t('concept_mapping.col_mapped_on'),
   reviewedBy: t('concept_mapping.col_reviewed_by'),
   reviewedOn: t('concept_mapping.col_reviewed_on'),
 })
@@ -260,17 +263,17 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
     { id: 'sourceVocab', header: () => t('concept_mapping.col_source_vocabulary'), cell: ({ row }) => row.original.sourceVocab, size: 100, minSize: 50 },
     { id: 'sourceCode', header: () => t('concept_mapping.col_source_concept_code'), cell: ({ row }) => row.original.sourceCode, size: 110, minSize: 50 },
     { id: 'sourceName', header: () => t('concept_mapping.col_source_concept_name'), cell: ({ row }) => row.original.sourceName, size: 220, minSize: 80 },
+    { id: 'targetVocab', header: () => t('concept_mapping.col_target_vocabulary'), cell: ({ row }) => row.original.targetVocab, size: 100, minSize: 50 },
     { id: 'targetCode', header: () => t('concept_mapping.col_target_concept_code'), cell: ({ row }) => row.original.targetCode, size: 110, minSize: 50 },
     { id: 'targetName', header: () => t('concept_mapping.col_target_concept_name'), cell: ({ row }) => row.original.targetName, size: 220, minSize: 80 },
-    { id: 'mappedBy', header: () => t('concept_mapping.col_mapped_by'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.mappedBy}</span>, size: 140, minSize: 60 },
-    { id: 'targetVocab', header: () => t('concept_mapping.col_target_vocabulary'), cell: ({ row }) => row.original.targetVocab, size: 100, minSize: 50 },
     { id: 'targetDomain', header: () => t('concept_mapping.col_domain'), cell: ({ row }) => row.original.targetDomain, size: 110, minSize: 50 },
     { id: 'targetStandard', header: () => t('concept_mapping.col_standard'), cell: ({ row }) => row.original.targetStandard, size: 90, minSize: 50 },
     { id: 'equivalence', header: () => t('concept_mapping.col_equivalence'), cell: ({ row }) => row.original.equivalence, size: 150, minSize: 60 },
     { id: 'status', header: () => t('concept_mapping.col_status'), cell: ({ row }) => row.original.status, size: 100, minSize: 50 },
-    { id: 'mappedOn', header: () => t('concept_mapping.col_mapped_on'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.mappedOn}</span>, size: 170, minSize: 60 },
     { id: 'comments', header: () => t('concept_mapping.comments'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.comments}</span>, size: 90, minSize: 50 },
     { id: 'reviews', header: () => t('concept_mapping.col_reviews'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.reviews}</span>, size: 90, minSize: 50 },
+    { id: 'mappedBy', header: () => t('concept_mapping.col_mapped_by'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.mappedBy}</span>, size: 140, minSize: 60 },
+    { id: 'mappedOn', header: () => t('concept_mapping.col_mapped_on'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.mappedOn}</span>, size: 170, minSize: 60 },
     { id: 'reviewedBy', header: () => t('concept_mapping.col_reviewed_by'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.reviewedBy}</span>, size: 140, minSize: 60 },
     { id: 'reviewedOn', header: () => t('concept_mapping.col_reviewed_on'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.reviewedOn}</span>, size: 170, minSize: 60 },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -288,21 +291,25 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
   useEffect(() => { setVisibleCount(PAGE_SIZE) }, [filters, sorting, typeFilter])
   const visibleRows = useMemo(() => rows.slice(0, visibleCount), [rows, visibleCount])
 
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const hasMoreRef = useRef(false)
-  hasMoreRef.current = visibleCount < rows.length
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    const onScroll = () => {
-      if (!hasMoreRef.current) return
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
-        setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, rows.length))
+  // A sentinel row at the end of the list, watched by an IntersectionObserver
+  // rather than a scroll listener: the dialog mounts its content after this
+  // component's first effects run, so a ref-based listener attached on mount
+  // binds to null and never fires. A callback ref catches the node whenever it
+  // appears, and re-fires as soon as the sentinel is scrolled back into view.
+  const hasMore = visibleCount < rows.length
+  const loadMoreRef = useCallback((node: HTMLElement | null) => {
+    observerRef.current?.disconnect()
+    if (!node) return
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) {
+        setVisibleCount((prev) => prev + PAGE_SIZE)
       }
-    }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [rows.length])
+    }, { rootMargin: '200px' })
+    io.observe(node)
+    observerRef.current = io
+  }, [])
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  useEffect(() => () => observerRef.current?.disconnect(), [])
 
   const table = useReactTable({
     data: visibleRows,
@@ -389,7 +396,7 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
           />
         </div>
 
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto">
           <Table className="w-full" style={{ tableLayout: 'fixed' }}>
             <TableHeader>
               <TableRow>
@@ -452,6 +459,15 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
                   ))}
                 </TableRow>
               ))}
+              {hasMore && (
+                <TableRow>
+                  <TableCell colSpan={table.getVisibleLeafColumns().length} className="p-0">
+                    <div ref={loadMoreRef} className="py-3 text-center text-[11px] text-muted-foreground">
+                      {t('common.loading')}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </div>
