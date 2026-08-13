@@ -4,51 +4,86 @@ import { clampNextId } from './source-id-range'
 /**
  * The cursor and the bounds are stored side by side and can disagree: editing a
  * range moves the bounds and leaves the cursor where the previous range put it.
- * What makes that specifically dangerous is that the assignment loop guards
- * only the upper end, so a cursor below the start is not caught by anything.
+ * A cursor outside the bounds is therefore stale, not informative - which way it
+ * is wrong decides the damage:
+ *
+ *   below the start -> ids leak into another badge's band, silently
+ *   above the end   -> the range reads as exhausted and refuses to assign
+ *
+ * Only the entries actually allocated can settle it, so they are the authority.
  */
 
+const START = 2_002_000_001
+const END = 2_004_000_000
+
 describe('clampNextId', () => {
-  it('leaves a cursor inside the range alone', () => {
-    expect(clampNextId(2_100_500_000, 2_100_000_001, 2_101_000_000)).toBe(2_100_500_000)
+  describe('with nothing assigned yet', () => {
+    it('restarts an empty range whose cursor sits past the end', () => {
+      // The reported bug: four badges created 1M-wide, then widened to 2M. The
+      // edit left each cursor above its new end, so a range that had never
+      // assigned anything reported "Range exhausted: only 0 new IDs assigned".
+      expect(clampNextId(END + 1, START, END, null)).toBe(START)
+    })
+
+    it('restarts an empty range whose cursor sits below the start', () => {
+      expect(clampNextId(2_000_000_001, START, END, null)).toBe(START)
+    })
+
+    it('keeps a valid cursor on an empty range', () => {
+      expect(clampNextId(START, START, END, null)).toBe(START)
+    })
   })
 
-  it('accepts a cursor sitting exactly on either bound', () => {
-    expect(clampNextId(2_100_000_001, 2_100_000_001, 2_101_000_000)).toBe(2_100_000_001)
-    expect(clampNextId(2_101_000_000, 2_100_000_001, 2_101_000_000)).toBe(2_101_000_000)
-  })
+  describe('with ids already assigned', () => {
+    it('resumes just past the highest id handed out', () => {
+      expect(clampNextId(START, START, END, 2_002_006_782)).toBe(2_002_006_783)
+    })
 
-  it('snaps a cursor below the start up to the start', () => {
-    // The reported bug: a badge created before an earlier range kept its
-    // cursor, the range was then edited to a higher band, and assignment ran
-    // from the old cursor - filling the new range's quota with ids from the
-    // old band while reporting success.
-    expect(clampNextId(2_002_000_001, 2_100_000_001, 2_101_000_000)).toBe(2_100_000_001)
-  })
+    it('repairs a cursor left below the start by an edit', () => {
+      // Cursor from a previous, lower range; entries prove where we really got to.
+      expect(clampNextId(2_000_500_000, START, END, 2_002_006_782)).toBe(2_002_006_783)
+    })
 
-  it('keeps an exhausted cursor past the end rather than re-issuing ids', () => {
-    // end + 1 is the "full" marker; clamping it back inside would hand out ids
-    // that were already allocated.
-    expect(clampNextId(2_101_000_001, 2_100_000_001, 2_101_000_000)).toBe(2_101_000_001)
-  })
+    it('trusts a cursor ahead of the high-water mark', () => {
+      // Ids can be assigned and later deleted, leaving the mark behind the
+      // cursor; re-issuing those ids would collide with data already exported.
+      expect(clampNextId(2_002_009_000, START, END, 2_002_006_782)).toBe(2_002_009_000)
+    })
 
-  it('caps a cursor far past the end at one-past-the-end', () => {
-    expect(clampNextId(2_147_483_647, 2_100_000_001, 2_101_000_000)).toBe(2_101_000_001)
+    it('reports exhausted only when the assigned ids really reach the end', () => {
+      expect(clampNextId(END + 1, START, END, END)).toBe(END + 1)
+    })
+
+    it('ignores a high-water mark from outside the range', () => {
+      // Entries inherited from another badge keep their original id and must not
+      // drag this range's cursor with them.
+      expect(clampNextId(START, START, END, 2_000_144_638)).toBe(START)
+    })
   })
 
   it('falls back to the start when the cursor is missing or not a number', () => {
-    expect(clampNextId(NaN, 2_100_000_001, 2_101_000_000)).toBe(2_100_000_001)
-    expect(clampNextId(undefined as unknown as number, 2_100_000_001, 2_101_000_000)).toBe(2_100_000_001)
+    expect(clampNextId(NaN, START, END, null)).toBe(START)
+    expect(clampNextId(undefined as unknown as number, START, END, null)).toBe(START)
   })
 
-  it('never returns a value that would allocate outside the range', () => {
-    const start = 2_100_000_001
-    const end = 2_100_000_010
-    for (const cursor of [0, 1, start - 1, start, end, end + 1, end + 999, NaN]) {
-      const clamped = clampNextId(cursor, start, end)
-      // Either a usable id inside the range, or the exhausted marker.
-      expect(clamped >= start).toBe(true)
-      expect(clamped <= end + 1).toBe(true)
+  it('defaults to the pre-existing behaviour when no high-water mark is given', () => {
+    expect(clampNextId(2_000_000_001, START, END)).toBe(START)
+  })
+
+  it('never allocates outside the range, whatever the inputs', () => {
+    const s = 2_100_000_001
+    const e = 2_100_000_010
+    const cursors = [0, 1, s - 1, s, e, e + 1, e + 999, NaN]
+    const marks = [null, s, e, s + 5, s - 1, e + 1]
+    for (const cursor of cursors) {
+      for (const mark of marks) {
+        const got = clampNextId(cursor, s, e, mark)
+        // Either a usable id inside the range, or the exhausted marker.
+        expect(got).toBeGreaterThanOrEqual(s)
+        expect(got).toBeLessThanOrEqual(e + 1)
+        // An empty range must never come back exhausted.
+        if (mark == null) expect(got).toBeLessThanOrEqual(e)
+      }
     }
   })
 })

@@ -421,6 +421,10 @@ export interface SourceConceptIdBadgeCounts {
   badgeLabel: string
   assignedCount: number
   ownCount: number
+  /** Largest id actually handed out from the badge's own range, null if none.
+   *  The allocation cursor is stored separately and survives range edits, so
+   *  this is what says where allocation really got to. */
+  highestOwnId: number | null
 }
 
 /** Storage interface for source concept ID registry entries. */

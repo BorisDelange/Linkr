@@ -2313,13 +2313,14 @@ class IDBSourceConceptIdEntryStorage implements SourceConceptIdEntryStorage {
     for (const e of entries) {
       let c = counts.get(e.badgeLabel)
       if (!c) {
-        c = { badgeLabel: e.badgeLabel, assignedCount: 0, ownCount: 0 }
+        c = { badgeLabel: e.badgeLabel, assignedCount: 0, ownCount: 0, highestOwnId: null }
         counts.set(e.badgeLabel, c)
       }
       c.assignedCount++
       const range = rangeByBadge.get(e.badgeLabel)
       if (range && e.sourceConceptId >= range.rangeStart && e.sourceConceptId <= range.rangeEnd) {
         c.ownCount++
+        if (c.highestOwnId == null || e.sourceConceptId > c.highestOwnId) c.highestOwnId = e.sourceConceptId
       }
     }
     return [...counts.values()]

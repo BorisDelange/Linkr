@@ -42,6 +42,9 @@ interface RangeRow extends SourceConceptIdRange {
   ownCount: number
   /** Total entries for this badge (own + inherited from other badges) */
   assignedCount: number
+  /** Largest id handed out from this range, null if none — the cursor alone
+   *  cannot say, since it survives edits of the bounds. */
+  highestOwnId: number | null
 }
 
 interface RangeEdit {
@@ -103,6 +106,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       return {
         ...r, id: `${workspaceId}__${r.badgeLabel}`,
         assignedCount: c?.assignedCount ?? 0, ownCount: c?.ownCount ?? 0,
+        highestOwnId: c?.highestOwnId ?? null,
       }
     }).sort((a, b) => a.rangeStart - b.rangeStart)
     rangeCache.set(workspaceId, rows)
@@ -184,7 +188,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       // against the old range, and assignIds starts from it verbatim. Left
       // behind, a cursor below the new start silently hands out ids outside
       // the range the user just asked for.
-      nextId: clampNextId(existing.nextId, start, end),
+      nextId: clampNextId(existing.nextId, start, end, existing.highestOwnId),
       updatedAt: now,
     })
     setEdits((prev) => { const n = { ...prev }; delete n[badgeLabel]; return n })
@@ -272,7 +276,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       // before this was enforced carry one from their previous bounds, and the
       // loop's only check is against rangeEnd, so a low cursor would quietly
       // fill the range's quota with ids belonging to another badge's band.
-      let nextId = clampNextId(range.nextId, range.rangeStart, range.rangeEnd)
+      let nextId = clampNextId(range.nextId, range.rangeStart, range.rangeEnd, range.highestOwnId)
       const now = new Date().toISOString()
       let newlyAssigned = 0 // IDs consumed from this range (truly new)
 
@@ -427,7 +431,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                 const edit = edits[range.badgeLabel]
                 const err = errors[range.badgeLabel]
                 const capacity = range.rangeEnd - range.rangeStart + 1
-                const used = clampNextId(range.nextId, range.rangeStart, range.rangeEnd) - range.rangeStart
+                const used = clampNextId(range.nextId, range.rangeStart, range.rangeEnd, range.highestOwnId) - range.rangeStart
                 const rangePct = Math.round((used / capacity) * 100)
                 return (
                   <Card key={range.badgeLabel} className="p-4">

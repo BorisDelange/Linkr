@@ -102,10 +102,14 @@ async def count_entries_by_badge(
     totals = {row[0]: row[1] for row in result.all()}
 
     # own_count: entries whose id sits within the badge's own [range_start, range_end].
+    # highest_own_id comes from the same scan: the allocation cursor is stored on
+    # the range and survives an edit of its bounds, so it cannot say where
+    # allocation actually got to - the entries can.
     own_result = await db.execute(
         select(
             SourceConceptIdEntry.badge_label,
             func.count().label("own_count"),
+            func.max(SourceConceptIdEntry.source_concept_id).label("highest_own_id"),
         )
         .join(
             SourceConceptIdRange,
@@ -121,10 +125,15 @@ async def count_entries_by_badge(
         )
         .group_by(SourceConceptIdEntry.badge_label)
     )
-    owns = {row[0]: row[1] for row in own_result.all()}
+    owns = {row[0]: (row[1], row[2]) for row in own_result.all()}
 
     return [
-        {"badgeLabel": label, "assignedCount": count, "ownCount": owns.get(label, 0)}
+        {
+            "badgeLabel": label,
+            "assignedCount": count,
+            "ownCount": owns.get(label, (0, None))[0],
+            "highestOwnId": owns.get(label, (0, None))[1],
+        }
         for label, count in totals.items()
     ]
 
