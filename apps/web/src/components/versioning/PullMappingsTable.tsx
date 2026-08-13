@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -93,6 +93,11 @@ function toRow(c: MappingChange): Row {
     reviewedOn: m?.reviewedOn ?? '',
   }
 }
+
+/** Rows added per scroll batch. Mounting a few thousand rows at once is what
+ *  made this dialog crawl — 3973 changes × up to 17 cells is ~60k DOM nodes,
+ *  paid on open and again on every filter keystroke. Matches MappingsTab. */
+const PAGE_SIZE = 50
 
 type SortState = { columnId: string; desc: boolean } | null
 type TypeFilter = 'all' | MappingChange['type']
@@ -276,8 +281,31 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
     [hidden],
   )
 
+  // Only the rows on screen are handed to the table; the rest arrive as the user
+  // scrolls. `rows` stays the full filtered set, so counts and "select all"
+  // still speak for everything matched, not just what is mounted.
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [filters, sorting, typeFilter])
+  const visibleRows = useMemo(() => rows.slice(0, visibleCount), [rows, visibleCount])
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const hasMoreRef = useRef(false)
+  hasMoreRef.current = visibleCount < rows.length
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onScroll = () => {
+      if (!hasMoreRef.current) return
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+        setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, rows.length))
+      }
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [rows.length])
+
   const table = useReactTable({
-    data: rows,
+    data: visibleRows,
     columns,
     state: { columnSizing, columnVisibility },
     onColumnSizingChange: setColumnSizing,
@@ -340,7 +368,12 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
               )
             })}
           </div>
-          <span className="ml-auto text-[11px] text-muted-foreground">{t('versioning.pull_selected_count', { count: sel.size, total: changes.length })}</span>
+          {/* Shown rows vs matched rows, so a filtered view does not read as if
+              it held everything — the rest arrive on scroll. */}
+          <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
+            {visibleRows.length < rows.length && `${visibleRows.length} / ${rows.length} · `}
+            {t('versioning.pull_selected_count', { count: sel.size, total: changes.length })}
+          </span>
           <ColumnVisibilityMenu
             items={toggleableColumns}
             onToggle={setColumnVisible}
@@ -356,7 +389,7 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
           />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
           <Table className="w-full" style={{ tableLayout: 'fixed' }}>
             <TableHeader>
               <TableRow>
