@@ -1,6 +1,5 @@
 [
   {
-    "sourceConceptId": 1,
     "sourceConceptName": "first",
     "sourceVocabularyId": "LOINC",
     "sourceDomainId": null,
@@ -46,7 +45,6 @@
     "reviewComment": null
   },
   {
-    "sourceConceptId": 1,
     "sourceConceptName": "last",
     "sourceVocabularyId": "LOINC",
     "sourceDomainId": null,

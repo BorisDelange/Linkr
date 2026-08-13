@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,13 +22,16 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
-import { clampNextId } from './source-id-range'
+import {
+  OMOP_CUSTOM_MAX,
+  OMOP_CUSTOM_MIN,
+  clampNextId,
+  formatRangeBound,
+  parseRangeBound,
+  rangeCapacity,
+} from './source-id-range'
 import type { MappingProject, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
 
-// OMOP convention: custom source concept IDs start at 2,000,000,001
-// Max safe value: 2,147,483,647 (INT32 max, for compatibility with INTEGER columns)
-const OMOP_CUSTOM_MIN = 2_000_000_001
-const OMOP_CUSTOM_MAX = 2_147_483_647
 const DEFAULT_RANGE_SIZE = 1_000_000
 
 interface SourceIdTabProps {
@@ -141,39 +145,34 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     await load()
   }
 
+  /**
+   * Why a range cannot be saved, or null when it can. Runs as the user types so
+   * the bounds are reported wrong where they are entered, rather than only on a
+   * rejected save.
+   */
+  const validateRange = (badgeLabel: string, edit: { rangeStart: string; rangeEnd: string }): string | null => {
+    const start = parseRangeBound(edit.rangeStart)
+    const end = parseRangeBound(edit.rangeEnd)
+    if (start == null || end == null) return t('concept_mapping.source_id_error_invalid')
+    if (start < OMOP_CUSTOM_MIN) return t('concept_mapping.source_id_error_min', { min: formatNumber(OMOP_CUSTOM_MIN) })
+    if (end > OMOP_CUSTOM_MAX) return t('concept_mapping.source_id_error_max', { max: formatNumber(OMOP_CUSTOM_MAX) })
+    if (end <= start) return t('concept_mapping.source_id_error_order')
+    if (rangeOverlaps(ranges, badgeLabel, start, end)) return t('concept_mapping.source_id_error_overlap')
+    return null
+  }
+
   const saveEdit = async (badgeLabel: string) => {
     const edit = edits[badgeLabel]
     if (!edit) return
-    const start = parseInt(edit.rangeStart, 10)
-    const end = parseInt(edit.rangeEnd, 10)
+    const invalid = validateRange(badgeLabel, edit)
+    if (invalid) {
+      setErrors({ ...errors, [badgeLabel]: invalid })
+      return
+    }
+    const start = parseRangeBound(edit.rangeStart) as number
+    const end = parseRangeBound(edit.rangeEnd) as number
+
     const newErrors: Record<string, string> = { ...errors }
-
-    if (isNaN(start) || isNaN(end)) {
-      newErrors[badgeLabel] = t('concept_mapping.source_id_error_invalid')
-      setErrors(newErrors)
-      return
-    }
-    if (start < OMOP_CUSTOM_MIN) {
-      newErrors[badgeLabel] = t('concept_mapping.source_id_error_min', { min: formatNumber(OMOP_CUSTOM_MIN) })
-      setErrors(newErrors)
-      return
-    }
-    if (end > OMOP_CUSTOM_MAX) {
-      newErrors[badgeLabel] = t('concept_mapping.source_id_error_max', { max: formatNumber(OMOP_CUSTOM_MAX) })
-      setErrors(newErrors)
-      return
-    }
-    if (end <= start) {
-      newErrors[badgeLabel] = t('concept_mapping.source_id_error_order')
-      setErrors(newErrors)
-      return
-    }
-    if (rangeOverlaps(ranges, badgeLabel, start, end)) {
-      newErrors[badgeLabel] = t('concept_mapping.source_id_error_overlap')
-      setErrors(newErrors)
-      return
-    }
-
     delete newErrors[badgeLabel]
     setErrors(newErrors)
 
@@ -264,13 +263,14 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         }
       }
 
-      // Load existing entries for this badge (to skip already-assigned)
+      // Load existing entries for this badge (to skip already-assigned).
+      // Scoped to the badge on purpose: an id belongs to exactly one badge, so a
+      // (vocab, code) shared between centres gets a distinct id in each one. Ids
+      // from several sites end up in one warehouse, where the id is what says
+      // which site a row came from — reusing another badge's id would both erase
+      // that origin and hand out a number outside this range's band.
       const existing = await getStorage().sourceConceptIdEntries.getByWorkspaceAndBadge(workspaceId, badgeLabel)
       const existingMap = new Map(existing.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e]))
-
-      // Load ALL entries across the workspace — source_concept_id is global per (vocab, code)
-      const allEntries = await getStorage().sourceConceptIdEntries.getByWorkspace(workspaceId)
-      const globalMap = new Map(allEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId]))
 
       // Never allocate from a cursor that sits outside the range: ranges edited
       // before this was enforced carry one from their previous bounds, and the
@@ -293,18 +293,13 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         const conceptCode = pairKey.slice(sepIdx + 2)
         const entryId = `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`
 
-        // Reuse existing global ID if concept already assigned in another badge
-        const existingGlobalId = globalMap.get(pairKey)
-        const sourceConceptId = existingGlobalId ?? nextId
-
-        if (!existingGlobalId) {
-          if (nextId > range.rangeEnd) {
-            exhausted = true // surfaced in the result — a silent break under-assigns
-            break
-          }
-          nextId++
-          newlyAssigned++
+        if (nextId > range.rangeEnd) {
+          exhausted = true // surfaced in the result — a silent break under-assigns
+          break
         }
+        const sourceConceptId = nextId
+        nextId++
+        newlyAssigned++
 
         toSave.push({
           id: entryId,
@@ -374,8 +369,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
 
   const unregisteredBadges = allBadgeLabels.filter((l) => !ranges.some((r) => r.badgeLabel === l))
 
-  // Ids issued, counted once: a concept shared between badges has one id, and
-  // summing per-badge totals would count it once per badge.
+  // Ids issued across all ranges. Every id belongs to exactly one badge, so
+  // summing the per-badge totals counts each one once.
   const totalAssigned = ranges.reduce((s, r) => s + r.ownCount, 0)
 
   return (
@@ -463,26 +458,42 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                           )}
                         </div>
 
-                        {edit ? (
+                        {edit ? (() => {
+                          // Validated as they type: the message names what is wrong
+                          // with the bounds right under them, and the capacity says
+                          // how many ids the range would hold before it is saved.
+                          const liveError = validateRange(range.badgeLabel, edit)
+                          const capacity = rangeCapacity(parseRangeBound(edit.rangeStart), parseRangeBound(edit.rangeEnd))
+                          return (
                           <div className="space-y-1">
                             <div className="flex items-center gap-2">
                               <Input
-                                className="h-7 w-36 font-mono text-xs"
-                                value={edit.rangeStart}
+                                className={cn('h-7 w-36 font-mono text-xs', liveError && 'border-destructive focus-visible:ring-destructive')}
+                                inputMode="numeric"
+                                value={formatRangeBound(edit.rangeStart)}
                                 onChange={(e) => setEdits((prev) => ({ ...prev, [range.badgeLabel]: { ...edit, rangeStart: e.target.value } }))}
                               />
                               <span className="text-xs text-muted-foreground">→</span>
                               <Input
-                                className="h-7 w-36 font-mono text-xs"
-                                value={edit.rangeEnd}
+                                className={cn('h-7 w-36 font-mono text-xs', liveError && 'border-destructive focus-visible:ring-destructive')}
+                                inputMode="numeric"
+                                value={formatRangeBound(edit.rangeEnd)}
                                 onChange={(e) => setEdits((prev) => ({ ...prev, [range.badgeLabel]: { ...edit, rangeEnd: e.target.value } }))}
                               />
-                              <Button size="sm" className="h-7 text-xs" disabled={!canWrite} onClick={() => saveEdit(range.badgeLabel)}>{t('common.save')}</Button>
+                              <Button size="sm" className="h-7 text-xs" disabled={!canWrite || !!liveError} onClick={() => saveEdit(range.badgeLabel)}>{t('common.save')}</Button>
                               <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEdits((prev) => { const n = { ...prev }; delete n[range.badgeLabel]; return n })}>{t('common.cancel')}</Button>
                             </div>
-                            {err && <p className="text-[11px] text-destructive">{err}</p>}
+                            {liveError
+                              ? <p className="text-[11px] text-destructive">{liveError}</p>
+                              : capacity != null && (
+                                  <p className="text-[11px] text-muted-foreground tabular-nums">
+                                    {t('concept_mapping.source_id_capacity', { count: capacity, formatted: formatNumber(capacity) })}
+                                  </p>
+                                )}
+                            {err && err !== liveError && <p className="text-[11px] text-destructive">{err}</p>}
                           </div>
-                        ) : (
+                          )
+                        })() : (
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-xs text-muted-foreground">
                               {formatNumber(range.rangeStart)} → {formatNumber(range.rangeEnd)}

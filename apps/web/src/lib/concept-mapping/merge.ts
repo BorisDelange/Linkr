@@ -20,9 +20,19 @@ import type { ConceptMapping, MappingProject } from '@/types'
 
 // --- Mapping identity + comparison ----------------------------------------
 
-/** Stable cross-instance key: source concept → target concept (id is not stable). */
+/**
+ * Stable cross-instance key: source concept → target concept.
+ *
+ * `sourceConceptId` is deliberately absent. It is allocated per instance (and per
+ * badge) by the source-concept-ids registry, so two sites holding the same
+ * mapping carry different ids — keying on it made the "same" row look like a
+ * different one across instances. It also carried no discriminating power:
+ * (vocabulary, code) is the very key the registry assigns it under, so it is
+ * functionally determined by fields already in this key. Rows sharing a source
+ * concept are separated by the target half, which is what N:1 mappings need.
+ */
 export function mappingKey(m: ConceptMapping): string {
-  const s = `${m.sourceConceptId ?? ''}|${m.sourceVocabularyId ?? ''}|${m.sourceConceptCode ?? ''}`
+  const s = `${m.sourceVocabularyId ?? ''}|${m.sourceConceptCode ?? ''}`
   const t = `${m.targetConceptId ?? ''}|${m.targetVocabularyId ?? ''}|${m.targetConceptCode ?? ''}`
   return `${s}»→»${t}`
 }

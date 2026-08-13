@@ -636,19 +636,23 @@ interface BuildMappingProjectFolderOptions {
  * — see pull.ts), and `createdAt`/`updatedAt` are instance timestamps that churn on
  * every edit (or wholesale on reimport). These are exactly the fields the 3-way
  * merge already ignores (merge.ts COMPARED_FIELDS), so removing them can't hide a
- * real change. `mappedOn`/`reviewedOn` are kept — human-meaningful provenance.
+ * real change. `sourceConceptId` goes too: the source-concept-ids registry owns it
+ * (keyed by badge + vocabulary + code, which is what makes it site-specific), and
+ * duplicating it here let a re-assignment desynchronise the two — the registry
+ * moved, the committed file did not. `mappedOn`/`reviewedOn` are kept — human-
+ * meaningful provenance.
  * Nested comments/reviews are left intact (their content, incl. their own ids, IS
  * compared by the merge, so stripping them there would fabricate conflicts). Rows
  * are sorted by a stable key so DB ordering never shows up as a spurious diff.
  */
 function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
   const cleaned = mappings.map((m) => {
-    const { id: _id, projectId: _p, createdAt: _c, updatedAt: _u, ...rest } = m
+    const { id: _id, projectId: _p, createdAt: _c, updatedAt: _u, sourceConceptId: _s, ...rest } = m
     return rest
   })
   // Sort by sourceConceptCode first (readable diffs), then break EVERY tie down to
   // the full merge identity: a source concept can map to several targets, so
-  // sourceCode+sourceId alone leaves those rows tied → their order would follow DB
+  // sourceCode alone leaves those rows tied → their order would follow DB
   // iteration and drift across instances, producing spurious diffs. mappingKey is
   // the merge's own row identity, so this is a total order.
   cleaned.sort((a, b) => {

@@ -54,12 +54,13 @@ _INSTANCE_FIELDS = (
 
 def _mapping_key(m: dict) -> str:
     """Total-order tiebreak key — mirrors ``mappingKey`` in
-    apps/web/src/lib/concept-mapping/merge.ts (:25-29)."""
+    apps/web/src/lib/concept-mapping/merge.ts. ``sourceConceptId`` is excluded on
+    both sides: it is per-instance, per-badge registry state, not row identity."""
 
     def s(v: Any) -> str:
         return "" if v is None else str(v)
 
-    src = f"{s(m.get('sourceConceptId'))}|{s(m.get('sourceVocabularyId'))}|{s(m.get('sourceConceptCode'))}"
+    src = f"{s(m.get('sourceVocabularyId'))}|{s(m.get('sourceConceptCode'))}"
     tgt = f"{s(m.get('targetConceptId'))}|{s(m.get('targetVocabularyId'))}|{s(m.get('targetConceptCode'))}"
     return f"{src}»→»{tgt}"
 
@@ -72,7 +73,8 @@ def _serialize_mappings(mappings: list[dict]) -> bytes:
         {
             k: v
             for k, v in m.items()
-            if k not in ("id", "projectId", "createdAt", "updatedAt")
+            if k
+            not in ("id", "projectId", "createdAt", "updatedAt", "sourceConceptId")
         }
         for m in mappings
     ]
