@@ -18,6 +18,7 @@ import { readLicense } from '@/lib/entity-io'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { restoreFileSourceDataFromCsv } from './export'
 import { parseSourceConceptIdEntries } from './source-concept-ids-io'
+import { getTotalSourceConcepts } from './mapping-status'
 
 export interface MappingProjectImportInput {
   /** Parsed export/repo contents (parseImportZip output): path → JSON|string. */
@@ -43,11 +44,8 @@ export interface MappingProjectImportOptions {
  * Recompute a freshly imported project's derived counters from its own rows.
  *
  * The four dedup counts come from the mappings we just wrote.
- * `totalSourceConcepts` describes the SOURCE, not the mappings: keep the
- * imported value when it is populated, and fall back to the restored CSV row
- * count for file projects (mirrors getTotalSourceConcepts in the list page).
- * A database project's total needs a DuckDB query we can't run here, so it
- * keeps the imported value and is refreshed when the project is opened.
+ * `totalSourceConcepts` describes the SOURCE, not the mappings, and is resolved
+ * by the shared getTotalSourceConcepts.
  *
  * Exported because the standalone ZIP/git import in MappingProjectListPage
  * restores a project through its own code path (conflict handling, duplicate
@@ -61,10 +59,7 @@ export async function recomputeImportedStats(
 ): Promise<void> {
   try {
     const counts = await storage.conceptMappings.getStats(projectId)
-    let total = entity.stats?.totalSourceConcepts ?? 0
-    if (total === 0 && entity.sourceType === 'file' && entity.fileSourceData) {
-      total = entity.fileSourceData.totalRowCount ?? entity.fileSourceData.rows?.length ?? 0
-    }
+    const total = getTotalSourceConcepts(entity)
     const stats = {
       totalSourceConcepts: total,
       mappedCount: counts.mappedCount,

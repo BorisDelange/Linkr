@@ -34,20 +34,10 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
 import { useMappingProjectActions } from './use-mapping-project-actions'
 import type { MappingProject, MappingProjectStatus } from '@/types'
+import { getTotalSourceConcepts } from '@/lib/concept-mapping/mapping-status'
 import { useState } from 'react'
 
 const ALL_STATUSES: MappingProjectStatus[] = ['in_progress', 'on_hold', 'completed']
-
-/** Total source concepts: prefer the persisted stats value, fall back to the
- *  file source row count for file-based projects (already in memory, no query). */
-function getTotalSourceConcepts(project: MappingProject): number {
-  const fromStats = project.stats?.totalSourceConcepts ?? 0
-  if (fromStats > 0) return fromStats
-  if (project.sourceType === 'file' && project.fileSourceData) {
-    return project.fileSourceData.totalRowCount ?? project.fileSourceData.rows.length ?? 0
-  }
-  return 0
-}
 
 function getProgress(project: MappingProject) {
   const total = getTotalSourceConcepts(project)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isMappingLocked } from './mapping-status'
+import { getTotalSourceConcepts, isMappingLocked } from './mapping-status'
 import type { MappingComment, MappingReview } from '@/types'
 
 const comment = (authorId: string): MappingComment => ({
@@ -53,5 +53,29 @@ describe('isMappingLocked', () => {
 
   it('still locks an unattributed mapping through its reviews', () => {
     expect(isMappingLocked({ reviews: [review()] })).toBe(true)
+  })
+})
+
+describe('getTotalSourceConcepts', () => {
+  const fileProject = (fileSourceData: Record<string, unknown>, stats?: Record<string, unknown>) =>
+    ({ sourceType: 'file', fileSourceData, stats } as unknown as Parameters<typeof getTotalSourceConcepts>[0])
+
+  it('prefers the persisted stat when it is populated', () => {
+    expect(getTotalSourceConcepts(fileProject({ totalRowCount: 10, rows: [] }, { totalSourceConcepts: 9912 }))).toBe(9912)
+  })
+
+  it('falls back to totalRowCount when the project carries no stats', () => {
+    // The pull/import case: stats are not in the store yet, and an export has
+    // emptied `rows` — reading rows.length alone would persist a permanent 0.
+    expect(getTotalSourceConcepts(fileProject({ totalRowCount: 9912, rows: [] }))).toBe(9912)
+    expect(getTotalSourceConcepts(fileProject({ totalRowCount: 9912, rows: [] }, { totalSourceConcepts: 0 }))).toBe(9912)
+  })
+
+  it('falls back to the in-memory rows when there is no totalRowCount', () => {
+    expect(getTotalSourceConcepts(fileProject({ rows: [{}, {}, {}] }))).toBe(3)
+  })
+
+  it('returns 0 for a database project with no stat, leaving it to the DuckDB query', () => {
+    expect(getTotalSourceConcepts({ sourceType: 'database' } as unknown as Parameters<typeof getTotalSourceConcepts>[0])).toBe(0)
   })
 })

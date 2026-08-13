@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
+import { getTotalSourceConcepts } from '@/lib/concept-mapping/mapping-status'
 import type { ConceptSet, MappingProject, ConceptMapping, MappingStatus, MappingProjectStats } from '@/types'
 
 /** Coalesce stats recomputes per project: a burst of votes/creates collapses
@@ -513,8 +514,11 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     // (totalSourceConcepts/unmappedCount come from the DuckDB source query, not
     // from the mappings), only refresh the dedup counts.
     const counts = await getStorage().conceptMappings.getStats(projectId)
-    const prev = get().mappingProjects.find((p) => p.id === projectId)?.stats
-    const total = prev?.totalSourceConcepts ?? 0
+    const project = get().mappingProjects.find((p) => p.id === projectId)
+    // Falls back to the file row count: right after a pull/import the project
+    // may carry no stats yet, and persisting 0 here would overwrite the correct
+    // total with a permanent 0 (and an unmappedCount clamped to 0 with it).
+    const total = project ? getTotalSourceConcepts(project) : 0
     const stats: MappingProjectStats = {
       totalSourceConcepts: total,
       mappedCount: counts.mappedCount,

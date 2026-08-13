@@ -1,9 +1,27 @@
-import type { ConceptMapping, EffectiveMappingStatus, MappingStatus } from '@/types'
+import type { ConceptMapping, EffectiveMappingStatus, MappingProject, MappingStatus } from '@/types'
 
 /** Build a stable key for a source concept (vocabulary + code).
  *  Used as the canonical dedup key across Progress, Mapping Editor, and Export. */
 export function sourceKey(m: Pick<ConceptMapping, 'sourceVocabularyId' | 'sourceConceptCode'>): string {
   return `${m.sourceVocabularyId ?? ''}\0${m.sourceConceptCode ?? ''}`
+}
+
+/**
+ * Total source concepts: the persisted stat when populated, else the file row
+ * count for file-based projects.
+ *
+ * The fallback matters because an export empties `fileSourceData.rows` and keeps
+ * only `totalRowCount` — reading `rows.length` alone yields 0 on every git-linked
+ * project. A database project's total needs a DuckDB query, so it keeps whatever
+ * was persisted and is refreshed when the project is opened.
+ */
+export function getTotalSourceConcepts(project: Pick<MappingProject, 'stats' | 'sourceType' | 'fileSourceData'>): number {
+  const fromStats = project.stats?.totalSourceConcepts ?? 0
+  if (fromStats > 0) return fromStats
+  if (project.sourceType === 'file' && project.fileSourceData) {
+    return project.fileSourceData.totalRowCount ?? project.fileSourceData.rows?.length ?? 0
+  }
+  return 0
 }
 
 /**
