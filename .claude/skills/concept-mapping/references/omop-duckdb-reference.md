@@ -75,7 +75,7 @@ interface ConceptMapping {
 
   // ATTRIBUTION
   mappedBy?: string             // "Claude Opus 4.6" (or current model name)
-  mappedOn?: string             // ISO 8601 date
+  mappedOn?: string             // ISO 8601 date — COMPARED; see "Re-running" below
   assignedReviewer?: string
   reviewedBy?: string
   reviewedOn?: string
@@ -447,6 +447,40 @@ Verify before committing — re-serializing the file must be a no-op:
 cur = open(p, 'rb').read()
 assert _serialize_mappings(json.loads(cur)) == cur
 ```
+
+### Re-running: never re-stamp a row you already wrote
+
+Adding a batch means rewriting the whole file (it is sorted, so you cannot
+append). Every row you rewrite must come back **byte-identical** unless its
+mapping genuinely changed — otherwise Linkr's pull reports it as `updated` and
+the real additions drown in it.
+
+The trap is timestamps. `mappedOn` is in the merge's `COMPARED_FIELDS`
+(`apps/web/src/lib/concept-mapping/merge.ts`), so stamping `datetime.now()` on
+every row turns an untouched mapping into a modified one. Same for a comment's
+`createdAt`, since the whole `comments` array is compared.
+
+Read the existing file first and carry those values over:
+
+```python
+prior = {}
+if mappings_path.exists():
+    for x in json.loads(mappings_path.read_text() or "[]"):
+        prior[(x.get("sourceVocabularyId"), x.get("sourceConceptCode"))] = x
+
+was = prior.get((vocabulary_id, concept_code))
+mapped_on = was["mappedOn"] if was and was.get("mappedOn") else now
+```
+
+Verify it holds — regenerating with no new input must leave the file untouched:
+
+```bash
+python your_script.py <project_dir> --write && git diff --stat mappings.json
+# no output = idempotent
+```
+
+The same reasoning applies to any compared field you compute rather than derive
+from the source: if it moves on a re-run, every row moves with it.
 
 **Validate against the real schema, never against a sample.** Fields whose value
 is `null` in an existing project reveal nothing about their type (`comments` is a

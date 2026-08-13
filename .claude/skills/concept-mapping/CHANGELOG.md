@@ -8,6 +8,21 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `version:` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
+## 1.0.4 — 2026-08-13
+
+### Fixed
+- **Re-running an alignment re-stamped every row.** `mappedOn` is one of the
+  merge's `COMPARED_FIELDS`, so writing `datetime.now()` on each row of a
+  regenerated `mappings.json` made every previously-written mapping report as
+  `updated` on the next pull — 3061 false "updated" against 912 real additions
+  on a real project. The type listing flagged `mappedOn` as compared, and a new
+  **Re-running** section gives the carry-over pattern (read the existing file,
+  reuse its `mappedOn` and its comments' `createdAt`) plus the one-command
+  idempotence check: regenerate, then `git diff --stat` must print nothing.
+  Step 6 of `SKILL.md` said only "never overwriting an existing row", which
+  reads as permission to rewrite it identically — it now names the two fields
+  that must be carried over.
+
 ## 1.0.3 — 2026-08-13
 
 ### Fixed

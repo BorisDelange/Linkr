@@ -1,6 +1,6 @@
 ---
 name: concept-mapping
-version: 1.0.3
+version: 1.0.4
 description: >-
   Maps local hospital terminology codes to OMOP standard vocabularies (SNOMED CT,
   LOINC, UCUM, RxNorm, etc.) for a Linkr project. Single entry point: loads inputs,
@@ -246,7 +246,7 @@ That procedure asks the user (at session start) whether output should land in `s
 The mapping procedure (Step D of `mapping-ai.md` / Step 7 of `mapping-drug.md`) already writes rows to `similarity-scores.parquet` or `mappings.json`. Both enforce the same invariants — recall them here:
 
 - **suggestions** → `method = "ai/<model-id>"`, populate `equivalence`/`comment`/`created_at`, plus `concept_set_uid`/`concept_set_source_repo` when the target came from a data dictionary (null otherwise). Same 10-column parquet schema as `compute_scores.py`. Never overwrite an existing row for the same `(source_vocabulary_id, source_concept_code, concept_id, method)` key.
-- **mappings** → merge into `mappings.json`, never overwriting an existing row; key on `(sourceVocabularyId, sourceConceptCode)`. Rewrite the whole file through the app's serializer (sorted, no trailing newline) rather than appending to the array — see **Writing mappings.json** in `references/omop-duckdb-reference.md`, which also holds the full `ConceptMapping` structure and the pre-commit checks.
+- **mappings** → merge into `mappings.json`, never overwriting an existing row; key on `(sourceVocabularyId, sourceConceptCode)`. Rewrite the whole file through the app's serializer (sorted, no trailing newline) rather than appending to the array, and carry each existing row's `mappedOn` (and its comments' `createdAt`) over unchanged — both are compared by the merge, so a fresh timestamp reports every untouched row as modified. See **Writing mappings.json** in `references/omop-duckdb-reference.md`, which also holds the full `ConceptMapping` structure and the pre-commit checks.
 
 After the batch is persisted, refresh `state.json` and record the session:
 
