@@ -1615,7 +1615,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     concept_id?: string
     concept_name?: string
     concept_code?: string
-    vocabulary_id?: string
+    vocabulary_id?: Set<string>
     domain_id?: Set<string>
     concept_class_id?: Set<string>
     standard_concept?: string | null
@@ -1628,7 +1628,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     if (f.concept_id && !String(r.concept_id).includes(f.concept_id)) return false
     if (f.concept_name && !r.concept_name.toLowerCase().includes(f.concept_name.toLowerCase())) return false
     if (f.concept_code && !r.concept_code.toLowerCase().includes(f.concept_code.toLowerCase())) return false
-    if (f.vocabulary_id && r.vocabulary_id !== f.vocabulary_id) return false
+    if (f.vocabulary_id?.size && !f.vocabulary_id.has(r.vocabulary_id ?? '')) return false
     if (f.domain_id?.size && !f.domain_id.has(r.domain_id ?? '')) return false
     if (f.concept_class_id?.size && !f.concept_class_id.has(r.concept_class_id ?? '')) return false
     if (f.standard_concept && (r.standard_concept ?? '') !== f.standard_concept) return false
@@ -1658,7 +1658,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   const renderSearchColumnFilter = (columnId: string) => {
     if (columnId === 'vocabulary_id' && searchResultFilterOptions.vocabulary_id.length > 0) {
-      return <ColumnFilterSelect value={searchColFilters.vocabulary_id ?? null} options={searchResultFilterOptions.vocabulary_id} placeholder="Vocab" onChange={(v) => updateSearchFilter('vocabulary_id', v)} />
+      return <ResolvedMultiSelect options={searchResultFilterOptions.vocabulary_id} selected={searchColFilters.vocabulary_id} onChange={(v) => updateSearchFilter('vocabulary_id', v)} triggerClass={SEARCH_FILTER_INPUT_CLASS} />
     }
     if (columnId === 'concept_id') {
       return <input className={`${SEARCH_FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={searchColFilters.concept_id ?? ''} onChange={(e) => updateSearchFilter('concept_id', e.target.value || null)} />
@@ -2357,8 +2357,13 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       {searchResults.length > 0 && (
         <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
           <div className="flex items-center gap-2">
+            {/* The ratio only says something while an inline column filter is
+                hiding rows; "1000 / 1000 results" is just noise. */}
             <span className="text-[10px] text-muted-foreground">
-              {filteredSearchResults.length} / {searchResults.length} {t('common.results').toLowerCase()}
+              {filteredSearchResults.length < searchResults.length
+                ? `${filteredSearchResults.length} / ${searchResults.length}`
+                : searchResults.length}{' '}
+              {t('common.results').toLowerCase()}
             </span>
             <DropdownMenu>
               <Tooltip>
