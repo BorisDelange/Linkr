@@ -14,6 +14,16 @@ export interface SourceConceptFilters {
   searchText?: string
   searchId?: string
   searchCode?: string
+  /**
+   * `vocab\0code` keys the source-concept-id search resolved to, for projects
+   * whose displayed id comes from the badge registry rather than the data.
+   * There the id is not a column of the source at all, so matching it against
+   * `concept_id` finds nothing — the caller translates the typed id through the
+   * registry and passes the concepts it identifies. An empty array means the id
+   * matched nothing and the result must be empty, which is why it is distinct
+   * from `undefined` (no such search).
+   */
+  registryIdKeys?: string[]
   /** Search bar above the table: fuzzy ranked match (substring multi-word + jaro_winkler).
    *  When present, results are ordered by relevance and a `_rank` column is added. */
   searchTextFuzzy?: string
@@ -322,7 +332,11 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     const term = esc(filters.searchText)
     conditions.push(`LOWER(concept_name) LIKE LOWER('%${term}%')`)
   }
-  if (filters.searchId) {
+  if (filters.registryIdKeys) {
+    // Registry-backed id: the search was already resolved to concepts. No match
+    // means no row, never "ignore the filter".
+    conditions.push(tupleInClause(filters.registryIdKeys) ?? 'FALSE')
+  } else if (filters.searchId) {
     const term = esc(filters.searchId)
     conditions.push(`CAST(concept_id AS VARCHAR) LIKE '${term}%'`)
   }

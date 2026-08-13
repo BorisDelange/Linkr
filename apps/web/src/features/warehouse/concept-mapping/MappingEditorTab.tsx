@@ -99,6 +99,8 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   }, [project.workspaceId, project.badges])
 
   const isFileSource = project.sourceType === 'file'
+  /** The displayed source concept id comes from the badge registry, not the data. */
+  const isFileSourceWithoutConceptId = isFileSource && !project.fileSourceData?.columnMapping?.conceptIdColumn
 
   const [rows, setRows] = useState<SourceConceptRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -209,6 +211,10 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const otherProjectsMappedKeysRef = useRef<Set<string> | null>(null)
   const projectMappedKeysRef = useRef<Set<string>>(new Set())
   const projectIgnoredKeysRef = useRef<Set<string>>(new Set())
+  // Same treatment for the registry-backed source concept id: read at query time
+  // so filling the registry does not retrigger a load on its own.
+  const sourceConceptIdMapRef = useRef<Map<string, number>>(new Map())
+  const isFileSourceWithoutConceptIdRef = useRef(false)
 
   // Cached concept counts: computed once per data source, never recomputed on page/filter change
   const countsCache = useRef<Map<number, { record_count: number; patient_count: number }>>(new Map())
@@ -422,10 +428,27 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
       // just the loaded pages). Read via refs so changes to the underlying
       // mappings don't retrigger loadConcepts on every vote. The cross-project
       // store keys use `vocab:code`; convert to `vocab\0code` for the SQL builder.
+      // The id shown for a file project without a conceptIdColumn comes from the
+      // badge registry, not from the data, so searching it against `concept_id`
+      // never matches — including the value the user just copied off a row.
+      // Resolve it to the concepts it identifies and filter on those instead.
+      // `__` separates vocabulary from code, and a code may itself contain one,
+      // so split on the FIRST occurrence only — the vocabulary never has any.
+      const registryIdKeys = isFileSourceWithoutConceptIdRef.current && filters.searchId
+        ? Array.from(sourceConceptIdMapRef.current)
+            .filter(([, id]) => String(id).startsWith(filters.searchId!))
+            .map(([key]) => {
+              const sep = key.indexOf('__')
+              return sep < 0 ? '' : `${key.slice(0, sep)}\0${key.slice(sep + 2)}`
+            })
+            .filter((k) => k !== '')
+        : undefined
+
       const filtersWithStatus: SourceConceptFilters = mappingStatusFilterRef.current === 'all'
-        ? { ...filters }
+        ? { ...filters, registryIdKeys }
         : {
             ...filters,
+            registryIdKeys,
             mappingStatus: mappingStatusFilterRef.current,
             mappedKeys: Array.from(projectMappedKeysRef.current),
             mappedElsewhereKeys: Array.from(otherProjectsMappedKeysRef.current ?? [])
@@ -507,12 +530,17 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     // Sync the status filter into its ref before kicking off the load so the
     // SQL builder picks up the latest value.
     mappingStatusFilterRef.current = mappingStatusFilter
+    sourceConceptIdMapRef.current = sourceConceptIdMap
+    isFileSourceWithoutConceptIdRef.current = isFileSourceWithoutConceptId
     setPage(0)
     setRows([])
     setHasMore(false)
     loadConceptsRef.current(0)
 
-  }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, mappingStatusFilter, suggestionCategoryKeys])
+    // `sourceConceptIdMap` is a dependency because an id search is resolved
+    // through it: the registry loads asynchronously, so a search typed (or
+    // restored from saved filters) before it arrived would otherwise stay empty.
+  }, [isFileSource, isFileSourceWithoutConceptId, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, mappingStatusFilter, suggestionCategoryKeys, sourceConceptIdMap])
 
   // Load more when page increments (scroll infinite)
   useEffect(() => {
@@ -683,7 +711,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             projectMappings={mappings.filter((m) => m.projectId === project.id)}
             externalMappingsByKey={otherProjectsMappings}
             sourceConceptIdMap={sourceConceptIdMap}
-            isFileSourceWithoutConceptId={isFileSource && !project.fileSourceData?.columnMapping?.conceptIdColumn}
+            isFileSourceWithoutConceptId={isFileSourceWithoutConceptId}
             mappingStatusFilter={mappingStatusFilter}
             selectedConceptId={selectedSourceConceptId}
             selectedConceptIds={selectedConceptIds}

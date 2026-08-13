@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery } from './mapping-queries'
+import { buildFileSourceConceptsQuery, buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery } from './mapping-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 const mapping: SchemaMapping = {
@@ -252,5 +252,30 @@ describe('buildStandardConceptSearchQuery', () => {
     expect(sql).toContain("vocabulary_id IN ('SNOMED')")
     expect(sql).toContain("concept_class_id IN ('Clinical Finding')")
     expect(sql).toContain("standard_concept IN ('S')")
+  })
+})
+
+describe('buildFileSourceConceptsQuery — source concept id search', () => {
+  const q = (filters: Parameters<typeof buildFileSourceConceptsQuery>[0]) =>
+    buildFileSourceConceptsQuery(filters, null, 10, 0)
+
+  it('matches the id column when the source carries its own ids', () => {
+    expect(q({ searchId: '42' })).toContain("CAST(concept_id AS VARCHAR) LIKE '42%'")
+  })
+
+  it('filters on the concepts the registry id resolved to', () => {
+    // The displayed id is not a column of the source, so matching it against
+    // concept_id finds nothing \u2014 the caller resolves it to (vocab, code) first.
+    const sql = q({ searchId: '2000153806', registryIdKeys: ['labo\u0000BVRSG_OBR_GAH1'] })
+    expect(sql).toContain("(vocabulary_id, concept_code) IN (('labo','BVRSG_OBR_GAH1'))")
+    expect(sql).not.toContain('CAST(concept_id AS VARCHAR)')
+  })
+
+  it('returns nothing when the id matched no concept', () => {
+    // An empty resolution is "no such id", never "no filter" \u2014 falling through
+    // to an unfiltered query would show every row for a bad search.
+    const sql = q({ searchId: '999', registryIdKeys: [] })
+    expect(sql).toContain('FALSE')
+    expect(sql).not.toContain('CAST(concept_id AS VARCHAR)')
   })
 })
