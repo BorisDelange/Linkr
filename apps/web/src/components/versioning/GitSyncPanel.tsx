@@ -252,8 +252,6 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // they cannot do; replacing it with what they CAN do is the point of the mode.
   const pullMode = inlinePull && mustPullFirst
   const afterPull = async () => {
-    await refreshStatus(scope, id, branch)
-    await loadSyncState(scope, id, branch)
     // The pull wrote straight to the DB, behind whatever in-memory stores the
     // scope's own views read — only it knows what to reload.
     if (onAfterPull) await onAfterPull()
@@ -268,6 +266,12 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
       await cm.recomputeProjectStats(id)
       await cm.loadMappingProjects()
     }
+    // Status LAST: it is computed by exporting the entity and diffing it against
+    // the remote, so anything that rewrites the export has to happen first.
+    // Recomputing stats after it left project.json reported as modified until the
+    // user hit refresh by hand — the pull had already brought it in line.
+    await refreshStatus(scope, id, branch)
+    await loadSyncState(scope, id, branch)
   }
   const pullBody = (mode: 'quick' | 'details') =>
     renderInlinePull
