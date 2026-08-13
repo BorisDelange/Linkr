@@ -1222,11 +1222,13 @@ async def diff(repo_getter, uid: str, zip_bytes: bytes, branch: str, path: str, 
                 "truncationMode": "none",
                 "binary": old_is_lfs,
             }
-        # Byte-identical already? Then git flags "modified" for a reason unrelated to
-        # content — most often a storage-mode switch, e.g. a file committed as plain
-        # text that .gitattributes now routes through the Git LFS clean filter (HEAD
-        # blob = text, working tree = LFS pointer). Distinguish that from a pure
-        # line-ending change so the viewer can explain the right thing.
+        # Byte-identical already? Then git flags "modified" for a reason unrelated
+        # to content: a storage-mode switch (a file committed as plain text that
+        # .gitattributes now routes through the Git LFS clean filter — HEAD blob =
+        # text, working tree = pointer), or an index entry that has not caught up
+        # with a rewritten working tree. Which one it is cannot be told from here,
+        # so the viewer reports the fact and leaves the cause out. Distinguished
+        # from a pure line-ending change, which we CAN identify.
         content_identical = old_raw == new_raw and not old_is_lfs
         # Compare content, not line-ending style: normalize before diffing so an
         # export that rewrote CRLF→LF (or vice-versa) doesn't read as "modified"

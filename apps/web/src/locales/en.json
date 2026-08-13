@@ -1735,7 +1735,7 @@
     "diff_download_both": "Download both versions",
     "diff_download_failed": "Download failed. Check your connection to the remote and try again.",
     "diff_eol_only": "No content changes — only the line-ending style differs (CRLF vs LF).",
-    "diff_no_content_change": "No content changes — the file is flagged as modified only because its storage mode is switching (e.g. now tracked via Git LFS).\nThis resolves after the next sync.",
+    "diff_no_content_change": "No content changes — this file is byte-for-byte identical to the version on the remote.\nGit flagged it as modified for a reason unrelated to its content; it clears on the next refresh.",
     "file_cat_general": "General",
     "file_cat_readme": "Documentation",
     "file_cat_scripts": "Scripts",

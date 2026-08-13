@@ -1735,7 +1735,7 @@
     "diff_download_both": "Télécharger les deux versions",
     "diff_download_failed": "Échec du téléchargement. Vérifiez votre connexion au dépôt distant et réessayez.",
     "diff_eol_only": "Aucun changement de contenu — seul le style de fin de ligne diffère (CRLF vs LF).",
-    "diff_no_content_change": "Aucun changement de contenu — le fichier est marqué comme modifié uniquement parce que son mode de stockage change (par ex. il passe maintenant en Git LFS).\nCela se résout au prochain sync.",
+    "diff_no_content_change": "Aucun changement de contenu — ce fichier est strictement identique à la version distante.\nGit l’a marqué comme modifié pour une raison sans rapport avec son contenu ; cela disparaît au prochain rafraîchissement.",
     "file_cat_general": "Général",
     "file_cat_readme": "Documentation",
     "file_cat_scripts": "Scripts",

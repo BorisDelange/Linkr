@@ -36,7 +36,9 @@ class GitDiffResponse(CamelModel):
     # "head"              = oversized file: first lines/bytes only
     # "hunks"             = oversized modified file condensed to its changed blocks + context
     # "eol_only"          = flagged modified but only the line-ending style differs (CRLF↔LF)
-    # "no_content_change" = identical bytes; flagged modified by a storage-mode switch (e.g. text→LFS)
+    # "no_content_change" = identical bytes, yet git flagged the file modified. Causes vary
+    #                       (a storage-mode switch such as text→LFS, a stale index entry), so
+    #                       the viewer states the fact rather than guessing which one.
     truncation_mode: str = "none"
     binary: bool = False
 
