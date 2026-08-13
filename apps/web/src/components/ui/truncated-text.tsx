@@ -10,6 +10,12 @@ interface TruncatedTextProps {
   /** Number of lines before clamping. 1 = single-line ellipsis (default). */
   lines?: number
   className?: string
+  /**
+   * Show the tooltip even when the text fits, so its copy button is always
+   * reachable. Off by default: the tooltip exists to reveal what is cut off,
+   * and a table full of always-on tooltips is noisy to move through.
+   */
+  alwaysShow?: boolean
 }
 
 /**
@@ -26,9 +32,11 @@ interface TruncatedTextProps {
  *
  * Cost note: until the text actually overflows this renders a bare <p>. The
  * Radix tooltip only mounts once hover proves the text is cut, so a table of
- * these is not a table of live tooltips.
+ * these is not a table of live tooltips. `alwaysShow` opts out of that, mounting
+ * a tooltip per cell — worth it where copying any value matters more than the
+ * render cost, not as a blanket default.
  */
-export function TruncatedText({ text, lines = 1, className }: TruncatedTextProps) {
+export function TruncatedText({ text, lines = 1, className, alwaysShow = false }: TruncatedTextProps) {
   const ref = useRef<HTMLParagraphElement>(null)
   const [truncated, setTruncated] = useState(false)
 
@@ -55,7 +63,7 @@ export function TruncatedText({ text, lines = 1, className }: TruncatedTextProps
     </p>
   )
 
-  if (!truncated) return content
+  if (!truncated && !alwaysShow) return content
 
   return (
     <TooltipProvider delayDuration={200}>

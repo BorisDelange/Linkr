@@ -63,10 +63,15 @@ import type { ExternalMappingInfo } from '@/stores/concept-mapping-store'
 
 export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'mapped_elsewhere'
 
-// Text columns that get the styled truncate+hover tooltip on overflow.
-const TOOLTIP_COLUMNS = new Set(['concept_name', 'concept_code', 'category', 'subcategory', 'terminology_name'])
-// Of those, the ones rendered in a monospace font (kept in the tooltip cell).
-const MONO_COLUMNS = new Set(['concept_code'])
+// Columns kept out of the value tooltip: the cell is interactive or graphical
+// with nothing to copy (_status, _info), or its renderer formats the raw value
+// with thousands separators that the tooltip's String(raw) would undo.
+// concept_id is NOT here — it is among the most worth copying, and its accessor
+// returns null when no id is assigned, which the null guard already sends down
+// the normal renderer (the em dash).
+const NO_TOOLTIP_COLUMNS = new Set(['_status', '_info', 'patient_count', 'record_count'])
+// Columns rendered in a monospace font (kept in the tooltip cell).
+const MONO_COLUMNS = new Set(['concept_code', 'concept_id'])
 
 interface SourceConceptTableProps {
   rows: SourceConceptRow[]
@@ -1105,12 +1110,13 @@ export function SourceConceptTable({
                   >
                     {row.getVisibleCells().map((cell) => {
                       const raw = cell.getValue()
-                      // Long-text columns get the styled truncate+hover tooltip
-                      // (matches the target/relations tables) instead of the
-                      // browser's delayed native title tooltip.
-                      const useTooltip = TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
+                      // Every value-bearing column gets the tooltip, shown whether
+                      // or not the text is cut: it carries the copy button, and
+                      // lifting a code out of a cell is worth as much when the
+                      // value happens to fit as when it does not.
+                      const useTooltip = !NO_TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
                       const rendered = useTooltip
-                        ? <TruncatedText text={String(raw)} className={MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined} />
+                        ? <TruncatedText alwaysShow text={String(raw)} className={MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined} />
                         : flexRender(cell.column.columnDef.cell, cell.getContext())
                       return (
                         <TableCell
