@@ -287,8 +287,14 @@ function PullCard({
         <div className="mt-1 flex gap-1.5">
           <Button
             size="sm"
-            variant={accent ? 'default' : 'outline'}
-            className="h-7 flex-1 gap-1 px-2 text-[11px]"
+            variant={accent && !allAccepted ? 'default' : 'outline'}
+            // Green once taken: the button reads as a decision already made rather
+            // than an action still to run, matching the accepted rows below it.
+            className={cn(
+              'h-7 flex-1 gap-1 px-2 text-[11px]',
+              allAccepted &&
+                'border-emerald-500 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-400',
+            )}
             onClick={() => onDecide('accept')}
             // Bulk-accepting a conflict would silently pick a side in the one case
             // where the user's explicit choice is required.
