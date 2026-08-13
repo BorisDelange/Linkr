@@ -348,6 +348,10 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     if (range) {
       await getStorage().sourceConceptIdRanges.save({ ...range, nextId: range.rangeStart, updatedAt: new Date().toISOString() })
     }
+    // The previous run's outcome describes ids that no longer exist. Left on
+    // screen it reads as the result of the reset itself — "all N already
+    // assigned" right after everything was cleared.
+    setAssignResult(null)
     setResetConfirm(null)
     await load()
   }
@@ -357,6 +361,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     for (const range of ranges) {
       await getStorage().sourceConceptIdRanges.save({ ...range, nextId: range.rangeStart, updatedAt: new Date().toISOString() })
     }
+    setAssignResult(null)
     setResetConfirm(null)
     await load()
   }
@@ -364,6 +369,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const removeBadge = async (badgeLabel: string) => {
     await getStorage().sourceConceptIdEntries.deleteByWorkspaceAndBadge(workspaceId, badgeLabel)
     await getStorage().sourceConceptIdRanges.delete(workspaceId, badgeLabel)
+    setAssignResult(null)
+    setDeleteConfirm(null)
     await load()
   }
 
@@ -439,22 +446,24 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                           <Badge variant="secondary" className="text-[10px]">
                             {range.assignedCount.toLocaleString()} {t('concept_mapping.source_id_assigned')}
                           </Badge>
-                          {/* A concept shared with another badge keeps that badge's id -
-                              same (vocabulary, code) is the same concept - so it costs
-                              nothing here. Without this the badge looks short of ids. */}
-                          {range.assignedCount > range.ownCount && (
-                            <span
-                              className="text-[10px] text-muted-foreground"
-                              title={t('concept_mapping.source_id_shared_hint')}
-                            >
-                              {t('concept_mapping.source_id_shared', {
-                                own: range.ownCount.toLocaleString(),
-                                shared: (range.assignedCount - range.ownCount).toLocaleString(),
-                              })}
+                          {used > 0 && (
+                            <span className="flex items-center gap-1.5" title={t('concept_mapping.source_id_range_usage', {
+                              used: used.toLocaleString(),
+                              capacity: capacity.toLocaleString(),
+                            })}>
+                              <span className="h-1 w-16 overflow-hidden rounded-full bg-muted">
+                                {/* A nearly-empty range still shows a sliver: 0.02% of a
+                                    2M band is real usage, and a bar of width 0 reads as
+                                    "nothing assigned". */}
+                                <span
+                                  className={cn('block h-full rounded-full', rangePct >= 90 ? 'bg-amber-500' : 'bg-primary')}
+                                  style={{ width: `${Math.max(2, Math.min(100, (used / capacity) * 100))}%` }}
+                                />
+                              </span>
+                              <span className="text-[10px] tabular-nums text-muted-foreground">
+                                {rangePct > 0 ? `${rangePct}%` : '<1%'}
+                              </span>
                             </span>
-                          )}
-                          {used > 0 && rangePct > 0 && (
-                            <span className="text-[10px] text-muted-foreground">{rangePct}% {t('concept_mapping.source_id_used')}</span>
                           )}
                         </div>
 

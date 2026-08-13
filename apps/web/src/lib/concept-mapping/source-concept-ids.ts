@@ -32,10 +32,20 @@ export interface SourceConceptIdAssignment {
  * here — reusing stored values, and only allocating above the highest one in use —
  * makes them stable for the life of the project.
  *
+ * `registry` is the source-concept-ids registry for the project's badges, keyed
+ * like `sourceConceptKey`. When a concept is in it, that id wins: the registry
+ * allocates from a per-badge range, so an id minted here instead would fall
+ * outside the range reserved for the site and stop identifying where the row
+ * came from. Fresh allocation stays for concepts the registry has never seen
+ * (assignment not run yet, or a mapping added since).
+ *
  * `toPersist` is what the caller writes back to the mapping project, so the next
  * generation reuses these too.
  */
-export function assignSourceConceptIds(mappings: ConceptMapping[]): SourceConceptIdAssignment {
+export function assignSourceConceptIds(
+  mappings: ConceptMapping[],
+  registry?: ReadonlyMap<string, number>,
+): SourceConceptIdAssignment {
   const byKey = new Map<string, number>()
   const toPersist = new Map<string, number>()
 
@@ -44,13 +54,16 @@ export function assignSourceConceptIds(mappings: ConceptMapping[]): SourceConcep
   // handed out is SOURCE_CONCEPT_ID_BASE itself, which the band includes.
   let maxUsed = SOURCE_CONCEPT_ID_BASE - 1
   for (const m of mappings) {
-    const stored = m.sourceConceptId
-    if (!isAssigned(stored)) continue
     const key = sourceConceptKey(m)
+    // The registry is authoritative: its id comes from the badge's reserved
+    // range, and a stored value can predate a re-assignment that moved it.
+    const fromRegistry = registry?.get(key)
+    const stored = fromRegistry ?? m.sourceConceptId
+    if (!isAssigned(stored)) continue
     // Two rows of the same source concept disagreeing (possible after a merge)
     // are reconciled on the lowest id, so the choice does not depend on order.
     const current = byKey.get(key)
-    if (current == null || stored < current) byKey.set(key, stored)
+    if (current == null || (fromRegistry == null && stored < current)) byKey.set(key, stored)
     if (stored > maxUsed) maxUsed = stored
   }
 
