@@ -139,9 +139,10 @@ def main() -> None:
         return
 
     project["stats"] = stats
+    # No trailing newline: Linkr's export_json omits it, and adding one makes the
+    # app rewrite project.json on the next versioning pass.
     with open(project_path, "w", encoding="utf-8") as f:
         json.dump(project, f, indent=2, ensure_ascii=False)
-        f.write("\n")
 
     if not args.quiet:
         print(f"[stats] {project_path}")

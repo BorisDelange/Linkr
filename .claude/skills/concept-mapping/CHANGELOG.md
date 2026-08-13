@@ -8,6 +8,31 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `version:` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
+## 1.0.3 — 2026-08-13
+
+### Fixed
+- **`mappings.json` canonical byte format** — the "Writing mappings.json" section
+  showed `json.dump(..., indent=2)` on an `extend`ed array, which produces a file
+  Linkr's own export immediately rewrites (it sorts by `sourceConceptCode` then
+  the merge identity, and emits no trailing newline). A small change then lands
+  as a whole-file diff. The section now documents the format, tells you to import
+  the app's `_serialize_mappings` instead of reimplementing it, and gives the
+  round-trip assertion to run before committing.
+- **`update_project_stats.py` wrote a trailing newline** into `project.json`,
+  which Linkr's `export_json` does not emit, leaving a one-byte diff behind on
+  every run. The script no longer appends it.
+- **`MappingComment` / `MappingReview` structures** — `ConceptMapping` referenced
+  the types but never defined them, so `comments` was easy to fill with a plain
+  string, which the API rejects on pull. Both interfaces are now spelled out,
+  with a note that a `null` field in an existing project reveals nothing about
+  its type, and that comment ids must be derived (not random) to stay idempotent.
+
+### Added
+- Schema-validation snippet: check generated mappings against the real
+  `ConceptMappingCreate` Pydantic model before committing, rather than against a
+  sample project. Notes that `id`/`projectId` are required by that schema but are
+  not written to the file — the app mints them on import.
+
 ## 1.0.2 — 2026-08-12
 
 - **`project.json` stats are now refreshed after every `mappings.json` write.**

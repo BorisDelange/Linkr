@@ -86,6 +86,33 @@ interface ConceptMapping {
 }
 ```
 
+`comments` and `reviews` are **arrays of objects**, never plain strings — a bare
+string is rejected by the API on pull. A free-text rationale goes in a
+single-entry `comments` array:
+
+```typescript
+interface MappingComment {
+  id: string                    // stable; derive it from the mapping identity
+  authorId: string
+  authorDetails?: AuthorDetails // firstName, lastName, affiliation, profession, orcid
+  text: string
+  createdAt: string             // ISO 8601 date
+}
+
+interface MappingReview {
+  id: string
+  reviewerId: string
+  reviewerDetails?: AuthorDetails
+  status: MappingStatus         // same values as ConceptMapping.status
+  comment?: string              // a plain string here, unlike MappingComment.text
+  createdAt: string
+}
+```
+
+Derive `MappingComment.id` from the mapping itself (e.g. a hash of source
+vocabulary + source code + target code) rather than a random UUID, so
+regenerating the file stays idempotent and git shows no diff.
+
 ## Source concepts CSV structure
 
 The exported `source-concepts.csv` has these columns (order may vary):
@@ -386,25 +413,55 @@ python3 -c "import uuid; print(uuid.uuid4())"
 
 ## Writing mappings.json
 
-The file is a JSON array of ConceptMapping objects. To append new mappings:
+The file is a JSON array of ConceptMapping objects, and it has a **canonical
+byte format** that Linkr's own export produces. Writing it any other way makes
+the next export from the app rewrite the whole file, so a 5-row change lands as
+a diff over every row and real changes become unreviewable.
 
-```bash
-# Read existing, append new, write back
-python3 -c "
-import json, sys
+The canonical format is defined by `serializeMappingsForVersioning`
+(`apps/web/src/lib/concept-mapping/export.ts`) and its server-side port
+`_serialize_mappings` (`apps/api/app/services/mapping_project_export.py`):
 
-with open('mappings.json', 'r') as f:
-    mappings = json.load(f)
+1. **Drop** `id`, `projectId`, `createdAt`, `updatedAt` — instance bookkeeping.
+2. **Sort** by `sourceConceptCode`, then by the merge identity
+   `sourceConceptId|sourceVocabularyId|sourceConceptCode»→»targetConceptId|targetVocabularyId|targetConceptCode`.
+   Never append at the end of the array.
+3. **Serialize** like `JSON.stringify(x, null, 2)`: 2-space indent, `": "` and
+   `",\n"` separators, insertion-order keys (never sorted), UTF-8,
+   **no trailing newline**.
 
-new_mappings = json.loads(sys.argv[1])
-mappings.extend(new_mappings)
+Do not reimplement this — import the app's serializer so the bytes cannot drift:
 
-with open('mappings.json', 'w') as f:
-    json.dump(mappings, f, indent=2, ensure_ascii=False)
+```python
+import sys
+sys.path.insert(0, '<repo>/apps/api')
+from app.services.mapping_project_export import _serialize_mappings
 
-print(f'Added {len(new_mappings)} mappings. Total: {len(mappings)}')
-" '<JSON_ARRAY_OF_NEW_MAPPINGS>'
+with open(project_dir / 'mappings.json', 'wb') as f:
+    f.write(_serialize_mappings(mappings))
 ```
+
+Verify before committing — re-serializing the file must be a no-op:
+
+```python
+cur = open(p, 'rb').read()
+assert _serialize_mappings(json.loads(cur)) == cur
+```
+
+**Validate against the real schema, never against a sample.** Fields whose value
+is `null` in an existing project reveal nothing about their type (`comments` is a
+`MappingComment[]`, not a string). The API rejects a mismatched pull with a
+Pydantic error:
+
+```python
+sys.path.insert(0, '<repo>/apps/api')
+from app.schemas.mapping_project import ConceptMappingCreate
+for m in mappings:
+    ConceptMappingCreate(**{**m, 'id': 't', 'projectId': 't'})
+```
+
+`id`/`projectId` are required by that schema but are **not** written to the file —
+the app mints them on import.
 
 For large batches, prefer writing via a Python script to avoid shell escaping issues.
 
