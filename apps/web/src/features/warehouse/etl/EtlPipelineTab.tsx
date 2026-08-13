@@ -1833,8 +1833,12 @@ function SortableScriptRow({
           {/* Duration only. `rowsAffected` is the row count of the statement's
               RESULT SET, not what it wrote: an ETL script full of INSERTs ends on
               a statement returning nothing, so the card read "0 rows" for a
-              script that had just written millions. */}
-          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              script that had just written millions.
+
+              The row keeps its height whether or not a duration is in it, so a
+              finishing script doesn't grow its card and shift every card below
+              it down. */}
+          <div className="flex h-3.5 items-center gap-2 text-[10px] leading-none text-muted-foreground">
             {log?.durationMs != null && !isDisabled && (
               <span>{formatDuration(log.durationMs)}</span>
             )}
