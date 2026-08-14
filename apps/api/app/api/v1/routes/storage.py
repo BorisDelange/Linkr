@@ -27,8 +27,10 @@ class StorageGcResponse(CamelModel):
     total_bytes: int
     # Shas a row still points at but whose file is gone. GC cannot fix these —
     # surfaced so an admin sees the broken references rather than silently
-    # serving a 404 later.
+    # serving a 404 later. Capped to a sample (an unmounted volume makes every
+    # referenced sha missing); `missing_blobs_total` carries the real count.
     missing_blobs: list[str]
+    missing_blobs_total: int
 
 
 def _to_response(report: storage_gc.GcReport, dry_run: bool) -> StorageGcResponse:
@@ -42,6 +44,7 @@ def _to_response(report: storage_gc.GcReport, dry_run: bool) -> StorageGcRespons
         orphan_project_bytes=report.orphan_project_bytes,
         total_bytes=report.total_bytes,
         missing_blobs=report.missing_blobs,
+        missing_blobs_total=report.missing_blobs_total,
     )
 
 

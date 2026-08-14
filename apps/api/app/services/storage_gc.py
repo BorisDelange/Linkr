@@ -12,14 +12,24 @@ points at:
 * ``projects/<uid>/`` — a project working directory with no row in ``projects``.
 
 Sweeping runs at startup and then periodically (see ``run_periodic``). Age is
-what makes every sweep safe, because on-disk state is always created before the
-row that claims it: writing a chunk bumps its session's mtime, and a blob or
-project dir exists for a moment before its row is committed. Only entries that
-have stayed unclaimed for a long time are collected, so work in flight — however
-slow the client — is never pulled out from under it.
+what makes every sweep safe: on-disk state is created before the row that claims
+it, so only entries that have stayed unclaimed for a long time are collected and
+work in flight — however slow the client — is never pulled out from under it.
+
+That argument holds only because each sweep reads an age that actually tracks
+"when was this last touched", which is NOT what the obvious `stat()` gives:
+
+* a chunk write bumps its session dir's mtime directly, so ``_tmp`` is fine as-is;
+* ``shutil.move`` PRESERVES mtime, so a blob would inherit the age of the upload
+  that produced it — ``blob_store._mark_stored`` stamps it on the way in instead;
+* a directory's mtime ignores writes inside its subdirectories, so a project dir
+  is aged by its newest descendant (``_newest_mtime``), not by its own entry.
+
+Get any of those wrong and the grace period silently becomes zero.
 """
 
 import asyncio
+import contextlib
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -48,6 +58,15 @@ BLOB_MIN_AGE_SECONDS = 3600
 
 _PERIOD_SECONDS = 6 * 3600
 
+# How many missing shas a report carries. Enough to debug from, bounded so a
+# missing volume cannot turn the report into a multi-megabyte response.
+MAX_MISSING_BLOBS_REPORTED = 100
+
+# One sweep at a time. Two overlapping runs each rglob the whole data dir and
+# each report the same reclaimed bytes, so an admin hammering the button (or one
+# arriving while the periodic pass runs) doubles the I/O and misreports the total.
+_sweep_lock = asyncio.Lock()
+
 
 @dataclass
 class GcReport:
@@ -59,7 +78,12 @@ class GcReport:
     orphan_blob_bytes: int = 0
     orphan_project_dirs: int = 0
     orphan_project_bytes: int = 0
+    # Capped: an unmounted volume makes EVERY referenced sha "missing", and the
+    # uncapped list put hundreds of thousands of 64-char strings in one JSON
+    # response (and held them in memory on every periodic sweep). The count is
+    # what tells you something is wrong; the sample is what you debug with.
     missing_blobs: list[str] = field(default_factory=list)
+    missing_blobs_total: int = 0
 
     @property
     def total_bytes(self) -> int:
@@ -119,7 +143,9 @@ async def _sweep_blobs(report: GcReport, dry_run: bool, now: float) -> None:
         else set()
     )
 
-    report.missing_blobs = sorted(referenced - on_disk)
+    missing = sorted(referenced - on_disk)
+    report.missing_blobs_total = len(missing)
+    report.missing_blobs = missing[:MAX_MISSING_BLOBS_REPORTED]
 
     for sha in on_disk - referenced:
         path = root / sha
@@ -137,6 +163,43 @@ async def _sweep_blobs(report: GcReport, dry_run: bool, now: float) -> None:
         if not dry_run:
             await blob_store.delete(sha)
 
+    # `store_bytes` writes `<sha>.tmp` then renames it. A crash in between leaks
+    # the temp file, and `is_sha` (rightly) excludes it from `on_disk`, so no
+    # sweep would ever have collected it. Same grace period: a .tmp younger than
+    # that may be a write in flight.
+    if not root.is_dir():
+        return
+    for path in root.glob("*.tmp"):
+        try:
+            if not path.is_file() or now - path.stat().st_mtime < BLOB_MIN_AGE_SECONDS:
+                continue
+        except OSError:
+            continue
+        report.orphan_blobs += 1
+        report.orphan_blob_bytes += _entry_size(path)
+        if not dry_run:
+            with contextlib.suppress(OSError):
+                path.unlink()
+
+
+def _newest_mtime(d: Path) -> float:
+    """The mtime of the most recently touched thing anywhere under `d`.
+
+    A directory's own mtime only moves when an entry is added or removed
+    DIRECTLY inside it, not when files in its subdirectories change. Every real
+    project writes into `scripts/`, `datasets/`, `environments/`, so the top
+    dir's mtime is frozen at creation and reading it would call a project in
+    daily use "untouched since January". Walking the tree is what makes the age
+    guard mean anything here.
+    """
+    newest = d.stat().st_mtime
+    for p in d.rglob("*"):
+        try:
+            newest = max(newest, p.stat().st_mtime)
+        except OSError:
+            continue
+    return newest
+
 
 async def _sweep_project_dirs(report: GcReport, dry_run: bool, now: float) -> None:
     root = settings.data_path / "projects"
@@ -147,13 +210,27 @@ async def _sweep_project_dirs(report: GcReport, dry_run: bool, now: float) -> No
         result = await db.execute(select(Project.uid))
         live = {uid for (uid,) in result.all()}
 
-    for d in root.iterdir():
-        if not d.is_dir() or d.name in live:
-            continue
+    candidates = [d for d in root.iterdir() if d.is_dir() and d.name not in live]
+
+    # Refuse to act on a wholesale mismatch. Every project dir looking orphaned
+    # is far more likely a database that is not the one this data dir belongs to
+    # (a restored snapshot, a mispointed LINKR_DATABASE_URL, a half-applied
+    # migration) than a genuine mass orphan — and the cost of being wrong here is
+    # every project's working tree, which is the source of truth for IDE files
+    # and datasets. Bail loudly and let a human look.
+    if not live and candidates:
+        logger.error(
+            "storage_gc_skipped_project_sweep",
+            reason="no live projects but project dirs exist — refusing to delete",
+            candidates=len(candidates),
+        )
+        return
+
+    for d in candidates:
         # Same in-flight guard as blobs: the working dir can be created before the
         # project row is committed, so only collect one that has stayed unclaimed.
         try:
-            if now - d.stat().st_mtime < BLOB_MIN_AGE_SECONDS:
+            if now - _newest_mtime(d) < BLOB_MIN_AGE_SECONDS:
                 continue
         except OSError:
             continue
@@ -164,13 +241,19 @@ async def _sweep_project_dirs(report: GcReport, dry_run: bool, now: float) -> No
 
 
 async def sweep(dry_run: bool = False) -> GcReport:
-    """Run every sweep. With `dry_run`, only measure — nothing is deleted."""
-    report = GcReport()
-    now = time.time()
-    await asyncio.to_thread(_sweep_uploads, report, dry_run, now)
-    await _sweep_blobs(report, dry_run, now)
-    await _sweep_project_dirs(report, dry_run, now)
-    return report
+    """Run every sweep. With `dry_run`, only measure — nothing is deleted.
+
+    Serialized: a concurrent sweep would walk the same tree and count the same
+    bytes again, so overlapping runs cost double the I/O and report totals that
+    were already reclaimed by the other.
+    """
+    async with _sweep_lock:
+        report = GcReport()
+        now = time.time()
+        await asyncio.to_thread(_sweep_uploads, report, dry_run, now)
+        await _sweep_blobs(report, dry_run, now)
+        await _sweep_project_dirs(report, dry_run, now)
+        return report
 
 
 async def sweep_and_log(dry_run: bool = False) -> GcReport:

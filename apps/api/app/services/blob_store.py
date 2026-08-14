@@ -9,7 +9,9 @@ still pointing at this sha?", checked by callers before delete).
 """
 
 import asyncio
+import contextlib
 import hashlib
+import os
 import re
 import shutil
 from pathlib import Path
@@ -51,6 +53,28 @@ def exists(sha: str) -> bool:
     return path_for(sha).is_file()
 
 
+def _mark_stored(dest: Path) -> None:
+    """Stamp a blob's mtime with the moment it entered the store.
+
+    The GC reads that mtime as "how long has this been here unreferenced", and
+    every path into the store would otherwise report something older:
+
+      * `shutil.move` PRESERVES the source mtime, so a blob assembled from a slow
+        multi-GB upload lands already hours old — instantly past the grace period
+        while the user is still on the import dialog, i.e. collectable before the
+        row that claims it exists.
+      * the dedup branch leaves the ORIGINAL blob's mtime untouched, so
+        re-uploading content whose last reference was just deleted hands back a
+        sha that is eligible for collection immediately.
+
+    Re-referencing is exactly the signal "this blob is live again", so the touch
+    belongs on both paths. Best-effort: a blob we cannot stamp is not worth
+    failing an upload over, and the sweep's next pass simply sees it again.
+    """
+    with contextlib.suppress(OSError):
+        os.utime(dest, None)
+
+
 def _store_file_sync(src: Path) -> tuple[str, int]:
     """Hash `src` and move it into the store under its sha. Returns (sha, size)."""
     h = hashlib.sha256()
@@ -65,6 +89,7 @@ def _store_file_sync(src: Path) -> tuple[str, int]:
         src.unlink(missing_ok=True)  # already stored — dedup
     else:
         shutil.move(str(src), str(dest))
+    _mark_stored(dest)
     return sha, size
 
 
@@ -80,6 +105,7 @@ def _store_bytes_sync(data: bytes) -> tuple[str, int]:
         tmp = dest.with_suffix(".tmp")
         tmp.write_bytes(data)
         tmp.replace(dest)
+    _mark_stored(dest)
     return sha, len(data)
 
 
