@@ -212,12 +212,33 @@ export function toPortableRanges(ranges: SourceConceptIdRange[]): PortableRange[
     .sort((a, b) => compareCodePoints(a.badgeLabel, b.badgeLabel))
 }
 
-/** (vocabularyId, conceptCode) universe of a project, keyed `vocab__code` —
- *  the same key `mergeSourceConceptIdRegistry` and SourceIdTab use. */
+/** (vocabularyId, conceptCode) universe of a project — the same key
+ *  `mergeSourceConceptIdRegistry` and SourceIdTab use. */
 export type SourceConceptPairKey = string
 
+/**
+ * Pack a (vocabulary, code) pair into one map/Set key.
+ *
+ * The separator is a NUL, not `__`, and that matters for correctness rather than
+ * taste: with `__` the pairs ("LAB__CHEM", "123") and ("LAB", "CHEM__123") both
+ * pack to "LAB__CHEM__123", so a Set of two distinct source concepts collapses
+ * to one — one concept then gets no id allocated and exports as
+ * `sourceConceptId: 0`. Splitting back on the FIRST `__` mis-parses the same
+ * pair. A NUL cannot occur in a vocabulary id or a concept code, which is why
+ * `sourceConceptKey` (source-concept-ids.ts) has always used it.
+ *
+ * Note this is an IN-MEMORY key only. The persisted entry id and the export
+ * format still join with `__` on both client and server; changing those is a
+ * storage migration, not a keying detail.
+ */
 export function sourceConceptPairKey(vocabularyId: string, conceptCode: string): SourceConceptPairKey {
-  return `${vocabularyId}__${conceptCode}`
+  return `${vocabularyId}\u0000${conceptCode}`
+}
+
+/** Unpack a key built by `sourceConceptPairKey`. */
+export function splitSourceConceptPairKey(key: SourceConceptPairKey): [string, string] {
+  const i = key.indexOf('\u0000')
+  return i === -1 ? [key, ''] : [key.slice(0, i), key.slice(i + 1)]
 }
 
 /**

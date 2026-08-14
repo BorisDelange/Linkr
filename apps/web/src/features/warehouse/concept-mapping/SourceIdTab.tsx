@@ -30,6 +30,10 @@ import {
   parseRangeBound,
   rangeCapacity,
 } from './source-id-range'
+import {
+  sourceConceptPairKey,
+  splitSourceConceptPairKey,
+} from '@/lib/concept-mapping/source-concept-ids-io'
 import type { MappingProject, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
 
 const DEFAULT_RANGE_SIZE = 1_000_000
@@ -160,7 +164,9 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     if (start == null || end == null) return t('concept_mapping.source_id_error_invalid')
     if (start < OMOP_CUSTOM_MIN) return t('concept_mapping.source_id_error_min', { min: formatNumber(OMOP_CUSTOM_MIN) })
     if (end > OMOP_CUSTOM_MAX) return t('concept_mapping.source_id_error_max', { max: formatNumber(OMOP_CUSTOM_MAX) })
-    if (end <= start) return t('concept_mapping.source_id_error_order')
+    // Bounds are INCLUSIVE (rangeCapacity(10, 10) === 1), so a one-id range is
+    // well-defined — only end < start is actually backwards.
+    if (end < start) return t('concept_mapping.source_id_error_order')
     if (rangeOverlaps(ranges, badgeLabel, start, end)) return t('concept_mapping.source_id_error_overlap')
     return null
   }
@@ -244,7 +250,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
               for (const row of rows) {
                 const code = String(row.concept_code ?? '')
                 const vocab = String(row.vocabulary_id ?? proj.name)
-                if (code) pairsToAssign.add(`${vocab}__${code}`)
+                if (code) pairsToAssign.add(sourceConceptPairKey(vocab, code))
               }
             } catch {
               // If mount/query fails, skip silently
@@ -262,7 +268,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
             for (const row of rows) {
               const code = String(row.concept_code || row.concept_id || '')
               const vocab = String(row.vocabulary_id ?? ds.id)
-              if (code) pairsToAssign.add(`${vocab}__${code}`)
+              if (code) pairsToAssign.add(sourceConceptPairKey(vocab, code))
             }
           } catch {
             // If DB unavailable, skip silently
@@ -277,7 +283,9 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       // which site a row came from — reusing another badge's id would both erase
       // that origin and hand out a number outside this range's band.
       const existing = await getStorage().sourceConceptIdEntries.getByWorkspaceAndBadge(workspaceId, badgeLabel)
-      const existingMap = new Map(existing.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e]))
+      const existingMap = new Map(
+        existing.map((e) => [sourceConceptPairKey(e.vocabularyId, e.conceptCode), e]),
+      )
 
       // Never allocate from a cursor that sits outside the range: ranges edited
       // before this was enforced carry one from their previous bounds, and the
@@ -295,9 +303,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       for (const pairKey of pairsToAssign) {
         if (existingMap.has(pairKey)) continue // already in this badge
 
-        const sepIdx = pairKey.indexOf('__')
-        const vocabularyId = pairKey.slice(0, sepIdx)
-        const conceptCode = pairKey.slice(sepIdx + 2)
+        const [vocabularyId, conceptCode] = splitSourceConceptPairKey(pairKey)
         const entryId = `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`
 
         if (nextId > range.rangeEnd) {
@@ -321,26 +327,40 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       // Persist in chunks: one giant saveBatch is a single long transaction with
       // no feedback (and risks a server timeout on 100k+ rows). Chunking gives a
       // live "done / total" progress and keeps each request bounded.
+      //
+      // The cursor is advanced after EVERY chunk, not once at the end. A chunk
+      // that throws (the batch is a plain HTTP PUT) would otherwise leave its
+      // ids persisted while `nextId` still pointed at the start of the run — and
+      // the next assign would hand those same ids to different concepts. Saving
+      // as we go can only ever burn ids, never reuse them, which is the safe
+      // direction: a gap in the range costs nothing, a collision corrupts data.
       const CHUNK = 5000
+      const saveCursor = async (upTo: number) => {
+        // totalConcepts must be the total assigned to the BADGE (existing + what
+        // we have actually written), NOT `pairsToAssign.size` (this run's
+        // subset): assigning one project of a shared badge would otherwise shrink
+        // it below the real count and contradict nextId (the "132%" confusion).
+        await getStorage().sourceConceptIdRanges.save({
+          ...range,
+          nextId,
+          totalConcepts: existing.length + upTo,
+          updatedAt: new Date().toISOString(),
+        })
+      }
+
       if (toSave.length > 0) {
         setAssignProgress({ badge: badgeLabel, done: 0, total: toSave.length })
         for (let i = 0; i < toSave.length; i += CHUNK) {
-          await getStorage().sourceConceptIdEntries.saveBatch(toSave.slice(i, i + CHUNK))
-          setAssignProgress({ badge: badgeLabel, done: Math.min(i + CHUNK, toSave.length), total: toSave.length })
+          const written = Math.min(i + CHUNK, toSave.length)
+          await getStorage().sourceConceptIdEntries.saveBatch(toSave.slice(i, written))
+          await saveCursor(written)
+          setAssignProgress({ badge: badgeLabel, done: written, total: toSave.length })
         }
+      } else {
+        // Nothing new, but the cursor may still have been repaired by clampNextId.
+        await saveCursor(0)
       }
 
-      // Save the range with the advanced nextId and the CUMULATIVE assigned count.
-      // totalConcepts must be the total concepts assigned to the badge (existing +
-      // newly added this run), NOT `pairsToAssign.size` (the current run's subset):
-      // assigning one project of a shared badge would otherwise shrink totalConcepts
-      // below the real count, contradicting nextId (the "132%" confusion).
-      await getStorage().sourceConceptIdRanges.save({
-        ...range,
-        nextId,
-        totalConcepts: existing.length + toSave.length,
-        updatedAt: now,
-      })
       await load()
       setAssignResult({ badge: badgeLabel, newlyAssigned, total: pairsToAssign.size, exhausted })
     } finally {
@@ -380,8 +400,11 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     setResetConfirm(null)
     const fresh = await load()
     // Sequentially: each badge queries its projects' source concepts, and running
-    // those together would contend for the same DuckDB connection.
-    for (const range of fresh) await assignIds(range.badgeLabel, fresh)
+    // those together would contend for the same DuckDB connection. Reload between
+    // badges rather than reusing one snapshot: `assignIds` writes back a cursor,
+    // so a badge handed the pre-loop array would allocate from state that predates
+    // every badge before it.
+    for (const { badgeLabel } of fresh) await assignIds(badgeLabel, await load())
   }
 
   const removeBadge = async (badgeLabel: string) => {

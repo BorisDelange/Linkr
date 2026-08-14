@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints, resolveImportedRange, reconcileRangeWithEntries, mergeSourceConceptIdRegistry, scopeEntriesToProject, sourceConceptPairKey } from './source-concept-ids-io'
+import { toCompactEntries, parseSourceConceptIdEntries, reconcileImportedEntries, compareCodePoints, resolveImportedRange, reconcileRangeWithEntries, mergeSourceConceptIdRegistry, scopeEntriesToProject, sourceConceptPairKey, splitSourceConceptPairKey } from './source-concept-ids-io'
 import type { SourceConceptIdEntry, SourceConceptIdRange } from '@/types'
 
 function range(over: Partial<SourceConceptIdRange> = {}): SourceConceptIdRange {
@@ -42,6 +42,27 @@ describe('scopeEntriesToProject — keep only the project (vocab, code) universe
 
   it('drops everything for an empty pair set', () => {
     expect(scopeEntriesToProject([entry()], new Set())).toEqual([])
+  })
+})
+
+describe('sourceConceptPairKey — two concepts must never share a key', () => {
+  it('keeps pairs distinct when a vocabulary or code contains the old separator', () => {
+    // With `__` as the separator these both packed to "LAB__CHEM__123", so a Set
+    // of two distinct source concepts collapsed to one: the survivor took the id
+    // and the other exported as sourceConceptId 0.
+    const a = sourceConceptPairKey('LAB__CHEM', '123')
+    const b = sourceConceptPairKey('LAB', 'CHEM__123')
+    expect(a).not.toBe(b)
+    expect(new Set([a, b]).size).toBe(2)
+  })
+
+  it('round-trips a pair through split, splitting on the FIRST separator', () => {
+    expect(splitSourceConceptPairKey(sourceConceptPairKey('LAB__CHEM', '123')))
+      .toEqual(['LAB__CHEM', '123'])
+    expect(splitSourceConceptPairKey(sourceConceptPairKey('LOINC', '1234-5')))
+      .toEqual(['LOINC', '1234-5'])
+    // An empty code is still a valid, distinguishable pair.
+    expect(splitSourceConceptPairKey(sourceConceptPairKey('LOINC', ''))).toEqual(['LOINC', ''])
   })
 })
 
