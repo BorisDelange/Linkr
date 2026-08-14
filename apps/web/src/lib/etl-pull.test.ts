@@ -10,7 +10,6 @@ import {
   etlSettingsChanged,
   isCompleteEtlPull,
   isEtlManifest,
-  mayAnchorEtlPull,
   stripInstancePipelineFields,
 } from './etl-pull'
 import { attachTreeIds } from './entity-io'
@@ -363,7 +362,7 @@ describe('README and LICENSE are docs, not tree files', () => {
   })
 })
 
-describe('mayAnchorEtlPull', () => {
+describe('isCompleteEtlPull — did we take the whole commit?', () => {
   // One offered file, nothing local: a real plan the user can decline.
   const plan = (settingsChanged = false) =>
     buildEtlPullPlan([node('10_src.sql', 'X')], [], settingsChanged)
@@ -371,24 +370,20 @@ describe('mayAnchorEtlPull', () => {
     paths: new Set<string>(), settings: false, ...over,
   })
 
-  it('anchors on an explicit keep-local even though the plan offered a file', () => {
-    // "Discard the remote, keep mine" is a resolution: the banner must clear.
-    expect(mayAnchorEtlPull(plan(), sel({ keepLocal: true }))).toBe(true)
+  it('is false for keep-local: declining means holding NONE of the content', () => {
+    // This is what decides the cursor. Keep-local reads as "resolved", but it is
+    // never "we hold this commit" — treating the two as the same advanced the
+    // 3-way merge base onto content the user had explicitly refused.
     expect(isCompleteEtlPull(plan(), sel({ keepLocal: true }))).toBe(false)
   })
 
-  it('does not anchor a half-taken pull that also claims keep-local', () => {
-    expect(mayAnchorEtlPull(
-      plan(), sel({ keepLocal: true, paths: new Set(['10_src.sql']) }),
-    )).toBe(false)
+  it('is false for a half-taken pull', () => {
+    expect(isCompleteEtlPull(plan(true), sel({ paths: new Set(['10_src.sql']) }))).toBe(false)
   })
 
-  it('does not anchor a keep-local that still replaces the settings', () => {
-    expect(mayAnchorEtlPull(plan(true), sel({ keepLocal: true, settings: true }))).toBe(false)
-  })
-
-  it('without keep-local it still requires a complete pull', () => {
-    expect(mayAnchorEtlPull(plan(), sel())).toBe(false)
-    expect(mayAnchorEtlPull(plan(), sel({ paths: new Set(['10_src.sql']) }))).toBe(true)
+  it('is true only once every offered item was taken', () => {
+    expect(isCompleteEtlPull(plan(), sel())).toBe(false)
+    expect(isCompleteEtlPull(plan(), sel({ paths: new Set(['10_src.sql']) }))).toBe(true)
   })
 })
+

@@ -188,6 +188,20 @@ def _default_branch(entity, fallback: str | None) -> str:
     return cfg.get("branch") or "main"
 
 
+def _push_anchors(row) -> tuple[str | None, str | None]:
+    """The (synced, reviewed) cursors to hand `commit_push`, as real oids or None.
+
+    `synced_oid` is NOT NULL and carries "" for a row that has only ever been
+    reviewed, so it must be coerced before it reaches `_safe_oid` — which rejects
+    "" and would turn a benign unanchored state into a 400. Centralised here
+    because the coercion is load-bearing and was previously hand-repeated at
+    every call site, one omission away from that bug.
+    """
+    if row is None:
+        return None, None
+    return (row.synced_oid or None), (row.reviewed_oid or None)
+
+
 # --- Project scope --------------------------------------------------------
 
 
@@ -668,7 +682,7 @@ async def mapping_project_commit_push(
             _remote_url(mp),
             await _token(db, user, mp),
             paths,
-            (row.synced_oid or None) if row else None,
+            *_push_anchors(row),
         )
     )
     # A successful push means the pushed commit is now the synced point → move the anchor.
@@ -950,7 +964,7 @@ def _register_entity_git_routes(
                 _remote_url(e),
                 await _token(db, user, e),
                 paths,
-                (row.synced_oid or None) if row else None,
+                *_push_anchors(row),
             )
         )
         # A successful push means the pushed commit is now the synced point.
@@ -1326,7 +1340,7 @@ async def settings_commit_push(
             remote,
             await _settings_token(db, user),
             paths,
-            (row.synced_oid or None) if row else None,
+            *_push_anchors(row),
         )
     )
     if result.get("pushed") and result.get("commit"):

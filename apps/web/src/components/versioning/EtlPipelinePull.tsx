@@ -89,7 +89,11 @@ export function EtlPipelinePull({ pipelineId, branch, remoteHead, mode, onPulled
     })
   }
 
-  const handleFinalize = async (complete: boolean) => {
+  // The panel's `complete` is deliberately ignored: which cursor may advance is
+  // derived inside applyEtlPull from the same selection, so taking it from here
+  // too would be a second, independently-computed answer to one question — which
+  // is how the anchor once moved on a pull that took nothing.
+  const handleFinalize = async () => {
     if (!prepared || !plan || applying) return
     setApplying(true)
     setError(null)
@@ -121,7 +125,6 @@ export function EtlPipelinePull({ pipelineId, branch, remoteHead, mode, onPulled
     } finally {
       setApplying(false)
     }
-    void complete
   }
 
   if (loading) {

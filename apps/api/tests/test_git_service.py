@@ -718,6 +718,55 @@ async def test_commit_push_refuses_when_behind_the_anchor():
 
 
 @pytest.mark.asyncio
+async def test_commit_push_accepts_a_reviewed_but_not_synced_anchor():
+    """A partial pull leaves `synced_oid` behind on purpose — the push must still go.
+
+    The user took some incoming items and knowingly kept their own version of the
+    rest, so they hold none of that commit's content (`synced_oid` unchanged) but
+    have deliberated over all of it (`reviewed_oid` = the remote head). Gating on
+    the content cursor alone refused every later push while the banner read "up to
+    date", escapable only by the complete pull they had just declined. The items
+    they kept are exactly what this push is for.
+    """
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)
+        first = await g.commit_push(getter, "u", _zip({"project.json": '{"a":1}'}), "main", "v1", remote, None)
+        stale_synced = first["commit"]["oid"]
+
+        tmp2 = Path(tempfile.mkdtemp())
+        try:
+            def getter2(_uid):
+                return tmp2 / "repo"
+            second = await g.commit_push(getter2, "u", _zip({"project.json": '{"a":2}'}), "main", "v2", remote, None)
+            reviewed = second["commit"]["oid"]
+        finally:
+            shutil.rmtree(tmp2, ignore_errors=True)
+
+        # Content anchor still on v1, decision cursor on v2 (everything decided).
+        r = await g.commit_push(
+            getter, "u", _zip({"project.json": '{"a":3}'}), "main", "v3",
+            remote, None, None, stale_synced, reviewed,
+        )
+        assert r["committed"], "a fully-reviewed partial pull must not block the push"
+
+        # But a decision cursor that is ALSO behind still refuses: there is
+        # remote work nobody has looked at.
+        with pytest.raises(g.GitError) as exc:
+            await g.commit_push(
+                getter, "u", _zip({"project.json": '{"a":4}'}), "main", "v4",
+                remote, None, None, stale_synced, stale_synced,
+            )
+        assert exc.value.code == "pull_required"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 async def test_pull_file_bytes_returns_remote_content():
     """pull_file_bytes returns a managed file's bytes at the remote head — the raw
     content the pull needs when taking the remote version of a whole-list family."""

@@ -31,7 +31,6 @@ import {
   prepareProjectPull,
   applyProjectPull,
   isCompleteProjectPull,
-  mayAnchorProjectPull,
   type ProjectPullSelection,
   type PreparedProjectPull,
 } from './project-pull'
@@ -541,14 +540,19 @@ describe('applyProjectPull — failure paths (what is guaranteed today)', () => 
     expect(gitMocks.gitSetSyncState).toHaveBeenCalledOnce()
   })
 
-  it('a failing gitSetSyncState is swallowed; no anchor call at all when clonedOid is null', async () => {
+  it('a failing gitSetSyncState surfaces; no anchor call at all when clonedOid is null', async () => {
     const { storage, t } = makeStore()
     storageHolder.current = storage
     gitMocks.gitSetSyncState.mockRejectedValue(new Error('offline'))
     const parsed = emptyParsed({
       cohorts: [{ id: 'c-1', name: 'Sepsis' } as unknown as ParsedProjectZip['cohorts'][number]],
     })
-    await applyProjectPull(P, preparedWith(parsed), sel({ cohorts: new Set(['sepsis']) }))
+    // The content lands, but the cursor write fails — which must NOT read as a
+    // successful pull: the caller would clear its draft and rebuild every later
+    // plan against a base the server never recorded.
+    await expect(
+      applyProjectPull(P, preparedWith(parsed), sel({ cohorts: new Set(['sepsis']) })),
+    ).rejects.toThrow('offline')
     expect(t.cohorts.get(did('c-1'))).toBeDefined()
 
     gitMocks.gitSetSyncState.mockClear()
@@ -576,7 +580,14 @@ describe('applyProjectPull — failure paths (what is guaranteed today)', () => 
     await applyProjectPull(P, prepared, sel({ keepLocal: true }))
 
     expect(t.cohorts.get(did('c-1'))).toBeUndefined()
-    expect(gitMocks.gitSetSyncState).toHaveBeenCalledOnce()
+    // The REVIEW cursor only (reviewedOnly = true). Declining means we hold none
+    // of this commit's content, so moving `syncedOid` — the 3-way merge base —
+    // would make every later pull treat the declined cohort as already absorbed
+    // and never offer it again. Asserting only "was called" is what let that
+    // through: the bug was in the fifth argument, not in whether it fired.
+    expect(gitMocks.gitSetSyncState).toHaveBeenCalledExactlyOnceWith(
+      'projects', P, 'main', 'oid-123', true,
+    )
   })
 })
 
@@ -619,32 +630,5 @@ describe('isCompleteProjectPull', () => {
     expect(isCompleteProjectPull(
       plan({ dashboards: [], scripts: [] }), sel(),
     )).toBe(true)
-  })
-
-  describe('mayAnchorProjectPull', () => {
-    it('anchors on an explicit keep-local even though the plan offered items', () => {
-      // "Discard the remote, keep mine" is a resolution: the banner must clear.
-      expect(mayAnchorProjectPull(plan(), sel({ keepLocal: true }))).toBe(true)
-    })
-
-    it('does not anchor a half-taken pull that also claims keep-local', () => {
-      // Otherwise the un-taken script would be buried exactly as a partial pull.
-      expect(mayAnchorProjectPull(
-        plan(), sel({ keepLocal: true, dashboards: new Set(['d1']) }),
-      )).toBe(false)
-    })
-
-    it('does not anchor a keep-local that still took the readme block', () => {
-      expect(mayAnchorProjectPull(
-        plan({ readmeChanged: true }), sel({ keepLocal: true, readme: true }),
-      )).toBe(false)
-    })
-
-    it('without keep-local it still requires a complete pull', () => {
-      expect(mayAnchorProjectPull(plan(), sel())).toBe(false)
-      expect(mayAnchorProjectPull(
-        plan(), sel({ dashboards: new Set(['d1']), scripts: new Set(['s1']) }),
-      )).toBe(true)
-    })
   })
 })

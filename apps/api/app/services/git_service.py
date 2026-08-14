@@ -1309,19 +1309,30 @@ async def commit_push(
     token: str | None,
     paths: list[str] | None = None,
     synced_oid: str | None = None,
+    reviewed_oid: str | None = None,
 ) -> dict:
     """Unpack the export and commit the selected files (all if paths is None) on
     top of the fetched remote branch, then push. Push-only flow.
 
     Guard against clobbering un-pulled remote work: the commit is built on top of
     the fetched remote head from the LOCAL export, which does NOT contain whatever
-    the remote gained since our anchor (synced_oid). Pushing that would fast-forward
-    the remote and silently drop those changes. So if the remote moved past our
-    anchor, refuse with a `pull_required` GitError — the user must pull first.
+    the remote gained since our anchor. Pushing that would fast-forward the remote
+    and silently drop those changes. So if the remote moved past our anchor,
+    refuse with a `pull_required` GitError — the user must pull first.
+
+    The anchor here is the DECISION cursor (`reviewed_oid`), falling back to the
+    content one. A partial pull deliberately leaves `synced_oid` behind — the
+    user took some items and kept their own version of the rest — so gating on
+    content alone would refuse every subsequent push while the UI reads "up to
+    date", with no escape but the complete pull they just declined. Having
+    deliberated over the commit is what makes pushing safe: nothing on the remote
+    is unseen, and the items they kept are exactly what they mean to push.
     """
     _safe_ref(branch)
     if synced_oid is not None:
         _safe_oid(synced_oid)
+    if reviewed_oid is not None:
+        _safe_oid(reviewed_oid)
 
     def work() -> dict:
         repo = repo_getter(uid)
@@ -1331,9 +1342,10 @@ async def commit_push(
         # the remote head off our anchor — fast-forward or diverged — means the local
         # export lacks remote content, so pushing would drop it. Only guard when we
         # have an anchor; a first push (no anchor / no remote branch) is allowed.
-        if has_remote and synced_oid:
+        anchor = reviewed_oid or synced_oid
+        if has_remote and anchor:
             remote_head = _run(repo, "rev-parse", "FETCH_HEAD", check=False).strip()
-            if remote_head and remote_head != synced_oid:
+            if remote_head and remote_head != anchor:
                 raise GitError("remote has changes you don't have; pull first", "pull_required")
         _unpack_zip_into(zip_bytes, repo)
         if paths is None:

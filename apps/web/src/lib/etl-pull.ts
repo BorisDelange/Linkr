@@ -366,19 +366,6 @@ export function isCompleteEtlPull(plan: EtlPullPlan, selection: EtlPullSelection
 }
 
 /**
- * May the anchor advance for this selection?
- *
- * Either the pull took everything on offer, or the user explicitly discarded the
- * remote changes to keep their own — a resolution, not a partial pull. The
- * keep-local branch requires an EMPTY selection: a half-taken pull that also
- * claims the commit would still bury the un-taken items.
- */
-export function mayAnchorEtlPull(plan: EtlPullPlan, selection: EtlPullSelection): boolean {
-  if (selection.keepLocal) return selection.paths.size === 0 && !selection.settings
-  return isCompleteEtlPull(plan, selection)
-}
-
-/**
  * Apply the resolved pull: write the chosen files (replacing the local ones at
  * the same paths), optionally the pipeline settings, then advance the sync anchor
  * — but only when the pull was COMPLETE and every write succeeded.
@@ -484,17 +471,17 @@ export async function applyEtlPull(
   if (failed) throw new Error('etl-pull: some changes could not be written')
 
   // Two cursors, two meanings. `syncedOid` asserts "we hold this commit's
-  // content", so only a complete pull (or an explicit keep-mine) may advance it —
-  // moving it after a partial pull would rebuild every later plan against a base
-  // we do not have, and the files left untaken would never be offered again.
-  // `reviewedOid` only asserts "we have decided about this commit", which is what
-  // unblocks the push: a user who took some files and knowingly refused the rest
-  // has resolved the divergence, and must not stay stuck behind it.
-  // (Server mode only; front-only has no anchor to set.)
+  // content", so ONLY taking that content may advance it — moving it after a
+  // partial pull (or a keep-mine, which takes nothing at all) would rebuild
+  // every later plan against a base we do not have, and the files left untaken
+  // would never be offered again. `reviewedOid` only asserts "we have decided
+  // about this commit", which is what unblocks the push: a user who took some
+  // files and knowingly refused the rest has resolved the divergence, and must
+  // not stay stuck behind it. (Server mode only; front-only has no anchor.)
   if (clonedOid) {
-    const complete = mayAnchorEtlPull(plan, selection)
-    if (complete || selection.decided) {
-      await gitSetSyncState('etl-pipelines', pipelineId, branch, clonedOid, !complete).catch(() => {})
+    const holdsContent = isCompleteEtlPull(plan, selection)
+    if (holdsContent || selection.keepLocal || selection.decided) {
+      await gitSetSyncState('etl-pipelines', pipelineId, branch, clonedOid, !holdsContent)
     }
   }
 }

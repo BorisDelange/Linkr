@@ -218,25 +218,6 @@ export function isCompleteProjectPull(
 }
 
 /**
- * May the anchor advance for this selection?
- *
- * Either the pull took everything on offer, or the user explicitly discarded the
- * remote changes to keep their own — a resolution, not a partial pull. The
- * keep-local branch requires an EMPTY selection: a half-taken pull that also
- * claims the commit would still bury the un-taken items.
- */
-export function mayAnchorProjectPull(
-  plan: ProjectPullPlan,
-  selection: ProjectPullSelection,
-): boolean {
-  if (selection.keepLocal) {
-    const groups = ['dashboards', 'scripts', 'cohorts', 'datasets', 'pipeline'] as const
-    return groups.every((g) => selection[g].size === 0) && !selection.readme
-  }
-  return isCompleteProjectPull(plan, selection)
-}
-
-/**
  * Apply the resolved pull: overwrite the selected existing entities (delete first,
  * since the import loops are insert-only), import the chosen groups, update the
  * README block if picked, then advance the sync anchor to the cloned commit — but
@@ -291,9 +272,14 @@ export async function applyProjectPull(
   // has resolved the divergence and must not stay stuck behind it.
   // (Server mode only; front-only has no anchor to set.)
   if (clonedOid) {
-    const complete = mayAnchorProjectPull(prepared.plan, selection)
-    if (complete || selection.decided) {
-      await gitSetSyncState('projects', projectUid, branch, clonedOid, !complete).catch(() => {})
+    // Only TAKING the content may advance `syncedOid`. Keep-local is a decision,
+    // not an application: the user holds none of this commit, so recording it as
+    // the 3-way base would make the merge treat what they declined as already
+    // absorbed — and every later pull, diffed against that base, would stop
+    // offering it. Those items are meant to reappear as local changes to push.
+    const holdsContent = isCompleteProjectPull(prepared.plan, selection)
+    if (holdsContent || selection.keepLocal || selection.decided) {
+      await gitSetSyncState('projects', projectUid, branch, clonedOid, !holdsContent)
     }
   }
 }

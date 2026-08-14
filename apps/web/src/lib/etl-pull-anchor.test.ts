@@ -29,6 +29,8 @@ const prepared = (): PreparedEtlPull => ({
   nodes: [],
   remotePipeline: null,
   remoteDocs: {},
+  localByPath: new Map(),
+  localPipeline: undefined,
   clonedOid: '6ced4a58497fdc24d1e703f63a00f41f65c5ebac',
   branch: 'main',
 })
@@ -85,6 +87,8 @@ describe('the anchor only moves on a COMPLETE, successful pull', () => {
     ],
     remotePipeline: null,
     remoteDocs: {},
+    localByPath: new Map(),
+    localPipeline: undefined,
     clonedOid: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
     branch: 'main',
   })
@@ -119,6 +123,33 @@ describe('the anchor only moves on a COMPLETE, successful pull', () => {
     expect(gitMocks.gitSetSyncState).toHaveBeenCalledWith(
       'etl-pipelines', 'p1', 'main', 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', true,
     )
+  })
+
+  it('keep-local over a non-empty plan advances the REVIEW cursor only', async () => {
+    // The bug this pins: keeping your own version means you hold NONE of the
+    // commit's content, yet `mayAnchorEtlPull` returned true for it and the
+    // caller passed reviewedOnly = !true = false — advancing `syncedOid`, the
+    // 3-way merge base, onto a commit that was explicitly declined. Every later
+    // pull then diffed against it and never offered those changes again.
+    await applyEtlPull(
+      'p1', withPlan(),
+      { paths: new Set(), settings: false, keepLocal: true, decided: true },
+      storage(),
+    )
+    expect(gitMocks.gitSetSyncState).toHaveBeenCalledWith(
+      'etl-pipelines', 'p1', 'main', 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', true,
+    )
+  })
+
+  it('surfaces a failed anchor write instead of swallowing it', async () => {
+    // The write used to be `.catch(() => {})`, so a pull whose cursor never
+    // reached the server still resolved as a success: the caller cleared its
+    // draft, the banner came back on the next refresh, and the plan was rebuilt
+    // against a stale base.
+    gitMocks.gitSetSyncState.mockRejectedValueOnce(new Error('offline'))
+    await expect(applyEtlPull(
+      'p1', withPlan(), { paths: new Set(['a.sql', 'b.sql']), settings: false }, storage(),
+    )).rejects.toThrow('offline')
   })
 
   it('a partial pull that was NOT decided still anchors nothing', async () => {
