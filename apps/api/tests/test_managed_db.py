@@ -232,6 +232,15 @@ def test_etl_sql_cannot_hide_a_forbidden_statement_behind_a_comment(data_dir):
         "-- line\nINSTALL httpfs;",
         "/* a */ -- b\n /* c */ LOAD httpfs;",
         "SELECT 1; /* x */ ATTACH '/etc/passwd' AS evil;",
+        # A BARE CARRIAGE RETURN ends a line comment for DuckDB, so scanning only
+        # for \n swallowed the whole payload as one "comment" and the anchored
+        # check never saw the keyword — while DuckDB executed it. Verified
+        # against real DuckDB: `--x\rSELECT 42` returns 42, and this exact
+        # payload left httpfs installed and loaded.
+        "--\rINSTALL httpfs;",
+        "--\rLOAD httpfs;",
+        "--\r\nINSTALL httpfs;",
+        "SELECT 1;\n-- c\rATTACH '/etc/passwd' AS evil;",
     ):
         with pytest.raises(ValueError, match="not allowed in a pipeline script"):
             db_connect.run_etl_sql(target, sql, None, mapping)
@@ -256,6 +265,16 @@ def test_split_statements_does_not_cut_inside_comments_or_dollar_quotes(data_dir
         "SELECT 1",
         "SELECT 2",
     ]
+    # A bare \r ends the comment, so what follows is a real statement — not part
+    # of it. Without this the whole line reads as one comment and its `;` is
+    # invisible, which is what let the extension guard be bypassed.
+    assert db_connect._split_statements("-- c\rSELECT 1;") == ["-- c\rSELECT 1"]
+    assert db_connect._split_statements("-- c\rSELECT 1; SELECT 2;") == [
+        "-- c\rSELECT 1",
+        "SELECT 2",
+    ]
+    # \r\n must not leave a stray \n that reads as a second line.
+    assert db_connect._split_statements("-- c\r\nSELECT 1;") == ["-- c\r\nSELECT 1"]
 
 
 def test_etl_sql_still_runs_normal_statements_mentioning_those_words(data_dir):

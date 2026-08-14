@@ -31,8 +31,11 @@ export function protectedRegions(sql: string): Region[] {
     const ch = sql[i]
 
     if (ch === '-' && sql[i + 1] === '-') {
-      const end = sql.indexOf('\n', i)
-      const stop = end === -1 ? sql.length : end
+      // DuckDB ends a line comment at a bare \r too, not only at \n. Scanning
+      // for \n alone let `--\rSELECT ...` read as one long comment here while
+      // DuckDB executed the tail — the same split must hold on both engines.
+      const end = sql.slice(i).search(/[\r\n]/)
+      const stop = end === -1 ? sql.length : i + end
       regions.push({ start: i, end: stop })
       i = stop
       continue

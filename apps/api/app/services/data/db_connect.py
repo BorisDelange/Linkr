@@ -60,6 +60,8 @@ def _ext_dir() -> str:
 # vector — but a name could validate here and not round-trip under DuckDB's own
 # case-insensitive matching.
 _SAFE_IDENT = re.compile(r"[a-z_][a-z0-9_]*", re.IGNORECASE | re.ASCII)
+# What ends a `--` comment for DuckDB. A bare \r counts: see _line_comment_end.
+_LINE_END_RE = re.compile(r"\r\n|[\r\n]")
 
 
 def _require_ident(value: str, what: str) -> str:
@@ -194,6 +196,19 @@ def _dollar_tag(sql: str, at: int) -> str | None:
     return sql[at:j + 1] if j < len(sql) and sql[j] == "$" else None
 
 
+def _line_comment_end(sql: str, i: int) -> int:
+    """Index just past the `--` comment starting at `i`.
+
+    DuckDB ends a line comment at a bare carriage return, not only at `\\n`, so
+    scanning for `\\n` alone let `--\\rINSTALL httpfs;` be swallowed whole as a
+    "comment" — hiding the keyword from `_reject_forbidden_statements` while
+    DuckDB happily executed it. Same bypass class as the leading `/* */` one,
+    a different terminator.
+    """
+    m = _LINE_END_RE.search(sql, i)
+    return len(sql) if m is None else m.end()
+
+
 def _strip_leading_noise(stmt: str) -> str:
     """A statement without the comments and blank space in front of its first
     keyword, so a check anchored on that keyword cannot be dodged by prefixing
@@ -204,8 +219,7 @@ def _strip_leading_noise(stmt: str) -> str:
         if stmt[i].isspace():
             i += 1
         elif stmt.startswith("--", i):
-            nl = stmt.find("\n", i)
-            i = n if nl == -1 else nl + 1
+            i = _line_comment_end(stmt, i)
         elif stmt.startswith("/*", i):
             end = stmt.find("*/", i + 2)
             i = n if end == -1 else end + 2
@@ -235,8 +249,7 @@ def _split_statements(sql: str) -> list[str]:
     while i < n:
         ch = sql[i]
         if ch == "-" and i + 1 < n and sql[i + 1] == "-":
-            nl = sql.find("\n", i)
-            stop = n if nl == -1 else nl + 1
+            stop = _line_comment_end(sql, i)
             current += sql[i:stop]
             i = stop
         elif ch == "/" and i + 1 < n and sql[i + 1] == "*":

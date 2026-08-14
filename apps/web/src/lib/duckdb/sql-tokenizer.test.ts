@@ -44,6 +44,22 @@ describe('splitSqlStatements', () => {
     ])
   })
 
+  it('ends a line comment at a bare carriage return, like DuckDB', () => {
+    // DuckDB stops a `--` comment at \r, so the `;` after it IS a boundary.
+    // Treating only \n as the terminator swallowed the rest of the line as
+    // comment — the same divergence that let the backend's extension guard be
+    // bypassed with `--\rINSTALL httpfs;`.
+    expect(splitSqlStatements('-- a\rSELECT 1; SELECT 2')).toEqual([
+      '-- a\rSELECT 1',
+      'SELECT 2',
+    ])
+    // CRLF must consume both characters, not leave a stray \n.
+    expect(splitSqlStatements('-- a\r\nSELECT 1; SELECT 2')).toEqual([
+      '-- a\r\nSELECT 1',
+      'SELECT 2',
+    ])
+  })
+
   it('does not split inside a quoted identifier', () => {
     expect(splitSqlStatements('SELECT 1 AS "a;b"; SELECT 2')).toEqual([
       'SELECT 1 AS "a;b"',
