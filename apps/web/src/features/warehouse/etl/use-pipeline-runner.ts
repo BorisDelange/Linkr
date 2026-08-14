@@ -148,8 +148,19 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
 
     // A pause already took the run out of flight and is holding its history entry
     // open for the resume; closing it here would end the very run the user asked
-    // to continue.
-    if (useEtlStore.getState().pausedRun) return
+    // to continue. But only when the loop actually stopped FOR the pause: a script
+    // that failed after the pause was requested still failed, and returning here
+    // would drop that error from the run's outcome and leave the entry looking
+    // merely held.
+    if (!hasError && useEtlStore.getState().pausedRun) return
+
+    // A failure while paused has to release the hold first: finishPipelineRun
+    // only closes an entry that is still 'running', and leaving `pausedRun` set
+    // would keep offering Resume for a run that has already failed.
+    if (hasError && useEtlStore.getState().pausedRun) {
+      useEtlStore.getState().discardPausedRun()
+      return
+    }
 
     useEtlStore.getState().finishPipelineRun(
       hasError || abort?.signal.aborted ? 'error' : 'success',

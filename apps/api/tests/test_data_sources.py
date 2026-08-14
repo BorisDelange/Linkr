@@ -514,7 +514,13 @@ async def test_connection_info_for_an_external_engine_omits_the_password(client)
 
 
 async def test_connection_info_for_a_parquet_folder_points_at_the_directory(client, tmp_path, monkeypatch):
-    """A script outside Linkr globs the FOLDER, not one of the tables."""
+    """A script outside Linkr addresses a Parquet source table by table.
+
+    NOT by the directory: uploaded blobs live in the shared content-addressed
+    store, so that directory mixes in every other source's files and its entries
+    carry no .parquet suffix for a glob to match. `path` is therefore unset and
+    the table -> blob path pairing is the only usable address.
+    """
     from app.config import settings
 
     monkeypatch.setattr(type(settings), "data_path", property(lambda _: tmp_path))
@@ -554,6 +560,13 @@ async def test_connection_info_for_a_parquet_folder_points_at_the_directory(clie
     ).json()
     assert info["kind"] == "parquet-folder"
     assert sorted(info["fileNames"]) == ["person.parquet", "visit_occurrence.parquet"]
-    # The directory, and it must not be one of the table files.
-    assert not info["path"].endswith(".parquet")
+    # No directory to glob — the shared blob store is not this source's folder.
+    assert info["path"] is None
     assert info["blob"] is True
+    # One entry per logical table, each naming the blob(s) to read. The name is
+    # only recoverable from this pairing: the blob path is a bare sha.
+    assert [t["table"] for t in info["tables"]] == ["person", "visit_occurrence"]
+    for table in info["tables"]:
+        assert table["paths"], f"{table['table']} must name at least one blob"
+        assert table["exists"] is True
+        assert not any(p.endswith(".parquet") for p in table["paths"])

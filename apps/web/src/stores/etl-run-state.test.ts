@@ -569,6 +569,23 @@ describe('loadRunHistory resolving mid-run', () => {
     // p1's history must not land on p-other.
     expect(useEtlStore.getState().runHistory).toEqual([])
   })
+
+  it('does not clobber a PAUSED run either', async () => {
+    // Pause sets pipelineRunning:false, so a guard reading that flag alone let
+    // the stored history overwrite a held run: statusesOf relabelled its
+    // in-flight scripts 'stopped', and the entry Resume writes into was gone.
+    useEtlStore.getState().startPipelineRun(['f2'])
+    useEtlStore.getState().setScriptStatus('f2', RUNNING)
+    const heldRunId = useEtlStore.getState().runHistory[0].id
+    useEtlStore.getState().pausePipelineRun()
+
+    const inflight = useEtlStore.getState().loadRunHistory('p1')
+    release?.()
+    await inflight
+
+    expect(useEtlStore.getState().runHistory[0].id).toBe(heldRunId)
+    expect(useEtlStore.getState().pausedRun?.runId).toBe(heldRunId)
+  })
 })
 
 /**
@@ -637,6 +654,21 @@ describe('pausing and resuming a run', () => {
     useEtlStore.getState().finishPipelineRun('success')
     expect(useEtlStore.getState().runHistory).toHaveLength(1)
     expect(useEtlStore.getState().runHistory[0].status).toBe('success')
+  })
+
+  it('refuses to clear the history while a run is paused', () => {
+    // The trash button was enabled while paused (it gated on `running`), so this
+    // deleted the run Resume was about to write into: the resumed scripts then
+    // executed against the target database with nowhere to record a result.
+    const store = useEtlStore.getState()
+    store.startPipelineRun(['f1', 'f2'])
+    store.setScriptStatus('f1', RUNNING)
+    useEtlStore.getState().pausePipelineRun()
+
+    useEtlStore.getState().clearRunHistory()
+
+    expect(useEtlStore.getState().runHistory).toHaveLength(1)
+    expect(useEtlStore.getState().pausedRun).not.toBeNull()
   })
 
   it('resuming puts the run back in flight on a fresh signal', () => {

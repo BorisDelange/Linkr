@@ -147,6 +147,20 @@ export function statusesOf(run: EtlRunHistoryEntry | undefined): Map<string, Etl
  * turn a persistence hiccup into a broken run. The in-memory state stays
  * authoritative for the live display; storage is the record for the next reload.
  */
+/**
+ * Is a run in progress — including one the user has PAUSED?
+ *
+ * Pause sets `pipelineRunning: false` (nothing is executing), so guarding on
+ * that flag alone left a paused run unprotected: a remount reloaded the history
+ * over the live entry and `statusesOf` relabelled its in-flight scripts
+ * 'stopped', while Clear history happily deleted the very run Resume was about
+ * to write into. A paused run still owns `runHistory[0]`, so anything that
+ * would replace or delete it must treat it as live.
+ */
+function runIsLive(s: { pipelineRunning: boolean; pausedRun: unknown }): boolean {
+  return s.pipelineRunning || s.pausedRun != null
+}
+
 function persistRun(entry: EtlRunHistoryEntry | undefined): void {
   if (!entry) return
   // try/catch AND .catch(): getStorage() throws synchronously when storage is not
@@ -234,7 +248,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     // Skipped while a run is in flight: loadRunHistory rebuilds scriptStatuses from
     // the LAST FINISHED run, which would overwrite the live badges of the run in
     // progress with the previous one's results.
-    if (!get().pipelineRunning) void get().loadRunHistory(pipelineId).catch(() => {})
+    if (!runIsLive(get())) void get().loadRunHistory(pipelineId).catch(() => {})
   },
 
   createFile: async (file) => {
@@ -656,7 +670,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     // reach a terminal status — it stayed 'running' in storage for good, and
     // statusesOf relabelled it 'stopped' on every later reload. Same for a
     // pipeline switch mid-read: the answer belongs to the pipeline we asked about.
-    if (get().pipelineRunning || get().activePipelineId !== pipelineId) return
+    if (runIsLive(get()) || get().activePipelineId !== pipelineId) return
     // Newest first, as the panel lists them. The server already orders that way,
     // but the IDB index does not, so sorting here keeps both backends identical.
     const history = runs
@@ -678,7 +692,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     // Both, not just the list: the badges on the script widgets and in the
     // Scripts tree are views of scriptStatuses, so clearing the history alone
     // would leave green ticks for runs the user just asked to forget.
-    if (get().pipelineRunning) return
+    if (runIsLive(get())) return
     const pipelineId = get().activePipelineId
     set({ runHistory: [], scriptStatuses: new Map() })
     if (pipelineId) {

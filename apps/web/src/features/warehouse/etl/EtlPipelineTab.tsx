@@ -184,14 +184,32 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
 
   const handlePausePipeline = useCallback(() => { pausePipelineRun() }, [pausePipelineRun])
 
+  /**
+   * The scripts a resume would actually run.
+   *
+   * A pause is an indefinite hold, so a script it still owes may since have been
+   * deleted, renamed, or switched away from SQL — those ids are simply absent
+   * from `sqlFiles`. Deriving the list here (rather than inside the handler) is
+   * what lets the toolbar promise the real number instead of the stale
+   * `pendingFileIds.length`, which claimed scripts that no longer exist.
+   */
+  const resumableScripts = useMemo(() => {
+    if (!pausedRun) return []
+    const pending = new Set(pausedRun.pendingFileIds)
+    return sqlFiles.filter((f) => pending.has(f.id))
+  }, [pausedRun, sqlFiles])
+
   /** Continue the held run: the scripts it still owes, in the pipeline's order. */
   const handleResumePipeline = useCallback(async () => {
     if (!pausedRun) return
-    const pending = new Set(pausedRun.pendingFileIds)
-    const rest = sqlFiles.filter((f) => pending.has(f.id))
-    if (rest.length === 0) return
-    await runScripts(rest, { resume: true })
-  }, [pausedRun, sqlFiles, runScripts])
+    // Nothing left to run: end the hold rather than leave an amber Resume button
+    // that does nothing and a `pausedRun` stranded for ever.
+    if (resumableScripts.length === 0) {
+      discardPausedRun()
+      return
+    }
+    await runScripts(resumableScripts, { resume: true })
+  }, [pausedRun, resumableScripts, runScripts, discardPausedRun])
 
   /**
    * Run ONE script, as its own run.
@@ -270,7 +288,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile, onBrowseSchema }: Pro
                 </TooltipTrigger>
                 <TooltipContent className="max-w-[280px]">
                   {pausedRun
-                    ? t('etl.resume_pipeline_hint', { count: pausedRun.pendingFileIds.length })
+                    ? t('etl.resume_pipeline_hint', { count: resumableScripts.length })
                     : t('etl.run_pipeline')}
                 </TooltipContent>
               </Tooltip>
@@ -1029,7 +1047,10 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
           variant="ghost"
           size="icon-xs"
           // Disabled mid-run: clearing would wipe the statuses the run is writing.
-          disabled={!canWrite || running}
+          // Paused counts as mid-run — `running` is false there, so without this
+          // the button stayed live and deleted the entry Resume writes into,
+          // leaving the resumed scripts with nowhere to record their result.
+          disabled={!canWrite || running || !!pausedRun}
           onClick={() => setConfirmClear(true)}
           title={t('etl.clear_run_history')}
         >
@@ -1085,7 +1106,11 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
                   {run.scripts.map((script) => {
                     const file = fileMap.get(script.fileId)
                     return (
-                      <div key={script.id} className="flex items-center gap-2 text-xs">
+                      /* Keyed on fileId, not the log id: the latter embeds
+                         Date.now(), and setScriptStatus dedupes on fileId — so
+                         fileId is what is unique within a run, and it stays
+                         stable when a resumed script re-logs itself. */
+                      <div key={script.fileId} className="flex items-center gap-2 text-xs">
                         <RunStatusIcon status={script.status} />
                         <span className={cn('flex-1 truncate font-mono', script.status === 'error' && 'text-red-500')}>
                           {file?.name ?? script.fileId}
