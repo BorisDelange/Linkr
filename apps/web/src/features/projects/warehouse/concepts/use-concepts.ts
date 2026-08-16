@@ -109,7 +109,10 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const [pageSize, setPageSize] = useState(cached?.pageSize ?? 50)
   const [concepts, setConcepts] = useState<ConceptRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
-  const [isLoading, setIsLoading] = useState(false)
+  // Starts true: the very first render happens before the concept-table check
+  // and the cache-status probe have run, and an empty table there reads as
+  // "no concepts" rather than "not read yet".
+  const [isLoading, setIsLoading] = useState(true)
 
   const resultCache = useRef<Map<string, CachedResult>>(cached?.resultCache ?? new Map())
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>(cached?.filterOptions ?? {})
@@ -303,7 +306,13 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    if (!dataSourceId || !schemaMapping || hasConceptTable !== true) return
+    if (!dataSourceId || !schemaMapping || hasConceptTable !== true) {
+      // Nothing to load (no source, or the source has no concept table). The
+      // page renders its own empty state, so stop the skeleton — but keep it
+      // while the concept-table check is still pending (hasConceptTable null).
+      if (hasConceptTable === false || !dataSourceId || !schemaMapping) setIsLoading(false)
+      return
+    }
 
     const server = isServerMode()
 
@@ -314,7 +323,10 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     if (server && !cacheReady) {
       setConcepts([])
       setTotalCount(0)
-      setIsLoading(false)
+      // Still checking for a cache, or building one: the table keeps its
+      // skeleton. Reporting "not loading" here would render "No concepts found"
+      // over a source that simply has not been read yet.
+      setIsLoading(!cacheChecked || countsRefreshing)
       return
     }
 
@@ -368,7 +380,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     load()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, debouncedTextFilters._searchText, debouncedTextFilters._searchId, debouncedTextFilters._searchCode, dropdownFilterKey, page, pageSize, sorting, availableColumns])
+  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, cacheChecked, countsRefreshing, debouncedTextFilters._searchText, debouncedTextFilters._searchId, debouncedTextFilters._searchCode, dropdownFilterKey, page, pageSize, sorting, availableColumns])
 
   // ---------------------------------------------------------------------------
   // Load selected concept details

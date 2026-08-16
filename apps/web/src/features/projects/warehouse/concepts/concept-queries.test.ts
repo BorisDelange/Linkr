@@ -131,4 +131,21 @@ describe('computeAvailableColumns ordering', () => {
     const ids = computeAvailableColumns([dict]).map((c) => c.id)
     expect(new Set(ids).size).toBe(ids.length)
   })
+
+  it('omits _dict_key for a single dictionary', () => {
+    expect(computeAvailableColumns([dict]).map((c) => c.id)).not.toContain('_dict_key')
+  })
+
+  it('leads with _dict_key, next to vocabulary_id, when several dictionaries exist', () => {
+    const other: ConceptDictionary = {
+      key: 'd_items',
+      table: 'd_items',
+      idColumn: 'itemid',
+      nameColumn: 'label',
+      terminologyIdColumn: 'linksto',
+    }
+    const ids = computeAvailableColumns([dict, other]).map((c) => c.id)
+    expect(ids[0]).toBe('_dict_key')
+    expect(ids[1]).toBe('vocabulary_id')
+  })
 })

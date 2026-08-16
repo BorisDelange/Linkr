@@ -107,6 +107,23 @@ export function ConceptsPage() {
     setSelectedConceptIds(new Set())
   }
 
+  // Whether the source actually exposes concept codes. MIMIC's d_items/d_labitems
+  // have no code column, so the column never appears and copying codes would
+  // yield empty strings.
+  const hasCodeColumn = useMemo(
+    () => availableColumns.some((c) => c.id === 'concept_code'),
+    [availableColumns],
+  )
+
+  // Same precedence as the table's leading column: vocabulary_id when the source
+  // has one, else the dictionary key (MIMIC exposes neither a vocabulary nor a
+  // code column, only d_items / d_labitems).
+  const terminologyColumn = useMemo<'vocabulary_id' | '_dict_key' | null>(() => {
+    if (availableColumns.some((c) => c.id === 'vocabulary_id')) return 'vocabulary_id'
+    if (availableColumns.some((c) => c.id === '_dict_key')) return '_dict_key'
+    return null
+  }, [availableColumns])
+
   const filterableColumns = useMemo(
     () => availableColumns.filter((c) => c.filterable && (filterOptions[c.id]?.length ?? 0) > 0),
     [availableColumns, filterOptions],
@@ -325,31 +342,8 @@ export function ConceptsPage() {
           </Tooltip>
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
-              <Checkbox
-                checked={statsEnabled}
-                onCheckedChange={(v) => setStatsEnabled(v === true)}
-                className="size-3.5"
-              />
-              {t('etl.profiling_compute_stats')}
-            </label>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={detailVisible ? 'secondary' : 'ghost'}
-                  size="icon-sm"
-                  className="h-8 w-8"
-                  onClick={() => setDetailVisible(!detailVisible)}
-                >
-                  <PanelRight size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                {t('etl.profiling_toggle_stats')}
-              </TooltipContent>
-            </Tooltip>
-
+            {/* Three groups: search + concept list, then refresh… */}
+            <div className="mx-0.5 h-4 w-px bg-border" />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -373,6 +367,34 @@ export function ConceptsPage() {
                   })}
                 </TooltipContent>
               )}
+            </Tooltip>
+
+            {/* …then the view options. */}
+            <div className="mx-0.5 h-4 w-px bg-border" />
+
+            <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+              <Checkbox
+                checked={statsEnabled}
+                onCheckedChange={(v) => setStatsEnabled(v === true)}
+                className="size-3.5"
+              />
+              {t('etl.profiling_compute_stats')}
+            </label>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={detailVisible ? 'secondary' : 'ghost'}
+                  size="icon-sm"
+                  className="h-8 w-8"
+                  onClick={() => setDetailVisible(!detailVisible)}
+                >
+                  <PanelRight size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {t('etl.profiling_toggle_stats')}
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -423,6 +445,8 @@ export function ConceptsPage() {
         concepts={conceptList}
         onRemove={(id) => setConceptList((prev) => prev.filter((c) => c.concept_id !== id))}
         onClear={() => setConceptList([])}
+        hasCodeColumn={hasCodeColumn}
+        terminologyColumn={terminologyColumn}
       />
 
       {/* Main content: table + detail */}

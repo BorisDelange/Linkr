@@ -36,6 +36,11 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
   // concept_class_id, [other extras], standard_concept, then counts last.
   const cols: ColumnDescriptor[] = []
 
+  // Which dictionary the row came from — the same "what terminology is this?"
+  // role vocabulary_id plays, so it sits alongside it. Multi-dict sources only.
+  if (dicts.length > 1) {
+    cols.push({ id: '_dict_key', source: 'dict', filterable: true })
+  }
   if (dicts.some((d) => d.terminologyIdColumn || d.vocabularyColumn)) {
     cols.push({ id: 'vocabulary_id', source: 'vocabulary', filterable: true })
   }
@@ -72,11 +77,6 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
   }
   if (hasStandardConcept) {
     cols.push({ id: 'standard_concept', source: 'extra', filterable: true })
-  }
-
-  // _dict_key column only if multiple dictionaries
-  if (dicts.length > 1) {
-    cols.push({ id: '_dict_key', source: 'dict', filterable: true })
   }
 
   // OMOP validity trio — rarely-consulted metadata, hidden by default.

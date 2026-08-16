@@ -10,6 +10,13 @@ export type ClipboardCopyFormat = 'sql' | 'r' | 'python'
 
 export const CLIPBOARD_COPY_FORMATS: ClipboardCopyFormat[] = ['sql', 'r', 'python']
 
+/** Display labels — the languages' own capitalisation, not blanket uppercase. */
+export const CLIPBOARD_COPY_FORMAT_LABELS: Record<ClipboardCopyFormat, string> = {
+  sql: 'SQL',
+  r: 'R',
+  python: 'Python',
+}
+
 /** Comment marker per target language (what precedes the human-readable label). */
 const COMMENT_MARKER: Record<ClipboardCopyFormat, string> = {
   sql: '--',

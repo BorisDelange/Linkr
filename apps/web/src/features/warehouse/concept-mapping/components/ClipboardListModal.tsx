@@ -40,6 +40,7 @@ import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import {
   formatClipboardList,
   CLIPBOARD_COPY_FORMATS,
+  CLIPBOARD_COPY_FORMAT_LABELS,
   type ClipboardCopyFormat,
 } from '@/lib/concept-mapping/clipboard-list-format'
 import type { SourceConceptRow } from '../MappingEditorTab'
@@ -329,7 +330,7 @@ export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClea
           <Button
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-destructive hover:text-destructive"
+            className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
             disabled={items.length === 0}
             onClick={onClear}
           >
@@ -344,7 +345,7 @@ export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClea
               <SelectContent>
                 {CLIPBOARD_COPY_FORMATS.map((f) => (
                   <SelectItem key={f} value={f} className="text-xs">
-                    {f.toUpperCase()}
+                    {CLIPBOARD_COPY_FORMAT_LABELS[f]}
                   </SelectItem>
                 ))}
               </SelectContent>
