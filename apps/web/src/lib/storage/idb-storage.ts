@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, EtlQualityCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, EtlQualityCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, ConceptListStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { SUGGESTION_CATEGORIES } from '@/types'
@@ -227,6 +227,13 @@ interface LinkrDB extends DBSchema {
       'by-workspace': string
     }
   }
+  concept_lists: {
+    key: string
+    value: ConceptList
+    indexes: {
+      'by-project': string
+    }
+  }
   mapping_projects: {
     key: string
     value: MappingProject
@@ -299,7 +306,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 38
+const DB_VERSION = 39
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -863,6 +870,15 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
       if (oldVersion < 38) {
         if (!db.objectStoreNames.contains('etl_quality_cache')) {
           db.createObjectStore('etl_quality_cache', { keyPath: 'pipelineId' })
+        }
+      }
+
+      // User-authored concept lists (project-scoped). Distinct from
+      // concept_sets, which hold imported data dictionaries.
+      if (oldVersion < 39) {
+        if (!db.objectStoreNames.contains('concept_lists')) {
+          const store = db.createObjectStore('concept_lists', { keyPath: 'id' })
+          store.createIndex('by-project', 'projectUid')
         }
       }
     },
@@ -2016,6 +2032,40 @@ class IDBConceptSetStorage implements ConceptSetStorage {
   }
 }
 
+class IDBConceptListStorage implements ConceptListStorage {
+  async getAll(): Promise<ConceptList[]> {
+    const db = await getDB()
+    return db.getAll('concept_lists')
+  }
+
+  async getByProject(projectUid: string): Promise<ConceptList[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('concept_lists', 'by-project', projectUid)
+  }
+
+  async getById(id: string): Promise<ConceptList | undefined> {
+    const db = await getDB()
+    return db.get('concept_lists', id)
+  }
+
+  async create(conceptList: ConceptList): Promise<void> {
+    const db = await getDB()
+    await db.add('concept_lists', conceptList)
+  }
+
+  async update(id: string, changes: Partial<ConceptList>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('concept_lists', id)
+    if (!existing) return
+    await db.put('concept_lists', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('concept_lists', id)
+  }
+}
+
 class IDBMappingProjectStorage implements MappingProjectStorage {
   async getAll(): Promise<MappingProject[]> {
     const db = await getDB()
@@ -2481,6 +2531,7 @@ export function createIDBStorage(): Storage {
     dqCustomChecks: new IDBDqCustomCheckStorage(),
     dqRunHistory: new IDBDqRunHistoryStorage(),
     conceptSets: new IDBConceptSetStorage(),
+    conceptLists: new IDBConceptListStorage(),
     mappingProjects: new IDBMappingProjectStorage(),
     conceptMappings: new IDBConceptMappingStorage(),
     dataCatalogs: new IDBDataCatalogStorage(),

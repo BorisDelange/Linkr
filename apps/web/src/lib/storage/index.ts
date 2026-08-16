@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -334,6 +334,16 @@ export interface ConceptSetStorage {
   deleteBatch(ids: string[]): Promise<void>
 }
 
+/** Storage interface for user-authored concept lists (project-scoped). */
+export interface ConceptListStorage {
+  getAll(): Promise<ConceptList[]>
+  getByProject(projectUid: string): Promise<ConceptList[]>
+  getById(id: string): Promise<ConceptList | undefined>
+  create(conceptList: ConceptList): Promise<void>
+  update(id: string, changes: Partial<ConceptList>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
 /** Storage interface for mapping project persistence. */
 export interface MappingProjectStorage {
   getAll(): Promise<MappingProject[]>
@@ -491,6 +501,7 @@ export interface Storage {
   dqCustomChecks: DqCustomCheckStorage
   dqRunHistory: DqRunHistoryStorage
   conceptSets: ConceptSetStorage
+  conceptLists: ConceptListStorage
   mappingProjects: MappingProjectStorage
   conceptMappings: ConceptMappingStorage
   dataCatalogs: DataCatalogStorage

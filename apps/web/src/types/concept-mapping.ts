@@ -82,6 +82,41 @@ export interface ConceptSet {
   updatedAt: string
 }
 
+// --- Concept List ---
+
+/** One concept in a list. Denormalized on purpose: a list stays readable even
+ *  once the source database is detached or its ids have churned. */
+export interface ConceptListItem {
+  conceptId: number
+  conceptName?: string
+  conceptCode?: string
+  vocabularyId?: string
+  /** Which concept dictionary the row came from (multi-dict sources). */
+  dictKey?: string
+}
+
+/**
+ * A project-scoped, user-authored list of concepts.
+ *
+ * Deliberately NOT a ConceptSet: a *set* is an imported data dictionary
+ * (workspace-scoped, read-only, carrying an OHDSI expression and upstream
+ * provenance), whereas a *list* is picked by hand while browsing and travels
+ * with its project. A list can be exported into concept-set JSON to be
+ * published through the data-dictionary tooling.
+ */
+export interface ConceptList {
+  id: string
+  projectUid: string
+  name: LocalizedString
+  description: LocalizedString
+  items: ConceptListItem[]
+  /** Data source the concepts were picked from (informational). */
+  dataSourceId?: string
+  version: string
+  createdAt: string
+  updatedAt: string
+}
+
 // --- Mapping Project ---
 
 export type MappingProjectSourceType = 'database' | 'file'

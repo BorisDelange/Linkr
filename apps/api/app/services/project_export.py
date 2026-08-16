@@ -405,6 +405,7 @@ def build_project_tree(
     versioned_data_files: set[str],
     excluded_files: set[str] | None = None,
     env_specs: dict[str, bytes] | None = None,
+    concept_lists: list[dict] | None = None,
 ) -> dict[str, bytes]:
     """Build the git-variant project export tree as ``{path: bytes}``.
 
@@ -527,6 +528,15 @@ def build_project_tree(
     for c in cohorts:
         tree[f"cohorts/{_slugify(c.get('name') or c['id'])}.json"] = _json(
             _strip_instance_fields(c)
+        )
+
+    # User-authored concept lists. Names are LocalizedString, so the slug comes
+    # from the English value — the same rule the frontend export uses, or git
+    # would see a rename on every round-trip.
+    for cl in concept_lists or []:
+        label = _localized_en(cl.get("name")) or cl["id"]
+        tree[f"concept-lists/{_slugify(label)}.json"] = _json(
+            _strip_instance_fields(cl)
         )
 
     for c in connections:

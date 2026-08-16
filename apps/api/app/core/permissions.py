@@ -59,7 +59,10 @@ WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     "ide": ["read", "write", "delete", "execute"],  # execute = run R/Python/SQL
     "pipeline": RWD,
     "project-databases": ["read", "write"],  # link/unlink a workspace source
-    "concepts": ["read"],  # browse the source's concept dictionary (read-only)
+    # Browse the source's concept dictionary (read). The dictionary itself is
+    # never edited from here — write/delete govern the project's own concept
+    # lists, which ARE authored on this page.
+    "concepts": RWD,
     "cohorts": RWD,
     # execute = render widgets/analyses (run their author-defined code). It's a
     # view-time operation, so viewer gets it by default (see _catalogue_perms),

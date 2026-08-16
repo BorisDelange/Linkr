@@ -37,6 +37,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
@@ -75,6 +76,13 @@ import type {
 /** Dashed inline-filter look shared with the concept-mapping tables. */
 const FILTER_INPUT_CLASS =
   'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
+
+// Columns kept out of the value tooltip: the cell is graphical (the S/C/NS
+// badge), or its renderer adds thousands separators that the tooltip's
+// String(raw) would undo.
+const NO_TOOLTIP_COLUMNS = new Set(['standard_concept', 'record_count', 'patient_count'])
+// Columns rendered in a monospace font (kept in the tooltip cell).
+const MONO_COLUMNS = new Set(['concept_code', 'concept_id'])
 
 // ---------------------------------------------------------------------------
 // Props
@@ -575,15 +583,27 @@ export function ConceptTable({
                     onClick={(e) => handleRowClick(row.original.concept_id, e)}
                   >
                     {row.getVisibleCells().map((cell) => {
-                      const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
                       const raw = cell.getValue()
-                      const title = raw != null ? String(raw) : undefined
+                      // Every value-bearing column gets the tooltip, shown whether
+                      // or not the text is cut: it carries the copy button, and
+                      // lifting a code out of a cell is worth as much when the
+                      // value happens to fit as when it does not.
+                      const useTooltip =
+                        !NO_TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
+                      const rendered = useTooltip
+                        ? (
+                          <TruncatedText
+                            alwaysShow
+                            text={String(raw)}
+                            className={MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined}
+                          />
+                        )
+                        : flexRender(cell.column.columnDef.cell, cell.getContext())
                       return (
                         <TableCell
                           key={cell.id}
-                          className="overflow-hidden truncate text-xs"
+                          className="overflow-hidden truncate px-2 py-1 text-xs"
                           style={{ maxWidth: cell.column.getSize() }}
-                          title={title}
                         >
                           {rendered}
                         </TableCell>

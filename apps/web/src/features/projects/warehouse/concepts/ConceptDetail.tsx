@@ -16,7 +16,6 @@ interface ConceptDetailProps {
   statsLoading: boolean
   hasValueColumn: boolean
   excludeOutliers: boolean
-  onExcludeOutliersChange: (value: boolean) => void
   statsEnabled: boolean
 }
 
@@ -36,7 +35,6 @@ export function ConceptDetail({
   statsLoading,
   hasValueColumn,
   excludeOutliers,
-  onExcludeOutliersChange,
   statsEnabled,
 }: ConceptDetailProps) {
   const { t } = useTranslation()
@@ -135,7 +133,6 @@ export function ConceptDetail({
           stats={stats}
           isLoading={statsLoading}
           excludeOutliers={excludeOutliers}
-          onExcludeOutliersChange={onExcludeOutliersChange}
           statsEnabled={statsEnabled}
         />
       </div>

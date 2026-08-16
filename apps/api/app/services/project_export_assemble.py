@@ -50,6 +50,8 @@ from app.services import (
     project_fs,
 )
 from app.services.data import dataset_fs
+from app.services import concept_list_service
+from app.schemas.concept_list import ConceptListResponse
 from app.services.project_export import build_project_tree
 
 
@@ -162,6 +164,10 @@ async def build_project_tree_from_db(
         _dump(CohortResponse, c)
         for c in await cohort_service.list_for_project(db, project.uid)
     ]
+    concept_lists = [
+        _dump(ConceptListResponse, cl)
+        for cl in await concept_list_service.list_for_project(db, project.uid)
+    ]
     connections = [
         _dump(IdeConnectionResponse, c)
         for c in await ide_connection_service.list_for_project(db, project.uid)
@@ -267,6 +273,7 @@ async def build_project_tree_from_db(
         ide_files=ide_files,
         pipelines=pipelines,
         cohorts=cohorts,
+        concept_lists=concept_lists,
         connections=connections,
         dashboards=dashboards,
         dataset_files=dataset_files,

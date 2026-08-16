@@ -14,7 +14,6 @@ interface ConceptStatsPanelProps {
   stats: ConceptStats | null
   isLoading: boolean
   excludeOutliers: boolean
-  onExcludeOutliersChange: (value: boolean) => void
   /** False when the Stats checkbox is off — nothing is computed for any concept. */
   statsEnabled: boolean
 }
@@ -88,7 +87,6 @@ export function ConceptStatsPanel({
   stats,
   isLoading,
   excludeOutliers,
-  onExcludeOutliersChange,
   statsEnabled,
 }: ConceptStatsPanelProps) {
   const { t } = useTranslation()
@@ -145,14 +143,6 @@ export function ConceptStatsPanel({
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                 <h4 className="text-xs font-medium">{t('concepts.stats_histogram')}</h4>
                 <div className="flex items-center gap-3">
-                  <label className="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <Checkbox
-                      checked={excludeOutliers}
-                      onCheckedChange={(v) => onExcludeOutliersChange(v === true)}
-                      className="size-3.5"
-                    />
-                    {t('concepts.stats_exclude_outliers')}
-                  </label>
                   <label className="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[11px] text-muted-foreground">
                     <Checkbox
                       checked={startAtZero}

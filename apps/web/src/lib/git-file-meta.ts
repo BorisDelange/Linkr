@@ -121,6 +121,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     { test: /^datasets\//, category: 'datasets', order: CAT.datasets, descriptionKey: 'versioning.file_desc_dataset_file' },
     { test: /^dashboards\//, category: 'dashboards', order: CAT.dashboards, descriptionKey: 'versioning.file_desc_dashboard' },
     { test: /^cohorts\//, category: 'cohorts', order: CAT.cohorts, descriptionKey: 'versioning.file_desc_cohort' },
+    { test: /^concept-lists\//, category: 'concepts', order: CAT.concepts, descriptionKey: 'versioning.file_desc_concept_list' },
     { test: /^pipeline\//, category: 'pipeline', order: CAT.pipeline, descriptionKey: 'versioning.file_desc_pipeline' },
     { test: /^environments\//, category: 'environments', order: CAT.environments, descriptionKey: 'versioning.file_desc_environment' },
     { test: /^databases\//, category: 'databases', order: CAT.databases, descriptionKey: 'versioning.file_desc_db_connection' },

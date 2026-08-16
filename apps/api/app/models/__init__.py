@@ -1,6 +1,7 @@
 from app.models.user import User
 from app.models.project import Project
 from app.models.cohort import Cohort
+from app.models.concept_list import ConceptList
 from app.models.concept_set import ConceptSet
 from app.models.dashboard import Dashboard, DashboardTab, DashboardWidget
 from app.models.attachment import ReadmeAttachment, WikiAttachment
@@ -47,6 +48,7 @@ __all__ = [
     "DatasetFile",
     "DatasetAnalysis",
     "Cohort",
+    "ConceptList",
     "ConceptSet",
     "Dashboard",
     "DashboardTab",

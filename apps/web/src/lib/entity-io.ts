@@ -11,7 +11,7 @@ import {
   fromPathTree, readPathTree, storablePathNode, toPathTree, treeNodePath,
 } from '@/lib/entity-tree'
 import type {
-  Project, IdeFile, Pipeline, Cohort, IdeConnection,
+  Project, IdeFile, Pipeline, Cohort, ConceptList, IdeConnection,
   Dashboard, DashboardTab, DashboardWidget, DashboardFilter,
   DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, ReadmeAttachment, ReadmeOwnerType,
   EntityLicense,
@@ -372,6 +372,8 @@ export async function deleteProjectData(storage: Storage, uid: string): Promise<
   for (const pl of pipelines) await storage.pipelines.delete(pl.id).catch(() => {})
   const cohorts = await safe(storage.cohorts.getByProject(uid), [])
   for (const c of cohorts) await storage.cohorts.delete(c.id).catch(() => {})
+  const conceptLists = await safe(storage.conceptLists.getByProject(uid), [])
+  for (const l of conceptLists) await storage.conceptLists.delete(l.id).catch(() => {})
 }
 
 
@@ -503,6 +505,7 @@ export async function readBinaryFromImportZip(
 //   scripts/{path}                    — IDE files under scripts/ folder
 //   pipeline/pipeline.json            — array of pipelines
 //   cohorts/{slug}.json               — one file per cohort
+//   concept-lists/{slug}.json         — one file per user-authored concept list
 //   databases/{slug}.json             — one file per IDE connection
 //   dashboards/{slug}.json            — dashboard + its tabs + widgets
 //   datasets/_tree.json               — dataset file tree metadata
@@ -921,6 +924,16 @@ export async function buildProjectZip(
     zip.file(`cohorts/${slugify(c.name || c.id)}.json`, json(stripInstanceFields(c)))
   }
 
+  // --- concept-lists/ ---
+  // User-authored lists (distinct from workspace-scoped concept SETS, which are
+  // imported data dictionaries and live in the workspace export).
+  // Optional slice: partial storages (and pre-concept-list fixtures) omit it.
+  const conceptLists = (await storage.conceptLists?.getByProject(projectUid)) ?? []
+  for (const l of conceptLists) {
+    const label = localized(l.name) || l.id
+    zip.file(`concept-lists/${slugify(label)}.json`, json(stripInstanceFields(l)))
+  }
+
   // --- databases/ (IDE connections) ---
   const connections = await storage.connections.getByProject(projectUid)
   for (const c of connections) {
@@ -1080,6 +1093,7 @@ export interface ParsedProjectZip {
   ideFiles: TreeImportNode[]
   pipelines: Pipeline[]
   cohorts: Cohort[]
+  conceptLists: ConceptList[]
   connections: IdeConnection[]
   dashboards: Dashboard[]
   dashboardTabs: ParsedDashboardTab[]
@@ -1229,6 +1243,7 @@ export type ProjectPullGroup =
   | 'dashboards'
   | 'scripts'
   | 'cohorts'
+  | 'conceptLists'
   | 'datasets'
   | 'pipeline'
   | 'readme'
@@ -1259,6 +1274,7 @@ export async function importProjectContent(
       ideFiles: wants('scripts') ? parsed.ideFiles : [],
       pipelines: wants('pipeline') ? parsed.pipelines : [],
       cohorts: wants('cohorts') ? parsed.cohorts : [],
+      conceptLists: wants('conceptLists') ? (parsed.conceptLists ?? []) : [],
       dashboards: wants('dashboards') ? parsed.dashboards : [],
       dashboardTabs: wants('dashboards') ? parsed.dashboardTabs : [],
       dashboardWidgets: wants('dashboards') ? parsed.dashboardWidgets : [],
@@ -1318,6 +1334,11 @@ export async function importProjectContent(
   }
   for (const p of parsed.pipelines) {
     await storage.pipelines.create(dropForeignAuthorId({ ...p, id: mapId(p.id), projectUid }))
+  }
+  // Optional section: ZIPs exported before concept lists existed have no
+  // `concept-lists/` folder, so the parser yields nothing here.
+  for (const l of parsed.conceptLists ?? []) {
+    await storage.conceptLists.create({ ...l, id: mapId(l.id), projectUid })
   }
   for (const c of parsed.cohorts) {
     await storage.cohorts.create(dropForeignAuthorId({ ...c, id: mapId(c.id), projectUid }))
@@ -1599,6 +1620,13 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
     }
   }
 
+  const conceptLists: ConceptList[] = []
+  for (const [path, entry] of scanFolder(zip, 'concept-lists/')) {
+    if (path.endsWith('.json')) {
+      conceptLists.push(JSON.parse(await entry.async('string')))
+    }
+  }
+
   const connections: IdeConnection[] = []
   for (const [path, entry] of scanFolder(zip, 'databases/')) {
     if (path.endsWith('.json')) {
@@ -1699,7 +1727,7 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
   }
 
   return {
-    project, ideFiles, pipelines, cohorts, connections,
+    project, ideFiles, pipelines, cohorts, conceptLists, connections,
     dashboards, dashboardTabs, dashboardWidgets,
     datasetFiles, datasetAnalyses, datasetData, datasetRawFiles, attachmentsMeta, attachmentBlobs,
     envSpecs,

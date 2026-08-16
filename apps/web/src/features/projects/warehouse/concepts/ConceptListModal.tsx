@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, Trash2, X } from 'lucide-react'
+import { Check, Copy, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -26,7 +26,9 @@ import {
   type ClipboardCopyFormat,
 } from '@/lib/concept-mapping/clipboard-list-format'
 import { columnLabel } from '@/lib/format-helpers'
+import { localized } from '@/lib/localized'
 import type { ConceptRow } from './use-concepts'
+import type { ConceptList } from '@/types'
 
 /** Which identifier the copied snippet carries. */
 type CopyField = 'concept_id' | 'concept_code'
@@ -44,6 +46,13 @@ interface ConceptListModalProps {
    *  column: `vocabulary_id` when the source has one, else `_dict_key` (the
    *  dictionary the row came from), else neither. */
   terminologyColumn: 'vocabulary_id' | '_dict_key' | null
+  /** Saved lists for this project, and which one is being shown. */
+  lists: ConceptList[]
+  activeListId: string | undefined
+  onSelectList: (listId: string) => void
+  onCreateList: () => void
+  onEditList: (list: ConceptList) => void
+  onDeleteList: (list: ConceptList) => void
 }
 
 /** The scratch list of concepts gathered while browsing, with the same
@@ -56,8 +65,18 @@ export function ConceptListModal({
   onClear,
   hasCodeColumn,
   terminologyColumn,
+  lists,
+  activeListId,
+  onSelectList,
+  onCreateList,
+  onEditList,
+  onDeleteList,
 }: ConceptListModalProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const activeList = lists.find((l) => l.id === activeListId) ?? null
+  const activeListDescription = activeList
+    ? localized(activeList.description, i18n.language)
+    : ''
   const [format, setFormat] = useState<ClipboardCopyFormat>('sql')
   const [rawField, setField] = useState<CopyField>('concept_id')
   const [copied, setCopied] = useState(false)
@@ -156,6 +175,63 @@ export function ConceptListModal({
             {t('concept_mapping.clipboard_list_title')}
           </DialogTitle>
         </DialogHeader>
+
+        {/* List picker: which saved list is shown, plus its lifecycle actions. */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Select
+            value={activeListId ?? ''}
+            onValueChange={(v) => onSelectList(v)}
+            disabled={lists.length === 0}
+          >
+            <SelectTrigger size="sm" className="w-[240px] text-xs">
+              <SelectValue placeholder={t('concepts.list_none')} />
+            </SelectTrigger>
+            <SelectContent>
+              {lists.map((l) => (
+                <SelectItem key={l.id} value={l.id} className="text-xs">
+                  {localized(l.name, i18n.language) || t('concepts.list_untitled')}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1 text-xs"
+            onClick={onCreateList}
+          >
+            <Plus size={12} />
+            {t('concepts.list_new')}
+          </Button>
+
+          {activeList && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="h-8 w-8"
+                onClick={() => onEditList(activeList)}
+                aria-label={t('common.edit')}
+              >
+                <Pencil size={13} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => onDeleteList(activeList)}
+                aria-label={t('common.delete')}
+              >
+                <Trash2 size={13} />
+              </Button>
+            </>
+          )}
+        </div>
+
+        {activeListDescription && (
+          <p className="shrink-0 text-xs text-muted-foreground">{activeListDescription}</p>
+        )}
 
         <div className="min-h-0 flex-1 overflow-hidden">
           <ConceptDataTable

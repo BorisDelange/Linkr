@@ -11,19 +11,45 @@ import {
   X,
   Plus,
   List,
+  Settings,
+  ChevronDown,
+  Check,
 } from 'lucide-react'
 import type { VisibilityState } from '@tanstack/react-table'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { columnLabel } from '@/lib/format-helpers'
+import { localized, setLocalized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
+import { useConceptListStore } from '@/stores/concept-list-store'
 import { ConceptListModal } from './concepts/ConceptListModal'
+import { ConceptListEditDialog } from './concepts/ConceptListEditDialog'
+import { ConceptsSettingsDialog } from './concepts/ConceptsSettingsDialog'
 import type { ConceptRow } from './concepts/use-concepts'
+import type { ConceptList, ConceptListItem } from '@/types'
 import { useConcepts } from './concepts/use-concepts'
 import { hasValueColumnForDict, DEFAULT_HIDDEN_COLUMNS } from './concepts/concept-queries'
 import { ConceptTable } from './concepts/ConceptTable'
@@ -37,6 +63,7 @@ export function ConceptsPage() {
   const { t, i18n } = useTranslation()
   const { projectUid: uid } = useResolvedParams()
   const { getActiveSource } = useDataSourceStore()
+  const language = useAppStore((s) => s.language)
   const mappedSource = uid ? getActiveSource(uid) : undefined
 
   const {
@@ -82,11 +109,53 @@ export function ConceptsPage() {
     if (filters._searchFuzzy) updateFilter('_searchFuzzy', null)
   }
 
-  // Concept list — a scratch list the user builds while browsing, mirroring the
-  // mapping editor's clipboard list.
-  const [conceptList, setConceptList] = useState<ConceptRow[]>([])
   const [listOpen, setListOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [editingList, setEditingList] = useState<ConceptList | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+  const [deletingList, setDeletingList] = useState<ConceptList | null>(null)
   const [selectedConceptIds, setSelectedConceptIds] = useState<Set<number>>(new Set())
+
+  // Saved, project-scoped concept lists.
+  const {
+    conceptLists,
+    loaded: listsLoaded,
+    loadConceptLists,
+    createConceptList,
+    updateConceptList,
+    deleteConceptList,
+    activeListIdByProject,
+    setActiveListId,
+  } = useConceptListStore()
+
+  useEffect(() => {
+    if (!listsLoaded) loadConceptLists()
+  }, [listsLoaded, loadConceptLists])
+
+  const projectLists = useMemo(
+    () => (uid ? conceptLists.filter((l) => l.projectUid === uid) : []),
+    [conceptLists, uid],
+  )
+  // Fall back to the first list so the "+" always has a target once one exists.
+  const activeListId = uid
+    ? (activeListIdByProject[uid] ?? projectLists[0]?.id)
+    : undefined
+  const activeList = projectLists.find((l) => l.id === activeListId) ?? null
+
+  // The active list's concepts, in the shape the table and copy formats expect.
+  const activeListRows = useMemo<ConceptRow[]>(
+    () =>
+      (activeList?.items ?? []).map((it) => ({
+        concept_id: it.conceptId,
+        concept_name: it.conceptName ?? '',
+        record_count: 0,
+        patient_count: 0,
+        concept_code: it.conceptCode,
+        vocabulary_id: it.vocabularyId,
+        _dict_key: it.dictKey,
+      })),
+    [activeList],
+  )
 
   // "+" adds the multi-selection when there is one, else the single selection.
   const pendingAdditions = useMemo<ConceptRow[]>(() => {
@@ -97,14 +166,56 @@ export function ConceptsPage() {
     return row ? [row] : []
   }, [selectedConceptIds, concepts, selectedConcept])
 
-  const addSelectedToList = () => {
+  const toItem = (c: ConceptRow): ConceptListItem => ({
+    conceptId: c.concept_id,
+    conceptName: c.concept_name,
+    conceptCode: c.concept_code != null ? String(c.concept_code) : undefined,
+    vocabularyId: c.vocabulary_id != null ? String(c.vocabulary_id) : undefined,
+    dictKey: c._dict_key,
+  })
+
+  /** Add the pending concepts to a list, de-duplicated by concept id. */
+  const addToList = async (list: ConceptList) => {
     if (pendingAdditions.length === 0) return
-    setConceptList((prev) => {
-      const seen = new Set(prev.map((c) => c.concept_id))
-      const additions = pendingAdditions.filter((c) => !seen.has(c.concept_id))
-      return additions.length ? [...prev, ...additions] : prev
-    })
+    const seen = new Set(list.items.map((i) => i.conceptId))
+    const additions = pendingAdditions.filter((c) => !seen.has(c.concept_id)).map(toItem)
+    if (additions.length > 0) {
+      await updateConceptList(list.id, { items: [...list.items, ...additions] })
+    }
+    if (uid) setActiveListId(uid, list.id)
     setSelectedConceptIds(new Set())
+  }
+
+  /** Create a list, then drop the pending concepts into it. */
+  const createListWith = async (
+    values: { name: string; description: string },
+    seedItems: ConceptListItem[],
+  ) => {
+    if (!uid) return
+    const now = new Date().toISOString()
+    const list: ConceptList = {
+      id: crypto.randomUUID(),
+      projectUid: uid,
+      name: setLocalized({}, language, values.name),
+      description: setLocalized({}, language, values.description),
+      items: seedItems,
+      dataSourceId: mappedSource?.id,
+      version: '0.1.0',
+      createdAt: now,
+      updatedAt: now,
+    }
+    await createConceptList(list)
+  }
+
+  const addSelectedToList = async () => {
+    if (pendingAdditions.length === 0) return
+    // No list yet → the edit dialog opens and the pending concepts seed it.
+    if (!activeList) {
+      setEditingList(null)
+      setEditOpen(true)
+      return
+    }
+    await addToList(activeList)
   }
 
   // Whether the source actually exposes concept codes. MIMIC's d_items/d_labitems
@@ -314,11 +425,58 @@ export function ConceptsPage() {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {pendingAdditions.length > 1
-                ? t('concept_mapping.add_to_list_count', { count: pendingAdditions.length })
+              {activeList
+                ? t('concepts.add_to_named_list', {
+                    name: localized(activeList.name, i18n.language) || t('concepts.list_untitled'),
+                    count: pendingAdditions.length,
+                  })
                 : t('concept_mapping.add_to_list')}
             </TooltipContent>
           </Tooltip>
+
+          {/* Pick a different destination list, or create one, without leaving
+              the toolbar. The plain + keeps filling the active list. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon-sm"
+                variant="outline"
+                className="h-8 w-6 shrink-0 px-0"
+                disabled={pendingAdditions.length === 0}
+                aria-label={t('concepts.list_choose')}
+              >
+                <ChevronDown size={12} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-[220px]">
+              <DropdownMenuLabel className="text-xs">
+                {t('concepts.list_add_to')}
+              </DropdownMenuLabel>
+              {projectLists.map((l) => (
+                <DropdownMenuItem
+                  key={l.id}
+                  className="text-xs"
+                  onClick={() => addToList(l)}
+                >
+                  {l.id === activeListId && <Check size={12} className="mr-1" />}
+                  <span className="truncate">
+                    {localized(l.name, i18n.language) || t('concepts.list_untitled')}
+                  </span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    {l.items.length}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+              {projectLists.length > 0 && <DropdownMenuSeparator />}
+              <DropdownMenuItem
+                className="text-xs"
+                onClick={() => { setEditingList(null); setEditOpen(true) }}
+              >
+                <Plus size={12} className="mr-1" />
+                {t('concepts.list_new')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -329,9 +487,9 @@ export function ConceptsPage() {
                 aria-label={t('concept_mapping.view_list')}
               >
                 <List size={14} />
-                {conceptList.length > 0 && (
+                {activeListRows.length > 0 && (
                   <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-primary-foreground">
-                    {conceptList.length}
+                    {activeListRows.length}
                   </span>
                 )}
               </Button>
@@ -372,14 +530,22 @@ export function ConceptsPage() {
             {/* …then the view options. */}
             <div className="mx-0.5 h-4 w-px bg-border" />
 
-            <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
-              <Checkbox
-                checked={statsEnabled}
-                onCheckedChange={(v) => setStatsEnabled(v === true)}
-                className="size-3.5"
-              />
-              {t('etl.profiling_compute_stats')}
-            </label>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="h-8 w-8"
+                  onClick={() => setSettingsOpen(true)}
+                  aria-label={t('concepts.settings_title')}
+                >
+                  <Settings size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {t('concepts.settings_title')}
+              </TooltipContent>
+            </Tooltip>
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -442,11 +608,81 @@ export function ConceptsPage() {
       <ConceptListModal
         open={listOpen}
         onOpenChange={setListOpen}
-        concepts={conceptList}
-        onRemove={(id) => setConceptList((prev) => prev.filter((c) => c.concept_id !== id))}
-        onClear={() => setConceptList([])}
+        concepts={activeListRows}
+        onRemove={(id) => {
+          if (!activeList) return
+          updateConceptList(activeList.id, {
+            items: activeList.items.filter((i) => i.conceptId !== id),
+          })
+        }}
+        onClear={() => {
+          if (activeList) updateConceptList(activeList.id, { items: [] })
+        }}
         hasCodeColumn={hasCodeColumn}
         terminologyColumn={terminologyColumn}
+        lists={projectLists}
+        activeListId={activeListId}
+        onSelectList={(listId) => { if (uid) setActiveListId(uid, listId) }}
+        onCreateList={() => { setEditingList(null); setEditOpen(true) }}
+        onEditList={(l) => { setEditingList(l); setEditOpen(true) }}
+        onDeleteList={(l) => setDeletingList(l)}
+      />
+
+      {/* Deleting a list is not undoable and can discard a long selection. */}
+      <AlertDialog open={!!deletingList} onOpenChange={(o) => { if (!o) setDeletingList(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concepts.list_delete_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concepts.list_delete_confirm', {
+                name: deletingList
+                  ? localized(deletingList.name, i18n.language) || t('concepts.list_untitled')
+                  : '',
+                count: deletingList?.items.length ?? 0,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                if (deletingList) deleteConceptList(deletingList.id)
+                setDeletingList(null)
+              }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <ConceptListEditDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        list={editingList}
+        onSave={(values) => {
+          if (editingList) {
+            // Merge into the active language only, so the other translations survive.
+            updateConceptList(editingList.id, {
+              name: setLocalized(editingList.name, language, values.name),
+              description: setLocalized(editingList.description, language, values.description),
+            })
+            return
+          }
+          // Creating from the "+" seeds the new list with what was selected.
+          createListWith(values, pendingAdditions.map(toItem))
+          setSelectedConceptIds(new Set())
+        }}
+      />
+
+      <ConceptsSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        statsEnabled={statsEnabled}
+        onStatsEnabledChange={setStatsEnabled}
+        excludeOutliers={excludeOutliers}
+        onExcludeOutliersChange={setExcludeOutliers}
       />
 
       {/* Main content: table + detail */}
@@ -511,7 +747,6 @@ export function ConceptsPage() {
               statsLoading={conceptStatsLoading}
               hasValueColumn={hasValueCol}
               excludeOutliers={excludeOutliers}
-              onExcludeOutliersChange={setExcludeOutliers}
               statsEnabled={statsEnabled}
             />
             )}

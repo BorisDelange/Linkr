@@ -1611,3 +1611,46 @@ describe('reconstructTreeFiles', () => {
     expect(nodes[0].content).toBe('{\n  "a": 1\n}')
   })
 })
+
+// Concept lists are project-scoped and must survive an export/import round-trip
+// (git versioning depends on it). They are also an OPTIONAL section: a ZIP made
+// before the feature existed has no concept-lists/ folder, and importing it must
+// not throw.
+describe('parseProjectZip — concept lists', () => {
+  const makeZip = async (withLists: boolean) => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({
+      uid: 'p1', name: { en: 'P' }, projectId: 'p', workspaceId: 'w', ownerId: 1,
+    }))
+    if (withLists) {
+      zip.file('concept-lists/my-list.json', JSON.stringify({
+        id: 'l1',
+        projectUid: 'p1',
+        name: { en: 'My list', fr: 'Ma liste' },
+        description: { en: 'Phenotype' },
+        items: [{ conceptId: 3027018, conceptName: 'Heart rate', vocabularyId: 'LOINC', conceptCode: '8867-4' }],
+        version: '0.1.0',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      }))
+    }
+    return await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+  }
+
+  it('round-trips a list with both languages and its items', async () => {
+    const parsed = await parseProjectZip(await makeZip(true))
+    expect(parsed).not.toBeNull()
+    expect(parsed!.conceptLists).toHaveLength(1)
+    const list = parsed!.conceptLists[0]
+    expect(list.name.en).toBe('My list')
+    expect(list.name.fr).toBe('Ma liste')
+    expect(list.items).toHaveLength(1)
+    expect(list.items[0].conceptId).toBe(3027018)
+    expect(list.items[0].conceptCode).toBe('8867-4')
+  })
+
+  it('yields an empty list for a ZIP that predates the feature', async () => {
+    const parsed = await parseProjectZip(await makeZip(false))
+    expect(parsed!.conceptLists).toEqual([])
+  })
+})

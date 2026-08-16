@@ -15,6 +15,7 @@ from app.core.migrations import run_migrations
 from app.core.permissions import seed_default_roles
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.cohorts import router as cohorts_router
+from app.api.v1.routes.concept_lists import router as concept_lists_router
 from app.api.v1.routes.concept_sets import router as concept_sets_router
 from app.api.v1.routes.dashboards import router as dashboards_router
 from app.api.v1.routes.attachments import readme_router, wiki_router as wiki_attachments_router
@@ -181,6 +182,7 @@ app.include_router(roles_router, prefix="/api/v1")
 app.include_router(uploads_router, prefix="/api/v1")
 app.include_router(storage_router, prefix="/api/v1")
 app.include_router(cohorts_router, prefix="/api/v1")
+app.include_router(concept_lists_router, prefix="/api/v1")
 app.include_router(dashboards_router, prefix="/api/v1")
 app.include_router(readme_router, prefix="/api/v1")
 app.include_router(wiki_attachments_router, prefix="/api/v1")
