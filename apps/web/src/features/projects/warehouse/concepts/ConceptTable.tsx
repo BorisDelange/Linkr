@@ -32,6 +32,7 @@ import {
   ChevronLeft,
   ChevronRight,
   GripVertical,
+  Library,
   Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -80,7 +81,14 @@ const FILTER_INPUT_CLASS =
 // Columns kept out of the value tooltip: the cell is graphical (the S/C/NS
 // badge), or its renderer adds thousands separators that the tooltip's
 // String(raw) would undo.
-const NO_TOOLTIP_COLUMNS = new Set(['standard_concept', 'record_count', 'patient_count'])
+// Columns whose own renderer wins over the generic copy tooltip — they are
+// badges or buttons, not text worth lifting out of a cell.
+const NO_TOOLTIP_COLUMNS = new Set([
+  'standard_concept',
+  'record_count',
+  'patient_count',
+  'concept_set_name',
+])
 // Columns rendered in a monospace font (kept in the tooltip cell).
 const MONO_COLUMNS = new Set(['concept_code', 'concept_id'])
 
@@ -319,9 +327,11 @@ export function ConceptTable({
       return
     }
 
-    // Plain click → single selection, which drives the detail panel.
+    // Plain click → single selection, which drives the detail panel. Only mint a
+    // new Set when there is something to clear: an empty one still counts as a
+    // new identity, and would re-render every row on each click.
     selectionAnchorRef.current = conceptId
-    onSelectedConceptIdsChange(new Set())
+    if (selectedConceptIds.size > 0) onSelectedConceptIdsChange(new Set())
     onSelect(conceptId)
   }
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
@@ -393,23 +403,39 @@ export function ConceptTable({
           } as ColumnDef<ConceptRow>
 
         case 'concept_set_name':
-          // Joined from the imported dictionaries; a concept can be in several,
-          // so the cell lists them all. Clicking opens that set's detail.
+          // Joined from the imported dictionary; a concept can be in several
+          // sets, so each name is its own button — clicking one opens that set
+          // rather than whichever happened to be listed first.
           return {
             ...base,
             header: () => t('concepts.column_concept_set'),
             accessorFn: (row) => row.concept_set_name,
             cell: ({ row }) => {
               const value = String(row.original.concept_set_name ?? '')
-              if (!value) return null
+              if (!value) return <span className="text-[10px] text-muted-foreground">—</span>
               return (
-                <button
-                  type="button"
-                  className="truncate text-left text-primary underline-offset-2 hover:underline"
-                  onClick={(e) => { e.stopPropagation(); onOpenConceptSet?.(value.split(', ')[0]) }}
-                >
-                  {value}
-                </button>
+                <div className="flex min-w-0 items-center gap-1">
+                  {value.split(', ').map((name) => (
+                    <Tooltip key={name}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex min-w-0 max-w-full items-center gap-1 rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onOpenConceptSet?.(name)
+                          }}
+                        >
+                          <Library size={11} className="shrink-0" />
+                          <span className="truncate">{name}</span>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="text-xs">
+                        {t('concept_mapping.cs_open_detail')}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </div>
               )
             },
             size: 180,

@@ -556,7 +556,7 @@
     "standard_non": "Non-standard",
     "settings_title": "Concepts settings",
     "settings_description": "Options for this page. They apply to every concept you browse.",
-    "settings_section_stats": "Statistics",
+    "settings_tab_general": "General",
     "settings_stats_hint": "Compute record counts and value distributions for the selected concept. Turn off to browse faster.",
     "settings_outliers_hint": "Clip the histogram to the 1st–99th percentile, so a single absurd value does not flatten the chart.",
     "list_none": "No list yet",
@@ -573,8 +573,15 @@
     "list_delete_confirm": "“{{name}}” and its {{count}} concepts will be removed. This cannot be undone.",
     "column_concept_set": "Concept set",
     "settings_section_dictionary": "Data dictionary",
-    "settings_dictionary_hint": "{{count}} concept sets imported. Their name, category and subcategory can be shown as columns, matched on vocabulary and concept code.",
-    "settings_import_dictionary": "Import a data dictionary"
+    "settings_dictionary_hint": "One data dictionary at a time. Its concept set name, category and subcategory can be shown as columns, matched on vocabulary and concept code.",
+    "settings_import_dictionary": "Import a data dictionary",
+    "dictionary_import_description": "Import a data dictionary from a reference catalog, a URL or a file. Its concept sets are matched on vocabulary and concept code.",
+    "dictionary_unnamed": "Data dictionary",
+    "dictionary_imported": "Imported",
+    "dictionary_summary_one": "{{count}} concept set · imported on {{date}}",
+    "dictionary_summary_other": "{{count}} concept sets · imported on {{date}}",
+    "dictionary_update": "Update",
+    "dictionary_replace": "Replace"
   },
   "databases": {
     "title": "Databases",

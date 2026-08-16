@@ -556,7 +556,7 @@
     "standard_non": "Non standard",
     "settings_title": "Réglages des concepts",
     "settings_description": "Options de cette page. Elles s’appliquent à tous les concepts consultés.",
-    "settings_section_stats": "Statistiques",
+    "settings_tab_general": "Général",
     "settings_stats_hint": "Calcule le nombre d’enregistrements et la distribution des valeurs du concept sélectionné. Désactivez pour naviguer plus vite.",
     "settings_outliers_hint": "Limite l’histogramme aux 1er–99e percentiles, pour qu’une valeur aberrante n’écrase pas le graphique.",
     "list_none": "Aucune liste",
@@ -573,8 +573,15 @@
     "list_delete_confirm": "« {{name}} » et ses {{count}} concepts seront supprimés. Cette action est irréversible.",
     "column_concept_set": "Concept set",
     "settings_section_dictionary": "Dictionnaire de données",
-    "settings_dictionary_hint": "{{count}} concept sets importés. Leur nom, catégorie et sous-catégorie peuvent s’afficher en colonnes, appariés sur le vocabulaire et le code du concept.",
-    "settings_import_dictionary": "Importer un dictionnaire de données"
+    "settings_dictionary_hint": "Un seul dictionnaire de données à la fois. Le nom, la catégorie et la sous-catégorie de ses concept sets peuvent s’afficher en colonnes, appariés sur le vocabulaire et le code du concept.",
+    "settings_import_dictionary": "Importer un dictionnaire de données",
+    "dictionary_import_description": "Importer un dictionnaire de données depuis un catalogue de référence, une URL ou un fichier. Ses concept sets sont appariés sur le vocabulaire et le code du concept.",
+    "dictionary_unnamed": "Dictionnaire de données",
+    "dictionary_imported": "Importé",
+    "dictionary_summary_one": "{{count}} concept set · importé le {{date}}",
+    "dictionary_summary_other": "{{count}} concept sets · importés le {{date}}",
+    "dictionary_update": "Mettre à jour",
+    "dictionary_replace": "Changer"
   },
   "databases": {
     "title": "Bases de données",

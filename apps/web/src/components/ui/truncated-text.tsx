@@ -4,6 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
+/** Hover dwell before a tooltip is built, matching Radix's old delayDuration. */
+const HOVER_DELAY_MS = 200
+
 interface TruncatedTextProps {
   /** Full text; shown truncated inline and in full inside the tooltip. */
   text: string
@@ -30,20 +33,35 @@ interface TruncatedTextProps {
  * `closeDelay` keeps it alive long enough to move into it, and hovering the
  * tooltip itself keeps it open.
  *
- * Cost note: until the text actually overflows this renders a bare <p>. The
- * Radix tooltip only mounts once hover proves the text is cut, so a table of
- * these is not a table of live tooltips. `alwaysShow` opts out of that, mounting
- * a tooltip per cell — worth it where copying any value matters more than the
- * render cost, not as a blanket default.
+ * Cost note: until the pointer arrives this renders a bare <p>, in BOTH modes —
+ * a table of these is never a table of live tooltips. `alwaysShow` only widens
+ * what a hover reveals (the tooltip appears even when the text fits, so its copy
+ * button stays reachable); it no longer costs a mounted tooltip per cell.
  */
 export function TruncatedText({ text, lines = 1, className, alwaysShow = false }: TruncatedTextProps) {
   const ref = useRef<HTMLParagraphElement>(null)
   const [truncated, setTruncated] = useState(false)
+  // `alwaysShow` used to mount a Tooltip per cell up front. On a 100-row table
+  // that is ~1000 live Radix tooltips, re-created on every render — enough to
+  // make selecting a row visibly lag. The tooltip is now mounted on first hover
+  // in both modes; `alwaysShow` only decides whether it appears when the text
+  // is NOT cut, which is a question we can answer at hover time too.
+  const [hovered, setHovered] = useState(false)
+
+  // Mounting is deferred by the same delay the tooltip used to open with, so
+  // sweeping the pointer across a table doesn't mount one per cell passed over.
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const check = () => {
     const el = ref.current
     if (!el) return
     setTruncated(el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight + 1)
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
+    hoverTimer.current = setTimeout(() => setHovered(true), HOVER_DELAY_MS)
+  }
+
+  const cancelHover = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
   }
 
   const clampClass = lines === 1 ? 'truncate' : 'overflow-hidden'
@@ -56,6 +74,7 @@ export function TruncatedText({ text, lines = 1, className, alwaysShow = false }
     <p
       ref={ref}
       onPointerEnter={check}
+      onPointerLeave={cancelHover}
       className={cn('block min-w-0 max-w-full', clampClass, className)}
       style={clampStyle}
     >
@@ -63,13 +82,18 @@ export function TruncatedText({ text, lines = 1, className, alwaysShow = false }
     </p>
   )
 
-  if (!truncated && !alwaysShow) return content
+  // Nothing to reveal until the pointer arrives, and — outside `alwaysShow` —
+  // not even then unless the text is actually cut.
+  if (!hovered || (!truncated && !alwaysShow)) return content
 
+  // delayDuration 0: the dwell already elapsed before this mounted, and Radix
+  // would otherwise wait for a *second* enter it never saw.
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delayDuration={0}>
       {/* Hoverable content (Radix default) is what lets the pointer travel into
-          the tooltip to select or copy without it closing. */}
-      <Tooltip>
+          the tooltip to select or copy without it closing — so unmounting is
+          driven by Radix closing it, not by the pointer leaving the text. */}
+      <Tooltip defaultOpen onOpenChange={(o) => { if (!o) setHovered(false) }}>
         <TooltipTrigger asChild>{content}</TooltipTrigger>
         <TooltipContent side="top" className="max-w-xs text-wrap whitespace-pre-wrap break-words">
           <div className="flex items-start gap-1.5">

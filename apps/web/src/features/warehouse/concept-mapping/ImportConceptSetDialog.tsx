@@ -27,6 +27,10 @@ interface ImportConceptSetDialogProps {
    * to attach them to — the sets themselves are workspace-scoped either way.
    */
   project?: MappingProject
+  /** Opened from the warehouse Concepts page, where the unit is a whole data
+   *  dictionary rather than a single OHDSI concept set — only the wording
+   *  changes, the import paths are the same. */
+  dictionaryMode?: boolean
 }
 
 /** Known catalogs that can be imported in bulk. */
@@ -150,7 +154,7 @@ function parseConceptSetJson(json: unknown, lang = 'en'): ParsedConceptSet | nul
   return { ...base, ...metadata, translations }
 }
 
-export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportConceptSetDialogProps) {
+export function ImportConceptSetDialog({ open, onOpenChange, project, dictionaryMode }: ImportConceptSetDialogProps) {
   const { t, i18n } = useTranslation()
   const { activeWorkspaceId } = useWorkspaceStore()
   const lang = i18n.language?.substring(0, 2) ?? 'en'
@@ -344,8 +348,12 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{t('concept_mapping.cs_import_title')}</DialogTitle>
-          <DialogDescription>{t('concept_mapping.cs_import_description')}</DialogDescription>
+          <DialogTitle>
+            {t(dictionaryMode ? 'concepts.settings_import_dictionary' : 'concept_mapping.cs_import_title')}
+          </DialogTitle>
+          <DialogDescription>
+            {t(dictionaryMode ? 'concepts.dictionary_import_description' : 'concept_mapping.cs_import_description')}
+          </DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="referenced">

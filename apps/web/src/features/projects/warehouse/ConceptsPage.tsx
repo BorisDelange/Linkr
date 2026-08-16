@@ -69,7 +69,7 @@ export function ConceptsPage() {
   const { projectUid: uid } = useResolvedParams()
   const { getActiveSource } = useDataSourceStore()
   const language = useAppStore((s) => s.language)
-  const allConceptSets = useConceptMappingStore((s) => s.conceptSets)
+  const deleteConceptSetsBatch = useConceptMappingStore((s) => s.deleteConceptSetsBatch)
   const mappedSource = uid ? getActiveSource(uid) : undefined
 
   const {
@@ -228,19 +228,36 @@ export function ConceptsPage() {
 
   // Data dictionaries (concept sets) indexed by (vocabulary_id, concept_code),
   // so rows can show which dictionaries they belong to.
-  const { index: conceptSetIndex, options: conceptSetOptions } = useConceptSetIndex(
-    mappedSource?.workspaceId,
-    i18n.language,
-  )
+  const {
+    index: conceptSetIndex,
+    options: conceptSetOptions,
+    workspaceSets: workspaceConceptSets,
+  } = useConceptSetIndex(mappedSource?.workspaceId, i18n.language)
+  // The page holds ONE data dictionary at a time. Its identity is derived from
+  // the sets themselves (provenance / sourceRepo) rather than tracked
+  // separately, so it stays right even if sets are imported from elsewhere.
+  const importedDictionary = useMemo(() => {
+    if (workspaceConceptSets.length === 0) return null
+    const named = workspaceConceptSets.find((cs) => cs.provenance || cs.sourceRepo)
+    const importedAt = workspaceConceptSets.reduce(
+      (latest, cs) => (cs.createdAt > latest ? cs.createdAt : latest),
+      workspaceConceptSets[0].createdAt,
+    )
+    return {
+      name: named?.provenance ?? named?.sourceRepo ?? t('concepts.dictionary_unnamed'),
+      sourceRepo: named?.sourceRepo,
+      count: workspaceConceptSets.length,
+      importedAt,
+    }
+  }, [workspaceConceptSets, t])
 
-  // The workspace's dictionaries, and the one whose name was clicked in a cell.
-  const workspaceConceptSets = useMemo(
-    () =>
-      mappedSource?.workspaceId
-        ? allConceptSets.filter((cs) => cs.workspaceId === mappedSource.workspaceId)
-        : [],
-    [allConceptSets, mappedSource?.workspaceId],
-  )
+  /** Replacing means dropping the current sets first — one dictionary at a time. */
+  const replaceDictionary = async () => {
+    await deleteConceptSetsBatch(workspaceConceptSets.map((cs) => cs.id))
+    setSettingsOpen(false)
+    setImportDictOpen(true)
+  }
+
   const openConceptSet = useMemo(
     () =>
       openSetName
@@ -756,11 +773,16 @@ export function ConceptsPage() {
         onStatsEnabledChange={setStatsEnabled}
         excludeOutliers={excludeOutliers}
         onExcludeOutliersChange={setExcludeOutliers}
-        conceptSetCount={workspaceConceptSets.length}
+        dictionary={importedDictionary}
         onImportDictionary={() => { setSettingsOpen(false); setImportDictOpen(true) }}
+        onReplaceDictionary={replaceDictionary}
       />
 
-      <ImportConceptSetDialog open={importDictOpen} onOpenChange={setImportDictOpen} />
+      <ImportConceptSetDialog
+        open={importDictOpen}
+        onOpenChange={setImportDictOpen}
+        dictionaryMode
+      />
 
       <ConceptSetDetailSheet
         conceptSet={openConceptSet}
