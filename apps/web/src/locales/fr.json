@@ -7,7 +7,9 @@
     "docs_short": "Doc"
   },
   "footer": {
-    "source": "Code source"
+    "source": "Code source",
+    "deployment_hint_local": "Linkr existe en deux déploiements. Celui-ci est client uniquement : tout fonctionne dans votre navigateur, sans serveur. L'autre est le mode serveur, où un backend gère le stockage et les calculs.",
+    "deployment_hint_server": "Linkr existe en deux déploiements. Celui-ci est le mode serveur : un backend gère le stockage et les calculs. L'autre est client uniquement, où tout fonctionne dans votre navigateur, sans serveur."
   },
   "nav": {
     "home": "Accueil",

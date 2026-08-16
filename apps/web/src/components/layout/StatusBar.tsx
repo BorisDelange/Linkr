@@ -1,11 +1,13 @@
 import { useTranslation } from 'react-i18next'
-import { Cpu, HardDrive, MemoryStick, Circle, Box, GitBranch, Trash2, Server } from 'lucide-react'
+import { Cpu, HardDrive, MemoryStick, Circle, Box, GitBranch, Trash2, Server, Monitor } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
+import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useBrowserMetrics } from '@/hooks/use-browser-metrics'
 import { useServerKernels } from '@/hooks/use-server-kernels'
@@ -104,6 +106,19 @@ export function StatusBar() {
     <footer className="flex h-6 shrink-0 items-center justify-between border-t bg-background px-3 text-[11px] text-muted-foreground">
       <div className="flex items-center gap-2">
         <span className="font-medium">Linkr v{APP_VERSION}</span>
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="secondary" className="gap-1 px-1.5 py-0 text-[10px] font-medium">
+                {server ? <Server size={9} /> : <Monitor size={9} />}
+                {server ? t('server.server_mode') : t('server.local_mode')}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="start" className="max-w-xs">
+              {t(server ? 'footer.deployment_hint_server' : 'footer.deployment_hint_local')}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <span className="opacity-30">|</span>
         <a
           href="https://framagit.org/interhop/linkr/linkr"

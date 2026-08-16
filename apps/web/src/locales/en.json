@@ -7,7 +7,9 @@
     "docs_short": "Docs"
   },
   "footer": {
-    "source": "Source code"
+    "source": "Source code",
+    "deployment_hint_local": "Linkr comes in two deployments. This one is client-only: everything runs in your browser, with no server needed. The other is server mode, where a backend handles storage and compute.",
+    "deployment_hint_server": "Linkr comes in two deployments. This one is server mode: a backend handles storage and compute. The other is client-only, where everything runs in your browser with no server needed."
   },
   "nav": {
     "home": "Home",
