@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildCohortMembershipSql } from './cohort-query'
+import { buildCohortMembershipSql, buildCohortResultsSql } from './cohort-query'
 import type { Cohort, CohortLevel, SchemaMapping } from '@/types'
 
 // The membership query freezes cohort content into a snapshot (materialization).
@@ -54,5 +54,75 @@ describe('buildCohortMembershipSql', () => {
 
   it('returns null for event level (no single base table)', () => {
     expect(buildCohortMembershipSql(makeCohort('event'), mapping)).toBeNull()
+  })
+})
+
+// A visit-level cohort whose criteria never touch the patient table still
+// SELECTs gender/age through the `p` alias. Before the join was forced, DuckDB
+// answered `Binder Error: Referenced table "p" not found!` — and because only
+// this query (not the count) failed, the run looked like it had never happened.
+describe('buildCohortResultsSql patient join', () => {
+  const withPatientCols = {
+    ...mapping,
+    patientTable: {
+      table: 'person',
+      idColumn: 'person_id',
+      genderColumn: 'gender_concept_id',
+      birthYearColumn: 'year_of_birth',
+    },
+  } as unknown as SchemaMapping
+
+  it('joins the patient table whenever a p.-qualified column is selected', () => {
+    const sql = buildCohortResultsSql(makeCohort('visit'), withPatientCols)!
+    expect(sql).toContain('INNER JOIN "person" p')
+    // Every `p.` reference must be covered by that join.
+    expect(sql).toMatch(/p\."gender_concept_id"/)
+  })
+
+  it('never emits a p. reference without the join', () => {
+    for (const level of ['patient', 'visit'] as CohortLevel[]) {
+      const sql = buildCohortResultsSql(makeCohort(level), withPatientCols)
+      if (!sql) continue
+      if (/\bp\."/.test(sql)) expect(sql).toContain('INNER JOIN "person" p')
+    }
+  })
+
+  it('leaves the join out when the mapping exposes no patient-derived column', () => {
+    const sql = buildCohortResultsSql(makeCohort('visit'), mapping)!
+    expect(sql).not.toContain('INNER JOIN "person" p')
+    expect(sql).not.toMatch(/\bp\."/)
+  })
+})
+
+// MIMIC-IV maps both a birth date and a birth year, but person.birth_datetime is
+// NULL for all 364k rows — preferring the date outright made age_at_admission
+// NULL for every result.
+describe('buildCohortResultsSql age column', () => {
+  const withBoth = {
+    ...mapping,
+    patientTable: {
+      table: 'person',
+      idColumn: 'person_id',
+      birthDateColumn: 'birth_datetime',
+      birthYearColumn: 'year_of_birth',
+    },
+  } as unknown as SchemaMapping
+
+  it('falls back to the birth year per row when both are mapped', () => {
+    const sql = buildCohortResultsSql(makeCohort('visit'), withBoth)!
+    expect(sql).toContain('COALESCE(')
+    expect(sql).toContain('"birth_datetime"')
+    expect(sql).toContain('"year_of_birth"')
+    expect(sql).toMatch(/AS age_at_admission/)
+  })
+
+  it('emits a single expression when only one of the two is mapped', () => {
+    const yearOnly = {
+      ...mapping,
+      patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth' },
+    } as unknown as SchemaMapping
+    const sql = buildCohortResultsSql(makeCohort('visit'), yearOnly)!
+    expect(sql).not.toContain('COALESCE(')
+    expect(sql).toContain('"year_of_birth"')
   })
 })

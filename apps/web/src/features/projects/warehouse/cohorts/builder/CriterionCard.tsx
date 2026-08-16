@@ -250,6 +250,15 @@ function buildSummary(node: CriterionNode, t: (key: string) => string): string {
       } else {
         parts.push(t('cohorts.criteria_concept'))
       }
+      // The value filter narrows the criterion as much as the concepts do —
+      // collapsed, "Heart rate" alone hides that it is restricted to > 100.
+      for (const vf of c.valueFilters ?? []) {
+        parts.push(
+          vf.operator === 'between' && vf.value2 != null
+            ? `${vf.value}–${vf.value2}`
+            : `${vf.operator} ${vf.value}`,
+        )
+      }
       break
     }
     case 'text': {

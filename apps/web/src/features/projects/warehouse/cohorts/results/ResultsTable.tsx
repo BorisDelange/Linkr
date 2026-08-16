@@ -1,72 +1,92 @@
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
-  useReactTable,
-  getCoreRowModel,
-  flexRender,
-  type ColumnDef,
-} from '@tanstack/react-table'
+  ConceptDataTable,
+  type ConceptColumn,
+  type ConceptColumnFilter,
+} from '@/components/ui/concept-data-table'
+import { formatDateTimeLocale } from '@/lib/format-helpers'
+import { columnLabel } from '@/lib/format-helpers'
 
 interface ResultsTableProps {
   rows: Record<string, unknown>[]
 }
 
-export function ResultsTable({ rows }: ResultsTableProps) {
-  const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
-    if (rows.length === 0) return []
-    return Object.keys(rows[0]).map((key) => ({
-      accessorKey: key,
-      header: key,
-      cell: ({ getValue }) => {
-        const val = getValue()
-        if (val == null) return <span className="text-muted-foreground/50">NULL</span>
-        return String(val)
-      },
-    }))
-  }, [rows])
+type Row = Record<string, unknown>
 
-  const table = useReactTable({
-    data: rows,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  })
+/** Columns the cohort SELECT emits, in the order it emits them. Anything else a
+ *  custom SQL returns falls through to a text column keyed on its own name. */
+const DATE_COLUMNS = new Set(['start_date', 'end_date'])
+const NUMERIC_COLUMNS = new Set(['id', 'patient_id', 'age_at_admission', 'age_current'])
 
-  if (rows.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        No results
-      </div>
-    )
+/** Translated header for the generated columns; other keys keep their raw name
+ *  prettified, since custom SQL can select anything. */
+function headerFor(key: string, t: (k: string) => string): string {
+  switch (key) {
+    case 'id':
+      return t('cohorts.results_col_id')
+    case 'patient_id':
+      return t('cohorts.results_col_patient')
+    case 'gender':
+      return t('cohorts.criteria_sex')
+    case 'age_at_admission':
+      return t('cohorts.results_col_age_admission')
+    case 'age_current':
+      return t('cohorts.results_col_age_current')
+    case 'start_date':
+      return t('cohorts.results_col_start')
+    case 'end_date':
+      return t('cohorts.results_col_end')
+    default:
+      return columnLabel(key)
   }
+}
+
+export function ResultsTable({ rows }: ResultsTableProps) {
+  const { t, i18n } = useTranslation()
+
+  const columns = useMemo<ConceptColumn<Row>[]>(() => {
+    if (rows.length === 0) return []
+    return Object.keys(rows[0]).map((key) => {
+      // Dates sort on the raw ISO string (lexicographic = chronological) but are
+      // shown in the app's language, so the table stays sortable while readable.
+      const isDate = DATE_COLUMNS.has(key)
+      const isNumeric = NUMERIC_COLUMNS.has(key)
+      const filter: ConceptColumnFilter =
+        key === 'gender' ? 'select' : isNumeric ? 'number' : 'text'
+
+      return {
+        id: key,
+        header: headerFor(key, t),
+        accessor: (row) => {
+          const v = row[key]
+          if (v == null) return null
+          return isNumeric ? Number(v) : String(v)
+        },
+        cell: (row) => {
+          const v = row[key]
+          if (v == null) return <span className="text-muted-foreground/50">—</span>
+          if (isDate) return formatDateTimeLocale(String(v), i18n.language)
+          if (isNumeric) return <span className="tabular-nums">{String(v)}</span>
+          return String(v)
+        },
+        // The renderer only reformats text, so the tooltip keeps showing the
+        // full value rather than being suppressed by the custom cell.
+        tooltip: isNumeric ? 'tabular-nums' : true,
+        filter,
+        size: isDate ? 160 : isNumeric ? 110 : 130,
+        minSize: 70,
+      }
+    })
+  }, [rows, t, i18n.language])
 
   return (
-    <div className="overflow-auto">
-      <table className="w-full text-xs">
-        <thead className="sticky top-0 bg-background border-b">
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <th
-                  key={header.id}
-                  className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap"
-                >
-                  {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                </th>
-              ))}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr key={row.id} className="border-b hover:bg-muted/50">
-              {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-3 py-1.5 whitespace-nowrap">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ConceptDataTable
+      data={rows}
+      columns={columns}
+      rowKey={(row) => String(row.id ?? JSON.stringify(row))}
+      emptyMessage={t('cohorts.results_none')}
+      pageSize={50}
+    />
   )
 }

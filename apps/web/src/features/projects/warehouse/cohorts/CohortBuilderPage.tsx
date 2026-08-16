@@ -61,6 +61,7 @@ export function CohortBuilderPage() {
     materializeCohort,
     executionResults,
     executionLoading,
+    executionErrors,
   } = useCohortStore()
   const { getActiveSource } = useDataSourceStore()
 
@@ -78,6 +79,7 @@ export function CohortBuilderPage() {
 
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
   const loading = cohortId ? executionLoading.get(cohortId) ?? false : false
+  const executionError = cohortId ? executionErrors.get(cohortId) ?? null : null
 
   const eventTableLabels = useMemo(
     () => Object.keys(mapping?.eventTables ?? {}),
@@ -341,6 +343,7 @@ export function CohortBuilderPage() {
             <ResultsPanel
               result={result}
               loading={loading}
+              error={executionError}
               onExecute={handleExecute}
               onExportCsv={handleExportCsv}
             />

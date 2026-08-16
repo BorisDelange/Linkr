@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Users, BarChart3, Table2, Download, Loader2 } from 'lucide-react'
+import { Users, BarChart3, Table2, Download, Loader2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
@@ -9,19 +9,35 @@ import { useState } from 'react'
 interface ResultsPanelProps {
   result: CohortExecutionResult | null
   loading: boolean
+  /** Message from the last failed run, if any. */
+  error?: string | null
   onExecute: () => void
   onExportCsv: () => void
 }
 
-export function ResultsPanel({ result, loading, onExecute, onExportCsv }: ResultsPanelProps) {
+export function ResultsPanel({ result, loading, error, onExecute, onExportCsv }: ResultsPanelProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<'results' | 'attrition'>('results')
 
   if (!result && !loading) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-        <Users size={32} className="opacity-30" />
-        <p className="text-sm">{t('cohorts.results_empty')}</p>
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+        {error ? (
+          <>
+            <AlertCircle size={32} className="text-destructive opacity-70" />
+            <p className="text-sm font-medium text-foreground">
+              {t('cohorts.results_failed')}
+            </p>
+            <p className="max-w-md break-words text-xs">
+              {error === 'EMPTY_QUERY' ? t('cohorts.results_empty_query') : error}
+            </p>
+          </>
+        ) : (
+          <>
+            <Users size={32} className="opacity-30" />
+            <p className="text-sm">{t('cohorts.results_empty')}</p>
+          </>
+        )}
         <Button variant="outline" size="sm" onClick={onExecute} className="gap-1.5">
           {t('cohorts.execute')}
         </Button>
@@ -91,13 +107,17 @@ export function ResultsPanel({ result, loading, onExecute, onExportCsv }: Result
             </button>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-auto">
-            {activeTab === 'results' ? (
+          {/* The results table scrolls and paginates internally; the attrition
+              chart is a plain block that still needs the scroll container. */}
+          {activeTab === 'results' ? (
+            <div className="min-h-0 flex-1 overflow-hidden">
               <ResultsTable rows={result.rows} />
-            ) : (
+            </div>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-auto">
               <AttritionChart attrition={result.attrition} />
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
     </div>

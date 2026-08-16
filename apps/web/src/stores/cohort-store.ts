@@ -159,6 +159,9 @@ interface CohortState {
   // Transient execution state (not persisted to IDB)
   executionResults: Map<string, CohortExecutionResult>
   executionLoading: Map<string, boolean>
+  /** Why the last run failed, per cohort. Without this a failed run was
+   *  indistinguishable from never having run one. */
+  executionErrors: Map<string, string>
 
   loadCohorts: () => Promise<void>
   getProjectCohorts: (projectUid: string) => Cohort[]
@@ -208,6 +211,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
   cohortsLoaded: false,
   executionResults: new Map(),
   executionLoading: new Map(),
+  executionErrors: new Map(),
 
   loadCohorts: async () => {
     const rawAll = await getStorage().cohorts.getAll()
@@ -285,16 +289,24 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     if (!cohort || !schemaMapping) return 0
 
     // Mark loading
-    set((s) => ({
-      executionLoading: new Map(s.executionLoading).set(id, true),
-    }))
+    set((s) => {
+      const errors = new Map(s.executionErrors)
+      errors.delete(id)
+      return {
+        executionLoading: new Map(s.executionLoading).set(id, true),
+        executionErrors: errors,
+      }
+    })
 
     const startTime = Date.now()
 
     try {
       // Use custom SQL or auto-generated
       const countSql = cohort.customSql ?? buildCohortCountSql(cohort, schemaMapping)
-      if (!countSql) return 0
+      // No SQL means the criteria tree produced nothing runnable (an empty group,
+      // a criterion missing its concepts). Returning silently here left the panel
+      // spinning, then back on "run the query" as if nothing had happened.
+      if (!countSql) throw new Error('EMPTY_QUERY')
 
       // Execute count
       const countResults = await engine.queryDataSource(dataSourceId, countSql)
@@ -352,6 +364,10 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     } catch (err) {
       set((s) => ({
         executionLoading: new Map(s.executionLoading).set(id, false),
+        executionErrors: new Map(s.executionErrors).set(
+          id,
+          err instanceof Error ? err.message : String(err),
+        ),
       }))
       throw err
     }

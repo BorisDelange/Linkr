@@ -34,13 +34,27 @@ export interface CohortQueryParts {
 /**
  * Build reusable query parts (FROM + WHERE) from a Cohort definition.
  */
-export function buildCohortQueryParts(cohort: Cohort, mapping: SchemaMapping): CohortQueryParts | null {
+export function buildCohortQueryParts(
+  cohort: Cohort,
+  mapping: SchemaMapping,
+  /** Force the patient join even when no criterion needs it. The results SELECT
+   *  reads gender/age through the `p` alias, so at visit level it must be joined
+   *  regardless of the criteria — otherwise the query is built referencing a
+   *  table that isn't in the FROM. */
+  forcePatientJoin = false,
+): CohortQueryParts | null {
   const baseTable = getBaseTable(cohort.level, mapping)
   const idColumn = getIdColumn(cohort.level, mapping)
   if (!baseTable || !idColumn) return null
 
   const where = buildTreeWhereClause(cohort.criteriaTree, cohort.level, mapping, baseTable)
-  const from = buildFromClause(cohort.level, mapping, cohort.criteriaTree, baseTable)
+  const from = buildFromClause(
+    cohort.level,
+    mapping,
+    cohort.criteriaTree,
+    baseTable,
+    forcePatientJoin,
+  )
 
   return {
     baseTable,
@@ -78,7 +92,13 @@ export function buildCohortResultsSql(
   limit: number = 50,
   offset: number = 0,
 ): string | null {
-  const parts = buildCohortQueryParts(cohort, mapping)
+  // The result columns read gender/age off the patient table through `p`, which
+  // the criteria alone may not have joined (a concept-only cohort at visit level
+  // used to build `p."gender_concept_id"` with no `p` in the FROM — the count
+  // succeeded and only this query failed).
+  const needsPatient =
+    cohort.level !== 'patient' && selectNeedsPatientAlias(mapping)
+  const parts = buildCohortQueryParts(cohort, mapping, needsPatient)
   if (!parts) return null
 
   const selectCols = buildSelectColumns(cohort.level, mapping, parts.baseTable)
@@ -629,12 +649,14 @@ function buildFromClause(
   mapping: SchemaMapping,
   tree: CriteriaGroupNode | null,
   baseTable: string,
+  forcePatientJoin = false,
 ): string {
   const parts = [`"${baseTable}"`]
 
-  // Join patient table when querying visit/visit_detail level and criteria need patient data
+  // Join patient table when querying visit/visit_detail level and criteria need
+  // patient data — or when the caller selects patient columns regardless.
   const pt = mapping.patientTable
-  if (level !== 'patient' && pt && tree && needsPatientJoin(tree)) {
+  if (level !== 'patient' && pt && (forcePatientJoin || (tree && needsPatientJoin(tree)))) {
     const patientIdCol = getPatientIdColumn(level, mapping) ?? pt.idColumn
     parts.push(
       `INNER JOIN "${pt.table}" p\n    ON "${baseTable}"."${patientIdCol}" = p."${pt.idColumn}"`,
@@ -642,6 +664,14 @@ function buildFromClause(
   }
 
   return parts.join('\n  ')
+}
+
+/** Whether the result SELECT emits a `p.`-qualified column. Must stay in step
+ *  with the patient-derived columns in `buildSelectColumns` (gender, age). */
+function selectNeedsPatientAlias(mapping: SchemaMapping): boolean {
+  const pt = mapping.patientTable
+  if (!pt) return false
+  return Boolean(pt.genderColumn || pt.birthDateColumn || pt.birthYearColumn)
 }
 
 /** Check if any criterion in the tree needs patient table access */
@@ -815,10 +845,23 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
       }
     }
 
-    if (pt.birthDateColumn) {
-      cols.push(`DATE_PART('year', ${dateRef}) - DATE_PART('year', ${ref}."${pt.birthDateColumn}") AS ${ageLabel}`)
-    } else if (pt.birthYearColumn) {
-      cols.push(`DATE_PART('year', ${dateRef}::TIMESTAMP) - ${ref}."${pt.birthYearColumn}" AS ${ageLabel}`)
+    // A mapping can name both a birth date and a birth year. Preferring the date
+    // outright yields NULL for every row when that column is empty — MIMIC-IV's
+    // person.birth_datetime is NULL for all 364k patients while year_of_birth is
+    // fully populated — so fall back to the year per row rather than per mapping.
+    const byYear = pt.birthYearColumn
+      ? `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${ref}."${pt.birthYearColumn}"`
+      : null
+    const byDate = pt.birthDateColumn
+      ? `DATE_PART('year', ${dateRef}) - DATE_PART('year', ${ref}."${pt.birthDateColumn}")`
+      : null
+
+    if (byDate && byYear) {
+      cols.push(`COALESCE(${byDate}, ${byYear}) AS ${ageLabel}`)
+    } else if (byDate) {
+      cols.push(`${byDate} AS ${ageLabel}`)
+    } else if (byYear) {
+      cols.push(`${byYear} AS ${ageLabel}`)
     }
   }
 
