@@ -45,13 +45,18 @@ import { columnLabel } from '@/lib/format-helpers'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useConceptListStore } from '@/stores/concept-list-store'
+import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { ConceptListModal } from './concepts/ConceptListModal'
 import { ConceptListEditDialog } from './concepts/ConceptListEditDialog'
 import { ConceptsSettingsDialog } from './concepts/ConceptsSettingsDialog'
 import type { ConceptRow } from './concepts/use-concepts'
 import type { ConceptList, ConceptListItem } from '@/types'
 import { useConcepts } from './concepts/use-concepts'
-import { hasValueColumnForDict, DEFAULT_HIDDEN_COLUMNS } from './concepts/concept-queries'
+import { useConceptSetIndex, membershipKey } from './concepts/use-concept-set-index'
+import { ImportConceptSetDialog } from '@/features/warehouse/concept-mapping/ImportConceptSetDialog'
+import { ConceptSetDetailSheet } from '@/features/warehouse/concept-mapping/ConceptSetDetailSheet'
+import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
+import { hasValueColumnForDict, DEFAULT_HIDDEN_COLUMNS, CONCEPT_SET_COLUMNS } from './concepts/concept-queries'
 import { ConceptTable } from './concepts/ConceptTable'
 import { ConceptDetail } from './concepts/ConceptDetail'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -64,6 +69,7 @@ export function ConceptsPage() {
   const { projectUid: uid } = useResolvedParams()
   const { getActiveSource } = useDataSourceStore()
   const language = useAppStore((s) => s.language)
+  const allConceptSets = useConceptMappingStore((s) => s.conceptSets)
   const mappedSource = uid ? getActiveSource(uid) : undefined
 
   const {
@@ -114,6 +120,8 @@ export function ConceptsPage() {
   const [editingList, setEditingList] = useState<ConceptList | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [deletingList, setDeletingList] = useState<ConceptList | null>(null)
+  const [importDictOpen, setImportDictOpen] = useState(false)
+  const [openSetName, setOpenSetName] = useState<string | null>(null)
   const [selectedConceptIds, setSelectedConceptIds] = useState<Set<number>>(new Set())
 
   // Saved, project-scoped concept lists.
@@ -218,6 +226,65 @@ export function ConceptsPage() {
     await addToList(activeList)
   }
 
+  // Data dictionaries (concept sets) indexed by (vocabulary_id, concept_code),
+  // so rows can show which dictionaries they belong to.
+  const { index: conceptSetIndex, options: conceptSetOptions } = useConceptSetIndex(
+    mappedSource?.workspaceId,
+    i18n.language,
+  )
+
+  // The workspace's dictionaries, and the one whose name was clicked in a cell.
+  const workspaceConceptSets = useMemo(
+    () =>
+      mappedSource?.workspaceId
+        ? allConceptSets.filter((cs) => cs.workspaceId === mappedSource.workspaceId)
+        : [],
+    [allConceptSets, mappedSource?.workspaceId],
+  )
+  const openConceptSet = useMemo(
+    () =>
+      openSetName
+        ? workspaceConceptSets.find(
+            (cs) => (getConceptSetI18n(cs, i18n.language).name ?? cs.name) === openSetName,
+          ) ?? null
+        : null,
+    [openSetName, workspaceConceptSets, i18n.language],
+  )
+
+  // Join the dictionary columns onto the page of rows, then apply the filters for
+  // those columns here — they have no SQL counterpart, so the server cannot.
+  const enrichedConcepts = useMemo<ConceptRow[]>(() => {
+    const rows = concepts.map((c) => {
+      const membership = conceptSetIndex.get(membershipKey(c.vocabulary_id, c.concept_code))
+      if (!membership) return c
+      const uniq = (vals: string[]) => [...new Set(vals.filter(Boolean))].join(', ')
+      return {
+        ...c,
+        concept_set_name: uniq(membership.sets.map((s) => s.name)),
+        concept_set_category: uniq(membership.sets.map((s) => s.category)),
+        concept_set_subcategory: uniq(membership.sets.map((s) => s.subcategory)),
+      }
+    })
+
+    // A cell lists every set the concept belongs to, so a filter has to match on
+    // an INDIVIDUAL value rather than the joined string.
+    const active = CONCEPT_SET_COLUMNS.map((id) => {
+      const raw = filters[id]
+      const values = Array.isArray(raw) ? raw : raw ? [raw] : []
+      return { id, values }
+    }).filter((f) => f.values.length > 0)
+    if (active.length === 0) return rows
+
+    return rows.filter((row) =>
+      active.every(({ id, values }) => {
+        const cell = String(row[id] ?? '')
+        if (!cell) return false
+        const parts = cell.split(', ')
+        return values.some((v) => parts.includes(v))
+      }),
+    )
+  }, [concepts, conceptSetIndex, filters])
+
   // Whether the source actually exposes concept codes. MIMIC's d_items/d_labitems
   // have no code column, so the column never appears and copying codes would
   // yield empty strings.
@@ -235,9 +302,15 @@ export function ConceptsPage() {
     return null
   }, [availableColumns])
 
+  // Dictionary columns get their options from the imported sets, not from SQL.
+  const allFilterOptions = useMemo(
+    () => ({ ...filterOptions, ...conceptSetOptions }),
+    [filterOptions, conceptSetOptions],
+  )
+
   const filterableColumns = useMemo(
-    () => availableColumns.filter((c) => c.filterable && (filterOptions[c.id]?.length ?? 0) > 0),
-    [availableColumns, filterOptions],
+    () => availableColumns.filter((c) => c.filterable && (allFilterOptions[c.id]?.length ?? 0) > 0),
+    [availableColumns, allFilterOptions],
   )
   const selectedFilterValues = (columnId: string) => {
     const raw = filters[columnId]
@@ -364,7 +437,7 @@ export function ConceptsPage() {
                     </p>
                     <MultiSelectFilter
                       value={selectedFilterValues(col.id)}
-                      options={(filterOptions[col.id] ?? []).map((v) =>
+                      options={(allFilterOptions[col.id] ?? []).map((v) =>
                         col.id === 'standard_concept'
                           ? { value: v, label: standardOptionLabel(v) }
                           : v,
@@ -683,6 +756,16 @@ export function ConceptsPage() {
         onStatsEnabledChange={setStatsEnabled}
         excludeOutliers={excludeOutliers}
         onExcludeOutliersChange={setExcludeOutliers}
+        conceptSetCount={workspaceConceptSets.length}
+        onImportDictionary={() => { setSettingsOpen(false); setImportDictOpen(true) }}
+      />
+
+      <ImportConceptSetDialog open={importDictOpen} onOpenChange={setImportDictOpen} />
+
+      <ConceptSetDetailSheet
+        conceptSet={openConceptSet}
+        open={!!openConceptSet}
+        onOpenChange={(o) => { if (!o) setOpenSetName(null) }}
       />
 
       {/* Main content: table + detail */}
@@ -690,7 +773,7 @@ export function ConceptsPage() {
         <Allotment>
           <Allotment.Pane minSize={400}>
             <ConceptTable
-              concepts={concepts}
+              concepts={enrichedConcepts}
               totalCount={totalCount}
               page={page}
               pageSize={pageSize}
@@ -699,7 +782,7 @@ export function ConceptsPage() {
               selectedConceptId={selectedConceptId}
               availableColumns={availableColumns}
               filters={filters}
-              filterOptions={filterOptions}
+              filterOptions={allFilterOptions}
               sorting={sorting}
               columnVisibility={columnVisibility}
               onColumnVisibilityChange={setColumnVisibility}
@@ -708,6 +791,7 @@ export function ConceptsPage() {
               onSelect={setSelectedConceptId}
               selectedConceptIds={selectedConceptIds}
               onSelectedConceptIdsChange={setSelectedConceptIds}
+              onOpenConceptSet={setOpenSetName}
               onPageChange={setPage}
               onPageSizeChange={(size) => {
                 setPageSize(size)

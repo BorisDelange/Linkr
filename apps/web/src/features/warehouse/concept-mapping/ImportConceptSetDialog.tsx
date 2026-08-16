@@ -21,7 +21,12 @@ import type { MappingProject, ConceptSetItem } from '@/types'
 interface ImportConceptSetDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  project: MappingProject
+  /**
+   * Mapping project to link the imported sets to. Optional: the warehouse
+   * Concepts page imports dictionaries workspace-wide, with no mapping project
+   * to attach them to — the sets themselves are workspace-scoped either way.
+   */
+  project?: MappingProject
 }
 
 /** Known catalogs that can be imported in bulk. */
@@ -230,9 +235,11 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
         updatedAt: now,
       })
 
-      await updateMappingProject(project.id, {
-        conceptSetIds: [...(project.conceptSetIds ?? []), id],
-      })
+      if (project) {
+        await updateMappingProject(project.id, {
+          conceptSetIds: [...(project.conceptSetIds ?? []), id],
+        })
+      }
 
       onOpenChange(false)
       setFileContent('')
@@ -316,10 +323,12 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
           count: newIds.length,
           importedAt: new Date().toISOString(),
         }
-        await updateMappingProject(project.id, {
-          conceptSetIds: [...(project.conceptSetIds ?? []), ...newIds],
-          importBatches: [...(project.importBatches ?? []), importBatch],
-        })
+        if (project) {
+          await updateMappingProject(project.id, {
+            conceptSetIds: [...(project.conceptSetIds ?? []), ...newIds],
+            importBatches: [...(project.importBatches ?? []), importBatch],
+          })
+        }
       }
 
       onOpenChange(false)

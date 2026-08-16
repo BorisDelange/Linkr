@@ -5,6 +5,8 @@ import {
   computeAvailableColumns,
   NULL_FILTER_VALUE,
   VALIDITY_COLUMNS,
+  CONCEPT_SET_COLUMNS,
+  DEFAULT_HIDDEN_COLUMNS,
   type ColumnDescriptor,
 } from './concept-queries'
 import type { ConceptDictionary } from '@/types/schema-mapping'
@@ -147,5 +149,50 @@ describe('computeAvailableColumns ordering', () => {
     const ids = computeAvailableColumns([dict, other]).map((c) => c.id)
     expect(ids[0]).toBe('_dict_key')
     expect(ids[1]).toBe('vocabulary_id')
+  })
+})
+
+describe('concept-set (data dictionary) columns', () => {
+  const withCode: ConceptDictionary = {
+    key: 'concept',
+    table: 'concept',
+    idColumn: 'concept_id',
+    nameColumn: 'concept_name',
+    codeColumn: 'concept_code',
+    terminologyIdColumn: 'vocabulary_id',
+  }
+  const withoutCode: ConceptDictionary = {
+    key: 'd_items',
+    table: 'd_items',
+    idColumn: 'itemid',
+    nameColumn: 'label',
+  }
+
+  it('offers the dictionary columns when the source has both join keys', () => {
+    const ids = computeAvailableColumns([withCode]).map((c) => c.id)
+    for (const id of CONCEPT_SET_COLUMNS) expect(ids).toContain(id)
+  })
+
+  it('omits them when the source has no vocabulary/code to join on', () => {
+    const ids = computeAvailableColumns([withoutCode]).map((c) => c.id)
+    for (const id of CONCEPT_SET_COLUMNS) expect(ids).not.toContain(id)
+  })
+
+  it('hides them by default — they are empty until a dictionary is imported', () => {
+    for (const id of CONCEPT_SET_COLUMNS) expect(DEFAULT_HIDDEN_COLUMNS).toContain(id)
+  })
+
+  it('never reaches SQL: no SELECT alias and no WHERE predicate', () => {
+    const cols = computeAvailableColumns([withCode])
+    const sql = buildCachePageQuery(
+      { concept_set_name: ['Fibrinogen antigen'] },
+      cols,
+      0,
+      50,
+      null,
+    )
+    // The cache table has no such column — filtering it server-side would throw.
+    expect(sql).not.toContain('concept_set_name')
+    expect(sql).not.toContain('WHERE')
   })
 })

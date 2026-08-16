@@ -111,6 +111,8 @@ interface ConceptTableProps {
   onSelectedConceptIdsChange: (next: Set<number>) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (size: number) => void
+  /** Open a concept set's detail panel by name (data-dictionary column). */
+  onOpenConceptSet?: (setName: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -270,9 +272,22 @@ export function ConceptTable({
   onSelectedConceptIdsChange,
   onPageChange,
   onPageSizeChange,
+  onOpenConceptSet,
 }: ConceptTableProps) {
   const { t } = useTranslation()
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([])
+
+  // Sorting is done by SQL, so the data-dictionary columns (joined in the
+  // browser) cannot be ordered on — the ORDER BY would name a column the query
+  // has never heard of.
+  const sortableIds = useMemo(
+    () => new Set(availableColumns.filter((c) => c.source !== 'conceptSet').map((c) => c.id)),
+    [availableColumns],
+  )
+  const handleSort = (columnId: string) => {
+    if (!sortableIds.has(columnId)) return
+    onSortingChange(columnId)
+  }
 
   // Anchor for shift-range selection — the last row clicked without Shift.
   const selectionAnchorRef = useRef<number | null>(null)
@@ -377,6 +392,30 @@ export function ConceptTable({
             minSize: 60,
           } as ColumnDef<ConceptRow>
 
+        case 'concept_set_name':
+          // Joined from the imported dictionaries; a concept can be in several,
+          // so the cell lists them all. Clicking opens that set's detail.
+          return {
+            ...base,
+            header: () => t('concepts.column_concept_set'),
+            accessorFn: (row) => row.concept_set_name,
+            cell: ({ row }) => {
+              const value = String(row.original.concept_set_name ?? '')
+              if (!value) return null
+              return (
+                <button
+                  type="button"
+                  className="truncate text-left text-primary underline-offset-2 hover:underline"
+                  onClick={(e) => { e.stopPropagation(); onOpenConceptSet?.(value.split(', ')[0]) }}
+                >
+                  {value}
+                </button>
+              )
+            },
+            size: 180,
+            minSize: 80,
+          } as ColumnDef<ConceptRow>
+
         case 'standard_concept':
           // S / C / NS badge, same as the concept-mapping tables.
           return {
@@ -401,7 +440,7 @@ export function ConceptTable({
           } as ColumnDef<ConceptRow>
       }
     })
-  }, [availableColumns, t])
+  }, [availableColumns, t, onOpenConceptSet])
 
   const table = useReactTable({
     data: concepts,
@@ -531,7 +570,7 @@ export function ConceptTable({
                         key={header.id}
                         header={header}
                         sorting={sorting}
-                        onSort={onSortingChange}
+                        onSort={handleSort}
                         isDropTarget={overColumnId === header.column.id}
                       />
                     ))

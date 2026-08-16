@@ -268,7 +268,11 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
     const loadOptions = async () => {
       try {
-        const filterableCols = availableColumns.filter((c) => c.filterable && c.source !== 'dict')
+        // 'conceptSet' columns have no SQL counterpart — their options come from
+        // the imported dictionaries, not a SELECT DISTINCT on the source.
+        const filterableCols = availableColumns.filter(
+          (c) => c.filterable && c.source !== 'dict' && c.source !== 'conceptSet',
+        )
         const results: Record<string, string[]> = {}
 
         await Promise.all(

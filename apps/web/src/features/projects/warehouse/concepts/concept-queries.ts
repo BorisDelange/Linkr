@@ -13,8 +13,9 @@ import { buildFuzzySearchSql, type FuzzySearchSql } from '@/lib/fuzzy-search'
 export interface ColumnDescriptor {
   /** Stable alias used in ConceptRow keys and TanStack column IDs. */
   id: string
-  /** Source: 'core' (id/name), 'code', 'vocabulary', 'extra', 'dict', 'computed'. */
-  source: 'core' | 'code' | 'vocabulary' | 'extra' | 'dict' | 'computed'
+  /** Source: 'core' (id/name), 'code', 'vocabulary', 'extra', 'dict', 'computed'.
+   *  'conceptSet' is joined in client-side from imported data dictionaries. */
+  source: 'core' | 'code' | 'vocabulary' | 'extra' | 'dict' | 'computed' | 'conceptSet'
   /** Whether a dropdown filter should be generated (few distinct values). */
   filterable: boolean
 }
@@ -22,9 +23,22 @@ export interface ColumnDescriptor {
 /** OMOP validity metadata, ordered as they sit at the end of the table. */
 export const VALIDITY_COLUMNS = ['valid_start_date', 'valid_end_date', 'invalid_reason']
 
+/**
+ * Columns joined in from the workspace's imported data dictionaries, matched on
+ * (vocabulary_id, concept_code). They are computed in the browser — the sets are
+ * not in the source database — so they are filtered client-side, unlike every
+ * other column here.
+ */
+export const CONCEPT_SET_COLUMNS = [
+  'concept_set_name',
+  'concept_set_category',
+  'concept_set_subcategory',
+]
+
 /** Columns the table hides until the user opts in via the column picker. The
- *  whole validity trio is rarely consulted while browsing concepts. */
-export const DEFAULT_HIDDEN_COLUMNS = VALIDITY_COLUMNS
+ *  validity trio is rarely consulted while browsing, and the data-dictionary
+ *  columns are only meaningful once a dictionary has been imported. */
+export const DEFAULT_HIDDEN_COLUMNS = [...VALIDITY_COLUMNS, ...CONCEPT_SET_COLUMNS]
 
 /**
  * Compute the union of all columns across multiple concept dictionaries.
@@ -88,6 +102,16 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
   }
   for (const key of VALIDITY_COLUMNS) {
     if (hasValidity.has(key)) cols.push({ id: key, source: 'extra', filterable: key === 'invalid_reason' })
+  }
+
+  // Data-dictionary columns, joined on (vocabulary_id, concept_code). Only
+  // offered when the source has both keys — without them nothing can match.
+  const canJoinConceptSets =
+    cols.some((c) => c.id === 'vocabulary_id') && cols.some((c) => c.id === 'concept_code')
+  if (canJoinConceptSets) {
+    for (const id of CONCEPT_SET_COLUMNS) {
+      cols.push({ id, source: 'conceptSet', filterable: true })
+    }
   }
 
   // Computed counts sit last, patients before rows.
@@ -208,6 +232,8 @@ function buildWhereClause(dict: ConceptDictionary, filters: ConceptFilters, allC
   // on one column are OR-ed (IN), different columns AND-ed.
   for (const col of allColumns) {
     if (!col.filterable) continue
+    // Concept-set columns have no SQL counterpart; the table filters them.
+    if (col.source === 'conceptSet') continue
     const values = filterValues(filters[col.id])
     if (values.length === 0) continue
 
@@ -311,6 +337,9 @@ function buildSelectForDict(
 
   for (const col of allColumns) {
     if (col.id === 'concept_id' || col.id === 'concept_name') continue
+    // Joined in the browser from imported dictionaries — selecting them here
+    // would emit NULL and shadow the values the table computes.
+    if (col.source === 'conceptSet') continue
     if (col.source === 'dict') {
       cols.push(`'${esc(dict.key)}' AS _dict_key`)
       continue
@@ -509,6 +538,7 @@ function buildCacheWhere(filters: ConceptFilters, allColumns: ColumnDescriptor[]
   for (const col of allColumns) {
     if (!col.filterable) continue
     if (col.id === '_dict_key') continue
+    if (col.source === 'conceptSet') continue
     const cond = filterCondition(`"${col.id}"`, filterValues(filters[col.id]))
     if (cond) conditions.push(cond)
   }

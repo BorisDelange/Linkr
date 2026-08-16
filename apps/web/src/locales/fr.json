@@ -570,7 +570,11 @@
     "list_name_placeholder": "Nom de la liste",
     "list_description_placeholder": "À quoi sert cette liste ?",
     "list_delete_title": "Supprimer cette liste de concepts ?",
-    "list_delete_confirm": "« {{name}} » et ses {{count}} concepts seront supprimés. Cette action est irréversible."
+    "list_delete_confirm": "« {{name}} » et ses {{count}} concepts seront supprimés. Cette action est irréversible.",
+    "column_concept_set": "Concept set",
+    "settings_section_dictionary": "Dictionnaire de données",
+    "settings_dictionary_hint": "{{count}} concept sets importés. Leur nom, catégorie et sous-catégorie peuvent s’afficher en colonnes, appariés sur le vocabulaire et le code du concept.",
+    "settings_import_dictionary": "Importer un dictionnaire de données"
   },
   "databases": {
     "title": "Bases de données",

@@ -1,4 +1,6 @@
 import { useTranslation } from 'react-i18next'
+import { Download } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
@@ -16,6 +18,9 @@ interface ConceptsSettingsDialogProps {
   onStatsEnabledChange: (value: boolean) => void
   excludeOutliers: boolean
   onExcludeOutliersChange: (value: boolean) => void
+  /** How many data dictionaries the workspace already has. */
+  conceptSetCount: number
+  onImportDictionary: () => void
 }
 
 /** A labelled checkbox row: the label and its explanation are both clickable. */
@@ -53,6 +58,8 @@ export function ConceptsSettingsDialog({
   onStatsEnabledChange,
   excludeOutliers,
   onExcludeOutliersChange,
+  conceptSetCount,
+  onImportDictionary,
 }: ConceptsSettingsDialogProps) {
   const { t } = useTranslation()
 
@@ -83,6 +90,26 @@ export function ConceptsSettingsDialog({
             label={t('concepts.stats_exclude_outliers')}
             hint={t('concepts.settings_outliers_hint')}
           />
+
+          <Separator />
+
+          <div className="space-y-2">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t('concepts.settings_section_dictionary')}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {t('concepts.settings_dictionary_hint', { count: conceptSetCount })}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1 text-xs"
+              onClick={onImportDictionary}
+            >
+              <Download size={12} />
+              {t('concepts.settings_import_dictionary')}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
