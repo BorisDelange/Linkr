@@ -61,9 +61,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { columnLabel } from '@/lib/format-helpers'
 import type { ConceptRow } from './use-concepts'
-import type { ConceptFilters, ConceptSorting, ColumnDescriptor } from './concept-queries'
+import type {
+  ConceptFilters,
+  ConceptFilterValue,
+  ConceptSorting,
+  ColumnDescriptor,
+} from './concept-queries'
+
+/** Dashed inline-filter look shared with the concept-mapping tables. */
+const FILTER_INPUT_CLASS =
+  'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -83,7 +94,7 @@ interface ConceptTableProps {
   sorting: ConceptSorting | null
   columnVisibility: VisibilityState
   onColumnVisibilityChange: (v: VisibilityState) => void
-  onFilterChange: (key: string, value: string | null) => void
+  onFilterChange: (key: string, value: ConceptFilterValue) => void
   onSortingChange: (columnId: string) => void
   onSelect: (conceptId: number) => void
   onPageChange: (page: number) => void
@@ -108,33 +119,41 @@ function CountCell({ value }: { value: number | undefined }) {
   return <span className="text-muted-foreground">—</span>
 }
 
-function ColumnFilterSelect({
-  value,
+/** Human label for a standard_concept option: OMOP stores S / C / NULL, which the
+ *  table renders as the S / C / NS badges. */
+function standardConceptLabel(value: string, t: (key: string) => string): string {
+  if (value === 'S') return t('concepts.standard_s')
+  if (value === 'C') return t('concepts.standard_c')
+  return t('concepts.standard_non')
+}
+
+/** Multi-select column filter — same control and sizing as the mapping editor's
+ *  source-concepts table, so both tables read identically. */
+function ColumnFilterMulti({
+  values,
   options,
   placeholder,
   onChange,
+  optionLabel,
 }: {
-  value: string | null
+  values: string[]
   options: string[]
   placeholder: string
-  onChange: (v: string | null) => void
+  onChange: (next: string[]) => void
+  optionLabel?: (value: string) => string
 }) {
-  const { t } = useTranslation()
+  const opts = optionLabel
+    ? options.map((v) => ({ value: v, label: optionLabel(v) }))
+    : options
   return (
-    <Select
-      value={value ?? '__all__'}
-      onValueChange={(v) => onChange(v === '__all__' ? null : v)}
-    >
-      <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
-        {options.map((opt) => (
-          <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <MultiSelectFilter
+      value={values}
+      options={opts}
+      placeholder={placeholder}
+      onChange={onChange}
+      triggerClass={FILTER_INPUT_CLASS}
+      popoverWidthClass="w-[300px]"
+    />
   )
 }
 
@@ -308,6 +327,19 @@ export function ConceptTable({
             minSize: 60,
           } as ColumnDef<ConceptRow>
 
+        case 'standard_concept':
+          // S / C / NS badge, same as the concept-mapping tables.
+          return {
+            ...base,
+            header: () => t('concepts.column_standard'),
+            accessorFn: (row) => row.standard_concept,
+            cell: ({ row }) => (
+              <StandardConceptBadge value={row.original.standard_concept as string | null} />
+            ),
+            size: 70,
+            minSize: 50,
+          } as ColumnDef<ConceptRow>
+
         default:
           // Extra columns, vocabulary_id, _dict_key
           return {
@@ -376,9 +408,9 @@ export function ConceptTable({
     if (columnId === 'concept_id') {
       return (
         <input
-          className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] font-mono outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder="ID..."
-          value={filters._searchId ?? ''}
+          className={`${FILTER_INPUT_CLASS} font-mono`}
+          placeholder={t('concepts.search_id_placeholder')}
+          value={typeof filters._searchId === 'string' ? filters._searchId : ''}
           onChange={(e) => onFilterChange('_searchId', e.target.value || null)}
         />
       )
@@ -386,9 +418,9 @@ export function ConceptTable({
     if (columnId === 'concept_name') {
       return (
         <input
-          className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
+          className={FILTER_INPUT_CLASS}
           placeholder={t('concepts.search_placeholder')}
-          value={filters._searchText ?? ''}
+          value={typeof filters._searchText === 'string' ? filters._searchText : ''}
           onChange={(e) => onFilterChange('_searchText', e.target.value || null)}
         />
       )
@@ -396,9 +428,9 @@ export function ConceptTable({
     if (columnId === 'concept_code') {
       return (
         <input
-          className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] font-mono outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder="Code..."
-          value={filters._searchCode ?? ''}
+          className={`${FILTER_INPUT_CLASS} font-mono`}
+          placeholder={t('concepts.search_code_placeholder')}
+          value={typeof filters._searchCode === 'string' ? filters._searchCode : ''}
           onChange={(e) => onFilterChange('_searchCode', e.target.value || null)}
         />
       )
@@ -407,12 +439,19 @@ export function ConceptTable({
     // Dropdown filters for filterable columns
     const col = availableColumns.find((c) => c.id === columnId)
     if (col?.filterable && filterOptions[columnId]?.length) {
+      const raw = filters[columnId]
+      const values = Array.isArray(raw) ? raw : raw ? [raw] : []
       return (
-        <ColumnFilterSelect
-          value={filters[columnId] as string | null}
+        <ColumnFilterMulti
+          values={values}
           options={filterOptions[columnId]}
           placeholder={columnLabel(columnId)}
-          onChange={(v) => onFilterChange(columnId, v)}
+          onChange={(next) => onFilterChange(columnId, next.length ? next : null)}
+          optionLabel={
+            columnId === 'standard_concept'
+              ? (v) => standardConceptLabel(v, t)
+              : undefined
+          }
         />
       )
     }

@@ -98,9 +98,10 @@ export function ConceptStatsPanel({
   // which reads as "this concept has none" rather than "nothing was computed".
   if (!statsEnabled) {
     return (
-      <p className="text-xs text-muted-foreground">
-        {t('concepts.stats_disabled')}
-      </p>
+      <div className="space-y-0.5 text-xs text-muted-foreground">
+        <p>{t('concepts.stats_disabled')}</p>
+        <p>{t('concepts.stats_disabled_hint')}</p>
+      </div>
     )
   }
 

@@ -25,8 +25,9 @@ import {
   buildCacheFilterOptionsQuery,
   buildCacheDetailQuery,
   EMPTY_FILTERS,
+  NULL_FILTER_VALUE,
 } from './concept-queries'
-import type { ConceptFilters, ConceptSorting } from './concept-queries'
+import type { ConceptFilters, ConceptFilterValue, ConceptSorting } from './concept-queries'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -141,8 +142,8 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const activeStatsConceptId = useRef<number | null>(null)
 
   // Refs to track latest values for the unmount cleanup
-  const latestRef = useRef({ filters, sorting, page, pageSize, selectedConceptId, filterOptions })
-  latestRef.current = { filters, sorting, page, pageSize, selectedConceptId, filterOptions }
+  const latestRef = useRef({ filters, sorting, page, pageSize, selectedConceptId, filterOptions, totalCount })
+  latestRef.current = { filters, sorting, page, pageSize, selectedConceptId, filterOptions, totalCount }
 
   // Save state to module-level cache on unmount
   useEffect(() => {
@@ -270,7 +271,11 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
             const rows = server
               ? await queryConceptCache(dataSourceId, sql)
               : await queryDataSource(dataSourceId, sql)
-            results[col.id] = rows.map((r) => String(r.val))
+            const values = rows.map((r) => String(r.val))
+            // OMOP stores NULL for non-standard concepts, and the DISTINCT query
+            // drops NULLs — add the sentinel so "NS" stays filterable.
+            if (col.id === 'standard_concept') values.push(NULL_FILTER_VALUE)
+            results[col.id] = values
           }),
         )
 
@@ -585,7 +590,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     refresh()
   }, [dataSourceId, schemaMapping, cacheChecked, cacheReady, countsRefreshing, refresh])
 
-  const updateFilter = useCallback((key: string, value: string | null) => {
+  const updateFilter = useCallback((key: string, value: ConceptFilterValue) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
     // Text search fields reset page via debounce, others reset immediately
     if (!key.startsWith('_search')) {

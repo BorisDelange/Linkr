@@ -4,6 +4,7 @@ import {
   buildConceptMatchCondition,
 } from '@/lib/schema-helpers'
 import { escSql as esc } from '@/lib/format-helpers'
+import { buildFuzzySearchSql, type FuzzySearchSql } from '@/lib/fuzzy-search'
 
 // ---------------------------------------------------------------------------
 // Column descriptors
@@ -21,8 +22,9 @@ export interface ColumnDescriptor {
 /** OMOP validity metadata, ordered as they sit at the end of the table. */
 export const VALIDITY_COLUMNS = ['valid_start_date', 'valid_end_date', 'invalid_reason']
 
-/** Columns the table hides until the user opts in via the column picker. */
-export const DEFAULT_HIDDEN_COLUMNS = ['invalid_reason']
+/** Columns the table hides until the user opts in via the column picker. The
+ *  whole validity trio is rarely consulted while browsing concepts. */
+export const DEFAULT_HIDDEN_COLUMNS = VALIDITY_COLUMNS
 
 /**
  * Compute the union of all columns across multiple concept dictionaries.
@@ -77,12 +79,7 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
     cols.push({ id: '_dict_key', source: 'dict', filterable: true })
   }
 
-  // Computed columns — patients reads before rows.
-  cols.push({ id: 'patient_count', source: 'computed', filterable: false })
-  cols.push({ id: 'record_count', source: 'computed', filterable: false })
-
-  // OMOP validity trio, after the counts. These are rarely-consulted metadata,
-  // so they sit at the very end (invalid_reason last, hidden by default).
+  // OMOP validity trio — rarely-consulted metadata, hidden by default.
   const hasValidity = new Set<string>()
   for (const d of dicts) {
     for (const key of Object.keys(d.extraColumns ?? {})) {
@@ -93,6 +90,10 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
     if (hasValidity.has(key)) cols.push({ id: key, source: 'extra', filterable: key === 'invalid_reason' })
   }
 
+  // Computed counts sit last, patients before rows.
+  cols.push({ id: 'patient_count', source: 'computed', filterable: false })
+  cols.push({ id: 'record_count', source: 'computed', filterable: false })
+
   return cols
 }
 
@@ -102,24 +103,86 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
 
 /**
  * Generic filters: key = column alias, value = filter value (null = no filter).
+ * Column dropdowns hold a string[] (multi-select, empty = no filter); the
+ * `_search*` keys hold a single string.
  * Special keys: 'searchText' (fuzzy name), 'searchId' (ID prefix), 'searchCode' (code ILIKE).
  */
-export type ConceptFilters = Record<string, string | null>
+export type ConceptFilterValue = string | string[] | null
+export type ConceptFilters = Record<string, ConceptFilterValue>
+
+/** Sentinel option standing for SQL NULL — OMOP leaves standard_concept NULL on
+ *  non-standard concepts, so "NS" has to be selectable like any other value. */
+export const NULL_FILTER_VALUE = '__null__'
+
+/** Read a filter that is always single-valued (the `_search*` keys). */
+function filterText(value: ConceptFilterValue): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+/** Read any filter as the list of selected values (empty = no filter). */
+function filterValues(value: ConceptFilterValue): string[] {
+  if (Array.isArray(value)) return value.filter(Boolean)
+  return value ? [value] : []
+}
+
+/** SQL predicate for one column against selected values, honouring the NULL
+ *  sentinel. Returns null when nothing is selected. */
+function filterCondition(quotedCol: string, values: string[]): string | null {
+  if (values.length === 0) return null
+  const nonNull = values.filter((v) => v !== NULL_FILTER_VALUE)
+  const parts: string[] = []
+  if (nonNull.length === 1) {
+    parts.push(`${quotedCol} = '${esc(nonNull[0])}'`)
+  } else if (nonNull.length > 1) {
+    parts.push(`${quotedCol} IN (${nonNull.map((v) => `'${esc(v)}'`).join(', ')})`)
+  }
+  if (values.length !== nonNull.length) parts.push(`${quotedCol} IS NULL`)
+  return parts.length > 1 ? `(${parts.join(' OR ')})` : parts[0]
+}
 
 export const EMPTY_FILTERS: ConceptFilters = {}
+
+/** Relevance ranking over the *output* aliases (concept_name / concept_code /
+ *  concept_id), usable in an outer ORDER BY where the dict's raw column names
+ *  are no longer in scope. Null when the toolbar search is empty. */
+function aliasedFuzzyRank(filters: ConceptFilters): string | null {
+  const term = filterText(filters._searchFuzzy)
+  if (!term?.trim()) return null
+  return buildFuzzySearchSql(term, {
+    nameColumn: 'concept_name',
+    codeColumn: 'concept_code',
+    idColumn: 'concept_id',
+  })?.rankExpr ?? null
+}
+
+/** Fuzzy-search clauses for a dict, or null when the toolbar search is empty. */
+function fuzzyClause(
+  dict: ConceptDictionary,
+  filters: ConceptFilters,
+  alias?: string,
+): FuzzySearchSql | null {
+  const term = filterText(filters._searchFuzzy)
+  if (!term?.trim() || !dict.nameColumn) return null
+  return buildFuzzySearchSql(term, {
+    nameColumn: `"${dict.nameColumn}"`,
+    codeColumn: dict.codeColumn ? `"${dict.codeColumn}"` : undefined,
+    idColumn: dict.idColumn ? `"${dict.idColumn}"` : undefined,
+    alias,
+  })
+}
 
 function buildWhereClause(dict: ConceptDictionary, filters: ConceptFilters, allColumns: ColumnDescriptor[], alias?: string): string {
   const p = alias ? `${alias}.` : ''
   const conditions: string[] = []
 
   // Search by ID prefix
-  const searchId = filters._searchId
+  const searchId = filterText(filters._searchId)
   if (searchId?.trim()) {
     conditions.push(`CAST(${p}"${dict.idColumn}" AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
   }
 
   // Search by name (multi-word fuzzy)
-  const searchText = filters._searchText
+  const searchText = filterText(filters._searchText)
   if (searchText?.trim() && dict.nameColumn) {
     const words = searchText.trim().split(/\s+/).filter(Boolean)
     if (words.length === 1) {
@@ -131,21 +194,28 @@ function buildWhereClause(dict: ConceptDictionary, filters: ConceptFilters, allC
   }
 
   // Search by code
-  const searchCode = filters._searchCode
+  const searchCode = filterText(filters._searchCode)
   if (searchCode?.trim() && dict.codeColumn) {
     conditions.push(`${p}"${dict.codeColumn}" ILIKE '%${esc(searchCode.trim())}%'`)
   }
 
-  // Dropdown / exact-match filters on vocabulary, extra columns
+  // Toolbar fuzzy search — spans name/code/id with the shared tier ranking, so
+  // a typo or a word order swap still finds the concept.
+  const fuzzy = fuzzyClause(dict, filters, alias)
+  if (fuzzy) conditions.push(fuzzy.where)
+
+  // Dropdown filters on vocabulary / extra columns. Multi-select: several values
+  // on one column are OR-ed (IN), different columns AND-ed.
   for (const col of allColumns) {
     if (!col.filterable) continue
-    const filterVal = filters[col.id]
-    if (!filterVal) continue
+    const values = filterValues(filters[col.id])
+    if (values.length === 0) continue
 
     const actualCol = resolveActualColumn(dict, col.id)
     if (!actualCol) continue // column doesn't exist in this dict — skip
 
-    conditions.push(`${p}"${actualCol}" = '${esc(filterVal)}'`)
+    const cond = filterCondition(`${p}"${actualCol}"`, values)
+    if (cond) conditions.push(cond)
   }
 
   return conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
@@ -285,9 +355,9 @@ export function buildConceptsQuery(
   const offset = page * pageSize
 
   // Filter by _dict_key: if set, only query that one dict
-  const dictKeyFilter = filters._dict_key
-  const activeDicts = dictKeyFilter
-    ? dicts.filter((d) => d.key === dictKeyFilter)
+  const dictKeys = filterValues(filters._dict_key)
+  const activeDicts = dictKeys.length
+    ? dicts.filter((d) => dictKeys.includes(d.key))
     : dicts
 
   if (activeDicts.length === 0) return null
@@ -298,14 +368,17 @@ export function buildConceptsQuery(
 
   if (subQueries.length === 0) return null
 
-  // ORDER BY — all columns including record_count and patient_count
+  // ORDER BY — all columns including record_count and patient_count. An explicit
+  // sort wins; otherwise a fuzzy search orders by relevance (best tier first).
   let orderBy = 'concept_id'
   if (sorting) {
     orderBy = `"${sorting.columnId}" ${sorting.desc ? 'DESC' : 'ASC'}`
+  } else if (aliasedFuzzyRank(filters)) {
+    orderBy = `${aliasedFuzzyRank(filters)}, concept_name`
   }
 
   if (subQueries.length === 1) {
-    return `${subQueries[0]} ORDER BY ${orderBy} LIMIT ${pageSize} OFFSET ${offset}`
+    return `SELECT * FROM (${subQueries[0]}) _q ORDER BY ${orderBy} LIMIT ${pageSize} OFFSET ${offset}`
   }
 
   // Multi-dict: wrap in subquery for ORDER BY + LIMIT
@@ -340,9 +413,9 @@ export function buildConceptsCountQuery(
   const dicts = mapping.conceptTables
   if (!dicts || dicts.length === 0) return null
 
-  const dictKeyFilter = filters._dict_key
-  const activeDicts = dictKeyFilter
-    ? dicts.filter((d) => d.key === dictKeyFilter)
+  const dictKeys = filterValues(filters._dict_key)
+  const activeDicts = dictKeys.length
+    ? dicts.filter((d) => dictKeys.includes(d.key))
     : dicts
 
   if (activeDicts.length === 0) return null
@@ -402,32 +475,42 @@ export function buildFilterOptionsQuery(
 function buildCacheWhere(filters: ConceptFilters, allColumns: ColumnDescriptor[]): string {
   const conditions: string[] = []
 
-  const searchId = filters._searchId
+  const searchId = filterText(filters._searchId)
   if (searchId?.trim()) {
     conditions.push(`CAST("concept_id" AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
   }
 
-  const searchText = filters._searchText
+  const searchText = filterText(filters._searchText)
   if (searchText?.trim()) {
     const words = searchText.trim().split(/\s+/).filter(Boolean)
     const parts = words.map((w) => `"concept_name" ILIKE '%${esc(w)}%'`)
     if (parts.length) conditions.push(`(${parts.join(' AND ')})`)
   }
 
-  const searchCode = filters._searchCode
+  const searchCode = filterText(filters._searchCode)
   if (searchCode?.trim()) {
     conditions.push(`"concept_code" ILIKE '%${esc(searchCode.trim())}%'`)
   }
 
-  const dictKey = filters._dict_key
-  if (dictKey) conditions.push(`"_dict_key" = '${esc(dictKey)}'`)
+  // Toolbar fuzzy search over the cache's stable aliases.
+  const fuzzyTerm = filterText(filters._searchFuzzy)
+  if (fuzzyTerm?.trim()) {
+    const fz = buildFuzzySearchSql(fuzzyTerm, {
+      nameColumn: 'concept_name',
+      codeColumn: 'concept_code',
+      idColumn: 'concept_id',
+    })
+    if (fz) conditions.push(fz.where)
+  }
+
+  const dictKeyCond = filterCondition('"_dict_key"', filterValues(filters._dict_key))
+  if (dictKeyCond) conditions.push(dictKeyCond)
 
   for (const col of allColumns) {
     if (!col.filterable) continue
-    const v = filters[col.id]
-    if (!v) continue
     if (col.id === '_dict_key') continue
-    conditions.push(`"${col.id}" = '${esc(v)}'`)
+    const cond = filterCondition(`"${col.id}"`, filterValues(filters[col.id]))
+    if (cond) conditions.push(cond)
   }
 
   return conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
@@ -441,9 +524,12 @@ export function buildCachePageQuery(
   sorting?: ConceptSorting | null,
 ): string {
   const where = buildCacheWhere(filters, allColumns)
+  const rank = aliasedFuzzyRank(filters)
   const orderBy = sorting
     ? `"${sorting.columnId}" ${sorting.desc ? 'DESC' : 'ASC'}`
-    : 'concept_id'
+    : rank
+      ? `${rank}, concept_name`
+      : 'concept_id'
   return `SELECT * FROM concepts ${where} ORDER BY ${orderBy} LIMIT ${pageSize} OFFSET ${page * pageSize}`
 }
 
