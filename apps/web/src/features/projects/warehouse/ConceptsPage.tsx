@@ -2,11 +2,13 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { BookOpen, RefreshCw } from 'lucide-react'
+import { BookOpen, RefreshCw, PanelRight } from 'lucide-react'
 import type { VisibilityState } from '@tanstack/react-table'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useConcepts } from './concepts/use-concepts'
 import { hasValueColumnForDict } from './concepts/concept-queries'
 import { ConceptTable } from './concepts/ConceptTable'
@@ -46,8 +48,15 @@ export function ConceptsPage() {
     refresh,
     lastRefreshed,
     countsRefreshing,
+    refreshError,
     needsRefresh,
+    statsEnabled,
+    setStatsEnabled,
+    excludeOutliers,
+    setExcludeOutliers,
   } = useConcepts(mappedSource?.id, mappedSource?.schemaMapping)
+
+  const [detailVisible, setDetailVisible] = useState(true)
 
   const sourceId = mappedSource?.id
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
@@ -123,23 +132,10 @@ export function ConceptsPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b px-4 py-2.5">
-        <div>
-          <h1 className="text-lg font-semibold">{t('concepts.title')}</h1>
-          <p className="text-xs text-muted-foreground">{t('concepts.description')}</p>
-        </div>
+      {/* Slim action bar. No title/description: the sidebar already names the
+          page, so they only cost vertical space. */}
+      <div className="flex items-center justify-between gap-3 border-b px-4 py-1.5">
         <div className="flex items-center gap-3">
-          {lastRefreshed && (
-            <span className="text-xs text-muted-foreground">
-              {t('concepts.last_refreshed', {
-                date: new Date(lastRefreshed).toLocaleString(i18n.language, {
-                  dateStyle: 'medium',
-                  timeStyle: 'short',
-                }),
-              })}
-            </span>
-          )}
           <Button
             variant="outline"
             size="sm"
@@ -150,13 +146,51 @@ export function ConceptsPage() {
             <RefreshCw size={12} className={countsRefreshing ? 'animate-spin' : ''} />
             {t('concepts.refresh')}
           </Button>
+          {lastRefreshed && (
+            <span className="text-xs text-muted-foreground">
+              {t('concepts.last_refreshed', {
+                date: new Date(lastRefreshed).toLocaleString(i18n.language, {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }),
+              })}
+            </span>
+          )}
         </div>
+
+        <TooltipProvider delayDuration={300}>
+          <div className="flex items-center gap-2">
+            <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+              <Checkbox
+                checked={statsEnabled}
+                onCheckedChange={(v) => setStatsEnabled(v === true)}
+                className="size-3.5"
+              />
+              {t('etl.profiling_compute_stats')}
+            </label>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={detailVisible ? 'secondary' : 'ghost'}
+                  size="icon-xs"
+                  onClick={() => setDetailVisible(!detailVisible)}
+                >
+                  <PanelRight size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('etl.profiling_toggle_stats')}</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       </div>
 
       {/* No cache yet (server mode): prompt to build it. */}
-      {needsRefresh && (
+      {needsRefresh && !refreshError && (
         <div className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2">
-          <span className="text-xs text-muted-foreground">{t('concepts.cache_empty')}</span>
+          <span className="text-xs text-muted-foreground">
+            {countsRefreshing ? t('concepts.building_cache') : t('concepts.cache_empty')}
+          </span>
           <Button
             variant="outline"
             size="sm"
@@ -166,6 +200,26 @@ export function ConceptsPage() {
           >
             <RefreshCw size={12} className={countsRefreshing ? 'animate-spin' : ''} />
             {t('concepts.build_cache')}
+          </Button>
+        </div>
+      )}
+
+      {/* A failed build used to be silent (console only) — surface it so the
+          button never looks like it did nothing. */}
+      {refreshError && (
+        <div className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-2">
+          <span className="text-xs text-destructive">
+            {t('concepts.build_cache_failed', { error: refreshError })}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 gap-1 text-xs"
+            onClick={refresh}
+            disabled={countsRefreshing}
+          >
+            <RefreshCw size={12} className={countsRefreshing ? 'animate-spin' : ''} />
+            {t('concepts.retry')}
           </Button>
         </div>
       )}
@@ -198,13 +252,15 @@ export function ConceptsPage() {
               }}
             />
           </Allotment.Pane>
-          <Allotment.Pane minSize={300} preferredSize={380}>
+          <Allotment.Pane minSize={300} preferredSize={380} visible={detailVisible}>
             <ConceptDetail
               concept={selectedConcept}
               availableColumns={availableColumns}
               stats={conceptStats}
               statsLoading={conceptStatsLoading}
               hasValueColumn={hasValueCol}
+              excludeOutliers={excludeOutliers}
+              onExcludeOutliersChange={setExcludeOutliers}
             />
           </Allotment.Pane>
         </Allotment>

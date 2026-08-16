@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { niceStep, niceTicks } from './chart-ticks'
+import { niceStep, niceTicks, tightHistogramScale } from './chart-ticks'
 
 describe('niceStep', () => {
   it('rounds up to 1/2/5 × 10ⁿ', () => {
@@ -54,5 +54,43 @@ describe('niceTicks', () => {
   it('returns null for empty or all-non-finite input', () => {
     expect(niceTicks([])).toBeNull()
     expect(niceTicks([NaN, Infinity])).toBeNull()
+  })
+})
+
+describe('tightHistogramScale', () => {
+  it('tracks the data min rather than flooring the domain to zero', () => {
+    // Many narrow bins — the half-bin padding stays small, so the domain hugs
+    // the real minimum instead of starting at 0 the way niceTicks would.
+    const xs = Array.from({ length: 20 }, (_, i) => 467 + i * 70)
+    const result = tightHistogramScale(xs)!
+    expect(result.domain[0]).toBeGreaterThan(0)
+    expect(result.domain[0]).toBeLessThanOrEqual(467)
+  })
+
+  it('brackets the full data range', () => {
+    const xs = [10, 20, 30, 40]
+    const result = tightHistogramScale(xs)!
+    expect(result.domain[0]).toBeLessThanOrEqual(Math.min(...xs))
+    expect(result.domain[1]).toBeGreaterThanOrEqual(Math.max(...xs))
+  })
+
+  it('lays every tick inside the domain', () => {
+    const result = tightHistogramScale([50, 71, 92, 113, 136])!
+    for (const tick of result.ticks) {
+      expect(tick).toBeGreaterThanOrEqual(result.domain[0])
+      expect(tick).toBeLessThanOrEqual(result.domain[1])
+    }
+  })
+
+  it('falls back to niceTicks on a degenerate single-value range', () => {
+    const result = tightHistogramScale([5, 5])
+    expect(result).not.toBeNull()
+    expect(result!.domain[0]).toBeLessThan(5)
+    expect(result!.domain[1]).toBeGreaterThan(5)
+  })
+
+  it('returns null for empty or all-non-finite input', () => {
+    expect(tightHistogramScale([])).toBeNull()
+    expect(tightHistogramScale([NaN, Infinity])).toBeNull()
   })
 })

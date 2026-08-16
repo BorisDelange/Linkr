@@ -14,6 +14,8 @@ interface ConceptDetailProps {
   stats: ConceptStats | null
   statsLoading: boolean
   hasValueColumn: boolean
+  excludeOutliers: boolean
+  onExcludeOutliersChange: (value: boolean) => void
 }
 
 function MetaRow({ label, value }: { label: string; value: string | null | undefined }) {
@@ -25,7 +27,15 @@ function MetaRow({ label, value }: { label: string; value: string | null | undef
   )
 }
 
-export function ConceptDetail({ concept, availableColumns, stats, statsLoading, hasValueColumn }: ConceptDetailProps) {
+export function ConceptDetail({
+  concept,
+  availableColumns,
+  stats,
+  statsLoading,
+  hasValueColumn,
+  excludeOutliers,
+  onExcludeOutliersChange,
+}: ConceptDetailProps) {
   const { t } = useTranslation()
 
   // Metadata columns: everything except id, name, and computed columns
@@ -104,6 +114,8 @@ export function ConceptDetail({ concept, availableColumns, stats, statsLoading, 
           hasValueColumn={hasValueColumn}
           stats={stats}
           isLoading={statsLoading}
+          excludeOutliers={excludeOutliers}
+          onExcludeOutliersChange={onExcludeOutliersChange}
         />
       </div>
     </ScrollArea>

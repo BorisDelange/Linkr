@@ -1,16 +1,20 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
-import { niceTicks } from '@/lib/chart-ticks'
+import { Checkbox } from '@/components/ui/checkbox'
+import { niceTicks, tightHistogramScale } from '@/lib/chart-ticks'
 import type { ConceptStats, HistogramBin } from './use-concepts'
 
 interface ConceptStatsPanelProps {
   hasValueColumn: boolean
   stats: ConceptStats | null
   isLoading: boolean
+  excludeOutliers: boolean
+  onExcludeOutliersChange: (value: boolean) => void
 }
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
@@ -22,22 +26,36 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-function Histogram({ data }: { data: HistogramBin[] }) {
+/** Compact axis labels — 1234567 → "1.2M", so long counts fit the narrow panel. */
+function compactCount(v: number): string {
+  const abs = Math.abs(v)
+  if (abs >= 1e9) return `${(v / 1e9).toFixed(abs >= 1e10 ? 0 : 1)}B`
+  if (abs >= 1e6) return `${(v / 1e6).toFixed(abs >= 1e7 ? 0 : 1)}M`
+  if (abs >= 1e3) return `${(v / 1e3).toFixed(abs >= 1e4 ? 0 : 1)}k`
+  return v.toLocaleString()
+}
+
+function Histogram({ data, startAtZero }: { data: HistogramBin[]; startAtZero: boolean }) {
   // The SQL bins are anchored on the raw data minimum, so their edges are
   // arbitrary numbers like -27, 14, 56 — useless as axis labels. Lay a clean
   // linear grid over the value range and place bars at their real x value.
+  // Checked → anchored at zero; unchecked → tightened on the real range (the
+  // same pair the mapping editor's histogram uses).
   const xs = data.map((b) => b.bin_start)
-  const min = Math.min(...xs)
-  const max = Math.max(...xs)
-  const binWidth = data.length > 1 ? (max - min) / (data.length - 1) : 1
-  // Widen by half a bin each side so the first/last bars aren't clipped.
-  const scale = niceTicks([min - binWidth / 2, max + binWidth / 2])
+  const scale = startAtZero ? niceTicks(xs, true) : tightHistogramScale(xs)
   const formatTick = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+
+  // ~6px per character at fontSize 10, plus the tick mark and padding.
+  const maxCount = Math.max(...data.map((b) => b.count), 0)
+  const yLabelWidth = compactCount(maxCount).length * 6 + 12
 
   return (
     <ResponsiveContainer width="100%" height={180}>
       <BarChart data={data} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
         <XAxis
+          // recharts caches the axis scale and ignores in-place domain/ticks
+          // changes, so key it on the domain to force a fresh scale on toggle.
+          key={scale ? `${scale.domain[0]}-${scale.domain[1]}` : 'auto'}
           type="number"
           dataKey="bin_start"
           domain={scale ? scale.domain : ['dataMin', 'dataMax']}
@@ -45,7 +63,13 @@ function Histogram({ data }: { data: HistogramBin[] }) {
           tick={{ fontSize: 10 }}
           tickFormatter={formatTick}
         />
-        <YAxis tick={{ fontSize: 10 }} width={40} />
+        {/* Compact labels + width sized to the widest one: a fixed width clipped
+            counts like 1,234,567 to "1,23…". */}
+        <YAxis
+          tick={{ fontSize: 10 }}
+          width={Math.max(28, yLabelWidth)}
+          tickFormatter={compactCount}
+        />
         <Tooltip
           formatter={(value) => [Number(value).toLocaleString(), 'Count']}
           labelFormatter={(label) => Number(label).toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -57,8 +81,15 @@ function Histogram({ data }: { data: HistogramBin[] }) {
   )
 }
 
-export function ConceptStatsPanel({ hasValueColumn, stats, isLoading }: ConceptStatsPanelProps) {
+export function ConceptStatsPanel({
+  hasValueColumn,
+  stats,
+  isLoading,
+  excludeOutliers,
+  onExcludeOutliersChange,
+}: ConceptStatsPanelProps) {
   const { t } = useTranslation()
+  const [startAtZero, setStartAtZero] = useState(true)
 
   if (isLoading) {
     return (
@@ -97,8 +128,35 @@ export function ConceptStatsPanel({ hasValueColumn, stats, isLoading }: ConceptS
           {stats.histogram && stats.histogram.length > 0 && (
             <>
               <Separator />
-              <h4 className="text-xs font-medium">{t('concepts.stats_histogram')}</h4>
-              <Histogram data={stats.histogram} />
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <h4 className="text-xs font-medium">{t('concepts.stats_histogram')}</h4>
+                <div className="flex items-center gap-3">
+                  <label className="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <Checkbox
+                      checked={excludeOutliers}
+                      onCheckedChange={(v) => onExcludeOutliersChange(v === true)}
+                      className="size-3.5"
+                    />
+                    {t('concepts.stats_exclude_outliers')}
+                  </label>
+                  <label className="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <Checkbox
+                      checked={startAtZero}
+                      onCheckedChange={(v) => setStartAtZero(v === true)}
+                      className="size-3.5"
+                    />
+                    {t('concept_mapping.detail_starts_at_zero')}
+                  </label>
+                </div>
+              </div>
+              <Histogram data={stats.histogram} startAtZero={startAtZero} />
+              {excludeOutliers && !!stats.histogram[0]?.excluded_count && (
+                <p className="text-[10px] text-muted-foreground">
+                  {t('concepts.stats_outliers_excluded', {
+                    count: stats.histogram[0].excluded_count,
+                  })}
+                </p>
+              )}
             </>
           )}
         </>

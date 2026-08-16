@@ -386,7 +386,14 @@ async def refresh_concept_cache(
     password = connection_password(source) if engine in _EXTERNAL_ENGINES else None
     files = None
     known = None
-    if engine in _FILE_ENGINES:
+    if is_managed(source):
+        # Server-owned file: nothing in the blob store, so hand the materializer
+        # the path where it lives — same single-DuckDB-file shape as an upload.
+        path = managed_db.path_for(source.id)
+        if not path.exists():
+            raise ValueError("the database file is missing; recreate it")
+        files = [(path.name, str(path))]
+    elif engine in _FILE_ENGINES:
         files = await _source_files(db, source)
         if not files:
             raise ValueError("no database file uploaded for this source")

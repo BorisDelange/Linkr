@@ -55,9 +55,17 @@ export interface MeasurementDistribution {
 export interface HistogramBin {
   bin_start: number
   count: number
+  /** Rows dropped by the P1–P99 clip (same value on every bin). */
+  excluded_count?: number
 }
 
+/** Bumped when the histogram SQL changes, so shared-cache rows written by an
+ *  older build are recomputed instead of served. */
+export const HISTOGRAM_VARIANT = 'p1p99'
+
 export interface ConceptStats {
+  /** Which histogram SQL produced `histogram` (absent on pre-clip rows). */
+  histogramVariant?: string
   rowCount: number
   distribution?: MeasurementDistribution
   histogram?: HistogramBin[]
@@ -119,7 +127,13 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const [cacheReady, setCacheReady] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
   const [countsRefreshing, setCountsRefreshing] = useState(false)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const [statsEnabled, setStatsEnabled] = useState(true)
+  const [excludeOutliers, setExcludeOutliers] = useState(true)
   const refreshToken = useRef(0)
+  // Whether the cache status has come back yet — the auto-build must not fire
+  // before we know there is genuinely no cache.
+  const [cacheChecked, setCacheChecked] = useState(false)
 
   // The concept whose stats are the ones we currently want shown. A slow load
   // for a previously-clicked concept must not clobber a newer selection, and a
@@ -156,13 +170,17 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   useEffect(() => {
     setCacheReady(false)
     setLastRefreshed(null)
+    setCacheChecked(false)
     if (!dataSourceId || !isServerMode()) return
     let cancelled = false
     getConceptCacheStatus(dataSourceId).then((status) => {
       if (cancelled) return
       setCacheReady(status.exists)
       setLastRefreshed(status.refreshedAt ? new Date(status.refreshedAt * 1000).toISOString() : null)
-    }).catch(() => {})
+      setCacheChecked(true)
+    }).catch(() => {
+      if (!cancelled) setCacheChecked(true)
+    })
     return () => { cancelled = true }
   }, [dataSourceId])
 
@@ -403,10 +421,14 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
     // Server mode: check the shared server cache first — another user may have
     // already computed these stats. On a hit, render without touching the source.
-    if (isServerMode()) {
+    if (isServerMode() && excludeOutliers) {
       try {
         const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId)
-        if (shared) {
+        // The shared cache is keyed by concept id alone, so entries written
+        // before the outlier clip existed hold a raw histogram (one bar plus a
+        // few spikes). `histogramVariant` tags what a row actually contains —
+        // anything else is recomputed rather than trusted.
+        if (shared && (!shared.histogram?.length || shared.histogramVariant === HISTOGRAM_VARIANT)) {
           statsCache.current.set(conceptId, shared)
           if (!isStale()) {
             setConceptStats(shared)
@@ -435,7 +457,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       if (rowCount > 0 && hasValueColumnForDict(schemaMapping, dictKey)) {
         try {
           const distSql = buildValueDistributionQuery(schemaMapping, dictKey, conceptId)
-          const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId)
+          const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId, 20, excludeOutliers)
           if (distSql && histSql) {
             const [distRows, histRows] = await Promise.all([
               queryDataSource(dataSourceId, distSql),
@@ -451,10 +473,17 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
         }
       }
 
-      const stats: ConceptStats = { rowCount, distribution, histogram }
+      const stats: ConceptStats = {
+        rowCount,
+        distribution,
+        histogram,
+        ...(excludeOutliers ? { histogramVariant: HISTOGRAM_VARIANT } : {}),
+      }
       statsCache.current.set(conceptId, stats)
-      // Share the computed stats with every user of this source.
-      if (isServerMode()) {
+      // Share the computed stats with every user of this source — but only the
+      // default (outliers excluded) form: the shared cache is keyed by concept
+      // id alone, so storing a raw histogram would serve it to everyone.
+      if (isServerMode() && excludeOutliers) {
         saveConceptStats(dataSourceId, conceptId, stats).catch(() => {})
       }
       // Only apply if this is still the selected concept — a newer click wins.
@@ -466,10 +495,23 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       // Only the latest request controls the shared loading flag.
       if (!isStale()) setConceptStatsLoading(false)
     }
-  }, [dataSourceId, schemaMapping])
+  }, [dataSourceId, schemaMapping, excludeOutliers])
+
+  // Toggling the outlier clip changes the histogram SQL, and the stats cache is
+  // keyed by concept id alone — drop it so the panel re-queries.
+  const firstOutlierRun = useRef(true)
+  useEffect(() => {
+    if (firstOutlierRun.current) {
+      firstOutlierRun.current = false
+      return
+    }
+    statsCache.current.clear()
+    setConceptStats(null)
+  }, [excludeOutliers])
 
   // Auto-load stats when selected concept changes
   useEffect(() => {
+    if (!statsEnabled) return
     if (selectedConceptId !== null) {
       const row = concepts.find((c) => c.concept_id === selectedConceptId)
       const dictKey = (row?._dict_key as string) ?? dicts[0]?.key
@@ -477,7 +519,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
         loadConceptStats(selectedConceptId, dictKey)
       }
     }
-  }, [selectedConceptId, concepts, dicts, loadConceptStats])
+  }, [selectedConceptId, concepts, dicts, loadConceptStats, statsEnabled])
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -495,6 +537,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     statsCache.current.clear()
     resultCache.current.clear()
     setConceptStats(null)
+    setRefreshError(null)
 
     if (!isServerMode()) {
       setCacheReady(false)
@@ -506,17 +549,35 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     try {
       const cols = computeAvailableColumns(schemaMapping.conceptTables ?? [])
       const selectSql = buildConceptsMaterializeQuery(schemaMapping, cols)
-      if (!selectSql) return
+      if (!selectSql) {
+        setRefreshError('no_concept_table')
+        return
+      }
       const status = await refreshConceptCache(dataSourceId, selectSql)
       if (refreshToken.current !== token) return
       setLastRefreshed(status.refreshedAt ? new Date(status.refreshedAt * 1000).toISOString() : new Date().toISOString())
       setCacheReady(true)
     } catch (err) {
       console.error('Failed to refresh concept cache:', err)
+      if (refreshToken.current === token) {
+        setRefreshError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       if (refreshToken.current === token) setCountsRefreshing(false)
     }
   }, [dataSourceId, schemaMapping])
+
+  // First visit on a source with no cache: build it automatically instead of
+  // waiting for a click. Keyed by source id so it fires once per source and does
+  // not retry in a loop after a failure (the error banner offers a manual retry).
+  const autoBuilt = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!dataSourceId || !schemaMapping || !isServerMode()) return
+    if (!cacheChecked || cacheReady || countsRefreshing) return
+    if (autoBuilt.current.has(dataSourceId)) return
+    autoBuilt.current.add(dataSourceId)
+    refresh()
+  }, [dataSourceId, schemaMapping, cacheChecked, cacheReady, countsRefreshing, refresh])
 
   const updateFilter = useCallback((key: string, value: string | null) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
@@ -565,6 +626,11 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     refresh,
     lastRefreshed,
     countsRefreshing,
+    refreshError,
     needsRefresh,
+    statsEnabled,
+    setStatsEnabled,
+    excludeOutliers,
+    setExcludeOutliers,
   }
 }

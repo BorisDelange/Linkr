@@ -34,3 +34,28 @@ export function niceTicks(
   for (let i = 0; niceLo + i * step <= niceHi + step * 1e-9; i++) ticks.push(round(niceLo + i * step))
   return { domain: [round(niceLo), round(niceHi)], ticks }
 }
+
+/**
+ * Tight histogram axis: the domain hugs the real [min, max] (padded half a bin)
+ * with round ticks laid *inside* it. Unlike niceTicks, the low bound tracks the
+ * data min instead of flooring to 0, so a range like 467..6025 starts near 467.
+ */
+export function tightHistogramScale(
+  xs: number[],
+): { domain: [number, number]; ticks: number[] } | null {
+  const finite = xs.filter((v) => isFinite(v))
+  if (finite.length === 0) return null
+  const min = Math.min(...finite)
+  const max = Math.max(...finite)
+  if (min === max) return niceTicks(finite)
+  const binWidth = finite.length > 1 ? (max - min) / (finite.length - 1) : 1
+  const lo = min - binWidth / 2
+  const hi = max + binWidth / 2
+  const step = niceStep((max - min) / 7)
+  const decimals = Math.max(0, -Math.floor(Math.log10(step)))
+  const round = (v: number) => Number(v.toFixed(decimals + 1))
+  const firstTick = Math.ceil(lo / step) * step
+  const ticks: number[] = []
+  for (let v = firstTick; v <= hi + step * 1e-9; v += step) ticks.push(round(v))
+  return { domain: [round(lo), round(hi)], ticks }
+}

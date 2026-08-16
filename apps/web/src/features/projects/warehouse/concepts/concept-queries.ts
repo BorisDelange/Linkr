@@ -541,6 +541,7 @@ export function buildValueHistogramQuery(
   dictKey: string,
   conceptId: number,
   binCount = 20,
+  excludeOutliers = true,
 ): string | null {
   const eventEntries = getEventTablesForDictionary(mapping, dictKey)
   const entry = eventEntries.find((e) => e.eventTable.valueColumn)
@@ -548,17 +549,40 @@ export function buildValueHistogramQuery(
   const et = entry.eventTable
 
   const matchCond = buildConceptMatchCondition(`"${et.table}"`, et, String(conceptId))
+  const baseWhere = `(${matchCond}) AND "${et.valueColumn}" IS NOT NULL`
+
+  // Bin edges derive from the min/max of the plotted range, so a single absurd
+  // value (a respiratory rate of 100000) would collapse every real value into
+  // one bar. Clipping to P1–P99 in SQL — before the edges are computed — keeps
+  // the bins over the real distribution. `excluded` reports what was dropped so
+  // the panel can say so rather than silently hiding data.
+  const stats = excludeOutliers
+    ? `SELECT
+    QUANTILE_CONT("${et.valueColumn}", 0.01) AS mn,
+    QUANTILE_CONT("${et.valueColumn}", 0.99) AS mx
+  FROM "${et.table}"
+  WHERE ${baseWhere}`
+    : `SELECT MIN("${et.valueColumn}") AS mn, MAX("${et.valueColumn}") AS mx
+  FROM "${et.table}"
+  WHERE ${baseWhere}`
+
+  const rangeFilter = excludeOutliers
+    ? ` AND "${et.valueColumn}" BETWEEN stats.mn AND stats.mx`
+    : ''
 
   return `WITH stats AS (
-  SELECT MIN("${et.valueColumn}") AS mn, MAX("${et.valueColumn}") AS mx
-  FROM "${et.table}"
-  WHERE (${matchCond}) AND "${et.valueColumn}" IS NOT NULL
+  ${stats}
+), excluded AS (
+  SELECT COUNT(*)::INTEGER AS n
+  FROM "${et.table}", stats
+  WHERE ${baseWhere}${excludeOutliers ? ` AND ("${et.valueColumn}" < stats.mn OR "${et.valueColumn}" > stats.mx)` : ' AND FALSE'}
 )
 SELECT
   ROUND((FLOOR(("${et.valueColumn}" - stats.mn) / NULLIF((stats.mx - stats.mn) / ${binCount}.0, 0)) * ((stats.mx - stats.mn) / ${binCount}.0) + stats.mn)::NUMERIC, 2)::DOUBLE AS bin_start,
-  COUNT(*)::INTEGER AS count
-FROM "${et.table}", stats
-WHERE (${matchCond}) AND "${et.valueColumn}" IS NOT NULL
+  COUNT(*)::INTEGER AS count,
+  ANY_VALUE(excluded.n) AS excluded_count
+FROM "${et.table}", stats, excluded
+WHERE ${baseWhere}${rangeFilter}
 GROUP BY 1
 ORDER BY 1`
 }
