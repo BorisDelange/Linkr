@@ -32,13 +32,11 @@ import {
   ChevronLeft,
   ChevronRight,
   GripVertical,
-  Library,
   Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
-import { TruncatedText } from '@/components/ui/truncated-text'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
@@ -65,6 +63,11 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
+import {
+  ConceptSetCell,
+  CountCell,
+  conceptCellContent,
+} from './concept-cells'
 import { columnLabel } from '@/lib/format-helpers'
 import type { ConceptRow } from './use-concepts'
 import type {
@@ -77,20 +80,6 @@ import type {
 /** Dashed inline-filter look shared with the concept-mapping tables. */
 const FILTER_INPUT_CLASS =
   'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
-
-// Columns kept out of the value tooltip: the cell is graphical (the S/C/NS
-// badge), or its renderer adds thousands separators that the tooltip's
-// String(raw) would undo.
-// Columns whose own renderer wins over the generic copy tooltip — they are
-// badges or buttons, not text worth lifting out of a cell.
-const NO_TOOLTIP_COLUMNS = new Set([
-  'standard_concept',
-  'record_count',
-  'patient_count',
-  'concept_set_name',
-])
-// Columns rendered in a monospace font (kept in the tooltip cell).
-const MONO_COLUMNS = new Set(['concept_code', 'concept_id'])
 
 // ---------------------------------------------------------------------------
 // Props
@@ -130,16 +119,6 @@ interface ConceptTableProps {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-/** A count cell: the number when known, or a dash when the cache holds no count
- * for this concept yet. Refresh replaces the cache atomically, so a cell never
- * shows a partial/blank state mid-refresh — it keeps the previous value. */
-function CountCell({ value }: { value: number | undefined }) {
-  if (value !== undefined && value !== null) {
-    return <span className="tabular-nums">{Number(value).toLocaleString()}</span>
-  }
-  return <span className="text-muted-foreground">—</span>
-}
 
 /** Human label for a standard_concept option: OMOP stores S / C / NULL, which the
  *  table renders as the S / C / NS badges. */
@@ -410,34 +389,13 @@ export function ConceptTable({
             ...base,
             header: () => t('concepts.column_concept_set'),
             accessorFn: (row) => row.concept_set_name,
-            cell: ({ row }) => {
-              const value = String(row.original.concept_set_name ?? '')
-              if (!value) return <span className="text-[10px] text-muted-foreground">—</span>
-              return (
-                <div className="flex min-w-0 items-center gap-1">
-                  {value.split(', ').map((name) => (
-                    <Tooltip key={name}>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="inline-flex min-w-0 max-w-full items-center gap-1 rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onOpenConceptSet?.(name)
-                          }}
-                        >
-                          <Library size={11} className="shrink-0" />
-                          <span className="truncate">{name}</span>
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="left" className="text-xs">
-                        {t('concept_mapping.cs_open_detail')}
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
-                </div>
-              )
-            },
+            cell: ({ row }) => (
+              <ConceptSetCell
+                value={String(row.original.concept_set_name ?? '')}
+                onOpen={onOpenConceptSet}
+                openLabel={t('concept_mapping.cs_open_detail')}
+              />
+            ),
             size: 180,
             minSize: 80,
           } as ColumnDef<ConceptRow>
@@ -649,21 +607,11 @@ export function ConceptTable({
                   >
                     {row.getVisibleCells().map((cell) => {
                       const raw = cell.getValue()
-                      // Every value-bearing column gets the tooltip, shown whether
-                      // or not the text is cut: it carries the copy button, and
-                      // lifting a code out of a cell is worth as much when the
-                      // value happens to fit as when it does not.
-                      const useTooltip =
-                        !NO_TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
-                      const rendered = useTooltip
-                        ? (
-                          <TruncatedText
-                            alwaysShow
-                            text={String(raw)}
-                            className={MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined}
-                          />
-                        )
-                        : flexRender(cell.column.columnDef.cell, cell.getContext())
+                      const rendered = conceptCellContent(
+                        cell.column.id,
+                        raw,
+                        flexRender(cell.column.columnDef.cell, cell.getContext()),
+                      )
                       return (
                         <TableCell
                           key={cell.id}

@@ -19,6 +19,13 @@ interface TruncatedTextProps {
    * and a table full of always-on tooltips is noisy to move through.
    */
   alwaysShow?: boolean
+  /**
+   * Drop the copy button and make the tooltip purely informative (it then closes
+   * as soon as the pointer leaves, since there is nothing to reach into it for).
+   * For tables where the tooltip only has to reveal what is cut off, and a
+   * hoverable panel per cell would get in the way of clicking the next row.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -27,18 +34,25 @@ interface TruncatedTextProps {
  * on hover (after layout settles), so the tooltip only appears when the text is
  * actually cut. `block` + width clamp keeps it from widening a flex container.
  *
- * The tooltip is readable, not just glanceable: its text is selectable and it
- * carries a copy button, so a long concept name can be lifted out of a narrow
- * column. That means it must NOT close the moment the pointer leaves the cell —
- * `closeDelay` keeps it alive long enough to move into it, and hovering the
- * tooltip itself keeps it open.
+ * By default the tooltip is readable, not just glanceable: its text is
+ * selectable and it carries a copy button, so a long concept name can be lifted
+ * out of a narrow column. That means it must NOT close the moment the pointer
+ * leaves the cell — hovering the tooltip itself keeps it open. Pass `readOnly`
+ * where that reachability isn't worth a hoverable panel sitting over the rows
+ * below (dense pick-a-row tables).
  *
  * Cost note: until the pointer arrives this renders a bare <p>, in BOTH modes —
  * a table of these is never a table of live tooltips. `alwaysShow` only widens
  * what a hover reveals (the tooltip appears even when the text fits, so its copy
  * button stays reachable); it no longer costs a mounted tooltip per cell.
  */
-export function TruncatedText({ text, lines = 1, className, alwaysShow = false }: TruncatedTextProps) {
+export function TruncatedText({
+  text,
+  lines = 1,
+  className,
+  alwaysShow = false,
+  readOnly = false,
+}: TruncatedTextProps) {
   const ref = useRef<HTMLParagraphElement>(null)
   const [truncated, setTruncated] = useState(false)
   // `alwaysShow` used to mount a Tooltip per cell up front. On a 100-row table
@@ -95,11 +109,23 @@ export function TruncatedText({ text, lines = 1, className, alwaysShow = false }
           driven by Radix closing it, not by the pointer leaving the text. */}
       <Tooltip defaultOpen onOpenChange={(o) => { if (!o) setHovered(false) }}>
         <TooltipTrigger asChild>{content}</TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs text-wrap whitespace-pre-wrap break-words">
-          <div className="flex items-start gap-1.5">
-            <span className="select-text">{text}</span>
-            <CopyButton text={text} />
-          </div>
+        <TooltipContent
+          side="top"
+          className={cn(
+            'max-w-xs text-wrap whitespace-pre-wrap break-words',
+            // A read-only tooltip must not swallow the pointer: it floats over
+            // the rows below, and a hoverable panel there blocks clicking them.
+            readOnly && 'pointer-events-none',
+          )}
+        >
+          {readOnly ? (
+            text
+          ) : (
+            <div className="flex items-start gap-1.5">
+              <span className="select-text">{text}</span>
+              <CopyButton text={text} />
+            </div>
+          )}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

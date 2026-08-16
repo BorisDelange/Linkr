@@ -28,6 +28,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
+import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
+import {
+  CountCell,
+  conceptCellContent,
+} from '@/features/projects/warehouse/concepts/concept-cells'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -263,9 +268,7 @@ export function CohortConceptPickerDialog({
             header: () => t('concepts.column_records'),
             accessorFn: (row) => row.record_count,
             cell: ({ row }) => (
-              <span className="tabular-nums">
-                {Number(row.original.record_count ?? 0).toLocaleString()}
-              </span>
+              <CountCell value={row.original.record_count as number | undefined} />
             ),
             size: 90,
             minSize: 60,
@@ -277,12 +280,22 @@ export function CohortConceptPickerDialog({
             header: () => t('concepts.column_patients'),
             accessorFn: (row) => row.patient_count,
             cell: ({ row }) => (
-              <span className="tabular-nums">
-                {Number(row.original.patient_count ?? 0).toLocaleString()}
-              </span>
+              <CountCell value={row.original.patient_count as number | undefined} />
             ),
             size: 90,
             minSize: 60,
+          } as ColumnDef<ConceptRow>
+
+        case 'standard_concept':
+          return {
+            ...base,
+            header: () => t('concepts.column_standard'),
+            accessorFn: (row) => row.standard_concept,
+            cell: ({ row }) => (
+              <StandardConceptBadge value={row.original.standard_concept as string | null} />
+            ),
+            size: 70,
+            minSize: 50,
           } as ColumnDef<ConceptRow>
 
         default:
@@ -481,21 +494,19 @@ export function CohortConceptPickerDialog({
                             toggleConcept(row.original.concept_id, row.original.concept_name)
                           }
                         >
-                          {row.getVisibleCells().map((cell) => {
-                            const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
-                            const raw = cell.getValue()
-                            const title = raw != null ? String(raw) : undefined
-                            return (
-                              <TableCell
-                                key={cell.id}
-                                className="overflow-hidden truncate text-xs"
-                                style={{ maxWidth: cell.column.getSize() }}
-                                title={title}
-                              >
-                                {rendered}
-                              </TableCell>
-                            )
-                          })}
+                          {row.getVisibleCells().map((cell) => (
+                            <TableCell
+                              key={cell.id}
+                              className="overflow-hidden truncate px-2 py-1 text-xs"
+                              style={{ maxWidth: cell.column.getSize() }}
+                            >
+                              {conceptCellContent(
+                                cell.column.id,
+                                cell.getValue(),
+                                flexRender(cell.column.columnDef.cell, cell.getContext()),
+                              )}
+                            </TableCell>
+                          ))}
                         </TableRow>
                       )
                     })
