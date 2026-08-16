@@ -222,12 +222,18 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     return ef
   }, [filters, debouncedTextFilters])
 
-  // Stable key for non-text filters (to trigger reload)
+  // Stable key for the filters that apply immediately (no debounce): the column
+  // dropdowns plus the toolbar search, which commits on Enter rather than per
+  // keystroke. Multi-select values are arrays, so join them into the key.
   const dropdownFilterKey = useMemo(() => {
-    return availableColumns
+    const columnPart = availableColumns
       .filter((c) => c.filterable)
-      .map((c) => filters[c.id] ?? '')
+      .map((c) => {
+        const v = filters[c.id]
+        return Array.isArray(v) ? v.join(',') : (v ?? '')
+      })
       .join('|')
+    return `${columnPart}||${filters._searchFuzzy ?? ''}`
   }, [availableColumns, filters])
 
   // ---------------------------------------------------------------------------

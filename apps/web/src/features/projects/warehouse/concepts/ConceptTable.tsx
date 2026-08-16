@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -97,6 +97,10 @@ interface ConceptTableProps {
   onFilterChange: (key: string, value: ConceptFilterValue) => void
   onSortingChange: (columnId: string) => void
   onSelect: (conceptId: number) => void
+  /** Multi-selection (Shift / Cmd-Ctrl). Empty = the single `selectedConceptId`
+   *  drives the detail panel. */
+  selectedConceptIds: Set<number>
+  onSelectedConceptIdsChange: (next: Set<number>) => void
   onPageChange: (page: number) => void
   onPageSizeChange: (size: number) => void
 }
@@ -254,11 +258,49 @@ export function ConceptTable({
   onFilterChange,
   onSortingChange,
   onSelect,
+  selectedConceptIds,
+  onSelectedConceptIdsChange,
   onPageChange,
   onPageSizeChange,
 }: ConceptTableProps) {
   const { t } = useTranslation()
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([])
+
+  // Anchor for shift-range selection — the last row clicked without Shift.
+  const selectionAnchorRef = useRef<number | null>(null)
+
+  /** File-explorer-style selection: plain / Ctrl-Cmd (toggle) / Shift (range). */
+  const handleRowClick = (conceptId: number, e: React.MouseEvent) => {
+    const isToggle = e.metaKey || e.ctrlKey
+    const isRange = e.shiftKey
+
+    if (isRange && selectionAnchorRef.current != null) {
+      const order = concepts.map((r) => r.concept_id)
+      const from = order.indexOf(selectionAnchorRef.current)
+      const to = order.indexOf(conceptId)
+      if (from !== -1 && to !== -1) {
+        const [lo, hi] = from <= to ? [from, to] : [to, from]
+        const next = isToggle ? new Set(selectedConceptIds) : new Set<number>()
+        for (const id of order.slice(lo, hi + 1)) next.add(id)
+        onSelectedConceptIdsChange(next)
+        return
+      }
+    }
+
+    if (isToggle) {
+      const next = new Set(selectedConceptIds)
+      if (next.has(conceptId)) next.delete(conceptId)
+      else next.add(conceptId)
+      selectionAnchorRef.current = conceptId
+      onSelectedConceptIdsChange(next)
+      return
+    }
+
+    // Plain click → single selection, which drives the detail panel.
+    selectionAnchorRef.current = conceptId
+    onSelectedConceptIdsChange(new Set())
+    onSelect(conceptId)
+  }
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
   const [overColumnId, setOverColumnId] = useState<string | null>(null)
 
@@ -521,10 +563,16 @@ export function ConceptTable({
               ) : (
                 table.getRowModel().rows.map((row) => (
                   <TableRow
-                    key={row.original.concept_id}
-                    className="cursor-pointer"
-                    data-state={selectedConceptId === row.original.concept_id ? 'selected' : undefined}
-                    onClick={() => onSelect(row.original.concept_id)}
+                    key={`${row.original._dict_key ?? ''}:${row.original.concept_id}`}
+                    className="cursor-pointer select-none"
+                    data-state={
+                      (selectedConceptIds.size > 0
+                        ? selectedConceptIds.has(row.original.concept_id)
+                        : selectedConceptId === row.original.concept_id)
+                        ? 'selected'
+                        : undefined
+                    }
+                    onClick={(e) => handleRowClick(row.original.concept_id, e)}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())

@@ -86,12 +86,25 @@ export function ConceptsPage() {
   // mapping editor's clipboard list.
   const [conceptList, setConceptList] = useState<ConceptRow[]>([])
   const [listOpen, setListOpen] = useState(false)
-  const addSelectedToList = () => {
+  const [selectedConceptIds, setSelectedConceptIds] = useState<Set<number>>(new Set())
+
+  // "+" adds the multi-selection when there is one, else the single selection.
+  const pendingAdditions = useMemo<ConceptRow[]>(() => {
+    if (selectedConceptIds.size > 0) {
+      return concepts.filter((c) => selectedConceptIds.has(c.concept_id))
+    }
     const row = selectedConcept as ConceptRow | null
-    if (!row) return
-    setConceptList((prev) =>
-      prev.some((c) => c.concept_id === row.concept_id) ? prev : [...prev, row],
-    )
+    return row ? [row] : []
+  }, [selectedConceptIds, concepts, selectedConcept])
+
+  const addSelectedToList = () => {
+    if (pendingAdditions.length === 0) return
+    setConceptList((prev) => {
+      const seen = new Set(prev.map((c) => c.concept_id))
+      const additions = pendingAdditions.filter((c) => !seen.has(c.concept_id))
+      return additions.length ? [...prev, ...additions] : prev
+    })
+    setSelectedConceptIds(new Set())
   }
 
   const filterableColumns = useMemo(
@@ -276,7 +289,7 @@ export function ConceptsPage() {
                 size="icon-sm"
                 variant="outline"
                 className="h-8 w-8 shrink-0"
-                disabled={selectedConcept == null}
+                disabled={pendingAdditions.length === 0}
                 onClick={addSelectedToList}
                 aria-label={t('concept_mapping.add_to_list')}
               >
@@ -284,7 +297,9 @@ export function ConceptsPage() {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {t('concept_mapping.add_to_list')}
+              {pendingAdditions.length > 1
+                ? t('concept_mapping.add_to_list_count', { count: pendingAdditions.length })
+                : t('concept_mapping.add_to_list')}
             </TooltipContent>
           </Tooltip>
           <Tooltip>
@@ -431,6 +446,8 @@ export function ConceptsPage() {
               onFilterChange={updateFilter}
               onSortingChange={updateSorting}
               onSelect={setSelectedConceptId}
+              selectedConceptIds={selectedConceptIds}
+              onSelectedConceptIdsChange={setSelectedConceptIds}
               onPageChange={setPage}
               onPageSizeChange={(size) => {
                 setPageSize(size)
@@ -439,6 +456,30 @@ export function ConceptsPage() {
             />
           </Allotment.Pane>
           <Allotment.Pane minSize={300} preferredSize={380} visible={detailVisible}>
+            {selectedConceptIds.size > 0 ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                <p className="text-sm font-medium">
+                  {t('concepts.selected_count', { count: selectedConceptIds.size })}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t('concepts.selected_hint')}
+                </p>
+                <div className="flex gap-2">
+                  <Button size="sm" className="h-7 gap-1 text-xs" onClick={addSelectedToList}>
+                    <Plus size={12} />
+                    {t('concept_mapping.add_to_list')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => setSelectedConceptIds(new Set())}
+                  >
+                    {t('common.clear')}
+                  </Button>
+                </div>
+              </div>
+            ) : (
             <ConceptDetail
               concept={selectedConcept}
               availableColumns={availableColumns}
@@ -449,6 +490,7 @@ export function ConceptsPage() {
               onExcludeOutliersChange={setExcludeOutliers}
               statsEnabled={statsEnabled}
             />
+            )}
           </Allotment.Pane>
         </Allotment>
       </div>
