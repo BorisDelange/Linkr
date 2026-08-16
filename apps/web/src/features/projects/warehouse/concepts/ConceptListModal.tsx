@@ -131,15 +131,17 @@ export function ConceptListModal({
       size: 44,
       minSize: 44,
       center: true,
+      // A size-6 icon button would make every row taller than the Concepts
+      // table's text-only rows, so it is sized to the line instead.
       cell: (c) => (
-        <Button
-          variant="ghost"
-          size="icon-xs"
+        <button
+          type="button"
+          className="flex size-4 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
           onClick={() => onRemove(c.concept_id)}
           aria-label={t('common.remove')}
         >
-          <X size={12} />
-        </Button>
+          <X size={11} />
+        </button>
       ),
     })
     return cols
@@ -171,9 +173,7 @@ export function ConceptListModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle className="text-sm">
-            {t('concept_mapping.clipboard_list_title')}
-          </DialogTitle>
+          <DialogTitle>{t('concept_mapping.clipboard_list_title')}</DialogTitle>
         </DialogHeader>
 
         {/* List picker: which saved list is shown, plus its lifecycle actions. */}

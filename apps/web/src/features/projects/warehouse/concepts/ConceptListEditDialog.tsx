@@ -62,7 +62,7 @@ export function ConceptListEditDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-sm">
+          <DialogTitle>
             {list ? t('concepts.list_edit_title') : t('concepts.list_create_title')}
           </DialogTitle>
         </DialogHeader>
@@ -93,15 +93,10 @@ export function ConceptListEditDialog({
         </div>
 
         <DialogFooter>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button size="sm" className="h-8 text-xs" onClick={handleSave} disabled={!canSave}>
+          <Button size="sm" onClick={handleSave} disabled={!canSave}>
             {t('common.save')}
           </Button>
         </DialogFooter>
