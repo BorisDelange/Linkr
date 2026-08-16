@@ -517,6 +517,7 @@
     "stats_row_count": "Enregistrements",
     "stats_loading": "Calcul des statistiques...",
     "stats_no_records": "Aucun enregistrement trouvé pour ce concept.",
+    "stats_disabled": "Les statistiques ne sont pas calculées. Cochez « Stats » ci-dessus pour les calculer.",
     "no_concepts": "Aucun concept trouvé.",
     "stats_value_distribution": "Distribution des valeurs",
     "stats_min": "Min",

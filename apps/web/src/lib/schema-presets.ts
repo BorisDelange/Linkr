@@ -127,6 +127,8 @@ const omop54: SchemaMapping = {
       subcategoryColumn: 'concept_class_id',
       extraColumns: {
         standard_concept: 'standard_concept',
+        valid_start_date: 'valid_start_date',
+        valid_end_date: 'valid_end_date',
         invalid_reason: 'invalid_reason',
       },
     },

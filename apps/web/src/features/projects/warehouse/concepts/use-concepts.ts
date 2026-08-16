@@ -509,9 +509,15 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     setConceptStats(null)
   }, [excludeOutliers])
 
-  // Auto-load stats when selected concept changes
+  // Auto-load stats when selected concept changes. With stats off, drop what is
+  // on screen: keeping it would show the previous concept's histogram under the
+  // newly selected one.
   useEffect(() => {
-    if (!statsEnabled) return
+    if (!statsEnabled) {
+      setConceptStats(null)
+      setConceptStatsLoading(false)
+      return
+    }
     if (selectedConceptId !== null) {
       const row = concepts.find((c) => c.concept_id === selectedConceptId)
       const dictKey = (row?._dict_key as string) ?? dicts[0]?.key

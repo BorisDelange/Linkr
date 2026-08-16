@@ -15,6 +15,8 @@ interface ConceptStatsPanelProps {
   isLoading: boolean
   excludeOutliers: boolean
   onExcludeOutliersChange: (value: boolean) => void
+  /** False when the Stats checkbox is off — nothing is computed for any concept. */
+  statsEnabled: boolean
 }
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
@@ -87,9 +89,20 @@ export function ConceptStatsPanel({
   isLoading,
   excludeOutliers,
   onExcludeOutliersChange,
+  statsEnabled,
 }: ConceptStatsPanelProps) {
   const { t } = useTranslation()
   const [startAtZero, setStartAtZero] = useState(true)
+
+  // Stats off: say so explicitly. Falling through would render "no records",
+  // which reads as "this concept has none" rather than "nothing was computed".
+  if (!statsEnabled) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t('concepts.stats_disabled')}
+      </p>
+    )
+  }
 
   if (isLoading) {
     return (

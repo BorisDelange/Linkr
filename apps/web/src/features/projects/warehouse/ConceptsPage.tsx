@@ -261,6 +261,7 @@ export function ConceptsPage() {
               hasValueColumn={hasValueCol}
               excludeOutliers={excludeOutliers}
               onExcludeOutliersChange={setExcludeOutliers}
+              statsEnabled={statsEnabled}
             />
           </Allotment.Pane>
         </Allotment>

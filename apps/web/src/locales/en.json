@@ -517,6 +517,7 @@
     "stats_row_count": "Records",
     "stats_loading": "Computing statistics...",
     "stats_no_records": "No records found for this concept.",
+    "stats_disabled": "Statistics are not computed. Tick “Stats” above to compute them.",
     "no_concepts": "No concepts found.",
     "stats_value_distribution": "Value distribution",
     "stats_min": "Min",

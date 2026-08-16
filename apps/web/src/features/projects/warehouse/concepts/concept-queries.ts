@@ -18,6 +18,12 @@ export interface ColumnDescriptor {
   filterable: boolean
 }
 
+/** OMOP validity metadata, ordered as they sit at the end of the table. */
+export const VALIDITY_COLUMNS = ['valid_start_date', 'valid_end_date', 'invalid_reason']
+
+/** Columns the table hides until the user opts in via the column picker. */
+export const DEFAULT_HIDDEN_COLUMNS = ['invalid_reason']
+
 /**
  * Compute the union of all columns across multiple concept dictionaries.
  * Returns stable column descriptors that drive the table, filters, and sort.
@@ -44,7 +50,8 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
   }
 
   // Union of all extraColumns keys across all dicts, skipping any already
-  // emitted above. standard_concept is held back to sit last (before counts).
+  // emitted above. standard_concept is held back to sit last (before counts),
+  // and the OMOP validity trio is pushed past the counts (see below).
   const alreadyEmitted = new Set(cols.map((c) => c.id))
   const extraKeys = new Set<string>()
   let hasStandardConcept = false
@@ -53,6 +60,7 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
       for (const key of Object.keys(d.extraColumns)) {
         if (alreadyEmitted.has(key)) continue
         if (key === 'standard_concept') { hasStandardConcept = true; continue }
+        if (VALIDITY_COLUMNS.includes(key)) continue
         extraKeys.add(key)
       }
     }
@@ -69,9 +77,21 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
     cols.push({ id: '_dict_key', source: 'dict', filterable: true })
   }
 
-  // Computed columns (records + patients) — always last
-  cols.push({ id: 'record_count', source: 'computed', filterable: false })
+  // Computed columns — patients reads before rows.
   cols.push({ id: 'patient_count', source: 'computed', filterable: false })
+  cols.push({ id: 'record_count', source: 'computed', filterable: false })
+
+  // OMOP validity trio, after the counts. These are rarely-consulted metadata,
+  // so they sit at the very end (invalid_reason last, hidden by default).
+  const hasValidity = new Set<string>()
+  for (const d of dicts) {
+    for (const key of Object.keys(d.extraColumns ?? {})) {
+      if (VALIDITY_COLUMNS.includes(key)) hasValidity.add(key)
+    }
+  }
+  for (const key of VALIDITY_COLUMNS) {
+    if (hasValidity.has(key)) cols.push({ id: key, source: 'extra', filterable: key === 'invalid_reason' })
+  }
 
   return cols
 }
