@@ -86,7 +86,7 @@ export function ResultsTable({ rows }: ResultsTableProps) {
       columns={columns}
       rowKey={(row) => String(row.id ?? JSON.stringify(row))}
       emptyMessage={t('cohorts.results_none')}
-      pageSize={50}
+      pageSize={100}
     />
   )
 }

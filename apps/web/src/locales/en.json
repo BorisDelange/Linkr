@@ -1040,7 +1040,8 @@
     "care_site_error": "Could not read the care locations from this database.",
     "care_site_no_match": "No care location matches this search.",
     "care_site_unmapped": "No care location column is mapped at this level.",
-    "period_pick": "Pick a date"
+    "period_pick": "Pick a date",
+    "results_truncated": "Showing {{shown}} of {{total}} rows — the rest were not loaded. Refine the criteria to narrow the cohort."
   },
   "datasets": {
     "title": "Datasets",

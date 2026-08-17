@@ -110,8 +110,20 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv }:
           {/* The results table scrolls and paginates internally; the attrition
               chart is a plain block that still needs the scroll container. */}
           {activeTab === 'results' ? (
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ResultsTable rows={result.rows} />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {/* Showing a truncated page as if it were the whole cohort is the
+                  bug this replaces — say so when rows were left behind. */}
+              {result.totalCount > result.rows.length && (
+                <p className="shrink-0 border-b bg-muted/40 px-4 py-1.5 text-[11px] text-muted-foreground">
+                  {t('cohorts.results_truncated', {
+                    shown: result.rows.length.toLocaleString(),
+                    total: result.totalCount.toLocaleString(),
+                  })}
+                </p>
+              )}
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <ResultsTable rows={result.rows} />
+              </div>
             </div>
           ) : (
             <div className="min-h-0 flex-1 overflow-auto">

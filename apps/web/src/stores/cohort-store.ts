@@ -19,6 +19,11 @@ import type {
 
 const CURRENT_SCHEMA_VERSION = 4
 
+/** Result rows loaded per run. Matches the server's MAX_QUERY_ROWS (see
+ *  `database.py`), which silently truncates anything larger — asking for more
+ *  would report a page as complete when it isn't. */
+const MAX_RESULT_ROWS = 10_000
+
 function migrateCohortIfNeeded(raw: Record<string, unknown>): Cohort {
   // Already at latest version
   if (typeof raw.schemaVersion === 'number' && raw.schemaVersion >= CURRENT_SCHEMA_VERSION) {
@@ -333,7 +338,12 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       // Execute result rows (first page)
       let rows: Record<string, unknown>[] = []
       if (!cohort.customSql) {
-        const resultsSql = buildCohortResultsSql(cohort, schemaMapping, 50, 0)
+        // Fetch up to the server's own cap rather than a token 50: the results
+        // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
+        // cohort of 1500. Cost is flat in the row count (measured on a real
+        // MIMIC build: 50 rows and 100k rows both ~200ms — the scan dominates),
+        // so the small limit bought nothing.
+        const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, 0)
         if (resultsSql) {
           rows = await engine.queryDataSource(dataSourceId, resultsSql)
         }
