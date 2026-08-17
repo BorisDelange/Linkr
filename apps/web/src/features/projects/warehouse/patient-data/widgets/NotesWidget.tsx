@@ -267,7 +267,14 @@ function WordSetsPopover({
 // Main widget
 // ---------------------------------------------------------------------------
 
-export function NotesWidget({ widgetId }: { widgetId: string }) {
+export function NotesWidget({
+  widgetId,
+  config: configProp,
+}: {
+  widgetId: string
+  /** Unsaved draft from the editor preview; falls back to the stored config. */
+  config?: Record<string, unknown>
+}) {
   const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
   // Narrow selectors: see PatientSummaryWidget.
@@ -279,7 +286,7 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
   const visitId = selectedVisitId[projectUid] ?? null
 
   const widget = widgets.find((w) => w.id === widgetId)
-  const config = (widget?.config ?? {}) as NotesConfig
+  const config = (configProp ?? widget?.config ?? {}) as NotesConfig
 
   const [notes, setNotes] = useState<NoteRow[]>([])
   const [loading, setLoading] = useState(false)

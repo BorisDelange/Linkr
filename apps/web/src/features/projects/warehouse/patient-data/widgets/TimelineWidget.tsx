@@ -20,6 +20,10 @@ import {
 
 interface TimelineWidgetProps {
   widgetId: string
+  /** The config to render. The editor's preview passes its unsaved draft here, so
+   *  reading the store instead would show the last saved state — a widget that
+   *  still says "no concepts" while the SQL tab already lists them. */
+  config?: Record<string, unknown>
   onConfigureConcepts?: () => void
 }
 
@@ -112,7 +116,11 @@ function dateKey(d: unknown): number {
   return toDate(d).getTime()
 }
 
-export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidgetProps) {
+export function TimelineWidget({
+  widgetId,
+  config: configProp,
+  onConfigureConcepts,
+}: TimelineWidgetProps) {
   const { t } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
   // Narrow selectors: a bare usePatientChartStore() re-renders every timeline on
@@ -121,7 +129,8 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId)
   const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId)
 
-  const config = (widget?.config ?? { conceptIds: [] }) as unknown as TimelineConfig
+  const config = (configProp ??
+    widget?.config ?? { conceptIds: [] }) as unknown as TimelineConfig
   const tabId = widget?.tabId ?? ''
 
   const yAxisFromZero = config.yAxisFromZero ?? false
