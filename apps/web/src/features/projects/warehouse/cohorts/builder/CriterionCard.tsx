@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { formatDate } from '@/lib/format-helpers'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -71,6 +72,9 @@ interface CriterionCardProps {
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping
+  /** Bumped by the panel's expand/collapse-all. Each change applies `collapseAll`
+   *  to this card, while leaving it free to be toggled individually after. */
+  collapseSignal?: { seq: number; collapsed: boolean }
 }
 
 function getDefaultConfig(type: CriteriaType): CriteriaConfig {
@@ -167,7 +171,7 @@ const criteriaTypeMeta: Record<CriteriaType, CriteriaTypeMeta> = {
 
 // --- Summary builder for collapsed mode ---
 
-function buildSummary(node: CriterionNode, t: (key: string) => string): string {
+function buildSummary(node: CriterionNode, t: (key: string) => string, lang: string): string {
   const parts: string[] = []
 
   if (node.exclude) parts.push('NOT')
@@ -176,12 +180,15 @@ function buildSummary(node: CriterionNode, t: (key: string) => string): string {
     case 'age': {
       const c = node.config as AgeCriteriaConfig
       const ref = c.ageReference === 'admission' ? t('cohorts.age_admission') : t('cohorts.age_current')
+      // "age at admission > 50" is ambiguous without the unit — days and months
+      // are meaningful choices here (neonatology), so it is always spelled out.
+      const unit = t(`cohorts.age_unit_${c.ageUnit ?? 'years'}`)
       if (c.min != null && c.max != null) {
-        parts.push(`${ref} ${c.min}–${c.max}`)
+        parts.push(`${ref} ${c.min}–${c.max} ${unit}`)
       } else if (c.min != null) {
-        parts.push(`${ref} ≥ ${c.min}`)
+        parts.push(`${ref} ≥ ${c.min} ${unit}`)
       } else if (c.max != null) {
-        parts.push(`${ref} ≤ ${c.max}`)
+        parts.push(`${ref} ≤ ${c.max} ${unit}`)
       } else {
         parts.push(ref)
       }
@@ -208,12 +215,13 @@ function buildSummary(node: CriterionNode, t: (key: string) => string): string {
     }
     case 'period': {
       const c = node.config as PeriodCriteriaConfig
+      // Shown in the app's language, like the dates in the results table.
       if (c.startDate && c.endDate) {
-        parts.push(`${c.startDate} → ${c.endDate}`)
+        parts.push(`${formatDate(c.startDate, lang)} → ${formatDate(c.endDate, lang)}`)
       } else if (c.startDate) {
-        parts.push(`≥ ${c.startDate}`)
+        parts.push(`≥ ${formatDate(c.startDate, lang)}`)
       } else if (c.endDate) {
-        parts.push(`≤ ${c.endDate}`)
+        parts.push(`≤ ${formatDate(c.endDate, lang)}`)
       } else {
         parts.push(t('cohorts.criteria_period'))
       }
@@ -222,7 +230,7 @@ function buildSummary(node: CriterionNode, t: (key: string) => string): string {
     case 'duration': {
       const c = node.config as DurationCriteriaConfig
       const levelLabel = c.durationLevel === 'visit_detail' ? t('cohorts.duration_visit_detail') : t('cohorts.duration_visit')
-      const unitLabel = c.durationUnit === 'hours' ? t('cohorts.duration_hours') : t('cohorts.duration_days')
+      const unitLabel = t(`cohorts.duration_${c.durationUnit ?? 'days'}`)
       if (c.minDays != null && c.maxDays != null) {
         parts.push(`${levelLabel}: ${c.minDays}–${c.maxDays} ${unitLabel}`)
       } else if (c.minDays != null) {
@@ -263,7 +271,15 @@ function buildSummary(node: CriterionNode, t: (key: string) => string): string {
     }
     case 'text': {
       const c = node.config as TextCriteriaConfig
-      parts.push(c.description || t('cohorts.criteria_text'))
+      // The label is what the search is *for* ("anticoagulants"); the terms
+      // themselves only stand in when it hasn't been named.
+      const terms = (c.searches ?? []).flatMap((s) => s.terms)
+      parts.push(
+        c.label?.trim() ||
+          (terms.length > 0
+            ? terms.slice(0, 3).join(', ') + (terms.length > 3 ? ` (+${terms.length - 3})` : '')
+            : c.description || t('cohorts.criteria_text')),
+      )
       break
     }
   }
@@ -310,7 +326,7 @@ function CriteriaConfigForm({
     case 'concept':
       return <ConceptCriteriaForm config={config as ConceptCriteriaConfig} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} />
     case 'text':
-      return <TextCriteriaForm config={config as TextCriteriaConfig} onChange={onChange} />
+      return <TextCriteriaForm config={config as TextCriteriaConfig} onChange={onChange} schemaMapping={schemaMapping} />
     default:
       return null
   }
@@ -325,9 +341,18 @@ export function CriterionCard({
   visitDateRange,
   dataSourceId,
   schemaMapping,
+  collapseSignal,
 }: CriterionCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
+  // Keyed on `seq` rather than on `collapsed` so a card stays individually
+  // toggleable after a global expand/collapse — only a NEW click moves it.
+  const signalSeq = collapseSignal?.seq
+  const signalCollapsed = collapseSignal?.collapsed
+  useEffect(() => {
+    if (signalSeq === undefined || signalCollapsed === undefined) return
+    setCollapsed(signalCollapsed)
+  }, [signalSeq, signalCollapsed])
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [conceptPickerOpen, setConceptPickerOpen] = useState(false)
 
@@ -407,7 +432,7 @@ export function CriterionCard({
             >
               <Icon size={14} className={cn('shrink-0', meta.color)} />
               <span className="text-xs font-medium truncate">
-                {buildSummary(node, t)}
+                {buildSummary(node, t, i18n.language)}
               </span>
             </button>
           ) : (

@@ -21,9 +21,14 @@ export type CriteriaType =
 
 // --- Criteria Config Types ---
 
+/** Age is expressed in years by default; days and months matter in neonatology. */
+export type AgeUnit = 'days' | 'months' | 'years'
+
 export interface AgeCriteriaConfig {
   /** 'current' = relative to CURRENT_DATE, 'admission' = at visit start */
   ageReference: 'current' | 'admission'
+  /** Unit for min/max. Absent = years, the behaviour before this was offered. */
+  ageUnit?: AgeUnit
   min?: number
   max?: number
 }
@@ -35,8 +40,9 @@ export interface SexCriteriaConfig {
 export interface DeathCriteriaConfig {
   /** true = patient must be deceased, false = must be alive */
   isDead: boolean
-  /** Period reference: 'visit' = during hospitalization, 'visit_detail' = during unit stay */
-  deathReference?: 'visit' | 'visit_detail'
+  /** Period reference: 'visit' = during hospitalization, 'visit_detail' = during
+   *  unit stay, 'any' = ever recorded, regardless of when. */
+  deathReference?: 'visit' | 'visit_detail' | 'any'
 }
 
 export interface PeriodCriteriaConfig {
@@ -44,7 +50,7 @@ export interface PeriodCriteriaConfig {
   endDate?: string
 }
 
-export type DurationUnit = 'hours' | 'days'
+export type DurationUnit = 'hours' | 'days' | 'months'
 
 export interface DurationCriteriaConfig {
   /** Which level to compute duration on: 'visit' = hospitalization, 'visit_detail' = unit stay */
@@ -84,8 +90,34 @@ export interface ConceptCriteriaConfig {
   }
 }
 
+/** How a set of terms is matched against a note field. */
+export type TextMatchMode =
+  /** Case-insensitive substring — the safe default. */
+  | 'contains'
+  /** Whole word only, so "art" stops matching "artère". */
+  | 'word'
+  /** Caller-supplied regular expression, passed to DuckDB's regexp_matches. */
+  | 'regex'
+
+/** One field of a note, searched with its own terms: a block can require a word
+ *  in the title AND a different one in the body. */
+export interface TextFieldSearch {
+  /** Which note field this searches. */
+  field: 'title' | 'text'
+  /** Terms to look for; combined with `anyTerm` below. */
+  terms: string[]
+  mode?: TextMatchMode
+  /** true = any term matches (OR), false = every term must (AND). Default OR. */
+  anyTerm?: boolean
+}
+
 export interface TextCriteriaConfig {
-  /** Free-text description */
+  /** Shown in the collapsed criterion bar, e.g. "anticoagulants". Falls back to
+   *  the terms themselves when empty. */
+  label?: string
+  /** Per-field searches, ANDed together. */
+  searches?: TextFieldSearch[]
+  /** Free-text note kept from the descriptive-only version of this criterion. */
   description: string
 }
 

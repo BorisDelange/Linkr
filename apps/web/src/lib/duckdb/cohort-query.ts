@@ -12,6 +12,8 @@ import type {
   DurationCriteriaConfig,
   CareSiteCriteriaConfig,
   ConceptCriteriaConfig,
+  TextCriteriaConfig,
+  TextMatchMode,
 } from '@/types'
 import type { SchemaMapping, EventTable } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
@@ -299,7 +301,7 @@ function buildCriterionClause(
     case 'sex':
       return buildSexCriteria(criterion.config as SexCriteriaConfig, level, mapping)
     case 'death':
-      return buildDeathCriteria(criterion.config as DeathCriteriaConfig, level, mapping)
+      return buildDeathCriteria(criterion.config as DeathCriteriaConfig, level, mapping, baseTable)
     case 'period':
       return buildPeriodCriteria(criterion.config as PeriodCriteriaConfig, level, mapping, baseTable)
     case 'duration':
@@ -309,7 +311,7 @@ function buildCriterionClause(
     case 'concept':
       return buildConceptCriteria(criterion.config as ConceptCriteriaConfig, level, mapping, baseTable)
     case 'text':
-      return '1=1' // Free text is purely descriptive, no SQL filter
+      return buildTextCriteria(criterion.config as TextCriteriaConfig, level, mapping, baseTable)
     default:
       return '1=1'
   }
@@ -346,14 +348,26 @@ function buildAgeCriteria(
     dateRef = 'CURRENT_DATE'
   }
 
+  // In days or months the birth YEAR is far too coarse to answer the question
+  // (a neonatology filter needs the date), so those units require the date
+  // column; years still falls back to the year when the date is NULL.
+  const unit = config.ageUnit ?? 'years'
+  const dateAge =
+    pt.birthDateColumn && unit !== 'years'
+      ? `DATE_DIFF('${unit === 'days' ? 'day' : 'month'}', ${personRef}."${pt.birthDateColumn}"::TIMESTAMP, ${dateRef}::TIMESTAMP)`
+      : pt.birthDateColumn
+        ? `DATE_PART('year', ${dateRef}) - DATE_PART('year', ${personRef}."${pt.birthDateColumn}")`
+        : null
+  const yearAge =
+    pt.birthYearColumn && unit === 'years'
+      ? `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${personRef}."${pt.birthYearColumn}"`
+      : null
+
   let ageExpr: string
-  if (pt.birthDateColumn) {
-    ageExpr = `DATE_PART('year', ${dateRef}) - DATE_PART('year', ${personRef}."${pt.birthDateColumn}")`
-  } else if (pt.birthYearColumn) {
-    ageExpr = `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${personRef}."${pt.birthYearColumn}"`
-  } else {
-    return '1=1'
-  }
+  if (dateAge && yearAge) ageExpr = `COALESCE(${dateAge}, ${yearAge})`
+  else if (dateAge) ageExpr = dateAge
+  else if (yearAge) ageExpr = yearAge
+  else return '1=1'
 
   const parts: string[] = []
   if (config.min != null) parts.push(`${ageExpr} >= ${config.min}`)
@@ -382,6 +396,7 @@ function buildDeathCriteria(
   config: DeathCriteriaConfig,
   level: CohortLevel,
   mapping: SchemaMapping,
+  baseTable: string,
 ): string {
   const pt = mapping.patientTable
   const personRef = level === 'patient' ? (pt ? `"${pt.table}"` : null) : 'p'
@@ -389,9 +404,30 @@ function buildDeathCriteria(
 
   // Check patient table death date column first
   if (pt?.deathDateColumn) {
-    return config.isDead
-      ? `${personRef}."${pt.deathDateColumn}" IS NOT NULL`
-      : `${personRef}."${pt.deathDateColumn}" IS NULL`
+    const deathCol = `${personRef}."${pt.deathDateColumn}"`
+    if (!config.isDead) return `${deathCol} IS NULL`
+
+    // 'any' (and the patient level, which has no stay to bound it) just asks
+    // whether a death is recorded at all. The other references additionally
+    // require it to fall inside the stay being selected — without that window
+    // "died during this unit stay" matched anyone who ever died.
+    const ref = config.deathReference ?? 'any'
+    if (ref === 'any' || level === 'patient') return `${deathCol} IS NOT NULL`
+
+    const windowTable = ref === 'visit' ? mapping.visitTable : mapping.visitDetailTable
+    if (!windowTable?.startDateColumn || !windowTable.endDateColumn) {
+      return `${deathCol} IS NOT NULL`
+    }
+    // At the level being queried the window is the base row itself; otherwise it
+    // is looked up through the patient.
+    const sameLevel =
+      (ref === 'visit' && level === 'visit') ||
+      (ref === 'visit_detail' && level === 'visit_detail')
+    if (sameLevel) {
+      return `${deathCol} IS NOT NULL AND ${deathCol} BETWEEN "${baseTable}"."${windowTable.startDateColumn}" AND "${baseTable}"."${windowTable.endDateColumn}"`
+    }
+    const patientIdCol = getPatientIdColumn(level, mapping) ?? pt.idColumn
+    return `${deathCol} IS NOT NULL AND EXISTS (SELECT 1 FROM "${windowTable.table}" w WHERE w."${windowTable.patientIdColumn}" = "${baseTable}"."${patientIdCol}" AND ${deathCol} BETWEEN w."${windowTable.startDateColumn}" AND w."${windowTable.endDateColumn}")`
   }
 
   // Fall back to separate death table
@@ -444,6 +480,99 @@ function buildPeriodCriteria(
 
 // --- Duration ---
 
+// --- Free text (clinical notes) ---
+
+/** Escape the characters LIKE treats as wildcards, so a term is matched
+ *  literally. The result is still passed through escSql for the quoting. */
+function escapeLikeTerm(term: string): string {
+  return term.replace(/[\\%_]/g, (ch) => `\\${ch}`)
+}
+
+/**
+ * Quote an already-escaped pattern (regex or LIKE) for SQL. Unlike escSql this
+ * must NOT double backslashes: they are meaningful to the regex engine and to
+ * the LIKE ESCAPE clause, and doubling them turns `\b` into a literal
+ * backslash-b, or `\%` into an escaped backslash followed by a live wildcard —
+ * both of which match nothing. Only the quote (and NUL) need handling.
+ */
+function escPatternLiteral(pattern: string): string {
+  return pattern.replace(/'/g, "''").replace(/\0/g, '')
+}
+
+/** One term against one column, in the requested matching mode. */
+function textTermClause(colRef: string, term: string, mode: TextMatchMode): string {
+  if (mode === 'regex') {
+    // The pattern is the user's own; `(?i)` makes it case-insensitive to match
+    // the other two modes rather than surprising them with case sensitivity.
+    return `regexp_matches(${colRef}, '${escPatternLiteral(`(?i)${term}`)}')`
+  }
+  if (mode === 'word') {
+    // \b is the word boundary DuckDB's RE2 engine understands (\y, the Postgres
+    // spelling, raises "invalid escape sequence") — keeps "art" off "artère".
+    return `regexp_matches(${colRef}, '${escPatternLiteral(`(?i)\\b${escapeRegex(term)}\\b`)}')`
+  }
+  // escapeLikeTerm already added the LIKE escapes; running escSql over them
+  // would double those backslashes and break the escape, so a term containing
+  // "%" matched nothing at all. Only the quote still needs handling.
+  return `${colRef} ILIKE '${escPatternLiteral(`%${escapeLikeTerm(term)}%`)}' ESCAPE '\\'`
+}
+
+/** Neutralize regex metacharacters in a term used for whole-word matching. */
+function escapeRegex(term: string): string {
+  return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Free-text search over the mapped note table. Each configured field search is
+ * ANDed with the others, so one block can require a word in the title and a
+ * different one in the body.
+ */
+function buildTextCriteria(
+  config: TextCriteriaConfig,
+  level: CohortLevel,
+  mapping: SchemaMapping,
+  baseTable: string,
+): string {
+  const searches = (config.searches ?? []).filter((s) => s.terms.some((t) => t.trim()))
+  // With nothing to search on this stays descriptive, as it was before.
+  if (searches.length === 0) return '1=1'
+
+  const nt = mapping.noteTable
+  if (!nt?.textColumn) return '1=1'
+
+  const patientIdCol = getPatientIdColumn(level, mapping)
+  if (!patientIdCol && level !== 'patient') return '1=1'
+
+  const conditions: string[] = []
+  for (const search of searches) {
+    const column = search.field === 'title' ? nt.titleColumn : nt.textColumn
+    // A title search on a mapping without a title column would silently widen
+    // the criterion to every note, so it is dropped instead.
+    if (!column) continue
+    const colRef = `n."${column}"`
+    const terms = search.terms.map((t) => t.trim()).filter(Boolean)
+    if (terms.length === 0) continue
+    const mode = search.mode ?? 'contains'
+    const clauses = terms.map((term) => textTermClause(colRef, term, mode))
+    const joined = clauses.join(search.anyTerm === false ? ' AND ' : ' OR ')
+    conditions.push(clauses.length > 1 ? `(${joined})` : joined)
+  }
+  if (conditions.length === 0) return '1=1'
+
+  // Notes hang off the patient; at visit level, narrow to the visit when the
+  // mapping says which visit a note belongs to.
+  const linkCol =
+    level === 'patient'
+      ? `n."${nt.patientIdColumn}" = "${baseTable}"."${mapping.patientTable?.idColumn ?? 'person_id'}"`
+      : `n."${nt.patientIdColumn}" = "${baseTable}"."${patientIdCol}"`
+  const links = [linkCol]
+  if (level === 'visit' && nt.visitIdColumn && mapping.visitTable) {
+    links.push(`n."${nt.visitIdColumn}" = "${baseTable}"."${mapping.visitTable.idColumn}"`)
+  }
+
+  return `EXISTS (SELECT 1 FROM "${nt.table}" n WHERE ${[...links, ...conditions].join(' AND ')})`
+}
+
 function buildDurationCriteria(
   config: DurationCriteriaConfig,
   level: CohortLevel,
@@ -453,7 +582,8 @@ function buildDurationCriteria(
   if (config.minDays == null && config.maxDays == null) return '1=1'
 
   const targetLevel = config.durationLevel ?? 'visit'
-  const datePart = config.durationUnit === 'hours' ? 'hour' : 'day'
+  const datePart =
+    config.durationUnit === 'hours' ? 'hour' : config.durationUnit === 'months' ? 'month' : 'day'
 
   // Build the duration filter conditions for the target level
   const targetStartCol = getStartDateColumn(targetLevel, mapping)

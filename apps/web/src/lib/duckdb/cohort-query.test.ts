@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { buildCohortMembershipSql, buildCohortResultsSql } from './cohort-query'
+import {
+  buildCohortCountSql,
+  buildCohortMembershipSql,
+  buildCohortResultsSql,
+} from './cohort-query'
 import type { Cohort, CohortLevel, SchemaMapping } from '@/types'
 
 // The membership query freezes cohort content into a snapshot (materialization).
@@ -124,5 +128,137 @@ describe('buildCohortResultsSql age column', () => {
     const sql = buildCohortResultsSql(makeCohort('visit'), yearOnly)!
     expect(sql).not.toContain('COALESCE(')
     expect(sql).toContain('"year_of_birth"')
+  })
+})
+
+// Free-text search over clinical notes. The generated SQL was validated against
+// a real DuckDB: `word` matches "art" but not "artere", `contains` matches both,
+// and quoted input cannot escape the literal.
+describe('buildCohortCountSql free-text criterion', () => {
+  const withNotes = {
+    ...mapping,
+    noteTable: {
+      table: 'note',
+      idColumn: 'note_id',
+      patientIdColumn: 'person_id',
+      visitIdColumn: 'visit_occurrence_id',
+      dateColumn: 'note_datetime',
+      titleColumn: 'note_title',
+      textColumn: 'note_text',
+    },
+  } as unknown as SchemaMapping
+
+  function textCohort(config: Record<string, unknown>): Cohort {
+    const c = makeCohort('visit')
+    return {
+      ...c,
+      criteriaTree: {
+        ...c.criteriaTree,
+        children: [
+          {
+            kind: 'criterion',
+            id: 'x1',
+            type: 'text',
+            config,
+            operator: 'AND',
+            exclude: false,
+            enabled: true,
+          },
+        ],
+      },
+    } as unknown as Cohort
+  }
+
+  it('stays descriptive (no filter) when no terms are given', () => {
+    const sql = buildCohortCountSql(textCohort({ description: 'just a note' }), withNotes)!
+    expect(sql).not.toContain('note')
+    expect(sql).not.toMatch(/WHERE/)
+  })
+
+  it('matches whole words with a \\b boundary, not \\y', () => {
+    const sql = buildCohortCountSql(
+      textCohort({ description: '', searches: [{ field: 'text', terms: ['art'], mode: 'word' }] }),
+      withNotes,
+    )!
+    expect(sql).toContain('\\bart\\b')
+    // \y is the Postgres spelling; DuckDB rejects it at runtime.
+    expect(sql).not.toContain('\\y')
+  })
+
+  it('does not double the regex backslashes (escSql would break \\b)', () => {
+    const sql = buildCohortCountSql(
+      textCohort({ description: '', searches: [{ field: 'text', terms: ['art'], mode: 'word' }] }),
+      withNotes,
+    )!
+    expect(sql).not.toContain('\\\\b')
+  })
+
+  it('ANDs a title search with a body search inside one criterion', () => {
+    const sql = buildCohortCountSql(
+      textCohort({
+        description: '',
+        searches: [
+          { field: 'title', terms: ['compte rendu'] },
+          { field: 'text', terms: ['heparine'] },
+        ],
+      }),
+      withNotes,
+    )!
+    expect(sql).toContain('"note_title"')
+    expect(sql).toContain('"note_text"')
+    expect(sql).toContain('EXISTS (SELECT 1 FROM "note" n')
+  })
+
+  it('ORs several terms by default and ANDs them when asked', () => {
+    const or = buildCohortCountSql(
+      textCohort({ description: '', searches: [{ field: 'text', terms: ['a', 'b'] }] }),
+      withNotes,
+    )!
+    expect(or).toMatch(/ILIKE[^)]*OR/)
+    const and = buildCohortCountSql(
+      textCohort({
+        description: '',
+        searches: [{ field: 'text', terms: ['a', 'b'], anyTerm: false }],
+      }),
+      withNotes,
+    )!
+    expect(and).toMatch(/ILIKE[^)]*AND/)
+  })
+
+  it('neutralizes a quote-escape attempt in a term', () => {
+    const sql = buildCohortCountSql(
+      textCohort({
+        description: '',
+        searches: [{ field: 'text', terms: ["x'); DROP TABLE note;--"] }],
+      }),
+      withNotes,
+    )!
+    // The quote is doubled, so the payload stays inside the string literal.
+    expect(sql).toContain("x''); DROP")
+    // What must not appear is a SINGLE quote closing the literal early — i.e.
+    // an odd number of quotes before the payload.
+    expect(sql).not.toMatch(/[^']'\); DROP/)
+  })
+
+  it('treats LIKE wildcards in a term as literal characters', () => {
+    const sql = buildCohortCountSql(
+      textCohort({ description: '', searches: [{ field: 'text', terms: ['100%'] }] }),
+      withNotes,
+    )!
+    expect(sql).toContain('100\\%')
+    expect(sql).toContain("ESCAPE '\\'")
+  })
+
+  it('drops a title search when the mapping has no title column', () => {
+    const noTitle = {
+      ...withNotes,
+      noteTable: { ...withNotes.noteTable, titleColumn: undefined },
+    } as unknown as SchemaMapping
+    const sql = buildCohortCountSql(
+      textCohort({ description: '', searches: [{ field: 'title', terms: ['x'] }] }),
+      noTitle,
+    )!
+    // Silently widening to every note would be worse than ignoring the search.
+    expect(sql).not.toContain('EXISTS')
   })
 })

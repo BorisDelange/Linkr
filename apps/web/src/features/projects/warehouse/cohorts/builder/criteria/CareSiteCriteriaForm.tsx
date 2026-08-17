@@ -33,6 +33,9 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
   const [search, setSearch] = useState('')
   const [availableValues, setAvailableValues] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+  /** The mapping names no care-site column at this level — nothing to query. */
+  const [unmapped, setUnmapped] = useState(false)
 
   // Fetch distinct care site values when level or data source changes
   useEffect(() => {
@@ -40,18 +43,22 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
 
     const fetchValues = async () => {
       setLoading(true)
+      setError(false)
       try {
         const sql = buildCareSiteQuery(config.careSiteLevel, schemaMapping)
         if (!sql) {
+          setUnmapped(true)
           setAvailableValues([])
           return
         }
+        setUnmapped(false)
         const rows = await queryDataSource(dataSourceId, sql)
         const values = rows
           .map((r) => String(r.care_site_label ?? ''))
           .filter((v) => v.length > 0)
         setAvailableValues(values)
       } catch {
+        setError(true)
         setAvailableValues([])
       } finally {
         setLoading(false)
@@ -142,7 +149,15 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
                 ))
               ) : (
                 <p className="text-xs text-muted-foreground text-center py-3">
-                  {t('cohorts.care_site_no_values')}
+                  {/* An empty list has three very different causes, and the user
+                      can act on only two of them — so name which one it is. */}
+                  {error
+                    ? t('cohorts.care_site_error')
+                    : search
+                      ? t('cohorts.care_site_no_match')
+                      : unmapped
+                        ? t('cohorts.care_site_unmapped')
+                        : t('cohorts.care_site_no_values')}
                 </p>
               )}
             </div>

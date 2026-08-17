@@ -1,7 +1,14 @@
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { AgeCriteriaConfig } from '@/types'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import type { AgeCriteriaConfig, AgeUnit } from '@/types'
 
 interface AgeCriteriaFormProps {
   config: AgeCriteriaConfig
@@ -40,7 +47,9 @@ export function AgeCriteriaForm({ config, onChange }: AgeCriteriaFormProps) {
           })}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      {/* No placeholders on the bounds: a greyed "0"/"120" reads as an entered
+          value, and an unset bound means "no limit", not zero. */}
+      <div className="grid grid-cols-3 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">{t('cohorts.age_min')}</Label>
           <Input
@@ -49,7 +58,6 @@ export function AgeCriteriaForm({ config, onChange }: AgeCriteriaFormProps) {
             onChange={(e) =>
               onChange({ ...config, min: e.target.value ? Number(e.target.value) : undefined })
             }
-            placeholder="0"
             className="h-8 text-xs"
           />
         </div>
@@ -61,9 +69,26 @@ export function AgeCriteriaForm({ config, onChange }: AgeCriteriaFormProps) {
             onChange={(e) =>
               onChange({ ...config, max: e.target.value ? Number(e.target.value) : undefined })
             }
-            placeholder="120"
             className="h-8 text-xs"
           />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">{t('cohorts.age_unit')}</Label>
+          <Select
+            value={config.ageUnit ?? 'years'}
+            onValueChange={(v) => onChange({ ...config, ageUnit: v as AgeUnit })}
+          >
+            <SelectTrigger size="sm" className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(['years', 'months', 'days'] as AgeUnit[]).map((u) => (
+                <SelectItem key={u} value={u} className="text-xs">
+                  {t(`cohorts.age_unit_${u}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
     </div>

@@ -216,7 +216,9 @@ export function CohortBuilderPage() {
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-3 py-1.5 shrink-0">
-        {/* Level selector */}
+        {/* Level selector — what one row of the result stands for. Unlabelled,
+            "Hospitalization" next to a cohort name read like a filter. */}
+        <span className="text-xs text-muted-foreground">{t('cohorts.level_label')}</span>
         <Select value={cohort.level} onValueChange={(v) => handleLevelChange(v as CohortLevel)}>
           <SelectTrigger className="h-7 w-40 text-xs">
             <SelectValue />

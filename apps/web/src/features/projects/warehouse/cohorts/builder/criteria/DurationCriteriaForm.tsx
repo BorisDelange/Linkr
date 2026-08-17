@@ -57,6 +57,9 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
               <SelectItem value="days" className="text-xs">
                 {t('cohorts.duration_days')}
               </SelectItem>
+              <SelectItem value="months" className="text-xs">
+                {t('cohorts.duration_months')}
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -64,7 +67,7 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">
-            {unit === 'hours' ? t('cohorts.duration_min_hours') : t('cohorts.duration_min_days')}
+            {t('cohorts.duration_min', { unit: t(`cohorts.duration_${unit}`) })}
           </Label>
           <Input
             type="number"
@@ -72,13 +75,12 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
             onChange={(e) =>
               onChange({ ...config, minDays: e.target.value ? Number(e.target.value) : undefined })
             }
-            placeholder="0"
             className="h-8 text-xs"
           />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">
-            {unit === 'hours' ? t('cohorts.duration_max_hours') : t('cohorts.duration_max_days')}
+            {t('cohorts.duration_max', { unit: t(`cohorts.duration_${unit}`) })}
           </Label>
           <Input
             type="number"
@@ -86,7 +88,6 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
             onChange={(e) =>
               onChange({ ...config, maxDays: e.target.value ? Number(e.target.value) : undefined })
             }
-            placeholder={unit === 'hours' ? '720' : '365'}
             className="h-8 text-xs"
           />
         </div>

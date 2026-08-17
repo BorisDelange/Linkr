@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { arrayMove } from '@dnd-kit/sortable'
 import {
@@ -11,6 +11,8 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core'
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { ChevronsDownUp, ChevronsUpDown, Power } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -39,6 +41,25 @@ interface CriteriaPanelProps {
 }
 
 // --- Immutable tree helpers ---
+
+/** Set `enabled` on every node of the tree (the root itself stays enabled). */
+function setAllEnabled(tree: CriteriaGroupNode, enabled: boolean): CriteriaGroupNode {
+  return {
+    ...tree,
+    children: tree.children.map((child) =>
+      child.kind === 'group'
+        ? { ...setAllEnabled(child, enabled), enabled }
+        : { ...child, enabled },
+    ),
+  }
+}
+
+/** True when at least one node is still enabled — decides what the toggle does. */
+function anyEnabled(tree: CriteriaGroupNode): boolean {
+  return tree.children.some((child) =>
+    child.kind === 'group' ? child.enabled || anyEnabled(child) : child.enabled,
+  )
+}
 
 function addNode(tree: CriteriaGroupNode, parentId: string, node: CriteriaTreeNode): CriteriaGroupNode {
   if (tree.id === parentId) {
@@ -199,8 +220,33 @@ export function CriteriaPanel({
     handleAddNode(criteriaTree.id, newGroup)
   }
 
+  const [collapseSignal, setCollapseSignal] = useState({ seq: 0, collapsed: false })
+  const allEnabled = anyEnabled(criteriaTree)
+
   return (
     <div className="p-3 space-y-0">
+      {criteriaTree.children.length > 0 && (
+        <div className="mb-2 flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 text-xs text-muted-foreground"
+            onClick={() => setCollapseSignal((s) => ({ seq: s.seq + 1, collapsed: !s.collapsed }))}
+          >
+            {collapseSignal.collapsed ? <ChevronsUpDown size={12} /> : <ChevronsDownUp size={12} />}
+            {collapseSignal.collapsed ? t('cohorts.expand_all') : t('cohorts.collapse_all')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 text-xs text-muted-foreground"
+            onClick={() => onChange(setAllEnabled(criteriaTree, !allEnabled))}
+          >
+            <Power size={12} />
+            {allEnabled ? t('cohorts.disable_all') : t('cohorts.enable_all')}
+          </Button>
+        </div>
+      )}
       {criteriaTree.children.length > 0 ? (
         <DndContext
           sensors={sensors}
@@ -230,6 +276,7 @@ export function CriteriaPanel({
                     visitDateRange={visitDateRange}
                     dataSourceId={dataSourceId}
                     schemaMapping={schemaMapping}
+                    collapseSignal={collapseSignal}
                   />
                 ) : (
                   <CriteriaGroupNodeComponent
