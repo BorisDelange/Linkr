@@ -4,7 +4,10 @@ import { GridLayout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
-import type { PatientDashboardWidget } from '@/types'
+import type { PatientDashboardTab, PatientDashboardWidget } from '@/types'
+import { MoveWidgetDialog } from '@/features/projects/dashboard/MoveWidgetDialog'
+import { DashboardItemEditDialog } from '@/features/projects/dashboard/DashboardItemEditDialog'
+import type { DashboardTreeRow } from '@/features/projects/dashboard/dashboard-tree'
 import { WidgetCard } from '@/features/projects/dashboard/WidgetCard'
 import { PatientSummaryWidget } from './widgets/PatientSummaryWidget'
 import { NotesWidget } from './widgets/NotesWidget'
@@ -28,6 +31,8 @@ import {
 
 interface PatientChartGridProps {
   widgets: PatientDashboardWidget[]
+  /** Every tab of the current board — the Move dialog's destinations. */
+  tabs: PatientDashboardTab[]
   editMode: boolean
   hideTitleBars?: boolean
 }
@@ -69,6 +74,7 @@ const PADDING: [number, number] = [12, 12]
 
 export function PatientChartGrid({
   widgets,
+  tabs,
   editMode,
   hideTitleBars,
 }: PatientChartGridProps) {
@@ -80,6 +86,9 @@ export function PatientChartGrid({
   const removeWidget = usePatientChartStore((s) => s.removeWidget)
   const renameWidget = usePatientChartStore((s) => s.renameWidget)
   const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
+  const updateWidget = usePatientChartStore((s) => s.updateWidget)
+  const duplicateWidget = usePatientChartStore((s) => s.duplicateWidget)
+  const moveWidget = usePatientChartStore((s) => s.moveWidget)
   // Outer ref: always overflow-hidden, used to measure available space.
   const measureRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
@@ -93,6 +102,29 @@ export function PatientChartGrid({
   // Plugin config dialog state
   const [editingPluginWidgetId, setEditingPluginWidgetId] = useState<string | null>(null)
   const [confirmDeleteWidgetId, setConfirmDeleteWidgetId] = useState<string | null>(null)
+  const [movingWidgetId, setMovingWidgetId] = useState<string | null>(null)
+  const [editingMetaWidgetId, setEditingMetaWidgetId] = useState<string | null>(null)
+  const movingWidget = movingWidgetId
+    ? (widgets.find((w) => w.id === movingWidgetId) ?? null)
+    : null
+  const editingMetaWidget = editingMetaWidgetId
+    ? (widgets.find((w) => w.id === editingMetaWidgetId) ?? null)
+    : null
+
+  // Reuses the dashboard's Move dialog: a patient board's tabs are flat, so every
+  // tab is a valid destination (no container rows to exclude).
+  const moveRows: DashboardTreeRow[] = useMemo(
+    () =>
+      [...tabs]
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .map((tab) => ({
+          kind: 'tab' as const,
+          id: tab.id,
+          name: localized(tab.name, lang),
+          depth: 0,
+        })),
+    [tabs, lang],
+  )
   const confirmDeleteWidget = confirmDeleteWidgetId ? widgets.find(w => w.id === confirmDeleteWidgetId) ?? null : null
   const editingWidget = editingWidgetId
     ? widgets.find((w) => w.id === editingWidgetId)
@@ -218,11 +250,17 @@ export function PatientChartGrid({
             title={localized(widget.name, lang)}
             onRemove={() => setConfirmDeleteWidgetId(widget.id)}
             onRename={(name) => renameWidget(widget.id, name)}
-            onEdit={
+            // Same split as dashboards: Edit is name+description, Configure is
+            // the widget's own settings (concepts / plugin config).
+            onEdit={() => setEditingMetaWidgetId(widget.id)}
+            onConfigure={
               CONCEPT_PLUGIN_IDS.has(widget.pluginId) || !isBuiltin(widget.pluginId)
                 ? () => handleEditWidget(widget)
                 : undefined
             }
+            onDuplicate={() => duplicateWidget(widget.id)}
+            // Only offered when there is somewhere else to move it to.
+            onMove={tabs.length > 1 ? () => setMovingWidgetId(widget.id) : undefined}
             editMode={editMode}
             hideTitleBar={hideTitleBars}
           >
@@ -266,6 +304,38 @@ export function PatientChartGrid({
           if (!open) setEditingPluginWidgetId(null)
         }}
       />
+
+      {movingWidget && (
+        <MoveWidgetDialog
+          open
+          onOpenChange={(open) => { if (!open) setMovingWidgetId(null) }}
+          widgetName={localized(movingWidget.name, lang)}
+          currentTabId={movingWidget.tabId}
+          rows={moveRows}
+          onMove={(tabId) => {
+            moveWidget(movingWidget.id, tabId)
+            setMovingWidgetId(null)
+          }}
+        />
+      )}
+
+      {editingMetaWidget && (
+        <DashboardItemEditDialog
+          title={t('dashboard.edit_widget_title')}
+          name={editingMetaWidget.name}
+          description={editingMetaWidget.description}
+          siblingNames={new Set(
+            widgets
+              .filter(
+                (w) =>
+                  w.id !== editingMetaWidget.id && w.tabId === editingMetaWidget.tabId,
+              )
+              .map((w) => localized(w.name, lang).toLowerCase()),
+          )}
+          onSave={(changes) => updateWidget(editingMetaWidget.id, changes)}
+          onOpenChange={(open) => { if (!open) setEditingMetaWidgetId(null) }}
+        />
+      )}
 
       <AlertDialog open={confirmDeleteWidgetId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteWidgetId(null) }}>
         <AlertDialogContent>

@@ -101,6 +101,11 @@ interface PatientChartState {
   ) => void
   updateWidgetConfig: (widgetId: string, config: Record<string, unknown>) => void
   updateWidgetLanguage: (widgetId: string, language: 'python' | 'r') => void
+  /** Name + description together, as the shared edit dialog saves them. */
+  updateWidget: (
+    widgetId: string,
+    changes: { name?: LocalizedString; description?: LocalizedString },
+  ) => void
   duplicateWidget: (widgetId: string) => void
   moveWidget: (widgetId: string, targetTabId: string) => void
 }
@@ -628,6 +633,16 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
         .catch(warn('updateWidgetConfig'))
       return {
         widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, config } : w)),
+      }
+    }),
+
+  updateWidget: (widgetId, changes) =>
+    set((s) => {
+      getStorage()
+        .patientDashboardWidgets.update(widgetId, changes)
+        .catch(warn('updateWidget'))
+      return {
+        widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, ...changes } : w)),
       }
     }),
 

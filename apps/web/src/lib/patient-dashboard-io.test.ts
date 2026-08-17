@@ -173,12 +173,13 @@ describe('patient board export', () => {
 describe('patient board round-trip', () => {
   it('parses back the board with its tabs and widgets', async () => {
     const parsed = await parseProjectZip((await buildZip()) as unknown as File)
-    expect(parsed.patientDashboards).toHaveLength(1)
-    expect(parsed.patientDashboardTabs).toHaveLength(2)
-    expect(parsed.patientDashboardWidgets).toHaveLength(2)
+    expect(parsed).toBeTruthy()
+    expect(parsed!.patientDashboards).toHaveLength(1)
+    expect(parsed!.patientDashboardTabs).toHaveLength(2)
+    expect(parsed!.patientDashboardWidgets).toHaveLength(2)
     // Links travel as keys, not ids.
-    expect(parsed.patientDashboardTabs[0].key).toBeTruthy()
-    expect(parsed.patientDashboardWidgets[0].tabKey).toBeTruthy()
+    expect(parsed!.patientDashboardTabs![0].key).toBeTruthy()
+    expect(parsed!.patientDashboardWidgets![0].tabKey).toBeTruthy()
   })
 
   it('yields empty sections for a ZIP exported before patient boards existed', async () => {
@@ -186,9 +187,10 @@ describe('patient board round-trip', () => {
     zip.file('project.json', JSON.stringify({ uid: 'x', name: { en: 'X' } }))
     const buf = (await zip.generateAsync({ type: 'arraybuffer' })) as unknown as File
     const parsed = await parseProjectZip(buf)
-    // Must be empty arrays, not undefined: the import loops spread them.
-    expect(parsed.patientDashboards).toEqual([])
-    expect(parsed.patientDashboardTabs).toEqual([])
-    expect(parsed.patientDashboardWidgets).toEqual([])
+    expect(parsed).toBeTruthy()
+    // Empty arrays, not undefined — the parser always emits the section.
+    expect(parsed!.patientDashboards).toEqual([])
+    expect(parsed!.patientDashboardTabs).toEqual([])
+    expect(parsed!.patientDashboardWidgets).toEqual([])
   })
 })

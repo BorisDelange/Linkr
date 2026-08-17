@@ -1206,10 +1206,11 @@ export interface ParsedProjectZip {
   dashboards: Dashboard[]
   dashboardTabs: ParsedDashboardTab[]
   dashboardWidgets: ParsedDashboardWidget[]
-  /** Optional section: ZIPs exported before patient boards existed have none. */
-  patientDashboards: PatientDashboard[]
-  patientDashboardTabs: ParsedPatientDashboardTab[]
-  patientDashboardWidgets: ParsedPatientDashboardWidget[]
+  /** Optional section: ZIPs exported before patient boards existed have none, and
+   *  callers that hand-build a ParsedProjectZip (tests, pull) may omit it. */
+  patientDashboards?: PatientDashboard[]
+  patientDashboardTabs?: ParsedPatientDashboardTab[]
+  patientDashboardWidgets?: ParsedPatientDashboardWidget[]
   datasetFiles: DatasetFile[]
   datasetAnalyses: DatasetAnalysis[]
   /** CSV data parsed from _data/ folder, keyed by datasetFileId */

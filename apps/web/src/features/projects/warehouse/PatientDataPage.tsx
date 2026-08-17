@@ -209,6 +209,7 @@ export function PatientDataPage() {
               {tabWidgets.length > 0 ? (
                 <PatientChartGrid
                   widgets={tabWidgets}
+                  tabs={boardTabs}
                   editMode={editMode}
                   hideTitleBars={(currentBoard?.showWidgetTitles ?? true) === false}
                 />
