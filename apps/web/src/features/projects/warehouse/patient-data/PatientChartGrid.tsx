@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
+import { useMemo, useCallback, useRef, useEffect, useState, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GridLayout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
@@ -9,13 +9,13 @@ import { MoveWidgetDialog } from '@/features/projects/dashboard/MoveWidgetDialog
 import { DashboardItemEditDialog } from '@/features/projects/dashboard/DashboardItemEditDialog'
 import type { DashboardTreeRow } from '@/features/projects/dashboard/dashboard-tree'
 import { WidgetCard } from '@/features/projects/dashboard/WidgetCard'
-import { PatientSummaryWidget } from './widgets/PatientSummaryWidget'
-import { NotesWidget } from './widgets/NotesWidget'
-import { TimelineWidget } from './widgets/TimelineWidget'
 import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { WarehousePluginEditorSheet } from './WarehousePluginEditorSheet'
 import { getPlugin } from '@/lib/plugins/registry'
+import { getPatientComponent } from '@/lib/plugins/patient-component-registry'
+import { TIMELINE_PLUGIN_ID } from '@/lib/plugins/builtin-widget-plugins'
+import { usePatientChartContext } from './PatientChartContext'
 import { localized } from '@/lib/localized'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -37,35 +37,83 @@ interface PatientChartGridProps {
   hideTitleBars?: boolean
 }
 
-/** Built-in widgets rendered by a local React component rather than by the plugin
- *  runtime. Anything else is a real plugin and goes through the executor. */
-const BUILTIN_PLUGIN_IDS = {
-  patientSummary: 'linkr-widget-patient-summary',
-  notes: 'linkr-widget-notes',
-  timeline: 'linkr-widget-timeline',
-} as const
+/** Renders a widget from its plugin id: a component plugin through the patient
+ *  component registry, anything else (script plugin) through the executor. Nothing
+ *  is hard-coded per widget type — a custom patient-data plugin renders the same way. */
+/** Renders one component-runtime patient plugin. Split out so the registry lookup
+ *  is this component's own body, not a component created during another's render. */
+function PatientComponentWidget({
+  widget,
+  componentId,
+  onConfigureConcepts,
+}: {
+  widget: PatientDashboardWidget
+  componentId: string
+  onConfigureConcepts?: () => void
+}) {
+  const { dataSourceId, schemaMapping, projectUid } = usePatientChartContext()
+  const personId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
+  const visitOccurrenceId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
+  const visitDetailId = usePatientChartStore(
+    (s) => s.selectedVisitDetailId[projectUid] ?? null,
+  )
 
-/** Built-in widgets whose config includes a concept selection. */
-const CONCEPT_PLUGIN_IDS = new Set<string>([BUILTIN_PLUGIN_IDS.timeline])
+  // The registry memoizes one React.lazy per id, so this is a stable identity.
+  const Component = getPatientComponent(componentId)
+  if (!Component) return <WarehousePluginWidgetRenderer widgetId={widget.id} />
 
-function isBuiltin(pluginId: string): boolean {
-  return (Object.values(BUILTIN_PLUGIN_IDS) as string[]).includes(pluginId)
+  return (
+    <Suspense fallback={null}>
+      {/* Not created during render: getPatientComponent memoizes one React.lazy
+          per component id, so this identity is stable across renders. */}
+      {/* eslint-disable-next-line react-hooks/static-components */}
+      <Component
+        config={widget.config}
+        widgetId={widget.id}
+        dataSourceId={dataSourceId}
+        schemaMapping={schemaMapping}
+        personId={personId}
+        visitOccurrenceId={visitOccurrenceId}
+        visitDetailId={visitDetailId}
+        onConfigureConcepts={onConfigureConcepts}
+      />
+    </Suspense>
+  )
 }
 
-function renderWidgetContent(
-  widget: PatientDashboardWidget,
-  onConfigureConcepts?: () => void,
-) {
-  switch (widget.pluginId) {
-    case BUILTIN_PLUGIN_IDS.patientSummary:
-      return <PatientSummaryWidget />
-    case BUILTIN_PLUGIN_IDS.notes:
-      return <NotesWidget widgetId={widget.id} />
-    case BUILTIN_PLUGIN_IDS.timeline:
-      return <TimelineWidget widgetId={widget.id} onConfigureConcepts={onConfigureConcepts} />
-    default:
-      return <WarehousePluginWidgetRenderer widgetId={widget.id} />
+function WidgetContent({
+  widget,
+  onConfigureConcepts,
+}: {
+  widget: PatientDashboardWidget
+  onConfigureConcepts?: () => void
+}) {
+  const plugin = getPlugin(widget.pluginId)
+  if (!plugin) {
+    return (
+      <div className="p-2 text-xs text-muted-foreground">
+        {`Plugin not found: ${widget.pluginId}`}
+      </div>
+    )
   }
+  if (!plugin.componentId) return <WarehousePluginWidgetRenderer widgetId={widget.id} />
+  return (
+    <PatientComponentWidget
+      widget={widget}
+      componentId={plugin.componentId}
+      onConfigureConcepts={onConfigureConcepts}
+    />
+  )
+}
+
+/** Whether this widget's config includes a concept selection (manifest-declared). */
+function needsConcepts(pluginId: string): boolean {
+  return getPlugin(pluginId)?.manifest.needsConceptPicker ?? false
+}
+
+/** A component plugin is configured in place; a script plugin opens the editor sheet. */
+function isComponentPlugin(pluginId: string): boolean {
+  return Boolean(getPlugin(pluginId)?.componentId)
 }
 
 export const GRID_ROWS = 48
@@ -136,10 +184,10 @@ export function PatientChartGrid({
     : undefined
 
   const handleEditWidget = useCallback((widget: PatientDashboardWidget) => {
-    if (CONCEPT_PLUGIN_IDS.has(widget.pluginId)) {
+    if (needsConcepts(widget.pluginId)) {
       setEditingInitialTab('settings')
       setEditingWidgetId(widget.id)
-    } else if (!isBuiltin(widget.pluginId)) {
+    } else if (!isComponentPlugin(widget.pluginId)) {
       setEditingPluginWidgetId(widget.id)
     }
   }, [])
@@ -241,9 +289,7 @@ export function PatientChartGrid({
           // item on hover so it stacks above sibling widgets (each react-grid
           // item is its own transformed stacking context).
           className={
-            widget.pluginId === BUILTIN_PLUGIN_IDS.timeline
-              ? 'patient-timeline-item'
-              : undefined
+            widget.pluginId === TIMELINE_PLUGIN_ID ? 'patient-timeline-item' : undefined
           }
         >
           <WidgetCard
@@ -254,7 +300,7 @@ export function PatientChartGrid({
             // the widget's own settings (concepts / plugin config).
             onEdit={() => setEditingMetaWidgetId(widget.id)}
             onConfigure={
-              CONCEPT_PLUGIN_IDS.has(widget.pluginId) || !isBuiltin(widget.pluginId)
+              needsConcepts(widget.pluginId) || !isComponentPlugin(widget.pluginId)
                 ? () => handleEditWidget(widget)
                 : undefined
             }
@@ -264,12 +310,14 @@ export function PatientChartGrid({
             editMode={editMode}
             hideTitleBar={hideTitleBars}
           >
-            {renderWidgetContent(
-              widget,
-              CONCEPT_PLUGIN_IDS.has(widget.pluginId)
-                ? () => handleConfigureConcepts(widget.id)
-                : undefined,
-            )}
+            <WidgetContent
+              widget={widget}
+              onConfigureConcepts={
+                needsConcepts(widget.pluginId)
+                  ? () => handleConfigureConcepts(widget.id)
+                  : undefined
+              }
+            />
           </WidgetCard>
         </div>
       ))}

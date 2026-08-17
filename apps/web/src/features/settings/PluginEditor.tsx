@@ -28,8 +28,6 @@ import { getStorage } from '@/lib/storage'
 import type { DatasetColumn } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
-import { SYSTEM_WIDGET_TYPE_MAP } from '@/lib/plugins/builtin-widget-plugins'
-import type { PatientWidgetType } from '@/stores/patient-chart-store'
 
 const languageFromFilename = (filename: string): string => {
   if (filename.endsWith('.json')) return 'json'
@@ -78,7 +76,7 @@ export function PluginEditor() {
   const [testColumns, setTestColumns] = useState<DatasetColumn[]>([])
   const [testInstalledDeps, setTestInstalledDeps] = useState<string[]>([])
   // System plugin preview: widget type to render live instead of code output
-  const [systemWidgetPreview, setSystemWidgetPreview] = useState<PatientWidgetType | null>(null)
+  const [systemWidgetPreview, setSystemWidgetPreview] = useState<string | null>(null)
 
   // --- Drag reorder state ---
   const [dragFile, setDragFile] = useState<string | null>(null)
@@ -150,12 +148,9 @@ export function PluginEditor() {
 
     // System plugins: render live widget preview instead of executing code
     if (isSystemPlugin && editingPluginId) {
-      const widgetType = SYSTEM_WIDGET_TYPE_MAP[editingPluginId]
-      if (widgetType) {
-        setTestResult(null)
-        setSystemWidgetPreview(widgetType)
-        return
-      }
+      setTestResult(null)
+      setSystemWidgetPreview(editingPluginId)
+      return
     }
 
     setSystemWidgetPreview(null)

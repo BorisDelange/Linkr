@@ -1,0 +1,25 @@
+{
+  "id": "linkr-widget-patient-summary",
+  "name": {
+    "en": "Patient summary",
+    "fr": "Résumé patient"
+  },
+  "description": {
+    "en": "Demographics, age, gender, and visit count.",
+    "fr": "Démographie, âge, sexe et nombre de séjours."
+  },
+  "version": "1.0.0",
+  "scope": "warehouse",
+  "category": "patient-data",
+  "tags": [
+    "demographics",
+    "summary"
+  ],
+  "runtime": [
+    "component"
+  ],
+  "languages": [],
+  "icon": "User",
+  "iconColor": "violet",
+  "configSchema": {}
+}

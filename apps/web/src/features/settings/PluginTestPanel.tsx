@@ -13,7 +13,10 @@ import { PluginConfigPreview } from './PluginConfigPreview'
 import type { PluginConfigField } from '@/types/plugin'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { DatasetColumn } from '@/types'
-import type { PatientWidgetType } from '@/stores/patient-chart-store'
+import {
+  PATIENT_SUMMARY_PLUGIN_ID,
+  NOTES_PLUGIN_ID,
+} from '@/lib/plugins/builtin-widget-plugins'
 
 /** Synthetic project UID used for system plugin previews. */
 const PREVIEW_PROJECT_UID = '__plugin-preview__'
@@ -27,15 +30,16 @@ interface PluginTestPanelProps {
   installedDeps?: string[]
   onRerun?: () => void
   /** When set, render a live widget preview instead of code output (system plugins). */
-  systemWidgetPreview?: PatientWidgetType | null
+  /** Plugin id of the built-in patient widget to preview, if any. */
+  systemWidgetPreview?: string | null
 }
 
 /** Render the appropriate built-in widget component for a preview. */
-function renderPreviewWidget(type: PatientWidgetType) {
-  switch (type) {
-    case 'patient_summary':
+function renderPreviewWidget(pluginId: string) {
+  switch (pluginId) {
+    case PATIENT_SUMMARY_PLUGIN_ID:
       return <PatientSummaryWidget />
-    case 'notes':
+    case NOTES_PLUGIN_ID:
       return <NotesWidget widgetId="__preview__" />
     default:
       return null
@@ -46,7 +50,7 @@ function renderPreviewWidget(type: PatientWidgetType) {
  * Wrapper that provides PatientChartContext and syncs patient selection
  * for the preview projectUid.
  */
-function SystemWidgetPreviewRenderer({ widgetType }: { widgetType: PatientWidgetType }) {
+function SystemWidgetPreviewRenderer({ widgetType }: { widgetType: string }) {
   const { t } = useTranslation()
   const { testDataSourceId, testPersonId, testVisitId, testVisitDetailId } =
     usePluginEditorStore()

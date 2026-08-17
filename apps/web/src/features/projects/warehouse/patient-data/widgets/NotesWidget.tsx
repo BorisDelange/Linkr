@@ -270,8 +270,11 @@ function WordSetsPopover({
 export function NotesWidget({ widgetId }: { widgetId: string }) {
   const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
-  const { selectedPatientId, selectedVisitId, widgets, updateWidgetConfig } =
-    usePatientChartStore()
+  // Narrow selectors: see PatientSummaryWidget.
+  const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId)
+  const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId)
+  const widgets = usePatientChartStore((s) => s.widgets)
+  const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
   const patientId = selectedPatientId[projectUid] ?? null
   const visitId = selectedVisitId[projectUid] ?? null
 

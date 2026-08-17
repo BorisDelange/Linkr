@@ -32,7 +32,7 @@ packages/default-plugins/<scope-folder>/<plugin-name>/
 ```
 
 - Lab plugins go in `packages/default-plugins/analyses/`
-- Warehouse plugins go in `packages/default-plugins/warehouse/`
+- Patient-data (warehouse-scope) plugins go in `packages/default-plugins/patient-data/`
 
 ### plugin.json — Manifest
 
@@ -41,7 +41,9 @@ Read the reference file at `.claude/skills/create-plugin/reference.md` for compl
 Key rules:
 - `id` format: `linkr-analysis-<name>` for lab, `linkr-warehouse-<name>` for warehouse
 - `scope`: omit for lab (default), set to `"warehouse"` for warehouse
-- `runtime`: always `["script"]`
+- `runtime`: `["script"]` for a Python/R plugin, `["component"]` for one rendered
+  by a React component registered in `patient-component-registry` (the three
+  built-in patient widgets) or `component-registry` (lab)
 - `languages`: always `["python", "r"]`
 - `needsConceptPicker`: set to `true` if the plugin needs concept selection (warehouse only)
 - `configSchema` field types: `boolean`, `number`, `select`, `string`, `column-select`
@@ -116,8 +118,10 @@ column-select config keys) makes that inventory stale.** Update it in the same c
   (which config keys are single vs. multi column-selects) and, if relevant,
   `PLUGIN_DEFAULT_SIZE`.
 
-(Warehouse plugins are not part of that inventory — patient-data widgets aren't
-seedable via a project ZIP — so only Lab-plugin changes require this step.)
+(Patient-data plugins are not part of that inventory — the create-project skill
+seeds dashboards, not patient boards — so only Lab-plugin changes require this
+step. Patient boards themselves DO travel with a project ZIP, under
+`patient-dashboards/`.)
 
 ## Step 5: Verify
 

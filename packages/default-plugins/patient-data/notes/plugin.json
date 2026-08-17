@@ -1,0 +1,25 @@
+{
+  "id": "linkr-widget-notes",
+  "name": {
+    "en": "Clinical notes",
+    "fr": "Notes cliniques"
+  },
+  "description": {
+    "en": "Document viewer for clinical notes (discharge summaries, progress notes, etc.).",
+    "fr": "Visualiseur de documents cliniques (comptes-rendus, notes de suivi, etc.)."
+  },
+  "version": "1.0.0",
+  "scope": "warehouse",
+  "category": "patient-data",
+  "tags": [
+    "notes",
+    "nlp"
+  ],
+  "runtime": [
+    "component"
+  ],
+  "languages": [],
+  "icon": "FileText",
+  "iconColor": "cyan",
+  "configSchema": {}
+}

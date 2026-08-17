@@ -684,7 +684,11 @@ function TextTimeline({ visitRows, detailsByVisit, formatDate, formatDateShort, 
 export function PatientSummaryWidget() {
   const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
-  const { selectedPatientId, setSelectedVisit, setSelectedVisitDetail } = usePatientChartStore()
+  // Narrow selectors: a bare usePatientChartStore() re-renders this widget on every
+  // unrelated widget/board change.
+  const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId)
+  const setSelectedVisit = usePatientChartStore((s) => s.setSelectedVisit)
+  const setSelectedVisitDetail = usePatientChartStore((s) => s.setSelectedVisitDetail)
   const patientId = selectedPatientId[projectUid] ?? null
   const [summary, setSummary] = useState<SummaryRow | null>(null)
   const [visits, setVisits] = useState<VisitRow[]>([])

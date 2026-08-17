@@ -194,9 +194,23 @@ System folders (pipeline, databases, cohorts, dashboards, datasets, attachments)
 
 ## Plugin System
 
-- Manifest: `plugin.json` (JSON, not XML). Files: `plugin.json`, `ui.tsx`, `server.py`, `translations.json`
-- Each plugin = self-contained directory = git repo
-- Execution: backend mode (WebSocket) or WASM mode (Pyodide/webR)
+- Manifest: `plugin.json`. One plugin = one self-contained directory under
+  `packages/default-plugins/<scope>/<name>/` — `analyses/` for the Lab,
+  `patient-data/` for the Warehouse patient boards. User plugins live in
+  IDB/API as `UserPlugin` rows whose `files` map holds the same manifest.
+- `manifest.runtime` picks how a plugin renders:
+  - `["script"]` — a `<name>.py.template` / `<name>.R.template` resolved against
+    the config, executed in backend mode (WebSocket) or WASM (Pyodide/webR).
+  - `["component"]` — a React component registered by a lazy loader, so heavy
+    charting libs stay out of the initial bundle. Two registries, deliberately
+    NOT merged: `component-registry` (Lab) passes a dataset's `columns`/`rows`;
+    `patient-component-registry` passes the OMOP patient context (`personId`,
+    `visitOccurrenceId`, `dataSourceId`, `schemaMapping`). A single union would
+    leave each side carrying fields it never reads.
+- `manifest.configSchema` drives `GenericConfigPanel` for every scope, so no
+  per-plugin settings UI is ever written. `needsConceptPicker` adds the OMOP
+  concept picker (patient-data scope).
+- A widget references a plugin by id only; the registry resolves it at render time.
 
 ### Plugin & Project Traceability
 
