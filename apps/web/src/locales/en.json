@@ -300,7 +300,7 @@
     "tab_up_one_level": "Up one level",
     "tab_home": "Back to top level",
     "container_tab_title": "This tab contains sub-tabs",
-    "container_tab_open": "Open tab",
+    "container_tab_description": "Pick a sub-tab below to open it.",
     "subtab_widgets_title": "Move existing widgets?",
     "subtab_widgets_description": "This tab has {{count}} widget(s). Turning it into a container moves them into the new sub-tab. If you don't move them, they will be deleted.",
     "subtab_widgets_move": "Move into sub-tab",

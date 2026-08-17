@@ -6,13 +6,15 @@ import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
-import { Plus, LayoutGrid, Layers, Pencil, Lock, Filter, Settings2, Download, Maximize, Minimize, Sparkles } from 'lucide-react'
+import { Plus, LayoutGrid, Pencil, Lock, Filter, Settings2, Download, Maximize, Minimize, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { PortalContainerProvider } from '@/lib/portal-container'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardTabBar } from './dashboard/DashboardTabBar'
+import { SubTabPreviewCard } from './dashboard/SubTabPreviewCard'
+import { localized } from '@/lib/localized'
 import { WidgetGrid } from './dashboard/WidgetGrid'
 import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
 import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
@@ -29,7 +31,7 @@ import { componentSupportsServer } from '@/lib/plugins/component-registry'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export function DashboardPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { wsUid, projectUid: resolvedProjectUid, raw } = useResolvedParams()
   const navigate = useNavigate()
   const projectUid = resolvedProjectUid ?? ''
@@ -98,6 +100,7 @@ export function DashboardPage() {
     setActiveDashboard,
     acceptAllPluginVersions,
     enterTab,
+    setActiveTab,
   } = useDashboardStore()
 
   const activeFilterCount = Object.keys(activeFilters).length
@@ -170,6 +173,16 @@ export function DashboardPage() {
   const activeTabIsContainer = currentTabId
     ? dashboardTabs.some((tab) => tab.parentTabId === currentTabId)
     : false
+  // Direct children of a container, each with the counts its preview card shows.
+  const childTabs = currentTabId
+    ? dashboardTabs
+        .filter((tab) => tab.parentTabId === currentTabId)
+        .map((tab) => ({
+          tab,
+          widgetCount: widgets.filter((w) => w.tabId === tab.id).length,
+          isContainer: dashboardTabs.some((t) => t.parentTabId === tab.id),
+        }))
+    : []
   const tabWidgets = widgets.filter((w) => w.tabId === currentTabId)
 
   // Keep-alive for visited leaf tabs: once a tab with widgets is shown, keep its grid mounted
@@ -396,24 +409,33 @@ export function DashboardPage() {
           ))}
 
           {activeTabIsContainer ? (
-            <div className="flex h-full min-h-[400px] items-center justify-center p-8">
-              <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
-                  <Layers size={24} className="text-muted-foreground" />
-                </div>
-                <h3 className="mt-4 text-sm font-medium text-foreground">
+            <ScrollArea className="h-full">
+              <div className="mx-auto max-w-4xl px-6 py-8">
+                <h3 className="text-sm font-medium text-foreground">
                   {t('dashboard.container_tab_title')}
                 </h3>
-                <Button
-                  size="sm"
-                  className="mt-4 gap-1.5"
-                  onClick={() => currentTabId && enterTab(currentDashboardId, currentTabId)}
-                >
-                  <Layers size={14} />
-                  {t('dashboard.container_tab_open')}
-                </Button>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('dashboard.container_tab_description')}
+                </p>
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {childTabs.map(({ tab, widgetCount, isContainer }) => (
+                    <SubTabPreviewCard
+                      key={tab.id}
+                      name={localized(tab.name, i18n.language)}
+                      widgetCount={widgetCount}
+                      isContainer={isContainer}
+                      // A container child steps down to ITS first leaf; a leaf is
+                      // selected directly. enterTab already draws that distinction.
+                      onClick={() =>
+                        isContainer
+                          ? enterTab(currentDashboardId, tab.id)
+                          : setActiveTab(currentDashboardId, tab.id)
+                      }
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
+            </ScrollArea>
           ) : tabWidgets.length === 0 ? (
             <div className="flex h-full min-h-[400px] items-center justify-center p-8">
               <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">

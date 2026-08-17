@@ -300,7 +300,7 @@
     "tab_up_one_level": "Remonter d'un niveau",
     "tab_home": "Revenir au niveau principal",
     "container_tab_title": "Cet onglet contient des sous-onglets",
-    "container_tab_open": "Ouvrir l'onglet",
+    "container_tab_description": "Choisissez un sous-onglet ci-dessous pour l'ouvrir.",
     "subtab_widgets_title": "Déplacer les widgets existants ?",
     "subtab_widgets_description": "Cet onglet contient {{count}} widget(s). Le transformer en conteneur les déplace dans le nouveau sous-onglet. Si vous ne les déplacez pas, ils seront supprimés.",
     "subtab_widgets_move": "Déplacer dans le sous-onglet",
