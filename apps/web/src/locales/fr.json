@@ -2959,7 +2959,11 @@
     "location": "Localisation",
     "website": "Site web",
     "reference_id": "Identifiant de référence",
-    "remove": "Retirer"
+    "remove": "Retirer",
+    "previous_month": "Mois précédent",
+    "next_month": "Mois suivant",
+    "month": "Mois",
+    "year": "Année"
   },
   "user_menu": {
     "profile": "Paramètres utilisateur",

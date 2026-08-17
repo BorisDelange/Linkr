@@ -2959,7 +2959,11 @@
     "location": "Location",
     "website": "Website",
     "reference_id": "Reference ID",
-    "remove": "Remove"
+    "remove": "Remove",
+    "previous_month": "Previous month",
+    "next_month": "Next month",
+    "month": "Month",
+    "year": "Year"
   },
   "user_menu": {
     "profile": "User settings",

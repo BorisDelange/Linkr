@@ -70,6 +70,13 @@ export interface ConceptColumn<T> {
   header: string
   /** Value used for sorting, filtering and default cell rendering. */
   accessor: (row: T) => string | number | null | undefined
+  /**
+   * Text to SHOW when the accessor's own value is not what the reader wants —
+   * a date sorts correctly as an ISO string but must be read in the app's
+   * language. Applies to the cell, its tooltip and the filter, while sorting
+   * stays on `accessor`. Unlike `cell`, it survives the `tooltip` renderer.
+   */
+  display?: (row: T) => string
   /** Optional custom cell renderer (defaults to a truncated text of the accessor value). */
   cell?: (row: T) => ReactNode
   filter?: ConceptColumnFilter
@@ -148,7 +155,8 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     const out: Record<string, string[]> = {}
     for (const c of cols) {
       if (c.filter !== 'select') continue
-      out[c.id] = [...new Set(data.map((r) => String(c.accessor(r) ?? '')).filter(Boolean))].sort()
+      const shownOf = (r: T) => (c.display ? c.display(r) : String(c.accessor(r) ?? ''))
+      out[c.id] = [...new Set(data.map(shownOf).filter(Boolean))].sort()
     }
     return out
   }, [cols, data])
@@ -159,10 +167,12 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
       const f = filters[c.id]
       if (f == null) continue
       if (f instanceof Set) {
-        if (f.size) rows = rows.filter((r) => f.has(String(c.accessor(r) ?? '')))
+        if (f.size) rows = rows.filter((r) => f.has(c.display ? c.display(r) : String(c.accessor(r) ?? '')))
       } else if (f) {
         const q = f.toLowerCase()
-        rows = rows.filter((r) => String(c.accessor(r) ?? '').toLowerCase().includes(q))
+        rows = rows.filter((r) =>
+          (c.display ? c.display(r) : String(c.accessor(r) ?? '')).toLowerCase().includes(q),
+        )
       }
     }
     if (sorting) {
@@ -232,7 +242,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     cell: ({ row }) =>
       c.cell
         ? c.cell(row.original)
-        : <TruncatedText text={String(c.accessor(row.original) ?? '')} className="text-xs" />,
+        : <TruncatedText text={c.display ? c.display(row.original) : String(c.accessor(row.original) ?? '')} className="text-xs" />,
     size: c.size ?? 120,
     minSize: c.minSize ?? 50,
     enableResizing: true,
@@ -332,6 +342,8 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                     const col = colById.get(cell.column.id)
                     const raw = cell.getValue()
                     const useTooltip = col?.tooltip && raw != null && String(raw) !== ''
+                    // `display` wins over the raw value everywhere it is shown.
+                    const shown = col?.display ? col.display(row.original) : String(raw)
                     return (
                       <TableCell
                         key={cell.id}
@@ -339,7 +351,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                         style={{ maxWidth: cell.column.getSize() }}
                       >
                         {useTooltip
-                          ? <TruncatedText text={String(raw)} className={typeof col?.tooltip === 'string' ? col.tooltip : undefined} />
+                          ? <TruncatedText text={shown} className={typeof col?.tooltip === 'string' ? col.tooltip : undefined} />
                           : flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     )
