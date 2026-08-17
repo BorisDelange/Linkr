@@ -10,7 +10,9 @@ import {
   compactCount,
   formatDateTimeLocale,
   formatTimeLocale,
+  formatStayDuration,
 } from './format-helpers'
+import type { TFunction } from 'i18next'
 
 // These are security-critical: escSql / isSafeIdentifier / validateIntegerIds
 // guard the SQL boundary (user data + user-authored SQL meet DuckDB here).
@@ -183,6 +185,47 @@ describe('daysBetween', () => {
   it('returns null when a bound is missing', () => {
     expect(daysBetween(undefined, '2026-01-08')).toBeNull()
     expect(daysBetween('2026-01-01', undefined)).toBeNull()
+  })
+})
+
+// A stay label sits in a fixed-width column of the visit list, so a long
+// admission must coarsen to months rather than print "152 days".
+describe('formatStayDuration', () => {
+  // Echoes the key and count so the unit chosen is visible in the assertion.
+  const t = ((key: string, opts?: { count?: number }) =>
+    `${opts?.count}:${key}`) as unknown as TFunction
+
+  it('counts days for a short stay', () => {
+    expect(formatStayDuration('2026-01-01', '2026-01-14', t)).toBe(
+      '13:patient_data.days_count',
+    )
+  })
+
+  it('switches to months past two', () => {
+    // 2006-01-03 → 2006-07-08 is ~186 days, i.e. 6 months.
+    expect(formatStayDuration('2006-01-03', '2006-07-08', t)).toBe(
+      '6:patient_data.months_count',
+    )
+  })
+
+  it('keeps days right up to the 60-day boundary', () => {
+    expect(formatStayDuration('2026-01-01', '2026-03-01', t)).toBe(
+      '59:patient_data.days_count',
+    )
+  })
+
+  it('renders a same-day stay as zero days, not as nothing', () => {
+    expect(formatStayDuration('2026-01-01', '2026-01-01', t)).toBe(
+      '0:patient_data.days_count',
+    )
+  })
+
+  it('returns null when an ongoing stay has no end date', () => {
+    expect(formatStayDuration('2026-01-01', undefined, t)).toBeNull()
+  })
+
+  it('returns null on inverted bounds rather than a negative label', () => {
+    expect(formatStayDuration('2026-03-01', '2026-01-01', t)).toBeNull()
   })
 })
 

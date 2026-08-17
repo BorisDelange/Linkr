@@ -574,19 +574,30 @@ function buildPatientFilterWhere(filters?: PatientFilters): string {
 
 /**
  * Build age expression relative to a reference date expression.
+ *
+ * When both birth columns are mapped they are COALESCEd, birth date first: in OMOP
+ * `year_of_birth` is NOT NULL but `birth_datetime` is nullable and frequently empty,
+ * so preferring the precise column alone yields a NULL age on most real datasets.
+ *
  * @param refDateExpr SQL expression for the reference date (e.g. a column or CURRENT_DATE)
+ * @param alias optional table alias qualifying the birth columns
  */
 function buildAgeExpr(
   pt: NonNullable<SchemaMapping['patientTable']>,
   refDateExpr: string,
+  alias?: string,
 ): string | null {
-  if (pt.birthDateColumn) {
-    return `DATE_PART('year', ${refDateExpr}) - DATE_PART('year', "${pt.birthDateColumn}")`
-  }
-  if (pt.birthYearColumn) {
-    return `DATE_PART('year', (${refDateExpr})::TIMESTAMP) - "${pt.birthYearColumn}"`
-  }
-  return null
+  const q = (col: string) => (alias ? `${alias}."${col}"` : `"${col}"`)
+  const refYear = `DATE_PART('year', (${refDateExpr})::TIMESTAMP)`
+  const fromDate = pt.birthDateColumn
+    ? `DATE_PART('year', ${q(pt.birthDateColumn)}::TIMESTAMP)`
+    : null
+  const fromYear = pt.birthYearColumn ? q(pt.birthYearColumn) : null
+
+  const birthYear =
+    fromDate && fromYear ? `COALESCE(${fromDate}, ${fromYear})` : (fromDate ?? fromYear)
+  if (!birthYear) return null
+  return `${refYear} - ${birthYear}`
 }
 
 function buildAgeExprAlias(
@@ -594,22 +605,19 @@ function buildAgeExprAlias(
   pt: NonNullable<SchemaMapping['patientTable']>,
   refDateExpr: string,
 ): string | null {
-  if (pt.birthDateColumn) {
-    return `DATE_PART('year', ${refDateExpr}) - DATE_PART('year', ${alias}."${pt.birthDateColumn}")`
-  }
-  if (pt.birthYearColumn) {
-    return `DATE_PART('year', (${refDateExpr})::TIMESTAMP) - ${alias}."${pt.birthYearColumn}"`
-  }
-  return null
+  return buildAgeExpr(pt, refDateExpr, alias)
 }
 
+/** Every birth column the age expression reads must be grouped, not just the
+ *  preferred one — buildAgeExpr COALESCEs both when both are mapped. */
 function buildBirthGroupBy(
   alias: string,
   pt: NonNullable<SchemaMapping['patientTable']>,
 ): string {
-  if (pt.birthDateColumn) return `, ${alias}."${pt.birthDateColumn}"`
-  if (pt.birthYearColumn) return `, ${alias}."${pt.birthYearColumn}"`
-  return ''
+  return [pt.birthDateColumn, pt.birthYearColumn]
+    .filter((col): col is string => Boolean(col))
+    .map((col) => `, ${alias}."${col}"`)
+    .join('')
 }
 
 /** Build IN condition for concept matching (standard + source columns). */

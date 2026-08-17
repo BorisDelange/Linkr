@@ -131,6 +131,20 @@ export function daysBetween(start?: string, end?: string): number | null {
   }
 }
 
+/** A stay length, coarsened past two months: "13 days" stays precise, but a
+ *  5-month admission reads better than "152 days". Returns null when either
+ *  bound is missing, so the caller can omit the segment entirely. */
+export function formatStayDuration(
+  start: string | undefined,
+  end: string | undefined,
+  t: TFunction,
+): string | null {
+  const days = daysBetween(start, end)
+  if (days == null || days < 0) return null
+  if (days < 61) return t('patient_data.days_count', { count: days })
+  return t('patient_data.months_count', { count: Math.round(days / 30.44) })
+}
+
 // ---------------------------------------------------------------------------
 // Label formatting
 // ---------------------------------------------------------------------------
