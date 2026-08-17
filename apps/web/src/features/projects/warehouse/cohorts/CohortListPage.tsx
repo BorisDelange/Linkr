@@ -56,12 +56,15 @@ export function CohortListPage() {
       updatedAt: (c) => c.updatedAt,
     })
   }, [cohorts, searchQuery, sort])
-  const basePath = `/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`
+  // Built through `paths` rather than by hand: useResolvedParams returns FULL
+  // uids, so a hand-assembled URL carried full ids while the sidebar matches on
+  // the shortened ones — which silently dropped the Cohorts highlight.
+  const cohortIds = useMemo(() => cohorts.map((c) => c.id), [cohorts])
 
   const handleCreate = async (data: { name: string; description: string; version: string }) => {
     if (!uid) return
     const id = await addCohort({ projectUid: uid, level: 'visit_detail', ...data })
-    navigate(paths.cohort(wsUid ?? '', uid, id))
+    navigate(paths.cohort(wsUid ?? '', uid, id, [...cohortIds, id]))
   }
 
   const handleEditSubmit = (data: { name: string; description: string; version: string }) => {
@@ -117,7 +120,7 @@ export function CohortListPage() {
               <CohortCard
                 key={cohort.id}
                 cohort={cohort}
-                basePath={basePath}
+                href={paths.cohort(wsUid ?? '', uid ?? '', cohort.id, cohortIds)}
                 onRemove={() => setDeleteTarget(cohort)}
                 onEdit={() => setEditingCohort(cohort)}
                 canEdit={can('cohorts:write')}

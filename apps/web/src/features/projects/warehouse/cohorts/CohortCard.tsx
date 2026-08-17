@@ -22,7 +22,9 @@ import {
 
 interface CohortCardProps {
   cohort: Cohort
-  basePath: string
+  /** Target URL, built by the caller through `paths.cohort` so it carries the
+   *  same shortened ids the sidebar matches on. */
+  href: string
   onRemove: () => void
   onEdit: () => void
   /** Gate the edit / remove menu items (default true for front-only mode). */
@@ -38,7 +40,7 @@ const levelColors: Record<string, string> = {
 
 export function CohortCard({
   cohort,
-  basePath,
+  href,
   onRemove,
   onEdit,
   canEdit = true,
@@ -51,7 +53,7 @@ export function CohortCard({
   const criteriaCount = countCriteria(cohort.criteriaTree)
 
   const handleClick = () => {
-    navigate(`${basePath}/${cohort.id}`)
+    navigate(href)
   }
 
   return (
