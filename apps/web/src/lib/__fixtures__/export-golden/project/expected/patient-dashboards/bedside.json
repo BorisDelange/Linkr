@@ -48,6 +48,7 @@
       "pluginId": "linkr-widget-notes",
       "language": null,
       "config": {},
+      "customSql": null,
       "pluginVersion": "1.0.0",
       "key": "bedside/documents/notes@14,0",
       "tabKey": "bedside/documents"
@@ -70,6 +71,7 @@
           3027018
         ]
       },
+      "customSql": "SELECT 1 AS concept_id, NOW() AS ts, 42 AS value",
       "pluginVersion": "1.0.0",
       "key": "bedside/vitals/heart-rate@0,0",
       "tabKey": "bedside/vitals"

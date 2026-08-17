@@ -101,6 +101,8 @@ interface PatientChartState {
   ) => void
   updateWidgetConfig: (widgetId: string, config: Record<string, unknown>) => void
   updateWidgetLanguage: (widgetId: string, language: 'python' | 'r') => void
+  /** null clears the override, so the widget follows its generated query again. */
+  updateWidgetCustomSql: (widgetId: string, sql: string | null) => void
   /** Name + description together, as the shared edit dialog saves them. */
   updateWidget: (
     widgetId: string,
@@ -643,6 +645,16 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
         .catch(warn('updateWidget'))
       return {
         widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, ...changes } : w)),
+      }
+    }),
+
+  updateWidgetCustomSql: (widgetId, sql) =>
+    set((s) => {
+      getStorage()
+        .patientDashboardWidgets.update(widgetId, { customSql: sql })
+        .catch(warn('updateWidgetCustomSql'))
+      return {
+        widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, customSql: sql } : w)),
       }
     }),
 

@@ -64,4 +64,5 @@ class PatientDashboardWidget(Base):
     plugin_id: Mapped[str] = mapped_column(String(100))
     language: Mapped[str | None] = mapped_column(String(10))
     config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    custom_sql: Mapped[str | None] = mapped_column(Text)
     plugin_version: Mapped[str | None] = mapped_column(String(20))

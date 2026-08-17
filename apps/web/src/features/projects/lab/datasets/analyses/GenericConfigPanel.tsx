@@ -44,6 +44,9 @@ interface GenericConfigPanelProps {
   /** Dataset file id — lets column-value-select fetch distinct values from the
    *  server when `rows` is empty (server mode), instead of showing nothing. */
   datasetFileId?: string
+  /** Renders a `concept-select` field (warehouse scope only). Absent in the lab,
+   *  where no schema declares that type — the field then renders nothing. */
+  renderConceptField?: (fieldKey: string, field: PluginConfigField) => React.ReactNode
 }
 
 export function GenericConfigPanel({
@@ -53,6 +56,7 @@ export function GenericConfigPanel({
   onConfigChange,
   rows,
   datasetFileId,
+  renderConceptField,
 }: GenericConfigPanelProps) {
   const { i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
@@ -140,6 +144,7 @@ export function GenericConfigPanel({
           onConfigChange={onConfigChange}
           rows={rows}
           datasetFileId={datasetFileId}
+          renderConceptField={renderConceptField}
         />
       ) : fieldThenBooleans ? (
         <div key={group.keys.join('-')} className="grid items-end gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -153,6 +158,7 @@ export function GenericConfigPanel({
             onConfigChange={onConfigChange}
             rows={rows}
             datasetFileId={datasetFileId}
+            renderConceptField={renderConceptField}
           />
           <div className="flex flex-wrap items-end gap-x-5 gap-y-1">
             {group.keys.slice(1).map((key, idx) => (
@@ -167,6 +173,7 @@ export function GenericConfigPanel({
                 onConfigChange={onConfigChange}
                 rows={rows}
                 datasetFileId={datasetFileId}
+                renderConceptField={renderConceptField}
               />
             ))}
           </div>
@@ -186,6 +193,7 @@ export function GenericConfigPanel({
               onConfigChange={onConfigChange}
               rows={rows}
               datasetFileId={datasetFileId}
+              renderConceptField={renderConceptField}
             />
           ))}
         </div>
@@ -203,6 +211,7 @@ export function GenericConfigPanel({
               onConfigChange={onConfigChange}
               rows={rows}
               datasetFileId={datasetFileId}
+              renderConceptField={renderConceptField}
             />
           ))}
         </div>
@@ -319,10 +328,15 @@ interface FieldRendererProps {
   onConfigChange: (changes: Record<string, unknown>) => void
   rows?: Record<string, unknown>[]
   datasetFileId?: string
+  renderConceptField?: (fieldKey: string, field: PluginConfigField) => React.ReactNode
 }
 
-function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfigChange, rows, datasetFileId }: FieldRendererProps) {
+function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfigChange, rows, datasetFileId, renderConceptField }: FieldRendererProps) {
   switch (field.type) {
+    // Warehouse-only: the host supplies the picker, so this panel stays free of
+    // any OMOP dependency.
+    case 'concept-select':
+      return renderConceptField ? renderConceptField(fieldKey, field) : null
     case 'column-select':
       return field.multi ? (
         <MultiColumnSelect
@@ -357,6 +371,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           onConfigChange={onConfigChange}
           rows={rows}
           datasetFileId={datasetFileId}
+          renderConceptField={renderConceptField}
         />
       )
     case 'select':

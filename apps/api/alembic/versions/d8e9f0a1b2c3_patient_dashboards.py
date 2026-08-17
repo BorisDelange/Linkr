@@ -18,6 +18,9 @@ Two deliberate differences from `dashboards`:
 - no `parent_tab_id`: the board is the grouping level, so tabs stay a flat
   ordered list, and a widget always references a plugin (no inline-code variant),
   hence plugin_id/language/config as columns rather than a `source` union.
+
+`custom_sql` is the user's SQL override for a widget's data query (NULL = the
+query generated from its config), the same contract as `cohorts.custom_sql`.
 """
 
 import sqlalchemy as sa
@@ -98,6 +101,7 @@ def upgrade() -> None:
         sa.Column("plugin_id", sa.String(100), nullable=False),
         sa.Column("language", sa.String(10), nullable=True),
         sa.Column("config", JSONB_or_JSON, nullable=True),
+        sa.Column("custom_sql", sa.Text(), nullable=True),
         sa.Column("plugin_version", sa.String(20), nullable=True),
     )
     op.create_index(

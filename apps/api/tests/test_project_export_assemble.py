@@ -168,7 +168,8 @@ async def _seed(db) -> Project:
                 id=w["id"], tab_id=w["tabId"], name=w["name"],
                 description=w["description"], layout=w["layout"],
                 plugin_id=w["pluginId"], language=w["language"],
-                config=w["config"], plugin_version=w["pluginVersion"],
+                config=w["config"], custom_sql=w.get("customSql"),
+                plugin_version=w["pluginVersion"],
             ))
     for _path, analyses in data["datasetAnalyses"].items():
         for a in analyses:

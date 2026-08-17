@@ -624,6 +624,10 @@ export interface PatientDashboardWidget {
   /** Only set for script-runtime plugins; component plugins ignore it. */
   language?: 'python' | 'r'
   config: Record<string, unknown>
+  /** User-edited SQL override for the widget's data query (null/absent = the
+   *  query generated from the config). Same contract as `Cohort.customSql`:
+   *  once set it stops following config changes, and the editor offers a reset. */
+  customSql?: string | null
   /** Plugin version captured when the widget was created/last edited, for drift
    *  detection. Absent on widgets created before this existed = neutral. */
   pluginVersion?: string

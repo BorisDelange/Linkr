@@ -212,6 +212,8 @@ export function PatientDataPage() {
                   tabs={boardTabs}
                   editMode={editMode}
                   hideTitleBars={(currentBoard?.showWidgetTitles ?? true) === false}
+                  widgetSpacing={currentBoard?.widgetSpacing}
+                  fitToHeight={currentBoard?.fitToHeight ?? true}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center p-8">

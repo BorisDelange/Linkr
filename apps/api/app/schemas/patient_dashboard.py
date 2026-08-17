@@ -87,6 +87,7 @@ class PatientDashboardWidgetCreate(CamelModel):
     plugin_id: str
     language: str | None = None
     config: dict = {}
+    custom_sql: str | None = None
     plugin_version: str | None = None
 
 
@@ -97,6 +98,7 @@ class PatientDashboardWidgetUpdate(CamelModel):
     plugin_id: str | None = None
     language: str | None = None
     config: dict | None = None
+    custom_sql: str | None = None
     plugin_version: str | None = None
 
 
@@ -109,4 +111,5 @@ class PatientDashboardWidgetResponse(CamelModel):
     plugin_id: str
     language: str | None = None
     config: dict
+    custom_sql: str | None = None
     plugin_version: str | None = None

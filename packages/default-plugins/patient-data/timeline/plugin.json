@@ -8,7 +8,7 @@
     "en": "Interactive timeline chart for clinical measurements (dygraphs).",
     "fr": "Graphique chronologique interactif pour les mesures cliniques (dygraphs)."
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "scope": "warehouse",
   "category": "patient-data",
   "tags": [
@@ -24,6 +24,21 @@
   "iconColor": "blue",
   "needsConceptPicker": true,
   "configSchema": {
+    "conceptIds": {
+      "type": "concept-select",
+      "label": {
+        "en": "Concepts",
+        "fr": "Concepts"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "OMOP concepts plotted on this timeline.",
+        "fr": "Concepts OMOP tracés sur cette chronologie."
+      }
+    },
     "yAxisFromZero": {
       "type": "boolean",
       "label": {
@@ -32,8 +47,8 @@
       },
       "default": false,
       "section": {
-        "en": "Axes",
-        "fr": "Axes"
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "description": {
         "en": "Force the value axis to begin at 0 instead of auto-scaling.",
@@ -48,8 +63,8 @@
       },
       "default": false,
       "section": {
-        "en": "Axes",
-        "fr": "Axes"
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "description": {
         "en": "Share the visible time window with other synced timelines in this tab.",
@@ -64,8 +79,8 @@
       },
       "default": false,
       "section": {
-        "en": "Appearance",
-        "fr": "Apparence"
+        "en": "Style",
+        "fr": "Style"
       },
       "description": {
         "en": "Hold each value constant until the next measurement (staircase) instead of drawing a straight line between points. Useful for values that stay fixed between recordings, e.g. ventilator settings.",
@@ -80,8 +95,8 @@
       },
       "default": true,
       "section": {
-        "en": "Appearance",
-        "fr": "Apparence"
+        "en": "Style",
+        "fr": "Style"
       },
       "description": {
         "en": "Draw a marker at each measurement. Turn off for dense series to keep the line readable.",
@@ -96,8 +111,8 @@
       },
       "default": "1.5",
       "section": {
-        "en": "Appearance",
-        "fr": "Apparence"
+        "en": "Style",
+        "fr": "Style"
       },
       "options": [
         {

@@ -46,16 +46,36 @@ describe('built-in patient-data plugins', () => {
   it('keeps the timeline settings schema that drives the shared config panel', () => {
     const schema = getPlugin('linkr-widget-timeline')!.manifest.configSchema!
     expect(Object.keys(schema).sort()).toEqual([
+      'conceptIds',
       'showPoints',
       'stepPlot',
       'strokeWidth',
       'syncTimeRange',
       'yAxisFromZero',
     ])
+    // Concepts are the first field: GenericConfigPanel orders its sections by
+    // field declaration, so this is what puts Data above Chart and Style.
+    expect(Object.keys(schema)[0]).toBe('conceptIds')
+    expect(schema.conceptIds.type).toBe('concept-select')
     // Labels must be bilingual — GenericConfigPanel renders them directly.
     for (const [key, field] of Object.entries(schema)) {
       expect(field.label.en, key).toBeTruthy()
       expect(field.label.fr, key).toBeTruthy()
+    }
+  })
+
+  it('uses the same section vocabulary as the dashboard plugins', () => {
+    const schema = getPlugin('linkr-widget-timeline')!.manifest.configSchema!
+    const sections: string[] = []
+    for (const field of Object.values(schema)) {
+      const label = field.section?.en
+      if (label && !sections.includes(label)) sections.push(label)
+    }
+    // Data / Chart / Style — the words map, plot-builder and sankey already use.
+    // No "Axes" or "Appearance", which existed only here.
+    expect(sections).toEqual(['Data', 'Chart', 'Style'])
+    for (const field of Object.values(schema)) {
+      if (field.section) expect(field.section.fr).toBeTruthy()
     }
   })
 

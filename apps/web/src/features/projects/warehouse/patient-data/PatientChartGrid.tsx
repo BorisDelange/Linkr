@@ -10,8 +10,8 @@ import { DashboardItemEditDialog } from '@/features/projects/dashboard/Dashboard
 import type { DashboardTreeRow } from '@/features/projects/dashboard/dashboard-tree'
 import { WidgetCard } from '@/features/projects/dashboard/WidgetCard'
 import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
-import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { WarehousePluginEditorSheet } from './WarehousePluginEditorSheet'
+import { PatientWidgetEditorSheet } from './PatientWidgetEditorSheet'
 import { getPlugin } from '@/lib/plugins/registry'
 import { getPatientComponent } from '@/lib/plugins/patient-component-registry'
 import { TIMELINE_PLUGIN_ID } from '@/lib/plugins/builtin-widget-plugins'
@@ -35,6 +35,10 @@ interface PatientChartGridProps {
   tabs: PatientDashboardTab[]
   editMode: boolean
   hideTitleBars?: boolean
+  /** Board settings: pixel gap between widgets, and whether the tab is scaled to
+   *  fit the viewport instead of scrolling. */
+  widgetSpacing?: number
+  fitToHeight?: boolean
 }
 
 /** Renders a widget from its plugin id: a component plugin through the patient
@@ -117,15 +121,23 @@ function isComponentPlugin(pluginId: string): boolean {
 }
 
 export const GRID_ROWS = 48
-const MARGIN: [number, number] = [8, 8]
+const DEFAULT_SPACING = 8
 const PADDING: [number, number] = [12, 12]
+/** Rows a non-fitted board scrolls over, instead of squeezing into the viewport. */
+const SCROLL_ROW_HEIGHT = 14
 
 export function PatientChartGrid({
   widgets,
   tabs,
   editMode,
   hideTitleBars,
+  widgetSpacing,
+  fitToHeight = true,
 }: PatientChartGridProps) {
+  const MARGIN: [number, number] = useMemo(() => {
+    const gap = widgetSpacing ?? DEFAULT_SPACING
+    return [gap, gap]
+  }, [widgetSpacing])
   const { t, i18n } = useTranslation()
   const lang = i18n.language
   // Narrow selectors: a bare usePatientChartStore() re-renders every widget on the
@@ -133,7 +145,6 @@ export function PatientChartGrid({
   const updateWidgetLayout = usePatientChartStore((s) => s.updateWidgetLayout)
   const removeWidget = usePatientChartStore((s) => s.removeWidget)
   const renameWidget = usePatientChartStore((s) => s.renameWidget)
-  const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
   const updateWidget = usePatientChartStore((s) => s.updateWidget)
   const duplicateWidget = usePatientChartStore((s) => s.duplicateWidget)
   const moveWidget = usePatientChartStore((s) => s.moveWidget)
@@ -142,11 +153,9 @@ export function PatientChartGrid({
   const [containerWidth, setContainerWidth] = useState(1200)
   const [viewportHeight, setViewportHeight] = useState(800)
 
-  // Concept picker state — lifted here so WidgetCard "Edit" can open it.
-  // `editingInitialTab` lets the empty-state "Select concepts" button jump
-  // straight to the Concepts tab, while the kebab "Edit" opens Settings first.
+  // Component widgets open the unified editor (config + SQL + preview); script
+  // plugins keep their own sheet, which also hosts their code.
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
-  const [editingInitialTab, setEditingInitialTab] = useState<'settings' | 'concepts'>('settings')
   // Plugin config dialog state
   const [editingPluginWidgetId, setEditingPluginWidgetId] = useState<string | null>(null)
   const [confirmDeleteWidgetId, setConfirmDeleteWidgetId] = useState<string | null>(null)
@@ -174,26 +183,19 @@ export function PatientChartGrid({
     [tabs, lang],
   )
   const confirmDeleteWidget = confirmDeleteWidgetId ? widgets.find(w => w.id === confirmDeleteWidgetId) ?? null : null
-  const editingWidget = editingWidgetId
-    ? widgets.find((w) => w.id === editingWidgetId)
-    : null
-
-  // Settings schema for the editing concept-widget (drives the dialog's Settings tab).
-  const editingWidgetSchema = editingWidget
-    ? getPlugin(editingWidget.pluginId)?.manifest.configSchema
-    : undefined
 
   const handleEditWidget = useCallback((widget: PatientDashboardWidget) => {
-    if (needsConcepts(widget.pluginId)) {
-      setEditingInitialTab('settings')
+    // Every component widget gets the unified editor — even one with no settings,
+    // whose SQL tab is how you find out why it renders empty. Script plugins keep
+    // their own sheet, which also hosts their code.
+    if (isComponentPlugin(widget.pluginId)) {
       setEditingWidgetId(widget.id)
-    } else if (!isComponentPlugin(widget.pluginId)) {
+    } else {
       setEditingPluginWidgetId(widget.id)
     }
   }, [])
 
   const handleConfigureConcepts = useCallback((widgetId: string) => {
-    setEditingInitialTab('concepts')
     setEditingWidgetId(widgetId)
   }, [])
 
@@ -215,7 +217,12 @@ export function PatientChartGrid({
   // Dynamic row height: h:48 ≈ full visible height.
   // Subtract a small buffer (1px) to compensate for Math.round in react-grid-layout
   // position calculations that can add fractional pixels.
-  const rowHeight = Math.max(1, (viewportHeight - 1 - 2 * PADDING[1] - (GRID_ROWS - 1) * MARGIN[1]) / GRID_ROWS)
+  const rowHeight = fitToHeight
+    ? Math.max(
+        1,
+        (viewportHeight - 1 - 2 * PADDING[1] - (GRID_ROWS - 1) * MARGIN[1]) / GRID_ROWS,
+      )
+    : SCROLL_ROW_HEIGHT
 
   const layout: LayoutItem[] = useMemo(
     () =>
@@ -254,15 +261,6 @@ export function PatientChartGrid({
     [widgets, updateWidgetLayout],
   )
 
-  const handleConceptsConfirm = useCallback(
-    (config: Record<string, unknown>) => {
-      if (!editingWidget) return
-      updateWidgetConfig(editingWidget.id, config)
-      setEditingWidgetId(null)
-    },
-    [editingWidget, updateWidgetConfig],
-  )
-
   const gridContent = (
     <GridLayout
       layout={layout}
@@ -299,11 +297,9 @@ export function PatientChartGrid({
             // Same split as dashboards: Edit is name+description, Configure is
             // the widget's own settings (concepts / plugin config).
             onEdit={() => setEditingMetaWidgetId(widget.id)}
-            onConfigure={
-              needsConcepts(widget.pluginId) || !isComponentPlugin(widget.pluginId)
-                ? () => handleEditWidget(widget)
-                : undefined
-            }
+            // Every widget is configurable now: the editor always has at least a
+            // SQL tab, which is what explains an empty widget.
+            onConfigure={() => handleEditWidget(widget)}
             onDuplicate={() => duplicateWidget(widget.id)}
             // Only offered when there is somewhere else to move it to.
             onMove={tabs.length > 1 ? () => setMovingWidgetId(widget.id) : undefined}
@@ -330,18 +326,13 @@ export function PatientChartGrid({
         {gridContent}
       </ScrollArea>
 
-      {/* Shared concept picker dialog */}
-      <ConceptPickerDialog
+      {/* Unified editor: config (concepts included) + SQL + live preview */}
+      <PatientWidgetEditorSheet
+        widgetId={editingWidgetId}
         open={editingWidgetId !== null}
         onOpenChange={(open) => {
           if (!open) setEditingWidgetId(null)
         }}
-        config={
-          (editingWidget?.config as Record<string, unknown>) ?? { conceptIds: [] }
-        }
-        schema={editingWidgetSchema}
-        initialTab={editingInitialTab}
-        onConfirm={handleConceptsConfirm}
       />
 
       {/* Plugin editor sidebar */}
