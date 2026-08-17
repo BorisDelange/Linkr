@@ -20,7 +20,7 @@ import { Filter } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
 import { DashboardItemEditDialog } from './DashboardItemEditDialog'
-import { DASHBOARD_GRID, computeFitRows, colWidthFor, FIT_ROWS } from './dashboard-grid'
+import { DASHBOARD_GRID, computeFitRows, gridBackgroundStyle, FIT_ROWS } from './dashboard-grid'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -357,19 +357,13 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
   // and last cells are visible right at the border. Lines past the last widget read as free grid.
   const gridBackground = useMemo(() => {
     if (!editMode) return undefined
-    const { rowHeight } = gridConfig
-    const colWidth = colWidthFor(containerWidth)
-    if (colWidth <= 0 || rowHeight <= 0) return undefined
-    return {
-      position: 'absolute' as const,
-      inset: 0,
-      backgroundImage:
-        'linear-gradient(to right, var(--color-border) 1px, transparent 1px),' +
-        'linear-gradient(to bottom, var(--color-border) 1px, transparent 1px)',
-      backgroundSize: `${colWidth}px ${rowHeight}px`,
-      backgroundPosition: '0 0',
-      opacity: 0.4,
-    } as const
+    return gridBackgroundStyle({
+      cols: gridConfig.cols,
+      containerWidth,
+      rowHeight: gridConfig.rowHeight,
+      margin: gridConfig.margin,
+      containerPadding: gridConfig.containerPadding,
+    })
   }, [editMode, gridConfig, containerWidth])
 
   // Heights are driven by the measured viewport (the Radix scroll viewport uses display:table, so

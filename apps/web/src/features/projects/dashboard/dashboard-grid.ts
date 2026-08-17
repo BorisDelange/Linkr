@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+
 /** Dashboard grid layout constants — shared by the grid renderer and the widget editor preview.
  *
  *  Spacing model: the grid uses jointive cells (react-grid-layout margin 0) flush to the container
@@ -213,6 +215,41 @@ export function measureFitRows(): number | null {
   const height = viewport.clientHeight
   const fit = computeFitRows(width, height)
   return fit ? fit.rows : null
+}
+
+/** Geometry of a react-grid-layout container, in the library's own terms. `margin`/`containerPadding`
+ *  are 0 on dashboards (jointive cells) but not on the patient-data boards, so the helper below
+ *  covers both. */
+export interface GridGeometry {
+  cols: number
+  containerWidth: number
+  rowHeight: number
+  margin: [number, number]
+  containerPadding: [number, number]
+}
+
+/** Faint cell backdrop painted in edit mode so widget placement is easier to read.
+ *
+ *  Mirrors react-grid-layout's own placement maths: a cell's top-left corner is at
+ *  `containerPadding + index × (cellSize + margin)`, with
+ *  `colWidth = (containerWidth − margin.x·(cols−1) − padding.x·2) / cols`. So the two gradients use
+ *  the cell PITCH (cell + margin) as their period and the container padding as their origin, and
+ *  every line lands exactly on a cell edge — jointive (dashboards, margin/padding 0) or spaced
+ *  (patient boards) alike. Returns undefined when the container hasn't been measured yet. */
+export function gridBackgroundStyle(geometry: GridGeometry): CSSProperties | undefined {
+  const { cols, containerWidth, rowHeight, margin, containerPadding } = geometry
+  const colWidth = (containerWidth - margin[0] * (cols - 1) - containerPadding[0] * 2) / cols
+  if (colWidth <= 0 || rowHeight <= 0) return undefined
+  return {
+    position: 'absolute',
+    inset: 0,
+    backgroundImage:
+      'linear-gradient(to right, var(--color-border) 1px, transparent 1px),' +
+      'linear-gradient(to bottom, var(--color-border) 1px, transparent 1px)',
+    backgroundSize: `${colWidth + margin[0]}px ${rowHeight + margin[1]}px`,
+    backgroundPosition: `${containerPadding[0]}px ${containerPadding[1]}px`,
+    opacity: 0.4,
+  }
 }
 
 /** Visible pixel size of a widget occupying w×h grid cells, given the grid container's pixel width.

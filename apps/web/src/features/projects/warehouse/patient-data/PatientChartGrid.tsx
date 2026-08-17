@@ -8,6 +8,7 @@ import type { PatientDashboardTab, PatientDashboardWidget } from '@/types'
 import { MoveWidgetDialog } from '@/features/projects/dashboard/MoveWidgetDialog'
 import { DashboardItemEditDialog } from '@/features/projects/dashboard/DashboardItemEditDialog'
 import type { DashboardTreeRow } from '@/features/projects/dashboard/dashboard-tree'
+import { gridBackgroundStyle } from '@/features/projects/dashboard/dashboard-grid'
 import { WidgetCard } from '@/features/projects/dashboard/WidgetCard'
 import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
 import { WarehousePluginEditorSheet } from './WarehousePluginEditorSheet'
@@ -121,6 +122,7 @@ function isComponentPlugin(pluginId: string): boolean {
 }
 
 export const GRID_ROWS = 48
+const GRID_COLS = 48
 const DEFAULT_SPACING = 8
 const PADDING: [number, number] = [12, 12]
 /** Rows a non-fitted board scrolls over, instead of squeezing into the viewport. */
@@ -261,12 +263,27 @@ export function PatientChartGrid({
     [widgets, updateWidgetLayout],
   )
 
+  // Same edit-mode backdrop as the dashboards grid, computed from THIS grid's geometry: patient
+  // cells are spaced (margin = widgetSpacing, containerPadding = PADDING), so the helper's pitch is
+  // cell + margin, offset by the padding. Works in both modes — only rowHeight differs between
+  // fit-to-height and scrolling.
+  const gridBackground = useMemo(() => {
+    if (!editMode) return undefined
+    return gridBackgroundStyle({
+      cols: GRID_COLS,
+      containerWidth,
+      rowHeight,
+      margin: MARGIN,
+      containerPadding: PADDING,
+    })
+  }, [editMode, containerWidth, rowHeight, MARGIN])
+
   const gridContent = (
     <GridLayout
       layout={layout}
       width={containerWidth}
       gridConfig={{
-        cols: 48,
+        cols: GRID_COLS,
         rowHeight: rowHeight,
         margin: MARGIN,
         containerPadding: PADDING,
@@ -323,7 +340,13 @@ export function PatientChartGrid({
   return (
     <div ref={measureRef} className="w-full h-full overflow-hidden">
       <ScrollArea className="h-full">
-        {gridContent}
+        {/* The backdrop sits INSIDE the scrolled content so the cells keep tracking the widgets
+            when a non-fitted board scrolls; the min-height keeps it reaching the bottom of the
+            viewport on a board shorter than one screen. */}
+        <div className="relative" style={editMode ? { minHeight: viewportHeight } : undefined}>
+          {gridBackground && <div className="pointer-events-none" style={gridBackground} />}
+          {gridContent}
+        </div>
       </ScrollArea>
 
       {/* Unified editor: config (concepts included) + SQL + live preview */}

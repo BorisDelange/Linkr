@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeFitRows, fitTabLayouts, FIT_ROWS } from './dashboard-grid'
+import { computeFitRows, fitTabLayouts, gridBackgroundStyle, FIT_ROWS } from './dashboard-grid'
 
 const box = (id: string, y: number, h: number, x = 0, w = 48) => ({ id, layout: { x, y, w, h } })
 const bottom = (m: Map<string, { y: number; h: number }>) =>
@@ -63,6 +63,55 @@ describe('fitTabLayouts', () => {
     const fitted = fitTabLayouts(widgets, 20, 'shrink-only')
     expect(bottom(fitted)).toBe(20)
     expect(fitted.get('bottom')!.h).toBeLessThan(14)
+  })
+})
+
+describe('gridBackgroundStyle', () => {
+  // react-grid-layout's own placement maths (calcGridColWidth / calcGridItemPosition), which the
+  // backdrop has to line up with.
+  const rglColWidth = (g: Parameters<typeof gridBackgroundStyle>[0]) =>
+    (g.containerWidth - g.margin[0] * (g.cols - 1) - g.containerPadding[0] * 2) / g.cols
+  const rglLeft = (g: Parameters<typeof gridBackgroundStyle>[0], x: number) =>
+    (rglColWidth(g) + g.margin[0]) * x + g.containerPadding[0]
+  const rglTop = (g: Parameters<typeof gridBackgroundStyle>[0], y: number) =>
+    (g.rowHeight + g.margin[1]) * y + g.containerPadding[1]
+  const px = (v: unknown, i: number) => parseFloat(String(v).split(' ')[i])
+
+  const geometries = [
+    // Dashboards: jointive cells, flush to the edge.
+    { cols: 48, containerWidth: 1200, rowHeight: 20, margin: [0, 0] as [number, number], containerPadding: [0, 0] as [number, number] },
+    // Patient boards, fit-to-height and scrolling, across the widgetSpacing range.
+    { cols: 48, containerWidth: 1440, rowHeight: 13.7, margin: [8, 8] as [number, number], containerPadding: [12, 12] as [number, number] },
+    { cols: 48, containerWidth: 900, rowHeight: 14, margin: [0, 0] as [number, number], containerPadding: [12, 12] as [number, number] },
+    { cols: 48, containerWidth: 2560, rowHeight: 22.5, margin: [24, 24] as [number, number], containerPadding: [12, 12] as [number, number] },
+  ]
+
+  it('lines land exactly on every cell edge react-grid-layout places a widget at', () => {
+    for (const g of geometries) {
+      const style = gridBackgroundStyle(g)!
+      expect(style).toBeDefined()
+      const [pitchX, pitchY] = [px(style.backgroundSize, 0), px(style.backgroundSize, 1)]
+      const [originX, originY] = [px(style.backgroundPosition, 0), px(style.backgroundPosition, 1)]
+      for (const i of [0, 1, 7, 24, 47]) {
+        expect(originX + pitchX * i).toBeCloseTo(rglLeft(g, i), 6)
+        expect(originY + pitchY * i).toBeCloseTo(rglTop(g, i), 6)
+      }
+    }
+  })
+
+  it('the last column line closes on the container edge (no half cell left over)', () => {
+    for (const g of geometries) {
+      const style = gridBackgroundStyle(g)!
+      const pitchX = px(style.backgroundSize, 0)
+      const originX = px(style.backgroundPosition, 0)
+      // Right edge of the last cell = containerWidth − padding.
+      expect(originX + pitchX * g.cols - g.margin[0]).toBeCloseTo(g.containerWidth - g.containerPadding[0], 6)
+    }
+  })
+
+  it('returns undefined before the container is measured', () => {
+    expect(gridBackgroundStyle({ cols: 48, containerWidth: 0, rowHeight: 20, margin: [0, 0], containerPadding: [0, 0] })).toBeUndefined()
+    expect(gridBackgroundStyle({ cols: 48, containerWidth: 1200, rowHeight: 0, margin: [0, 0], containerPadding: [0, 0] })).toBeUndefined()
   })
 })
 
