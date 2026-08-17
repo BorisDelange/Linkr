@@ -3,11 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { GridLayout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
-import {
-  usePatientChartStore,
-  type PatientChartWidget,
-  type TimelineConfig,
-} from '@/stores/patient-chart-store'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
+import type { PatientDashboardWidget } from '@/types'
 import { WidgetCard } from '@/features/projects/dashboard/WidgetCard'
 import { PatientSummaryWidget } from './widgets/PatientSummaryWidget'
 import { NotesWidget } from './widgets/NotesWidget'
@@ -30,42 +27,39 @@ import {
 } from '@/components/ui/alert-dialog'
 
 interface PatientChartGridProps {
-  widgets: PatientChartWidget[]
+  widgets: PatientDashboardWidget[]
   editMode: boolean
   hideTitleBars?: boolean
 }
 
-/** Widget types that support concept editing. */
-const CONCEPT_WIDGET_TYPES = new Set(['timeline'])
-
-/** Built-in concept widget types → their system plugin id (for the settings schema). */
-const CONCEPT_WIDGET_PLUGIN_ID: Record<string, string> = {
+/** Built-in widgets rendered by a local React component rather than by the plugin
+ *  runtime. Anything else is a real plugin and goes through the executor. */
+const BUILTIN_PLUGIN_IDS = {
+  patientSummary: 'linkr-widget-patient-summary',
+  notes: 'linkr-widget-notes',
   timeline: 'linkr-widget-timeline',
+} as const
+
+/** Built-in widgets whose config includes a concept selection. */
+const CONCEPT_PLUGIN_IDS = new Set<string>([BUILTIN_PLUGIN_IDS.timeline])
+
+function isBuiltin(pluginId: string): boolean {
+  return (Object.values(BUILTIN_PLUGIN_IDS) as string[]).includes(pluginId)
 }
 
-/** Widget types that support plugin config editing. */
-const PLUGIN_WIDGET_TYPES = new Set(['plugin'])
-
-/** Widget types that have an edit button. */
-const EDITABLE_WIDGET_TYPES = new Set([...CONCEPT_WIDGET_TYPES, ...PLUGIN_WIDGET_TYPES])
-
 function renderWidgetContent(
-  widget: PatientChartWidget,
+  widget: PatientDashboardWidget,
   onConfigureConcepts?: () => void,
 ) {
-  switch (widget.type) {
-    case 'patient_summary':
+  switch (widget.pluginId) {
+    case BUILTIN_PLUGIN_IDS.patientSummary:
       return <PatientSummaryWidget />
-    case 'notes':
+    case BUILTIN_PLUGIN_IDS.notes:
       return <NotesWidget widgetId={widget.id} />
-    case 'timeline':
+    case BUILTIN_PLUGIN_IDS.timeline:
       return <TimelineWidget widgetId={widget.id} onConfigureConcepts={onConfigureConcepts} />
-    case 'plugin':
-      return <WarehousePluginWidgetRenderer widgetId={widget.id} />
     default:
-      return (
-        <div className="text-xs text-muted-foreground">Unknown widget</div>
-      )
+      return <WarehousePluginWidgetRenderer widgetId={widget.id} />
   }
 }
 
@@ -80,8 +74,12 @@ export function PatientChartGrid({
 }: PatientChartGridProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
-  const { updateWidgetLayout, removeWidget, renameWidget, updateWidgetConfig } =
-    usePatientChartStore()
+  // Narrow selectors: a bare usePatientChartStore() re-renders every widget on the
+  // grid whenever a patient or visit is selected.
+  const updateWidgetLayout = usePatientChartStore((s) => s.updateWidgetLayout)
+  const removeWidget = usePatientChartStore((s) => s.removeWidget)
+  const renameWidget = usePatientChartStore((s) => s.renameWidget)
+  const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
   // Outer ref: always overflow-hidden, used to measure available space.
   const measureRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
@@ -102,14 +100,14 @@ export function PatientChartGrid({
 
   // Settings schema for the editing concept-widget (drives the dialog's Settings tab).
   const editingWidgetSchema = editingWidget
-    ? getPlugin(CONCEPT_WIDGET_PLUGIN_ID[editingWidget.type] ?? '')?.manifest.configSchema
+    ? getPlugin(editingWidget.pluginId)?.manifest.configSchema
     : undefined
 
-  const handleEditWidget = useCallback((widget: PatientChartWidget) => {
-    if (CONCEPT_WIDGET_TYPES.has(widget.type)) {
+  const handleEditWidget = useCallback((widget: PatientDashboardWidget) => {
+    if (CONCEPT_PLUGIN_IDS.has(widget.pluginId)) {
       setEditingInitialTab('settings')
       setEditingWidgetId(widget.id)
-    } else if (PLUGIN_WIDGET_TYPES.has(widget.type)) {
+    } else if (!isBuiltin(widget.pluginId)) {
       setEditingPluginWidgetId(widget.id)
     }
   }, [])
@@ -179,7 +177,7 @@ export function PatientChartGrid({
   const handleConceptsConfirm = useCallback(
     (config: Record<string, unknown>) => {
       if (!editingWidget) return
-      updateWidgetConfig(editingWidget.id, config as unknown as TimelineConfig)
+      updateWidgetConfig(editingWidget.id, config)
       setEditingWidgetId(null)
     },
     [editingWidget, updateWidgetConfig],
@@ -210,14 +208,18 @@ export function PatientChartGrid({
           // Timeline's follow-legend can spill past the card; raise the grid
           // item on hover so it stacks above sibling widgets (each react-grid
           // item is its own transformed stacking context).
-          className={widget.type === 'timeline' ? 'patient-timeline-item' : undefined}
+          className={
+            widget.pluginId === BUILTIN_PLUGIN_IDS.timeline
+              ? 'patient-timeline-item'
+              : undefined
+          }
         >
           <WidgetCard
             title={localized(widget.name, lang)}
             onRemove={() => setConfirmDeleteWidgetId(widget.id)}
             onRename={(name) => renameWidget(widget.id, name)}
             onEdit={
-              EDITABLE_WIDGET_TYPES.has(widget.type)
+              CONCEPT_PLUGIN_IDS.has(widget.pluginId) || !isBuiltin(widget.pluginId)
                 ? () => handleEditWidget(widget)
                 : undefined
             }
@@ -226,7 +228,7 @@ export function PatientChartGrid({
           >
             {renderWidgetContent(
               widget,
-              CONCEPT_WIDGET_TYPES.has(widget.type)
+              CONCEPT_PLUGIN_IDS.has(widget.pluginId)
                 ? () => handleConfigureConcepts(widget.id)
                 : undefined,
             )}

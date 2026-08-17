@@ -102,6 +102,26 @@ arbitrated 2026-08-05; `xl-*` exporters are GPL-3.0 (compatible, no commercial l
 | 🔜 | 6. Presentation mode (port `splitBlocksIntoSlides` + `computeFitScale`, overlay, shortcuts) | M |
 | 🔜 | 7. Exports (md/HTML → DOCX/ODT/PDF via XL → PPTX via `pptxgenjs`) | L |
 
+## Patient data — [patient-data-plan.md](patient-data-plan.md)
+
+**Several patient-data dashboards per project**, as the Lab has several dashboards.
+Tabs, a 48-col grid, `editMode` and the shared `GenericConfigPanel` already exist — but
+there is no container *above* the tabs (one surface per project), and **everything
+persists to a single global `localStorage` key**, so tabs/widgets are browser-local:
+absent from the project export, from the server, and from git. Patient-data plugins are
+inline TS manifests bound by a hard-coded `SYSTEM_WIDGET_TYPE_MAP`, and
+`packages/default-plugins/` has no `patient-data/` sibling to `analyses/`.
+Arbitrated: harmonise plugin **storage/declaration**, keep the props contracts separate
+(patient widgets take OMOP context, lab ones take dataset columns/rows).
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | 1. Model + persistence (`PatientDashboard` container, storage IDB+API, model + Alembic + routes, localStorage migration) | L |
+| 🔜 | 2. Export / import / versioning (derived keys + byte-parity Python twin + golden fixture) | M |
+| 🔜 | 3. Widget affordances (reuse `WidgetCard` kebab: configure, duplicate, move, edit, delete) | M |
+| 🔜 | 4. Plugin harmonisation (`default-plugins/patient-data/`, component runtime, drop `SYSTEM_WIDGET_TYPE_MAP`) | M |
+| 🤔 | 5. Concept picker alignment + raw `conceptIds` vs concept-list references | M |
+
 ## OMOP C/CR migration
 
 **Built and manually validated** (2026-08-11): a mapping project's alignments are

@@ -10,6 +10,11 @@ import {
   apiDashboardTabStorage,
   apiDashboardWidgetStorage,
 } from '@/lib/api/dashboards'
+import {
+  apiPatientDashboardStorage,
+  apiPatientDashboardTabStorage,
+  apiPatientDashboardWidgetStorage,
+} from '@/lib/api/patient-dashboards'
 import { apiReadmeAttachmentStorage } from '@/lib/api/readme-attachments'
 import { apiWikiAttachmentStorage } from '@/lib/api/wiki-attachments'
 import { apiConceptSetStorage } from '@/lib/api/concept-sets'
@@ -74,6 +79,9 @@ export function createAPIStorage(): Storage {
     dashboards: apiDashboardStorage,
     dashboardTabs: apiDashboardTabStorage,
     dashboardWidgets: apiDashboardWidgetStorage,
+    patientDashboards: apiPatientDashboardStorage,
+    patientDashboardTabs: apiPatientDashboardTabStorage,
+    patientDashboardWidgets: apiPatientDashboardWidgetStorage,
     readmeAttachments: apiReadmeAttachmentStorage,
     wikiAttachments: apiWikiAttachmentStorage,
     dqRuleSets: apiDqRuleSetStorage,

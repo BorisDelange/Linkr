@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, EtlQualityCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, ConceptListStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, PatientDashboard, PatientDashboardTab, PatientDashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, EtlQualityCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, PatientDashboardStorage, PatientDashboardTabStorage, PatientDashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, ConceptListStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { SUGGESTION_CATEGORIES } from '@/types'
@@ -144,6 +144,27 @@ interface LinkrDB extends DBSchema {
   dashboard_widgets: {
     key: string
     value: DashboardWidget
+    indexes: {
+      'by-tab': string
+    }
+  }
+  patient_dashboards: {
+    key: string
+    value: PatientDashboard
+    indexes: {
+      'by-project': string
+    }
+  }
+  patient_dashboard_tabs: {
+    key: string
+    value: PatientDashboardTab
+    indexes: {
+      'by-dashboard': string
+    }
+  }
+  patient_dashboard_widgets: {
+    key: string
+    value: PatientDashboardWidget
     indexes: {
       'by-tab': string
     }
@@ -306,7 +327,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 39
+const DB_VERSION = 40
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -879,6 +900,19 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         if (!db.objectStoreNames.contains('concept_lists')) {
           const store = db.createObjectStore('concept_lists', { keyPath: 'id' })
           store.createIndex('by-project', 'projectUid')
+        }
+      }
+      // Version 40: Patient dashboards (boards, tabs, widgets) — previously
+      // localStorage-only, so there is nothing to migrate here; the store does a
+      // one-shot import on first load.
+      if (oldVersion < 40) {
+        if (!db.objectStoreNames.contains('patient_dashboards')) {
+          const boardStore = db.createObjectStore('patient_dashboards', { keyPath: 'id' })
+          boardStore.createIndex('by-project', 'projectUid')
+          const tabStore = db.createObjectStore('patient_dashboard_tabs', { keyPath: 'id' })
+          tabStore.createIndex('by-dashboard', 'patientDashboardId')
+          const widgetStore = db.createObjectStore('patient_dashboard_widgets', { keyPath: 'id' })
+          widgetStore.createIndex('by-tab', 'tabId')
         }
       }
     },
@@ -1619,6 +1653,121 @@ class IDBDashboardWidgetStorage implements DashboardWidgetStorage {
     const db = await getDB()
     const items = await db.getAllFromIndex('dashboard_widgets', 'by-tab', tabId)
     const tx = db.transaction('dashboard_widgets', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
+class IDBPatientDashboardStorage implements PatientDashboardStorage {
+  async getByProject(projectUid: string): Promise<PatientDashboard[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('patient_dashboards', 'by-project', projectUid)
+  }
+
+  async getById(id: string): Promise<PatientDashboard | undefined> {
+    const db = await getDB()
+    return db.get('patient_dashboards', id)
+  }
+
+  async create(dashboard: PatientDashboard): Promise<void> {
+    const db = await getDB()
+    await db.add('patient_dashboards', dashboard)
+  }
+
+  async update(id: string, changes: Partial<PatientDashboard>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('patient_dashboards', id)
+    if (!existing) return
+    await db.put('patient_dashboards', {
+      ...existing,
+      ...changes,
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('patient_dashboards', id)
+  }
+}
+
+class IDBPatientDashboardTabStorage implements PatientDashboardTabStorage {
+  async getByDashboard(patientDashboardId: string): Promise<PatientDashboardTab[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('patient_dashboard_tabs', 'by-dashboard', patientDashboardId)
+  }
+
+  async getById(id: string): Promise<PatientDashboardTab | undefined> {
+    const db = await getDB()
+    return db.get('patient_dashboard_tabs', id)
+  }
+
+  async create(tab: PatientDashboardTab): Promise<void> {
+    const db = await getDB()
+    await db.add('patient_dashboard_tabs', tab)
+  }
+
+  async update(id: string, changes: Partial<PatientDashboardTab>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('patient_dashboard_tabs', id)
+    if (!existing) return
+    await db.put('patient_dashboard_tabs', { ...existing, ...changes })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('patient_dashboard_tabs', id)
+  }
+
+  async deleteByDashboard(patientDashboardId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex(
+      'patient_dashboard_tabs',
+      'by-dashboard',
+      patientDashboardId,
+    )
+    const tx = db.transaction('patient_dashboard_tabs', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
+class IDBPatientDashboardWidgetStorage implements PatientDashboardWidgetStorage {
+  async getByTab(tabId: string): Promise<PatientDashboardWidget[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('patient_dashboard_widgets', 'by-tab', tabId)
+  }
+
+  async getById(id: string): Promise<PatientDashboardWidget | undefined> {
+    const db = await getDB()
+    return db.get('patient_dashboard_widgets', id)
+  }
+
+  async create(widget: PatientDashboardWidget): Promise<void> {
+    const db = await getDB()
+    await db.add('patient_dashboard_widgets', widget)
+  }
+
+  async update(id: string, changes: Partial<PatientDashboardWidget>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('patient_dashboard_widgets', id)
+    if (!existing) return
+    await db.put('patient_dashboard_widgets', { ...existing, ...changes })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('patient_dashboard_widgets', id)
+  }
+
+  async deleteByTab(tabId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('patient_dashboard_widgets', 'by-tab', tabId)
+    const tx = db.transaction('patient_dashboard_widgets', 'readwrite')
     for (const item of items) {
       tx.store.delete(item.id)
     }
@@ -2519,6 +2668,9 @@ export function createIDBStorage(): Storage {
     dashboards: new IDBDashboardStorage(),
     dashboardTabs: new IDBDashboardTabStorage(),
     dashboardWidgets: new IDBDashboardWidgetStorage(),
+    patientDashboards: new IDBPatientDashboardStorage(),
+    patientDashboardTabs: new IDBPatientDashboardTabStorage(),
+    patientDashboardWidgets: new IDBPatientDashboardWidgetStorage(),
     wikiPages: new IDBWikiPageStorage(),
     wikiAttachments: new IDBWikiAttachmentStorage(),
     etlPipelines: new IDBEtlPipelineStorage(),

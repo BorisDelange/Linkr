@@ -578,6 +578,57 @@ export type LocalizedString = Record<string, string>
 
 export type Language = 'en' | 'fr'
 
+// --- Patient Dashboard Types ---
+//
+// A patient-data board: the Warehouse counterpart of a Lab `Dashboard`. Same flat,
+// id-linked shape (board → tabs → widgets) so the export key machinery, the widget
+// card and the grid are shared rather than duplicated. What differs is the binding:
+// a Lab widget reads a dataset's columns, a patient widget reads OMOP tables for the
+// currently selected patient, so there is no `datasetFileId` / `filterConfig` here.
+
+export interface PatientDashboard extends Seedable, Authored {
+  id: string
+  projectUid: string
+  name: LocalizedString
+  description?: LocalizedString
+  showWidgetTitles?: boolean
+  /** Pixel gap between widgets on the grid. Defaults to DASHBOARD_GRID.margin (12). */
+  widgetSpacing?: number
+  /** Scale row height so the whole tab fits the visible area (no vertical scroll). */
+  fitToHeight?: boolean
+  /** User-facing semver (default '0.1.0'). Portable across export/import. */
+  version?: string
+  displayOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PatientDashboardTab {
+  id: string
+  patientDashboardId: string
+  name: LocalizedString
+  /** Optional multilingual description, shown as a hover tooltip on the tab. */
+  description?: LocalizedString
+  displayOrder: number
+}
+
+export interface PatientDashboardWidget {
+  id: string
+  tabId: string
+  name: LocalizedString
+  /** Optional multilingual description, shown via an info bubble on the widget. */
+  description?: LocalizedString
+  layout: { x: number; y: number; w: number; h: number }
+  /** Registry id of the plugin rendering this widget. */
+  pluginId: string
+  /** Only set for script-runtime plugins; component plugins ignore it. */
+  language?: 'python' | 'r'
+  config: Record<string, unknown>
+  /** Plugin version captured when the widget was created/last edited, for drift
+   *  detection. Absent on widgets created before this existed = neutral. */
+  pluginVersion?: string
+}
+
 // --- Cohort Types (re-exported from cohort.ts) ---
 
 export type {

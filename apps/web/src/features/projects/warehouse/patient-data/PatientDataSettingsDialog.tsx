@@ -17,33 +17,34 @@ import { useSaveForm } from '@/hooks/use-save-form'
 interface PatientDataSettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  projectUid: string
+  dashboardId: string
 }
 
 export function PatientDataSettingsDialog({
   open,
   onOpenChange,
-  projectUid,
+  dashboardId,
 }: PatientDataSettingsDialogProps) {
   const { t } = useTranslation()
-  const { showWidgetTitles, setShowWidgetTitles } = usePatientChartStore()
+  const showTitles = usePatientChartStore(
+    (s) => s.dashboards.find((d) => d.id === dashboardId)?.showWidgetTitles ?? true,
+  )
+  const setShowWidgetTitles = usePatientChartStore((s) => s.setShowWidgetTitles)
 
-  const [localShowTitles, setLocalShowTitles] = useState(showWidgetTitles[projectUid] ?? true)
+  const [localShowTitles, setLocalShowTitles] = useState(showTitles)
 
   useEffect(() => {
-    if (open) {
-      setLocalShowTitles(showWidgetTitles[projectUid] ?? true)
-    }
-  }, [open, showWidgetTitles, projectUid])
+    if (open) setLocalShowTitles(showTitles)
+  }, [open, showTitles])
 
   const handleSave = () => {
-    setShowWidgetTitles(projectUid, localShowTitles)
+    setShowWidgetTitles(dashboardId, localShowTitles)
     onOpenChange(false)
   }
 
   const { canSaveNow, save } = useSaveForm({
     current: localShowTitles,
-    baseline: showWidgetTitles[projectUid] ?? true,
+    baseline: showTitles,
     onSave: handleSave,
   })
 

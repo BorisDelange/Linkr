@@ -19,10 +19,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
-import {
-  usePatientChartStore,
-  type PatientChartTab,
-} from '@/stores/patient-chart-store'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
+import type { PatientDashboardTab } from '@/types'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -42,7 +40,7 @@ import {
 } from '@/components/ui/alert-dialog'
 
 interface PatientChartTabBarProps {
-  projectUid: string
+  dashboardId: string
   editMode: boolean
 }
 
@@ -55,7 +53,7 @@ function SortableTab({
   onClose,
   onStartRename,
 }: {
-  tab: PatientChartTab
+  tab: PatientDashboardTab
   isActive: boolean
   canClose: boolean
   editMode: boolean
@@ -128,9 +126,9 @@ function TabRenameInput({
   siblingNames,
   onFinish,
 }: {
-  tab: PatientChartTab
+  tab: PatientDashboardTab
   isActive: boolean
-  /** Names of the other tabs in this project (lowercased) — for dup detection. */
+  /** Names of the other tabs in this board (lowercased) — for dup detection. */
   siblingNames: Set<string>
   onFinish: (newName: string | null) => void
 }) {
@@ -187,27 +185,27 @@ function TabRenameInput({
   )
 }
 
-export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarProps) {
+export function PatientChartTabBar({ dashboardId, editMode }: PatientChartTabBarProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
-  const {
-    tabs: allTabs,
-    activeTabId,
-    addTab,
-    removeTab,
-    renameTab,
-    reorderTabs,
-    setActiveTab,
-  } = usePatientChartStore()
+  // Narrow selectors: a bare usePatientChartStore() re-renders the whole tab strip
+  // on every patient selection change (the same freeze the dashboard grid documents).
+  const allTabs = usePatientChartStore((s) => s.tabs)
+  const activeTabId = usePatientChartStore((s) => s.activeTabId)
+  const addTab = usePatientChartStore((s) => s.addTab)
+  const removeTab = usePatientChartStore((s) => s.removeTab)
+  const renameTab = usePatientChartStore((s) => s.renameTab)
+  const reorderTabs = usePatientChartStore((s) => s.reorderTabs)
+  const setActiveTab = usePatientChartStore((s) => s.setActiveTab)
 
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const [confirmDeleteTabId, setConfirmDeleteTabId] = useState<string | null>(null)
   const confirmDeleteTab = confirmDeleteTabId ? allTabs.find(t => t.id === confirmDeleteTabId) : null
 
   const tabs = allTabs
-    .filter((tab) => tab.projectUid === projectUid)
+    .filter((tab) => tab.patientDashboardId === dashboardId)
     .sort((a, b) => a.displayOrder - b.displayOrder)
-  const currentActiveId = activeTabId[projectUid] ?? tabs[0]?.id
+  const currentActiveId = activeTabId[dashboardId] ?? tabs[0]?.id
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -221,7 +219,7 @@ export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarP
     const newIndex = tabs.findIndex((tab) => tab.id === over.id)
     const reordered = arrayMove(tabs, oldIndex, newIndex)
     reorderTabs(
-      projectUid,
+      dashboardId,
       reordered.map((tab) => tab.id),
     )
   }
@@ -236,12 +234,12 @@ export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarP
   const handleRenameFinish = useCallback((tabId: string, newName: string | null) => {
     if (newName) {
       const exists = allTabs.some(
-        (t) => t.projectUid === projectUid && t.id !== tabId && localized(t.name, lang).toLowerCase() === newName.toLowerCase(),
+        (t) => t.patientDashboardId === dashboardId && t.id !== tabId && localized(t.name, lang).toLowerCase() === newName.toLowerCase(),
       )
       if (!exists) renameTab(tabId, newName)
     }
     setRenamingTabId(null)
-  }, [renameTab, allTabs, projectUid, lang])
+  }, [renameTab, allTabs, dashboardId, lang])
 
   return (
     <>
@@ -274,7 +272,7 @@ export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarP
                     isActive={tab.id === currentActiveId}
                     canClose={tabs.length > 1}
                     editMode={editMode}
-                    onActivate={() => setActiveTab(projectUid, tab.id)}
+                    onActivate={() => setActiveTab(dashboardId, tab.id)}
                     onClose={() => setConfirmDeleteTabId(tab.id)}
                     onStartRename={() => setRenamingTabId(tab.id)}
                   />
@@ -285,7 +283,7 @@ export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarP
         </div>
         {editMode && (
           <button
-            onClick={() => addTab(projectUid)}
+            onClick={() => addTab(dashboardId)}
             className="flex items-center gap-1 border-b-2 border-transparent px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             title={t('dashboard.add_tab')}
           >

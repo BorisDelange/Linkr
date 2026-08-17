@@ -18,6 +18,7 @@ from app.api.v1.routes.cohorts import router as cohorts_router
 from app.api.v1.routes.concept_lists import router as concept_lists_router
 from app.api.v1.routes.concept_sets import router as concept_sets_router
 from app.api.v1.routes.dashboards import router as dashboards_router
+from app.api.v1.routes.patient_dashboards import router as patient_dashboards_router
 from app.api.v1.routes.attachments import readme_router, wiki_router as wiki_attachments_router
 from app.api.v1.routes.ide_connections import router as ide_connections_router
 from app.api.v1.routes.user_plugins import router as user_plugins_router
@@ -184,6 +185,7 @@ app.include_router(storage_router, prefix="/api/v1")
 app.include_router(cohorts_router, prefix="/api/v1")
 app.include_router(concept_lists_router, prefix="/api/v1")
 app.include_router(dashboards_router, prefix="/api/v1")
+app.include_router(patient_dashboards_router, prefix="/api/v1")
 app.include_router(readme_router, prefix="/api/v1")
 app.include_router(wiki_attachments_router, prefix="/api/v1")
 app.include_router(dq_rule_sets_router, prefix="/api/v1")

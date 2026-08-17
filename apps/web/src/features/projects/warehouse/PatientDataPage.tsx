@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -37,18 +37,48 @@ export function PatientDataPage() {
   const dataSourceId = mappedSource?.id
   const schemaMapping = mappedSource?.schemaMapping
 
-  const { tabs, widgets, activeTabId, showWidgetTitles, ensureDefaults } = usePatientChartStore()
+  // Narrow selectors: a bare usePatientChartStore() re-renders the page (and the
+  // whole grid under it) on every patient/visit selection change.
+  const dashboards = usePatientChartStore((s) => s.dashboards)
+  const tabs = usePatientChartStore((s) => s.tabs)
+  const widgets = usePatientChartStore((s) => s.widgets)
+  const activeTabId = usePatientChartStore((s) => s.activeTabId)
+  const activeDashboardId = usePatientChartStore((s) => s.activeDashboardId)
+  const loaded = usePatientChartStore((s) => s.loaded && s.activeProjectUid === projectUid)
+  const loadProjectDashboards = usePatientChartStore((s) => s.loadProjectDashboards)
+  const createDashboard = usePatientChartStore((s) => s.createDashboard)
 
-  // Ensure default tabs+widgets exist for this project on first visit
   useEffect(() => {
-    if (projectUid) ensureDefaults(projectUid)
-  }, [projectUid, ensureDefaults])
+    if (projectUid) loadProjectDashboards(projectUid)
+  }, [projectUid, loadProjectDashboards])
 
-  const projectTabs = tabs
-    .filter((tab) => tab.projectUid === projectUid)
+  const projectBoards = dashboards
+    .filter((d) => d.projectUid === projectUid)
     .sort((a, b) => a.displayOrder - b.displayOrder)
-  const currentTabId = activeTabId[projectUid] ?? projectTabs[0]?.id
-  const tabWidgets = widgets.filter((w) => w.tabId === currentTabId)
+  const currentBoard =
+    projectBoards.find((d) => d.id === activeDashboardId[projectUid]) ?? projectBoards[0]
+
+  // A project with no board yet gets one on first visit, so the page is usable
+  // without an explicit "create a board" step.
+  const creatingRef = useRef(false)
+  useEffect(() => {
+    if (!projectUid || !canWrite) return
+    if (!loaded || projectBoards.length > 0 || creatingRef.current) return
+    creatingRef.current = true
+    createDashboard(projectUid, 'Patient data').finally(() => {
+      creatingRef.current = false
+    })
+  }, [projectUid, canWrite, loaded, projectBoards.length, createDashboard])
+
+  const boardTabs = currentBoard
+    ? tabs
+        .filter((tab) => tab.patientDashboardId === currentBoard.id)
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+    : []
+  const currentTabId = currentBoard
+    ? (activeTabId[currentBoard.id] ?? boardTabs[0]?.id)
+    : undefined
+  const tabWidgets = currentTabId ? widgets.filter((w) => w.tabId === currentTabId) : []
 
   // No data source
   if (!mappedSource) {
@@ -102,7 +132,9 @@ export function PatientDataPage() {
       <div className="flex h-full flex-col overflow-hidden">
         {/* Tab bar + actions */}
         <div className="flex items-center border-b px-3 shrink-0">
-          <PatientChartTabBar projectUid={projectUid} editMode={editMode} />
+          {currentBoard && (
+            <PatientChartTabBar dashboardId={currentBoard.id} editMode={editMode} />
+          )}
 
           <TooltipProvider delayDuration={300}>
             <div className="ml-auto flex items-center gap-1 py-1">
@@ -178,7 +210,7 @@ export function PatientDataPage() {
                 <PatientChartGrid
                   widgets={tabWidgets}
                   editMode={editMode}
-                  hideTitleBars={(showWidgetTitles[projectUid] ?? true) === false}
+                  hideTitleBars={(currentBoard?.showWidgetTitles ?? true) === false}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center p-8">
@@ -223,11 +255,13 @@ export function PatientDataPage() {
           tabId={currentTabId ?? ''}
         />
 
-        <PatientDataSettingsDialog
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          projectUid={projectUid}
-        />
+        {currentBoard && (
+          <PatientDataSettingsDialog
+            open={settingsOpen}
+            onOpenChange={setSettingsOpen}
+            dashboardId={currentBoard.id}
+          />
+        )}
       </div>
     </PatientChartContext.Provider>
   )

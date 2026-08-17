@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   usePatientChartStore,
-  type PluginWidgetConfig,
 } from '@/stores/patient-chart-store'
 import {
   Dialog,
@@ -24,7 +23,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ArrowLeft } from 'lucide-react'
 import { getWarehousePlugins } from '@/lib/plugins/registry'
-import { SYSTEM_WIDGET_TYPE_MAP } from '@/lib/plugins/builtin-widget-plugins'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginPicker } from '@/components/PluginPicker'
 import type { Plugin, PluginConfigField } from '@/types/plugin'
@@ -42,7 +40,7 @@ export function AddPatientWidgetDialog({
 }: AddPatientWidgetDialogProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
-  const { addWidget } = usePatientChartStore()
+  const addWidget = usePatientChartStore((s) => s.addWidget)
 
   // Widget name
   const [widgetName, setWidgetName] = useState('')
@@ -68,32 +66,24 @@ export function AddPatientWidgetDialog({
     const m = plugin.manifest
     const defaultName = m.name?.[lang] ?? m.name?.en ?? m.id
 
-    // Built-in system widget → add directly as its native widget type.
-    const systemType = SYSTEM_WIDGET_TYPE_MAP[m.id]
-    if (systemType) {
-      addWidget(tabId, systemType, widgetName.trim() || defaultName)
-      resetAndClose()
-      return
-    }
-
-    // Custom plugin → config step when it needs configuration / language choice.
+    // A widget is always a plugin reference now, so built-in and custom plugins
+    // take the same path; only the config step differs.
     const hasConfig = m.configSchema && Object.keys(m.configSchema).length > 0
     const hasBothLangs = !!(plugin.templates?.python && plugin.templates?.r)
-    const defaultLang: 'python' | 'r' = plugin.templates?.python ? 'python' : 'r'
+    const defaultLang: 'python' | 'r' | undefined = plugin.templates
+      ? (plugin.templates.python ? 'python' : 'r')
+      : undefined
 
     setWidgetName((prev) => prev || defaultName)
 
-    if (hasConfig || hasBothLangs) {
+    // A built-in has a configSchema but no templates: it is configured after
+    // insertion (via the widget's own Edit), not through this step.
+    if (plugin.templates && (hasConfig || hasBothLangs)) {
       setConfigPlugin(plugin)
       setPluginConfig({})
-      setPluginLanguage(defaultLang)
+      setPluginLanguage(defaultLang ?? 'python')
     } else {
-      const config: PluginWidgetConfig = {
-        pluginId: m.id,
-        language: defaultLang,
-        pluginConfig: {},
-      }
-      addWidget(tabId, 'plugin', widgetName.trim() || defaultName, config)
+      addWidget(tabId, m.id, widgetName.trim() || defaultName, {}, defaultLang)
       resetAndClose()
     }
   }
@@ -101,12 +91,13 @@ export function AddPatientWidgetDialog({
   const handleConfirmPlugin = () => {
     if (!configPlugin) return
     const fallbackName = configPlugin.manifest.name?.[lang] ?? configPlugin.manifest.name?.en ?? configPlugin.manifest.id
-    const config: PluginWidgetConfig = {
-      pluginId: configPlugin.manifest.id,
-      language: pluginLanguage,
-      pluginConfig: { ...pluginConfig },
-    }
-    addWidget(tabId, 'plugin', widgetName.trim() || fallbackName, config)
+    addWidget(
+      tabId,
+      configPlugin.manifest.id,
+      widgetName.trim() || fallbackName,
+      { ...pluginConfig },
+      pluginLanguage,
+    )
     resetAndClose()
   }
 

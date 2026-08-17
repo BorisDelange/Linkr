@@ -115,13 +115,13 @@ function dateKey(d: unknown): number {
 export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidgetProps) {
   const { t } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
-  const { widgets, selectedPatientId, selectedVisitId } =
-    usePatientChartStore()
+  // Narrow selectors: a bare usePatientChartStore() re-renders every timeline on
+  // the grid whenever any widget or selection changes.
+  const widget = usePatientChartStore((s) => s.widgets.find((w) => w.id === widgetId))
+  const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId)
+  const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId)
 
-  const widget = widgets.find((w) => w.id === widgetId)
-  const config = (widget?.config ?? {
-    conceptIds: [],
-  }) as TimelineConfig
+  const config = (widget?.config ?? { conceptIds: [] }) as unknown as TimelineConfig
   const tabId = widget?.tabId ?? ''
 
   const yAxisFromZero = config.yAxisFromZero ?? false

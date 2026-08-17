@@ -4,6 +4,11 @@ from app.models.cohort import Cohort
 from app.models.concept_list import ConceptList
 from app.models.concept_set import ConceptSet
 from app.models.dashboard import Dashboard, DashboardTab, DashboardWidget
+from app.models.patient_dashboard import (
+    PatientDashboard,
+    PatientDashboardTab,
+    PatientDashboardWidget,
+)
 from app.models.attachment import ReadmeAttachment, WikiAttachment
 from app.models.concept_stats_cache import ConceptStatsCache
 from app.models.data_catalog import DataCatalog
@@ -53,6 +58,9 @@ __all__ = [
     "Dashboard",
     "DashboardTab",
     "DashboardWidget",
+    "PatientDashboard",
+    "PatientDashboardTab",
+    "PatientDashboardWidget",
     "ReadmeAttachment",
     "WikiAttachment",
     "ConceptStatsCache",

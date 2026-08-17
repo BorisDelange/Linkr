@@ -24,11 +24,8 @@ import { CodeEditor } from '@/components/editor/CodeEditor'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
-import {
-  usePatientChartStore,
-  type PluginWidgetConfig,
-  type PatientChartWidget,
-} from '@/stores/patient-chart-store'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
+import type { PatientDashboardWidget } from '@/types'
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { buildTimelineQuery, buildPatientVisitSummaryQuery } from '@/lib/duckdb/patient-data-queries'
@@ -69,16 +66,16 @@ function EditorContent({
   widget,
   onClose,
 }: {
-  widget: PatientChartWidget
+  widget: PatientDashboardWidget
   onClose: () => void
 }) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
   const { dataSourceId, schemaMapping, projectUid } = usePatientChartContext()
   const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
+  const updateWidgetLanguage = usePatientChartStore((s) => s.updateWidgetLanguage)
 
-  const config = widget.config as PluginWidgetConfig | undefined
-  const pluginId = config?.pluginId
+  const pluginId = widget.pluginId
   const plugin = pluginId ? getPlugin(pluginId) : undefined
 
   const pluginName = plugin
@@ -90,17 +87,17 @@ function EditorContent({
   const needsConceptPicker = plugin?.manifest.needsConceptPicker ?? false
 
   // Language
-  const language: 'python' | 'r' = config?.language ?? (plugin?.templates?.python ? 'python' : 'r')
+  const language: 'python' | 'r' = widget.language ?? (plugin?.templates?.python ? 'python' : 'r')
 
   // Local plugin config state
-  const [pluginConfig, setPluginConfig] = useState<Record<string, unknown>>(config?.pluginConfig ?? {})
+  const [pluginConfig, setPluginConfig] = useState<Record<string, unknown>>(widget.config ?? {})
 
   // Code customization state
   const [isCodeCustomized, setIsCodeCustomized] = useState(
-    (config?.pluginConfig?.isCodeCustomized as boolean) ?? false,
+    (widget.config?.isCodeCustomized as boolean) ?? false,
   )
   const [userCode, setUserCode] = useState(
-    (config?.pluginConfig?.userCode as string) ?? '',
+    (widget.config?.userCode as string) ?? '',
   )
 
   // Tab state
@@ -124,10 +121,10 @@ function EditorContent({
 
   // Reset state when widget changes
   useEffect(() => {
-    const cfg = widget.config as PluginWidgetConfig | undefined
-    setPluginConfig(cfg?.pluginConfig ?? {})
-    setIsCodeCustomized((cfg?.pluginConfig?.isCodeCustomized as boolean) ?? false)
-    setUserCode((cfg?.pluginConfig?.userCode as string) ?? '')
+    const cfg = widget.config ?? {}
+    setPluginConfig(cfg)
+    setIsCodeCustomized((cfg.isCodeCustomized as boolean) ?? false)
+    setUserCode((cfg.userCode as string) ?? '')
     setResult(null)
   }, [widget.id])
 
@@ -160,12 +157,8 @@ function EditorContent({
 
   // Persist changes to store
   const persistConfig = useCallback((newPluginConfig: Record<string, unknown>) => {
-    if (!config) return
-    updateWidgetConfig(widget.id, {
-      ...config,
-      pluginConfig: newPluginConfig,
-    })
-  }, [widget.id, config, updateWidgetConfig])
+    updateWidgetConfig(widget.id, newPluginConfig)
+  }, [widget.id, updateWidgetConfig])
 
   // Config changes
   const handleConfigChange = useCallback((changes: Record<string, unknown>) => {
@@ -190,16 +183,12 @@ function EditorContent({
 
   // Language change
   const handleLanguageChange = useCallback((newLang: 'python' | 'r') => {
-    if (!config) return
-    updateWidgetConfig(widget.id, {
-      ...config,
-      language: newLang,
-    })
+    updateWidgetLanguage(widget.id, newLang)
     // Reset code customization when language changes
     setIsCodeCustomized(false)
     setUserCode('')
     persistConfig({ ...pluginConfig, isCodeCustomized: false, userCode: undefined })
-  }, [widget.id, config, updateWidgetConfig, pluginConfig, persistConfig])
+  }, [widget.id, updateWidgetLanguage, pluginConfig, persistConfig])
 
   // Code editing
   const handleCodeChange = useCallback((value: string | undefined) => {

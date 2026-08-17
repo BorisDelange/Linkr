@@ -2,10 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
-import {
-  usePatientChartStore,
-  type PluginWidgetConfig,
-} from '@/stores/patient-chart-store'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
@@ -30,10 +27,9 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
   const [loading, setLoading] = useState(false)
   const [runCount, setRunCount] = useState(0)
 
-  const config = widget?.config as PluginWidgetConfig | undefined
-  const pluginId = config?.pluginId
-  const language = config?.language
-  const pluginConfig = config?.pluginConfig
+  const pluginId = widget?.pluginId
+  const language = widget?.language
+  const pluginConfig = widget?.config
 
   const plugin = pluginId ? getPlugin(pluginId) : null
 

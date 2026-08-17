@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, PatientDashboard, PatientDashboardTab, PatientDashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -220,6 +220,35 @@ export interface DashboardWidgetStorage {
   getById(id: string): Promise<DashboardWidget | undefined>
   create(widget: DashboardWidget): Promise<void>
   update(id: string, changes: Partial<DashboardWidget>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByTab(tabId: string): Promise<void>
+}
+
+/** Storage interface for patient dashboard persistence. */
+export interface PatientDashboardStorage {
+  getByProject(projectUid: string): Promise<PatientDashboard[]>
+  getById(id: string): Promise<PatientDashboard | undefined>
+  create(dashboard: PatientDashboard): Promise<void>
+  update(id: string, changes: Partial<PatientDashboard>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
+/** Storage interface for patient dashboard tab persistence. */
+export interface PatientDashboardTabStorage {
+  getByDashboard(patientDashboardId: string): Promise<PatientDashboardTab[]>
+  getById(id: string): Promise<PatientDashboardTab | undefined>
+  create(tab: PatientDashboardTab): Promise<void>
+  update(id: string, changes: Partial<PatientDashboardTab>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByDashboard(patientDashboardId: string): Promise<void>
+}
+
+/** Storage interface for patient dashboard widget persistence. */
+export interface PatientDashboardWidgetStorage {
+  getByTab(tabId: string): Promise<PatientDashboardWidget[]>
+  getById(id: string): Promise<PatientDashboardWidget | undefined>
+  create(widget: PatientDashboardWidget): Promise<void>
+  update(id: string, changes: Partial<PatientDashboardWidget>): Promise<void>
   delete(id: string): Promise<void>
   deleteByTab(tabId: string): Promise<void>
 }
@@ -490,6 +519,9 @@ export interface Storage {
   dashboards: DashboardStorage
   dashboardTabs: DashboardTabStorage
   dashboardWidgets: DashboardWidgetStorage
+  patientDashboards: PatientDashboardStorage
+  patientDashboardTabs: PatientDashboardTabStorage
+  patientDashboardWidgets: PatientDashboardWidgetStorage
   wikiPages: WikiPageStorage
   wikiAttachments: WikiAttachmentStorage
   etlPipelines: EtlPipelineStorage
