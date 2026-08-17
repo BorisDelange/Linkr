@@ -56,6 +56,9 @@ interface PatientChartState {
 
   activeProjectUid: string | null
   loaded: boolean
+  /** Set when the last load failed, so the page can say so instead of rendering
+   *  an empty board list that looks like data loss. */
+  loadError: string | null
   /** Active board per project, and active tab per board. */
   activeDashboardId: Record<string, string>
   activeTabId: Record<string, string>
@@ -284,6 +287,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
   widgets: [],
   activeProjectUid: null,
   loaded: false,
+  loadError: null,
   activeDashboardId: {},
   activeTabId: {},
 
@@ -291,6 +295,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     if (get().activeProjectUid === projectUid && get().loaded) return
 
     try {
+      set({ loadError: null })
       const storage = getStorage()
       let dashboards = await storage.patientDashboards.getByProject(projectUid)
 
@@ -349,8 +354,12 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
           : s.activeDashboardId,
       }))
     } catch (e) {
-      console.warn('[patient-chart-store] load error:', e)
-      set({ activeProjectUid: projectUid, loaded: true })
+      // Do NOT mark this project loaded: `loaded` is what the guard above reads,
+      // so a transient API failure would otherwise latch an empty board list for
+      // the rest of the session and read as "my boards disappeared". Leaving the
+      // flag down lets the next mount retry.
+      console.error('[patient-chart-store] load error:', e)
+      set({ loaded: false, loadError: e instanceof Error ? e.message : String(e) })
     }
   },
 

@@ -59,6 +59,7 @@ export function PatientDataListPage() {
 
   const dashboards = usePatientChartStore((s) => s.dashboards)
   const loaded = usePatientChartStore((s) => s.loaded && s.activeProjectUid === projectUid)
+  const loadError = usePatientChartStore((s) => s.loadError)
   const loadProjectDashboards = usePatientChartStore((s) => s.loadProjectDashboards)
   const createDashboard = usePatientChartStore((s) => s.createDashboard)
   const removeDashboard = usePatientChartStore((s) => s.removeDashboard)
@@ -111,6 +112,18 @@ export function PatientDataListPage() {
       removeDashboard(deleteTarget)
       setDeleteTarget(null)
     }
+  }
+
+  // An empty list after a failed load reads as "my boards are gone", so say what
+  // actually happened instead.
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-4xl px-6 py-10">
+        <h1 className="text-2xl font-bold text-foreground">{t('patient_data.title')}</h1>
+        <p className="mt-2 text-sm text-destructive">{t('common.load_failed')}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
+      </div>
+    )
   }
 
   if (!loaded) return null
