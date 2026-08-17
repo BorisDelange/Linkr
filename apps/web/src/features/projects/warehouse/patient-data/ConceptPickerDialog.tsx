@@ -49,6 +49,7 @@ import {
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptStatsPopover } from './ConceptStatsPopover'
 import { useConcepts, type ConceptRow } from '../concepts/use-concepts'
+import { conceptCellContent } from '../concepts/concept-cells'
 import type { ConceptSorting } from '../concepts/concept-queries'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import type { PluginConfigField } from '@/types/plugin'
@@ -753,21 +754,22 @@ export function ConceptPickerDialog({
                               toggleConcept(row.original.concept_id, row.original.concept_name)
                             }
                           >
-                            {row.getVisibleCells().map((cell) => {
-                              const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
-                              const raw = cell.getValue()
-                              const title = raw != null ? String(raw) : undefined
-                              return (
-                                <TableCell
-                                  key={cell.id}
-                                  className="overflow-hidden truncate text-xs"
-                                  style={{ maxWidth: cell.column.getSize() }}
-                                  title={title}
-                                >
-                                  {rendered}
-                                </TableCell>
-                              )
-                            })}
+                            {row.getVisibleCells().map((cell) => (
+                              // Same shared renderers as the Concepts page and the
+                              // cohort picker: a tooltip only when the text is cut
+                              // off, instead of a native `title` on every cell.
+                              <TableCell
+                                key={cell.id}
+                                className="overflow-hidden truncate text-xs"
+                                style={{ maxWidth: cell.column.getSize() }}
+                              >
+                                {conceptCellContent(
+                                  cell.column.id,
+                                  cell.getValue(),
+                                  flexRender(cell.column.columnDef.cell, cell.getContext()),
+                                )}
+                              </TableCell>
+                            ))}
                           </TableRow>
                         )
                       })

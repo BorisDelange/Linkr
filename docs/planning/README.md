@@ -114,13 +114,14 @@ inline TS manifests bound by a hard-coded `SYSTEM_WIDGET_TYPE_MAP`, and
 Arbitrated: harmonise plugin **storage/declaration**, keep the props contracts separate
 (patient widgets take OMOP context, lab ones take dataset columns/rows).
 
+**Steps 1–5 shipped 2026-08-17** (needs manual testing — see the plan's §10).
+
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 1. Model + persistence (`PatientDashboard` container, storage IDB+API, model + Alembic + routes, localStorage migration) | L |
-| 🔜 | 2. Export / import / versioning (derived keys + byte-parity Python twin + golden fixture) | M |
-| 🔜 | 3. Widget affordances (reuse `WidgetCard` kebab: configure, duplicate, move, edit, delete) | M |
-| 🔜 | 4. Plugin harmonisation (`default-plugins/patient-data/`, component runtime, drop `SYSTEM_WIDGET_TYPE_MAP`) | M |
-| 🤔 | 5. Concept picker alignment + raw `conceptIds` vs concept-list references | M |
+| ✅ | 1–5: `PatientDashboard` entity (IDB+API+Alembic), export/versioning with a byte-parity Python twin, full widget kebab, file-based plugins, shared concept cells | L |
+| 🔜 | **[TO TEST]** Manual: localStorage migration, server round-trip, export→reimport→export stability | S |
+| 🔜 | Pull group for patient boards (a selective pull carries them through unfiltered) | S |
+| 💤 | `ConceptPickerDialog` still ~950 lines with its own `useReactTable` | M |
 
 ## OMOP C/CR migration
 

@@ -286,11 +286,19 @@ building.
 
 | St | Step | Effort | Depends on |
 |----|------|--------|-----------|
-| 🔜 | 1. Model + persistence (+ localStorage migration, perf, seed fix) | L | — |
-| 🔜 | 2. Export / import / versioning (+ Python twin + golden) | M | 1 |
-| 🔜 | 3. Widget affordances (kebab, duplicate, move, edit) | M | 1 |
-| 🔜 | 4. Plugin harmonisation (`default-plugins/patient-data/`) | M | 1 |
-| 🤔 | 5. Concept picker + concept-list references | M | 2, 4 |
+| ✅ | 1. Model + persistence (+ localStorage migration, perf, seed fix) | L | — |
+| ✅ | 2. Export / import / versioning (+ Python twin + golden) | M | 1 |
+| ✅ | 3. Widget affordances (kebab, duplicate, move, edit) | M | 1 |
+| ✅ | 4. Plugin harmonisation (`default-plugins/patient-data/`) | M | 1 |
+| ✅ | 5. Concept picker aligned on the shared cell renderers | M | 2, 4 |
+
+**Shipped 2026-08-17**, needs manual testing (see §10). Remaining follow-ups:
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Pull group for patient boards — a selective pull currently carries them through unfiltered instead of offering them as a group | S |
+| 🤔 | Concept references: `conceptIds` kept as the portable key (see §7). Revisit only if a cross-instance export shows drift on local (2-billion) concepts | S |
+| 💤 | `ConceptPickerDialog` is still ~950 lines with its own `useReactTable` (server-side paging, like the cohort picker); only the cell renderers are shared | M |
 
 Storage is first because every later step persists something: the kebab's Duplicate
 and Move write widgets, and file-based plugins change what a widget config holds.
@@ -302,13 +310,24 @@ re-pointed at the new store in Step 1 with modest rework.
 
 ---
 
-## 9. Decisions needed
+## 9. Decisions taken
 
-1. **Scope** — patient-data boards as *project* entities (like cohorts and dashboards,
-   travelling with the project), or standalone versionable entities with their own git
-   link? Recommendation: **project**. `projectUid` is already on the tab, the page is
-   meaningless without the project's data source and schema mapping, and it keeps the
-   export a single `patient-dashboards/` folder.
-2. **Concept references** — keep raw `conceptIds`, or move to concept-list references
-   (§7)? This is the one decision that shapes both the export format and the picker, so
-   it is better taken before Step 2 ships than after.
+1. **Scope** — patient-data boards are *project* entities, like cohorts and dashboards:
+   they travel with the project, in a single `patient-dashboards/` folder. (Arbitrated
+   2026-08-17.)
+2. **Concept references** — widgets keep `conceptIds`. For OMOP standard concepts the id
+   is registry-wide rather than instance-local, and the concept-mapping side already
+   derives ids deterministically from `(vocabularyId, conceptCode)` when a local concept
+   needs one — the same denormalisation `ConceptListItem` uses to stay readable after the
+   source database is detached.
+
+## 10. Manual testing
+
+Not covered by the automated suites, worth checking once against real data:
+
+- A project holding tabs in the old `localStorage` store: opening the page should import
+  them into a first board (the legacy key is kept, not deleted).
+- Server mode: create a board, add widgets, reload — everything should come back.
+- Export a project with a board, re-import it, export again: the two ZIPs' JSON should be
+  identical (that is what the derived keys buy).
+- The widget kebab in edit mode: configure, duplicate, move, edit name/description, delete.
