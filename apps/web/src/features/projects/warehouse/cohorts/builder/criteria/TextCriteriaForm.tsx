@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Info, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { DebouncedInput } from '@/components/ui/debounced-input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -12,6 +12,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
+import { OperatorSeparator } from '../OperatorSeparator'
 import type { SchemaMapping, TextCriteriaConfig, TextFieldSearch, TextMatchMode } from '@/types'
 
 interface TextCriteriaFormProps {
@@ -21,6 +23,10 @@ interface TextCriteriaFormProps {
 }
 
 const MATCH_MODES: TextMatchMode[] = ['contains', 'word', 'regex']
+
+/** DebouncedInput renders a bare <input>, so it carries the Input styling. */
+const INPUT_CLASS =
+  'h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-xs shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
 
 /** Terms are typed as a comma-separated list — the shape a clinician writes. */
 function parseTerms(raw: string): string[] {
@@ -52,11 +58,13 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
     <div className="space-y-3">
       <div className="space-y-1">
         <Label className="text-xs">{t('cohorts.text_label')}</Label>
-        <Input
+        {/* Debounced: this writes through to the cohort tree, so a raw onChange
+            persisted the whole cohort on every keystroke. */}
+        <DebouncedInput
           value={config.label ?? ''}
-          onChange={(e) => update({ label: e.target.value })}
+          onChange={(label) => update({ label })}
           placeholder={t('cohorts.text_label_placeholder')}
-          className="h-8 text-xs"
+          className={INPUT_CLASS}
         />
         <p className="text-[11px] text-muted-foreground">{t('cohorts.text_label_hint')}</p>
       </div>
@@ -68,8 +76,34 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
       )}
 
       {searches.map((search, index) => (
-        <div key={index} className="space-y-1.5 rounded-md border p-2">
+        <div key={index}>
+          {/* Same AND/OR separator as the criteria tree, with the same
+              precedence in the generated SQL. */}
+          {index > 0 && (
+            <OperatorSeparator
+              operator={search.operator ?? 'AND'}
+              onToggle={() =>
+                updateSearch(index, {
+                  operator: (search.operator ?? 'AND') === 'AND' ? 'OR' : 'AND',
+                })
+              }
+            />
+          )}
+          <div className="space-y-1.5 rounded-md border p-2">
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => updateSearch(index, { exclude: !search.exclude })}
+              title={t('cohorts.text_exclude_hint')}
+              className={cn(
+                'rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide transition-colors',
+                search.exclude
+                  ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20 dark:text-red-400'
+                  : 'text-muted-foreground hover:bg-accent',
+              )}
+            >
+              {t('cohorts.text_not')}
+            </button>
             <Select
               value={search.field}
               onValueChange={(v) => updateSearch(index, { field: v as 'title' | 'text' })}
@@ -124,13 +158,13 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
             </button>
           </div>
 
-          <Input
+          <DebouncedInput
             value={search.terms.join(', ')}
-            onChange={(e) => updateSearch(index, { terms: parseTerms(e.target.value) })}
+            onChange={(raw) => updateSearch(index, { terms: parseTerms(raw) })}
             placeholder={t(
               search.mode === 'regex' ? 'cohorts.text_regex_placeholder' : 'cohorts.text_terms_placeholder',
             )}
-            className="h-8 font-mono text-xs"
+            className={`${INPUT_CLASS} font-mono`}
           />
 
           {search.terms.length > 1 && (
@@ -151,6 +185,7 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
               </SelectContent>
             </Select>
           )}
+          </div>
         </div>
       ))}
 

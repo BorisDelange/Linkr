@@ -1041,7 +1041,9 @@
     "care_site_no_match": "Aucun lieu de soins ne correspond à cette recherche.",
     "care_site_unmapped": "Aucune colonne de lieu de soins n’est mappée à ce niveau.",
     "period_pick": "Choisir une date",
-    "results_truncated": "{{shown}} lignes affichées sur {{total}} — les autres n’ont pas été chargées. Affinez les critères pour restreindre la cohorte."
+    "results_truncated": "{{shown}} lignes affichées sur {{total}} — les autres n’ont pas été chargées. Affinez les critères pour restreindre la cohorte.",
+    "text_not": "NON",
+    "text_exclude_hint": "Exclure les documents correspondant à cette recherche"
   },
   "datasets": {
     "title": "Jeux de données",

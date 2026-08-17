@@ -543,7 +543,7 @@ function buildTextCriteria(
   const patientIdCol = getPatientIdColumn(level, mapping)
   if (!patientIdCol && level !== 'patient') return '1=1'
 
-  const conditions: string[] = []
+  const conditions: { clause: string; operator: CriteriaOperator }[] = []
   for (const search of searches) {
     const column = search.field === 'title' ? nt.titleColumn : nt.textColumn
     // A title search on a mapping without a title column would silently widen
@@ -555,9 +555,15 @@ function buildTextCriteria(
     const mode = search.mode ?? 'contains'
     const clauses = terms.map((term) => textTermClause(colRef, term, mode))
     const joined = clauses.join(search.anyTerm === false ? ' AND ' : ' OR ')
-    conditions.push(clauses.length > 1 ? `(${joined})` : joined)
+    const grouped = clauses.length > 1 ? `(${joined})` : joined
+    conditions.push({
+      clause: search.exclude ? `NOT (${grouped})` : grouped,
+      operator: search.operator ?? 'AND',
+    })
   }
   if (conditions.length === 0) return '1=1'
+  // Same AND > OR precedence as the criteria tree, so the two read alike.
+  const combined = buildPrecedenceClause(conditions)
 
   // Notes hang off the patient; at visit level, narrow to the visit when the
   // mapping says which visit a note belongs to.
@@ -570,7 +576,7 @@ function buildTextCriteria(
     links.push(`n."${nt.visitIdColumn}" = "${baseTable}"."${mapping.visitTable.idColumn}"`)
   }
 
-  return `EXISTS (SELECT 1 FROM "${nt.table}" n WHERE ${[...links, ...conditions].join(' AND ')})`
+  return `EXISTS (SELECT 1 FROM "${nt.table}" n WHERE ${links.join(' AND ')} AND (${combined}))`
 }
 
 function buildDurationCriteria(

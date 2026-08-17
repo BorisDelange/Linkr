@@ -1041,7 +1041,9 @@
     "care_site_no_match": "No care location matches this search.",
     "care_site_unmapped": "No care location column is mapped at this level.",
     "period_pick": "Pick a date",
-    "results_truncated": "Showing {{shown}} of {{total}} rows — the rest were not loaded. Refine the criteria to narrow the cohort."
+    "results_truncated": "Showing {{shown}} of {{total}} rows — the rest were not loaded. Refine the criteria to narrow the cohort.",
+    "text_not": "NOT",
+    "text_exclude_hint": "Exclude notes matching this search"
   },
   "datasets": {
     "title": "Datasets",

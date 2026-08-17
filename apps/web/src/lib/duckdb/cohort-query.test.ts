@@ -249,6 +249,37 @@ describe('buildCohortCountSql free-text criterion', () => {
     expect(sql).toContain("ESCAPE '\\'")
   })
 
+  it('negates a search with NOT when excluded', () => {
+    const sql = buildCohortCountSql(
+      textCohort({
+        description: '',
+        searches: [{ field: 'text', terms: ['heparin'], exclude: true }],
+      }),
+      withNotes,
+    )!
+    expect(sql).toMatch(/NOT \(/)
+  })
+
+  it('joins searches with AND > OR precedence, like the criteria tree', () => {
+    const sql = buildCohortCountSql(
+      textCohort({
+        description: '',
+        searches: [
+          { field: 'text', terms: ['a'] },
+          { field: 'text', terms: ['b'], operator: 'OR' },
+          { field: 'text', terms: ['c'], operator: 'AND' },
+        ],
+      }),
+      withNotes,
+    )!
+    // a OR (b AND c) — the OR splits the groups, the AND binds inside one.
+    expect(sql).toContain('OR')
+    expect(sql).toContain('AND')
+    // The note link must stay ANDed with the whole disjunction, never absorbed
+    // into one branch of it (which would match unrelated patients' notes).
+    expect(sql).toMatch(/n\."person_id" = "visit"\."person_id" AND .*\(/s)
+  })
+
   it('drops a title search when the mapping has no title column', () => {
     const noTitle = {
       ...withNotes,

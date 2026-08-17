@@ -109,13 +109,17 @@ export interface TextFieldSearch {
   mode?: TextMatchMode
   /** true = any term matches (OR), false = every term must (AND). Default OR. */
   anyTerm?: boolean
+  /** Negate this search: the note must NOT match it. */
+  exclude?: boolean
+  /** How this search joins the PREVIOUS one. Ignored on the first. Default AND. */
+  operator?: CriteriaOperator
 }
 
 export interface TextCriteriaConfig {
   /** Shown in the collapsed criterion bar, e.g. "anticoagulants". Falls back to
    *  the terms themselves when empty. */
   label?: string
-  /** Per-field searches, ANDed together. */
+  /** Per-field searches, joined by each one's `operator`. */
   searches?: TextFieldSearch[]
   /** Free-text note kept from the descriptive-only version of this criterion. */
   description: string
