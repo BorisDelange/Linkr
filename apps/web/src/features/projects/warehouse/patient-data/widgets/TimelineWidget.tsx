@@ -534,7 +534,7 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
               onClick={onConfigureConcepts}
             >
               <Settings2 size={12} />
-              {t('patient_data.select_concepts')}
+              {t('patient_data.configure_widget')}
             </Button>
           )}
         </div>

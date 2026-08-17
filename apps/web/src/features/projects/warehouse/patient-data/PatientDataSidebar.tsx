@@ -39,7 +39,7 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
 import { usePatientData } from './use-patient-data'
 import { PatientHoverCard } from './PatientHoverCard'
-import { daysBetween, formatDate as fmtDate, formatGender as fmtGender, formatGenderShort as fmtGenderShort } from '@/lib/format-helpers'
+import { daysBetween, formatDate as fmtDate, formatGender as fmtGender, formatGenderShort as fmtGenderShort, formatStayDuration } from '@/lib/format-helpers'
 
 export function PatientDataSidebar() {
   const { t, i18n } = useTranslation()
@@ -496,11 +496,21 @@ export function PatientDataSidebar() {
                       <SelectItem key={v.visit_id} value={String(v.visit_id)}>
                         <div className="flex min-w-0 items-center gap-1.5">
                           <Calendar size={10} className="shrink-0 text-muted-foreground" />
-                          <span className="truncate">
+                          {/* Fixed-width, tabular date and duration columns so the
+                              type labels line up down the list instead of starting
+                              wherever the previous segment happened to end. An
+                              ongoing visit still spans the full width, so its row
+                              stays aligned with the closed ones above it. */}
+                          <span className="w-[11rem] shrink-0 tabular-nums">
                             {formatDate(v.start_date)}
                             {v.end_date ? ` — ${formatDate(v.end_date)}` : ''}
-                            {v.visit_type ? ` · ${v.visit_type}` : ''}
                           </span>
+                          <span className="w-[4.75rem] shrink-0 text-right tabular-nums text-muted-foreground">
+                            {formatStayDuration(v.start_date, v.end_date, t) ?? ''}
+                          </span>
+                          {v.visit_type && (
+                            <span className="truncate">· {v.visit_type}</span>
+                          )}
                         </div>
                       </SelectItem>
                     ))}
@@ -571,11 +581,14 @@ export function PatientDataSidebar() {
                         >
                           <div className="flex min-w-0 items-center gap-1.5">
                             <Bed size={10} className="shrink-0 text-muted-foreground" />
-                            <span className="truncate">
+                            <span className="w-[11rem] shrink-0 tabular-nums">
                               {formatDate(vd.start_date)}
                               {vd.end_date ? ` — ${formatDate(vd.end_date)}` : ''}
-                              {vd.unit ? ` · ${vd.unit}` : ''}
                             </span>
+                            <span className="w-[4.75rem] shrink-0 text-right tabular-nums text-muted-foreground">
+                              {formatStayDuration(vd.start_date, vd.end_date, t) ?? ''}
+                            </span>
+                            {vd.unit && <span className="truncate">· {vd.unit}</span>}
                           </div>
                         </SelectItem>
                       ))}

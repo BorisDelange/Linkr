@@ -35,8 +35,8 @@
         "fr": "Données"
       },
       "description": {
-        "en": "OMOP concepts plotted on this timeline.",
-        "fr": "Concepts OMOP tracés sur cette chronologie."
+        "en": "Concepts plotted on this timeline.",
+        "fr": "Concepts tracés sur cette chronologie."
       }
     },
     "yAxisFromZero": {
