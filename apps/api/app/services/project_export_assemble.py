@@ -36,6 +36,11 @@ from app.schemas.dashboard import (
     DashboardTabResponse,
     DashboardWidgetResponse,
 )
+from app.schemas.patient_dashboard import (
+    PatientDashboardResponse,
+    PatientDashboardTabResponse,
+    PatientDashboardWidgetResponse,
+)
 from app.schemas.dataset import DatasetAnalysisResponse
 from app.schemas.ide_connection import IdeConnectionResponse
 from app.schemas.pipeline import PipelineResponse
@@ -45,6 +50,7 @@ from app.services import (
     blob_store,
     cohort_service,
     dashboard_service,
+    patient_dashboard_service,
     ide_connection_service,
     pipeline_service,
     project_fs,
@@ -187,6 +193,20 @@ async def build_project_tree_from_db(
             }
         )
 
+    patient_dashboards = []
+    for d in await patient_dashboard_service.list_for_project(db, project.uid):
+        tabs = await patient_dashboard_service.list_tabs(db, d.id)
+        widgets = []
+        for tab in tabs:
+            widgets.extend(await patient_dashboard_service.list_widgets(db, tab.id))
+        patient_dashboards.append(
+            {
+                "patientDashboard": _dump(PatientDashboardResponse, d),
+                "tabs": [_dump(PatientDashboardTabResponse, t) for t in tabs],
+                "widgets": [_dump(PatientDashboardWidgetResponse, w) for w in widgets],
+            }
+        )
+
     # Disk-derived trees (id === relative path), the shape the frontend consumes in
     # server mode. Resolve the bindings so the scans read the right server dirs. The
     # scripts export uses the CODE dir (scripts_dir), NOT the broad IDE working dir.
@@ -276,6 +296,7 @@ async def build_project_tree_from_db(
         concept_lists=concept_lists,
         connections=connections,
         dashboards=dashboards,
+        patient_dashboards=patient_dashboards,
         dataset_files=dataset_files,
         dataset_analyses=dataset_analyses,
         dataset_data=dataset_data,

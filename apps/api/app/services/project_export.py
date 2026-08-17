@@ -257,6 +257,86 @@ def _build_dashboard_json(
     return _json({"dashboard": dashboard_out, "tabs": tabs_out, "widgets": widgets_out})
 
 
+def _patient_dashboard_key(board: dict) -> str:
+    """Port of ``patientDashboardKey`` (entity-io.ts)."""
+    return _slugify(_localized_en(board.get("name")) or board.get("id") or "")
+
+
+def _build_patient_tab_key_map(board_key: str, tabs: list[dict]) -> dict[str, str]:
+    """Port of ``buildPatientTabKeyMap`` — flat tabs, no parent nesting."""
+    key_of: dict[str, str] = {}
+    seen: set[str] = set()
+    for tab in tabs:
+        key = f"{board_key}/{_slugify(_localized_en(tab.get('name')))}"
+        if key in seen:
+            key = f"{key}#{tab.get('displayOrder')}"
+        seen.add(key)
+        key_of[tab["id"]] = key
+    return key_of
+
+
+def _build_patient_widget_key_map(
+    tab_key_map: dict[str, str], widgets: list[dict]
+) -> dict[str, str]:
+    """Port of ``buildPatientWidgetKeyMap``."""
+    key_of: dict[str, str] = {}
+    seen: set[str] = set()
+    for w in widgets:
+        tab_key = tab_key_map.get(w["tabId"], "")
+        layout = w.get("layout") or {}
+        base = (
+            f"{tab_key}/{_slugify(_localized_en(w.get('name')))}"
+            f"@{layout.get('y')},{layout.get('x')}"
+        )
+        key = base
+        i = 1
+        while key in seen:
+            key = f"{base}#{i}"
+            i += 1
+        seen.add(key)
+        key_of[w["id"]] = key
+    return key_of
+
+
+def _build_patient_dashboard_json(
+    board: dict, tabs: list[dict], widgets: list[dict]
+) -> bytes:
+    """Port of the per-board transform in buildProjectZip: strip instance fields +
+    UUID ids, replace them with content keys. No filterConfig and no parentKey —
+    a patient board binds to the project's data source, and its tabs are flat."""
+    board_key = _patient_dashboard_key(board)
+    tab_key_map = _build_patient_tab_key_map(board_key, tabs)
+    widget_key_map = _build_patient_widget_key_map(tab_key_map, widgets)
+
+    board_out = _strip_instance_fields(board)
+    board_out.pop("id", None)
+    board_out.pop("projectUid", None)
+
+    tabs_out = []
+    for tab in tabs:
+        out = _strip_instance_fields(tab)
+        out.pop("id", None)
+        out.pop("patientDashboardId", None)
+        out["key"] = tab_key_map[tab["id"]]
+        tabs_out.append(out)
+    # Python str sort is code-point order == JS compareCodePoints.
+    tabs_out.sort(key=lambda t: t["key"])
+
+    widgets_out = []
+    for w in widgets:
+        out = _strip_instance_fields(w)
+        out.pop("id", None)
+        out.pop("tabId", None)
+        out["key"] = widget_key_map[w["id"]]
+        out["tabKey"] = tab_key_map[w["tabId"]]
+        widgets_out.append(out)
+    widgets_out.sort(key=lambda w: (w["tabKey"], w["key"]))
+
+    return _json(
+        {"patientDashboard": board_out, "tabs": tabs_out, "widgets": widgets_out}
+    )
+
+
 def _prune_marked_paths(project: dict, live_mark_keys: set[str]) -> dict:
     """Drop config.versionedDataFiles / excludedFiles entries whose file no longer
     exists in the export (marking key not in ``live_mark_keys``). A file marked "to
@@ -406,13 +486,15 @@ def build_project_tree(
     excluded_files: set[str] | None = None,
     env_specs: dict[str, bytes] | None = None,
     concept_lists: list[dict] | None = None,
+    patient_dashboards: list[dict[str, Any]] | None = None,
 ) -> dict[str, bytes]:
     """Build the git-variant project export tree as ``{path: bytes}``.
 
     Byte-faithful to ``buildProjectZip``. Inputs are the camelCase shapes the
     frontend's Storage yields in server mode (the caller shapes ORM rows to
     match). ``dashboards`` is a list of ``{dashboard, tabs, widgets}`` groups (the
-    caller pre-loads each dashboard's tabs + widgets). ``dataset_analyses`` /
+    caller pre-loads each dashboard's tabs + widgets); ``patient_dashboards`` is
+    the same shape keyed on ``patientDashboard``. ``dataset_analyses`` /
     ``dataset_data`` / ``dataset_raw_files`` are keyed by dataset-file id; blobs by
     attachment id.
     """
@@ -551,6 +633,16 @@ def build_project_tree(
         dash_key = _dashboard_key(d)
         name = _slugify(_localized_en(d.get("name")) or dash_key or d["id"])
         tree[f"dashboards/{name}.json"] = _build_dashboard_json(d, tabs, widgets)
+
+    for group in patient_dashboards or []:
+        d = group["patientDashboard"]
+        tabs = group.get("tabs", [])
+        widgets = group.get("widgets", [])
+        board_key = _patient_dashboard_key(d)
+        name = _slugify(_localized_en(d.get("name")) or board_key or d["id"])
+        tree[f"patient-dashboards/{name}.json"] = _build_patient_dashboard_json(
+            d, tabs, widgets
+        )
 
     if dataset_files:
         by_id = {f["id"]: f for f in dataset_files}

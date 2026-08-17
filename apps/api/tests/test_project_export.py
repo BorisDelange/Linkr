@@ -53,6 +53,7 @@ def _build_tree(include_data: bool = False) -> dict[str, bytes]:
         cohorts=data["cohorts"],
         connections=data["connections"],
         dashboards=data["dashboards"],
+        patient_dashboards=data.get("patientDashboards"),
         dataset_files=data["datasetFiles"],
         dataset_analyses=data["datasetAnalyses"],
         dataset_data=data["datasetData"],

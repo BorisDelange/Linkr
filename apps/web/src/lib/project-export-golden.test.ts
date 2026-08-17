@@ -39,6 +39,7 @@ interface GoldenInput {
   cohorts: Record<string, unknown>[]
   connections: Record<string, unknown>[]
   dashboards: { dashboard: Record<string, unknown>; tabs: Record<string, unknown>[]; widgets: Record<string, unknown>[] }[]
+  patientDashboards?: { patientDashboard: Record<string, unknown>; tabs: Record<string, unknown>[]; widgets: Record<string, unknown>[] }[]
   datasetFiles: Record<string, unknown>[]
   datasetAnalyses: Record<string, Record<string, unknown>[]>
   attachments: (Record<string, unknown> & { dataBase64: string })[]
@@ -60,6 +61,19 @@ for (const g of input.dashboards) {
   }
 }
 
+const patientBoards = input.patientDashboards ?? []
+const patientTabsByBoard = new Map(
+  patientBoards.map((g) => [g.patientDashboard.id as string, g.tabs]),
+)
+const patientWidgetsByTab = new Map<string, Record<string, unknown>[]>()
+for (const g of patientBoards) {
+  for (const w of g.widgets) {
+    const list = patientWidgetsByTab.get(w.tabId as string) ?? []
+    list.push(w)
+    patientWidgetsByTab.set(w.tabId as string, list)
+  }
+}
+
 const storage = {
   projects: { getById: async () => project },
   ideFiles: { getByProject: async () => input.ideFiles },
@@ -69,6 +83,13 @@ const storage = {
   dashboards: { getByProject: async () => input.dashboards.map((g) => g.dashboard) },
   dashboardTabs: { getByDashboard: async (id: string) => tabsByDashboard.get(id) ?? [] },
   dashboardWidgets: { getByTab: async (tabId: string) => widgetsByTab.get(tabId) ?? [] },
+  patientDashboards: { getByProject: async () => patientBoards.map((g) => g.patientDashboard) },
+  patientDashboardTabs: {
+    getByDashboard: async (id: string) => patientTabsByBoard.get(id) ?? [],
+  },
+  patientDashboardWidgets: {
+    getByTab: async (tabId: string) => patientWidgetsByTab.get(tabId) ?? [],
+  },
   datasetFiles: { getByProject: async () => input.datasetFiles },
   datasetAnalyses: { getByDataset: async (id: string) => input.datasetAnalyses[id] ?? [] },
   // Server-mode data adapters: rows are paginated on demand (never a whole blob),

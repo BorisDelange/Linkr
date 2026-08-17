@@ -411,5 +411,92 @@
       "createdAt": "2026-01-09T00:00:00.000Z",
       "dataBase64": "BAUG"
     }
+  ],
+  "patientDashboards": [
+    {
+      "patientDashboard": {
+        "id": "pboard-1",
+        "projectUid": "proj-uid-1",
+        "name": {
+          "en": "Bedside"
+        },
+        "description": {
+          "en": "Per-patient board"
+        },
+        "showWidgetTitles": true,
+        "widgetSpacing": null,
+        "fitToHeight": null,
+        "displayOrder": 0,
+        "origin": "user",
+        "createdById": null,
+        "createdBy": null,
+        "createdByDetails": null,
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-06-01T00:00:00.000Z",
+        "version": "0.1.0"
+      },
+      "tabs": [
+        {
+          "id": "ptab-1",
+          "patientDashboardId": "pboard-1",
+          "name": {
+            "en": "Vitals"
+          },
+          "description": null,
+          "displayOrder": 0
+        },
+        {
+          "id": "ptab-2",
+          "patientDashboardId": "pboard-1",
+          "name": {
+            "en": "Documents"
+          },
+          "description": null,
+          "displayOrder": 1
+        }
+      ],
+      "widgets": [
+        {
+          "id": "pw-1",
+          "tabId": "ptab-1",
+          "name": {
+            "en": "Heart rate"
+          },
+          "description": null,
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 48,
+            "h": 14
+          },
+          "pluginId": "linkr-widget-timeline",
+          "language": null,
+          "config": {
+            "conceptIds": [
+              3027018
+            ]
+          },
+          "pluginVersion": "1.0.0"
+        },
+        {
+          "id": "pw-2",
+          "tabId": "ptab-2",
+          "name": {
+            "en": "Notes"
+          },
+          "description": null,
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 48,
+            "h": 20
+          },
+          "pluginId": "linkr-widget-notes",
+          "language": null,
+          "config": {},
+          "pluginVersion": "1.0.0"
+        }
+      ]
+    }
   ]
 }

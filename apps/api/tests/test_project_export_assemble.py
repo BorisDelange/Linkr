@@ -17,6 +17,11 @@ from pathlib import Path
 from app.config import settings
 from app.models.cohort import Cohort
 from app.models.dashboard import Dashboard, DashboardTab, DashboardWidget
+from app.models.patient_dashboard import (
+    PatientDashboard,
+    PatientDashboardTab,
+    PatientDashboardWidget,
+)
 from app.models.dataset import DatasetAnalysis
 from app.models.ide_connection import IdeConnection
 from app.models.pipeline import Pipeline
@@ -143,6 +148,27 @@ async def _seed(db) -> Project:
                 id=w["id"], tab_id=w["tabId"], name=w["name"],
                 description=w["description"], dataset_file_id=w["datasetFileId"],
                 layout=w["layout"], source=w["source"],
+            ))
+    for group in data.get("patientDashboards", []):
+        d = group["patientDashboard"]
+        db.add(PatientDashboard(
+            id=d["id"], project_uid=uid, name=d["name"], description=d["description"],
+            show_widget_titles=d["showWidgetTitles"], widget_spacing=d.get("widgetSpacing"),
+            fit_to_height=d.get("fitToHeight"), display_order=d["displayOrder"],
+            origin=d["origin"], version=d["version"],
+            created_at=_dt(d["createdAt"]), updated_at=_dt(d["updatedAt"]),
+        ))
+        for t in group["tabs"]:
+            db.add(PatientDashboardTab(
+                id=t["id"], patient_dashboard_id=d["id"], name=t["name"],
+                description=t["description"], display_order=t["displayOrder"],
+            ))
+        for w in group["widgets"]:
+            db.add(PatientDashboardWidget(
+                id=w["id"], tab_id=w["tabId"], name=w["name"],
+                description=w["description"], layout=w["layout"],
+                plugin_id=w["pluginId"], language=w["language"],
+                config=w["config"], plugin_version=w["pluginVersion"],
             ))
     for _path, analyses in data["datasetAnalyses"].items():
         for a in analyses:

@@ -1,0 +1,78 @@
+{
+  "patientDashboard": {
+    "name": {
+      "en": "Bedside"
+    },
+    "description": {
+      "en": "Per-patient board"
+    },
+    "showWidgetTitles": true,
+    "widgetSpacing": null,
+    "fitToHeight": null,
+    "displayOrder": 0,
+    "createdBy": null,
+    "createdByDetails": null,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "version": "0.1.0"
+  },
+  "tabs": [
+    {
+      "name": {
+        "en": "Documents"
+      },
+      "description": null,
+      "displayOrder": 1,
+      "key": "bedside/documents"
+    },
+    {
+      "name": {
+        "en": "Vitals"
+      },
+      "description": null,
+      "displayOrder": 0,
+      "key": "bedside/vitals"
+    }
+  ],
+  "widgets": [
+    {
+      "name": {
+        "en": "Notes"
+      },
+      "description": null,
+      "layout": {
+        "x": 0,
+        "y": 14,
+        "w": 48,
+        "h": 20
+      },
+      "pluginId": "linkr-widget-notes",
+      "language": null,
+      "config": {},
+      "pluginVersion": "1.0.0",
+      "key": "bedside/documents/notes@14,0",
+      "tabKey": "bedside/documents"
+    },
+    {
+      "name": {
+        "en": "Heart rate"
+      },
+      "description": null,
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 48,
+        "h": 14
+      },
+      "pluginId": "linkr-widget-timeline",
+      "language": null,
+      "config": {
+        "conceptIds": [
+          3027018
+        ]
+      },
+      "pluginVersion": "1.0.0",
+      "key": "bedside/vitals/heart-rate@0,0",
+      "tabKey": "bedside/vitals"
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import {
 import type {
   Project, IdeFile, Pipeline, Cohort, ConceptList, IdeConnection,
   Dashboard, DashboardTab, DashboardWidget, DashboardFilter,
+  PatientDashboard, PatientDashboardTab, PatientDashboardWidget,
   DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, ReadmeAttachment, ReadmeOwnerType,
   EntityLicense,
   Workspace, WikiPage, WikiAttachment,
@@ -367,6 +368,16 @@ export async function deleteProjectData(storage: Storage, uid: string): Promise<
     await storage.dashboards.delete(d.id).catch(() => {})
   }
 
+  // Patient dashboards (+ tabs + widgets)
+  const patientBoards = await safe(storage.patientDashboards.getByProject(uid), [])
+  for (const d of patientBoards) {
+    const tabs = await safe(storage.patientDashboardTabs.getByDashboard(d.id), [])
+    for (const tab of tabs)
+      await storage.patientDashboardWidgets.deleteByTab(tab.id).catch(() => {})
+    await storage.patientDashboardTabs.deleteByDashboard(d.id).catch(() => {})
+    await storage.patientDashboards.delete(d.id).catch(() => {})
+  }
+
   // Pipelines & cohorts
   const pipelines = await safe(storage.pipelines.getByProject(uid), [])
   for (const pl of pipelines) await storage.pipelines.delete(pl.id).catch(() => {})
@@ -707,6 +718,50 @@ function buildWidgetKeyMap(tabKeyMap: Map<string, string>, widgets: DashboardWid
   return keyOf
 }
 
+// Patient-dashboard content keys — same scheme as the dashboard ones above, minus
+// the sub-tab nesting (a patient board's tabs are a flat ordered list).
+
+/** patientDashboardKey — slug of the English name, matching the export filename. */
+function patientDashboardKey(d: PatientDashboard): string {
+  return slugify(localized(d.name, 'en') || d.id)
+}
+
+/** Every tab id → `<boardKey>/<slug>`, `#<displayOrder>` on a sibling collision. */
+function buildPatientTabKeyMap(
+  boardKey: string,
+  tabs: PatientDashboardTab[],
+): Map<string, string> {
+  const keyOf = new Map<string, string>()
+  const seen = new Set<string>()
+  for (const tab of tabs) {
+    const base = `${boardKey}/${slugify(localized(tab.name, 'en') || '')}`
+    let key = base
+    if (seen.has(key)) key = `${key}#${tab.displayOrder}`
+    seen.add(key)
+    keyOf.set(tab.id, key)
+  }
+  return keyOf
+}
+
+/** Every widget id → its key, qualified by tab key and disambiguated by grid
+ *  position (widgets have no order field), then `#i` on a tie. */
+function buildPatientWidgetKeyMap(
+  tabKeyMap: Map<string, string>,
+  widgets: PatientDashboardWidget[],
+): Map<string, string> {
+  const keyOf = new Map<string, string>()
+  const seen = new Set<string>()
+  for (const w of widgets) {
+    const tabKey = tabKeyMap.get(w.tabId) ?? ''
+    const base = `${tabKey}/${slugify(localized(w.name, 'en') || '')}@${w.layout.y},${w.layout.x}`
+    let key = base
+    for (let i = 1; seen.has(key); i++) key = `${base}#${i}`
+    seen.add(key)
+    keyOf.set(w.id, key)
+  }
+  return keyOf
+}
+
 // Fields that are specific to the exporting instance/deployment, not portable
 // project content: the owning user, the workspace placement, the git link
 // (never commit a repo's own remote/token into itself), catalog/org metadata,
@@ -1001,6 +1056,54 @@ export async function buildProjectZip(
     )
   }
 
+  // --- patient-dashboards/ (each board = board + tabs + widgets in one file) ---
+  // Same content-key scheme as dashboards/ above, so a delete+reimport re-derives
+  // the same ids and the git diff stays byte-stable.
+  const patientBoards = (await storage.patientDashboards.getByProject(projectUid))
+    .slice()
+    .sort((a, b) => compareCodePoints(patientDashboardKey(a), patientDashboardKey(b)))
+  for (const d of patientBoards) {
+    const tabs = await storage.patientDashboardTabs.getByDashboard(d.id)
+    const widgets: PatientDashboardWidget[] = []
+    for (const tab of tabs) {
+      widgets.push(...(await storage.patientDashboardWidgets.getByTab(tab.id)))
+    }
+    const boardKey = patientDashboardKey(d)
+    const tabKeyMap = buildPatientTabKeyMap(boardKey, tabs)
+    const widgetKeyMap = buildPatientWidgetKeyMap(tabKeyMap, widgets)
+
+    const boardOut = stripInstanceFields(d) as Record<string, unknown>
+    delete boardOut.id
+    // projectUid is the parent's local PK (regenerated on reimport); import re-sets it.
+    delete boardOut.projectUid
+
+    const tabsOut = tabs
+      .map((tab) => {
+        const out = stripInstanceFields(tab) as Record<string, unknown>
+        const key = tabKeyMap.get(tab.id)!
+        delete out.id
+        delete out.patientDashboardId
+        return { ...out, key }
+      })
+      .sort((a, b) => compareCodePoints(a.key, b.key))
+
+    const widgetsOut = widgets
+      .map((w) => {
+        const out = stripInstanceFields(w) as Record<string, unknown>
+        const key = widgetKeyMap.get(w.id)!
+        const tabKey = tabKeyMap.get(w.tabId)!
+        delete out.id
+        delete out.tabId
+        return { ...out, key, tabKey }
+      })
+      .sort((a, b) => compareCodePoints(a.tabKey, b.tabKey) || compareCodePoints(a.key, b.key))
+
+    zip.file(
+      `patient-dashboards/${slugify(localized(d.name, 'en') || boardKey || d.id)}.json`,
+      json({ patientDashboard: boardOut, tabs: tabsOut, widgets: widgetsOut }),
+    )
+  }
+
   // --- datasets/ (tree + analyses + optional data CSV) ---
   // Tree paths of data files actually written — each becomes a `!path` exception
   // in .gitignore so git tracks exactly the marked files and nothing else.
@@ -1083,6 +1186,11 @@ export async function buildProjectZip(
 // tabId/parentTabId. Import reads whichever is present, per record.
 export type ParsedDashboardTab = DashboardTab & { key?: string; parentKey?: string | null }
 export type ParsedDashboardWidget = DashboardWidget & { key?: string; tabKey?: string }
+export type ParsedPatientDashboardTab = PatientDashboardTab & { key?: string }
+export type ParsedPatientDashboardWidget = PatientDashboardWidget & {
+  key?: string
+  tabKey?: string
+}
 
 export interface ParsedProjectZip {
   project: Project
@@ -1098,6 +1206,10 @@ export interface ParsedProjectZip {
   dashboards: Dashboard[]
   dashboardTabs: ParsedDashboardTab[]
   dashboardWidgets: ParsedDashboardWidget[]
+  /** Optional section: ZIPs exported before patient boards existed have none. */
+  patientDashboards: PatientDashboard[]
+  patientDashboardTabs: ParsedPatientDashboardTab[]
+  patientDashboardWidgets: ParsedPatientDashboardWidget[]
   datasetFiles: DatasetFile[]
   datasetAnalyses: DatasetAnalysis[]
   /** CSV data parsed from _data/ folder, keyed by datasetFileId */
@@ -1282,6 +1394,8 @@ export async function importProjectContent(
       datasetData: wants('datasets') ? parsed.datasetData : [],
       datasetRawFiles: wants('datasets') ? parsed.datasetRawFiles : [],
       datasetAnalyses: wants('datasets') ? parsed.datasetAnalyses : [],
+      // Patient boards have no pull group yet, so a selective pull carries them
+      // through unfiltered (as a full import does) rather than dropping them.
       // Databases (connections) never travel with a project pull; readme/attachments
       // are handled by the pull module, not here.
       connections: [],
@@ -1409,6 +1523,51 @@ export async function importProjectContent(
       tabId: tabKey ? (tabKeyToId.get(tabKey) ?? keyId(tabKey)) : mapId(w.tabId),
       datasetFileId: w.datasetFileId ? resolveDatasetId(w.datasetFileId) : w.datasetFileId,
       source: remapColIds(w.source, colIdMap),
+    })
+  }
+  // Patient boards: same key scheme, flat tabs (no parentKey). Optional section —
+  // ZIPs exported before patient boards existed yield nothing here.
+  const patientBoardKeyToId = new Map(
+    (parsed.patientDashboards ?? []).map((d) => [
+      patientDashboardKey(d),
+      keyId(patientDashboardKey(d)),
+    ]),
+  )
+  const patientTabKeyToId = new Map(
+    (parsed.patientDashboardTabs ?? [])
+      .filter((t) => t.key)
+      .map((t) => [t.key!, keyId(t.key!)]),
+  )
+  const patientBoardIdForTabKey = (tabKey: string): string =>
+    patientBoardKeyToId.get(tabKey.split('/')[0]) ?? keyId(tabKey.split('/')[0])
+
+  for (const d of parsed.patientDashboards ?? []) {
+    await storage.patientDashboards.create(
+      dropForeignAuthorId({
+        ...d,
+        id: d.id ? mapId(d.id) : keyId(patientDashboardKey(d)),
+        projectUid,
+      }),
+    )
+  }
+  for (const tab of parsed.patientDashboardTabs ?? []) {
+    const { key, ...rest } = tab
+    await storage.patientDashboardTabs.create(
+      key
+        ? { ...rest, id: keyId(key), patientDashboardId: patientBoardIdForTabKey(key) }
+        : {
+            ...rest,
+            id: mapId(tab.id),
+            patientDashboardId: mapId(tab.patientDashboardId),
+          },
+    )
+  }
+  for (const w of parsed.patientDashboardWidgets ?? []) {
+    const { key, tabKey, ...rest } = w
+    await storage.patientDashboardWidgets.create({
+      ...rest,
+      id: key ? keyId(key) : mapId(w.id),
+      tabId: tabKey ? (patientTabKeyToId.get(tabKey) ?? keyId(tabKey)) : mapId(w.tabId),
     })
   }
   for (const a of parsed.datasetAnalyses) {
@@ -1649,6 +1808,25 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
     }
   }
 
+  // --- Patient dashboards (each file = board + tabs + widgets) ---
+  // `patient-dashboards/` does not start with `dashboards/`, so the scan above
+  // does not pick these up.
+  const patientDashboards: PatientDashboard[] = []
+  const patientDashboardTabs: ParsedPatientDashboardTab[] = []
+  const patientDashboardWidgets: ParsedPatientDashboardWidget[] = []
+  for (const [path, entry] of scanFolder(zip, 'patient-dashboards/')) {
+    if (path.endsWith('.json')) {
+      const bundle = JSON.parse(await entry.async('string')) as {
+        patientDashboard: PatientDashboard
+        tabs: ParsedPatientDashboardTab[]
+        widgets: ParsedPatientDashboardWidget[]
+      }
+      patientDashboards.push(bundle.patientDashboard)
+      patientDashboardTabs.push(...(bundle.tabs ?? []))
+      patientDashboardWidgets.push(...(bundle.widgets ?? []))
+    }
+  }
+
   const datasetFiles = (await readJsonFile<DatasetFile[]>(zip, 'datasets/_tree.json')) ?? []
   const datasetAnalyses: DatasetAnalysis[] = []
   for (const [path, entry] of scanFolder(zip, 'datasets/')) {
@@ -1729,6 +1907,7 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
   return {
     project, ideFiles, pipelines, cohorts, conceptLists, connections,
     dashboards, dashboardTabs, dashboardWidgets,
+    patientDashboards, patientDashboardTabs, patientDashboardWidgets,
     datasetFiles, datasetAnalyses, datasetData, datasetRawFiles, attachmentsMeta, attachmentBlobs,
     envSpecs,
   }
