@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight } from 'lucide-react'
@@ -21,10 +22,13 @@ import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useMyProjectRole } from '@/hooks/use-context-role'
+import { resolveByIdPrefix } from '@/lib/short-id'
+import { paths } from '@/lib/paths'
 
 export function PatientDataPage() {
   const { t } = useTranslation()
-  const { projectUid: resolvedUid } = useResolvedParams()
+  const { wsUid, projectUid: resolvedUid, raw } = useResolvedParams()
+  const navigate = useNavigate()
   const projectUid = resolvedUid ?? ''
   const canWrite = useMyProjectRole(projectUid).can('patient-data:write')
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
@@ -43,10 +47,9 @@ export function PatientDataPage() {
   const tabs = usePatientChartStore((s) => s.tabs)
   const widgets = usePatientChartStore((s) => s.widgets)
   const activeTabId = usePatientChartStore((s) => s.activeTabId)
-  const activeDashboardId = usePatientChartStore((s) => s.activeDashboardId)
   const loaded = usePatientChartStore((s) => s.loaded && s.activeProjectUid === projectUid)
   const loadProjectDashboards = usePatientChartStore((s) => s.loadProjectDashboards)
-  const createDashboard = usePatientChartStore((s) => s.createDashboard)
+  const setActiveDashboard = usePatientChartStore((s) => s.setActiveDashboard)
 
   useEffect(() => {
     if (projectUid) loadProjectDashboards(projectUid)
@@ -55,20 +58,13 @@ export function PatientDataPage() {
   const projectBoards = dashboards
     .filter((d) => d.projectUid === projectUid)
     .sort((a, b) => a.displayOrder - b.displayOrder)
-  const currentBoard =
-    projectBoards.find((d) => d.id === activeDashboardId[projectUid]) ?? projectBoards[0]
+  // The URL carries a short id prefix (see short-id.ts), so resolve it against the
+  // project's boards rather than matching the raw param.
+  const currentBoard = resolveByIdPrefix(projectBoards, raw.boardId, (d) => d.id)
 
-  // A project with no board yet gets one on first visit, so the page is usable
-  // without an explicit "create a board" step.
-  const creatingRef = useRef(false)
   useEffect(() => {
-    if (!projectUid || !canWrite) return
-    if (!loaded || projectBoards.length > 0 || creatingRef.current) return
-    creatingRef.current = true
-    createDashboard(projectUid, 'Patient data').finally(() => {
-      creatingRef.current = false
-    })
-  }, [projectUid, canWrite, loaded, projectBoards.length, createDashboard])
+    if (currentBoard) setActiveDashboard(projectUid, currentBoard.id)
+  }, [projectUid, currentBoard, setActiveDashboard])
 
   const boardTabs = currentBoard
     ? tabs
@@ -79,6 +75,26 @@ export function PatientDataPage() {
     ? (activeTabId[currentBoard.id] ?? boardTabs[0]?.id)
     : undefined
   const tabWidgets = currentTabId ? widgets.filter((w) => w.tabId === currentTabId) : []
+
+  if (!loaded) return null
+
+  if (!currentBoard) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">{t('patient_data.board_not_found')}</p>
+          <Button
+            variant="link"
+            size="sm"
+            className="mt-2"
+            onClick={() => navigate(paths.patientData(wsUid ?? '', projectUid))}
+          >
+            {t('patient_data.back_to_boards')}
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   // No data source
   if (!mappedSource) {
@@ -132,9 +148,7 @@ export function PatientDataPage() {
       <div className="flex h-full flex-col overflow-hidden">
         {/* Tab bar + actions */}
         <div className="flex items-center border-b px-3 shrink-0">
-          {currentBoard && (
-            <PatientChartTabBar dashboardId={currentBoard.id} editMode={editMode} />
-          )}
+          <PatientChartTabBar dashboardId={currentBoard.id} editMode={editMode} />
 
           <TooltipProvider delayDuration={300}>
             <div className="ml-auto flex items-center gap-1 py-1">
@@ -211,9 +225,9 @@ export function PatientDataPage() {
                   widgets={tabWidgets}
                   tabs={boardTabs}
                   editMode={editMode}
-                  hideTitleBars={(currentBoard?.showWidgetTitles ?? true) === false}
-                  widgetSpacing={currentBoard?.widgetSpacing}
-                  fitToHeight={currentBoard?.fitToHeight ?? true}
+                  hideTitleBars={(currentBoard.showWidgetTitles ?? true) === false}
+                  widgetSpacing={currentBoard.widgetSpacing}
+                  fitToHeight={currentBoard.fitToHeight ?? true}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center p-8">
@@ -258,13 +272,11 @@ export function PatientDataPage() {
           tabId={currentTabId ?? ''}
         />
 
-        {currentBoard && (
-          <PatientDataSettingsDialog
-            open={settingsOpen}
-            onOpenChange={setSettingsOpen}
-            dashboardId={currentBoard.id}
-          />
-        )}
+        <PatientDataSettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          dashboardId={currentBoard.id}
+        />
       </div>
     </PatientChartContext.Provider>
   )

@@ -30,6 +30,7 @@ const DatabasesPage = lazy(() => import('@/features/projects/warehouse/Databases
 const ConceptsPage = lazy(() => import('@/features/projects/warehouse/ConceptsPage').then(m => ({ default: m.ConceptsPage })))
 const CohortListPage = lazy(() => import('@/features/projects/warehouse/cohorts/CohortListPage').then(m => ({ default: m.CohortListPage })))
 const CohortBuilderPage = lazy(() => import('@/features/projects/warehouse/cohorts/CohortBuilderPage').then(m => ({ default: m.CohortBuilderPage })))
+const PatientDataListPage = lazy(() => import('@/features/projects/warehouse/PatientDataListPage').then(m => ({ default: m.PatientDataListPage })))
 const PatientDataPage = lazy(() => import('@/features/projects/warehouse/PatientDataPage').then(m => ({ default: m.PatientDataPage })))
 const DatasetsPage = lazy(() => import('@/features/projects/lab/DatasetsPage').then(m => ({ default: m.DatasetsPage })))
 const IdePage = lazy(() => import('@/features/projects/lab/IdePage').then(m => ({ default: m.IdePage })))
@@ -212,7 +213,8 @@ export function App() {
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/concepts" element={<WorkspaceGuard><ProjectGuard><ConceptsPage /></ProjectGuard></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts" element={<WorkspaceGuard><ProjectGuard><CohortListPage /></ProjectGuard></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts/:cohortId" element={<WorkspaceGuard><ProjectGuard><CohortBuilderPage /></ProjectGuard></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/patient-data" element={<WorkspaceGuard><ProjectGuard><PatientDataPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/patient-data" element={<WorkspaceGuard><ProjectGuard><PatientDataListPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/patient-data/:boardId" element={<WorkspaceGuard><ProjectGuard><PatientDataPage /></ProjectGuard></WorkspaceGuard>} />
 
             {/* Project lab routes */}
             <Route path="/workspaces/:wsUid/projects/:uid/lab/datasets" element={<WorkspaceGuard><ProjectGuard><DatasetsPage /></ProjectGuard></WorkspaceGuard>} />

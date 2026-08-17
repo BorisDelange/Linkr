@@ -47,6 +47,9 @@ export const paths = {
   cohorts: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/warehouse/cohorts`,
   cohort: (wsUid: string, projectUid: string, cohortId: string, siblings?: readonly string[]) =>
     `${proj(wsUid, projectUid)}/warehouse/cohorts/${siblings ? shortenIdAmong(cohortId, siblings) : shortenId(cohortId)}`,
+  patientData: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/warehouse/patient-data`,
+  patientBoard: (wsUid: string, projectUid: string, boardId: string, siblings?: readonly string[]) =>
+    `${proj(wsUid, projectUid)}/warehouse/patient-data/${siblings ? shortenIdAmong(boardId, siblings) : shortenId(boardId)}`,
 
   // --- Project: lab ---
   datasets: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/lab/datasets`,

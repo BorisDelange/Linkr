@@ -10,6 +10,7 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useCohortStore } from '@/stores/cohort-store'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useSchemaPresetStore } from '@/stores/schema-preset-store'
@@ -19,7 +20,7 @@ import { resolveByIdPrefix } from '@/lib/short-id'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, Settings2, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, User, Workflow, SquareTerminal, ShieldCheck, Puzzle, FileSpreadsheet, Pencil, Download, GitBranch } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -27,6 +28,7 @@ import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { useMappingProjectActions } from '@/features/warehouse/concept-mapping/use-mapping-project-actions'
 import { useDashboardActions } from '@/features/projects/lab/use-dashboard-actions'
 import { useCohortActions } from '@/features/projects/warehouse/cohorts/use-cohort-actions'
+import { usePatientBoardActions } from '@/features/projects/warehouse/patient-data/use-patient-board-actions'
 import { useEtlActions } from '@/features/warehouse/etl/use-etl-actions'
 import { useSqlCollectionActions } from '@/features/warehouse/sql-scripts/use-sql-collection-actions'
 import { usePluginActions } from '@/features/settings/use-plugin-actions'
@@ -147,6 +149,7 @@ export function Header() {
   // Project-level detail routes
   const dashboardId = pathname.match(/\/projects\/[^/]+\/lab\/dashboards\/([^/]+)/)?.[1]
   const cohortId = pathname.match(/\/projects\/[^/]+\/warehouse\/cohorts\/([^/]+)/)?.[1]
+  const patientBoardId = pathname.match(/\/projects\/[^/]+\/warehouse\/patient-data\/([^/]+)/)?.[1]
 
   // Workspace-level detail routes
   const etlId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/etl\/([^/]+)$/)?.[1]
@@ -161,7 +164,7 @@ export function Header() {
   // Detail pages get a back arrow before the title that returns to their list view. Each list
   // path is the detail path with the trailing :id segment removed.
   const backToListPath = (() => {
-    const detailId = dashboardId ?? cohortId ?? etlId ?? sqlId ?? catalogId ?? cmId ?? dqId ?? schemaId
+    const detailId = dashboardId ?? cohortId ?? patientBoardId ?? etlId ?? sqlId ?? catalogId ?? cmId ?? dqId ?? schemaId
     if (!detailId) return null
     const idx = pathname.lastIndexOf(`/${detailId}`)
     if (idx <= 0) return null
@@ -176,6 +179,7 @@ export function Header() {
   // shortened id and the badge would silently fall back to the generic page title.
   const dashboardEntity = useDashboardStore((s) => dashboardId ? resolveByIdPrefix(s.dashboards, dashboardId, (d) => d.id) : undefined)
   const cohortEntity = useCohortStore((s) => cohortId ? resolveByIdPrefix(s.cohorts, cohortId, (c) => c.id) : undefined)
+  const patientBoardEntity = usePatientChartStore((s) => patientBoardId ? resolveByIdPrefix(s.dashboards, patientBoardId, (d) => d.id) : undefined)
   const etlEntity = useEtlStore((s) => etlId ? resolveByIdPrefix(s.etlPipelines, etlId, (p) => p.id) : undefined)
   const sqlEntity = useSqlScriptsStore((s) => sqlId ? resolveByIdPrefix(s.collections, sqlId, (c) => c.id) : undefined)
   const catalogEntity = useCatalogStore((s) => catalogId ? resolveByIdPrefix(s.catalogs, catalogId, (c) => c.id) : undefined)
@@ -202,6 +206,7 @@ export function Header() {
 
   const dashboardName = dashboardEntity?.name != null ? localized(dashboardEntity.name, language) : undefined
   const cohortName = cohortEntity?.name
+  const patientBoardName = patientBoardEntity?.name != null ? localized(patientBoardEntity.name, language) : undefined
   const etlName = etlEntity?.name
   const sqlName = sqlEntity?.name
   const catalogName = catalogEntity?.name
@@ -211,6 +216,7 @@ export function Header() {
   const mappingActions = useMappingProjectActions()
   const dashboardActions = useDashboardActions()
   const cohortActions = useCohortActions()
+  const patientBoardActions = usePatientBoardActions()
   const etlActions = useEtlActions()
   const sqlActions = useSqlCollectionActions()
   const catalogActions = useCatalogActions()
@@ -224,6 +230,7 @@ export function Header() {
   const [cmMenuOpen, setCmMenuOpen] = useState(false)
   const [dashMenuOpen, setDashMenuOpen] = useState(false)
   const [cohortMenuOpen, setCohortMenuOpen] = useState(false)
+  const [patientBoardMenuOpen, setPatientBoardMenuOpen] = useState(false)
   const [etlMenuOpen, setEtlMenuOpen] = useState(false)
   const [sqlMenuOpen, setSqlMenuOpen] = useState(false)
   const [catalogMenuOpen, setCatalogMenuOpen] = useState(false)
@@ -262,6 +269,7 @@ export function Header() {
 
       if (dashboardId) return dashboardName ?? t('project_nav.dashboards')
       if (cohortId) return cohortName ?? t('project_nav.cohorts')
+      if (patientBoardId) return patientBoardName ?? t('project_nav.patient_data')
 
       const key = projectSegmentTitleKeys[segment]
       return key ? t(key) : segment
@@ -377,6 +385,26 @@ export function Header() {
         >
           <UsersRound size={10} className="text-muted-foreground" />
           {cohortEntity.name}
+          <MoreHorizontal size={12} className="text-muted-foreground" />
+        </Badge>
+      }
+    />
+  ) : patientBoardEntity ? (
+    <EntityActionsMenu
+      item={patientBoardEntity}
+      {...patientBoardActions}
+      align="start"
+      onDeleted={handleEntityDeleted}
+      open={patientBoardMenuOpen}
+      onOpenChange={setPatientBoardMenuOpen}
+      trigger={
+        <Badge
+          variant="outline"
+          className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+          aria-label={t('common.actions')}
+        >
+          <User size={10} className="text-muted-foreground" />
+          {localized(patientBoardEntity.name, language)}
           <MoreHorizontal size={12} className="text-muted-foreground" />
         </Badge>
       }

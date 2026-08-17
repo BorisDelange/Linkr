@@ -1,0 +1,307 @@
+import { useState, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
+import { Plus, User, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { TruncatedText } from '@/components/ui/truncated-text'
+import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
+import { GatedButton } from '@/components/ui/gated-button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { cardMenuTriggerClass, cn } from '@/lib/utils'
+import { paths } from '@/lib/paths'
+import { localized } from '@/lib/localized'
+import { applySort, baseSortFields } from '@/lib/list-sort'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
+import { useAppStore } from '@/stores/app-store'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useMyProjectRole } from '@/hooks/use-context-role'
+import { PatientBoardEditDialog } from './patient-data/PatientBoardEditDialog'
+import type { PatientDashboard } from '@/types'
+
+export function PatientDataListPage() {
+  const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
+  const navigate = useNavigate()
+  const { wsUid, projectUid: resolvedProjectUid } = useResolvedParams()
+  const projectUid = resolvedProjectUid ?? ''
+  const { atLeast } = useMyProjectRole(projectUid)
+  const canEdit = atLeast('editor')
+  const canDelete = atLeast('owner')
+
+  const dashboards = usePatientChartStore((s) => s.dashboards)
+  const loaded = usePatientChartStore((s) => s.loaded && s.activeProjectUid === projectUid)
+  const loadProjectDashboards = usePatientChartStore((s) => s.loadProjectDashboards)
+  const createDashboard = usePatientChartStore((s) => s.createDashboard)
+  const removeDashboard = usePatientChartStore((s) => s.removeDashboard)
+
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createName, setCreateName] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [editTarget, setEditTarget] = useState<PatientDashboard | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sort, setSort] = useState<SortState | null>(null)
+
+  useEffect(() => {
+    if (projectUid) loadProjectDashboards(projectUid)
+  }, [projectUid, loadProjectDashboards])
+
+  const projectBoards = useMemo(
+    () =>
+      dashboards
+        .filter((d) => d.projectUid === projectUid)
+        .sort((a, b) => a.displayOrder - b.displayOrder),
+    [dashboards, projectUid],
+  )
+
+  const filteredBoards = useMemo(() => {
+    const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+    const filtered = words.length
+      ? projectBoards.filter((d) => {
+          const name = localized(d.name, language).toLowerCase()
+          return words.every((w) => name.includes(w))
+        })
+      : projectBoards
+    return applySort(filtered, sort, {
+      name: (d) => localized(d.name, language),
+      createdAt: (d) => d.createdAt,
+      updatedAt: (d) => d.updatedAt,
+    })
+  }, [projectBoards, searchQuery, language, sort])
+
+  const handleCreate = async () => {
+    const name = createName.trim()
+    if (!name) return
+    const id = await createDashboard(projectUid, name)
+    setCreateOpen(false)
+    setCreateName('')
+    navigate(paths.patientBoard(wsUid ?? '', projectUid, id))
+  }
+
+  const handleDelete = () => {
+    if (deleteTarget) {
+      removeDashboard(deleteTarget)
+      setDeleteTarget(null)
+    }
+  }
+
+  if (!loaded) return null
+
+  return (
+    <div className="h-full overflow-auto">
+      <div className="mx-auto max-w-4xl px-6 py-10">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{t('patient_data.title')}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t('patient_data.boards_description')}
+            </p>
+          </div>
+          <GatedButton
+            allowed={canEdit}
+            notAllowedReason={t('common.insufficient_permissions')}
+            size="sm"
+            className="shrink-0 gap-1 text-xs"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus size={14} />
+            {t('patient_data.create_board')}
+          </GatedButton>
+        </div>
+
+        {projectBoards.length > 0 && (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('patient_data.search_boards_placeholder')}
+            sort={{ options: baseSortFields(t), value: sort, onChange: setSort }}
+          />
+        )}
+
+        {projectBoards.length === 0 ? (
+          <Card className="mt-6">
+            <div className="flex flex-col items-center py-12">
+              <User size={40} className="text-muted-foreground" />
+              <p className="mt-4 text-sm font-medium text-foreground">
+                {t('patient_data.no_boards_title')}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('patient_data.no_boards_description')}
+              </p>
+              <GatedButton
+                allowed={canEdit}
+                notAllowedReason={t('common.insufficient_permissions')}
+                onClick={() => setCreateOpen(true)}
+                className="mt-4 gap-2"
+              >
+                <Plus size={16} />
+                {t('patient_data.create_board')}
+              </GatedButton>
+            </div>
+          </Card>
+        ) : filteredBoards.length === 0 ? (
+          <div className="mt-6 flex flex-col items-center py-8">
+            <User size={24} className="text-muted-foreground/50" />
+            <p className="mt-2 text-sm text-muted-foreground">{t('patient_data.no_board_results')}</p>
+          </div>
+        ) : (
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            {filteredBoards.map((board) => {
+              const description = board.description ? localized(board.description, language) : ''
+              return (
+                <Card
+                  key={board.id}
+                  className="flex min-h-44 cursor-pointer flex-col gap-0 py-0 transition-colors hover:bg-accent"
+                  onClick={() => navigate(paths.patientBoard(wsUid ?? '', projectUid, board.id))}
+                >
+                  <div className="flex flex-1 flex-col px-4 pt-5">
+                    <div className="flex flex-1 flex-col justify-center">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+                            <User size={20} className="text-teal-500" />
+                          </div>
+                          <span className="truncate text-sm font-medium text-card-foreground">
+                            {localized(board.name, language)}
+                          </span>
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className={cn('-mt-1 shrink-0 self-start', cardMenuTriggerClass)}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal size={14} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem disabled={!canEdit} onClick={() => setEditTarget(board)}>
+                              <Pencil size={14} />
+                              {t('common.edit')}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              disabled={!canDelete}
+                              variant="destructive"
+                              onClick={() => setDeleteTarget(board.id)}
+                            >
+                              <Trash2 size={14} />
+                              {t('common.delete')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      <div className="mt-2 h-4">
+                        {description && (
+                          <TruncatedText text={description} className="text-xs text-muted-foreground" />
+                        )}
+                      </div>
+                    </div>
+                    <CardMetaFooter
+                      createdById={board.createdById}
+                      createdBy={board.createdBy}
+                      createdByDetails={board.createdByDetails}
+                      createdAt={board.createdAt}
+                      updatedAt={board.updatedAt}
+                    />
+                  </div>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Create dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('patient_data.create_board_title')}</DialogTitle>
+            <DialogDescription>{t('patient_data.create_board_description')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label className="text-xs">{t('common.name')}<RequiredMark /></Label>
+              <Input
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder={t('patient_data.board_name_placeholder')}
+                className="h-8 text-sm"
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate() } }}
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={handleCreate} disabled={!createName.trim()}>
+              {t('patient_data.create_board')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('patient_data.delete_board_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('patient_data.delete_board_confirm_description', {
+                name: deleteTarget
+                  ? localized(projectBoards.find((d) => d.id === deleteTarget)?.name ?? {}, language)
+                  : '',
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-white hover:bg-destructive/90">
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Edit dialog */}
+      {editTarget && (
+        <PatientBoardEditDialog
+          item={editTarget}
+          onOpenChange={(open) => { if (!open) setEditTarget(null) }}
+        />
+      )}
+    </div>
+  )
+}
