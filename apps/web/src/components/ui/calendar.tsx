@@ -47,10 +47,12 @@ export function Calendar({
         month: 'flex flex-col gap-2',
 
         month_caption: 'flex h-7 items-center justify-center',
-        // Also the visible half of each dropdown, hence the inline layout and
-        // the sizing of the chevron that v10 nests inside it.
+        // Also the visible half of each dropdown. French month names come out
+        // lowercase from the locale, so they are capitalized here; v10 nests a
+        // chevron in this span, which is hidden — the dropdowns read as
+        // clickable without it.
         caption_label:
-          'flex items-center gap-0.5 px-1 text-xs font-medium [&>svg]:size-3 [&>svg]:text-muted-foreground',
+          'flex items-center px-1 text-xs font-medium capitalize [&>svg]:hidden',
         nav: 'absolute inset-x-0 top-0 flex h-7 items-center justify-between',
         button_previous: cn(
           buttonVariants({ variant: 'ghost' }),
