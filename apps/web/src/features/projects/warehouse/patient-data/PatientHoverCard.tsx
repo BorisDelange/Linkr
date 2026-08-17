@@ -105,13 +105,17 @@ export function PatientHoverCard({
           )}
           {summary.visit_count != null && (
             <Row
-              label={t('patient_data.hospitalization')}
+              label={t('patient_data.hospitalization_count_label', {
+                count: Number(summary.visit_count),
+              })}
               value={Number(summary.visit_count)}
             />
           )}
           {summary.visit_detail_count != null && Number(summary.visit_detail_count) > 0 && (
             <Row
-              label={t('patient_data.stay')}
+              label={t('patient_data.stay_count_label', {
+                count: Number(summary.visit_detail_count),
+              })}
               value={Number(summary.visit_detail_count)}
             />
           )}
