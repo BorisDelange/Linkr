@@ -1,6 +1,6 @@
 import type { Cohort } from '@/types'
 import type { SchemaMapping, EventTable } from '@/types/schema-mapping'
-import { buildCohortQueryParts } from './cohort-query'
+import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral } from './cohort-query'
 import { getDictionaryForEvent, buildConceptJoinCondition } from '@/lib/schema-helpers'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 
@@ -15,6 +15,7 @@ export interface PatientFilters {
   admissionAfter?: string | null  // admission date >= (ISO date string)
   admissionBefore?: string | null // admission date <= (ISO date string)
   deathStatus?: 'alive' | 'deceased' | null // vital status filter
+  patientIdSearch?: string | null // substring match on the patient id
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +566,16 @@ function buildPatientFilterWhere(filters?: PatientFilters): string {
     clauses.push(`death_date IS NOT NULL`)
   } else if (filters.deathStatus === 'alive') {
     clauses.push(`death_date IS NULL`)
+  }
+  const idSearch = filters.patientIdSearch?.trim()
+  if (idSearch) {
+    // Cast: the id is an integer in OMOP but a string elsewhere, and the user
+    // types a fragment of it. ILIKE on the cast text matches both. Quoted with
+    // escPatternLiteral, not escSql — escSql would double the backslashes the
+    // LIKE escaping just added and the ESCAPE clause would stop working.
+    clauses.push(
+      `CAST(patient_id AS VARCHAR) ILIKE '${escPatternLiteral(`%${escapeLikeTerm(idSearch)}%`)}' ESCAPE '\\'`,
+    )
   }
 
   return clauses.length > 0

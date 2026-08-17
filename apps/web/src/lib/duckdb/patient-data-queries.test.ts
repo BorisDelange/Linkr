@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   buildPatientDemographicsQuery,
   buildPatientSummaryQuery,
+  buildPatientListQuery,
+  buildPatientCountQuery,
 } from './patient-data-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
@@ -100,5 +102,59 @@ describe('patient age expression', () => {
   it('casts the reference date so a bare year subtraction stays valid', () => {
     const sql = buildPatientDemographicsQuery(yearOnly, '123')!
     expect(sql).toContain('::TIMESTAMP')
+  })
+})
+
+// The sidebar's id search is a LIKE over a cast id. The escaping is the delicate
+// part: escSql would double the backslashes escapeLikeTerm just added and the
+// ESCAPE clause would silently stop working, so a search for "%" would match
+// every patient instead of none.
+describe('patient id search', () => {
+  const listSql = (search: string) =>
+    buildPatientListQuery(bothColumns, null, 50, 0, { patientIdSearch: search })!
+
+  it('filters the list on a substring of the id', () => {
+    const sql = listSql('1000')
+    expect(sql).toContain('ILIKE')
+    expect(sql).toContain("'%1000%'")
+  })
+
+  it('applies the same filter to the count, so pagination agrees', () => {
+    const sql = buildPatientCountQuery(bothColumns, null, { patientIdSearch: '1000' })!
+    expect(sql).toContain("'%1000%'")
+  })
+
+  it('casts the id, which is an integer in OMOP', () => {
+    expect(listSql('1000')).toContain('CAST(patient_id AS VARCHAR)')
+  })
+
+  it('treats a wildcard as a literal rather than matching everything', () => {
+    const sql = listSql('%')
+    expect(sql).toContain("ESCAPE '\\'")
+    // Escaped once — not twice, which is what escSql would have done.
+    expect(sql).toContain("'%\\%%'")
+  })
+
+  it('escapes the underscore wildcard too', () => {
+    expect(listSql('1_0')).toContain("'%1\\_0%'")
+  })
+
+  it('escapes a quote so the literal cannot be broken out of', () => {
+    expect(listSql("o'brien")).toContain("''")
+  })
+
+  it('ignores a blank or whitespace-only search', () => {
+    expect(listSql('   ')).not.toContain('ILIKE')
+    expect(listSql('')).not.toContain('ILIKE')
+  })
+
+  it('combines with the other filters instead of replacing them', () => {
+    const sql = buildPatientListQuery(bothColumns, null, 50, 0, {
+      patientIdSearch: '1000',
+      gender: '8507',
+    })!
+    expect(sql).toContain('ILIKE')
+    expect(sql).toContain("gender = '8507'")
+    expect(sql).toContain(' AND ')
   })
 })

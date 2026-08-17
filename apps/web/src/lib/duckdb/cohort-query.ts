@@ -483,8 +483,8 @@ function buildPeriodCriteria(
 // --- Free text (clinical notes) ---
 
 /** Escape the characters LIKE treats as wildcards, so a term is matched
- *  literally. The result is still passed through escSql for the quoting. */
-function escapeLikeTerm(term: string): string {
+ *  literally. Quote the result with escPatternLiteral, NOT escSql. */
+export function escapeLikeTerm(term: string): string {
   return term.replace(/[\\%_]/g, (ch) => `\\${ch}`)
 }
 
@@ -495,7 +495,7 @@ function escapeLikeTerm(term: string): string {
  * backslash-b, or `\%` into an escaped backslash followed by a live wildcard —
  * both of which match nothing. Only the quote (and NUL) need handling.
  */
-function escPatternLiteral(pattern: string): string {
+export function escPatternLiteral(pattern: string): string {
   return pattern.replace(/'/g, "''").replace(/\0/g, '')
 }
 

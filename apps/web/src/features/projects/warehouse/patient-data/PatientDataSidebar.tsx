@@ -12,7 +12,10 @@ import {
   X,
   Clock,
   HeartPulse,
+  Search,
 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -92,6 +95,17 @@ export function PatientDataSidebar() {
     patientFilters.admissionBefore ||
     patientFilters.deathStatus
   )
+
+  // Debounced so typing an id doesn't fire a SQL count+page query per keystroke.
+  const [idSearch, setIdSearch] = useState('')
+  const debouncedIdSearch = useDebouncedValue(idSearch, 300)
+  useEffect(() => {
+    setPatientFilters((prev) =>
+      (prev.patientIdSearch ?? '') === debouncedIdSearch
+        ? prev
+        : { ...prev, patientIdSearch: debouncedIdSearch || null },
+    )
+  }, [debouncedIdSearch, setPatientFilters])
 
   const formatGender = (gender: string | undefined) => fmtGender(gender, genderValues, t)
   const formatGenderShort = (gender: string | undefined) => fmtGenderShort(gender, genderValues, t)
@@ -303,10 +317,48 @@ export function PatientDataSidebar() {
                     </PopoverContent>
                   </Popover>
                 </div>
+
+                <div className="relative mt-1.5">
+                  <Search
+                    size={11}
+                    className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    value={idSearch}
+                    onChange={(e) => setIdSearch(e.target.value)}
+                    placeholder={t('patient_data.search_patient_id')}
+                    className="h-7 pl-6 pr-6 text-xs"
+                  />
+                  {idSearch && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="absolute right-0.5 top-1/2 -translate-y-1/2"
+                      onClick={() => setIdSearch('')}
+                    >
+                      <X size={10} />
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <ScrollArea className="flex-1 min-h-0 [&>div>div]:!block [&>div>div]:!min-w-0">
-                <div className="px-2 pb-2">
+                {/* Roving focus stays on the list container rather than the rows:
+                    the arrows must keep working across a page change, where the
+                    previously focused row unmounts. tabIndex makes it focusable. */}
+                <div
+                  className="px-2 pb-2 outline-none"
+                  tabIndex={patients.length > 0 ? 0 : -1}
+                  role="listbox"
+                  aria-label={t('patient_data.patients')}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+                    // Otherwise the ScrollArea also scrolls, doubling the movement.
+                    e.preventDefault()
+                    if (e.key === 'ArrowDown') goNextPatient()
+                    else goPrevPatient()
+                  }}
+                >
                   {patientsLoading && patients.length === 0 ? (
                     <div className="py-6 text-center text-xs text-muted-foreground">
                       {t('common.loading')}
@@ -496,20 +548,21 @@ export function PatientDataSidebar() {
                       <SelectItem key={v.visit_id} value={String(v.visit_id)}>
                         <div className="flex min-w-0 items-center gap-1.5">
                           <Calendar size={10} className="shrink-0 text-muted-foreground" />
-                          {/* Fixed-width, tabular date and duration columns so the
-                              type labels line up down the list instead of starting
-                              wherever the previous segment happened to end. An
-                              ongoing visit still spans the full width, so its row
-                              stays aligned with the closed ones above it. */}
-                          <span className="w-[11rem] shrink-0 tabular-nums">
+                          {/* One cell per date, each sized to its own content and
+                              kept on a single line, so the columns after them line
+                              up down the list. The separating dash is redundant
+                              once the two dates sit in distinct columns. */}
+                          <span className="w-[5.5rem] shrink-0 whitespace-nowrap tabular-nums">
                             {formatDate(v.start_date)}
-                            {v.end_date ? ` — ${formatDate(v.end_date)}` : ''}
                           </span>
-                          <span className="w-[4.75rem] shrink-0 text-right tabular-nums text-muted-foreground">
+                          <span className="w-[5.5rem] shrink-0 whitespace-nowrap tabular-nums text-muted-foreground">
+                            {v.end_date ? formatDate(v.end_date) : ''}
+                          </span>
+                          <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-right tabular-nums text-muted-foreground">
                             {formatStayDuration(v.start_date, v.end_date, t) ?? ''}
                           </span>
                           {v.visit_type && (
-                            <span className="truncate">· {v.visit_type}</span>
+                            <span className="truncate">{v.visit_type}</span>
                           )}
                         </div>
                       </SelectItem>
@@ -581,14 +634,16 @@ export function PatientDataSidebar() {
                         >
                           <div className="flex min-w-0 items-center gap-1.5">
                             <Bed size={10} className="shrink-0 text-muted-foreground" />
-                            <span className="w-[11rem] shrink-0 tabular-nums">
+                            <span className="w-[5.5rem] shrink-0 whitespace-nowrap tabular-nums">
                               {formatDate(vd.start_date)}
-                              {vd.end_date ? ` — ${formatDate(vd.end_date)}` : ''}
                             </span>
-                            <span className="w-[4.75rem] shrink-0 text-right tabular-nums text-muted-foreground">
+                            <span className="w-[5.5rem] shrink-0 whitespace-nowrap tabular-nums text-muted-foreground">
+                              {vd.end_date ? formatDate(vd.end_date) : ''}
+                            </span>
+                            <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-right tabular-nums text-muted-foreground">
                               {formatStayDuration(vd.start_date, vd.end_date, t) ?? ''}
                             </span>
-                            {vd.unit && <span className="truncate">· {vd.unit}</span>}
+                            {vd.unit && <span className="truncate">{vd.unit}</span>}
                           </div>
                         </SelectItem>
                       ))}

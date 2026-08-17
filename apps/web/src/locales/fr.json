@@ -1320,6 +1320,7 @@
     "cohort": "Cohorte",
     "all_patients": "Tous les patients",
     "patients": "Patients",
+    "search_patient_id": "Rechercher un ID…",
     "no_patients": "Aucun patient trouvé.",
     "visit": "Hospitalisation",
     "no_visits": "Aucune hospitalisation trouvée.",
@@ -2890,6 +2891,7 @@
     "invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement."
   },
   "common": {
+    "load_failed": "Impossible de charger ces données. Votre travail n'est pas perdu — réessayez ou rechargez la page.",
     "filters": "Filtres",
     "badges": "Badges",
     "created_on": "Créé le {{date}}",

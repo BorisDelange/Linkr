@@ -1320,6 +1320,7 @@
     "cohort": "Cohort",
     "all_patients": "All patients",
     "patients": "Patients",
+    "search_patient_id": "Search an ID…",
     "no_patients": "No patients found.",
     "visit": "Hospitalization",
     "no_visits": "No hospitalizations found.",
@@ -2890,6 +2891,7 @@
     "invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only."
   },
   "common": {
+    "load_failed": "Could not load this data. Your work is not lost — retry, or reload the page.",
     "filters": "Filters",
     "badges": "Badges",
     "created_on": "Created on {{date}}",
