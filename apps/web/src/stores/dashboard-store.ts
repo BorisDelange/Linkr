@@ -28,7 +28,11 @@ interface DashboardState {
 
   // Dashboard CRUD
   loadProjectDashboards: (projectUid: string) => Promise<void>
-  createDashboard: (projectUid: string, name: LocalizedString) => Promise<string>
+  createDashboard: (
+    projectUid: string,
+    name: LocalizedString,
+    description?: LocalizedString,
+  ) => Promise<string>
   updateDashboard: (id: string, changes: Partial<Dashboard>) => void
   deleteDashboard: (id: string) => void
   setActiveDashboard: (id: string | null) => void
@@ -216,13 +220,14 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }
   },
 
-  createDashboard: async (projectUid, name) => {
+  createDashboard: async (projectUid, name, description) => {
     const id = uid()
     const now = new Date().toISOString()
     const dashboard: Dashboard = {
       id,
       projectUid,
       name,
+      description,
       filterConfig: [],
       gridV: 2,
       ...stampAuthored(),

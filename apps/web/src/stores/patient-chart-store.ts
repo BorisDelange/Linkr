@@ -72,7 +72,11 @@ interface PatientChartState {
   setSelectedVisitDetail: (projectUid: string, visitDetailId: string | null) => void
 
   // Board CRUD
-  createDashboard: (projectUid: string, name?: string) => Promise<string>
+  createDashboard: (
+    projectUid: string,
+    name?: string,
+    description?: string,
+  ) => Promise<string>
   renameDashboard: (dashboardId: string, name: string) => void
   updateDashboard: (dashboardId: string, changes: Partial<PatientDashboard>) => void
   removeDashboard: (dashboardId: string) => void
@@ -393,14 +397,19 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
 
   // --- Board CRUD ---
 
-  createDashboard: async (projectUid, name) => {
+  createDashboard: async (projectUid, name, description) => {
     const id = uid()
     const now = new Date().toISOString()
     const existing = get().dashboards.filter((d) => d.projectUid === projectUid)
+    // Written into the ACTIVE language only. toLocalized would copy the same
+    // string into every language, so a board named in French would then read
+    // identically in English with no way to tell it was never translated.
+    const lang = useAppStore.getState().language
     const dashboard: PatientDashboard = {
       id,
       projectUid,
-      name: toLocalized(name ?? `Board ${existing.length + 1}`),
+      name: setLocalized({}, lang, name ?? `Board ${existing.length + 1}`),
+      description: description ? setLocalized({}, lang, description) : undefined,
       displayOrder: existing.length,
       version: '0.1.0',
       createdAt: now,

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Plus, User, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
+import { Plus, User, MoreHorizontal, Trash2, Pencil, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -9,6 +9,7 @@ import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { GatedButton } from '@/components/ui/gated-button'
 import {
@@ -66,6 +67,7 @@ export function PatientDataListPage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
+  const [createDescription, setCreateDescription] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [editTarget, setEditTarget] = useState<PatientDashboard | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -98,12 +100,25 @@ export function PatientDataListPage() {
     })
   }, [projectBoards, searchQuery, language, sort])
 
+  // Compared in the ACTIVE language: that is the string the user typed and the
+  // one the list shows them, so a clash in another translation isn't a clash here.
+  const nameError = useMemo(() => {
+    const trimmed = createName.trim().toLowerCase()
+    if (!trimmed) return null
+    const taken = projectBoards.some(
+      (d) => localized(d.name, language).trim().toLowerCase() === trimmed,
+    )
+    return taken ? t('patient_data.board_name_exists') : null
+  }, [createName, projectBoards, language, t])
+  const isNameValid = createName.trim().length > 0 && !nameError
+
   const handleCreate = async () => {
     const name = createName.trim()
-    if (!name) return
-    const id = await createDashboard(projectUid, name)
+    if (!name || nameError) return
+    const id = await createDashboard(projectUid, name, createDescription.trim() || undefined)
     setCreateOpen(false)
     setCreateName('')
+    setCreateDescription('')
     navigate(paths.patientBoard(wsUid ?? '', projectUid, id))
   }
 
@@ -269,9 +284,26 @@ export function PatientDataListPage() {
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder={t('patient_data.board_name_placeholder')}
-                className="h-8 text-sm"
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate() } }}
+                className={cn('h-8 text-sm', nameError && 'border-destructive')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); handleCreate() }
+                }}
                 autoFocus
+              />
+              {nameError && (
+                <p className="flex items-center gap-1 text-[10px] text-destructive">
+                  <TriangleAlert size={10} />
+                  {nameError}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t('common.description')}</Label>
+              <Textarea
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                rows={3}
+                className="resize-none text-sm"
               />
             </div>
           </div>
@@ -279,7 +311,7 @@ export function PatientDataListPage() {
             <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button size="sm" onClick={handleCreate} disabled={!createName.trim()}>
+            <Button size="sm" onClick={handleCreate} disabled={!isNameValid}>
               {t('patient_data.create_board')}
             </Button>
           </DialogFooter>

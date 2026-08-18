@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import type { Dashboard } from '@/types'
 import { paths } from '@/lib/paths'
-import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
+import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
@@ -13,6 +13,7 @@ import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { RequiredMark } from '@/components/ui/required-mark'
 import {
   Dialog,
@@ -63,6 +64,7 @@ export function LabDashboardsPage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
+  const [createDescription, setCreateDescription] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [editTarget, setEditTarget] = useState<Dashboard | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -93,12 +95,30 @@ export function LabDashboardsPage() {
   }, [projectDashboards, searchQuery, language, sort])
 
 
+  // Compared in the ACTIVE language: that is what the user typed and what the
+  // list shows, so a clash in another translation isn't a clash here.
+  const nameError = useMemo(() => {
+    const trimmed = createName.trim().toLowerCase()
+    if (!trimmed) return null
+    const taken = projectDashboards.some(
+      (d) => localized(d.name, language).trim().toLowerCase() === trimmed,
+    )
+    return taken ? t('dashboard.dashboard_name_exists') : null
+  }, [createName, projectDashboards, language, t])
+  const isNameValid = createName.trim().length > 0 && !nameError
+
   const handleCreate = async () => {
     const name = createName.trim()
-    if (!name) return
-    const id = await createDashboard(projectUid, setLocalized({}, language, name))
+    if (!name || nameError) return
+    const description = createDescription.trim()
+    const id = await createDashboard(
+      projectUid,
+      setLocalized({}, language, name),
+      description ? setLocalized({}, language, description) : undefined,
+    )
     setCreateOpen(false)
     setCreateName('')
+    setCreateDescription('')
     navigate(paths.dashboard(wsUid ?? '', projectUid, id))
   }
 
@@ -239,9 +259,24 @@ export function LabDashboardsPage() {
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder={t('dashboard.field_name_placeholder')}
-                className="h-8 text-sm"
+                className={cn('h-8 text-sm', nameError && 'border-destructive')}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate() } }}
                 autoFocus
+              />
+              {nameError && (
+                <p className="flex items-center gap-1 text-[10px] text-destructive">
+                  <TriangleAlert size={10} />
+                  {nameError}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t('common.description')}</Label>
+              <Textarea
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                rows={3}
+                className="resize-none text-sm"
               />
             </div>
           </div>
@@ -249,7 +284,7 @@ export function LabDashboardsPage() {
             <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button size="sm" onClick={handleCreate} disabled={!createName.trim()}>
+            <Button size="sm" onClick={handleCreate} disabled={!isNameValid}>
               {t('dashboard.create_dashboard')}
             </Button>
           </DialogFooter>
