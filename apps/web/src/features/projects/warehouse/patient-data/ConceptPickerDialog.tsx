@@ -59,6 +59,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { defaultConceptColorName } from '@/lib/concept-colors'
 import { COLOR_PALETTE } from '@/components/ui/color-picker-popover'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 
@@ -145,15 +146,21 @@ function ColumnFilterSelect({
  */
 function ConceptColorSwatch({
   value,
+  index,
   onChange,
 }: {
   value: string | undefined
+  /** Position in the selection: drives the auto colour when none is set. */
+  index: number
   onChange: (color: string | undefined) => void
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const entry = value ? COLOR_PALETTE.find((c) => c.name === value) : undefined
-  const isHex = value?.startsWith('#')
+  // With no explicit choice the swatch shows the colour the chart will actually
+  // use, not an empty grey circle that reads as "no colour".
+  const effective = value ?? defaultConceptColorName(index)
+  const entry = COLOR_PALETTE.find((c) => c.name === effective)
+  const isHex = effective.startsWith('#')
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -161,7 +168,7 @@ function ConceptColorSwatch({
         <button
           type="button"
           className="size-4 shrink-0 rounded-full border border-border"
-          style={isHex ? { backgroundColor: value } : undefined}
+          style={isHex ? { backgroundColor: effective } : undefined}
           title={t('patient_data.concept_color')}
           onClick={(e) => e.stopPropagation()}
         >
@@ -852,7 +859,7 @@ export function ConceptPickerDialog({
                 <>
                   <ScrollArea className="min-h-0 flex-1 [&>div>div]:!block [&>div>div]:!min-w-0">
                     <div className="p-1.5">
-                      {selectedList.map((item) => (
+                      {selectedList.map((item, index) => (
                         <div
                           key={item.id}
                           className="group flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-accent/50"
@@ -867,6 +874,7 @@ export function ConceptPickerDialog({
                           </button>
                           <ConceptColorSwatch
                             value={conceptColors[String(item.id)]}
+                            index={index}
                             onChange={(color) => setConceptColor(item.id, color)}
                           />
                           <span className="min-w-0 flex-1 truncate text-xs">

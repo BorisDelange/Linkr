@@ -11,7 +11,7 @@ import {
 } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
-import { COLOR_PALETTE } from '@/components/ui/color-picker-popover'
+import { conceptColorHex } from '@/lib/concept-colors'
 import {
   subscribeTimelineSync,
   broadcastTimelineRange,
@@ -37,51 +37,31 @@ interface TimelineRow {
 /** Px reserved at the bottom so the range selector stays inside the card. */
 const RANGE_SELECTOR_RESERVE = 6
 
-const CSS_COLORS = [
-  '--color-chart-1',
-  '--color-chart-2',
-  '--color-chart-3',
-  '--color-chart-4',
-  '--color-chart-5',
-]
-
-function resolveCssColor(varName: string): string {
-  const raw = getComputedStyle(document.documentElement)
-    .getPropertyValue(varName)
-    .trim()
-  if (raw.startsWith('var(')) {
-    const inner = raw.slice(4, -1).trim()
-    return resolveCssColor(inner)
-  }
-  return raw || '#888'
-}
-
 function resolveCssVar(varName: string): string {
   return getComputedStyle(document.documentElement)
     .getPropertyValue(varName)
     .trim()
 }
 
-/** Resolve a stored color (palette name or hex) to a concrete hex value. */
-function resolveConceptColor(color: string | undefined): string | null {
-  if (!color) return null
-  if (color.startsWith('#')) return color
-  return COLOR_PALETTE.find((c) => c.name === color)?.hex ?? null
-}
-
 /**
- * Series colors: each concept uses its configured color when set, otherwise
- * the rotating chart palette (keyed by index so defaults stay stable).
+ * Series colors: each concept uses its configured color when set, otherwise the
+ * auto color for its position in the widget's own conceptIds list — NOT its
+ * position among the series actually returned, so a concept keeps its color even
+ * when another one has no data for the selected patient and drops out.
  */
 function getSeriesColors(
   names: string[],
   conceptIdByName: Record<string, number>,
   conceptColors: Record<string, string>,
+  conceptIds: number[],
 ): string[] {
   return names.map((name, i) => {
     const id = conceptIdByName[name]
-    const custom = id != null ? resolveConceptColor(conceptColors[String(id)]) : null
-    return custom ?? resolveCssColor(CSS_COLORS[i % CSS_COLORS.length])
+    const position = id != null ? conceptIds.indexOf(id) : -1
+    return conceptColorHex(
+      id != null ? conceptColors[String(id)] : undefined,
+      position >= 0 ? position : i,
+    )
   })
 }
 
@@ -284,7 +264,7 @@ export function TimelineWidget({
       return
     }
 
-    const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors)
+    const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors, conceptIds)
     const theme = getThemeColors()
 
     const opts: dygraphs.Options = {
@@ -480,7 +460,7 @@ export function TimelineWidget({
     const observer = new MutationObserver(() => {
       if (dygraphRef.current && chartData) {
         const theme = getThemeColors()
-        const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors)
+        const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors, conceptIds)
         dygraphRef.current.updateOptions({
           colors,
           gridLineColor: theme.gridLineColor,
