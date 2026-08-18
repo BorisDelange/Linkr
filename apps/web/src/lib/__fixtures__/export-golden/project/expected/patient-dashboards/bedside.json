@@ -9,6 +9,7 @@
     "showWidgetTitles": true,
     "widgetSpacing": null,
     "fitToHeight": null,
+    "reloadWidgetsOnTabSwitch": null,
     "displayOrder": 0,
     "createdBy": null,
     "createdByDetails": null,

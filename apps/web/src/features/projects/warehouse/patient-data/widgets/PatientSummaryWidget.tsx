@@ -11,6 +11,7 @@ import {
   TooltipProvider,
 } from '@/components/ui/tooltip'
 import { usePatientChartContext } from '../PatientChartContext'
+import { useTabVisible } from '../TabVisibilityContext'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import {
@@ -685,6 +686,7 @@ function TextTimeline({ visitRows, detailsByVisit, formatDate, formatDateShort, 
 export function PatientSummaryWidget() {
   const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
+  const visible = useTabVisible()
   // Narrow selectors: a bare usePatientChartStore() re-renders this widget on every
   // unrelated widget/board change.
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId)
@@ -696,6 +698,9 @@ export function PatientSummaryWidget() {
   const [viewMode, setViewMode] = useState<'text' | 'timeline'>('timeline')
 
   useEffect(() => {
+    // Skip while the tab is hidden (keep-alive leaves it mounted); keep the data
+    // we already have so revealing the tab doesn't force a refetch.
+    if (!visible) return
     if (!dataSourceId || !schemaMapping || !patientId) {
       setSummary(null)
       setVisits([])
@@ -732,7 +737,7 @@ export function PatientSummaryWidget() {
     return () => {
       cancelled = true
     }
-  }, [dataSourceId, schemaMapping, patientId])
+  }, [visible, dataSourceId, schemaMapping, patientId])
 
   const gv = schemaMapping?.genderValues
   const formatGender = (g: string | undefined) => fmtGender(g, gv, t)

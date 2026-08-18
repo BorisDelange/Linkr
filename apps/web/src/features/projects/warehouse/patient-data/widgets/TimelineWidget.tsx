@@ -5,6 +5,7 @@ import 'dygraphs/dist/dygraph.css'
 import { Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { usePatientChartContext } from '../PatientChartContext'
+import { useTabVisible } from '../TabVisibilityContext'
 import {
   usePatientChartStore,
   type TimelineConfig,
@@ -103,6 +104,7 @@ export function TimelineWidget({
 }: TimelineWidgetProps) {
   const { t } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
+  const visible = useTabVisible()
   // Narrow selectors: a bare usePatientChartStore() re-renders every timeline on
   // the grid whenever any widget or selection changes.
   const widget = usePatientChartStore((s) => s.widgets.find((w) => w.id === widgetId))
@@ -144,6 +146,11 @@ export function TimelineWidget({
 
   // Fetch data
   useEffect(() => {
+    // A kept-alive tab stays mounted, so without this every hidden timeline would
+    // re-query on each patient change. Returning early KEEPS the current data
+    // rather than clearing it — clearing would defeat keep-alive by forcing a
+    // refetch on every reveal. `visible` is a dep, so the fetch runs on reveal.
+    if (!visible) return
     if (
       !dataSourceId ||
       !schemaMapping ||
@@ -195,7 +202,7 @@ export function TimelineWidget({
       clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataSourceId, schemaMapping, patientId, visitId, conceptIdsKey])
+  }, [visible, dataSourceId, schemaMapping, patientId, visitId, conceptIdsKey])
 
   // Reshape data for dygraphs: Array<[Date, number|null, ...]>
   const { chartData, conceptNames, conceptIdByName } = useMemo(() => {

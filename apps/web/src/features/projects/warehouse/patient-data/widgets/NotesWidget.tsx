@@ -11,6 +11,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { usePatientChartContext } from '../PatientChartContext'
+import { useTabVisible } from '../TabVisibilityContext'
 import { usePatientChartStore, type NotesConfig } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { sanitizeHtml } from '@/lib/sanitize'
@@ -277,6 +278,7 @@ export function NotesWidget({
 }) {
   const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
+  const visible = useTabVisible()
   // Narrow selectors: see PatientSummaryWidget.
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId)
   const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId)
@@ -312,6 +314,9 @@ export function NotesWidget({
 
   // Load notes
   useEffect(() => {
+    // Skip while the tab is hidden (keep-alive leaves it mounted); keep the data
+    // we already have so revealing the tab doesn't force a refetch.
+    if (!visible) return
     if (!dataSourceId || !schemaMapping || !patientId) {
       setNotes([])
       return
@@ -347,7 +352,7 @@ export function NotesWidget({
     return () => {
       cancelled = true
     }
-  }, [dataSourceId, schemaMapping, patientId, visitId])
+  }, [visible, dataSourceId, schemaMapping, patientId, visitId])
 
   // Reset selection when notes change
   useEffect(() => {

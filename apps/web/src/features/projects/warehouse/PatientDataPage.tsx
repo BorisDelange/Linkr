@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Allotment } from 'allotment'
@@ -17,6 +17,7 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from './patient-data/PatientChartContext'
 import { PatientChartTabBar } from './patient-data/PatientChartTabBar'
 import { PatientChartGrid } from './patient-data/PatientChartGrid'
+import { TabVisibilityContext } from './patient-data/TabVisibilityContext'
 import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
@@ -75,6 +76,46 @@ export function PatientDataPage() {
     ? (activeTabId[currentBoard.id] ?? boardTabs[0]?.id)
     : undefined
   const tabWidgets = currentTabId ? widgets.filter((w) => w.tabId === currentTabId) : []
+
+  // Keep-alive for visited tabs, mirroring DashboardPage: once a tab with widgets is shown,
+  // keep its grid mounted (hidden via CSS when inactive) so returning to it doesn't remount —
+  // no chart redraw, and already-fetched rows stay live in the DOM. Unvisited tabs are never
+  // mounted, so we don't pay for tabs the user never opens.
+  //
+  // "Reload widgets on tab switch" turns keep-alive OFF: only the current tab is mounted, so
+  // leaving a tab frees its DOM and returning refetches it.
+  const keepAlive = currentBoard?.reloadWidgetsOnTabSwitch !== true
+  const [visitedTabIds, setVisitedTabIds] = useState<Set<string>>(new Set())
+  const isMountableTab = !!currentTabId && tabWidgets.length > 0
+  // Drop the visited set when the board changes — its tab ids no longer apply.
+  useEffect(() => {
+    setVisitedTabIds(new Set())
+  }, [currentBoard?.id])
+  useEffect(() => {
+    if (keepAlive && isMountableTab && currentTabId && !visitedTabIds.has(currentTabId)) {
+      setVisitedTabIds((prev) => new Set(prev).add(currentTabId))
+    }
+  }, [keepAlive, isMountableTab, currentTabId, visitedTabIds])
+  // With keep-alive: every visited tab (+ the current one on its first render, before the
+  // effect records it). Without: only the current tab, so switching away unmounts it.
+  const mountedTabs = boardTabs.filter((tab) =>
+    keepAlive
+      ? visitedTabIds.has(tab.id) || (isMountableTab && tab.id === currentTabId)
+      : isMountableTab && tab.id === currentTabId,
+  )
+
+  // Each tab's slice keeps a stable reference across tab switches, so a kept-alive grid whose
+  // props are otherwise unchanged doesn't re-reconcile its charts on every board render.
+  const widgetsByTab = useMemo(() => {
+    const m = new Map<string, typeof widgets>()
+    for (const w of widgets) {
+      const list = m.get(w.tabId)
+      if (list) list.push(w)
+      else m.set(w.tabId, [w])
+    }
+    return m
+  }, [widgets])
+  const emptyWidgets = useMemo<typeof widgets>(() => [], [])
 
   if (!loaded) return null
 
@@ -221,14 +262,31 @@ export function PatientDataPage() {
           <Allotment>
             <Allotment.Pane minSize={500}>
               {tabWidgets.length > 0 ? (
-                <PatientChartGrid
-                  widgets={tabWidgets}
-                  tabs={boardTabs}
-                  editMode={editMode}
-                  hideTitleBars={(currentBoard.showWidgetTitles ?? true) === false}
-                  widgetSpacing={currentBoard.widgetSpacing}
-                  fitToHeight={currentBoard.fitToHeight ?? true}
-                />
+                mountedTabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    className={
+                      tab.id === currentTabId
+                        ? 'contents'
+                        : 'invisible absolute top-0 left-0 w-full'
+                    }
+                    aria-hidden={tab.id !== currentTabId}
+                  >
+                    {/* Kept-alive tabs stay mounted, and a patient widget refetches
+                        on every patient/visit change — so without this a hidden tab
+                        would query the warehouse alongside the visible one. */}
+                    <TabVisibilityContext.Provider value={tab.id === currentTabId}>
+                      <PatientChartGrid
+                        widgets={widgetsByTab.get(tab.id) ?? emptyWidgets}
+                        tabs={boardTabs}
+                        editMode={editMode}
+                        hideTitleBars={(currentBoard.showWidgetTitles ?? true) === false}
+                        widgetSpacing={currentBoard.widgetSpacing}
+                        fitToHeight={currentBoard.fitToHeight ?? true}
+                      />
+                    </TabVisibilityContext.Provider>
+                  </div>
+                ))
               ) : (
                 <div className="flex h-full items-center justify-center p-8">
                   <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">
