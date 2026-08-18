@@ -250,13 +250,18 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => {
-      setSize({ w: el.clientWidth, h: el.clientHeight })
-    })
+    const measure = () => {
+      const w = el.clientWidth
+      const h = el.clientHeight
+      // Only set state on a real change: a ResizeObserver that re-sets an equal
+      // size would re-render on every observed frame.
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+    }
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
-    setSize({ w: el.clientWidth, h: el.clientHeight })
+    measure()
     return () => ro.disconnect()
-  }, [])
+  })
 
   const chartH = Math.max(60, size.h - FOOT - (showRange ? RANGE_H : 0))
   const budget = Math.max(4, Math.floor(chartH / rowH))
@@ -883,36 +888,41 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
 
   // --- Render ---------------------------------------------------------------
 
-  if (!selectedPatientId) {
-    return <Message text={t('patient_data.select_patient_first')} />
-  }
-  if (error) {
-    return <Message text={error} tone="error" />
-  }
-  if (loading && concepts.length === 0) {
-    return <Message text={t('patient_data.overview_loading')} />
-  }
-  if (!loading && concepts.length === 0) {
-    return <Message text={t('patient_data.overview_no_data')} />
-  }
+  const message = !selectedPatientId
+    ? t('patient_data.select_patient_first')
+    : error
+      ? error
+      : loading && concepts.length === 0
+        ? t('patient_data.overview_loading')
+        : !loading && concepts.length === 0
+          ? t('patient_data.overview_no_data')
+          : null
 
-  // The canvas sizes itself from its rows, so it can't be what the wrapper
-  // measures — absolute positioning lets the wrapper keep the widget's real
-  // height and the canvas fill it, instead of the two chasing each other.
+  // The wrapper is ALWAYS rendered, even for the messages: it carries the ref
+  // the ResizeObserver attaches to on mount. Returning a bare message instead
+  // left that ref null, so the observer never attached and the canvas kept a
+  // size of 0×0 once the data arrived — a permanently blank widget.
+  //
+  // The canvas is absolutely positioned so the wrapper measures the widget's
+  // real height rather than the canvas it is about to size.
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden">
-      <canvas
-        ref={canvasRef}
-        tabIndex={0}
-        className="absolute inset-0 block w-full outline-none"
-        onWheel={onWheel}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
-        onClick={onClick}
-        onKeyDown={onKeyDown}
-      />
+      {message ? (
+        <Message text={message} tone={error ? 'error' : undefined} />
+      ) : (
+        <canvas
+          ref={canvasRef}
+          tabIndex={0}
+          className="absolute inset-0 block w-full outline-none"
+          onWheel={onWheel}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseUp}
+          onClick={onClick}
+          onKeyDown={onKeyDown}
+        />
+      )}
     </div>
   )
 }
