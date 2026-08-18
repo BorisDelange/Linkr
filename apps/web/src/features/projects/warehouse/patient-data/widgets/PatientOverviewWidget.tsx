@@ -355,8 +355,12 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     const el = wrapRef.current
     if (!el) return
     const measure = () => {
-      const w = el.clientWidth
-      const h = el.clientHeight
+      // getBoundingClientRect, NOT clientWidth: the mouse handlers hit-test
+      // against the canvas's own rect, and the two disagree by any border or
+      // fractional layout — which shifts every tooltip off its target.
+      const r = el.getBoundingClientRect()
+      const w = Math.round(r.width)
+      const h = Math.round(r.height)
       // Only set state on a real change: a ResizeObserver that re-sets an equal
       // size would re-render on every observed frame.
       setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
@@ -501,13 +505,18 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     const dpr = Math.max(1, window.devicePixelRatio || 1)
     const w = size.w
     const rows = layout.rows
-    // Fill the widget rather than growing past it: the row budget was computed
-    // from this same height, so the rows fit by construction.
-    const h = Math.max(60, size.h)
-    if (w < 80) return
+    // Exactly the wrapper's box. The canvas is stretched to it by CSS
+    // (absolute inset-0), so drawing at any other size would scale every pixel
+    // and put the marks somewhere other than where the mouse reports them.
+    const h = size.h
+    if (w < 80 || h < 40) return
 
-    cv.width = w * dpr
-    cv.height = h * dpr
+    cv.width = Math.round(w * dpr)
+    cv.height = Math.round(h * dpr)
+    // Pin the CSS size too: without it the intrinsic size and the stretched box
+    // can disagree, which is exactly what offsets the hit-testing.
+    cv.style.width = `${w}px`
+    cv.style.height = `${h}px`
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, w, h)
 
@@ -1052,8 +1061,11 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   // left that ref null, so the observer never attached and the canvas kept a
   // size of 0×0 once the data arrived — a permanently blank widget.
   //
-  // The canvas is absolutely positioned so the wrapper measures the widget's
-  // real height rather than the canvas it is about to size.
+  // The canvas is positioned but NOT stretched by CSS: the paint sets its
+  // width/height in CSS pixels to match exactly what it draws. Sizing it with
+  // `inset-0`/`w-full` instead scales the drawing whenever the measured size
+  // lags a frame behind the box, which moves every mark away from the pointer
+  // hit-testing it — tooltips then land on the wrong row, or on nothing.
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden">
       {message ? (
@@ -1062,7 +1074,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         <canvas
           ref={canvasRef}
           tabIndex={0}
-          className="absolute inset-0 block w-full outline-none"
+          className="absolute left-0 top-0 block outline-none"
           onWheel={onWheel}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
