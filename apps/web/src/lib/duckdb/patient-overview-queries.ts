@@ -52,11 +52,12 @@ export function buildOverviewInventoryQuery(
   mapping: SchemaMapping,
   patientId: string,
   visitId: string | null,
+  stay: OverviewStayWindow | null = null,
 ): string | null {
   const parts: string[] = []
 
   for (const [label, et] of Object.entries(mapping.eventTables ?? {})) {
-    const part = buildInventoryPart(mapping, label, et, patientId, visitId)
+    const part = buildInventoryPart(mapping, label, et, patientId, visitId, stay)
     if (part) parts.push(part)
   }
 
@@ -70,13 +71,14 @@ function buildInventoryPart(
   et: EventTable,
   patientId: string,
   visitId: string | null,
+  stay: OverviewStayWindow | null,
 ): string | null {
   if (!et.dateColumn) return null
   const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
   if (!patientIdCol) return null
 
   const dict = getDictionaryForEvent(mapping, et)
-  const visitFilter = buildVisitFilter(mapping, visitId, 'e')
+  const visitFilter = buildVisitFilter(mapping, visitId, 'e') + buildStayFilter(et, stay)
   const endExpr = et.endDateColumn ? `e."${et.endDateColumn}"` : 'NULL'
   const unitExpr = pickUnitColumn(et) ? `MAX(e."${pickUnitColumn(et)}")` : 'NULL'
 
@@ -121,6 +123,7 @@ export function buildOverviewDensityQuery(
   to: string,
   buckets: number,
   rows: OverviewDensityRow[],
+  stay: OverviewStayWindow | null = null,
 ): string | null {
   const n = Math.max(1, Math.min(2000, Math.floor(buckets)))
   const parts: string[] = []
@@ -131,7 +134,7 @@ export function buildOverviewDensityQuery(
     const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
     if (!patientIdCol) continue
 
-    const visitFilter = buildVisitFilter(mapping, visitId, 'e')
+    const visitFilter = buildVisitFilter(mapping, visitId, 'e') + buildStayFilter(et, stay)
     const conceptFilter = buildConceptFilter(et, row.conceptIds)
     const bucket = bucketExpr(`e."${et.dateColumn}"`, from, to, n)
 
@@ -178,13 +181,14 @@ export function buildOverviewEventsQuery(
   from: string,
   to: string,
   limit: number,
+  stay: OverviewStayWindow | null = null,
 ): string | null {
   const et = mapping.eventTables?.[tableLabel]
   if (!et || !et.dateColumn || conceptIds.length === 0) return null
   const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
   if (!patientIdCol) return null
 
-  const visitFilter = buildVisitFilter(mapping, visitId, 'e')
+  const visitFilter = buildVisitFilter(mapping, visitId, 'e') + buildStayFilter(et, stay)
   const conceptFilter = buildConceptFilter(et, conceptIds)
   const endExpr = et.endDateColumn ? `e."${et.endDateColumn}"` : 'NULL'
   const valExpr = et.valueColumn ? `e."${et.valueColumn}"` : 'NULL'
@@ -261,6 +265,27 @@ FROM "${vdt.table}" vd${join}
 WHERE vd."${vdt.patientIdColumn}" = '${escSql(patientId)}'
   AND vd."${vdt.startDateColumn}" IS NOT NULL${visitFilter}
 ORDER BY vd."${vdt.startDateColumn}"`
+}
+
+/**
+ * The time window of one unit stay, by its id.
+ *
+ * Fetched rather than passed down from the sidebar so the scope survives a
+ * reload, and so the widget does not depend on which component happens to hold
+ * the stay list.
+ */
+export function buildOverviewStayWindowQuery(
+  mapping: SchemaMapping,
+  visitDetailId: string,
+): string | null {
+  const vdt = mapping.visitDetailTable
+  if (!vdt) return null
+  const endCol = vdt.endDateColumn ? `vd."${vdt.endDateColumn}"` : 'NULL'
+  return `SELECT vd."${vdt.startDateColumn}" AS stay_start,
+  ${endCol} AS stay_end
+FROM "${vdt.table}" vd
+WHERE vd."${vdt.idColumn}" = '${escSql(visitDetailId)}'
+LIMIT 1`
 }
 
 /** The patient's death timestamp, wherever this model keeps it. */
@@ -352,4 +377,35 @@ function buildVisitFilter(
 ): string {
   if (!visitId || !mapping.visitTable) return ''
   return `\n  AND ${alias}."${mapping.visitTable.idColumn}" = '${escSql(visitId)}'`
+}
+
+/**
+ * Restrict to one unit stay, by TIME rather than by foreign key.
+ *
+ * The FK route does not survive contact with real data: OMOP's
+ * `visit_detail_id` is present on the event tables but NULL for every row on
+ * the sample warehouse, and in MIMIC-IV `chartevents` has `stay_id` while
+ * `labevents` has no such column at all. Filtering on it would silently empty
+ * the widget on both. The stay's time window is what "during this stay" means
+ * clinically anyway, and every event table has a date.
+ */
+function buildStayFilter(
+  et: EventTable,
+  stay: OverviewStayWindow | null,
+): string {
+  if (!stay || !et.dateColumn) return ''
+  const start = `e."${et.dateColumn}"`
+  // A block overlapping the stay counts: an infusion started before admission
+  // to the unit is still running during it.
+  const end = et.endDateColumn ? `COALESCE(e."${et.endDateColumn}", ${start})` : start
+  const upper = stay.end
+    ? `\n  AND ${start} <= TIMESTAMP '${escSql(stay.end)}'`
+    : ''
+  return `\n  AND ${end} >= TIMESTAMP '${escSql(stay.start)}'${upper}`
+}
+
+/** The time window of the selected unit stay, when one is selected. */
+export interface OverviewStayWindow {
+  start: string
+  end: string | null
 }

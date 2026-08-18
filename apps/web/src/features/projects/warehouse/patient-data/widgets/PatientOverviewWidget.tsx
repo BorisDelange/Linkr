@@ -9,8 +9,11 @@ import {
   buildOverviewUnitStaysQuery,
   buildOverviewDeathQuery,
   buildOverviewEventsQuery,
+  buildOverviewDensityQuery,
+  buildOverviewStayWindowQuery,
   overviewSupportsClasses,
   overviewUnitTableLabel,
+  type OverviewStayWindow,
 } from '@/lib/duckdb/patient-overview-queries'
 import {
   buildOverviewRows,
@@ -43,6 +46,15 @@ interface OverviewEvent {
   value: number | null
   text: string | null
 }
+
+/** Whole-record density for the range selector's background. */
+interface OverviewDensity {
+  counts: Float64Array
+  max: number
+}
+
+/** Buckets in the range selector's histogram — enough for a smooth strip. */
+const RANGE_BUCKETS = 240
 
 /** Per-source-table colours, assigned by position so any schema gets a palette. */
 const TABLE_PALETTE = [
@@ -95,8 +107,10 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const selectedPatientIds = usePatientChartStore((s) => s.selectedPatientId)
   const selectedVisitIds = usePatientChartStore((s) => s.selectedVisitId)
   const widgets = usePatientChartStore((s) => s.widgets)
+  const selectedVisitDetailIds = usePatientChartStore((s) => s.selectedVisitDetailId)
   const selectedPatientId = selectedPatientIds[projectUid] ?? null
   const selectedVisitId = selectedVisitIds[projectUid] ?? null
+  const selectedVisitDetailId = selectedVisitDetailIds[projectUid] ?? null
 
   const widget = widgets.find((w) => w.id === widgetId)
   const cfg = (config ?? widget?.config ?? {}) as Record<string, unknown>
@@ -117,6 +131,11 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const [view, setView] = useState<{ lo: number; hi: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [overview, setOverview] = useState<OverviewDensity | null>(null)
+  /** Hover tooltip: the text plus where to put it, in viewport coordinates. */
+  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null)
+  /** Right-click menu on a category, in viewport coordinates. */
+  const [menu, setMenu] = useState<{ row: OverviewRow; x: number; y: number } | null>(null)
 
   // Interaction state lives in refs: it changes on every mouse move and must not
   // re-render React, only repaint the canvas.
@@ -141,6 +160,46 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const byClass = byClassSetting && supportsClasses
   const unitsTable = schemaMapping ? overviewUnitTableLabel(schemaMapping) : null
 
+  /**
+   * Selecting a unit stay scopes the figure to that stay's time window.
+   *
+   * By time rather than by foreign key: OMOP's `visit_detail_id` is NULL on
+   * every event row of the sample warehouse, and MIMIC's `labevents` has no
+   * stay column at all — an FK filter would empty the widget on both. The
+   * window is fetched by id so the scope survives a reload.
+   */
+  const [stayWindow, setStayWindow] = useState<OverviewStayWindow | null>(null)
+  useEffect(() => {
+    if (!selectedVisitDetailId || !dataSourceId || !schemaMapping) {
+      setStayWindow(null)
+      return
+    }
+    let cancelled = false
+    const sql = buildOverviewStayWindowQuery(schemaMapping, selectedVisitDetailId)
+    if (!sql) {
+      setStayWindow(null)
+      return
+    }
+    void queryDataSource(dataSourceId, sql)
+      .then((rows) => {
+        if (cancelled) return
+        const r = rows[0]
+        const start = r ? toMs(r.stay_start) : null
+        if (start == null) {
+          setStayWindow(null)
+          return
+        }
+        const end = r ? toMs(r.stay_end) : null
+        setStayWindow({ start: new Date(start).toISOString(), end: end == null ? null : new Date(end).toISOString() })
+      })
+      .catch(() => {
+        if (!cancelled) setStayWindow(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedVisitDetailId, dataSourceId, schemaMapping])
+
   // --- Load the record ------------------------------------------------------
 
   useEffect(() => {
@@ -158,9 +217,52 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     paintFailedRef.current = false
     eventsRef.current.clear()
 
+    /**
+     * The range selector's background: the whole record in one histogram,
+     * aggregated in SQL. One query for every table at once, so it costs the same
+     * whether the patient has 80k events or 400k.
+     */
+    const loadOverviewDensity = async (
+      b: { lo: number; hi: number },
+      rows: OverviewConceptRow[],
+    ) => {
+      const byTable = new Map<string, string[]>()
+      for (const r of rows) {
+        const list = byTable.get(r.table)
+        if (list) list.push(r.conceptId)
+        else byTable.set(r.table, [r.conceptId])
+      }
+      const bands = [...byTable].map(([table, conceptIds]) => ({ key: table, table, conceptIds }))
+      const from = isoOrNull(b.lo)
+      const to = isoOrNull(b.hi)
+      if (!from || !to || bands.length === 0) return
+      const sql = buildOverviewDensityQuery(
+        schemaMapping, selectedPatientId, selectedVisitId, from, to, RANGE_BUCKETS, bands, stayWindow,
+      )
+      if (!sql) return
+      try {
+        const raw = await queryDataSource(dataSourceId, sql)
+        if (cancelled) return
+        const counts = new Float64Array(RANGE_BUCKETS)
+        let max = 0
+        for (const r of raw) {
+          const i = Number(r.bucket)
+          if (!Number.isFinite(i) || i < 0 || i >= RANGE_BUCKETS) continue
+          counts[i] += Number(r.n ?? 0)
+          if (counts[i] > max) max = counts[i]
+        }
+        setOverview({ counts, max })
+      } catch {
+        // The strip simply stays empty; it is navigation aid, not data.
+        setOverview(null)
+      }
+    }
+
     const run = async () => {
       try {
-        const invSql = buildOverviewInventoryQuery(schemaMapping, selectedPatientId, selectedVisitId)
+        const invSql = buildOverviewInventoryQuery(
+          schemaMapping, selectedPatientId, selectedVisitId, stayWindow,
+        )
         const inv = invSql ? await queryDataSource(dataSourceId, invSql) : []
         if (cancelled) return
 
@@ -228,9 +330,11 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           const b = { lo: lo - pad, hi: hi + pad }
           setBounds(b)
           setView(b)
+          void loadOverviewDensity(b, rows)
         } else {
           setBounds(null)
           setView(null)
+          setOverview(null)
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
@@ -242,7 +346,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     return () => {
       cancelled = true
     }
-  }, [visible, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, showUnitStays, showDeath])
+  }, [visible, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, stayWindow, showUnitStays, showDeath])
 
   // --- Rows -----------------------------------------------------------------
 
@@ -334,6 +438,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           fromIso,
           toIso,
           EVENT_FETCH_LIMIT,
+          stayWindow,
         )
         if (!sql) continue
         try {
@@ -359,7 +464,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     return () => {
       cancelled = true
     }
-  }, [visible, view, layout, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, size.w, repaint])
+  }, [visible, view, layout, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, stayWindow, size.w, repaint])
 
   // --- Paint ----------------------------------------------------------------
 
@@ -641,7 +746,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       // Pinned to the bottom of the widget, not to where the rows happen to
       // end: a short record would otherwise leave it floating mid-card.
       rangeRef.current = drawRangeSelector(
-        ctx, h - RANGE_H, plotL, plotW, bounds, view, death, showDeath,
+        ctx, h - RANGE_H, plotL, plotW, bounds, view, death, showDeath, overview,
       )
     } else {
       rangeRef.current = null
@@ -820,21 +925,35 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         return
       }
 
-      // Cursor: the gutter keeps the arrow, the plot gets the crosshair.
       const cv = e.currentTarget
       const rangeHit = hitRange(px, py)
       const l = layoutRef.current
+      const hit = l.find((r) => py >= r.y && py < r.y + r.rowH)
+      const inGutter = l.length > 0 && px < l[0].plotL
+      const foldable = !!hit && (hit.row.kind === 'table' || hit.row.kind === 'class')
+
+      // The pointer marks what is actionable: a category folds on click and
+      // opens a menu on right-click, so it earns the hand.
       cv.style.cursor = rangeHit
         ? rangeHit === 'lo' || rangeHit === 'hi'
           ? 'ew-resize'
           : rangeHit === 'move'
             ? 'grab'
             : 'pointer'
-        : l.length && px < l[0].plotL
-          ? 'default'
+        : inGutter
+          ? foldable
+            ? 'pointer'
+            : 'default'
           : 'crosshair'
+
+      if (rangeHit || !hit || !view) {
+        setTip(null)
+        return
+      }
+      const text = describeHit(hit, px, py, inGutter, view, t)
+      setTip(text ? { text, x: e.clientX, y: e.clientY } : null)
     },
-    [view, bounds, hitRange, repaint, rebuild],
+    [view, bounds, hitRange, repaint, rebuild, t],
   )
 
   const onMouseUp = useCallback(() => {
@@ -866,6 +985,36 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       rebuild()
     },
     [rebuild],
+  )
+
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const px = e.clientX - rect.left
+      const py = e.clientY - rect.top
+      const l = layoutRef.current
+      if (!l.length || px >= l[0].plotL) return
+      const hit = l.find((r) => py >= r.y && py < r.y + r.rowH)
+      // Right-clicking a concept acts on the category it belongs to, so the
+      // menu never misses when the cursor is a row or two off.
+      if (!hit || hit.row.kind === 'units') return
+      e.preventDefault()
+      setTip(null)
+      setMenu({ row: hit.row, x: e.clientX, y: e.clientY })
+    },
+    [],
+  )
+
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const px = e.clientX - rect.left
+      const l = layoutRef.current
+      // Only from the plot: in the gutter a double-click is two folds.
+      if (l.length && px < l[0].plotL) return
+      if (bounds) setView(bounds)
+    },
+    [bounds],
   )
 
   const onKeyDown = useCallback(
@@ -918,9 +1067,28 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
-          onMouseLeave={onMouseUp}
+          onMouseLeave={() => {
+            onMouseUp()
+            setTip(null)
+          }}
           onClick={onClick}
+          onDoubleClick={onDoubleClick}
+          onContextMenu={onContextMenu}
           onKeyDown={onKeyDown}
+        />
+      )}
+      {tip && <HoverTip {...tip} />}
+      {menu && (
+        <CategoryMenu
+          row={menu.row}
+          x={menu.x}
+          y={menu.y}
+          rows={layout.rows}
+          collapsed={collapsedRef.current}
+          hidden={hiddenRef.current}
+          onClose={() => setMenu(null)}
+          onChanged={rebuild}
+          t={t}
         />
       )}
     </div>
@@ -936,6 +1104,9 @@ interface Mark {
   x1: number
   y0: number
   y1: number
+  /** What this mark stands for, so the tooltip can name it. */
+  event?: OverviewEvent
+  unit?: UnitStay
 }
 
 interface LayoutRow {
@@ -1052,7 +1223,7 @@ function drawEvents(
       const b = e.end != null ? x(e.end) : a
       const w = Math.max(3, b - a)
       ctx.fillRect(a, barY, w, barH)
-      marks.push({ x0: Math.max(plotL, a), x1: Math.min(plotR, a + w), y0: barY, y1: barY + barH })
+      marks.push({ x0: Math.max(plotL, a), x1: Math.min(plotR, a + w), y0: barY, y1: barY + barH, event: e })
     }
     ctx.strokeStyle = '#fff'
     ctx.lineWidth = 1
@@ -1094,7 +1265,7 @@ function drawEvents(
       ctx.beginPath()
       ctx.arc(px, py, r, 0, Math.PI * 2)
       ctx.fill()
-      marks.push({ x0: px - 4, x1: px + 4, y0: py - 5, y1: py + 5 })
+      marks.push({ x0: px - 4, x1: px + 4, y0: py - 5, y1: py + 5, event: e })
     }
     return marks
   }
@@ -1106,7 +1277,7 @@ function drawEvents(
     ctx.beginPath()
     ctx.arc(px, mid, r, 0, Math.PI * 2)
     ctx.fill()
-    marks.push({ x0: px - r - 2, x1: px + r + 2, y0: mid - r - 2, y1: mid + r + 2 })
+    marks.push({ x0: px - r - 2, x1: px + r + 2, y0: mid - r - 2, y1: mid + r + 2, event: e })
   }
   return marks
 }
@@ -1153,6 +1324,7 @@ function drawUnits(
       x1: Math.min(plotL + plotW, a + w),
       y0: barY,
       y1: barY + barH,
+      unit: u,
     })
   }
   return marks
@@ -1167,6 +1339,7 @@ function drawRangeSelector(
   view: { lo: number; hi: number },
   death: number | null,
   showDeath: boolean,
+  overview: OverviewDensity | null,
 ): RangeGeom {
   const full = bounds.hi - bounds.lo || 1
   const y = top + 6
@@ -1177,6 +1350,20 @@ function drawRangeSelector(
   ctx.strokeStyle = '#e2e8f0'
   ctx.lineWidth = 1
   ctx.strokeRect(plotL + 0.5, y + 0.5, plotW - 1, h - 1)
+
+  // The whole record's density, so the strip shows WHERE the data is: the
+  // admissions stand out as blocks, which is what you aim the window at. An
+  // empty frame gives nothing to navigate by.
+  if (overview && overview.max > 0) {
+    const bw = plotW / overview.counts.length
+    ctx.fillStyle = '#cbd5e1'
+    for (let b = 0; b < overview.counts.length; b++) {
+      const n = overview.counts[b]
+      if (!n) continue
+      const bh = Math.max(1, (h - 4) * Math.sqrt(n / overview.max))
+      ctx.fillRect(plotL + b * bw, y + h - 2 - bh, Math.max(1, bw), bh)
+    }
+  }
 
   if (showDeath && death != null) {
     const dx = plotL + ((death - bounds.lo) / full) * plotW
@@ -1239,6 +1426,110 @@ function unitCount(units: UnitStay[]): number {
   return new Set(units.map((u) => u.name)).size
 }
 
+/**
+ * Tooltip text for whatever is under the cursor.
+ *
+ * In the gutter it answers "what is this row, and what did the label say before
+ * it was cut". Over the plot it names the exact event, with its value and unit —
+ * or, on a density band, the bucket's count and the fact that zooming reveals
+ * the values.
+ */
+function describeHit(
+  hit: LayoutRow,
+  px: number,
+  py: number,
+  inGutter: boolean,
+  view: { lo: number; hi: number },
+  t: (k: string, o?: Record<string, unknown>) => string,
+): string | null {
+  const label = rowLabel(hit.row, t)
+
+  if (inGutter) {
+    // The full name matters most when the gutter had to truncate it.
+    const parts = [label]
+    if (hit.row.kind === 'concept' && hit.row.unit) parts.push(`(${hit.row.unit})`)
+    const counts =
+      hit.row.kind === 'concept'
+        ? `${fmtN(hit.row.eventCount)} ${t('patient_data.overview_events')}`
+        : `${fmtN(hit.row.conceptCount)} ${t('patient_data.overview_concepts')} · ${fmtN(hit.row.eventCount)} ${t('patient_data.overview_events')}`
+    return `${parts.join(' ')}\n${counts}`
+  }
+
+  // Individual marks: name the event under the cursor.
+  if (hit.marks) {
+    let best: Mark | null = null
+    let bestD = Infinity
+    for (const m of hit.marks) {
+      if (px >= m.x0 && px <= m.x1 && py >= m.y0 && py <= m.y1) {
+        best = m
+        bestD = 0
+        break
+      }
+      const d = Math.abs((m.x0 + m.x1) / 2 - px)
+      if (d < bestD) {
+        bestD = d
+        best = m
+      }
+    }
+    if (best && bestD <= 6) {
+      if (best.unit) {
+        const u = best.unit
+        const dur = u.end != null ? ` · ${fmtDur(u.end - u.start)}` : ''
+        return `${u.name}\n${fmtStamp(u.start)}${u.end != null ? ` → ${fmtStamp(u.end)}` : ''}${dur}`
+      }
+      if (best.event) {
+        const e = best.event
+        const value =
+          e.value != null
+            ? `${fmtValue(e.value)}${hit.row.unit ? ` ${hit.row.unit}` : ''}`
+            : (e.text ?? '')
+        const when =
+          e.end != null
+            ? `${fmtStamp(e.start)} → ${fmtStamp(e.end)} · ${fmtDur(e.end - e.start)}`
+            : fmtStamp(e.start)
+        return [label, value, when].filter(Boolean).join('\n')
+      }
+    }
+    return null
+  }
+
+  // Density band: the bucket count, and whether zooming would help.
+  if (hit.counts) {
+    const b = Math.floor((px - hit.plotL) / hit.bw)
+    const n = b >= 0 && b < hit.nb ? hit.counts[b] : 0
+    if (!n) return null
+    const span = view.hi - view.lo
+    const t0 = view.lo + (b * span) / hit.nb
+    const t1 = view.lo + ((b + 1) * span) / hit.nb
+    const unit = n > 1 ? t('patient_data.overview_events') : t('patient_data.overview_events_one')
+    // A category row aggregates concepts, so it stays a band at every zoom —
+    // promising that zooming reveals values would be a lie.
+    const hint = hit.row.mixed
+      ? t('patient_data.overview_open_category')
+      : t('patient_data.overview_zoom_hint')
+    return `${label}\n${fmtN(n)} ${unit}\n${fmtStamp(t0)} → ${fmtStamp(t1)}\n${hint}`
+  }
+  return null
+}
+
+const fmtStamp = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ')
+
+function fmtValue(v: number): string {
+  const a = Math.abs(v)
+  if (a !== 0 && (a < 0.01 || a >= 1e6)) return v.toExponential(2)
+  return String(Math.round(v * 100) / 100)
+}
+
+/** Coarse on purpose: the tooltip wants a sense of scale, not precision. */
+function fmtDur(ms: number): string {
+  const m = ms / 60_000
+  if (m < 1) return '<1 min'
+  if (m < 60) return `${Math.round(m)} min`
+  const h = m / 60
+  if (h < 48) return `${h.toFixed(h < 10 ? 1 : 0)} h`
+  return `${(h / 24).toFixed(1)} d`
+}
+
 /** ISO string for a timestamp, or null when it isn't a usable date. */
 function isoOrNull(ms: number): string | null {
   if (!Number.isFinite(ms)) return null
@@ -1276,6 +1567,236 @@ function rowLabel(row: OverviewRow, t: (k: string, o?: Record<string, unknown>) 
     return row.label
   }
   return row.label.replace(/_/g, ' ')
+}
+
+/**
+ * Hover tooltip, positioned in viewport coordinates and flipped near the edges
+ * so it never falls outside the window.
+ */
+function HoverTip({ text, x, y }: { text: string; x: number; y: number }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x + 14, top: y + 16 })
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // Measured after paint, because flipping near an edge needs the tooltip's
+    // real size. Only set when it actually moves, so this cannot loop.
+    const r = el.getBoundingClientRect()
+    const left = Math.max(6, x + 14 + r.width > innerWidth - 8 ? x - r.width - 14 : x + 14)
+    const top = Math.max(6, y + 16 + r.height > innerHeight - 8 ? y - r.height - 10 : y + 16)
+    setPos((prev) => (prev.left === left && prev.top === top ? prev : { left, top }))
+  }, [x, y, text])
+  return (
+    <div
+      ref={ref}
+      className="pointer-events-none fixed z-50 max-w-[340px] whitespace-pre-line rounded bg-slate-900 px-2 py-1.5 text-[10px] leading-snug text-white shadow-lg"
+      style={{ left: pos.left, top: pos.top }}
+    >
+      {text}
+    </div>
+  )
+}
+
+/** Right-click actions on a category: fold it, or mute it. */
+function CategoryMenu({
+  row,
+  x,
+  y,
+  rows,
+  collapsed,
+  hidden,
+  onClose,
+  onChanged,
+  t,
+}: {
+  row: OverviewRow
+  x: number
+  y: number
+  rows: OverviewRow[]
+  collapsed: Set<string>
+  hidden: Set<string>
+  onClose: () => void
+  onChanged: () => void
+  t: (k: string, o?: Record<string, unknown>) => string
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x, top: y })
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPos({
+      left: Math.min(x, innerWidth - r.width - 6),
+      top: Math.min(y, innerHeight - r.height - 6),
+    })
+  }, [x, y])
+
+  useEffect(() => {
+    const away = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose()
+    }
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('mousedown', away, true)
+    document.addEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('mousedown', away, true)
+      document.removeEventListener('keydown', esc)
+    }
+  }, [onClose])
+
+  const name = rowLabel(row, t)
+  const isClass = row.kind === 'class'
+  // A class row folds only its class; a table row folds the whole table.
+  const key = isClass ? row.key : row.table
+  const tables = [...new Set(rows.filter((r) => r.kind === 'table').map((r) => r.table))]
+  const classesHere = rows.filter((r) => r.kind === 'class' && r.table === row.table)
+
+  const act = (fn: () => void) => () => {
+    fn()
+    onClose()
+    onChanged()
+  }
+  const toggle = (set: Set<string>, k: string) => (set.has(k) ? set.delete(k) : set.add(k))
+
+  const items: ({ sep: true } | { label: string; icon: string; run: () => void })[] = [
+    collapsed.has(key)
+      ? { label: t('patient_data.overview_expand', { name }), icon: 'expand', run: () => collapsed.delete(key) }
+      : { label: t('patient_data.overview_collapse', { name }), icon: 'collapse', run: () => collapsed.add(key) },
+    ...(isClass
+      ? [
+          {
+            label: t('patient_data.overview_collapse_other_classes'),
+            icon: 'others',
+            run: () => {
+              for (const c of classesHere) {
+                if (c.key === key) collapsed.delete(c.key)
+                else collapsed.add(c.key)
+              }
+            },
+          },
+        ]
+      : [
+          {
+            label: t('patient_data.overview_collapse_others'),
+            icon: 'others',
+            run: () => {
+              for (const tb of tables) {
+                if (tb === row.table) collapsed.delete(tb)
+                else collapsed.add(tb)
+              }
+            },
+          },
+          {
+            label: t('patient_data.overview_expand_others'),
+            icon: 'others',
+            run: () => {
+              for (const tb of tables) {
+                if (tb === row.table) collapsed.add(tb)
+                else collapsed.delete(tb)
+              }
+            },
+          },
+        ]),
+    { label: t('patient_data.overview_collapse_all'), icon: 'collapseAll', run: () => tables.forEach((tb) => collapsed.add(tb)) },
+    { label: t('patient_data.overview_expand_all'), icon: 'expandAll', run: () => collapsed.clear() },
+    { sep: true },
+    hidden.has(key)
+      ? { label: t('patient_data.overview_show', { name }), icon: 'show', run: () => hidden.delete(key) }
+      : { label: t('patient_data.overview_hide', { name }), icon: 'hide', run: () => toggle(hidden, key) },
+    ...(isClass
+      ? [
+          {
+            label: t('patient_data.overview_hide_other_classes'),
+            icon: 'hide',
+            run: () => {
+              for (const c of classesHere) {
+                if (c.key === key) hidden.delete(c.key)
+                else hidden.add(c.key)
+              }
+            },
+          },
+        ]
+      : [
+          {
+            label: t('patient_data.overview_hide_others'),
+            icon: 'hide',
+            run: () => {
+              for (const tb of tables) {
+                if (tb === row.table) hidden.delete(tb)
+                else hidden.add(tb)
+              }
+            },
+          },
+          {
+            label: t('patient_data.overview_show_others'),
+            icon: 'show',
+            run: () => {
+              for (const tb of tables) {
+                if (tb === row.table) hidden.add(tb)
+                else hidden.delete(tb)
+              }
+            },
+          },
+        ]),
+    { label: t('patient_data.overview_show_all'), icon: 'show', run: () => hidden.clear() },
+  ]
+
+  return (
+    <div
+      ref={ref}
+      className="fixed z-50 min-w-[200px] rounded-md border bg-popover p-1 shadow-md"
+      style={{ left: pos.left, top: pos.top }}
+    >
+      {items.map((it, i) =>
+        'sep' in it ? (
+          <div key={i} className="my-1 h-px bg-border" />
+        ) : (
+          <button
+            key={i}
+            type="button"
+            onClick={act(it.run)}
+            className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-accent"
+          >
+            <MenuIcon name={it.icon} />
+            {it.label}
+          </button>
+        ),
+      )}
+    </div>
+  )
+}
+
+/**
+ * Menu icons. The pairs are deliberately mirror images — chevron down/right for
+ * expand and collapse, open/struck eye for show and hide — so the two axes
+ * (fold vs mute) stay distinguishable at a glance.
+ */
+function MenuIcon({ name }: { name: string }) {
+  const paths: Record<string, string> = {
+    expand: 'M3 5.5 L7 9.5 L11 5.5',
+    collapse: 'M5.5 3 L9.5 7 L5.5 11',
+    expandAll: 'M3 4 L7 8 L11 4 M3 8.5 L7 12.5 L11 8.5',
+    collapseAll: 'M3 7 L7 3 L11 7 M3 11.5 L7 7.5 L11 11.5',
+    show: 'M1 7 C3 3.5 11 3.5 13 7 C11 10.5 3 10.5 1 7 Z M5.2 7 A1.8 1.8 0 1 0 8.8 7 A1.8 1.8 0 1 0 5.2 7',
+    hide: 'M1 7 C3 3.5 11 3.5 13 7 C11 10.5 3 10.5 1 7 Z M2 12 L12 2',
+    others: 'M2 3.5 L12 3.5 M2 7 L12 7 M2 10.5 L12 10.5',
+  }
+  return (
+    <svg
+      viewBox="0 0 14 14"
+      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={paths[name] ?? ''} />
+    </svg>
+  )
 }
 
 function Message({ text, tone }: { text: string; tone?: 'error' }) {

@@ -112,9 +112,29 @@ export function PatientDataSidebar() {
   // selected row walks out of view without this. `nearest` keeps the list still
   // while the row is already visible, instead of recentring on every keypress.
   const selectedRowRef = useRef<HTMLButtonElement | null>(null)
+  const patientListRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     selectedRowRef.current?.scrollIntoView({ block: 'nearest' })
   }, [patientId, patientPage])
+
+  /**
+   * Hand focus back to the list after a page change.
+   *
+   * Paging with the arrows keeps focus, but clicking the ‹ › buttons moves it
+   * to the button — and from there the arrows do nothing, so keyboard
+   * navigation appears to die after any click-driven page change. Restoring it
+   * only when focus actually sits on a paging button avoids stealing it from
+   * the search field or anything else the user is using.
+   */
+  const pageRef = useRef(patientPage)
+  useEffect(() => {
+    if (pageRef.current === patientPage) return
+    pageRef.current = patientPage
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active.dataset.patientPager === 'true') {
+      patientListRef.current?.focus({ preventScroll: true })
+    }
+  }, [patientPage])
 
   const formatGender = (gender: string | undefined) => fmtGender(gender, genderValues, t)
   const formatGenderShort = (gender: string | undefined) => fmtGenderShort(gender, genderValues, t)
@@ -358,6 +378,7 @@ export function PatientDataSidebar() {
                     the arrows must keep working across a page change, where the
                     previously focused row unmounts. tabIndex makes it focusable. */}
                 <div
+                  ref={patientListRef}
                   className="px-2 pb-2 outline-none"
                   tabIndex={patients.length > 0 ? 0 : -1}
                   role="listbox"
@@ -443,6 +464,7 @@ export function PatientDataSidebar() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        data-patient-pager="true"
                         disabled={patientPage === 0}
                         onClick={() => setPatientPage(patientPage - 1)}
                       >
@@ -454,6 +476,7 @@ export function PatientDataSidebar() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        data-patient-pager="true"
                         disabled={patientPage >= totalPages - 1}
                         onClick={() => setPatientPage(patientPage + 1)}
                       >
