@@ -180,7 +180,13 @@ export function GenericConfigPanel({
         </div>
       ) : packLeft ? (
         // Tighter vertical gap so color swatches wrapping onto a second line don't leave a big gap.
-        <div key={group.keys.join('-')} className={cn('flex flex-wrap items-end', allBoolean ? 'gap-x-5 gap-y-1 -mt-1' : 'gap-x-4 gap-y-1.5')}>
+        <div
+          key={group.keys.join('-')}
+          // Lets the section tighten the gap between consecutive checkbox rows
+          // without pulling fields that carry their own input closer together.
+          data-boolean-group={allBoolean || undefined}
+          className={cn('flex flex-wrap items-end', allBoolean ? 'gap-x-5 gap-y-1 -mt-1' : 'gap-x-4 gap-y-1.5')}
+        >
           {group.keys.map((key, idx) => (
             <FieldRenderer
               key={key}
@@ -245,7 +251,11 @@ function CollapsibleSection({ label, defaultOpen = true, children }: { label: st
         <ChevronRight size={13} className={cn('shrink-0 text-blue-400 transition-transform dark:text-blue-500', open && 'rotate-90')} />
         {label}
       </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-3 pt-2">
+      {/* Checkboxes pack tightly against each other (a standalone boolean is its
+          own group, so section rhythm alone sets their gap and space-y-3 left them
+          looking unrelated), while fields carrying their own input keep the
+          original breathing room. */}
+      <CollapsibleContent className="space-y-3 pt-2 [&>*+*[data-boolean-group=true]]:!mt-1.5">
         {children}
       </CollapsibleContent>
     </Collapsible>

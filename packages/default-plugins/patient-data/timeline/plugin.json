@@ -33,10 +33,6 @@
       "section": {
         "en": "Data",
         "fr": "Données"
-      },
-      "description": {
-        "en": "Concepts plotted on this timeline.",
-        "fr": "Concepts tracés sur cette chronologie."
       }
     },
     "yAxisFromZero": {

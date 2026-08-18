@@ -755,7 +755,10 @@ export function ConceptPickerDialog({
                         return (
                           <TableRow
                             key={row.original.concept_id}
-                            className="group cursor-pointer"
+                            // select-none: the whole row is a toggle, so two quick
+                            // clicks land as a dblclick and select the cell's text
+                            // (or the row's, on a third) instead of just toggling.
+                            className="group cursor-pointer select-none"
                             data-state={isSelected ? 'selected' : undefined}
                             onClick={() =>
                               toggleConcept(row.original.concept_id, row.original.concept_name)

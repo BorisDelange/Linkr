@@ -1,5 +1,6 @@
-import { Suspense } from 'react'
+import { Suspense, useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { RotateCcw } from 'lucide-react'
 import { getPlugin } from '@/lib/plugins/registry'
 import { getPatientComponent } from '@/lib/plugins/patient-component-registry'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
@@ -88,20 +89,111 @@ export function SizedPatientWidgetPreview({
     margin: [widgetSpacing ?? 8, widgetSpacing ?? 8] as [number, number],
     containerPadding: [12, 12] as [number, number],
   }
-  const size = widgetFootprint(layout.w, layout.h, geometry)
+
+  // Cell pitch of THIS grid: spaced cells, so a step is one cell plus its margin.
+  const gap = geometry.margin[0]
+  const colPitch =
+    (geometry.containerWidth -
+      geometry.margin[0] * (geometry.cols - 1) -
+      geometry.containerPadding[0] * 2) /
+      geometry.cols +
+    geometry.margin[0]
+  const rowPitch = geometry.rowHeight + geometry.margin[1]
+
+  const base = widgetFootprint(layout.w, layout.h, geometry) ?? {
+    width: 480,
+    height: 280,
+  }
+  const [size, setSize] = useState(base)
+  // Re-sync when the target widget (or the measured board) changes.
+  useEffect(() => {
+    setSize(base)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [base.width, base.height])
+
+  const dragRef = useRef<{
+    startX: number
+    startY: number
+    startW: number
+    startH: number
+  } | null>(null)
+  const [resizing, setResizing] = useState(false)
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault()
+      ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+      dragRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        startW: size.width,
+        startH: size.height,
+      }
+      setResizing(true)
+    },
+    [size],
+  )
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragRef.current
+      if (!d) return
+      // Snap to whole cells, mirroring how the board itself resizes a widget.
+      const cellsW = Math.max(2, Math.round((d.startW + (e.clientX - d.startX) + gap) / colPitch))
+      const cellsH = Math.max(2, Math.round((d.startH + (e.clientY - d.startY) + gap) / rowPitch))
+      setSize({
+        width: Math.round(cellsW * colPitch - gap),
+        height: Math.round(cellsH * rowPitch - gap),
+      })
+    },
+    [colPitch, rowPitch, gap],
+  )
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    dragRef.current = null
+    setResizing(false)
+    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+  }, [])
+
+  const isCustomSize = size.width !== base.width || size.height !== base.height
+  const cellsW = Math.max(1, Math.round((size.width + gap) / colPitch))
+  const cellsH = Math.max(1, Math.round((size.height + gap) / rowPitch))
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b px-3 py-1 text-[10px] text-muted-foreground">
-        <span>{t('dashboard.preview_size')}: {size ? `${size.width} × ${size.height} px` : '—'}</span>
-        <span className="ml-auto">{layout.w} × {layout.h} {t('dashboard.preview_cells')}</span>
+        <span>
+          {t('dashboard.preview_size')}: {size.width} × {size.height} px
+        </span>
+        {isCustomSize && (
+          <button
+            onClick={() => setSize(base)}
+            className="inline-flex items-center gap-1 hover:text-foreground"
+          >
+            <RotateCcw size={11} />
+            {t('dashboard.preview_reset_size')}
+          </button>
+        )}
+        <span className="ml-auto">
+          {cellsW} × {cellsH} {t('dashboard.preview_cells')}
+        </span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto bg-muted/30 p-6">
-        <div
-          className="overflow-hidden rounded-lg border bg-background shadow-sm"
-          style={size ? { width: size.width, height: size.height } : undefined}
-        >
-          <PatientWidgetPreview {...previewProps} />
+        <div className="relative" style={{ width: size.width, height: size.height }}>
+          {resizing && (
+            <div className="pointer-events-none absolute inset-0 rounded-lg bg-destructive/20" />
+          )}
+          <div className="h-full w-full overflow-hidden rounded-lg border bg-background shadow-sm">
+            <PatientWidgetPreview {...previewProps} />
+          </div>
+          <div
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            className="react-resizable-handle react-resizable-handle-se"
+            title={t('dashboard.preview_resize_hint')}
+            style={{ cursor: 'nwse-resize' }}
+          />
         </div>
       </div>
     </div>
