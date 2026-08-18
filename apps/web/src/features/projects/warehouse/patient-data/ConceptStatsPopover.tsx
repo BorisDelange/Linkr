@@ -20,6 +20,10 @@ import type {
   HistogramBin,
 } from '../concepts/use-concepts'
 
+/** Same P1–P99 clip the Concepts page applies by default, so both histograms
+ *  for one concept are the same shape rather than one raw and one clipped. */
+const EXCLUDE_OUTLIERS = true
+
 interface ConceptStatsPopoverProps {
   dataSourceId: string | undefined
   schemaMapping: SchemaMapping | undefined
@@ -63,7 +67,7 @@ export function ConceptStatsPopover({
       if (rowCount > 0 && hasValueColumn) {
         try {
           const distSql = buildValueDistributionQuery(schemaMapping, dictKey, conceptId)
-          const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId)
+          const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId, 20, EXCLUDE_OUTLIERS)
           if (distSql && histSql) {
             const [distRows, histRows] = await Promise.all([
               queryDataSource(dataSourceId, distSql),
@@ -110,6 +114,10 @@ export function ConceptStatsPopover({
           hasValueColumn={hasValueColumn}
           stats={stats}
           isLoading={loading}
+          excludeOutliers={EXCLUDE_OUTLIERS}
+          // This popover computes on demand, so stats are always available —
+          // unlike the Concepts page, which gates them behind a checkbox.
+          statsEnabled
         />
       </PopoverContent>
     </Popover>

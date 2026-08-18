@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -29,6 +29,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Check,
   ChevronLeft,
   ChevronRight,
   GripVertical,
@@ -81,6 +82,9 @@ import type {
 const FILTER_INPUT_CLASS =
   'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
+/** Picker affordances, not data: no sort, no filter, no drag, no hiding. */
+const AFFORDANCE_COLUMNS = new Set(['_select', '_action'])
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -110,6 +114,18 @@ interface ConceptTableProps {
   onPageSizeChange: (size: number) => void
   /** Open a concept set's detail panel by name (data-dictionary column). */
   onOpenConceptSet?: (setName: string) => void
+  /**
+   * Picker mode: a leading checkbox column, and a plain click toggles a row's
+   * membership instead of driving a detail panel. `selectedConceptIds` then
+   * carries the picked set rather than a transient multi-selection.
+   */
+  pickMode?: boolean
+  /** Picker mode: called for every toggle, so the caller can cache the name. */
+  onToggleConcept?: (row: ConceptRow) => void
+  /** Extra trailing column pinned after the data columns (e.g. a stats popover). */
+  rowAction?: { render: (row: ConceptRow) => ReactNode; size?: number }
+  /** Empty-state message. Defaults to the Concepts page's own wording. */
+  emptyMessage?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +276,10 @@ export function ConceptTable({
   onPageChange,
   onPageSizeChange,
   onOpenConceptSet,
+  pickMode = false,
+  onToggleConcept,
+  rowAction,
+  emptyMessage,
 }: ConceptTableProps) {
   const { t } = useTranslation()
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([])
@@ -279,9 +299,11 @@ export function ConceptTable({
   // Anchor for shift-range selection — the last row clicked without Shift.
   const selectionAnchorRef = useRef<number | null>(null)
 
-  /** File-explorer-style selection: plain / Ctrl-Cmd (toggle) / Shift (range). */
-  const handleRowClick = (conceptId: number, e: React.MouseEvent) => {
-    const isToggle = e.metaKey || e.ctrlKey
+  /** File-explorer-style selection: plain / Ctrl-Cmd (toggle) / Shift (range).
+   *  In pick mode a plain click toggles too, since the set IS the result. */
+  const handleRowClick = (row: ConceptRow, e: React.MouseEvent) => {
+    const conceptId = row.concept_id
+    const isToggle = e.metaKey || e.ctrlKey || pickMode
     const isRange = e.shiftKey
 
     if (isRange && selectionAnchorRef.current != null) {
@@ -291,7 +313,10 @@ export function ConceptTable({
       if (from !== -1 && to !== -1) {
         const [lo, hi] = from <= to ? [from, to] : [to, from]
         const next = isToggle ? new Set(selectedConceptIds) : new Set<number>()
-        for (const id of order.slice(lo, hi + 1)) next.add(id)
+        for (const r of concepts.slice(lo, hi + 1)) {
+          next.add(r.concept_id)
+          onToggleConcept?.(r)
+        }
         onSelectedConceptIdsChange(next)
         return
       }
@@ -302,6 +327,7 @@ export function ConceptTable({
       if (next.has(conceptId)) next.delete(conceptId)
       else next.add(conceptId)
       selectionAnchorRef.current = conceptId
+      onToggleConcept?.(row)
       onSelectedConceptIdsChange(next)
       return
     }
@@ -321,9 +347,26 @@ export function ConceptTable({
     useSensor(KeyboardSensor),
   )
 
+  const allVisibleSelected =
+    concepts.length > 0 && concepts.every((c) => selectedConceptIds.has(c.concept_id))
+
+  /** Header checkbox: add every row on this page, or drop them all. */
+  const toggleSelectAllVisible = () => {
+    const next = new Set(selectedConceptIds)
+    if (allVisibleSelected) {
+      for (const c of concepts) next.delete(c.concept_id)
+    } else {
+      for (const c of concepts) {
+        next.add(c.concept_id)
+        onToggleConcept?.(c)
+      }
+    }
+    onSelectedConceptIdsChange(next)
+  }
+
   // Build TanStack columns dynamically from availableColumns
   const columns = useMemo<ColumnDef<ConceptRow>[]>(() => {
-    return availableColumns.map((col) => {
+    const dataColumns = availableColumns.map((col) => {
       const base: Partial<ColumnDef<ConceptRow>> = {
         id: col.id,
         header: () => columnLabel(col.id),
@@ -424,7 +467,47 @@ export function ConceptTable({
           } as ColumnDef<ConceptRow>
       }
     })
-  }, [availableColumns, t, onOpenConceptSet])
+
+    // Picker affordances sit outside the data columns: neither is reorderable or
+    // hideable, so they are appended after the dnd-sortable set rather than in it.
+    const leading: ColumnDef<ConceptRow>[] = pickMode
+      ? [{
+          id: '_select',
+          header: () => null,
+          enableHiding: false,
+          enableResizing: false,
+          cell: ({ row }) => (
+            <div
+              className={`flex size-4 shrink-0 items-center justify-center rounded border ${
+                selectedConceptIds.has(row.original.concept_id)
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-muted-foreground/30'
+              }`}
+            >
+              {selectedConceptIds.has(row.original.concept_id) && <Check size={10} />}
+            </div>
+          ),
+          size: 36,
+          minSize: 36,
+        }]
+      : []
+
+    const trailing: ColumnDef<ConceptRow>[] = rowAction
+      ? [{
+          id: '_action',
+          header: () => null,
+          enableHiding: false,
+          enableResizing: false,
+          cell: ({ row }) => (
+            <div className="flex justify-center">{rowAction.render(row.original)}</div>
+          ),
+          size: rowAction.size ?? 36,
+          minSize: rowAction.size ?? 36,
+        }]
+      : []
+
+    return [...leading, ...dataColumns, ...trailing]
+  }, [availableColumns, t, onOpenConceptSet, pickMode, selectedConceptIds, rowAction])
 
   const table = useReactTable({
     data: concepts,
@@ -448,7 +531,10 @@ export function ConceptTable({
     pageCount: totalPages,
   })
 
-  const headerIds = table.getHeaderGroups()[0]?.headers.map((h) => h.column.id) ?? []
+  const headerIds =
+    table.getHeaderGroups()[0]?.headers
+      .map((h) => h.column.id)
+      .filter((id) => !AFFORDANCE_COLUMNS.has(id)) ?? []
 
   const handleDragOver = (event: DragOverEvent) => {
     const { over, active } = event
@@ -477,6 +563,7 @@ export function ConceptTable({
 
   /** Render the inline filter for a column. */
   const renderColumnFilter = (columnId: string) => {
+    if (AFFORDANCE_COLUMNS.has(columnId)) return null
     // Text search inputs for core searchable columns
     if (columnId === 'concept_id') {
       return (
@@ -549,15 +636,34 @@ export function ConceptTable({
               <TableRow>
                 <SortableContext items={headerIds} strategy={horizontalListSortingStrategy}>
                   {table.getHeaderGroups().map((headerGroup) =>
-                    headerGroup.headers.map((header) => (
-                      <SortableColumnHeader
-                        key={header.id}
-                        header={header}
-                        sorting={sorting}
-                        onSort={handleSort}
-                        isDropTarget={overColumnId === header.column.id}
-                      />
-                    ))
+                    headerGroup.headers.map((header) =>
+                      AFFORDANCE_COLUMNS.has(header.column.id) ? (
+                        <TableHead
+                          key={header.id}
+                          className="select-none overflow-hidden text-xs"
+                          style={{ width: header.getSize(), maxWidth: header.getSize() }}
+                        >
+                          {header.column.id === '_select' && (
+                            <button
+                              type="button"
+                              className="flex size-4 items-center justify-center rounded border border-muted-foreground/30 hover:border-primary"
+                              onClick={toggleSelectAllVisible}
+                              title={t('common.select_all')}
+                            >
+                              {allVisibleSelected && <Check size={10} className="text-primary" />}
+                            </button>
+                          )}
+                        </TableHead>
+                      ) : (
+                        <SortableColumnHeader
+                          key={header.id}
+                          header={header}
+                          sorting={sorting}
+                          onSort={handleSort}
+                          isDropTarget={overColumnId === header.column.id}
+                        />
+                      )
+                    )
                   )}
                 </SortableContext>
               </TableRow>
@@ -588,7 +694,7 @@ export function ConceptTable({
               ) : table.getRowModel().rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
-                    {t('concepts.no_concepts')}
+                    {emptyMessage ?? t('concepts.no_concepts')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -597,13 +703,13 @@ export function ConceptTable({
                     key={`${row.original._dict_key ?? ''}:${row.original.concept_id}`}
                     className="cursor-pointer select-none"
                     data-state={
-                      (selectedConceptIds.size > 0
+                      (pickMode || selectedConceptIds.size > 0
                         ? selectedConceptIds.has(row.original.concept_id)
                         : selectedConceptId === row.original.concept_id)
                         ? 'selected'
                         : undefined
                     }
-                    onClick={(e) => handleRowClick(row.original.concept_id, e)}
+                    onClick={(e) => handleRowClick(row.original, e)}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const raw = cell.getValue()

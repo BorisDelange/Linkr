@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Check } from 'lucide-react'
+import { Check, ListPlus, Search, SlidersHorizontal, X } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -12,56 +12,37 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
-import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-  type VisibilityState,
-} from '@tanstack/react-table'
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  ChevronLeft,
-  ChevronRight,
-  Settings2,
-} from 'lucide-react'
-import { usePatientChartContext } from './PatientChartContext'
-import { ConceptStatsPopover } from './ConceptStatsPopover'
-import { useConcepts, type ConceptRow } from '../concepts/use-concepts'
-import { conceptCellContent } from '../concepts/concept-cells'
-import type { ConceptSorting } from '../concepts/concept-queries'
-import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
-import type { PluginConfigField } from '@/types/plugin'
-import { cn } from '@/lib/utils'
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { columnLabel } from '@/lib/format-helpers'
+import { localized } from '@/lib/localized'
+import { cn } from '@/lib/utils'
 import { defaultConceptColorName } from '@/lib/concept-colors'
 import { COLOR_PALETTE } from '@/components/ui/color-picker-popover'
-import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
+import { useConceptListStore } from '@/stores/concept-list-store'
+import { mergeSelection, appendListConcepts } from './concept-selection'
+import { usePatientChartContext } from './PatientChartContext'
+import { ConceptStatsPopover } from './ConceptStatsPopover'
+import { useConcepts, type ConceptRow } from '../concepts/use-concepts'
+import { ConceptTable } from '../concepts/ConceptTable'
+import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
+import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
+import type { PluginConfigField } from '@/types/plugin'
+import type { VisibilityState } from '@tanstack/react-table'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -85,59 +66,12 @@ interface ConceptPickerDialogProps {
   onConfirm: (config: Record<string, unknown>) => void
 }
 
-// Columns the picker hides by default — heavy OMOP detail kept one click away.
-const DEFAULT_HIDDEN_COLUMNS = new Set(['domain_id', 'concept_class_id', '_dict_key'])
+/** Heavy OMOP detail the picker keeps one click away, on top of the page's own. */
+const PICKER_HIDDEN_COLUMNS = [...DEFAULT_HIDDEN_COLUMNS, 'domain_id', 'concept_class_id', '_dict_key']
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function columnLabel(id: string): string {
-  return id
-    .replace(/^_/, '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function SortIndicator({ columnId, sorting }: { columnId: string; sorting: ConceptSorting | null }) {
-  if (!sorting || sorting.columnId !== columnId) {
-    return <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-  }
-  if (sorting.desc) {
-    return <ArrowDown size={10} className="shrink-0 text-primary" />
-  }
-  return <ArrowUp size={10} className="shrink-0 text-primary" />
-}
-
-function ColumnFilterSelect({
-  value,
-  options,
-  placeholder,
-  onChange,
-}: {
-  value: string | null
-  options: string[]
-  placeholder: string
-  onChange: (v: string | null) => void
-}) {
-  const { t } = useTranslation()
-  return (
-    <Select
-      value={value ?? '__all__'}
-      onValueChange={(v) => onChange(v === '__all__' ? null : v)}
-    >
-      <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
-        {options.map((opt) => (
-          <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
 
 /**
  * Compact swatch-only color picker for a selected concept, reusing the shared
@@ -237,13 +171,15 @@ export function ConceptPickerDialog({
   initialTab,
   onConfirm,
 }: ConceptPickerDialogProps) {
-  const { t } = useTranslation()
-  const { dataSourceId, schemaMapping } = usePatientChartContext()
+  const { t, i18n } = useTranslation()
+  const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
 
   const [activeTab, setActiveTab] = useState<'settings' | 'concepts'>('settings')
 
-  // Local selection state
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  // Selection ORDER is the contract: the chart colours concepts by position, so
+  // this is an array, not a Set. The Set below is derived, for O(1) lookups.
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds])
 
   // Selected concept names cache (to display names in the right panel)
   const [selectedNames, setSelectedNames] = useState<Map<number, string>>(new Map())
@@ -257,10 +193,39 @@ export function ConceptPickerDialog({
   // Dict key for the stats popover (multi-dict picks the row's own).
   const dicts = schemaMapping?.conceptTables ?? []
 
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
+    () => Object.fromEntries(PICKER_HIDDEN_COLUMNS.map((id) => [id, false])),
+  )
+
+  // Toolbar search: typed locally, committed on Enter / the Search button so a
+  // fuzzy scan over the whole dictionary doesn't fire on every keystroke.
+  const [pendingSearch, setPendingSearch] = useState('')
+  const commitSearch = () => hook.updateFilter('_searchFuzzy', pendingSearch.trim() || null)
+  const clearSearch = () => {
+    setPendingSearch('')
+    if (hook.filters._searchFuzzy) hook.updateFilter('_searchFuzzy', null)
+  }
+
+  // Saved, project-scoped concept lists — a picked list seeds the selection.
+  const {
+    conceptLists,
+    loaded: listsLoaded,
+    loadConceptLists,
+  } = useConceptListStore()
+
+  useEffect(() => {
+    if (open && !listsLoaded) loadConceptLists()
+  }, [open, listsLoaded, loadConceptLists])
+
+  const projectLists = useMemo(
+    () => conceptLists.filter((l) => l.projectUid === projectUid),
+    [conceptLists, projectUid],
+  )
+
   // Sync from props when dialog opens
   useEffect(() => {
     if (open) {
-      setSelectedIds(new Set((config.conceptIds as number[]) ?? []))
+      setSelectedIds([...((config.conceptIds as number[]) ?? [])])
       const { conceptIds: _omit, ...rest } = config
       setSettings(rest)
       const hasSchema = !!schema && Object.keys(schema).length > 0
@@ -283,59 +248,44 @@ export function ConceptPickerDialog({
     })
   }, [hook.concepts])
 
-  const toggleConcept = useCallback((conceptId: number, conceptName: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(conceptId)) {
-        next.delete(conceptId)
-      } else {
-        next.add(conceptId)
-      }
-      return next
-    })
+  /** Remember a row's name so the selected panel can label it off-page. */
+  const rememberName = useCallback((row: ConceptRow) => {
     setSelectedNames((prev) => {
+      if (prev.get(row.concept_id) === row.concept_name) return prev
       const next = new Map(prev)
-      next.set(conceptId, conceptName)
+      next.set(row.concept_id, row.concept_name)
       return next
     })
+  }, [])
+
+  /** Selection changes arrive as a Set from the table; fold it back onto the
+   *  ordered array so existing positions (and therefore colours) never move. */
+  const applySelection = useCallback((next: Set<number>) => {
+    setSelectedIds((prev) => mergeSelection(prev, next))
   }, [])
 
   const removeConcept = useCallback((conceptId: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      next.delete(conceptId)
-      return next
-    })
+    setSelectedIds((prev) => prev.filter((id) => id !== conceptId))
   }, [])
 
   const clearAll = useCallback(() => {
-    setSelectedIds(new Set())
+    setSelectedIds([])
   }, [])
 
-  // Select / deselect all currently-visible rows
-  const allVisibleSelected =
-    hook.concepts.length > 0 &&
-    hook.concepts.every((c) => selectedIds.has(c.concept_id))
-
-  const toggleSelectAllVisible = useCallback(() => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      const everyVisibleSelected =
-        hook.concepts.length > 0 &&
-        hook.concepts.every((c) => next.has(c.concept_id))
-      if (everyVisibleSelected) {
-        for (const c of hook.concepts) next.delete(c.concept_id)
-      } else {
-        for (const c of hook.concepts) next.add(c.concept_id)
+  /** Import a saved list: additive, appended in list order after what is already
+   *  picked, so the existing selection keeps its colours. */
+  const importList = useCallback((listId: string) => {
+    const list = projectLists.find((l) => l.id === listId)
+    if (!list) return
+    setSelectedNames((prev) => {
+      const next = new Map(prev)
+      for (const item of list.items) {
+        if (item.conceptName) next.set(item.conceptId, item.conceptName)
       }
       return next
     })
-    setSelectedNames((prev) => {
-      const next = new Map(prev)
-      for (const c of hook.concepts) next.set(c.concept_id, c.concept_name)
-      return next
-    })
-  }, [hook.concepts])
+    setSelectedIds((prev) => appendListConcepts(prev, list.items.map((i) => i.conceptId)))
+  }, [projectLists])
 
   const handleConfirm = () => {
     onConfirm({ ...settings, conceptIds: [...selectedIds] })
@@ -359,254 +309,46 @@ export function ConceptPickerDialog({
     [],
   )
 
-  // TanStack table setup with checkbox column
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
-
-  // Default-hide heavy OMOP columns the first time they appear.
-  // Keyed by the stable column-id string (not the array identity, which the
-  // hook recreates each render) and returns the previous state untouched when
-  // nothing changes, so this never loops.
-  const availableColumnKey = hook.availableColumns.map((c) => c.id).join('|')
-  useEffect(() => {
-    setColumnVisibility((prev) => {
-      let changed = false
-      const next = { ...prev }
-      for (const col of hook.availableColumns) {
-        if (DEFAULT_HIDDEN_COLUMNS.has(col.id) && !(col.id in next)) {
-          next[col.id] = false
-          changed = true
-        }
-      }
-      return changed ? next : prev
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [availableColumnKey])
-
-  const columns = useMemo<ColumnDef<ConceptRow>[]>(() => {
-    // Checkbox column
-    const checkboxCol: ColumnDef<ConceptRow> = {
-      id: '_select',
-      header: () => null,
-      cell: ({ row }) => {
-        const isSelected = selectedIds.has(row.original.concept_id)
-        return (
-          <div
-            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-              isSelected
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-muted-foreground/30'
-            }`}
-          >
-            {isSelected && <Check size={10} />}
-          </div>
-        )
-      },
-      size: 36,
-      minSize: 36,
-    }
-
-    // Data columns from availableColumns
-    const dataCols: ColumnDef<ConceptRow>[] = hook.availableColumns.map((col) => {
-      const base: Partial<ColumnDef<ConceptRow>> = {
-        id: col.id,
-        header: () => columnLabel(col.id),
-      }
-
-      switch (col.id) {
-        case 'concept_id':
-          return {
-            ...base,
-            accessorFn: (row) => row.concept_id,
-            cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
-            size: 80,
-            minSize: 60,
-          } as ColumnDef<ConceptRow>
-
-        case 'concept_name':
-          return {
-            ...base,
-            accessorFn: (row) => row.concept_name,
-            cell: ({ row }) => row.original.concept_name,
-            size: 250,
-            minSize: 120,
-          } as ColumnDef<ConceptRow>
-
-        case 'concept_code':
-          return {
-            ...base,
-            accessorFn: (row) => row.concept_code,
-            cell: ({ row }) => <span className="font-mono">{String(row.original.concept_code ?? '')}</span>,
-            size: 100,
-            minSize: 60,
-          } as ColumnDef<ConceptRow>
-
-        case 'record_count':
-          return {
-            ...base,
-            header: () => t('concepts.column_records'),
-            accessorFn: (row) => row.record_count,
-            cell: ({ row }) => (
-              <span className="tabular-nums">
-                {Number(row.original.record_count ?? 0).toLocaleString()}
-              </span>
-            ),
-            size: 90,
-            minSize: 60,
-          } as ColumnDef<ConceptRow>
-
-        case 'patient_count':
-          return {
-            ...base,
-            header: () => t('concepts.column_patients'),
-            accessorFn: (row) => row.patient_count,
-            cell: ({ row }) => (
-              <span className="tabular-nums">
-                {Number(row.original.patient_count ?? 0).toLocaleString()}
-              </span>
-            ),
-            size: 90,
-            minSize: 60,
-          } as ColumnDef<ConceptRow>
-
-        case 'standard_concept':
-          return {
-            ...base,
-            header: () => t('concepts.column_standard', 'Standard'),
-            accessorFn: (row) => row.standard_concept,
-            cell: ({ row }) => (
-              <StandardConceptBadge value={row.original.standard_concept as string | null | undefined} />
-            ),
-            size: 70,
-            minSize: 48,
-          } as ColumnDef<ConceptRow>
-
-        default: {
-          // Per-column widths mirroring the concept-mapping target table:
-          // short codes (vocabulary/domain/class) stay narrow.
-          const widthById: Record<string, number> = {
-            vocabulary_id: 90,
-            domain_id: 80,
-            concept_class_id: 90,
-          }
-          return {
-            ...base,
-            accessorFn: (row) => row[col.id],
-            cell: ({ row }) => String(row.original[col.id] ?? ''),
-            size: widthById[col.id] ?? 110,
-            minSize: 50,
-          } as ColumnDef<ConceptRow>
-        }
-      }
-    })
-
-    // Metadata / distribution trigger — pinned as the last column.
-    const metaCol: ColumnDef<ConceptRow> = {
-      id: '_meta',
-      header: () => null,
-      enableHiding: false,
-      cell: ({ row }) => {
-        const dictKey = (row.original._dict_key as string) ?? dicts[0]?.key ?? ''
-        return (
-          <div className="flex justify-center">
-            <ConceptStatsPopover
-              dataSourceId={dataSourceId}
-              schemaMapping={schemaMapping}
-              conceptId={row.original.concept_id}
-              dictKey={dictKey}
-            />
-          </div>
-        )
-      },
-      size: 36,
-      minSize: 36,
-    }
-
-    return [checkboxCol, ...dataCols, metaCol]
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hook.availableColumns, selectedIds, t, dataSourceId, schemaMapping])
-
-  const table = useReactTable({
-    data: hook.concepts,
-    columns,
-    state: { columnVisibility },
-    onColumnVisibilityChange: setColumnVisibility,
-    getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
-    manualFiltering: true,
-    manualSorting: true,
-    pageCount: hook.totalPages,
-  })
-
-  const visibilityItems = useMemo(
-    () =>
-      table
-        .getAllColumns()
-        .filter((col) => col.getCanHide() && col.id !== '_select')
-        .map((col) => ({
-          id: col.id,
-          label: columnLabel(col.id),
-          visible: col.getIsVisible(),
-        })),
-    [table, columnVisibility],
+  // Filters popover — same control set as the Concepts page toolbar.
+  const filterableColumns = useMemo(
+    () => hook.availableColumns.filter((c) => c.filterable && (hook.filterOptions[c.id]?.length ?? 0) > 0),
+    [hook.availableColumns, hook.filterOptions],
+  )
+  const selectedFilterValues = (columnId: string) => {
+    const raw = hook.filters[columnId]
+    return Array.isArray(raw) ? raw : raw ? [raw] : []
+  }
+  const standardOptionLabel = (value: string) =>
+    value === 'S' ? t('concepts.standard_s')
+      : value === 'C' ? t('concepts.standard_c')
+        : t('concepts.standard_non')
+  const activeFilterCount = filterableColumns.reduce(
+    (n, col) => n + (selectedFilterValues(col.id).length > 0 ? 1 : 0),
+    0,
   )
 
-  // Render inline filter for a column
-  const renderColumnFilter = (columnId: string) => {
-    if (columnId === '_select') return null
-
-    if (columnId === 'concept_id') {
-      return (
-        <input
-          className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] font-mono outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder={t('concepts.search_id_placeholder')}
-          value={hook.filters._searchId ?? ''}
-          onChange={(e) => hook.updateFilter('_searchId', e.target.value || null)}
+  // Stable identity: ConceptTable rebuilds its columns whenever `rowAction`
+  // changes, so a fresh object per render would churn every column definition.
+  const defaultDictKey = dicts[0]?.key ?? ''
+  const rowAction = useMemo(
+    () => ({
+      render: (row: ConceptRow) => (
+        <ConceptStatsPopover
+          dataSourceId={dataSourceId}
+          schemaMapping={schemaMapping}
+          conceptId={row.concept_id}
+          dictKey={(row._dict_key as string) ?? defaultDictKey}
         />
-      )
-    }
-    if (columnId === 'concept_name') {
-      return (
-        <input
-          className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder={t('concepts.search_placeholder')}
-          value={hook.filters._searchText ?? ''}
-          onChange={(e) => hook.updateFilter('_searchText', e.target.value || null)}
-        />
-      )
-    }
-    if (columnId === 'concept_code') {
-      return (
-        <input
-          className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] font-mono outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder={t('concepts.search_code_placeholder')}
-          value={hook.filters._searchCode ?? ''}
-          onChange={(e) => hook.updateFilter('_searchCode', e.target.value || null)}
-        />
-      )
-    }
+      ),
+    }),
+    [dataSourceId, schemaMapping, defaultDictKey],
+  )
 
-    const col = hook.availableColumns.find((c) => c.id === columnId)
-    if (col?.filterable && hook.filterOptions[columnId]?.length) {
-      return (
-        <ColumnFilterSelect
-          value={hook.filters[columnId] as string | null}
-          options={hook.filterOptions[columnId]}
-          placeholder={columnLabel(columnId)}
-          onChange={(v) => hook.updateFilter(columnId, v)}
-        />
-      )
-    }
-
-    return null
-  }
-
-  // Sorted selected concepts for display
-  const selectedList = useMemo(() => {
-    return [...selectedIds].map((id) => ({
-      id,
-      name: selectedNames.get(id) ?? `#${id}`,
-    }))
-  }, [selectedIds, selectedNames])
+  // Selected concepts in pick order — the index drives the auto colour.
+  const selectedList = useMemo(
+    () => selectedIds.map((id) => ({ id, name: selectedNames.get(id) ?? `#${id}` })),
+    [selectedIds, selectedNames],
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -620,7 +362,7 @@ export function ConceptPickerDialog({
             : 'max-w-[95vw] sm:max-w-[95vw]',
         )}
       >
-        <DialogHeader className="shrink-0 border-b px-6 py-4">
+        <DialogHeader className="shrink-0 border-b px-6 py-3">
           <DialogTitle>{t('patient_data.configure_widget')}</DialogTitle>
         </DialogHeader>
 
@@ -644,7 +386,7 @@ export function ConceptPickerDialog({
           >
             {t('patient_data.tab_concepts')}
             <Badge variant="outline" className="ml-1.5 text-[10px]">
-              {selectedIds.size}
+              {selectedIds.length}
             </Badge>
           </Button>
         </div>
@@ -656,186 +398,165 @@ export function ConceptPickerDialog({
             <Allotment.Pane minSize={360}>
             {/* Left: concept table */}
             <div className="flex h-full min-w-0 flex-col overflow-hidden border-r">
-              {/* Column visibility toggle */}
-              <div className="flex items-center justify-end border-b px-3 py-1.5">
-                <ColumnVisibilityMenu
-                  items={visibilityItems}
-                  onToggle={(id, visible) =>
-                    table.getColumn(id)?.toggleVisibility(visible)
-                  }
-                  onSetMany={(ids, visible) =>
-                    ids.forEach((id) => table.getColumn(id)?.toggleVisibility(visible))
-                  }
-                  align="end"
-                  trigger={
-                    <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
-                      <Settings2 size={12} />
-                      {t('common.columns')}
-                    </Button>
-                  }
-                />
-              </div>
+              {/* Toolbar — same controls, order and sizing as the Concepts page. */}
+              <TooltipProvider delayDuration={300}>
+                <div className="flex shrink-0 items-center gap-1.5 border-b px-3 py-2">
+                  <Popover>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className={`h-8 w-8 shrink-0 ${activeFilterCount > 0 ? 'text-primary' : ''}`}
+                          >
+                            <SlidersHorizontal size={14} />
+                          </Button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">{t('common.filters')}</TooltipContent>
+                    </Tooltip>
+                    <PopoverContent
+                      align="start"
+                      className="w-[280px] space-y-3 p-3"
+                      onCloseAutoFocus={(e) => e.preventDefault()}
+                    >
+                      {filterableColumns.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">{t('concepts.no_filters')}</p>
+                      ) : (
+                        filterableColumns.map((col) => (
+                          <div key={col.id} className="space-y-1">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              {columnLabel(col.id)}
+                            </p>
+                            <MultiSelectFilter
+                              value={selectedFilterValues(col.id)}
+                              options={(hook.filterOptions[col.id] ?? []).map((v) =>
+                                col.id === 'standard_concept'
+                                  ? { value: v, label: standardOptionLabel(v) }
+                                  : v,
+                              )}
+                              placeholder={columnLabel(col.id)}
+                              onChange={(next) => hook.updateFilter(col.id, next.length ? next : null)}
+                              triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                              popoverWidthClass="w-[300px]"
+                            />
+                          </div>
+                        ))
+                      )}
+                    </PopoverContent>
+                  </Popover>
 
-              {/* Table */}
-              <div className="min-h-0 flex-1 overflow-auto px-3">
-                <Table className="w-full" style={{ tableLayout: 'fixed' }}>
-                  <TableHeader>
-                    {/* Column titles */}
-                    <TableRow>
-                      {table.getHeaderGroups().map((headerGroup) =>
-                        headerGroup.headers.map((header) => (
-                          <TableHead
-                            key={header.id}
-                            className="select-none overflow-hidden text-xs"
-                            style={{ width: header.getSize(), maxWidth: header.getSize() }}
-                          >
-                            {header.column.id === '_select' ? (
-                              <button
-                                type="button"
-                                className="flex h-4 w-4 items-center justify-center rounded border border-muted-foreground/30 hover:border-primary"
-                                onClick={toggleSelectAllVisible}
-                                title={t('common.select_all')}
-                              >
-                                {allVisibleSelected && <Check size={10} className="text-primary" />}
-                              </button>
-                            ) : header.column.id === '_meta' ? null : (
-                              <button
-                                type="button"
-                                className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground"
-                                onClick={() => hook.updateSorting(header.column.id)}
-                              >
-                                <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
-                                  {flexRender(header.column.columnDef.header, header.getContext())}
-                                </TruncatedHeader>
-                                <SortIndicator columnId={header.column.id} sorting={hook.sorting} />
-                              </button>
-                            )}
-                          </TableHead>
-                        )),
-                      )}
-                    </TableRow>
-                    {/* Inline filters row */}
-                    <TableRow className="hover:bg-transparent">
-                      {table.getHeaderGroups().map((headerGroup) =>
-                        headerGroup.headers.map((header) => (
-                          <TableHead
-                            key={`filter-${header.id}`}
-                            className="px-1 py-1"
-                            style={{ width: header.getSize() }}
-                          >
-                            {renderColumnFilter(header.column.id)}
-                          </TableHead>
-                        )),
-                      )}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {hook.isLoading ? (
-                      Array.from({ length: 10 }).map((_, i) => (
-                        <TableRow key={i}>
-                          {table.getVisibleLeafColumns().map((col) => (
-                            <TableCell key={col.id}>
-                              <Skeleton className="h-4 w-full" />
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))
-                    ) : table.getRowModel().rows.length === 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={table.getVisibleLeafColumns().length}
-                          className="h-24 text-center text-sm text-muted-foreground"
-                        >
-                          {t('patient_data.no_concepts_found')}
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      table.getRowModel().rows.map((row) => {
-                        const isSelected = selectedIds.has(row.original.concept_id)
-                        return (
-                          <TableRow
-                            key={row.original.concept_id}
-                            // select-none: the whole row is a toggle, so two quick
-                            // clicks land as a dblclick and select the cell's text
-                            // (or the row's, on a third) instead of just toggling.
-                            className="group cursor-pointer select-none"
-                            data-state={isSelected ? 'selected' : undefined}
-                            onClick={() =>
-                              toggleConcept(row.original.concept_id, row.original.concept_name)
-                            }
-                          >
-                            {row.getVisibleCells().map((cell) => (
-                              // Same shared renderers as the Concepts page and the
-                              // cohort picker: a tooltip only when the text is cut
-                              // off, instead of a native `title` on every cell.
-                              <TableCell
-                                key={cell.id}
-                                className="overflow-hidden truncate text-xs"
-                                style={{ maxWidth: cell.column.getSize() }}
-                              >
-                                {conceptCellContent(
-                                  cell.column.id,
-                                  cell.getValue(),
-                                  flexRender(cell.column.columnDef.cell, cell.getContext()),
-                                )}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        )
-                      })
+                  {/* Fuzzy search — commits on Enter or the Search button, like
+                      the Concepts page (a keystroke-debounced query over 1.5M
+                      rows would fire a full fuzzy scan per character). */}
+                  <div className="relative min-w-0 flex-1">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      className="h-8 pl-8 pr-7 text-xs"
+                      value={pendingSearch}
+                      onChange={(e) => setPendingSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); commitSearch() }
+                        else if (e.key === 'Escape') { e.preventDefault(); clearSearch() }
+                      }}
+                      placeholder={t('concepts.search_concepts')}
+                    />
+                    {pendingSearch && (
+                      <button
+                        type="button"
+                        onClick={clearSearch}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        aria-label={t('common.clear')}
+                      >
+                        <X size={12} />
+                      </button>
                     )}
-                  </TableBody>
-                </Table>
-              </div>
+                  </div>
+                  <Button size="sm" variant="outline" className="h-8 shrink-0 text-xs" onClick={commitSearch}>
+                    {t('common.search')}
+                  </Button>
 
-              {/* Pagination bar */}
-              <div className="flex shrink-0 items-center justify-between border-t px-3 py-2">
-                <span className="text-xs text-muted-foreground">
-                  {t('concepts.pagination_total', { count: hook.totalCount })}
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    {t('concepts.pagination_per_page')}
-                  </span>
-                  <Select
-                    value={String(hook.pageSize)}
-                    onValueChange={(v) => hook.setPageSize(Number(v))}
-                  >
-                    <SelectTrigger className="h-7 w-[70px] text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">10</SelectItem>
-                      <SelectItem value="25">25</SelectItem>
-                      <SelectItem value="50">50</SelectItem>
-                      <SelectItem value="100">100</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <span className="text-xs text-muted-foreground">
-                    {t('concepts.pagination_page', {
-                      page: hook.page + 1,
-                      total: hook.totalPages,
-                    })}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-7 w-7"
-                    disabled={hook.page === 0}
-                    onClick={() => hook.setPage(hook.page - 1)}
-                  >
-                    <ChevronLeft size={14} />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-7 w-7"
-                    disabled={hook.page >= hook.totalPages - 1}
-                    onClick={() => hook.setPage(hook.page + 1)}
-                  >
-                    <ChevronRight size={14} />
-                  </Button>
+                  {/* Import a saved concept list into the current selection. */}
+                  <DropdownMenu>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon-sm"
+                            variant="outline"
+                            className="h-8 w-8 shrink-0"
+                            aria-label={t('patient_data.import_from_list')}
+                          >
+                            <ListPlus size={14} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        {t('patient_data.import_from_list')}
+                      </TooltipContent>
+                    </Tooltip>
+                    <DropdownMenuContent align="end" className="w-[240px]">
+                      <DropdownMenuLabel className="text-xs">
+                        {t('patient_data.import_from_list')}
+                      </DropdownMenuLabel>
+                      {projectLists.length === 0 ? (
+                        <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                          {t('concepts.list_none')}
+                        </p>
+                      ) : (
+                        projectLists.map((l) => (
+                          <DropdownMenuItem
+                            key={l.id}
+                            className="text-xs"
+                            onClick={() => importList(l.id)}
+                          >
+                            <span className="truncate">
+                              {localized(l.name, i18n.language) || t('concepts.list_untitled')}
+                            </span>
+                            <span className="ml-auto text-[10px] text-muted-foreground">
+                              {l.items.length}
+                            </span>
+                          </DropdownMenuItem>
+                        ))
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
+              </TooltipProvider>
+
+              {/* The Concepts page's own table: sort, resize, reorder,
+                  multi-select filters and the Columns menu, in pick mode. */}
+              <div className="min-h-0 flex-1">
+                <ConceptTable
+                  concepts={hook.concepts}
+                  totalCount={hook.totalCount}
+                  page={hook.page}
+                  pageSize={hook.pageSize}
+                  totalPages={hook.totalPages}
+                  isLoading={hook.isLoading}
+                  selectedConceptId={null}
+                  availableColumns={hook.availableColumns}
+                  filters={hook.filters}
+                  filterOptions={hook.filterOptions}
+                  sorting={hook.sorting}
+                  columnVisibility={columnVisibility}
+                  onColumnVisibilityChange={setColumnVisibility}
+                  onFilterChange={hook.updateFilter}
+                  onSortingChange={hook.updateSorting}
+                  onSelect={() => {}}
+                  selectedConceptIds={selectedIdSet}
+                  onSelectedConceptIdsChange={applySelection}
+                  onPageChange={hook.setPage}
+                  onPageSizeChange={(size) => {
+                    hook.setPageSize(size)
+                    hook.setPage(0)
+                  }}
+                  pickMode
+                  onToggleConcept={rememberName}
+                  rowAction={rowAction}
+                  emptyMessage={t('patient_data.no_concepts_found')}
+                />
               </div>
             </div>
             </Allotment.Pane>
@@ -849,7 +570,7 @@ export function ConceptPickerDialog({
                   {t('patient_data.selected_concepts')}
                 </span>
                 <Badge variant="secondary" className="text-[10px]">
-                  {selectedIds.size}
+                  {selectedIds.length}
                 </Badge>
               </div>
               {selectedList.length === 0 ? (
@@ -869,7 +590,7 @@ export function ConceptPickerDialog({
                         >
                           <button
                             type="button"
-                            className="flex h-4 w-4 shrink-0 items-center justify-center rounded border border-primary bg-primary text-primary-foreground"
+                            className="flex size-4 shrink-0 items-center justify-center rounded border border-primary bg-primary text-primary-foreground"
                             onClick={() => removeConcept(item.id)}
                             title={t('patient_data.remove')}
                           >
@@ -933,7 +654,7 @@ export function ConceptPickerDialog({
             {t('common.cancel')}
           </Button>
           <Button size="sm" onClick={handleConfirm}>
-            {t('common.confirm')} ({selectedIds.size})
+            {t('common.confirm')} ({selectedIds.length})
           </Button>
         </DialogFooter>
       </DialogContent>
