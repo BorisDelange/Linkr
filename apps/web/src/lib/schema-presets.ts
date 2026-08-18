@@ -114,6 +114,7 @@ const omop54: SchemaMapping = {
     unitNameTable: 'care_site',
     unitNameIdColumn: 'care_site_id',
     unitNameColumn: 'care_site_name',
+    unitSourceValueColumn: 'visit_detail_source_value',
   },
   conceptTables: [
     {
@@ -139,7 +140,9 @@ const omop54: SchemaMapping = {
       conceptIdColumn: 'measurement_concept_id',
       sourceConceptIdColumn: 'measurement_source_concept_id',
       valueColumn: 'value_as_number',
-      valueStringColumn: 'value_as_string',
+      // CDM 5.4 has no value_as_string on measurement — that column exists on
+      // observation only. The verbatim source value is the closest equivalent.
+      valueStringColumn: 'value_source_value',
       patientIdColumn: 'person_id',
       dateColumn: 'measurement_datetime',
     },
@@ -149,20 +152,25 @@ const omop54: SchemaMapping = {
       sourceConceptIdColumn: 'condition_source_concept_id',
       patientIdColumn: 'person_id',
       dateColumn: 'condition_start_datetime',
+      endDateColumn: 'condition_end_datetime',
     },
     Drug: {
       table: 'drug_exposure',
       conceptIdColumn: 'drug_concept_id',
       sourceConceptIdColumn: 'drug_source_concept_id',
+      valueColumn: 'quantity',
       patientIdColumn: 'person_id',
       dateColumn: 'drug_exposure_start_datetime',
+      endDateColumn: 'drug_exposure_end_datetime',
     },
     Procedure: {
       table: 'procedure_occurrence',
       conceptIdColumn: 'procedure_concept_id',
       sourceConceptIdColumn: 'procedure_source_concept_id',
+      valueColumn: 'quantity',
       patientIdColumn: 'person_id',
       dateColumn: 'procedure_datetime',
+      endDateColumn: 'procedure_end_datetime',
     },
     Observation: {
       table: 'observation',
@@ -172,6 +180,22 @@ const omop54: SchemaMapping = {
       valueStringColumn: 'value_as_string',
       patientIdColumn: 'person_id',
       dateColumn: 'observation_datetime',
+    },
+    Device: {
+      table: 'device_exposure',
+      conceptIdColumn: 'device_concept_id',
+      sourceConceptIdColumn: 'device_source_concept_id',
+      valueColumn: 'quantity',
+      patientIdColumn: 'person_id',
+      dateColumn: 'device_exposure_start_datetime',
+      endDateColumn: 'device_exposure_end_datetime',
+    },
+    Specimen: {
+      table: 'specimen',
+      conceptIdColumn: 'specimen_concept_id',
+      valueColumn: 'quantity',
+      patientIdColumn: 'person_id',
+      dateColumn: 'specimen_datetime',
     },
   },
   genderValues: {
@@ -465,6 +489,7 @@ const mimicIV: SchemaMapping = {
       valueColumn: 'amount',
       patientIdColumn: 'subject_id',
       dateColumn: 'starttime',
+      endDateColumn: 'endtime',
       conceptDictionaryKey: 'd_items',
     },
     'Output events': {
@@ -481,6 +506,7 @@ const mimicIV: SchemaMapping = {
       valueColumn: 'value',
       patientIdColumn: 'subject_id',
       dateColumn: 'starttime',
+      endDateColumn: 'endtime',
       conceptDictionaryKey: 'd_items',
     },
   },

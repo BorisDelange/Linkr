@@ -12,6 +12,7 @@ import type { Plugin, PluginManifest } from '@/types/plugin'
 import patientSummaryManifest from '@default-plugins/patient-data/patient-summary/plugin.json'
 import timelineManifest from '@default-plugins/patient-data/timeline/plugin.json'
 import notesManifest from '@default-plugins/patient-data/notes/plugin.json'
+import overviewManifest from '@default-plugins/patient-data/overview/plugin.json'
 import { registerPlugin } from './registry'
 import { registerPatientComponent } from './patient-component-registry'
 
@@ -22,12 +23,14 @@ import { registerPatientComponent } from './patient-component-registry'
 export const PATIENT_SUMMARY_PLUGIN_ID = 'linkr-widget-patient-summary'
 export const TIMELINE_PLUGIN_ID = 'linkr-widget-timeline'
 export const NOTES_PLUGIN_ID = 'linkr-widget-notes'
+export const PATIENT_OVERVIEW_PLUGIN_ID = 'linkr-widget-patient-overview'
 
 /** Set of all system plugin ids (built-in patient widgets + built-in lab components). */
 export const SYSTEM_PLUGIN_IDS = new Set([
   PATIENT_SUMMARY_PLUGIN_ID,
   TIMELINE_PLUGIN_ID,
   NOTES_PLUGIN_ID,
+  PATIENT_OVERVIEW_PLUGIN_ID,
   'linkr-analysis-key-indicator',
 ])
 
@@ -35,6 +38,7 @@ const manifests = [
   { manifest: patientSummaryManifest, componentId: 'patient-summary' },
   { manifest: timelineManifest, componentId: 'timeline' },
   { manifest: notesManifest, componentId: 'notes' },
+  { manifest: overviewManifest, componentId: 'patient-overview' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -57,6 +61,11 @@ export function registerBuiltinWidgetPlugins(): void {
     import('@/features/projects/warehouse/patient-data/widgets/NotesWidget').then((m) => ({
       default: m.NotesWidget,
     })),
+  )
+  registerPatientComponent('patient-overview', () =>
+    import('@/features/projects/warehouse/patient-data/widgets/PatientOverviewWidget').then(
+      (m) => ({ default: m.PatientOverviewWidget }),
+    ),
   )
 
   for (const { manifest, componentId } of manifests) {

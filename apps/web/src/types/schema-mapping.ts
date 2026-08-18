@@ -102,6 +102,14 @@ export interface SchemaMapping {
     unitNameIdColumn?: string
     /** Name column in the lookup table (e.g. care_site_name). */
     unitNameColumn?: string
+    /**
+     * Optional verbatim ward name on the visit-detail row itself
+     * (OMOP `visit_detail_source_value`). Preferred over the lookup when set:
+     * it holds the actual unit ("Medical Intensive Care Unit") where the
+     * standard concept is far coarser, and many ETLs leave care_site_id NULL
+     * while filling this in.
+     */
+    unitSourceValueColumn?: string
   }
 
   /**
@@ -225,6 +233,13 @@ export interface EventTable {
   patientIdColumn?: string
   /** Event date column (measurement_datetime, charttime, document_date, start_at). */
   dateColumn?: string
+  /**
+   * Optional end date column, for events that last rather than happen: an
+   * infusion, a procedure, a device. OMOP `drug_exposure_end_datetime`,
+   * MIMIC-IV `endtime`. When set, the overview draws these events as blocks
+   * instead of points.
+   */
+  endDateColumn?: string
   /** Which concept dictionary this event table uses. References ConceptDictionary.key. If omitted, uses the first dictionary. */
   conceptDictionaryKey?: string
 }

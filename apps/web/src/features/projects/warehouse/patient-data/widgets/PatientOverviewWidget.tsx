@@ -1,0 +1,1281 @@
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+import { usePatientChartContext } from '../PatientChartContext'
+import { useTabVisible } from '../TabVisibilityContext'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
+import { queryDataSource } from '@/lib/duckdb/engine'
+import {
+  buildOverviewInventoryQuery,
+  buildOverviewUnitStaysQuery,
+  buildOverviewDeathQuery,
+  buildOverviewEventsQuery,
+  overviewSupportsClasses,
+  overviewUnitTableLabel,
+} from '@/lib/duckdb/patient-overview-queries'
+import {
+  buildOverviewRows,
+  medianGapPx,
+  MIN_GAP_PX,
+  FEW_EVENTS,
+  type OverviewConceptRow,
+  type OverviewRow,
+} from './overview-layout'
+import { toMs } from '@/lib/duckdb/value-coercion'
+
+interface PatientOverviewWidgetProps {
+  widgetId: string
+  /** The config to render. The editor's preview passes its unsaved draft here, so
+   *  reading the store instead would show the last saved state. */
+  config?: Record<string, unknown>
+}
+
+interface UnitStay {
+  start: number
+  end: number | null
+  name: string
+  category: string | null
+}
+
+/** One event of one concept, fetched only for rows drawn individually. */
+interface OverviewEvent {
+  start: number
+  end: number | null
+  value: number | null
+  text: string | null
+}
+
+/** Per-source-table colours, assigned by position so any schema gets a palette. */
+const TABLE_PALETTE = [
+  '#2563eb', '#7c3aed', '#0891b2', '#dc2626',
+  '#db2777', '#ea580c', '#16a34a', '#0f766e',
+]
+const UNIT_PALETTE = ['#0f766e', '#7c3aed', '#b45309', '#be123c', '#1d4ed8', '#4d7c0f', '#a21caf', '#0369a1']
+
+/** Events fetched per row before the row falls back to a density band. */
+const EVENT_FETCH_LIMIT = 4000
+
+const FOOT = 30
+const RANGE_H = 46
+const GUTTER_MAX = 320
+
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
+
+function shade(hex: string, t: number): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  const k = clamp(t, 0, 1)
+  return `rgb(${Math.round(255 - (255 - r) * k)},${Math.round(255 - (255 - g) * k)},${Math.round(255 - (255 - b) * k)})`
+}
+
+function stableColour(name: string, palette: string[]): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0
+  return palette[Math.abs(h) % palette.length]
+}
+
+/**
+ * Patient data overview: every event the patient has, by source table and
+ * concept — where the record holds data and where it holds none.
+ *
+ * The level of detail follows the zoom, per row: far out a row is a density
+ * band, and once its events would no longer collide it becomes the events
+ * themselves — a value line, blocks for anything with a duration, dots
+ * otherwise. Density is aggregated in SQL, so a 400k-event ICU record ships a
+ * few hundred numbers rather than every row.
+ *
+ * Everything is driven by the schema mapping, so the same widget runs on OMOP
+ * CDM and MIMIC-IV without knowing either model's table names.
+ */
+export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidgetProps) {
+  const { t, i18n } = useTranslation()
+  const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
+  const visible = useTabVisible()
+  // Narrow selectors: see PatientSummaryWidget.
+  const selectedPatientIds = usePatientChartStore((s) => s.selectedPatientId)
+  const selectedVisitIds = usePatientChartStore((s) => s.selectedVisitId)
+  const widgets = usePatientChartStore((s) => s.widgets)
+  const selectedPatientId = selectedPatientIds[projectUid] ?? null
+  const selectedVisitId = selectedVisitIds[projectUid] ?? null
+
+  const widget = widgets.find((w) => w.id === widgetId)
+  const cfg = (config ?? widget?.config ?? {}) as Record<string, unknown>
+
+  const byClassSetting = cfg.groupByClass === true
+  const showUnitStays = cfg.showUnitStays !== false
+  const showDeath = cfg.showDeath !== false
+  const showRange = cfg.showRangeSelector !== false
+  const rowH = Number(cfg.rowHeight ?? 22) || 22
+
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const [concepts, setConcepts] = useState<OverviewConceptRow[]>([])
+  const [units, setUnits] = useState<UnitStay[]>([])
+  const [death, setDeath] = useState<number | null>(null)
+  const [bounds, setBounds] = useState<{ lo: number; hi: number } | null>(null)
+  const [view, setView] = useState<{ lo: number; hi: number } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Interaction state lives in refs: it changes on every mouse move and must not
+  // re-render React, only repaint the canvas.
+  const collapsedRef = useRef(new Set<string>())
+  const hiddenRef = useRef(new Set<string>())
+  const offsetsRef = useRef(new Map<string, number>())
+  const layoutRef = useRef<LayoutRow[]>([])
+  const barsRef = useRef<BarHit[]>([])
+  const rangeRef = useRef<RangeGeom | null>(null)
+  const eventsRef = useRef(new Map<string, OverviewEvent[]>())
+  const dragRef = useRef<DragState | null>(null)
+  /** Latches after the first paint failure, so the error is reported once. */
+  const paintFailedRef = useRef(false)
+  /** Bumped when a drag moves; repaints without rebuilding the row list. */
+  const [, forceRepaint] = useState(0)
+  /** Bumped when collapse/hide/scroll change, which DOES rebuild the rows. */
+  const [structureVersion, setStructureVersion] = useState(0)
+  const repaint = useCallback(() => forceRepaint((n) => n + 1), [])
+  const rebuild = useCallback(() => setStructureVersion((n) => n + 1), [])
+
+  const supportsClasses = schemaMapping ? overviewSupportsClasses(schemaMapping) : false
+  const byClass = byClassSetting && supportsClasses
+  const unitsTable = schemaMapping ? overviewUnitTableLabel(schemaMapping) : null
+
+  // --- Load the record ------------------------------------------------------
+
+  useEffect(() => {
+    if (!visible) return
+    if (!dataSourceId || !schemaMapping || !selectedPatientId) {
+      setConcepts([])
+      setUnits([])
+      setDeath(null)
+      setBounds(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    paintFailedRef.current = false
+    eventsRef.current.clear()
+
+    const run = async () => {
+      try {
+        const invSql = buildOverviewInventoryQuery(schemaMapping, selectedPatientId, selectedVisitId)
+        const inv = invSql ? await queryDataSource(dataSourceId, invSql) : []
+        if (cancelled) return
+
+        const rows: OverviewConceptRow[] = inv.map((r) => ({
+          table: String(r.table_label),
+          conceptId: String(r.concept_id),
+          conceptName: String(r.concept_name ?? r.concept_id),
+          conceptClass: r.concept_class == null ? null : String(r.concept_class),
+          unit: r.unit == null ? null : String(r.unit),
+          eventCount: Number(r.event_count ?? 0),
+          durational: r.durational === true || r.durational === 'true',
+        }))
+
+        let lo = Infinity
+        let hi = -Infinity
+        for (const r of inv) {
+          const a = toMs(r.first_event)
+          const b = toMs(r.last_event)
+          if (a != null && a < lo) lo = a
+          if (b != null && b > hi) hi = b
+        }
+
+        let stays: UnitStay[] = []
+        if (showUnitStays) {
+          const sql = buildOverviewUnitStaysQuery(schemaMapping, selectedPatientId, selectedVisitId)
+          if (sql) {
+            const raw = await queryDataSource(dataSourceId, sql)
+            if (cancelled) return
+            stays = raw
+              .map((r) => ({
+                start: toMs(r.stay_start) ?? 0,
+                end: toMs(r.stay_end),
+                name: String(r.unit_name ?? ''),
+                category: r.unit_category == null ? null : String(r.unit_category),
+              }))
+              .filter((s) => s.start > 0)
+            for (const s of stays) {
+              if (s.start < lo) lo = s.start
+              const e = s.end ?? s.start
+              if (e > hi) hi = e
+            }
+          }
+        }
+
+        let deathMs: number | null = null
+        if (showDeath) {
+          const sql = buildOverviewDeathQuery(schemaMapping, selectedPatientId)
+          if (sql) {
+            const raw = await queryDataSource(dataSourceId, sql)
+            if (cancelled) return
+            deathMs = raw.length ? toMs(raw[0].death_date) : null
+            if (deathMs != null) {
+              if (deathMs < lo) lo = deathMs
+              if (deathMs > hi) hi = deathMs
+            }
+          }
+        }
+
+        if (cancelled) return
+        setConcepts(rows)
+        setUnits(stays)
+        setDeath(deathMs)
+        if (Number.isFinite(lo) && Number.isFinite(hi)) {
+          const pad = (hi - lo) * 0.01 || 86_400_000
+          const b = { lo: lo - pad, hi: hi + pad }
+          setBounds(b)
+          setView(b)
+        } else {
+          setBounds(null)
+          setView(null)
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [visible, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, showUnitStays, showDeath])
+
+  // --- Rows -----------------------------------------------------------------
+
+  const [size, setSize] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      setSize({ w: el.clientWidth, h: el.clientHeight })
+    })
+    ro.observe(el)
+    setSize({ w: el.clientWidth, h: el.clientHeight })
+    return () => ro.disconnect()
+  }, [])
+
+  const chartH = Math.max(60, size.h - FOOT - (showRange ? RANGE_H : 0))
+  const budget = Math.max(4, Math.floor(chartH / rowH))
+
+  // Collapse/hide/scroll live in refs so a drag doesn't re-render, but the row
+  // list must be rebuilt when they change — this counter is the one piece of
+  // that state React needs to see.
+  const layout = useMemo(
+    () =>
+      buildOverviewRows({
+        concepts,
+        budget,
+        byClass,
+        hasUnits: showUnitStays && units.length > 0,
+        unitsTable,
+        collapsed: collapsedRef.current,
+        hidden: hiddenRef.current,
+        offsets: offsetsRef.current,
+      }),
+    // structureVersion looks unused to the linter, but it is exactly the point:
+    // collapse/hide/scroll live in refs, and bumping it is how those mutations
+    // ask for a rebuild. Dropping it would freeze the row list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [concepts, budget, byClass, showUnitStays, units.length, unitsTable, structureVersion],
+  )
+
+  useEffect(() => {
+    offsetsRef.current = layout.offsets
+  }, [layout])
+
+  const tableColour = useMemo(() => {
+    const tables = [...new Set(concepts.map((c) => c.table))]
+    const map = new Map<string, string>()
+    tables.forEach((tbl, i) => map.set(tbl, TABLE_PALETTE[i % TABLE_PALETTE.length]))
+    return map
+  }, [concepts])
+
+  // --- Fetch events for rows that are drawn individually --------------------
+
+  useEffect(() => {
+    if (!visible || !view || !dataSourceId || !schemaMapping || !selectedPatientId) return
+    const plotW = Math.max(120, size.w - 160)
+    let cancelled = false
+
+    const wanted = layout.rows.filter((row) => {
+      if (row.kind === 'units' || row.conceptIds.length === 0) return false
+      if (hiddenRef.current.has(row.table) || hiddenRef.current.has(row.key)) return false
+      // Cheap pre-test: a row whose whole-record count cannot fit individually
+      // is certainly a band. The exact call happens once its events are known.
+      const perPx = row.eventCount / plotW
+      return perPx < 1.5
+    })
+
+    // A non-finite bound would make toISOString throw, which blanks the whole
+    // board rather than just this widget.
+    const fromIso = isoOrNull(view.lo)
+    const toIso = isoOrNull(view.hi)
+    if (!fromIso || !toIso) return
+
+    const run = async () => {
+      for (const row of wanted) {
+        const key = eventKey(row, view)
+        if (eventsRef.current.has(key)) continue
+        const sql = buildOverviewEventsQuery(
+          schemaMapping,
+          selectedPatientId,
+          selectedVisitId,
+          row.table,
+          row.conceptIds,
+          fromIso,
+          toIso,
+          EVENT_FETCH_LIMIT,
+        )
+        if (!sql) continue
+        try {
+          const raw = await queryDataSource(dataSourceId, sql)
+          if (cancelled) return
+          eventsRef.current.set(
+            key,
+            raw.map((r) => ({
+              start: toMs(r.event_start) ?? 0,
+              end: toMs(r.event_end),
+              value: r.value_number == null ? null : Number(r.value_number),
+              text: r.value_string == null ? null : String(r.value_string),
+            })),
+          )
+          repaint()
+        } catch {
+          // A row that fails to load simply stays a density band.
+          eventsRef.current.set(key, [])
+        }
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [visible, view, layout, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, size.w, repaint])
+
+  // --- Paint ----------------------------------------------------------------
+
+  // Deliberately dep-less: a canvas repaints on every render, and listing the
+  // dozen values the drawing reads would only be a slower way to say "always".
+  // The setError inside is latched by paintFailedRef, so it cannot spin.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const cv = canvasRef.current
+    if (!cv || !view || !bounds) return
+    const ctx = cv.getContext('2d')
+    if (!ctx) return
+
+    // The grid renders widgets inside a Suspense with no error boundary, so a
+    // throw here would blank the whole board rather than this one widget.
+    try {
+      paint(ctx, cv, view, bounds)
+    } catch (e) {
+      // Reported once. This effect has no dependency array, so setting state on
+      // every failed paint would spin: fail → render → fail → render.
+      if (!paintFailedRef.current) {
+        paintFailedRef.current = true
+        setError(e instanceof Error ? e.message : String(e))
+      }
+    }
+    return
+
+    function paint(
+      ctx: CanvasRenderingContext2D,
+      cv: HTMLCanvasElement,
+      view: { lo: number; hi: number },
+      bounds: { lo: number; hi: number },
+    ) {
+    const dpr = Math.max(1, window.devicePixelRatio || 1)
+    const w = size.w
+    const rows = layout.rows
+    // Fill the widget rather than growing past it: the row budget was computed
+    // from this same height, so the rows fit by construction.
+    const h = Math.max(60, size.h)
+    if (w < 80) return
+
+    cv.width = w * dpr
+    cv.height = h * dpr
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, w, h)
+
+    const labelFont = `${Math.min(12, rowH - 6)}px Inter, system-ui`
+    const headerFont = `600 ${Math.min(11, rowH - 7)}px Inter, system-ui`
+    const metaFont = `${Math.min(10, rowH - 8)}px Inter, system-ui`
+
+    const label = (row: OverviewRow) => rowLabel(row, t)
+    const rightText = (row: OverviewRow) =>
+      row.kind === 'table' || row.kind === 'units' || row.kind === 'class'
+        ? `${fmtN(row.kind === 'units' ? unitCount(units) : row.conceptCount)} ${
+            row.kind === 'units' ? t('patient_data.overview_units') : t('patient_data.overview_concepts')
+          } · ${fmtN(row.eventCount)}`
+        : fmtN(row.eventCount)
+
+    ctx.font = labelFont
+    let labelW = 0
+    for (const r of rows) labelW = Math.max(labelW, ctx.measureText(label(r)).width)
+    ctx.font = metaFont
+    let countW = 0
+    for (const r of rows) countW = Math.max(countW, ctx.measureText(rightText(r)).width)
+
+    const GAP = 10
+    const gutter = Math.min(GUTTER_MAX, 26 + labelW + GAP + countW + GAP)
+    const truncateTo = Math.max(40, gutter - 8 - GAP - countW - GAP)
+    const plotL = gutter
+    const plotW = Math.max(40, w - plotL - 10)
+    const lo = view.lo
+    const span = view.hi - view.lo || 1
+    const x = (ms: number) => plotL + ((ms - lo) / span) * plotW
+    const nb = Math.max(40, Math.floor(plotW))
+
+    const nested = rows.some((r) => r.kind === 'class')
+    const newLayout: LayoutRow[] = []
+
+    rows.forEach((row, i) => {
+      const y = i * rowH
+      if (i % 2) {
+        ctx.fillStyle = 'rgba(148,163,184,0.07)'
+        ctx.fillRect(plotL, y, plotW, rowH)
+      }
+
+      const isUnits = row.kind === 'units'
+      const isHeader = row.kind === 'table' || isUnits
+      const isClass = row.kind === 'class'
+      const muted = hiddenRef.current.has(row.table) || hiddenRef.current.has(row.key)
+      const colour = tableColour.get(row.table) ?? '#64748b'
+
+      // A class row carries its own chevron at x=24, so its text must clear it;
+      // concepts under a class indent one step further again.
+      const indent = isHeader ? 22 : isClass ? 34 : nested ? 40 : 24
+
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'left'
+      ctx.font = isHeader || isClass ? headerFont : labelFont
+
+      let text = isHeader && !isUnits ? label(row).toUpperCase() : label(row)
+      if (isUnits) text = text.toUpperCase()
+      const room = truncateTo - (indent - 8)
+      let clipped = false
+      if (ctx.measureText(text).width > room) {
+        while (text.length > 1 && ctx.measureText(`${text}…`).width > room) text = text.slice(0, -1)
+        text += '…'
+        clipped = true
+      }
+
+      if (isUnits) {
+        ctx.fillStyle = muted ? '#cbd5e1' : '#0f172a'
+      } else if (isHeader || isClass) {
+        const cx = isClass ? 24 : 12
+        const cy = y + rowH / 2
+        const r = isClass ? 3 : 3.5
+        const shut = collapsedRef.current.has(isClass ? row.key : row.table)
+        ctx.fillStyle = muted ? '#e2e8f0' : isClass ? '#94a3b8' : '#64748b'
+        ctx.beginPath()
+        if (shut) {
+          ctx.moveTo(cx - r, cy - r - 1)
+          ctx.lineTo(cx + r, cy)
+          ctx.lineTo(cx - r, cy + r + 1)
+        } else {
+          ctx.moveTo(cx - r - 1, cy - r)
+          ctx.lineTo(cx + r + 1, cy - r)
+          ctx.lineTo(cx, cy + r)
+        }
+        ctx.closePath()
+        ctx.fill()
+        ctx.fillStyle = muted ? '#cbd5e1' : isClass ? '#475569' : colour
+      } else {
+        const stemX = nested ? 32 : 16
+        ctx.strokeStyle = '#cbd5e1'
+        ctx.beginPath()
+        ctx.moveTo(stemX, y)
+        ctx.lineTo(stemX, y + rowH / 2)
+        ctx.lineTo(stemX + 5, y + rowH / 2)
+        ctx.stroke()
+        ctx.fillStyle = muted ? '#cbd5e1' : row.kind === 'other' ? '#94a3b8' : '#334155'
+      }
+      ctx.fillText(text, indent, y + rowH / 2)
+
+      ctx.font = metaFont
+      ctx.textAlign = 'right'
+      ctx.fillStyle = muted ? '#e2e8f0' : isHeader ? '#64748b' : '#94a3b8'
+      ctx.fillText(rightText(row), gutter - GAP, y + rowH / 2)
+
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(plotL, y, plotW, rowH)
+      ctx.clip()
+
+      let marks: Mark[] | null = null
+      let counts: Float64Array | null = null
+      let level: 'density' | 'events' = 'density'
+
+      if (isUnits) {
+        marks = drawUnits(ctx, units, y, rowH, plotL, plotW, x, muted)
+        level = 'events'
+      } else if (!muted) {
+        const key = eventKey(row, view)
+        const evts = eventsRef.current.get(key)
+        const inView = evts?.filter((e) => (e.end ?? e.start) >= lo && e.start <= view.hi) ?? null
+
+        if (inView && inView.length < EVENT_FETCH_LIMIT && fitsIndividually(inView, plotW, span)) {
+          marks = drawEvents(ctx, row, inView, y, rowH, plotL, plotW, x, colour)
+          level = 'events'
+        } else {
+          counts = drawDensity(ctx, evts, y, rowH, plotL, nb, plotW / nb, lo, span, colour)
+        }
+      }
+      ctx.restore()
+
+      newLayout.push({ y, rowH, row, marks, counts, level, nb, bw: plotW / nb, plotL, clipped })
+    })
+
+    layoutRef.current = newLayout
+
+    // Per-group scrollbars, in the gutter's left margin.
+    const bands = new Map<string, { top: number; bottom: number; table: string }>()
+    for (const l of newLayout) {
+      if (l.row.kind !== 'concept' && l.row.kind !== 'other') continue
+      const b = bands.get(l.row.key) ?? { top: l.y, bottom: l.y + l.rowH, table: l.row.table }
+      b.top = Math.min(b.top, l.y)
+      b.bottom = Math.max(b.bottom, l.y + l.rowH)
+      bands.set(l.row.key, b)
+    }
+    const bars: BarHit[] = []
+    for (const [key, b] of bands) {
+      const win = layout.windows.get(key)
+      if (!win || win.total <= win.shown) continue
+      const off = layout.offsets.get(key) ?? 0
+      const trackX = nested ? 15 : 3
+      const trackW = 3
+      const trackY = b.top + 1
+      const trackH = Math.max(8, b.bottom - b.top - 2)
+      ctx.fillStyle = '#e2e8f0'
+      ctx.fillRect(trackX, trackY, trackW, trackH)
+      const thumbH = Math.max(10, trackH * (win.shown / win.total))
+      const thumbY = trackY + (trackH - thumbH) * (off / Math.max(1, win.total - win.shown))
+      ctx.fillStyle = tableColour.get(b.table) ?? '#94a3b8'
+      ctx.fillRect(trackX, thumbY, trackW, thumbH)
+      bars.push({
+        key,
+        trackY,
+        trackH,
+        thumbY,
+        thumbH,
+        x0: trackX - 4,
+        x1: trackX + trackW + 5,
+        max: win.total - win.shown,
+      })
+    }
+    barsRef.current = bars
+
+    const bodyH = rows.length * rowH
+
+    // Death: a badge rather than bare text, so it can't be read as part of
+    // whatever row it crosses.
+    if (showDeath && death != null && death >= lo && death <= view.hi) {
+      const dx = x(death)
+      ctx.save()
+      ctx.strokeStyle = '#dc2626'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([4, 3])
+      ctx.beginPath()
+      ctx.moveTo(dx, 0)
+      ctx.lineTo(dx, bodyH)
+      ctx.stroke()
+      ctx.restore()
+
+      const badge = t('patient_data.overview_death')
+      ctx.font = '600 10px Inter, system-ui'
+      const tw = ctx.measureText(badge).width
+      const bw = tw + 10
+      const bh = 15
+      const right = dx + 4 + bw > w - 10
+      const bx = right ? dx - 4 - bw : dx + 4
+      ctx.fillStyle = '#dc2626'
+      roundRect(ctx, bx, 2, bw, bh, 4)
+      ctx.fill()
+      ctx.fillStyle = '#fff'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(badge, bx + 5, 2 + bh / 2 + 0.5)
+    }
+
+    // Time axis
+    const axisY = bodyH
+    ctx.strokeStyle = '#e2e8f0'
+    ctx.beginPath()
+    ctx.moveTo(plotL, axisY + 0.5)
+    ctx.lineTo(w - 10, axisY + 0.5)
+    ctx.stroke()
+    ctx.fillStyle = '#64748b'
+    ctx.font = '10px Inter, system-ui'
+    ctx.textBaseline = 'top'
+    const ticks = Math.max(2, Math.min(7, Math.floor(plotW / 110)))
+    const withClock = span < 3 * 86_400_000
+    const locale = i18n.language?.startsWith('fr') ? 'fr-FR' : 'en-GB'
+    for (let k = 0; k <= ticks; k++) {
+      const ms = lo + (span * k) / ticks
+      ctx.textAlign = k === 0 ? 'left' : k === ticks ? 'right' : 'center'
+      ctx.fillText(fmtAxis(ms, withClock, locale), clamp(x(ms), plotL, w - 10), axisY + 8)
+    }
+
+    // Drag-to-zoom overlay
+    const d = dragRef.current
+    if (d?.kind === 'zoom' && d.moved) {
+      ctx.fillStyle = 'rgba(37,99,235,.15)'
+      ctx.strokeStyle = 'rgba(37,99,235,.6)'
+      const a = Math.min(d.x0, d.x1)
+      const b = Math.max(d.x0, d.x1)
+      ctx.fillRect(a, 0, b - a, bodyH)
+      ctx.strokeRect(a + 0.5, 0.5, b - a - 1, bodyH - 1)
+    }
+
+    if (showRange) {
+      // Pinned to the bottom of the widget, not to where the rows happen to
+      // end: a short record would otherwise leave it floating mid-card.
+      rangeRef.current = drawRangeSelector(
+        ctx, h - RANGE_H, plotL, plotW, bounds, view, death, showDeath,
+      )
+    } else {
+      rangeRef.current = null
+    }
+    }
+  })
+
+  // --- Interaction ----------------------------------------------------------
+
+  const msAt = useCallback(
+    (px: number) => {
+      const l = layoutRef.current[0]
+      if (!l || !view) return null
+      const plotW = size.w - l.plotL - 10
+      return view.lo + ((px - l.plotL) / plotW) * (view.hi - view.lo)
+    },
+    [view, size.w],
+  )
+
+  const panBy = useCallback(
+    (frac: number) => {
+      if (!view || !bounds) return
+      const span = view.hi - view.lo
+      const full = bounds.hi - bounds.lo
+      // A pure fraction-of-span step stalls at high zoom: panning a one-day
+      // window across a decade needs thousands of presses. The floor of 0.5% of
+      // the record keeps long jumps reachable.
+      const step = Math.max(Math.abs(span * frac), full * 0.005) * Math.sign(frac)
+      const lo = clamp(view.lo + step, bounds.lo, bounds.hi - span)
+      setView({ lo, hi: lo + span })
+    },
+    [view, bounds],
+  )
+
+  const zoomBy = useCallback(
+    (factor: number, centre: number) => {
+      if (!view || !bounds) return
+      const full = bounds.hi - bounds.lo
+      const s = Math.min((view.hi - view.lo) * factor, full)
+      let lo = centre - (centre - view.lo) * (s / (view.hi - view.lo))
+      let hi = lo + s
+      if (lo < bounds.lo) { lo = bounds.lo; hi = lo + s }
+      if (hi > bounds.hi) { hi = bounds.hi; lo = hi - s }
+      setView({ lo, hi })
+    },
+    [view, bounds],
+  )
+
+  const hitRange = useCallback((px: number, py: number) => {
+    const r = rangeRef.current
+    if (!r) return null
+    if (py < r.y0 || py > r.y1 || px < r.x0 - 6 || px > r.x1 + 6) return null
+    const EDGE = 5
+    if (Math.abs(px - r.win.x0) <= EDGE) return 'lo' as const
+    if (Math.abs(px - r.win.x1) <= EDGE) return 'hi' as const
+    if (px > r.win.x0 && px < r.win.x1) return 'move' as const
+    return 'jump' as const
+  }, [])
+
+  const onWheel = useCallback(
+    (e: React.WheelEvent<HTMLCanvasElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const px = e.clientX - rect.left
+      const py = e.clientY - rect.top
+      const l = layoutRef.current
+      if (!l.length || !view) return
+
+      // Over the labels: scroll THAT group's concept window.
+      if (px < l[0].plotL) {
+        const hit = l.find((row) => py >= row.y && py < row.y + row.rowH)
+        if (!hit) return
+        const win = layout.windows.get(hit.row.key)
+        if (!win || win.total <= win.shown) return
+        e.preventDefault()
+        const cur = offsetsRef.current.get(hit.row.key) ?? 0
+        offsetsRef.current.set(
+          hit.row.key,
+          clamp(cur + (e.deltaY > 0 ? 1 : -1), 0, win.total - win.shown),
+        )
+        rebuild()
+        return
+      }
+
+      e.preventDefault()
+      if (hitRange(px, py)) {
+        panBy(e.deltaY > 0 ? 0.15 : -0.15)
+        return
+      }
+      if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        panBy((e.shiftKey ? e.deltaY : e.deltaX) > 0 ? 0.15 : -0.15)
+        return
+      }
+      const centre = msAt(px)
+      if (centre != null) zoomBy(e.deltaY > 0 ? 1.25 : 0.8, centre)
+    },
+    [view, layout, msAt, zoomBy, panBy, hitRange, rebuild],
+  )
+
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const px = e.clientX - rect.left
+      const py = e.clientY - rect.top
+
+      const rangeHit = hitRange(px, py)
+      if (rangeHit && rangeRef.current && view && bounds) {
+        e.preventDefault()
+        if (rangeHit === 'jump') {
+          const r = rangeRef.current
+          const span = view.hi - view.lo
+          const frac = clamp((px - r.x0) / (r.x1 - r.x0), 0, 1)
+          const lo = clamp(bounds.lo + frac * (bounds.hi - bounds.lo) - span / 2, bounds.lo, bounds.hi - span)
+          setView({ lo, hi: lo + span })
+          dragRef.current = { kind: 'range', mode: 'move', grab: (r.win.x1 - r.win.x0) / 2 }
+        } else {
+          dragRef.current = { kind: 'range', mode: rangeHit, grab: px - rangeRef.current.win.x0 }
+        }
+        return
+      }
+
+      const bar = barsRef.current.find(
+        (b) => px >= b.x0 && px <= b.x1 && py >= b.trackY && py <= b.trackY + b.trackH,
+      )
+      if (bar) {
+        e.preventDefault()
+        const onThumb = py >= bar.thumbY && py <= bar.thumbY + bar.thumbH
+        if (!onThumb) {
+          setOffsetFromBar(bar, py - bar.thumbH / 2, offsetsRef.current)
+          rebuild()
+        }
+        dragRef.current = { kind: 'bar', bar, grab: onThumb ? py - bar.thumbY : bar.thumbH / 2 }
+        return
+      }
+
+      const l = layoutRef.current
+      if (!l.length || px < l[0].plotL) return
+      dragRef.current = { kind: 'zoom', x0: px, x1: px, moved: false }
+    },
+    [hitRange, view, bounds, rebuild],
+  )
+
+  const onMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const px = e.clientX - rect.left
+      const py = e.clientY - rect.top
+      const d = dragRef.current
+
+      if (d?.kind === 'range' && rangeRef.current && view && bounds) {
+        const r = rangeRef.current
+        const frac = (p: number) => clamp((p - r.x0) / (r.x1 - r.x0), 0, 1)
+        const at = (p: number) => bounds.lo + frac(p) * (bounds.hi - bounds.lo)
+        const MIN = 60_000
+        if (d.mode === 'move') {
+          const span = view.hi - view.lo
+          const lo = clamp(at(px - d.grab), bounds.lo, bounds.hi - span)
+          setView({ lo, hi: lo + span })
+        } else if (d.mode === 'lo') {
+          setView({ lo: clamp(at(px), bounds.lo, view.hi - MIN), hi: view.hi })
+        } else {
+          setView({ lo: view.lo, hi: clamp(at(px), view.lo + MIN, bounds.hi) })
+        }
+        return
+      }
+
+      if (d?.kind === 'bar') {
+        setOffsetFromBar(d.bar, py - d.grab, offsetsRef.current)
+        rebuild()
+        return
+      }
+
+      if (d?.kind === 'zoom') {
+        d.x1 = px
+        d.moved = Math.abs(d.x1 - d.x0) > 3
+        repaint()
+        return
+      }
+
+      // Cursor: the gutter keeps the arrow, the plot gets the crosshair.
+      const cv = e.currentTarget
+      const rangeHit = hitRange(px, py)
+      const l = layoutRef.current
+      cv.style.cursor = rangeHit
+        ? rangeHit === 'lo' || rangeHit === 'hi'
+          ? 'ew-resize'
+          : rangeHit === 'move'
+            ? 'grab'
+            : 'pointer'
+        : l.length && px < l[0].plotL
+          ? 'default'
+          : 'crosshair'
+    },
+    [view, bounds, hitRange, repaint, rebuild],
+  )
+
+  const onMouseUp = useCallback(() => {
+    const d = dragRef.current
+    dragRef.current = null
+    if (d?.kind === 'zoom' && d.moved) {
+      const a = msAt(Math.min(d.x0, d.x1))
+      const b = msAt(Math.max(d.x0, d.x1))
+      if (a != null && b != null && b - a > 1000) setView({ lo: a, hi: b })
+    }
+    repaint()
+  }, [msAt, repaint])
+
+  const onClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const px = e.clientX - rect.left
+      const py = e.clientY - rect.top
+      const l = layoutRef.current
+      if (!l.length || px >= l[0].plotL) return
+      const hit = l.find((row) => py >= row.y && py < row.y + row.rowH)
+      if (!hit) return
+      const key =
+        hit.row.kind === 'class' ? hit.row.key : hit.row.kind === 'table' ? hit.row.table : null
+      if (!key) return
+      const set = collapsedRef.current
+      if (set.has(key)) set.delete(key)
+      else set.add(key)
+      rebuild()
+    },
+    [rebuild],
+  )
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const step = e.shiftKey ? 0.5 : 0.15
+      if (e.key === 'ArrowLeft') { e.preventDefault(); panBy(-step) }
+      if (e.key === 'ArrowRight') { e.preventDefault(); panBy(step) }
+      if (e.key === '0' && bounds) { e.preventDefault(); setView(bounds) }
+      if ((e.key === '+' || e.key === '=') && view) {
+        e.preventDefault()
+        zoomBy(0.8, (view.lo + view.hi) / 2)
+      }
+      if (e.key === '-' && view) {
+        e.preventDefault()
+        zoomBy(1.25, (view.lo + view.hi) / 2)
+      }
+    },
+    [panBy, zoomBy, bounds, view],
+  )
+
+  // --- Render ---------------------------------------------------------------
+
+  if (!selectedPatientId) {
+    return <Message text={t('patient_data.select_patient_first')} />
+  }
+  if (error) {
+    return <Message text={error} tone="error" />
+  }
+  if (loading && concepts.length === 0) {
+    return <Message text={t('patient_data.overview_loading')} />
+  }
+  if (!loading && concepts.length === 0) {
+    return <Message text={t('patient_data.overview_no_data')} />
+  }
+
+  // The canvas sizes itself from its rows, so it can't be what the wrapper
+  // measures — absolute positioning lets the wrapper keep the widget's real
+  // height and the canvas fill it, instead of the two chasing each other.
+  return (
+    <div ref={wrapRef} className="relative h-full w-full overflow-hidden">
+      <canvas
+        ref={canvasRef}
+        tabIndex={0}
+        className="absolute inset-0 block w-full outline-none"
+        onWheel={onWheel}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+        onClick={onClick}
+        onKeyDown={onKeyDown}
+      />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Drawing
+// ---------------------------------------------------------------------------
+
+interface Mark {
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+}
+
+interface LayoutRow {
+  y: number
+  rowH: number
+  row: OverviewRow
+  marks: Mark[] | null
+  counts: Float64Array | null
+  level: 'density' | 'events'
+  nb: number
+  bw: number
+  plotL: number
+  clipped: boolean
+}
+
+interface BarHit {
+  key: string
+  trackY: number
+  trackH: number
+  thumbY: number
+  thumbH: number
+  x0: number
+  x1: number
+  max: number
+}
+
+interface RangeGeom {
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+  win: { x0: number; x1: number }
+}
+
+type DragState =
+  | { kind: 'zoom'; x0: number; x1: number; moved: boolean }
+  | { kind: 'bar'; bar: BarHit; grab: number }
+  | { kind: 'range'; mode: 'lo' | 'hi' | 'move'; grab: number }
+
+/** Would these events be legible drawn individually, or do the marks collide? */
+function fitsIndividually(events: OverviewEvent[], plotW: number, span: number): boolean {
+  if (events.length === 0) return true
+  if (events.length <= FEW_EVENTS) return true
+  return medianGapPx(events.map((e) => e.start), plotW, span) >= MIN_GAP_PX
+}
+
+function drawDensity(
+  ctx: CanvasRenderingContext2D,
+  events: OverviewEvent[] | undefined,
+  y: number,
+  rowH: number,
+  plotL: number,
+  nb: number,
+  bw: number,
+  lo: number,
+  span: number,
+  colour: string,
+): Float64Array {
+  const counts = new Float64Array(nb)
+  let maxC = 0
+  for (const e of events ?? []) {
+    const a = e.start
+    const b = e.end ?? e.start
+    const b0 = clamp(Math.floor(((a - lo) / span) * nb), 0, nb - 1)
+    const b1 = clamp(Math.floor(((b - lo) / span) * nb), 0, nb - 1)
+    for (let k = b0; k <= b1; k++) {
+      counts[k]++
+      if (counts[k] > maxC) maxC = counts[k]
+    }
+  }
+  const barH = Math.max(3, Math.min(rowH - 8, 10))
+  const barY = y + (rowH - barH) / 2
+  if (maxC === 0) {
+    // No fetched events: show the row exists but carries no drawn data yet.
+    ctx.fillStyle = shade(colour, 0.18)
+    ctx.fillRect(plotL, barY + barH / 2 - 0.5, 0, 1)
+    return counts
+  }
+  for (let b = 0; b < nb; b++) {
+    if (!counts[b]) continue
+    ctx.fillStyle = shade(colour, 0.2 + 0.8 * Math.sqrt(counts[b] / maxC))
+    ctx.fillRect(plotL + b * bw, barY, Math.max(1.2, bw), barH)
+  }
+  return counts
+}
+
+function drawEvents(
+  ctx: CanvasRenderingContext2D,
+  row: OverviewRow,
+  events: OverviewEvent[],
+  y: number,
+  rowH: number,
+  plotL: number,
+  plotW: number,
+  x: (ms: number) => number,
+  colour: string,
+): Mark[] {
+  const marks: Mark[] = []
+  const mid = y + rowH / 2
+  const plotR = plotL + plotW
+
+  const hasEnd = events.some((e) => e.end != null)
+  const nums = events.filter((e) => e.value != null)
+  // Shape follows the data, not the table: a duration is a block, a numeric
+  // series is a line, anything else is a dot.
+  const shape = hasEnd ? 'blocks' : !row.mixed && nums.length >= 2 ? 'line' : 'dots'
+
+  if (shape === 'blocks') {
+    const barH = Math.max(5, Math.min(rowH - 7, 14))
+    const barY = y + (rowH - barH) / 2
+    ctx.fillStyle = shade(colour, 0.75)
+    for (const e of events) {
+      const a = x(e.start)
+      const b = e.end != null ? x(e.end) : a
+      const w = Math.max(3, b - a)
+      ctx.fillRect(a, barY, w, barH)
+      marks.push({ x0: Math.max(plotL, a), x1: Math.min(plotR, a + w), y0: barY, y1: barY + barH })
+    }
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 1
+    for (const m of marks) {
+      if (m.x1 - m.x0 > 4) ctx.strokeRect(m.x0 + 0.5, m.y0 + 0.5, m.x1 - m.x0 - 1, m.y1 - m.y0 - 1)
+    }
+    return marks
+  }
+
+  if (shape === 'line') {
+    let vLo = Infinity
+    let vHi = -Infinity
+    for (const e of nums) {
+      const v = e.value as number
+      if (v < vLo) vLo = v
+      if (v > vHi) vHi = v
+    }
+    const flat = !(vHi > vLo)
+    const pad = 4
+    const yFor = (v: number) =>
+      flat ? mid : y + rowH - pad - ((v - vLo) / (vHi - vLo)) * (rowH - 2 * pad)
+
+    ctx.strokeStyle = shade(colour, 0.55)
+    ctx.lineWidth = 1.25
+    ctx.beginPath()
+    nums.forEach((e, i) => {
+      const px = x(e.start)
+      const py = yFor(e.value as number)
+      if (i) ctx.lineTo(px, py)
+      else ctx.moveTo(px, py)
+    })
+    ctx.stroke()
+
+    ctx.fillStyle = shade(colour, 0.95)
+    const r = rowH >= 26 ? 2.5 : 2
+    for (const e of nums) {
+      const px = x(e.start)
+      const py = yFor(e.value as number)
+      ctx.beginPath()
+      ctx.arc(px, py, r, 0, Math.PI * 2)
+      ctx.fill()
+      marks.push({ x0: px - 4, x1: px + 4, y0: py - 5, y1: py + 5 })
+    }
+    return marks
+  }
+
+  const r = Math.max(2.5, Math.min(4, (rowH - 8) / 3))
+  ctx.fillStyle = shade(colour, 0.85)
+  for (const e of events) {
+    const px = x(e.start)
+    ctx.beginPath()
+    ctx.arc(px, mid, r, 0, Math.PI * 2)
+    ctx.fill()
+    marks.push({ x0: px - r - 2, x1: px + r + 2, y0: mid - r - 2, y1: mid + r + 2 })
+  }
+  return marks
+}
+
+function drawUnits(
+  ctx: CanvasRenderingContext2D,
+  units: UnitStay[],
+  y: number,
+  rowH: number,
+  plotL: number,
+  plotW: number,
+  x: (ms: number) => number,
+  muted: boolean,
+): Mark[] {
+  const marks: Mark[] = []
+  if (muted) return marks
+  const barH = Math.max(6, Math.min(rowH - 6, 16))
+  const barY = y + (rowH - barH) / 2
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'left'
+  ctx.font = `${Math.min(10, barH - 4)}px Inter, system-ui`
+
+  for (const u of units) {
+    const a = x(u.start)
+    const b = x(u.end ?? u.start)
+    const w = Math.max(2, b - a)
+    if (b < plotL || a > plotL + plotW) continue
+    // Colour by the standard category, label by the ward: two ICU wards read as
+    // the same kind of place while keeping their own names.
+    ctx.fillStyle = stableColour(u.category || u.name, UNIT_PALETTE)
+    ctx.fillRect(a, barY, w, barH)
+    const room = w - 6
+    if (room > 24) {
+      let s = u.name
+      if (ctx.measureText(s).width > room) {
+        while (s.length > 1 && ctx.measureText(`${s}…`).width > room) s = s.slice(0, -1)
+        s += '…'
+      }
+      ctx.fillStyle = '#fff'
+      ctx.fillText(s, a + 3, barY + barH / 2)
+    }
+    marks.push({
+      x0: Math.max(plotL, a),
+      x1: Math.min(plotL + plotW, a + w),
+      y0: barY,
+      y1: barY + barH,
+    })
+  }
+  return marks
+}
+
+function drawRangeSelector(
+  ctx: CanvasRenderingContext2D,
+  top: number,
+  plotL: number,
+  plotW: number,
+  bounds: { lo: number; hi: number },
+  view: { lo: number; hi: number },
+  death: number | null,
+  showDeath: boolean,
+): RangeGeom {
+  const full = bounds.hi - bounds.lo || 1
+  const y = top + 6
+  const h = RANGE_H - 14
+
+  ctx.fillStyle = 'rgba(148,163,184,0.10)'
+  ctx.fillRect(plotL, y, plotW, h)
+  ctx.strokeStyle = '#e2e8f0'
+  ctx.lineWidth = 1
+  ctx.strokeRect(plotL + 0.5, y + 0.5, plotW - 1, h - 1)
+
+  if (showDeath && death != null) {
+    const dx = plotL + ((death - bounds.lo) / full) * plotW
+    ctx.strokeStyle = '#dc2626'
+    ctx.beginPath()
+    ctx.moveTo(dx, y)
+    ctx.lineTo(dx, y + h)
+    ctx.stroke()
+  }
+
+  const wx0 = plotL + ((view.lo - bounds.lo) / full) * plotW
+  const wx1 = plotL + ((view.hi - bounds.lo) / full) * plotW
+  ctx.fillStyle = 'rgba(15,23,42,.10)'
+  ctx.fillRect(plotL, y, Math.max(0, wx0 - plotL), h)
+  ctx.fillRect(Math.min(wx1, plotL + plotW), y, Math.max(0, plotL + plotW - wx1), h)
+
+  ctx.fillStyle = 'rgba(37,99,235,.08)'
+  ctx.fillRect(wx0, y, Math.max(1, wx1 - wx0), h)
+  ctx.strokeStyle = '#2563eb'
+  ctx.strokeRect(wx0 + 0.5, y + 0.5, Math.max(1, wx1 - wx0) - 1, h - 1)
+  ctx.fillStyle = '#2563eb'
+  for (const hx of [wx0, wx1]) ctx.fillRect(hx - 1.5, y + h / 2 - 7, 3, 14)
+
+  return { x0: plotL, x1: plotL + plotW, y0: y, y1: y + h, win: { x0: wx0, x1: wx1 } }
+}
+
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.arcTo(x + w, y, x + w, y + h, r)
+  ctx.arcTo(x + w, y + h, x, y + h, r)
+  ctx.arcTo(x, y + h, x, y, r)
+  ctx.arcTo(x, y, x + w, y, r)
+  ctx.closePath()
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Cache key: a row's events depend on the row and the window they were fetched for. */
+function eventKey(row: OverviewRow, view: { lo: number; hi: number }): string {
+  return `${row.key}|${row.kind}|${row.conceptIds.join(',')}|${Math.round(view.lo)}|${Math.round(view.hi)}`
+}
+
+function setOffsetFromBar(bar: BarHit, thumbTop: number, offsets: Map<string, number>): void {
+  const travel = bar.trackH - bar.thumbH
+  const frac = travel > 0 ? clamp((thumbTop - bar.trackY) / travel, 0, 1) : 0
+  offsets.set(bar.key, Math.round(frac * bar.max))
+}
+
+function unitCount(units: UnitStay[]): number {
+  return new Set(units.map((u) => u.name)).size
+}
+
+/** ISO string for a timestamp, or null when it isn't a usable date. */
+function isoOrNull(ms: number): string | null {
+  if (!Number.isFinite(ms)) return null
+  const d = new Date(ms)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+/** DuckDB counts arrive as BigInt in WASM and as strings from the server. */
+const fmtN = (n: unknown) => {
+  const v = typeof n === 'bigint' ? Number(n) : Number(n)
+  return Number.isFinite(v) ? v.toLocaleString() : '0'
+}
+
+function fmtAxis(ms: number, withClock: boolean, locale: string): string {
+  const d = new Date(ms)
+  return withClock
+    ? d.toLocaleString(locale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+/** Generic row labels go through i18n; concept and table names come from the data. */
+function rowLabel(row: OverviewRow, t: (k: string, o?: Record<string, unknown>) => string): string {
+  if (row.kind === 'other') {
+    if (row.scrolledAbove || row.scrolledBelow) {
+      return t('patient_data.overview_other_scrolled', {
+        above: row.scrolledAbove ?? 0,
+        below: row.scrolledBelow ?? 0,
+      })
+    }
+    return t('patient_data.overview_other')
+  }
+  if (row.kind === 'class') {
+    if (row.label === '__otherClasses') return t('patient_data.overview_other_classes')
+    if (row.label === '__unmapped') return t('patient_data.overview_other')
+    return row.label
+  }
+  return row.label.replace(/_/g, ' ')
+}
+
+function Message({ text, tone }: { text: string; tone?: 'error' }) {
+  return (
+    <div
+      className={`flex h-full items-center justify-center p-4 text-center text-xs ${
+        tone === 'error' ? 'text-destructive' : 'text-muted-foreground'
+      }`}
+    >
+      {text}
+    </div>
+  )
+}

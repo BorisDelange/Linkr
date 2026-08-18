@@ -72,3 +72,6 @@ tests-etl/
 
 # Local skill configuration (machine-specific paths, never commit)
 config.local.json
+
+# Local design prototypes (not part of the build)
+.prototypes/

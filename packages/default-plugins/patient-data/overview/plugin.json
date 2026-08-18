@@ -1,0 +1,115 @@
+{
+  "id": "linkr-widget-patient-overview",
+  "name": {
+    "en": "Data overview",
+    "fr": "Vue d'ensemble des données"
+  },
+  "description": {
+    "en": "Every event a patient has, grouped by source table and concept — where the record holds data, and where it holds none. Zoom in and the bands become the events themselves.",
+    "fr": "Toutes les données d'un patient, par table source et par concept — où le dossier contient des données, et où il n'en contient pas. En zoomant, les bandes deviennent les événements eux-mêmes."
+  },
+  "version": "1.0.0",
+  "scope": "warehouse",
+  "category": "patient-data",
+  "tags": [
+    "overview",
+    "timeline",
+    "density",
+    "completeness"
+  ],
+  "runtime": [
+    "component"
+  ],
+  "languages": [],
+  "icon": "LayoutGrid",
+  "iconColor": "teal",
+  "needsConceptPicker": false,
+  "configSchema": {
+    "groupByClass": {
+      "type": "boolean",
+      "label": {
+        "en": "Group by concept class",
+        "fr": "Grouper par classe de concept"
+      },
+      "default": false,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Add a level between the source table and its concepts, using the vocabulary's class (OMOP concept_class_id, MIMIC category). Ignored when the active schema has no class column.",
+        "fr": "Ajoute un niveau entre la table source et ses concepts, d'après la classe du vocabulaire (concept_class_id OMOP, category MIMIC). Ignoré si le schéma actif n'a pas de colonne de classe."
+      }
+    },
+    "showUnitStays": {
+      "type": "boolean",
+      "label": {
+        "en": "Show unit stays",
+        "fr": "Afficher les séjours par unité"
+      },
+      "default": true,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "A lane showing which ward the patient was in over time. Needs a visit-detail table in the schema mapping.",
+        "fr": "Une ligne indiquant dans quelle unité se trouvait le patient au cours du temps. Nécessite une table de détail de visite dans le mapping du schéma."
+      }
+    },
+    "showDeath": {
+      "type": "boolean",
+      "label": {
+        "en": "Mark death",
+        "fr": "Marquer le décès"
+      },
+      "default": true,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Draw a vertical marker at the patient's death, when the record has one.",
+        "fr": "Trace un repère vertical au décès du patient, lorsque le dossier en comporte un."
+      }
+    },
+    "rowHeight": {
+      "type": "select",
+      "label": {
+        "en": "Row height",
+        "fr": "Hauteur de ligne"
+      },
+      "default": "22",
+      "section": {
+        "en": "Style",
+        "fr": "Style"
+      },
+      "description": {
+        "en": "Taller rows show fewer concepts individually; shorter rows fit more. The figure always adapts to the height it has.",
+        "fr": "Des lignes hautes affichent moins de concepts individuellement ; des lignes basses en affichent davantage. La figure s'adapte toujours à la hauteur disponible."
+      },
+      "options": [
+        { "value": "16", "label": { "en": "Compact", "fr": "Compact" } },
+        { "value": "22", "label": { "en": "Normal", "fr": "Normal" } },
+        { "value": "28", "label": { "en": "Comfortable", "fr": "Confortable" } },
+        { "value": "36", "label": { "en": "Large", "fr": "Grand" } }
+      ]
+    },
+    "showRangeSelector": {
+      "type": "boolean",
+      "label": {
+        "en": "Range selector",
+        "fr": "Sélecteur de plage"
+      },
+      "default": true,
+      "section": {
+        "en": "Style",
+        "fr": "Style"
+      },
+      "description": {
+        "en": "A strip under the chart showing the whole record, with the visible window as a draggable box.",
+        "fr": "Une bande sous le graphique montrant tout le dossier, avec la fenêtre visible sous forme de cadre déplaçable."
+      }
+    }
+  }
+}
