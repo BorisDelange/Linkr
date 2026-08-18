@@ -2,24 +2,23 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Settings, Code2, X, ListChecks, Check, RotateCcw, Copy, AlertTriangle } from 'lucide-react'
+import { Settings, Code2, X, Check, RotateCcw, Copy, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Label } from '@/components/ui/label'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { getPlugin } from '@/lib/plugins/registry'
-import { getPatientComponent } from '@/lib/plugins/patient-component-registry'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
+import { ConceptSelectField } from './ConceptSelectField'
+import { PatientWidgetPreview } from './PatientWidgetPreview'
 import { buildWidgetQueries, supportsCustomSql } from './widget-sql'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
 import type { PatientDashboardWidget } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
-import { Suspense } from 'react'
 
 interface PatientWidgetEditorSheetProps {
   widgetId: string | null
@@ -146,27 +145,13 @@ function EditorContent({
 
   const renderConceptField = useCallback(
     (_fieldKey: string, field: PluginConfigField) => (
-      <div className="space-y-1.5">
-        <Label className="text-xs font-medium">{field.label[lang as 'en' | 'fr'] ?? field.label.en}</Label>
-        {field.description && (
-          <p className="text-[11px] text-muted-foreground">
-            {field.description[lang as 'en' | 'fr'] ?? field.description.en}
-          </p>
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 w-full justify-start gap-1.5 text-xs"
-          onClick={() => setConceptPickerOpen(true)}
-        >
-          <ListChecks size={13} />
-          {conceptIds.length > 0
-            ? t('patient_data.concepts_selected', { count: conceptIds.length })
-            : t('patient_data.select_concepts')}
-        </Button>
-      </div>
+      <ConceptSelectField
+        field={field}
+        conceptCount={conceptIds.length}
+        onOpenPicker={() => setConceptPickerOpen(true)}
+      />
     ),
-    [conceptIds.length, lang, t],
+    [conceptIds.length],
   )
 
   const hasConfig = Object.keys(configSchema).length > 0
@@ -273,7 +258,11 @@ function EditorContent({
 
           <Allotment.Pane minSize={320}>
             <div className="h-full overflow-hidden border-l">
-              <WidgetPreview widget={widget} config={draftConfig} />
+              <PatientWidgetPreview
+                pluginId={widget.pluginId}
+                widgetId={widget.id}
+                config={draftConfig}
+              />
             </div>
           </Allotment.Pane>
         </Allotment>
@@ -378,45 +367,3 @@ function MissingMapping({ missing }: { missing: string }) {
   )
 }
 
-/** The widget itself, rendered with the draft config so the preview follows edits
- *  before they are saved. */
-function WidgetPreview({
-  widget,
-  config,
-}: {
-  widget: PatientDashboardWidget
-  config: Record<string, unknown>
-}) {
-  const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
-  const personId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
-  const visitOccurrenceId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
-  const visitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId[projectUid] ?? null)
-  const { t } = useTranslation()
-
-  const plugin = getPlugin(widget.pluginId)
-  const Component = plugin?.componentId ? getPatientComponent(plugin.componentId) : undefined
-
-  if (!personId) {
-    return (
-      <div className="flex h-full items-center justify-center p-4 text-center text-xs text-muted-foreground">
-        {t('patient_data.select_patient_first')}
-      </div>
-    )
-  }
-  if (!Component) return null
-
-  return (
-    <Suspense fallback={null}>
-      {/* eslint-disable-next-line react-hooks/static-components */}
-      <Component
-        config={config}
-        widgetId={widget.id}
-        dataSourceId={dataSourceId}
-        schemaMapping={schemaMapping}
-        personId={personId}
-        visitOccurrenceId={visitOccurrenceId}
-        visitDetailId={visitDetailId}
-      />
-    </Suspense>
-  )
-}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeFitRows, fitTabLayouts, gridBackgroundStyle, FIT_ROWS } from './dashboard-grid'
+import { computeFitRows, fitTabLayouts, gridBackgroundStyle, widgetFootprint, FIT_ROWS } from './dashboard-grid'
 
 const box = (id: string, y: number, h: number, x = 0, w = 48) => ({ id, layout: { x, y, w, h } })
 const bottom = (m: Map<string, { y: number; h: number }>) =>
@@ -112,6 +112,47 @@ describe('gridBackgroundStyle', () => {
   it('returns undefined before the container is measured', () => {
     expect(gridBackgroundStyle({ cols: 48, containerWidth: 0, rowHeight: 20, margin: [0, 0], containerPadding: [0, 0] })).toBeUndefined()
     expect(gridBackgroundStyle({ cols: 48, containerWidth: 1200, rowHeight: 0, margin: [0, 0], containerPadding: [0, 0] })).toBeUndefined()
+  })
+})
+
+describe('widgetFootprint', () => {
+  // The patient-data grid: spaced cells (margin = widgetSpacing) inside a padded container.
+  const patient = (containerWidth: number, rowHeight: number, gap: number) => ({
+    cols: 48,
+    containerWidth,
+    rowHeight,
+    margin: [gap, gap] as [number, number],
+    containerPadding: [12, 12] as [number, number],
+  })
+
+  it('a full-width widget spans the whole content box, padding excluded', () => {
+    for (const gap of [0, 8, 24]) {
+      const g = patient(1440, 14, gap)
+      const box = widgetFootprint(48, 10, g)!
+      expect(box.width).toBe(1440 - 2 * 12)
+    }
+  })
+
+  it('two half-width widgets plus one margin fill the same content box', () => {
+    const g = patient(1200, 14, 8)
+    const half = widgetFootprint(24, 5, g)!
+    expect(half.width * 2 + g.margin[0]).toBeCloseTo(1200 - 2 * 12, 0)
+  })
+
+  it('height counts the margins between rows, not around them', () => {
+    const g = patient(1200, 20, 8)
+    expect(widgetFootprint(24, 1, g)!.height).toBe(20)
+    expect(widgetFootprint(24, 4, g)!.height).toBe(4 * 20 + 3 * 8)
+  })
+
+  it('matches the jointive dashboard cell footprint when margin and padding are zero', () => {
+    const g = { cols: 48, containerWidth: 1200, rowHeight: 20, margin: [0, 0] as [number, number], containerPadding: [0, 0] as [number, number] }
+    expect(widgetFootprint(12, 6, g)).toEqual({ width: (1200 / 48) * 12, height: 120 })
+  })
+
+  it('returns null before the container is measured', () => {
+    expect(widgetFootprint(24, 10, patient(0, 14, 8))).toBeNull()
+    expect(widgetFootprint(24, 10, patient(1200, 0, 8))).toBeNull()
   })
 })
 

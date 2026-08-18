@@ -270,6 +270,8 @@ export function PatientDataPage() {
           open={addWidgetOpen}
           onOpenChange={setAddWidgetOpen}
           tabId={currentTabId ?? ''}
+          widgetSpacing={currentBoard.widgetSpacing}
+          fitToHeight={currentBoard.fitToHeight ?? true}
         />
 
         <PatientDataSettingsDialog

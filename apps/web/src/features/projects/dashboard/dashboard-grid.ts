@@ -252,6 +252,25 @@ export function gridBackgroundStyle(geometry: GridGeometry): CSSProperties | und
   }
 }
 
+/** Pixel footprint of a w×h widget on ANY react-grid-layout container, in the library's own maths:
+ *  a span of `n` cells covers `n` cells plus the `n−1` margins between them, with
+ *  `colWidth = (containerWidth − margin.x·(cols−1) − padding.x·2) / cols`. Unlike `widgetPixelSize`
+ *  (dashboards only: jointive cells, gutter inset inside the cell), this takes the geometry as an
+ *  argument, so it is exact on the spaced patient-data grid too. Returns null before measurement. */
+export function widgetFootprint(
+  w: number,
+  h: number,
+  geometry: GridGeometry,
+): { width: number; height: number } | null {
+  const { cols, containerWidth, rowHeight, margin, containerPadding } = geometry
+  const colWidth = (containerWidth - margin[0] * (cols - 1) - containerPadding[0] * 2) / cols
+  if (colWidth <= 0 || rowHeight <= 0) return null
+  return {
+    width: Math.round(w * colWidth + (w - 1) * margin[0]),
+    height: Math.round(h * rowHeight + (h - 1) * margin[1]),
+  }
+}
+
 /** Visible pixel size of a widget occupying w×h grid cells, given the grid container's pixel width.
  *  The cell footprint is w·colWidth × h·rowHeight (jointive); the visible card is that minus the
  *  `gap/2` inset on each side, i.e. one full `gap` smaller in each axis. `gap` overrides the default

@@ -9,6 +9,13 @@ import { MoveWidgetDialog } from '@/features/projects/dashboard/MoveWidgetDialog
 import { DashboardItemEditDialog } from '@/features/projects/dashboard/DashboardItemEditDialog'
 import type { DashboardTreeRow } from '@/features/projects/dashboard/dashboard-tree'
 import { gridBackgroundStyle } from '@/features/projects/dashboard/dashboard-grid'
+import {
+  PATIENT_DEFAULT_SPACING,
+  PATIENT_GRID_COLS,
+  PATIENT_GRID_PADDING,
+  PATIENT_SCROLL_ROW_HEIGHT,
+  patientRowHeight,
+} from './patient-grid'
 import { WidgetCard } from '@/features/projects/dashboard/WidgetCard'
 import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
 import { WarehousePluginEditorSheet } from './WarehousePluginEditorSheet'
@@ -121,12 +128,10 @@ function isComponentPlugin(pluginId: string): boolean {
   return Boolean(getPlugin(pluginId)?.componentId)
 }
 
-export const GRID_ROWS = 48
-const GRID_COLS = 48
-const DEFAULT_SPACING = 8
-const PADDING: [number, number] = [12, 12]
-/** Rows a non-fitted board scrolls over, instead of squeezing into the viewport. */
-const SCROLL_ROW_HEIGHT = 14
+const GRID_COLS = PATIENT_GRID_COLS
+const DEFAULT_SPACING = PATIENT_DEFAULT_SPACING
+const PADDING = PATIENT_GRID_PADDING
+const SCROLL_ROW_HEIGHT = PATIENT_SCROLL_ROW_HEIGHT
 
 export function PatientChartGrid({
   widgets,
@@ -217,13 +222,8 @@ export function PatientChartGrid({
   }, [])
 
   // Dynamic row height: h:48 ≈ full visible height.
-  // Subtract a small buffer (1px) to compensate for Math.round in react-grid-layout
-  // position calculations that can add fractional pixels.
   const rowHeight = fitToHeight
-    ? Math.max(
-        1,
-        (viewportHeight - 1 - 2 * PADDING[1] - (GRID_ROWS - 1) * MARGIN[1]) / GRID_ROWS,
-      )
+    ? patientRowHeight(viewportHeight, MARGIN[1])
     : SCROLL_ROW_HEIGHT
 
   const layout: LayoutItem[] = useMemo(
@@ -337,8 +337,9 @@ export function PatientChartGrid({
     </GridLayout>
   )
 
+  // data-patient-grid: how measurePatientGridGeometry finds this board to size a preview.
   return (
-    <div ref={measureRef} className="w-full h-full overflow-hidden">
+    <div ref={measureRef} data-patient-grid className="w-full h-full overflow-hidden">
       <ScrollArea className="h-full">
         {/* The backdrop sits INSIDE the scrolled content so the cells keep tracking the widgets
             when a non-fitted board scrolls; the min-height keeps it reaching the bottom of the
