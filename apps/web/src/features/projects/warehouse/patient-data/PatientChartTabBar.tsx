@@ -284,7 +284,6 @@ export function PatientChartTabBar({ dashboardId, editMode }: PatientChartTabBar
         </div>
         {editMode && (
           <Button
-            variant="outline"
             size="xs"
             className="ml-2 shrink-0 gap-1"
             onClick={() => addTab(dashboardId)}

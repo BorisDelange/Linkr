@@ -17,6 +17,7 @@ import {
   Database,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { CustomSqlDot } from '@/components/ui/custom-sql-dot'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -257,9 +258,7 @@ export function CohortBuilderPage() {
           >
             <Code2 size={12} />
             SQL
-            {cohort.customSql && (
-              <span className="size-1.5 rounded-full bg-amber-500 shrink-0" />
-            )}
+            {cohort.customSql && <CustomSqlDot />}
           </button>
         </div>
 

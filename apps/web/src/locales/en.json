@@ -972,6 +972,7 @@
     "sql_unsaved": "Unsaved changes (Cmd+S to save)",
     "sql_reset": "Reset",
     "sql_copy": "Copy",
+    "sql_modified_hint": "This SQL was edited by hand. Changing the configuration regenerates it and discards your edits.",
     "sql_overwrite_title": "Overwrite custom SQL?",
     "sql_overwrite_description": "You have manually edited the SQL. Changing criteria will regenerate the SQL and discard your edits.",
     "sql_overwrite_confirm": "Overwrite",

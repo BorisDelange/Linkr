@@ -7,13 +7,24 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { CustomSqlDot } from '@/components/ui/custom-sql-dot'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { getPlugin } from '@/lib/plugins/registry'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { ConceptSelectField } from './ConceptSelectField'
-import { PatientWidgetPreview } from './PatientWidgetPreview'
+import { SizedPatientWidgetPreview } from './PatientWidgetPreview'
 import { buildWidgetQueries, supportsCustomSql } from './widget-sql'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
@@ -71,6 +82,12 @@ function EditorContent({
   const lang = i18n.language
   const { schemaMapping, projectUid } = usePatientChartContext()
 
+  // Board settings drive the preview geometry, so the preview matches the size the
+  // widget actually occupies on this board rather than a generic default.
+  const board = usePatientChartStore((s) => {
+    const tab = s.tabs.find((tb) => tb.id === widget?.tabId)
+    return tab ? s.dashboards.find((d) => d.id === tab.patientDashboardId) : undefined
+  })
   const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
   const updateWidgetCustomSql = usePatientChartStore((s) => s.updateWidgetCustomSql)
   const patientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
@@ -98,6 +115,33 @@ function EditorContent({
     if (dirty) setJustSaved(false)
   }, [dirty])
   useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current) }, [])
+
+  // Changing the config regenerates the query, so a hand-edited SQL would be
+  // silently discarded. Same guard (and wording) as the cohort builder.
+  const [overwriteSqlOpen, setOverwriteSqlOpen] = useState(false)
+  const pendingConfigRef = useRef<Record<string, unknown> | null>(null)
+
+  const applyConfigChanges = useCallback(
+    (changes: Record<string, unknown>) => {
+      if (draftSql != null) {
+        pendingConfigRef.current = { ...draftConfig, ...changes }
+        setOverwriteSqlOpen(true)
+        return
+      }
+      setDraftConfig((prev) => ({ ...prev, ...changes }))
+    },
+    [draftSql, draftConfig],
+  )
+
+  const confirmOverwriteSql = useCallback(() => {
+    const next = pendingConfigRef.current
+    pendingConfigRef.current = null
+    setOverwriteSqlOpen(false)
+    if (!next) return
+    // Dropping the override is the point: the query goes back to being generated.
+    setDraftSql(null)
+    setDraftConfig(next)
+  }, [])
 
   const handleSave = useCallback(() => {
     if (!dirty) return
@@ -199,17 +243,14 @@ function EditorContent({
         >
           <Code2 size={12} />
           {t('datasets.analysis_code_tab')}
+          {editable && draftSql != null && <CustomSqlDot />}
         </Button>
         {activeTab === 'code' && !editable && (
           <span className="ml-1 text-[10px] text-muted-foreground">
             {t('patient_data.sql_read_only')}
           </span>
         )}
-        {activeTab === 'code' && editable && draftSql != null && (
-          <Badge variant="outline" className="ml-1 text-[10px]">
-            {t('cohorts.sql_modified')}
-          </Badge>
-        )}
+
         <div className="flex-1" />
         {activeTab === 'code' && editable && draftSql != null && (
           <Button
@@ -234,9 +275,7 @@ function EditorContent({
                     schema={configSchema}
                     config={draftConfig}
                     columns={[]}
-                    onConfigChange={(changes) =>
-                      setDraftConfig((prev) => ({ ...prev, ...changes }))
-                    }
+                    onConfigChange={applyConfigChanges}
                     renderConceptField={renderConceptField}
                   />
                 ) : (
@@ -250,6 +289,7 @@ function EditorContent({
                   editable={editable}
                   value={shownSql}
                   onChange={(v) => setDraftSql(v)}
+                  onSave={handleSave}
                   lang={lang}
                 />
               )}
@@ -258,7 +298,10 @@ function EditorContent({
 
           <Allotment.Pane minSize={320}>
             <div className="h-full overflow-hidden border-l">
-              <PatientWidgetPreview
+              <SizedPatientWidgetPreview
+                layout={widget.layout}
+                widgetSpacing={board?.widgetSpacing}
+                fitToHeight={board?.fitToHeight ?? true}
                 pluginId={widget.pluginId}
                 widgetId={widget.id}
                 config={draftConfig}
@@ -277,11 +320,35 @@ function EditorContent({
           // straight on its concept table with no second settings form.
           initialTab="concepts"
           onConfirm={(picked) => {
-            setDraftConfig((prev) => ({ ...prev, ...picked }))
+            // Same guard as the config panel: picking concepts changes the query.
+            applyConfigChanges(picked)
             setConceptPickerOpen(false)
           }}
         />
       )}
+
+      <AlertDialog
+        open={overwriteSqlOpen}
+        onOpenChange={(open) => {
+          if (!open) pendingConfigRef.current = null
+          setOverwriteSqlOpen(open)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('cohorts.sql_overwrite_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('cohorts.sql_overwrite_description')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmOverwriteSql}>
+              {t('cohorts.sql_overwrite_confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -292,12 +359,16 @@ function SqlTab({
   editable,
   value,
   onChange,
+  onSave,
   lang,
 }: {
   queries: ReturnType<typeof buildWidgetQueries>
   editable: boolean
   value: string
   onChange: (sql: string) => void
+  /** Monaco swallows Cmd/Ctrl+S, so the window-level handler never sees it while
+   *  the editor has focus — it has to be wired through the editor's own command. */
+  onSave: () => void
   lang: string
 }) {
   const { t } = useTranslation()
@@ -318,7 +389,13 @@ function SqlTab({
     if (!q.sql && q.missing) return <MissingMapping missing={q.missing} />
     return (
       <div className="flex h-full flex-col gap-2">
-        <CodeEditor value={value} onChange={(v) => onChange(v ?? '')} language="sql" height="100%" />
+        <CodeEditor
+          value={value}
+          onChange={(v) => onChange(v ?? '')}
+          onSave={onSave}
+          language="sql"
+          height="100%"
+        />
       </div>
     )
   }

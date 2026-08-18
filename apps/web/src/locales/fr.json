@@ -972,6 +972,7 @@
     "sql_unsaved": "Modifications non enregistrées (Cmd+S pour sauvegarder)",
     "sql_reset": "Réinitialiser",
     "sql_copy": "Copier",
+    "sql_modified_hint": "Ce SQL a été modifié à la main. Changer la configuration le régénère et annule vos modifications.",
     "sql_overwrite_title": "Écraser le SQL personnalisé ?",
     "sql_overwrite_description": "Vous avez modifié le SQL manuellement. Modifier les critères va régénérer le SQL et écraser vos modifications.",
     "sql_overwrite_confirm": "Écraser",

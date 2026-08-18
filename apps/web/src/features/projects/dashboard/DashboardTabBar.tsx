@@ -344,7 +344,6 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
         {editMode && (
           <div className="flex shrink-0 items-center py-1">
             <Button
-              variant="outline"
               size="xs"
               className="ml-2 gap-1"
               onClick={() => parentOfLevel ? addSubTab(parentOfLevel) : addTab(dashboardId)}
