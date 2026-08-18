@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Copy, Check, Sparkles, ExternalLink, Eye, Plus, X } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { DatePickerField } from '@/components/ui/date-picker-field'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -443,12 +444,7 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, canWrite, t 
           />
         )}
         {field.type === 'date' && (
-          <Input
-            type="date"
-            value={strVal}
-            onChange={(e) => onChange(e.target.value)}
-            className="h-8 text-sm"
-          />
+          <DatePickerField value={strVal || undefined} onChange={(v) => onChange(v ?? '')} />
         )}
         {field.type === 'number' && (
           <Input

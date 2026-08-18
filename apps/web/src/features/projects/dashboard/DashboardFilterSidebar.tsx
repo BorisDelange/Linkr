@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePickerField } from '@/components/ui/date-picker-field'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -1217,20 +1218,16 @@ function DateFilter({
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_from', 'From')}</span>
-          <Input
-            type="date"
-            className="h-7 text-xs"
-            value={from ?? ''}
-            onChange={(e) => onChange({ type: 'date', from: e.target.value || null, to })}
+          <DatePickerField
+            value={from ?? undefined}
+            onChange={(v) => onChange({ type: 'date', from: v ?? null, to })}
           />
         </div>
         <div className="space-y-1">
           <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_to', 'To')}</span>
-          <Input
-            type="date"
-            className="h-7 text-xs"
-            value={to ?? ''}
-            onChange={(e) => onChange({ type: 'date', from, to: e.target.value || null })}
+          <DatePickerField
+            value={to ?? undefined}
+            onChange={(v) => onChange({ type: 'date', from, to: v ?? null })}
           />
         </div>
       </div>

@@ -182,9 +182,6 @@ export function GenericConfigPanel({
         // Tighter vertical gap so color swatches wrapping onto a second line don't leave a big gap.
         <div
           key={group.keys.join('-')}
-          // Lets the section tighten the gap between consecutive checkbox rows
-          // without pulling fields that carry their own input closer together.
-          data-boolean-group={allBoolean || undefined}
           className={cn('flex flex-wrap items-end', allBoolean ? 'gap-x-5 gap-y-1 -mt-1' : 'gap-x-4 gap-y-1.5')}
         >
           {group.keys.map((key, idx) => (
@@ -251,11 +248,12 @@ function CollapsibleSection({ label, defaultOpen = true, children }: { label: st
         <ChevronRight size={13} className={cn('shrink-0 text-blue-400 transition-transform dark:text-blue-500', open && 'rotate-90')} />
         {label}
       </CollapsibleTrigger>
-      {/* Checkboxes pack tightly against each other (a standalone boolean is its
-          own group, so section rhythm alone sets their gap and space-y-3 left them
-          looking unrelated), while fields carrying their own input keep the
-          original breathing room. */}
-      <CollapsibleContent className="space-y-3 pt-2 [&>*+*[data-boolean-group=true]]:!mt-1.5">
+      {/* A checkbox that FOLLOWS another checkbox packs tight; anything else keeps
+          the section's normal rhythm. Each standalone boolean is its own group, so
+          without this the section spacing alone set the gap and they read as
+          unrelated. The marker sits on the rendered field, not the group wrapper —
+          a lone boolean never goes through the packLeft branch. */}
+      <CollapsibleContent className="space-y-3 pt-2 [&>[data-boolean-field]+[data-boolean-field]]:!mt-0.5">
         {children}
       </CollapsibleContent>
     </Collapsible>
@@ -1048,7 +1046,9 @@ function BooleanField({
   const checked = (value as boolean | undefined) ?? (field.default as boolean | undefined) ?? false
 
   return (
-    <div className={cn('flex flex-col', field.row && 'justify-end')}>
+    // data-boolean-field lets a section pull consecutive checkboxes together
+    // without tightening fields that carry their own labelled input.
+    <div data-boolean-field className={cn('flex flex-col', field.row && 'justify-end')}>
       <button
         onClick={() => onConfigChange({ [fieldKey]: !checked })}
         className="flex h-8 items-center gap-2 text-xs"

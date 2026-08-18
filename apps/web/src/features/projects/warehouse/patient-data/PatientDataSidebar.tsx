@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
+import { DatePickerField } from '@/components/ui/date-picker-field'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -171,7 +172,7 @@ export function PatientDataSidebar() {
                         <Filter size={12} className={cn(hasActiveFilters && 'fill-current')} />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-64 p-3" align="end">
+                    <PopoverContent className="w-80 p-3" align="end">
                       <div className="space-y-2.5">
                         <h4 className="text-xs font-semibold">{t('patient_data.filters_title')}</h4>
 
@@ -216,7 +217,6 @@ export function PatientDataSidebar() {
                           <div className="mt-0.5 flex items-center gap-1">
                             <Input
                               type="number"
-                              placeholder={t('cohorts.age_min')}
                               value={patientFilters.ageMin ?? ''}
                               onChange={(e) =>
                                 setPatientFilters({
@@ -229,7 +229,6 @@ export function PatientDataSidebar() {
                             <span className="text-xs text-muted-foreground">—</span>
                             <Input
                               type="number"
-                              placeholder={t('cohorts.age_max')}
                               value={patientFilters.ageMax ?? ''}
                               onChange={(e) =>
                                 setPatientFilters({
@@ -248,28 +247,26 @@ export function PatientDataSidebar() {
                             {t('patient_data.admission_date')}
                           </label>
                           <div className="mt-0.5 flex items-center gap-1">
-                            <Input
-                              type="date"
-                              value={patientFilters.admissionAfter ?? ''}
-                              onChange={(e) =>
+                            <DatePickerField
+                              value={patientFilters.admissionAfter ?? undefined}
+                              onChange={(v) =>
                                 setPatientFilters({
                                   ...patientFilters,
-                                  admissionAfter: e.target.value || null,
+                                  admissionAfter: v ?? null,
                                 })
                               }
-                              className="h-7 text-xs"
+                              className="flex-1"
                             />
                             <span className="text-xs text-muted-foreground">—</span>
-                            <Input
-                              type="date"
-                              value={patientFilters.admissionBefore ?? ''}
-                              onChange={(e) =>
+                            <DatePickerField
+                              value={patientFilters.admissionBefore ?? undefined}
+                              onChange={(v) =>
                                 setPatientFilters({
                                   ...patientFilters,
-                                  admissionBefore: e.target.value || null,
+                                  admissionBefore: v ?? null,
                                 })
                               }
-                              className="h-7 text-xs"
+                              className="flex-1"
                             />
                           </div>
                         </div>
