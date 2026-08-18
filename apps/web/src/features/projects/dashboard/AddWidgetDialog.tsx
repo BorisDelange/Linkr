@@ -21,6 +21,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import {
   Dialog,
   DialogContent,
@@ -255,8 +256,8 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
 
   // Widget name input shared between views
   const nameInput = (
-    <div className="space-y-1">
-      <Label>{t('dashboard.widget_name')} *</Label>
+    <div className="space-y-2">
+      <Label>{t('dashboard.widget_name')}<RequiredMark /></Label>
       <Input
         value={widgetName}
         onChange={(e) => setWidgetName(e.target.value)}
@@ -318,8 +319,9 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
     return (
       <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
         <DialogContent className="sm:max-w-6xl h-[80vh] max-h-[80vh] overflow-hidden flex flex-col p-0 gap-0">
-          {/* Header */}
-          <div className="flex items-center gap-2 border-b px-4 py-3 shrink-0">
+          {/* Header. pr-12 keeps the actions clear of the dialog's own close
+              button, which is absolutely positioned in the top-right corner. */}
+          <div className="flex items-center gap-2 border-b py-3 pl-4 pr-12 shrink-0">
             <Button
               variant="ghost"
               size="icon-xs"

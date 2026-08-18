@@ -18,6 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { localized } from '@/lib/localized'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import type { PatientDashboardTab } from '@/types'
@@ -282,13 +283,15 @@ export function PatientChartTabBar({ dashboardId, editMode }: PatientChartTabBar
           </DndContext>
         </div>
         {editMode && (
-          <button
+          <Button
+            variant="outline"
+            size="xs"
+            className="ml-2 shrink-0 gap-1"
             onClick={() => addTab(dashboardId)}
-            className="flex items-center gap-1 border-b-2 border-transparent px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            title={t('dashboard.add_tab')}
           >
             <Plus size={12} />
-          </button>
+            {t('dashboard.add_tab')}
+          </Button>
         )}
       </div>
 

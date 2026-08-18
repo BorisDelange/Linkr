@@ -18,6 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { Plus, Pencil, Trash2, Layers, FolderPlus, ChevronRight, Home } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import type { DashboardTab } from '@/types'
 import { useDashboardStore, getChildTabs, getTabPath } from '@/stores/dashboard-store'
 import { useAppStore } from '@/stores/app-store'
@@ -337,16 +338,22 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
               </SortableContext>
             </DndContext>
           </TooltipProvider>
-          {editMode && (
-            <button
+        </div>
+
+        {/* Outside the scrolling tab row: the button keeps its place while the tabs scroll under it. */}
+        {editMode && (
+          <div className="flex shrink-0 items-center py-1">
+            <Button
+              variant="outline"
+              size="xs"
+              className="ml-2 gap-1"
               onClick={() => parentOfLevel ? addSubTab(parentOfLevel) : addTab(dashboardId)}
-              className="flex shrink-0 items-center gap-1 border-b-2 border-transparent px-2 py-1.5 text-muted-foreground transition-colors hover:text-foreground"
-              title={parentOfLevel ? t('dashboard.add_sub_tab') : t('dashboard.add_tab')}
             >
               <Plus size={12} />
-            </button>
-          )}
-        </div>
+              {parentOfLevel ? t('dashboard.add_sub_tab') : t('dashboard.add_tab')}
+            </Button>
+          </div>
+        )}
       </div>
 
       <AlertDialog open={confirmDeleteTabId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteTabId(null) }}>
