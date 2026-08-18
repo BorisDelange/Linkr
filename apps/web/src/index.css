@@ -278,3 +278,16 @@ body {
 .patient-timeline-item:hover [data-widget-content] {
   overflow: visible;
 }
+
+/* Vertical rhythm inside a plugin config section.
+   Not `space-y-3` on the container: the gap has to differ per pair — tight
+   between two checkboxes, normal everywhere else — and space-y-* sets the same
+   margin on every sibling, at a specificity that overrode the narrower rule.
+   Two explicit rules here, the more specific one last, so the cascade resolves
+   it the way it reads. */
+.config-section > * + * {
+  margin-top: 0.75rem;
+}
+.config-section > [data-boolean-field] + [data-boolean-field] {
+  margin-top: 0.125rem;
+}

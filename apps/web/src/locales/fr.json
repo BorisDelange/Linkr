@@ -1323,6 +1323,8 @@
     "all_patients": "Tous les patients",
     "patients": "Patients",
     "search_patient_id": "Rechercher un ID…",
+    "admission_from": "À partir du…",
+    "admission_to": "Jusqu'au…",
     "board_name_exists": "Un board porte déjà ce nom.",
     "no_patients": "Aucun patient trouvé.",
     "visit": "Hospitalisation",

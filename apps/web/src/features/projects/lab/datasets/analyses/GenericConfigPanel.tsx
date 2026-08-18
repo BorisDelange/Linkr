@@ -248,12 +248,10 @@ function CollapsibleSection({ label, defaultOpen = true, children }: { label: st
         <ChevronRight size={13} className={cn('shrink-0 text-blue-400 transition-transform dark:text-blue-500', open && 'rotate-90')} />
         {label}
       </CollapsibleTrigger>
-      {/* A checkbox that FOLLOWS another checkbox packs tight; anything else keeps
-          the section's normal rhythm. Each standalone boolean is its own group, so
-          without this the section spacing alone set the gap and they read as
-          unrelated. The marker sits on the rendered field, not the group wrapper —
-          a lone boolean never goes through the packLeft branch. */}
-      <CollapsibleContent className="space-y-3 pt-2 [&>[data-boolean-field]+[data-boolean-field]]:!mt-0.5">
+      {/* config-section, not space-y-3: the sibling margin has to differ per pair
+          (tight between two checkboxes, normal otherwise), and space-y-* sets one
+          margin on every sibling — it would just override the narrower rule. */}
+      <CollapsibleContent className="config-section pt-2">
         {children}
       </CollapsibleContent>
     </Collapsible>

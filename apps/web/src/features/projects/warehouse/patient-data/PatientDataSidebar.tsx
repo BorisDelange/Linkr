@@ -14,7 +14,7 @@ import {
   HeartPulse,
   Search,
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { DatePickerField } from '@/components/ui/date-picker-field'
 import { cn } from '@/lib/utils'
@@ -108,6 +108,14 @@ export function PatientDataSidebar() {
     )
   }, [debouncedIdSearch, setPatientFilters])
 
+  // Arrow-key navigation moves the selection, not the scroll position, so the
+  // selected row walks out of view without this. `nearest` keeps the list still
+  // while the row is already visible, instead of recentring on every keypress.
+  const selectedRowRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    selectedRowRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [patientId, patientPage])
+
   const formatGender = (gender: string | undefined) => fmtGender(gender, genderValues, t)
   const formatGenderShort = (gender: string | undefined) => fmtGenderShort(gender, genderValues, t)
   const formatDate = (d: string | undefined) => fmtDate(d, i18n.language)
@@ -174,7 +182,22 @@ export function PatientDataSidebar() {
                     </PopoverTrigger>
                     <PopoverContent className="w-80 p-3" align="end">
                       <div className="space-y-2.5">
-                        <h4 className="text-xs font-semibold">{t('patient_data.filters_title')}</h4>
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="text-xs font-semibold">
+                            {t('patient_data.filters_title')}
+                          </h4>
+                          {hasActiveFilters && (
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              className="-mr-1 h-6 gap-1 text-xs"
+                              onClick={() => setPatientFilters({})}
+                            >
+                              <X size={10} />
+                              {t('patient_data.clear_filters')}
+                            </Button>
+                          )}
+                        </div>
 
                         {/* Gender filter */}
                         {genderValues && (
@@ -246,7 +269,11 @@ export function PatientDataSidebar() {
                           <label className="text-[10px] text-muted-foreground">
                             {t('patient_data.admission_date')}
                           </label>
-                          <div className="mt-0.5 flex items-center gap-1">
+                          {/* Stacked, not side by side: two dates sharing this
+                              popover's width leave each field too narrow for the
+                              icon, the formatted date and the clear button, so the
+                              date was truncated whatever the popover width. */}
+                          <div className="mt-0.5 space-y-1">
                             <DatePickerField
                               value={patientFilters.admissionAfter ?? undefined}
                               onChange={(v) =>
@@ -255,9 +282,8 @@ export function PatientDataSidebar() {
                                   admissionAfter: v ?? null,
                                 })
                               }
-                              className="flex-1"
+                              placeholder={t('patient_data.admission_from')}
                             />
-                            <span className="text-xs text-muted-foreground">—</span>
                             <DatePickerField
                               value={patientFilters.admissionBefore ?? undefined}
                               onChange={(v) =>
@@ -266,7 +292,7 @@ export function PatientDataSidebar() {
                                   admissionBefore: v ?? null,
                                 })
                               }
-                              className="flex-1"
+                              placeholder={t('patient_data.admission_to')}
                             />
                           </div>
                         </div>
@@ -298,18 +324,6 @@ export function PatientDataSidebar() {
                           </Select>
                         </div>
 
-                        {/* Clear filters */}
-                        {hasActiveFilters && (
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            className="gap-1 text-xs"
-                            onClick={() => setPatientFilters({})}
-                          >
-                            <X size={10} />
-                            {t('patient_data.clear_filters')}
-                          </Button>
-                        )}
                       </div>
                     </PopoverContent>
                   </Popover>
@@ -372,6 +386,11 @@ export function PatientDataSidebar() {
                           <Tooltip key={p.patient_id}>
                             <TooltipTrigger asChild>
                               <button
+                                ref={
+                                  String(p.patient_id) === patientId
+                                    ? selectedRowRef
+                                    : undefined
+                                }
                                 onClick={() => selectPatient(String(p.patient_id))}
                                 className={cn(
                                   'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
@@ -535,7 +554,10 @@ export function PatientDataSidebar() {
                   <SelectTrigger className="mt-1 h-8 w-full min-w-0 text-xs">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  {/* Sized to its rows, not to the (narrow) trigger: the aligned
+                      date/duration columns plus the check mark do not fit the
+                      sidebar width, and would be clipped at the screen edge. */}
+                  <SelectContent className="w-auto max-w-[min(30rem,90vw)] pr-2">
                     <SelectItem value="__all__">
                       {hasVisitDetailTable
                         ? t('patient_data.all_hospitalizations')
@@ -555,11 +577,11 @@ export function PatientDataSidebar() {
                           <span className="w-[5.5rem] shrink-0 whitespace-nowrap tabular-nums text-muted-foreground">
                             {v.end_date ? formatDate(v.end_date) : ''}
                           </span>
-                          <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-right tabular-nums text-muted-foreground">
+                          <span className="w-[3.75rem] shrink-0 whitespace-nowrap tabular-nums text-muted-foreground">
                             {formatStayDuration(v.start_date, v.end_date, t) ?? ''}
                           </span>
                           {v.visit_type && (
-                            <span className="truncate">{v.visit_type}</span>
+                            <span className="truncate pr-1">{v.visit_type}</span>
                           )}
                         </div>
                       </SelectItem>
@@ -620,7 +642,7 @@ export function PatientDataSidebar() {
                     <SelectTrigger className="mt-1 h-8 w-full min-w-0 text-xs">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="w-auto max-w-[min(30rem,90vw)] pr-2">
                       <SelectItem value="__all__">
                         {t('patient_data.all_stays')}
                       </SelectItem>
@@ -637,10 +659,10 @@ export function PatientDataSidebar() {
                             <span className="w-[5.5rem] shrink-0 whitespace-nowrap tabular-nums text-muted-foreground">
                               {vd.end_date ? formatDate(vd.end_date) : ''}
                             </span>
-                            <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-right tabular-nums text-muted-foreground">
+                            <span className="w-[3.75rem] shrink-0 whitespace-nowrap tabular-nums text-muted-foreground">
                               {formatStayDuration(vd.start_date, vd.end_date, t) ?? ''}
                             </span>
-                            {vd.unit && <span className="truncate">{vd.unit}</span>}
+                            {vd.unit && <span className="truncate pr-1">{vd.unit}</span>}
                           </div>
                         </SelectItem>
                       ))}

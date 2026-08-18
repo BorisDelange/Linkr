@@ -116,21 +116,39 @@ function EditorContent({
   }, [dirty])
   useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current) }, [])
 
-  // Changing the config regenerates the query, so a hand-edited SQL would be
-  // silently discarded. Same guard (and wording) as the cohort builder.
+  // A hand-edited SQL would be discarded when the config regenerates the query —
+  // but only some settings feed the query at all (styling ones don't), so the
+  // warning compares the SQL the new config WOULD generate against the SQL the
+  // current one generates. Same guard and wording as the cohort builder,
+  // otherwise every appearance tweak would raise a dialog that changes nothing.
   const [overwriteSqlOpen, setOverwriteSqlOpen] = useState(false)
   const pendingConfigRef = useRef<Record<string, unknown> | null>(null)
 
+  const generatedSqlFor = useCallback(
+    (config: Record<string, unknown>) =>
+      buildWidgetQueries({
+        pluginId: widget.pluginId,
+        config,
+        mapping: schemaMapping,
+        patientId,
+        visitId,
+      })
+        .map((q) => q.sql ?? '')
+        .join('\n'),
+    [widget.pluginId, schemaMapping, patientId, visitId],
+  )
+
   const applyConfigChanges = useCallback(
     (changes: Record<string, unknown>) => {
-      if (draftSql != null) {
-        pendingConfigRef.current = { ...draftConfig, ...changes }
+      const next = { ...draftConfig, ...changes }
+      if (draftSql != null && generatedSqlFor(next) !== generatedSqlFor(draftConfig)) {
+        pendingConfigRef.current = next
         setOverwriteSqlOpen(true)
         return
       }
-      setDraftConfig((prev) => ({ ...prev, ...changes }))
+      setDraftConfig(next)
     },
-    [draftSql, draftConfig],
+    [draftSql, draftConfig, generatedSqlFor],
   )
 
   const confirmOverwriteSql = useCallback(() => {

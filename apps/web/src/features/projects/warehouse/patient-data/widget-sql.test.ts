@@ -163,3 +163,44 @@ describe('supportsCustomSql', () => {
     expect(supportsCustomSql(SUMMARY)).toBe(false)
   })
 })
+
+// The editor warns before discarding a hand-edited SQL, but only when the new
+// config would actually regenerate a DIFFERENT query. Most timeline settings are
+// styling and never reach the SQL, so warning on every config change would raise
+// a dialog that changes nothing — these pin which fields matter.
+describe('which config changes regenerate the SQL', () => {
+  const sqlFor = (config: Record<string, unknown>) =>
+    buildWidgetQueries({
+      pluginId: TIMELINE,
+      config,
+      mapping: fullMapping,
+      patientId: '123',
+      visitId: null,
+    })
+      .map((q) => q.sql ?? '')
+      .join('\n')
+
+  const base = { conceptIds: [3027018], strokeWidth: '1.5', showPoints: true }
+
+  it('regenerates when the selected concepts change', () => {
+    expect(sqlFor({ ...base, conceptIds: [3027018, 3004249] })).not.toBe(sqlFor(base))
+  })
+
+  it('leaves the SQL untouched for styling-only settings', () => {
+    // These drive the chart, not the query — no overwrite warning is warranted.
+    expect(sqlFor({ ...base, strokeWidth: '3' })).toBe(sqlFor(base))
+    expect(sqlFor({ ...base, showPoints: false })).toBe(sqlFor(base))
+    expect(sqlFor({ ...base, stepPlot: true })).toBe(sqlFor(base))
+    expect(sqlFor({ ...base, yAxisFromZero: true })).toBe(sqlFor(base))
+    expect(sqlFor({ ...base, syncTimeRange: true })).toBe(sqlFor(base))
+  })
+
+  it('treats re-ordered concepts as a change, since the IN list order differs', () => {
+    // Documented, not ideal: the rows selected are identical, so this warns about
+    // an overwrite that would produce equivalent SQL. Harmless (the user is asked,
+    // not overridden) and only reachable by reordering an existing selection.
+    const a = sqlFor({ ...base, conceptIds: [3027018, 3004249] })
+    const b = sqlFor({ ...base, conceptIds: [3004249, 3027018] })
+    expect(a).not.toBe(b)
+  })
+})
