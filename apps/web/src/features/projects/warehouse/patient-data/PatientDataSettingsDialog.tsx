@@ -3,6 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { Info } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -21,10 +29,10 @@ interface PatientDataSettingsDialogProps {
   dashboardId: string
 }
 
-/** Board display settings — the Style half of the dashboard's own settings dialog.
- *  Name and description are edited from the board's header menu, and there is no
- *  Dataset tab: a patient board reads the project's OMOP source, it does not bind
- *  to a dataset. One section left, so no tab strip. */
+/** Board settings, mirroring the dashboard's own dialog: General holds the
+ *  tab-switch behaviour, Style the display options. Name and description are
+ *  edited from the board's header menu, and there is no Dataset tab — a patient
+ *  board reads the project's OMOP source, it does not bind to a dataset. */
 export function PatientDataSettingsDialog({
   open,
   onOpenChange,
@@ -35,6 +43,7 @@ export function PatientDataSettingsDialog({
   const updateDashboard = usePatientChartStore((s) => s.updateDashboard)
 
   const baseline = {
+    reloadWidgetsOnTabSwitch: board?.reloadWidgetsOnTabSwitch ?? false,
     showWidgetTitles: board?.showWidgetTitles ?? true,
     fitToHeight: board?.fitToHeight ?? true,
     widgetSpacing: board?.widgetSpacing ?? DASHBOARD_GRID.margin[0],
@@ -51,6 +60,7 @@ export function PatientDataSettingsDialog({
   const handleSave = () => {
     if (!board) return
     updateDashboard(dashboardId, {
+      reloadWidgetsOnTabSwitch: draft.reloadWidgetsOnTabSwitch,
       showWidgetTitles: draft.showWidgetTitles,
       fitToHeight: draft.fitToHeight,
       widgetSpacing: draft.widgetSpacing,
@@ -72,11 +82,55 @@ export function PatientDataSettingsDialog({
           <DialogDescription>{t('patient_data.settings_description')}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <Tabs defaultValue="general" className="py-2">
+          <TabsList className="w-full">
+            <TabsTrigger value="general" className="flex-1">
+              {t('dashboard.settings_tab_general')}
+            </TabsTrigger>
+            <TabsTrigger value="style" className="flex-1">
+              {t('dashboard.settings_tab_style')}
+            </TabsTrigger>
+          </TabsList>
+
+          <div className="min-h-[210px]">
+          <TabsContent value="general" className="space-y-5 pt-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1">
+                <Label className="text-xs font-medium">
+                  {t('dashboard.reload_widgets_on_tab_switch')}
+                </Label>
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="text-muted-foreground/70 hover:text-muted-foreground">
+                        <Info size={12} />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-64 bg-foreground text-background">
+                      {t('dashboard.reload_widgets_on_tab_switch_info')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {t('dashboard.reload_widgets_on_tab_switch_hint')}
+              </p>
+            </div>
+            <Switch
+              checked={draft.reloadWidgetsOnTabSwitch}
+              onCheckedChange={(v) =>
+                setDraft((d) => ({ ...d, reloadWidgetsOnTabSwitch: v }))
+              }
+            />
+          </div>
+          </TabsContent>
+
+          <TabsContent value="style" className="space-y-5 pt-3">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label className="text-xs font-medium">{t('dashboard.show_widget_titles')}</Label>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 {t('dashboard.show_widget_titles_hint')}
               </p>
             </div>
@@ -89,7 +143,7 @@ export function PatientDataSettingsDialog({
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label className="text-xs font-medium">{t('dashboard.fit_to_height')}</Label>
-              <p className="text-xs text-muted-foreground">{t('dashboard.fit_to_height_hint')}</p>
+              <p className="text-[11px] text-muted-foreground">{t('dashboard.fit_to_height_hint')}</p>
             </div>
             <Switch
               checked={draft.fitToHeight}
@@ -100,11 +154,11 @@ export function PatientDataSettingsDialog({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-medium">{t('dashboard.widget_spacing')}</Label>
-              <span className="text-xs tabular-nums text-muted-foreground">
+              <span className="text-[11px] tabular-nums text-muted-foreground">
                 {draft.widgetSpacing} px
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">{t('dashboard.widget_spacing_hint')}</p>
+            <p className="text-[11px] text-muted-foreground">{t('dashboard.widget_spacing_hint')}</p>
             <input
               type="range"
               min={0}
@@ -115,7 +169,9 @@ export function PatientDataSettingsDialog({
               className="mt-1 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary"
             />
           </div>
-        </div>
+          </TabsContent>
+          </div>
+        </Tabs>
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>

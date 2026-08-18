@@ -596,6 +596,9 @@ export interface PatientDashboard extends Seedable, Authored {
   widgetSpacing?: number
   /** Scale row height so the whole tab fits the visible area (no vertical scroll). */
   fitToHeight?: boolean
+  /** Turn keep-alive OFF: only the current tab stays mounted, so leaving a tab
+   *  frees its DOM and returning recomputes it. Same lever as the dashboards. */
+  reloadWidgetsOnTabSwitch?: boolean
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
   version?: string
   displayOrder: number

@@ -622,16 +622,17 @@ function TextTimeline({ visitRows, detailsByVisit, formatDate, formatDateShort, 
                       key={d.visit_detail_id}
                       className="flex items-start gap-1.5 text-xs ml-4 mt-0.5"
                     >
-                      {onNavigate && d.visit_detail_id ? (
+                      <Bed size={9} className="mt-0.5 shrink-0 text-muted-foreground" />
+                      {/* Same open affordance as a hospitalization row, rather than
+                          the bed icon doubling as a button — which read as decoration. */}
+                      {onNavigate && d.visit_detail_id && (
                         <button
-                          className="shrink-0 mt-0.5 text-muted-foreground/50 hover:text-primary transition-colors"
+                          className="mt-0.5 shrink-0 text-muted-foreground/50 transition-colors hover:text-primary"
                           onClick={() => onNavigate(String(v.visit_id), String(d.visit_detail_id))}
                           title={t('patient_data.go_to_unit_stay')}
                         >
-                          <Bed size={9} />
+                          <ExternalLink size={9} />
                         </button>
-                      ) : (
-                        <Bed size={9} className="shrink-0 text-muted-foreground mt-0.5" />
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-1 flex-wrap">
