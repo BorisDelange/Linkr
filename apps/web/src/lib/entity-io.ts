@@ -661,6 +661,9 @@ function buildDatasetPath(file: DatasetFile, byId: Map<string, DatasetFile>): st
 
 const json = (data: unknown) => JSON.stringify(data, null, 2)
 
+/** Where a schema preset's DDL lives in its git repo, beside preset.json. */
+export const SCHEMA_PRESET_DDL_FILE = 'schema.ddl'
+
 // Dashboard content keys — uid-independent stable ids for the git round-trip.
 //
 // Dashboard/tab/widget ids are UUIDs, so a delete+reimport (fresh project uid)
@@ -2193,15 +2196,26 @@ export async function buildDqRuleSetZip(
   return { blob, name: localized(ruleSet.name, 'en') || ruleSet.id }
 }
 
-/** Folder layout for one schema preset's git repo: its mapping config (stripped).
- *  Keyed on presetId (its primary key), not id. */
+/**
+ * Folder layout for one schema preset's git repo: its mapping config (stripped)
+ * plus the DDL as a real `.ddl` file. Keyed on presetId (its primary key), not id.
+ *
+ * The DDL is split out rather than left inline in preset.json: it is ~50 kB of
+ * SQL, and as a JSON string it lands on one line with every newline escaped —
+ * a one-column type change then shows up as a whole-file diff nobody can read,
+ * and no editor will syntax-highlight it. `preset.json` keeps the mapping
+ * config, which is structured JSON and already diffs line by line.
+ */
 export async function buildSchemaPresetFolder(
   zip: JSZip,
   prefix: string,
   preset: CustomSchemaPreset,
   storage: Storage,
 ): Promise<void> {
-  zip.file(`${prefix}preset.json`, json(stripEntityDocs(stripInstanceFields(preset) as CustomSchemaPreset)))
+  const stripped = stripEntityDocs(stripInstanceFields(preset) as CustomSchemaPreset)
+  const { ddl, ...mapping } = stripped.mapping
+  zip.file(`${prefix}preset.json`, json({ ...stripped, mapping }))
+  if (ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
   await writeEntityDocs(zip, prefix, preset, storage, 'schema-preset', preset.presetId)
 }
 
@@ -2335,6 +2349,10 @@ export async function applyClonedEntity(
     const entry = zip.files[name]
     return entry ? (JSON.parse(await entry.async('string')) as T) : null
   }
+  const readText = async (name: string): Promise<string | null> => {
+    const entry = zip.files[name]
+    return entry && !entry.dir ? entry.async('string') : null
+  }
 
   if (type === 'sql-collection' || type === 'etl-pipeline') {
     // The record itself (metadata) is re-applied from the repo's _collection.json /
@@ -2453,8 +2471,18 @@ export async function applyClonedEntity(
   if (type === 'schema-preset') {
     const preset = await readJson<CustomSchemaPreset>('preset.json')
     if (!preset) return false
+    // The DDL is its own file in the repo; preset.json carries only the mapping
+    // config. A preset whose schema.ddl is missing would create every OMOP table
+    // with no columns, so treat it as an unreadable repo rather than import a
+    // schema that silently does nothing.
+    const ddl = await readText(SCHEMA_PRESET_DDL_FILE)
+    if (!ddl) return false
     const withDocs = await withEntityDocs(
-      dropForeignAuthorId({ ...preset, presetId: targetId }) as CustomSchemaPreset,
+      dropForeignAuthorId({
+        ...preset,
+        presetId: targetId,
+        mapping: { ...preset.mapping, ddl },
+      }) as CustomSchemaPreset,
       'schema-preset',
     )
     await storage.schemaPresets.save(withDocs).catch(() => {})

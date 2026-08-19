@@ -50,7 +50,7 @@ import {
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
-import { parseImportZip } from '@/lib/entity-io'
+import { parseImportZip, SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { uniqueName } from '@/lib/unique-name'
@@ -1358,12 +1358,16 @@ export function SchemaPresetsPage() {
     await storeSave(preset)
   }, [wsUid, language, storeDelete, storeSave])
 
-  // A schema-preset export ZIP carries the whole preset in preset.json; older
-  // exports were a bare mapping JSON. Accept both so any prior export still imports.
+  // A schema-preset export ZIP carries the preset in preset.json and its DDL in
+  // schema.ddl beside it; a plain file upload is a bare mapping JSON carrying
+  // its own ddl. Accept both — the ZIP's DDL has to be folded back in, since
+  // preset.json no longer holds it.
   const extractMapping = (parsed: Record<string, unknown>): SchemaMapping | null => {
     const presetFile = parsed['preset.json'] as { mapping?: SchemaMapping } | undefined
     const mapping = (presetFile?.mapping ?? parsed['preset.json'] ?? Object.values(parsed)[0]) as SchemaMapping | undefined
-    return mapping?.presetId && mapping?.presetLabel ? mapping : null
+    if (!mapping?.presetId || !mapping?.presetLabel) return null
+    const ddl = parsed[SCHEMA_PRESET_DDL_FILE]
+    return typeof ddl === 'string' && ddl ? { ...mapping, ddl } : mapping
   }
 
   const handleImportSource = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {

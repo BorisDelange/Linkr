@@ -3,6 +3,7 @@
     "presetId": "preset-1",
     "workspaceId": "ws1",
     "mapping": {
+      "ddl": "-- Demo DDL\n\nCREATE TABLE person (\n  person_id integer NOT NULL PRIMARY KEY,\n  year_of_birth integer NOT NULL\n);\n\nCREATE TABLE visit_occurrence (\n  visit_occurrence_id integer NOT NULL PRIMARY KEY,\n  person_id integer NOT NULL\n);\n",
       "tables": {
         "person": {
           "columns": {

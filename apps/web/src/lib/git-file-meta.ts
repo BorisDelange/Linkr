@@ -180,6 +180,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   ],
   'schema-presets': [
     { test: /^preset\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_preset_json' },
+    { test: /^schema\.ddl$/, category: 'scripts', order: CAT.scripts, descriptionKey: 'versioning.file_desc_schema_ddl' },
     README_RULE,
     LICENSE_RULE,
     ATTACHMENTS_RULE,

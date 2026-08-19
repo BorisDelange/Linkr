@@ -702,6 +702,9 @@ async def build_sql_collection_tree(db: AsyncSession, collection) -> dict[str, b
 # pipeline has no per-file versioning marks.
 _DATA_FILE_GITIGNORE = b"**/*.csv\n**/*.parquet\n**/*.pq\n**/*.xlsx\n**/*.xls\n"
 
+# Mirrors SCHEMA_PRESET_DDL_FILE in entity-io.ts.
+SCHEMA_PRESET_DDL_FILE = "schema.ddl"
+
 
 async def build_etl_pipeline_tree(db: AsyncSession, pipeline) -> dict[str, bytes]:
     tree = await _etl_pipeline_sub_tree(db, pipeline)
@@ -752,10 +755,18 @@ async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]
 async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]:
     # Distinctive: the schema preset standalone builder does NOT inline an org
     # (entity-io.ts:1607 has no attachEntityOrganization), so no _attach_org here.
+    #
+    # The DDL is written as its own schema.ddl rather than inlined in preset.json:
+    # see buildSchemaPresetFolder (entity-io.ts) for why. Both ends must emit the
+    # same tree or git shows a false diff, so keep them in step.
     dumped = _dump(SchemaPresetResponse, preset)
-    tree: dict[str, bytes] = {
-        "preset.json": _json(strip_entity_docs(_strip_instance_fields(dumped)))
-    }
+    stripped = strip_entity_docs(_strip_instance_fields(dumped))
+    mapping = dict(stripped.get("mapping") or {})
+    ddl = mapping.pop("ddl", None)
+    stripped["mapping"] = mapping
+    tree: dict[str, bytes] = {"preset.json": _json(stripped)}
+    if ddl:
+        tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
     tree.update(await _entity_docs(db, "", dumped, "schema-preset", preset.preset_id))
     return tree
 

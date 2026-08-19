@@ -1035,9 +1035,26 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
     // Checks are recreated under the target rule set, not the repo's stale FK.
     expect((calls['chk.create']![0][0] as { ruleSetId: string }).ruleSetId).toBe('rs-target')
 
-    const spZip = new JSZip(); spZip.file('preset.json', JSON.stringify(PRESET()))
+    const spZip = new JSZip()
+    spZip.file('preset.json', JSON.stringify(PRESET()))
+    spZip.file('schema.ddl', 'CREATE TABLE person ();')
     expect(await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)).toBe(true)
-    expect((calls['preset.save']![0][0] as { presetId: string }).presetId).toBe('preset-target')
+    const saved = calls['preset.save']![0][0] as { presetId: string; mapping?: { ddl?: string } }
+    expect(saved.presetId).toBe('preset-target')
+    // The DDL is its own file in the repo; the import folds it back into the mapping.
+    expect(saved.mapping?.ddl).toBe('CREATE TABLE person ();')
+  })
+
+  it('refuses a schema-preset repo with no schema.ddl', async () => {
+    // The DDL is what creates the tables. Importing without it would produce a
+    // preset that silently creates nothing, so an unreadable repo is the honest
+    // answer.
+    const store = new Proxy({}, {
+      get: () => new Proxy({}, { get: () => async () => {} }),
+    }) as unknown as Storage
+    const spZip = new JSZip()
+    spZip.file('preset.json', JSON.stringify(PRESET()))
+    expect(await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)).toBe(false)
   })
 
   it('applyClonedEntity recombines LICENSE.md/README.md with the entity JSON', async () => {
@@ -1084,6 +1101,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
 
     const spZip = withDocs(new JSZip())
     spZip.file('preset.json', JSON.stringify({ ...PRESET(), ...licenseMeta }))
+    spZip.file('schema.ddl', 'CREATE TABLE person ();')
     await applyClonedEntity(spZip, 'schema-preset', 'preset-target', store)
     expect((calls['preset.save']![0][0] as { license?: { text?: string } }).license?.text)
       .toContain('Full text here.')

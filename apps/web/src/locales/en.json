@@ -1952,6 +1952,7 @@
     "file_desc_ruleset_json": "The data-quality rule set's settings.",
     "file_desc_dq_checks": "The custom checks defined in this rule set.",
     "file_desc_preset_json": "The schema preset's mapping configuration.",
+    "file_desc_schema_ddl": "The SQL that creates the schema's tables.",
     "file_desc_plugin_meta": "The plugin's identity within this instance.",
     "file_desc_plugin_manifest": "The plugin manifest: its name, version and declared parameters.",
     "file_desc_plugin_source": "A source file of the plugin (its code).",
