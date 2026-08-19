@@ -76,6 +76,13 @@ const ATHENA_COLUMNS: Record<string, string[]> = {
     'concept_id_1', 'concept_id_2', 'relationship_id',
     'valid_start_date', 'valid_end_date', 'invalid_reason',
   ],
+  drug_strength: [
+    'drug_concept_id', 'ingredient_concept_id',
+    'amount_value', 'amount_unit_concept_id',
+    'numerator_value', 'numerator_unit_concept_id',
+    'denominator_value', 'denominator_unit_concept_id',
+    'box_size', 'valid_start_date', 'valid_end_date', 'invalid_reason',
+  ],
 }
 
 /** OMOP date columns that ATHENA may deliver as a YYYYMMDD integer. */
@@ -115,12 +122,23 @@ export const ETL_FIXED_CONCEPT_IDS = [
 
 /**
  * Tables a vocabulary reference always provides: the mapping UI needs them, so
- * an ATHENA import keeps exactly these (see ATHENA_KNOWN_TABLES in
- * ConceptSetsTab — the metadata tables are left out on purpose to keep the
- * stored footprint down). Anything beyond this set has to be probed for.
+ * a reference that carries nothing else still satisfies these. Anything beyond
+ * this set has to be probed for (see ATHENA_KNOWN_TABLES in ConceptSetsTab for
+ * what an ATHENA import actually keeps).
  */
 export const VOCAB_CORE_TABLES = [
   'concept', 'concept_ancestor', 'concept_relationship', 'concept_synonym',
+] as const
+
+/**
+ * drug_strength columns pointing at concept, in DDL order. The ingredient and
+ * unit columns matter as much as drug_concept_id: every one of them is a
+ * foreign key to concept, so a row survives the prune only if all five targets
+ * do.
+ */
+const DRUG_STRENGTH_CONCEPT_COLUMNS = [
+  'drug_concept_id', 'ingredient_concept_id', 'amount_unit_concept_id',
+  'numerator_unit_concept_id', 'denominator_unit_concept_id',
 ] as const
 
 /**
@@ -245,7 +263,20 @@ export function buildPruneVocabularyScript(): string {
   parts.push('    SELECT cr.concept_id_2')
   parts.push(`    FROM ${T}.concept_relationship cr`)
   parts.push(`    INNER JOIN ${T}.tmp_used_concepts u ON u.concept_id = cr.concept_id_1`)
-  parts.push(');')
+  // Without this the drugs that survive lose their strength rows: the
+  // ingredient and unit concepts drug_strength points at are described by that
+  // table, never referenced by a CDM column, so the scan in step 1 never sees
+  // them and the DELETE below would drop every row.
+  parts.push('    UNION')
+  parts.push('    -- Ingredients and units of the drugs in use, so their drug_strength rows survive.')
+  parts.push(`    SELECT UNNEST([${DRUG_STRENGTH_CONCEPT_COLUMNS.map((c) => `ds.${c}`).join(', ')}]) AS concept_id`)
+  parts.push(`    FROM ${T}.drug_strength ds`)
+  parts.push(`    INNER JOIN ${T}.tmp_used_concepts u ON u.concept_id = ds.drug_concept_id`)
+  parts.push(')')
+  // The unit columns of drug_strength are nullable, and one NULL in this table
+  // makes every `NOT IN (SELECT ... FROM tmp_keep_concepts)` below evaluate to
+  // NULL: no row is ever deleted and the prune silently does nothing.
+  parts.push('WHERE concept_id IS NOT NULL;')
   parts.push('')
 
   // 3. Prune.
@@ -267,8 +298,15 @@ export function buildPruneVocabularyScript(): string {
   parts.push(`DELETE FROM ${T}.concept_synonym`)
   parts.push(`WHERE concept_id NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts);`)
   parts.push('')
+  // Every concept column has to hold, not just the drug: the others are foreign
+  // keys to concept too, so a row kept on drug_concept_id alone would point at
+  // an ingredient or unit this same script just deleted. The unit columns are
+  // nullable — a NULL breaks no key, hence the IS NOT NULL guard on each.
   parts.push(`DELETE FROM ${T}.drug_strength`)
-  parts.push(`WHERE drug_concept_id NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts);`)
+  parts.push(DRUG_STRENGTH_CONCEPT_COLUMNS.map((col, i) =>
+    `${i === 0 ? 'WHERE' : '   OR'} (${col} IS NOT NULL`
+    + ` AND ${col} NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts))`,
+  ).join('\n') + ';')
   parts.push('')
 
   // 4. Metadata tables follow whatever is left.
@@ -702,6 +740,28 @@ export function buildVocabularyScriptWithIds(
     parts.push(`WHERE cs.concept_id IN (SELECT concept_id FROM ${TARGET}.concept);`)
   } else {
     parts.push(skipped('concept_synonym', vs))
+  }
+  parts.push('')
+
+  // drug_strength
+  if (has('drug_strength')) {
+    parts.push('-- drug_strength: dosage of the drug concepts, needed to compute')
+    parts.push('-- quantities and to resolve an ingredient from a clinical drug.')
+    parts.push('--')
+    parts.push('-- Filtered on every concept column, not on drug_concept_id alone: the')
+    parts.push('-- ingredient and unit columns are foreign keys to concept as well, and a')
+    parts.push('-- row whose ingredient was not copied is a broken key. The unit columns')
+    parts.push('-- are nullable, so NULL passes.')
+    parts.push(`TRUNCATE ${TARGET}.drug_strength;`)
+    parts.push(`INSERT INTO ${TARGET}.drug_strength`)
+    parts.push(`SELECT ${athenaSelectList('drug_strength', 'dstr')}`)
+    parts.push(`FROM ${vs}.drug_strength dstr`)
+    parts.push(DRUG_STRENGTH_CONCEPT_COLUMNS.map((col, i) =>
+      `${i === 0 ? 'WHERE' : '  AND'} (dstr.${col} IS NULL`
+      + ` OR dstr.${col} IN (SELECT concept_id FROM ${TARGET}.concept))`,
+    ).join('\n') + ';')
+  } else {
+    parts.push(skipped('drug_strength', vs))
   }
 
   // =========================================================================

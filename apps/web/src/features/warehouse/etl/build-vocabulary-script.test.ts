@@ -35,6 +35,18 @@ const TARGET_TABLES = [
   'concept_class', 'source_to_concept_map', 'vocabulary', 'domain', 'relationship',
 ]
 
+/** A vocabulary reference holding every table an ATHENA download can carry. */
+const FULL = buildVocabularyScript([MAPPING], undefined, [
+  'concept', 'concept_ancestor', 'concept_relationship', 'concept_synonym',
+  'vocabulary', 'domain', 'concept_class', 'relationship', 'drug_strength',
+])
+
+/** drug_strength columns that are foreign keys to concept. */
+const DRUG_STRENGTH_CONCEPT_COLS = [
+  'drug_concept_id', 'ingredient_concept_id', 'amount_unit_concept_id',
+  'numerator_unit_concept_id', 'denominator_unit_concept_id',
+]
+
 describe('buildVocabularyScript', () => {
   const sql = buildVocabularyScript([MAPPING])
 
@@ -325,7 +337,7 @@ describe('vocabulary references missing the metadata tables', () => {
   it('never reads a table the reference does not have', () => {
     // Comments still name the skipped table, so assert on executable lines only.
     const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
-    for (const t of ['vocabulary', 'domain', 'concept_class', 'relationship']) {
+    for (const t of ['vocabulary', 'domain', 'concept_class', 'relationship', 'drug_strength']) {
       expect(code).not.toContain(`vocab.${t}`)
     }
   })
@@ -351,12 +363,66 @@ describe('vocabulary references missing the metadata tables', () => {
   })
 
   it('emits every part when the reference is complete', () => {
-    const full = buildVocabularyScript([MAPPING], undefined, [
-      ...CORE, 'vocabulary', 'domain', 'concept_class', 'relationship',
-    ])
-    expect(full).toContain('FROM vocab.vocabulary v')
-    expect(full).toContain('FROM vocab.domain d')
-    expect(full).not.toContain('-- Skipped:')
+    expect(FULL).toContain('FROM vocab.vocabulary v')
+    expect(FULL).toContain('FROM vocab.domain d')
+    expect(FULL).not.toContain('-- Skipped:')
+  })
+})
+
+describe('drug_strength', () => {
+  it('is copied from the reference, and cleared first like every other table', () => {
+    expect(FULL).toContain('TRUNCATE target.drug_strength;')
+    expect(FULL).toContain('INSERT INTO target.drug_strength')
+    expect(FULL).toContain('FROM vocab.drug_strength dstr')
+  })
+
+  it('normalises the ATHENA date columns instead of copying positionally', () => {
+    // ATHENA's CSV-derived parquet types them as BIGINT (20100401); a bare
+    // SELECT * then fails the implicit cast on INSERT.
+    expect(FULL).not.toContain('SELECT dstr.*')
+    expect(FULL).toContain("try_strptime(CAST(dstr.valid_start_date AS VARCHAR), '%Y%m%d')")
+    expect(FULL).toContain('dstr.box_size')
+  })
+
+  it('copies only rows whose every concept column survived, NULL units aside', () => {
+    // Each of the five is a foreign key to concept: keeping a row on
+    // drug_concept_id alone leaves a broken key on its ingredient or unit.
+    for (const col of DRUG_STRENGTH_CONCEPT_COLS) {
+      expect(FULL).toContain(
+        `(dstr.${col} IS NULL OR dstr.${col} IN (SELECT concept_id FROM target.concept))`,
+      )
+    }
+  })
+})
+
+describe('buildPruneVocabularyScript', () => {
+  const sql = buildPruneVocabularyScript()
+
+  it('keeps the ingredients and units of the drugs the CDM uses', () => {
+    // They are described by drug_strength and referenced by no CDM column, so
+    // the used-concept scan never sees them: without this the prune deletes
+    // every drug_strength row of every drug it just kept.
+    expect(sql).toContain('FROM target.drug_strength ds')
+    expect(sql).toContain(
+      'SELECT UNNEST([ds.drug_concept_id, ds.ingredient_concept_id, ds.amount_unit_concept_id,'
+      + ' ds.numerator_unit_concept_id, ds.denominator_unit_concept_id]) AS concept_id',
+    )
+  })
+
+  it('never lets a NULL into tmp_keep_concepts', () => {
+    // The unit columns are nullable, and one NULL makes every
+    // `NOT IN (SELECT ... FROM tmp_keep_concepts)` evaluate to NULL: nothing is
+    // deleted and the prune silently does nothing.
+    const keep = sql.slice(sql.indexOf('CREATE OR REPLACE TABLE target.tmp_keep_concepts'))
+    expect(keep.slice(0, keep.indexOf(';'))).toContain('WHERE concept_id IS NOT NULL')
+  })
+
+  it('prunes drug_strength on every concept column, not just the drug', () => {
+    for (const col of DRUG_STRENGTH_CONCEPT_COLS) {
+      expect(sql).toContain(
+        `(${col} IS NOT NULL AND ${col} NOT IN (SELECT concept_id FROM target.tmp_keep_concepts))`,
+      )
+    }
   })
 })
 

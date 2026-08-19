@@ -6,6 +6,9 @@
  * Primary keys are inline in CREATE TABLE statements.
  * Schema placeholder (@cdmDatabaseSchema) removed.
  * HINT comments removed (distribution hints for MPP engines, ignored by DuckDB).
+ *
+ * One deliberate divergence from upstream: drug_strength's three value columns
+ * are DOUBLE rather than NUMERIC — see the note on the table.
  */
 export const OMOP_54_DDL = `-- OMOP CDM v5.4 DDL (DuckDB)
 -- https://github.com/OHDSI/CommonDataModel
@@ -554,11 +557,16 @@ CREATE TABLE source_to_concept_map (
 CREATE TABLE drug_strength (
   drug_concept_id integer NOT NULL,
   ingredient_concept_id integer NOT NULL,
-  amount_value NUMERIC NULL,
+  -- DOUBLE, not the upstream NUMERIC: DuckDB reads NUMERIC as DECIMAL(18,3),
+  -- and the ATHENA vocabulary ships numerator_value up to 2.26e15 — loading it
+  -- into the upstream type fails outright ("Could not cast value
+  -- 2260000000000000.000000 to DECIMAL(18,3)"). The CDM spec itself types these
+  -- three as float; only the DuckDB DDL narrows them.
+  amount_value DOUBLE NULL,
   amount_unit_concept_id integer NULL,
-  numerator_value NUMERIC NULL,
+  numerator_value DOUBLE NULL,
   numerator_unit_concept_id integer NULL,
-  denominator_value NUMERIC NULL,
+  denominator_value DOUBLE NULL,
   denominator_unit_concept_id integer NULL,
   box_size integer NULL,
   valid_start_date date NOT NULL,
