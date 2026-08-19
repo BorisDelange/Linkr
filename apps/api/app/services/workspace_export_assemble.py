@@ -752,6 +752,50 @@ async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]
     return tree
 
 
+# Field order for an event table in an exported preset. Insertion order is the
+# history of who edited what and when, so two instances holding the same mapping
+# would emit different files and git would show a diff where nothing changed.
+# Alphabetical would be stable but scatter the pairs (dateColumn far from
+# endDateColumn), so the order is declared and grouped by meaning; unlisted keys
+# are appended sorted. Mirrors EVENT_TABLE_FIELD_ORDER in entity-io.ts — both
+# ends must emit identical bytes or the export golden tests fail.
+_EVENT_TABLE_FIELD_ORDER = [
+    "table",
+    "conceptIdColumn",
+    "sourceConceptIdColumn",
+    "conceptVocabularyColumn",
+    "conceptCodeColumn",
+    "conceptDictionaryKey",
+    "patientIdColumn",
+    "dateColumn",
+    "endDateColumn",
+    "valueColumn",
+    "valueStringColumn",
+    "valueUnitColumn",
+    "valueUnitConceptIdColumn",
+    "routeColumn",
+    "routeConceptIdColumn",
+]
+
+
+def _canonical_schema_mapping(mapping: dict) -> dict:
+    """Mapping with its event tables (and their keys) in a deterministic order."""
+    tables = mapping.get("eventTables")
+    if not isinstance(tables, dict):
+        return mapping
+    ordered: dict = {}
+    for label in sorted(tables):
+        et = tables[label]
+        if not isinstance(et, dict):
+            ordered[label] = et
+            continue
+        rest = sorted(k for k in et if k not in _EVENT_TABLE_FIELD_ORDER)
+        ordered[label] = {
+            k: et[k] for k in [*_EVENT_TABLE_FIELD_ORDER, *rest] if k in et
+        }
+    return {**mapping, "eventTables": ordered}
+
+
 async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]:
     # Distinctive: the schema preset standalone builder does NOT inline an org
     # (entity-io.ts:1607 has no attachEntityOrganization), so no _attach_org here.
@@ -763,7 +807,7 @@ async def build_schema_preset_tree(db: AsyncSession, preset) -> dict[str, bytes]
     stripped = strip_entity_docs(_strip_instance_fields(dumped))
     mapping = dict(stripped.get("mapping") or {})
     ddl = mapping.pop("ddl", None)
-    stripped["mapping"] = mapping
+    stripped["mapping"] = _canonical_schema_mapping(mapping)
     tree: dict[str, bytes] = {"preset.json": _json(stripped)}
     if ddl:
         tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()

@@ -271,3 +271,45 @@ async def test_user_plugin_matches_golden(db):
     db.add(plugin)
     await db.commit()
     _assert_tree(await build_user_plugin_tree(db, plugin), expected)
+
+
+class TestCanonicalSchemaMapping:
+    """Export ordering must not depend on edit history: two instances holding the
+    same mapping have to emit the same bytes, or git shows a diff where nothing
+    changed. Mirrors canonicalSchemaMapping in entity-io.ts — the two must agree
+    byte for byte."""
+
+    def test_independent_of_the_order_fields_were_written_in(self):
+        from app.services.workspace_export_assemble import _canonical_schema_mapping
+
+        a = _canonical_schema_mapping(
+            {"eventTables": {"T": {"table": "t", "dateColumn": "d", "conceptIdColumn": "c"}}}
+        )
+        b = _canonical_schema_mapping(
+            {"eventTables": {"T": {"conceptIdColumn": "c", "table": "t", "dateColumn": "d"}}}
+        )
+        assert json.dumps(a) == json.dumps(b)
+
+    def test_keeps_the_end_date_beside_the_date(self):
+        from app.services.workspace_export_assemble import _canonical_schema_mapping
+
+        out = _canonical_schema_mapping(
+            {"eventTables": {"A": {"conceptIdColumn": "c", "endDateColumn": "e", "dateColumn": "d"}}}
+        )
+        keys = list(out["eventTables"]["A"])
+        assert keys.index("endDateColumn") == keys.index("dateColumn") + 1
+
+    def test_sorts_table_labels_and_appends_unknown_fields_sorted(self):
+        from app.services.workspace_export_assemble import _canonical_schema_mapping
+
+        out = _canonical_schema_mapping(
+            {"eventTables": {"Zeta": {"table": "z"}, "Alpha": {"zzz": 1, "table": "a", "aaa": 2}}}
+        )
+        assert list(out["eventTables"]) == ["Alpha", "Zeta"]
+        assert list(out["eventTables"]["Alpha"]) == ["table", "aaa", "zzz"]
+
+    def test_leaves_a_mapping_with_no_event_tables_alone(self):
+        from app.services.workspace_export_assemble import _canonical_schema_mapping
+
+        m = {"presetId": "x"}
+        assert _canonical_schema_mapping(m) is m

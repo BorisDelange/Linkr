@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, parseWorkspaceZip, deleteProjectData, datasetToCsv, importProjectContent, stripInstanceFields, dropForeignAuthorId, attachEntityOrganization, buildWorkspaceZip, buildUserPluginZip, buildEtlPipelineFolder, collectGitLinkedEntities, applyClonedEntity, gitignoreEscapePath, excludedCodeFiles, reconstructTreeFiles, canonicalSchemaMapping } from './entity-io'
 import type { ParsedProjectZip } from './entity-io'
 import { deterministicId } from '@/lib/deterministic-id'
 import { isVersioned } from '@/features/warehouse/etl/etl-versioning'
@@ -1670,5 +1670,52 @@ describe('parseProjectZip — concept lists', () => {
   it('yields an empty list for a ZIP that predates the feature', async () => {
     const parsed = await parseProjectZip(await makeZip(false))
     expect(parsed!.conceptLists).toEqual([])
+  })
+})
+
+/**
+ * Export ordering must not depend on edit history: two instances holding the
+ * same mapping have to emit the same bytes, or git shows a diff where nothing
+ * changed. Mirrored by _canonical_schema_mapping in workspace_export_assemble.py.
+ */
+describe('canonicalSchemaMapping orders event tables deterministically', () => {
+  const messy = {
+    eventTables: {
+      Zeta: { dateColumn: 'd', table: 'z', conceptIdColumn: 'c' },
+      Alpha: { conceptIdColumn: 'c', table: 'a', endDateColumn: 'e', dateColumn: 'd' },
+    },
+  }
+
+  it('is independent of the order the fields were written in', () => {
+    const a = canonicalSchemaMapping({
+      eventTables: { T: { table: 't', dateColumn: 'd', conceptIdColumn: 'c' } },
+    })
+    const b = canonicalSchemaMapping({
+      eventTables: { T: { conceptIdColumn: 'c', table: 't', dateColumn: 'd' } },
+    })
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b))
+  })
+
+  it('keeps the end date beside the date rather than sorting them apart', () => {
+    const out = canonicalSchemaMapping(messy) as { eventTables: Record<string, object> }
+    const keys = Object.keys(out.eventTables.Alpha)
+    expect(keys.indexOf('endDateColumn')).toBe(keys.indexOf('dateColumn') + 1)
+  })
+
+  it('sorts the table labels, which are a user-keyed map', () => {
+    const out = canonicalSchemaMapping(messy) as { eventTables: Record<string, object> }
+    expect(Object.keys(out.eventTables)).toEqual(['Alpha', 'Zeta'])
+  })
+
+  it('appends unknown fields sorted, so a new one is stable before it is placed', () => {
+    const out = canonicalSchemaMapping({
+      eventTables: { T: { zzz: 1, table: 't', aaa: 2 } },
+    }) as { eventTables: Record<string, object> }
+    expect(Object.keys(out.eventTables.T)).toEqual(['table', 'aaa', 'zzz'])
+  })
+
+  it('leaves a mapping with no event tables alone', () => {
+    const m = { presetId: 'x' }
+    expect(canonicalSchemaMapping(m)).toBe(m)
   })
 })

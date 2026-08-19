@@ -2206,6 +2206,59 @@ export async function buildDqRuleSetZip(
  * and no editor will syntax-highlight it. `preset.json` keeps the mapping
  * config, which is structured JSON and already diffs line by line.
  */
+/**
+ * Field order for an event table in an exported preset.
+ *
+ * Insertion order is the history of who edited what and when, so two instances
+ * holding the same mapping emit different files and git shows a diff where
+ * nothing changed. Sorting alphabetically would fix that but scatter the pairs —
+ * `dateColumn` far from `endDateColumn`, a unit far from its value — so the
+ * order is declared, grouped by what the fields mean. Anything not listed is
+ * appended alphabetically, so a new field is stable before it is placed here.
+ *
+ * Mirrored by `_EVENT_TABLE_FIELD_ORDER` in workspace_export_assemble.py: both
+ * ends must emit identical bytes or the export golden tests fail.
+ */
+const EVENT_TABLE_FIELD_ORDER = [
+  'table',
+  'conceptIdColumn',
+  'sourceConceptIdColumn',
+  'conceptVocabularyColumn',
+  'conceptCodeColumn',
+  'conceptDictionaryKey',
+  'patientIdColumn',
+  'dateColumn',
+  'endDateColumn',
+  'valueColumn',
+  'valueStringColumn',
+  'valueUnitColumn',
+  'valueUnitConceptIdColumn',
+  'routeColumn',
+  'routeConceptIdColumn',
+]
+
+/** One object's keys in a declared order, with unlisted keys appended sorted. */
+function orderKeys(obj: Record<string, unknown>, order: string[]): Record<string, unknown> {
+  const rest = Object.keys(obj).filter((k) => !order.includes(k)).sort()
+  const out: Record<string, unknown> = {}
+  for (const k of [...order, ...rest]) if (k in obj) out[k] = obj[k]
+  return out
+}
+
+/** A mapping with its event tables (and their keys) in a deterministic order. */
+export function canonicalSchemaMapping(mapping: Record<string, unknown>): Record<string, unknown> {
+  const tables = mapping.eventTables
+  if (!tables || typeof tables !== 'object') return mapping
+  const src = tables as Record<string, Record<string, unknown>>
+  const ordered: Record<string, unknown> = {}
+  // Table labels sorted too: they are a user-keyed map, so their insertion order
+  // is just as arbitrary as the fields'.
+  for (const label of Object.keys(src).sort()) {
+    ordered[label] = orderKeys(src[label], EVENT_TABLE_FIELD_ORDER)
+  }
+  return { ...mapping, eventTables: ordered }
+}
+
 export async function buildSchemaPresetFolder(
   zip: JSZip,
   prefix: string,
@@ -2214,7 +2267,7 @@ export async function buildSchemaPresetFolder(
 ): Promise<void> {
   const stripped = stripEntityDocs(stripInstanceFields(preset) as CustomSchemaPreset)
   const { ddl, ...mapping } = stripped.mapping
-  zip.file(`${prefix}preset.json`, json({ ...stripped, mapping }))
+  zip.file(`${prefix}preset.json`, json({ ...stripped, mapping: canonicalSchemaMapping(mapping) }))
   if (ddl) zip.file(`${prefix}${SCHEMA_PRESET_DDL_FILE}`, ddl)
   await writeEntityDocs(zip, prefix, preset, storage, 'schema-preset', preset.presetId)
 }
