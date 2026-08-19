@@ -489,7 +489,7 @@ function NodeDetailSidebar({ info, onViewCode, onBrowseSchema }: {
   // Script node
   const { file, log } = info
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="border-b px-3 py-2.5">
         <div className="flex items-center gap-2">
           <Code size={14} className="text-blue-500" />
@@ -497,9 +497,10 @@ function NodeDetailSidebar({ info, onViewCode, onBrowseSchema }: {
           {log && <RunStatusIcon status={log.status} />}
         </div>
       </div>
-      {/* The viewport must be allowed to be narrower than its content, or a long
-          unbreakable line pushes the whole pane past the edge of the screen. */}
-      <ScrollArea className="min-w-0 flex-1 [&>[data-slot=scroll-area-viewport]]:min-w-0">
+      {/* The viewport must be allowed to be narrower AND shorter than its content,
+          or a long unbreakable line pushes the whole pane past the edge of the
+          screen and a long error stretches the pane instead of scrolling in it. */}
+      <ScrollArea className="min-h-0 min-w-0 flex-1 [&>[data-slot=scroll-area-viewport]]:min-w-0">
         <div className="min-w-0 space-y-3 p-3 text-xs">
           <DetailRow label={t('etl.pipeline_script_order')} value={String(file.order)} />
           <DetailRow label={t('etl.pipeline_script_lang')} value={etlLanguageLabel(file.language ?? 'sql')} />
@@ -520,8 +521,11 @@ function NodeDetailSidebar({ info, onViewCode, onBrowseSchema }: {
                 <div className="min-w-0 rounded-md bg-red-500/10 p-2 text-red-600 dark:text-red-400">
                   <p className="text-[10px] font-medium">{t('etl.status_error')}</p>
                   {/* A SQL error is one long unbroken string with no spaces to
-                      wrap at, so it widened the pane instead of fitting in it. */}
-                  <p className="mt-0.5 break-all font-mono text-[10px] whitespace-pre-wrap">
+                      wrap at, so it widened the pane instead of fitting in it.
+                      Capped and scrolled on its own: a DuckDB internal error
+                      carries a ~60-frame stack trace, which would otherwise push
+                      everything below it out of reach. */}
+                  <p className="mt-0.5 max-h-64 overflow-y-auto break-all font-mono text-[10px] whitespace-pre-wrap">
                     {log.error}
                   </p>
                 </div>
@@ -1128,7 +1132,7 @@ function RunHistoryPanel({ runHistory, files, expandedRunId, onToggleRun }: RunH
                       {run.scripts.filter((s) => s.error).map((s) => (
                         <p
                           key={s.id}
-                          className="break-all font-mono text-[10px] whitespace-pre-wrap text-red-600 dark:text-red-400"
+                          className="max-h-64 overflow-y-auto break-all font-mono text-[10px] whitespace-pre-wrap text-red-600 dark:text-red-400"
                         >
                           {s.error}
                         </p>
