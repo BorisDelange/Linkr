@@ -54,7 +54,15 @@ export function buildSchemaPresetPullPlan(
     if (plan.infoChanged) {
       items.push({ key: 'info', label: PRESET_MANIFEST_FILE, state: 'update' })
     }
-    rows.push({ path: PRESET_MANIFEST_FILE, items, wholeFile: true })
+    // Anchored on the doc FILE that changed, not on preset.json: the row opens a
+    // diff of its path, and a README shown under preset.json reads as if the
+    // manifest carried it — it does not, it sits in README.md beside it.
+    // preset.json only anchors the row when the name/description moved alone.
+    rows.push({
+      path: plan.docs[0]?.key ?? PRESET_MANIFEST_FILE,
+      items,
+      wholeFile: true,
+    })
   }
 
   return {

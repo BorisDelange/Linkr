@@ -13,6 +13,7 @@ import type { PullFile } from '@/lib/pull-plan'
 import type { PreparedSchemaPresetPull } from '@/lib/schema-preset-pull'
 import { presetInfoOf, stripInstancePresetMapping } from '@/lib/schema-preset-pull'
 import { SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
+import { README_FILE_RE } from '@/lib/entity-tree'
 import { presentReadme } from '@/lib/entity-docs-pull'
 import type { PullDiffText } from '@/lib/concept-mapping/pull-diff'
 
@@ -64,29 +65,30 @@ export function buildSchemaPresetPullDiff(
     }
   }
 
-  // The docs row: name, description, README and licence — the whole descriptive
-  // block in one object, so the pane shows everything taking the row would write.
-  const docsBody = (
-    info: Record<string, unknown>,
-    readme: unknown,
-    license: { text?: string } | undefined,
-  ) => ({
-    ...info,
-    readme: presentReadme(readme as never) ?? null,
-    license: license?.text ?? null,
-  })
+  // The docs row is anchored on the doc file that changed, so the diff shows THAT
+  // file's text — markdown as markdown. Rendering the whole descriptive block as
+  // one JSON object instead put a README under a `preset.json` heading, escaped
+  // newlines and all, as if the manifest carried it.
+  const readmeLang = README_FILE_RE.exec(file.path)?.[1] ?? 'en'
+  if (README_FILE_RE.test(file.path)) {
+    return {
+      oldContent: presentReadme(localPreset?.readme)?.[readmeLang] ?? '',
+      newContent: presentReadme(remoteDocs.readme)?.[readmeLang] ?? '',
+      language: 'markdown',
+    }
+  }
+  if (/^LICENSE\.md$/i.test(file.path)) {
+    return {
+      oldContent: localPreset?.license?.text ?? '',
+      newContent: remoteDocs.license?.text ?? '',
+      language: 'markdown',
+    }
+  }
 
+  // preset.json: the name and description, which is all this row writes there.
   return {
-    oldContent: stable(docsBody(
-      presetInfoOf(localPreset?.mapping) as Record<string, unknown>,
-      localPreset?.readme,
-      localPreset?.license,
-    )),
-    newContent: stable(docsBody(
-      remoteInfo as Record<string, unknown>,
-      remoteDocs.readme,
-      remoteDocs.license,
-    )),
+    oldContent: stable(presetInfoOf(localPreset?.mapping)),
+    newContent: stable(remoteInfo),
     language: 'json',
   }
 }

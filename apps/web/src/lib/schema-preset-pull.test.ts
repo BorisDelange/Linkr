@@ -226,8 +226,22 @@ describe('buildSchemaPresetPullPlan', () => {
     const built = buildSchemaPresetPullPlan(prepared({
       plan: plan({ docs: [{ key: 'README.md', exists: true }], infoChanged: true }),
     }), 'main')
-    const docsRow = built.files.find((f) => f.path === PRESET_MANIFEST_FILE)
+    const docsRow = built.files.find((f) => f.path === 'README.md')
     expect(docsRow?.items.map((i) => i.key)).toEqual(['README.md', 'info'])
+  })
+
+  it('anchors the docs row on the doc file that changed', () => {
+    // The row opens a diff of its path: anchored on preset.json, a README diff
+    // rendered under the manifest, which does not carry it.
+    const built = buildSchemaPresetPullPlan(prepared({
+      plan: plan({ docs: [{ key: 'README.md', exists: true }] }),
+    }), 'main')
+    expect(built.files.map((f) => f.path)).toEqual(['README.md'])
+  })
+
+  it('falls back to preset.json when only the name/description moved', () => {
+    const built = buildSchemaPresetPullPlan(prepared({ plan: plan({ infoChanged: true }) }), 'main')
+    expect(built.files.map((f) => f.path)).toEqual([PRESET_MANIFEST_FILE])
   })
 
   it('calls the DDL an add when we hold none, an update when we do', () => {
@@ -295,17 +309,54 @@ describe('buildSchemaPresetPullDiff', () => {
     expect(diff.newContent).toContain('"b"')
   })
 
-  it('shows the whole descriptive block for the docs row', () => {
+  it('shows a README as markdown, not buried in a JSON blob', () => {
+    // Rendering the whole docs block as one object put the README under a
+    // preset.json heading with escaped newlines — unreadable, and it read as if
+    // the manifest carried the text. It does not: it sits in README.md.
+    const diff = buildSchemaPresetPullDiff(file('README.md'), prepared({
+      plan: plan({ docs: [{ key: 'README.md', exists: true }] }),
+      remoteDocs: { readme: { en: '# remote readme' } },
+      localPreset: { mapping: mapping(), readme: { en: '# local readme' } },
+    }))
+    expect(diff.language).toBe('markdown')
+    expect(diff.oldContent).toBe('# local readme')
+    expect(diff.newContent).toBe('# remote readme')
+  })
+
+  it('diffs the right language of a suffixed README', () => {
+    const diff = buildSchemaPresetPullDiff(file('README.fr.md'), prepared({
+      plan: plan({ docs: [{ key: 'README.fr.md', exists: true }] }),
+      remoteDocs: { readme: { en: 'english', fr: 'français' } },
+      localPreset: { mapping: mapping(), readme: { en: 'english', fr: 'ancien' } },
+    }))
+    expect(diff.oldContent).toBe('ancien')
+    expect(diff.newContent).toBe('français')
+  })
+
+  it('shows the licence text for the licence row', () => {
+    const diff = buildSchemaPresetPullDiff(file('LICENSE.md'), prepared({
+      plan: plan({ docs: [{ key: 'LICENSE.md', exists: true }] }),
+      remoteDocs: { license: { id: 'MIT', text: 'MIT text' } },
+      localPreset: { mapping: mapping() },
+    }))
+    expect(diff.language).toBe('markdown')
+    expect(diff.oldContent).toBe('')
+    expect(diff.newContent).toBe('MIT text')
+  })
+
+  it('shows only the name and description under preset.json', () => {
+    // That IS all this row writes there — the README lives in its own file.
     const diff = buildSchemaPresetPullDiff(file(PRESET_MANIFEST_FILE), prepared({
       plan: plan({ infoChanged: true }),
       remoteInfo: { presetLabel: { en: 'New' } },
       remoteDocs: { readme: { en: 'remote readme' } },
       localPreset: { mapping: mapping({ presetLabel: { en: 'Old' } }), readme: { en: 'local readme' } },
     }))
+    expect(diff.language).toBe('json')
     expect(diff.oldContent).toContain('Old')
-    expect(diff.oldContent).toContain('local readme')
     expect(diff.newContent).toContain('New')
-    expect(diff.newContent).toContain('remote readme')
+    expect(diff.oldContent).not.toContain('local readme')
+    expect(diff.newContent).not.toContain('remote readme')
   })
 
   it('sorts keys so key order never reads as a difference', () => {
