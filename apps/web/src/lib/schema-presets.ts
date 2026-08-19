@@ -140,6 +140,7 @@ const omop54: SchemaMapping = {
       conceptIdColumn: 'measurement_concept_id',
       sourceConceptIdColumn: 'measurement_source_concept_id',
       valueColumn: 'value_as_number',
+      valueUnitColumn: 'unit_source_value',
       // CDM 5.4 has no value_as_string on measurement — that column exists on
       // observation only. The verbatim source value is the closest equivalent.
       valueStringColumn: 'value_source_value',
@@ -158,7 +159,12 @@ const omop54: SchemaMapping = {
       table: 'drug_exposure',
       conceptIdColumn: 'drug_concept_id',
       sourceConceptIdColumn: 'drug_source_concept_id',
+      // `quantity` with `dose_unit_source_value` is the dose as administered
+      // (1000 mg vancomycin, 8000 UNIT epoetin). The DRUG_STRENGTH route from
+      // the OHDSI dose spec derives the same figure from the concept, but that
+      // table ships separately from the vocabulary and is often empty.
       valueColumn: 'quantity',
+      valueUnitColumn: 'dose_unit_source_value',
       patientIdColumn: 'person_id',
       dateColumn: 'drug_exposure_start_datetime',
       endDateColumn: 'drug_exposure_end_datetime',
@@ -177,6 +183,7 @@ const omop54: SchemaMapping = {
       conceptIdColumn: 'observation_concept_id',
       sourceConceptIdColumn: 'observation_source_concept_id',
       valueColumn: 'value_as_number',
+      valueUnitColumn: 'unit_source_value',
       valueStringColumn: 'value_as_string',
       patientIdColumn: 'person_id',
       dateColumn: 'observation_datetime',
@@ -336,6 +343,7 @@ const mimicIII: SchemaMapping = {
       table: 'chartevents',
       conceptIdColumn: 'itemid',
       valueColumn: 'valuenum',
+      valueUnitColumn: 'valueuom',
       valueStringColumn: 'value',
       patientIdColumn: 'subject_id',
       dateColumn: 'charttime',
@@ -345,6 +353,7 @@ const mimicIII: SchemaMapping = {
       table: 'labevents',
       conceptIdColumn: 'itemid',
       valueColumn: 'valuenum',
+      valueUnitColumn: 'valueuom',
       valueStringColumn: 'value',
       patientIdColumn: 'subject_id',
       dateColumn: 'charttime',
@@ -469,6 +478,7 @@ const mimicIV: SchemaMapping = {
       table: 'chartevents',
       conceptIdColumn: 'itemid',
       valueColumn: 'valuenum',
+      valueUnitColumn: 'valueuom',
       valueStringColumn: 'value',
       patientIdColumn: 'subject_id',
       dateColumn: 'charttime',
@@ -478,6 +488,7 @@ const mimicIV: SchemaMapping = {
       table: 'labevents',
       conceptIdColumn: 'itemid',
       valueColumn: 'valuenum',
+      valueUnitColumn: 'valueuom',
       valueStringColumn: 'value',
       patientIdColumn: 'subject_id',
       dateColumn: 'charttime',
@@ -487,6 +498,7 @@ const mimicIV: SchemaMapping = {
       table: 'inputevents',
       conceptIdColumn: 'itemid',
       valueColumn: 'amount',
+      valueUnitColumn: 'amountuom',
       patientIdColumn: 'subject_id',
       dateColumn: 'starttime',
       endDateColumn: 'endtime',
@@ -496,6 +508,7 @@ const mimicIV: SchemaMapping = {
       table: 'outputevents',
       conceptIdColumn: 'itemid',
       valueColumn: 'value',
+      valueUnitColumn: 'valueuom',
       patientIdColumn: 'subject_id',
       dateColumn: 'charttime',
       conceptDictionaryKey: 'd_items',

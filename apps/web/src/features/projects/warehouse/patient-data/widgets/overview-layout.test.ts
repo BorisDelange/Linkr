@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   buildOverviewRows,
   medianGapPx,
+  shortenDrugName,
+  sameWords,
   type OverviewConceptRow,
 } from './overview-layout'
 
@@ -21,6 +23,7 @@ function concept(
     table,
     conceptId: id,
     conceptName: `Concept ${id}`,
+    conceptCode: null,
     conceptClass,
     unit: null,
     eventCount,
@@ -170,5 +173,85 @@ describe('medianGapPx picks density over collision, not over count', () => {
   it('returns Infinity below two events, so a lone mark always draws', () => {
     expect(medianGapPx([5], 1000, 1000)).toBe(Infinity)
     expect(medianGapPx([], 1000, 1000)).toBe(Infinity)
+  })
+})
+
+/**
+ * These names are taken verbatim from a real MIMIC-IV-on-OMOP record. The gutter
+ * truncates from the right, so what matters is that the substance survives at
+ * the front — and, just as much, that two different orders never end up with the
+ * same label.
+ */
+describe('shortenDrugName puts the substance first without merging orders', () => {
+  it('moves a leading quantity to the end', () => {
+    expect(shortenDrugName('1000 ML sodium chloride 9 MG/ML Injection')).toBe(
+      'sodium chloride 9 MG/ML, 1000 ML',
+    )
+  })
+
+  it('drops the dose form when a quantity already distinguishes the row', () => {
+    expect(shortenDrugName('50 ML glucose 500 MG/ML Prefilled Syringe')).toBe(
+      'glucose 500 MG/ML, 50 ML',
+    )
+  })
+
+  it('keeps the brand, which is how clinicians name the drug', () => {
+    expect(shortenDrugName('insulin glargine 100 UNT/ML Injectable Solution [Lantus]')).toBe(
+      'insulin glargine 100 UNT/ML [Lantus], injectable solution',
+    )
+  })
+
+  it('keeps the form when there is no quantity to tell rows apart', () => {
+    expect(shortenDrugName('metoprolol tartrate 25 MG Oral Tablet')).toBe(
+      'metoprolol tartrate 25 MG, oral tablet',
+    )
+  })
+
+  it('leaves a name it does not recognise alone', () => {
+    expect(shortenDrugName('Multivitamin preparation')).toBe('Multivitamin preparation')
+  })
+
+  it('never collapses two different orders onto one label', () => {
+    // The bug this guards: dropping the quantity outright made five distinct
+    // sodium-chloride bags render as five identical rows.
+    const names = [
+      '50 ML sodium chloride 9 MG/ML Injection',
+      '100 ML sodium chloride 9 MG/ML Injection',
+      '250 ML sodium chloride 9 MG/ML Injection',
+      '500 ML sodium chloride 9 MG/ML Injection',
+      '1000 ML sodium chloride 9 MG/ML Injection',
+      'lidocaine hydrochloride 10 MG/ML Injectable Solution [Xylocaine]',
+      '2 ML lidocaine hydrochloride 10 MG/ML Injection [Xylocaine]',
+      'cholecalciferol 0.025 MG Oral Tablet',
+      'cholecalciferol 0.025 MG Oral Capsule',
+    ]
+    expect(new Set(names.map(shortenDrugName)).size).toBe(names.length)
+  })
+})
+
+/**
+ * The gutter tooltip repeats the untouched name only when shortening actually
+ * hid something. Comparing raw strings showed it for every drug: reordering
+ * "… Oral Tablet" into "…, oral tablet" changes the text without losing a word,
+ * so the tooltip said the same thing twice.
+ */
+describe('sameWords tells reordering apart from real loss', () => {
+  it('treats a reordered, re-cased label as unchanged', () => {
+    expect(
+      sameWords(
+        'bisacodyl 5 MG Delayed Release Oral Tablet',
+        'bisacodyl 5 MG Delayed Release, oral tablet',
+      ),
+    ).toBe(true)
+  })
+
+  it('reports a difference when a word is genuinely dropped', () => {
+    expect(
+      sameWords('1000 ML sodium chloride 9 MG/ML Injection', 'sodium chloride 9 MG/ML, 1000 ML'),
+    ).toBe(false)
+  })
+
+  it('does not confuse two different strengths', () => {
+    expect(sameWords('bisacodyl 5 MG', 'bisacodyl 10 MG')).toBe(false)
   })
 })

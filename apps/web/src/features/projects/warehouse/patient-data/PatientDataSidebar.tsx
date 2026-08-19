@@ -120,21 +120,35 @@ export function PatientDataSidebar() {
   /**
    * Hand focus back to the list after a page change.
    *
-   * Paging with the arrows keeps focus, but clicking the ‹ › buttons moves it
-   * to the button — and from there the arrows do nothing, so keyboard
-   * navigation appears to die after any click-driven page change. Restoring it
-   * only when focus actually sits on a paging button avoids stealing it from
-   * the search field or anything else the user is using.
+   * A page change unmounts every row, so if focus sat on one — Radix's tooltip
+   * trigger focuses the row button, and clicking a row focuses it too — it
+   * falls back to <body> and the arrows stop working. Clicking the ‹ › buttons
+   * parks focus on the button, which is just as dead. Restoring whenever focus
+   * is no longer inside the list covers all three, while still leaving it alone
+   * when the user is typing in the search field.
    */
   const pageRef = useRef(patientPage)
+  const wantFocusRef = useRef(false)
   useEffect(() => {
-    if (pageRef.current === patientPage) return
-    pageRef.current = patientPage
-    const active = document.activeElement
-    if (active instanceof HTMLElement && active.dataset.patientPager === 'true') {
-      patientListRef.current?.focus({ preventScroll: true })
+    if (pageRef.current !== patientPage) {
+      pageRef.current = patientPage
+      // Don't grab focus from someone typing a patient id.
+      const active = document.activeElement
+      wantFocusRef.current = !(
+        active instanceof HTMLElement &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')
+      )
     }
-  }, [patientPage])
+    // Deliberately runs on every render until it succeeds, not once on the page
+    // change: the new page's rows arrive asynchronously, and while the list is
+    // still loading it is tabIndex=-1, so focus() is silently a no-op. Waiting
+    // for rows to exist is what makes this stick.
+    if (!wantFocusRef.current || patients.length === 0) return
+    const list = patientListRef.current
+    if (!list) return
+    wantFocusRef.current = false
+    list.focus({ preventScroll: true })
+  }, [patientPage, patients])
 
   const formatGender = (gender: string | undefined) => fmtGender(gender, genderValues, t)
   const formatGenderShort = (gender: string | undefined) => fmtGenderShort(gender, genderValues, t)
@@ -407,6 +421,14 @@ export function PatientDataSidebar() {
                           <Tooltip key={p.patient_id}>
                             <TooltipTrigger asChild>
                               <button
+                                // Radix opens a tooltip on focus as well as on
+                                // hover. A row takes focus when clicked, and
+                                // again when the list is refocused after a page
+                                // change, so the card appeared with the pointer
+                                // nowhere near it. composeEventHandlers skips
+                                // Radix's own handler once default is prevented,
+                                // which leaves hover untouched.
+                                onFocus={(e) => e.preventDefault()}
                                 ref={
                                   String(p.patient_id) === patientId
                                     ? selectedRowRef

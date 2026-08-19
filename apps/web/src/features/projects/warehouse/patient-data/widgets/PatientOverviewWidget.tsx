@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { usePatientChartContext } from '../PatientChartContext'
 import { useTabVisible } from '../TabVisibilityContext'
@@ -20,6 +21,8 @@ import {
   medianGapPx,
   MIN_GAP_PX,
   FEW_EVENTS,
+  shortenDrugName,
+  sameWords,
   type OverviewConceptRow,
   type OverviewRow,
 } from './overview-layout'
@@ -45,6 +48,8 @@ interface OverviewEvent {
   end: number | null
   value: number | null
   text: string | null
+  /** Only meaningful on a class/domain row, where several concepts share a row. */
+  conceptId: string | null
 }
 
 /** Whole-record density for the range selector's background. */
@@ -55,6 +60,7 @@ interface OverviewDensity {
 
 /** Buckets in the range selector's histogram — enough for a smooth strip. */
 const RANGE_BUCKETS = 240
+
 
 /** Per-source-table colours, assigned by position so any schema gets a palette. */
 const TABLE_PALETTE = [
@@ -125,6 +131,12 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const [concepts, setConcepts] = useState<OverviewConceptRow[]>([])
+  // An aggregate row's dot has to name the concept it came from, which the row
+  // itself does not know.
+  const conceptsById = useMemo(
+    () => new Map(concepts.map((c) => [c.conceptId, c])),
+    [concepts],
+  )
   const [units, setUnits] = useState<UnitStay[]>([])
   const [death, setDeath] = useState<number | null>(null)
   const [bounds, setBounds] = useState<{ lo: number; hi: number } | null>(null)
@@ -132,10 +144,13 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [overview, setOverview] = useState<OverviewDensity | null>(null)
-  /** Hover tooltip: the text plus where to put it, in viewport coordinates. */
-  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null)
+  /** Hover tooltip: its content plus where the pointer was, in viewport coords. */
+  const [tip, setTip] = useState<TipContent | null>(null)
   /** Right-click menu on a category, in viewport coordinates. */
   const [menu, setMenu] = useState<{ row: OverviewRow; x: number; y: number } | null>(null)
+  const [copyMenu, setCopyMenu] = useState<
+    { concept: OverviewConceptRow; x: number; y: number } | null
+  >(null)
 
   // Interaction state lives in refs: it changes on every mouse move and must not
   // re-render React, only repaint the canvas.
@@ -270,6 +285,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           table: String(r.table_label),
           conceptId: String(r.concept_id),
           conceptName: String(r.concept_name ?? r.concept_id),
+          conceptCode: r.concept_code == null ? null : String(r.concept_code),
           conceptClass: r.concept_class == null ? null : String(r.concept_class),
           unit: r.unit == null ? null : String(r.unit),
           eventCount: Number(r.event_count ?? 0),
@@ -410,17 +426,21 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   // --- Fetch events for rows that are drawn individually --------------------
 
   useEffect(() => {
-    if (!visible || !view || !dataSourceId || !schemaMapping || !selectedPatientId) return
+    if (!visible || !view || !bounds || !dataSourceId || !schemaMapping || !selectedPatientId) return
     const plotW = Math.max(120, size.w - 160)
     let cancelled = false
 
     const wanted = layout.rows.filter((row) => {
       if (row.kind === 'units' || row.conceptIds.length === 0) return false
       if (hiddenRef.current.has(row.table) || hiddenRef.current.has(row.key)) return false
-      // Cheap pre-test: a row whose whole-record count cannot fit individually
-      // is certainly a band. The exact call happens once its events are known.
-      const perPx = row.eventCount / plotW
-      return perPx < 1.5
+      // Scale the whole-record count down to the visible slice: eventCount spans
+      // the entire stay and never changes with zoom, so testing it directly locks
+      // every busy row — a vital sign sampled hourly — into a density band at
+      // EVERY zoom level. LIMIT caps the cost of being wrong here.
+      const recordSpan = Math.max(1, bounds.hi - bounds.lo)
+      const inView = row.eventCount * ((view.hi - view.lo) / recordSpan)
+      const ok = inView / plotW < 1.5
+      return ok
     })
 
     // A non-finite bound would make toISOString throw, which blanks the whole
@@ -433,20 +453,32 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       for (const row of wanted) {
         const key = eventKey(row, view)
         if (eventsRef.current.has(key)) continue
-        const sql = buildOverviewEventsQuery(
-          schemaMapping,
-          selectedPatientId,
-          selectedVisitId,
-          row.table,
-          row.conceptIds,
-          fromIso,
-          toIso,
-          EVENT_FETCH_LIMIT,
-          stayWindow,
-        )
+        const build = (omitValueString: boolean) =>
+          buildOverviewEventsQuery(
+            schemaMapping,
+            selectedPatientId,
+            selectedVisitId,
+            row.table,
+            row.conceptIds,
+            fromIso,
+            toIso,
+            EVENT_FETCH_LIMIT,
+            stayWindow,
+            omitValueString,
+          )
+        const sql = build(false)
         if (!sql) continue
         try {
-          const raw = await queryDataSource(dataSourceId, sql)
+          let raw: Record<string, unknown>[]
+          try {
+            raw = await queryDataSource(dataSourceId, sql)
+          } catch (err) {
+            // A stale mapping can name a value column the table lacks. Retry
+            // without it: the events still draw, only the text tooltip is lost.
+            const retry = build(true)
+            if (!retry || retry === sql) throw err
+            raw = await queryDataSource(dataSourceId, retry)
+          }
           if (cancelled) return
           eventsRef.current.set(
             key,
@@ -455,11 +487,16 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
               end: toMs(r.event_end),
               value: r.value_number == null ? null : Number(r.value_number),
               text: r.value_string == null ? null : String(r.value_string),
+              conceptId: r.concept_id == null ? null : String(r.concept_id),
             })),
           )
           repaint()
-        } catch {
-          // A row that fails to load simply stays a density band.
+        } catch (err) {
+          // A row that fails to load falls back to a density band — which looks
+          // exactly like a row that was aggregated on purpose. Staying silent
+          // here hid a broken column behind a plausible-looking figure, so the
+          // failure is always reported even though it is not fatal.
+          console.warn('[patient-overview] events query failed for', row.label, err)
           eventsRef.current.set(key, [])
         }
       }
@@ -468,7 +505,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     return () => {
       cancelled = true
     }
-  }, [visible, view, layout, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, stayWindow, size.w, repaint])
+  }, [visible, view, bounds, layout, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, stayWindow, size.w, repaint])
 
   // --- Paint ----------------------------------------------------------------
 
@@ -959,10 +996,10 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         setTip(null)
         return
       }
-      const text = describeHit(hit, px, py, inGutter, view, t)
-      setTip(text ? { text, x: e.clientX, y: e.clientY } : null)
+      const content = describeHit(hit, px, py, inGutter, view, t, conceptsById)
+      setTip(content ? { ...content, x: e.clientX, y: e.clientY } : null)
     },
-    [view, bounds, hitRange, repaint, rebuild, t],
+    [view, bounds, hitRange, repaint, rebuild, t, conceptsById],
   )
 
   const onMouseUp = useCallback(() => {
@@ -1002,16 +1039,32 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       const px = e.clientX - rect.left
       const py = e.clientY - rect.top
       const l = layoutRef.current
-      if (!l.length || px >= l[0].plotL) return
+      if (!l.length) return
       const hit = l.find((r) => py >= r.y && py < r.y + r.rowH)
+      if (!hit || hit.row.kind === 'units') return
+
+      // Over the plot, the menu is about the concept under the cursor rather
+      // than the category: identifiers are what you want to carry elsewhere.
+      if (px >= l[0].plotL) {
+        const mark = hit.marks?.find((m) => px >= m.x0 && px <= m.x1 && py >= m.y0 && py <= m.y1)
+        const id = mark?.event?.conceptId ?? (hit.row.mixed ? null : hit.row.conceptIds[0])
+        const c = id ? conceptsById.get(String(id)) : undefined
+        if (!c) return
+        e.preventDefault()
+        setTip(null)
+        setMenu(null)
+        setCopyMenu({ concept: c, x: e.clientX, y: e.clientY })
+        return
+      }
+
       // Right-clicking a concept acts on the category it belongs to, so the
       // menu never misses when the cursor is a row or two off.
-      if (!hit || hit.row.kind === 'units') return
       e.preventDefault()
       setTip(null)
+      setCopyMenu(null)
       setMenu({ row: hit.row, x: e.clientX, y: e.clientY })
     },
-    [],
+    [conceptsById],
   )
 
   const onDoubleClick = useCallback(
@@ -1089,7 +1142,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           onKeyDown={onKeyDown}
         />
       )}
-      {tip && <HoverTip {...tip} />}
+      {tip && <HoverTip tip={tip} />}
       {menu && (
         <CategoryMenu
           row={menu.row}
@@ -1100,6 +1153,15 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           hidden={hiddenRef.current}
           onClose={() => setMenu(null)}
           onChanged={rebuild}
+          t={t}
+        />
+      )}
+      {copyMenu && (
+        <ConceptCopyMenu
+          concept={copyMenu.concept}
+          x={copyMenu.x}
+          y={copyMenu.y}
+          onClose={() => setCopyMenu(null)}
           t={t}
         />
       )}
@@ -1119,6 +1181,8 @@ interface Mark {
   /** What this mark stands for, so the tooltip can name it. */
   event?: OverviewEvent
   unit?: UnitStay
+  /** Events drawn at the same spot, when the mark stands for more than one. */
+  merged?: OverviewEvent[]
 }
 
 interface LayoutRow {
@@ -1269,14 +1333,29 @@ function drawEvents(
     })
     ctx.stroke()
 
-    ctx.fillStyle = shade(colour, 0.95)
+    // Points only where they can be told apart. The gate is the distance to the
+    // previous drawn point, not the row's average spacing: events cluster, so an
+    // average taken over a long quiet stretch hides every point in the busy one.
     const r = rowH >= 26 ? 2.5 : 2
+    ctx.fillStyle = shade(colour, 1)
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 1
+    let lastPx = -Infinity
+    for (const e of nums) {
+      const px = x(e.start)
+      if (px - lastPx < 2 * r + 1) continue
+      lastPx = px
+      ctx.beginPath()
+      ctx.arc(px, yFor(e.value as number), r, 0, Math.PI * 2)
+      ctx.fill()
+      // A white rim, or a point sitting on its own line is invisible.
+      ctx.stroke()
+    }
+    // Hit boxes exist whether or not the point was drawn: the value is still
+    // there to be read, and the line is what the pointer is aiming at.
     for (const e of nums) {
       const px = x(e.start)
       const py = yFor(e.value as number)
-      ctx.beginPath()
-      ctx.arc(px, py, r, 0, Math.PI * 2)
-      ctx.fill()
       marks.push({ x0: px - 4, x1: px + 4, y0: py - 5, y1: py + 5, event: e })
     }
     return marks
@@ -1284,12 +1363,22 @@ function drawEvents(
 
   const r = Math.max(2.5, Math.min(4, (rowH - 8) / 3))
   ctx.fillStyle = shade(colour, 0.85)
+  // Dots closer together than their own diameter paint on top of each other, so
+  // they become one mark carrying every event under it — otherwise the tooltip
+  // reports whichever one happened to be last in the array.
+  let last: Mark | null = null
   for (const e of events) {
     const px = x(e.start)
+    if (last && px - last.x1 <= 0) {
+      last.x1 = px + r + 2
+      last.merged?.push(e)
+      continue
+    }
     ctx.beginPath()
     ctx.arc(px, mid, r, 0, Math.PI * 2)
     ctx.fill()
-    marks.push({ x0: px - r - 2, x1: px + r + 2, y0: mid - r - 2, y1: mid + r + 2, event: e })
+    last = { x0: px - r - 2, x1: px + r + 2, y0: mid - r - 2, y1: mid + r + 2, event: e, merged: [e] }
+    marks.push(last)
   }
   return marks
 }
@@ -1438,12 +1527,24 @@ function unitCount(units: UnitStay[]): number {
   return new Set(units.map((u) => u.name)).size
 }
 
+/** A tooltip's content plus where the pointer was, in viewport coordinates. */
+interface TipContent {
+  title: string
+  /** Vocabulary code, shown small and muted directly under the name. */
+  code?: string | null
+  /** The headline figure, shown large: a value with its unit, or a unit name. */
+  value?: string
+  lines: string[]
+  x: number
+  y: number
+}
+
 /**
- * Tooltip text for whatever is under the cursor.
+ * Tooltip content for whatever is under the cursor.
  *
  * In the gutter it answers "what is this row, and what did the label say before
  * it was cut". Over the plot it names the exact event, with its value and unit —
- * or, on a density band, the bucket's count and the fact that zooming reveals
+ * or, on a density band, the bucket's count and whether zooming would reveal
  * the values.
  */
 function describeHit(
@@ -1453,18 +1554,33 @@ function describeHit(
   inGutter: boolean,
   view: { lo: number; hi: number },
   t: (k: string, o?: Record<string, unknown>) => string,
-): string | null {
+  conceptsById: Map<string, OverviewConceptRow>,
+): Omit<TipContent, 'x' | 'y'> | null {
   const label = rowLabel(hit.row, t)
 
   if (inGutter) {
     // The full name matters most when the gutter had to truncate it.
-    const parts = [label]
-    if (hit.row.kind === 'concept' && hit.row.unit) parts.push(`(${hit.row.unit})`)
+    const nEvents = Number(hit.row.eventCount)
+    const events = `${fmtN(hit.row.eventCount)} ${
+      nEvents === 1 ? t('patient_data.overview_events_one') : t('patient_data.overview_events')
+    }`
+    const nConcepts = hit.row.kind === 'concept' ? 0 : Number(hit.row.conceptCount)
     const counts =
       hit.row.kind === 'concept'
-        ? `${fmtN(hit.row.eventCount)} ${t('patient_data.overview_events')}`
-        : `${fmtN(hit.row.conceptCount)} ${t('patient_data.overview_concepts')} · ${fmtN(hit.row.eventCount)} ${t('patient_data.overview_events')}`
-    return `${parts.join(' ')}\n${counts}`
+        ? events
+        : `${fmtN(hit.row.conceptCount)} ${
+            nConcepts === 1
+              ? t('patient_data.overview_concepts_one')
+              : t('patient_data.overview_concepts')
+          } · ${events}`
+    const lines = [counts]
+    if (hit.row.kind === 'concept' && hit.row.unit) lines.push(hit.row.unit)
+    // Show the original name only when shortening actually dropped something.
+    // Comparing the raw strings would show it for every drug, since reordering
+    // "Oral Tablet" into ", oral tablet" changes the text without hiding a word.
+    const full = hit.row.kind === 'concept' ? hit.row.label : label
+    if (!sameWords(full, label)) lines.unshift(full)
+    return { title: label, code: hit.row.conceptCode, lines }
   }
 
   // Individual marks: name the event under the cursor.
@@ -1477,7 +1593,10 @@ function describeHit(
         bestD = 0
         break
       }
-      const d = Math.abs((m.x0 + m.x1) / 2 - px)
+      // Distance to the mark's EDGE, not its centre: a stay bar can be hundreds
+      // of pixels wide, and measuring from its centre puts the cursor "far" from
+      // a bar it is sitting right next to.
+      const d = px < m.x0 ? m.x0 - px : px > m.x1 ? px - m.x1 : 0
       if (d < bestD) {
         bestD = d
         best = m
@@ -1486,20 +1605,59 @@ function describeHit(
     if (best && bestD <= 6) {
       if (best.unit) {
         const u = best.unit
-        const dur = u.end != null ? ` · ${fmtDur(u.end - u.start)}` : ''
-        return `${u.name}\n${fmtStamp(u.start)}${u.end != null ? ` → ${fmtStamp(u.end)}` : ''}${dur}`
+        const when =
+          u.end != null
+            ? `${fmtStamp(u.start)} → ${fmtStamp(u.end)} · ${fmtDur(u.end - u.start)}`
+            : fmtStamp(u.start)
+        // The ward's name is the headline — it is what the row exists to answer.
+        const lines = [when]
+        if (u.category && u.category !== u.name) lines.push(u.category)
+        return { title: label, value: u.name, lines }
       }
       if (best.event) {
         const e = best.event
-        const value =
-          e.value != null
+        // A number is only meaningful next to the concept it measures. On an
+        // aggregate row ("Other", a concept class) the dot stands for many
+        // concepts with different units, so `hit.row.unit` is not this event's
+        // unit and the bare figure — 12.5 of what? — says nothing.
+        const value = hit.row.mixed
+          ? undefined
+          : e.value != null
             ? `${fmtValue(e.value)}${hit.row.unit ? ` ${hit.row.unit}` : ''}`
-            : (e.text ?? '')
+            : (e.text ?? undefined)
         const when =
           e.end != null
             ? `${fmtStamp(e.start)} → ${fmtStamp(e.end)} · ${fmtDur(e.end - e.start)}`
             : fmtStamp(e.start)
-        return [label, value, when].filter(Boolean).join('\n')
+        const lines = [when]
+        // On a class/domain row the table name only repeats the header. What is
+        // actually unknown is how much this single dot stands for.
+        const merged = best.merged
+        let title = label
+        let code = hit.row.conceptCode
+        if (hit.row.mixed && (!merged || merged.length === 1) && e.conceptId) {
+          // One event on an aggregate row: with the figure suppressed, name the
+          // concept it belongs to — that is what the row itself cannot show.
+          const c = conceptsById.get(String(e.conceptId))
+          if (c) {
+            title = c.conceptName
+            code = c.conceptCode
+          }
+        }
+        if (merged && merged.length > 1) {
+          const concepts = new Set(merged.map((m) => m.conceptId).filter(Boolean)).size
+          const events = `${fmtN(merged.length)} ${
+            merged.length === 1
+              ? t('patient_data.overview_events_one')
+              : t('patient_data.overview_events')
+          }`
+          lines.push(
+            concepts > 1
+              ? `${events} · ${fmtN(concepts)} ${t('patient_data.overview_concepts')}`
+              : events,
+          )
+        }
+        return { title, code, value, lines }
       }
     }
     return null
@@ -1519,7 +1677,11 @@ function describeHit(
     const hint = hit.row.mixed
       ? t('patient_data.overview_open_category')
       : t('patient_data.overview_zoom_hint')
-    return `${label}\n${fmtN(n)} ${unit}\n${fmtStamp(t0)} → ${fmtStamp(t1)}\n${hint}`
+    return {
+      title: label,
+      value: `${fmtN(n)} ${unit}`,
+      lines: [`${fmtStamp(t0)} → ${fmtStamp(t1)}`, hint],
+    }
   }
   return null
 }
@@ -1562,6 +1724,8 @@ function fmtAxis(ms: number, withClock: boolean, locale: string): string {
     : d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+const DRUG_TABLE = /drug/i
+
 /** Generic row labels go through i18n; concept and table names come from the data. */
 function rowLabel(row: OverviewRow, t: (k: string, o?: Record<string, unknown>) => string): string {
   if (row.kind === 'other') {
@@ -1578,34 +1742,56 @@ function rowLabel(row: OverviewRow, t: (k: string, o?: Record<string, unknown>) 
     if (row.label === '__unmapped') return t('patient_data.overview_other')
     return row.label
   }
+  if (row.kind === 'concept' && DRUG_TABLE.test(row.table)) return shortenDrugName(row.label)
   return row.label.replace(/_/g, ' ')
 }
 
 /**
- * Hover tooltip, positioned in viewport coordinates and flipped near the edges
- * so it never falls outside the window.
+ * Hover tooltip, in the prototype's layout: the name on top, the value large
+ * beneath it, then the timing in muted text.
+ *
+ * Rendered through a portal to document.body. Each react-grid item is a
+ * transformed stacking context, and a `fixed` element inside a CSS transform is
+ * positioned relative to THAT ancestor rather than the viewport — so a tooltip
+ * left in place drifts by the widget's own screen offset, which is why it moved
+ * when the sidebar was collapsed.
  */
-function HoverTip({ text, x, y }: { text: string; x: number; y: number }) {
+function HoverTip({ tip }: { tip: TipContent }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState({ left: x + 14, top: y + 16 })
+  const [pos, setPos] = useState({ left: tip.x + 14, top: tip.y + 16 })
+
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    // Measured after paint, because flipping near an edge needs the tooltip's
-    // real size. Only set when it actually moves, so this cannot loop.
+    // Measured after paint, because flipping near an edge needs the real size.
     const r = el.getBoundingClientRect()
-    const left = Math.max(6, x + 14 + r.width > innerWidth - 8 ? x - r.width - 14 : x + 14)
-    const top = Math.max(6, y + 16 + r.height > innerHeight - 8 ? y - r.height - 10 : y + 16)
+    const left = Math.max(
+      6,
+      tip.x + 14 + r.width > window.innerWidth - 8 ? tip.x - r.width - 14 : tip.x + 14,
+    )
+    const top = Math.max(
+      6,
+      tip.y + 16 + r.height > window.innerHeight - 8 ? tip.y - r.height - 10 : tip.y + 16,
+    )
     setPos((prev) => (prev.left === left && prev.top === top ? prev : { left, top }))
-  }, [x, y, text])
-  return (
+  }, [tip])
+
+  return createPortal(
     <div
       ref={ref}
-      className="pointer-events-none fixed z-50 max-w-[340px] whitespace-pre-line rounded bg-slate-900 px-2 py-1.5 text-[10px] leading-snug text-white shadow-lg"
+      className="pointer-events-none fixed z-[9999] max-w-[340px] space-y-1 rounded-md bg-slate-900 px-3 py-2 text-white shadow-lg"
       style={{ left: pos.left, top: pos.top }}
     >
-      {text}
-    </div>
+      <div className="text-xs font-semibold leading-normal">{tip.title}</div>
+      {tip.code && <div className="text-[10px] leading-normal text-slate-400">{tip.code}</div>}
+      {tip.value && <div className="text-xs leading-normal text-slate-100">{tip.value}</div>}
+      {tip.lines.map((line, i) => (
+        <div key={i} className="text-[10px] leading-normal text-slate-400">
+          {line}
+        </div>
+      ))}
+    </div>,
+    document.body,
   )
 }
 
@@ -1756,10 +1942,12 @@ function CategoryMenu({
     { label: t('patient_data.overview_show_all'), icon: 'show', run: () => hidden.clear() },
   ]
 
-  return (
+  // Portalled for the same reason as the tooltip: `fixed` inside a react-grid
+  // item is positioned against that transformed ancestor, not the viewport.
+  return createPortal(
     <div
       ref={ref}
-      className="fixed z-50 min-w-[200px] rounded-md border bg-popover p-1 shadow-md"
+      className="fixed z-[9999] min-w-[200px] rounded-md border bg-popover p-1 shadow-md"
       style={{ left: pos.left, top: pos.top }}
     >
       {items.map((it, i) =>
@@ -1777,7 +1965,8 @@ function CategoryMenu({
           </button>
         ),
       )}
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -1795,6 +1984,8 @@ function MenuIcon({ name }: { name: string }) {
     show: 'M1 7 C3 3.5 11 3.5 13 7 C11 10.5 3 10.5 1 7 Z M5.2 7 A1.8 1.8 0 1 0 8.8 7 A1.8 1.8 0 1 0 5.2 7',
     hide: 'M1 7 C3 3.5 11 3.5 13 7 C11 10.5 3 10.5 1 7 Z M2 12 L12 2',
     others: 'M2 3.5 L12 3.5 M2 7 L12 7 M2 10.5 L12 10.5',
+    copy: 'M5 5 L5 2.5 L12 2.5 L12 9.5 L9.5 9.5 M2 5 L9 5 L9 12 L2 12 Z',
+    check: 'M2.5 7.5 L5.5 10.5 L11.5 3.5',
   }
   return (
     <svg
@@ -1820,5 +2011,98 @@ function Message({ text, tone }: { text: string; tone?: 'error' }) {
     >
       {text}
     </div>
+  )
+}
+
+/**
+ * Right-click actions on a data point: carry the concept's identifiers out.
+ *
+ * The name is what you read, but the id and the code are what you paste into a
+ * query or a vocabulary browser — and neither is selectable on a canvas.
+ */
+function ConceptCopyMenu({
+  concept,
+  x,
+  y,
+  onClose,
+  t,
+}: {
+  concept: OverviewConceptRow
+  x: number
+  y: number
+  onClose: () => void
+  t: (k: string, o?: Record<string, unknown>) => string
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x, top: y })
+  const [copied, setCopied] = useState<string | null>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setPos({
+      left: Math.min(x, innerWidth - r.width - 6),
+      top: Math.min(y, innerHeight - r.height - 6),
+    })
+  }, [x, y])
+
+  useEffect(() => {
+    const away = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose()
+    }
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('mousedown', away, true)
+    document.addEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('mousedown', away, true)
+      document.removeEventListener('keydown', esc)
+    }
+  }, [onClose])
+
+  // The menu stays open briefly after a copy so the tick is actually seen.
+  const copy = (value: string, key: string) => () => {
+    void navigator.clipboard.writeText(value).then(() => {
+      setCopied(key)
+      setTimeout(onClose, 600)
+    })
+  }
+
+  const items = [
+    { key: 'name', label: t('patient_data.overview_copy_name'), value: concept.conceptName },
+    { key: 'id', label: t('patient_data.overview_copy_id'), value: concept.conceptId },
+    ...(concept.conceptCode
+      ? [{ key: 'code', label: t('patient_data.overview_copy_code'), value: concept.conceptCode }]
+      : []),
+  ]
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[9999] min-w-[220px] rounded-md border bg-popover p-1 shadow-md"
+      style={{ left: pos.left, top: pos.top }}
+    >
+      <div className="truncate px-2 py-1 text-[10px] text-muted-foreground">
+        {concept.conceptName}
+      </div>
+      <div className="my-1 h-px bg-border" />
+      {items.map((it) => (
+        <button
+          key={it.key}
+          type="button"
+          onClick={copy(it.value, it.key)}
+          className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-accent"
+        >
+          <MenuIcon name={copied === it.key ? 'check' : 'copy'} />
+          <span className="flex-1 truncate">{it.label}</span>
+          <span className="max-w-[90px] truncate font-mono text-[10px] text-muted-foreground">
+            {it.value}
+          </span>
+        </button>
+      ))}
+    </div>,
+    document.body,
   )
 }

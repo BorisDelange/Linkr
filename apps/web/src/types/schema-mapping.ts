@@ -229,6 +229,13 @@ export interface EventTable {
   valueColumn?: string
   /** String/categorical value column (value_as_string, value, val_text). */
   valueStringColumn?: string
+  /**
+   * Column holding the value's unit as text (`unit_source_value`, MIMIC-IV
+   * `valueuom`). A number without its unit is not a measurement, so the overview
+   * shows it beside the value. Distinct from `visitDetailTable.unitColumn`,
+   * which means a hospital ward.
+   */
+  valueUnitColumn?: string
   /** Patient FK column. Defaults to patientTable.idColumn name if omitted. */
   patientIdColumn?: string
   /** Event date column (measurement_datetime, charttime, document_date, start_at). */

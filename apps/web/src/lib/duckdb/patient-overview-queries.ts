@@ -88,6 +88,10 @@ function buildInventoryPart(
     ? `MAX(c."${dict.nameColumn}")`
     : `MAX(CAST(e."${et.conceptIdColumn}" AS VARCHAR))`
   const classExpr = dict ? classColumnExpr(dict) : 'NULL'
+  // The code identifies the concept outside this database — it is what you paste
+  // into a vocabulary browser or another site's mapping — so it travels with the
+  // name into the tooltip and the copy menu.
+  const codeExpr = dict?.codeColumn ? `MAX(c."${dict.codeColumn}")` : 'NULL'
   const join = dict
     ? `\nLEFT JOIN "${dict.table}" c ON ${buildConceptJoinCondition('e', 'c', et, dict)}`
     : ''
@@ -95,6 +99,7 @@ function buildInventoryPart(
   return `SELECT '${escSql(label)}' AS table_label,
   CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_id,
   ${nameExpr} AS concept_name,
+  ${codeExpr} AS concept_code,
   ${classExpr} AS concept_class,
   ${unitExpr} AS unit,
   COUNT(*) AS event_count,
@@ -182,6 +187,14 @@ export function buildOverviewEventsQuery(
   to: string,
   limit: number,
   stay: OverviewStayWindow | null = null,
+  /**
+   * Drop the free-text value column. A mapping saved before a preset was fixed
+   * can name a column the table does not have — `measurement.value_as_string`
+   * exists in CDM 5.4 on `observation` only — and the whole query then fails.
+   * The text is a tooltip nicety; the timestamps are the figure, so the caller
+   * retries without it rather than losing the row entirely.
+   */
+  omitValueString = false,
 ): string | null {
   const et = mapping.eventTables?.[tableLabel]
   if (!et || !et.dateColumn || conceptIds.length === 0) return null
@@ -192,7 +205,8 @@ export function buildOverviewEventsQuery(
   const conceptFilter = buildConceptFilter(et, conceptIds)
   const endExpr = et.endDateColumn ? `e."${et.endDateColumn}"` : 'NULL'
   const valExpr = et.valueColumn ? `e."${et.valueColumn}"` : 'NULL'
-  const strExpr = et.valueStringColumn ? `e."${et.valueStringColumn}"` : 'NULL'
+  const strExpr =
+    et.valueStringColumn && !omitValueString ? `e."${et.valueStringColumn}"` : 'NULL'
   // An event overlapping the window matters even if it started before it — a
   // drip running across the whole view would otherwise vanish when zoomed into.
   const overlap = et.endDateColumn
@@ -346,8 +360,11 @@ export function overviewSupportsClasses(mapping: SchemaMapping): boolean {
 
 /** A unit-of-measure column on the event table, when the model has one. */
 function pickUnitColumn(et: EventTable): string | undefined {
+  // `unitColumn` on an event table is a legacy spelling; on visitDetailTable the
+  // same name means a hospital ward, which is why the unit of measure needed one
+  // of its own.
   const extra = et as EventTable & { unitColumn?: string }
-  return extra.unitColumn
+  return et.valueUnitColumn ?? extra.unitColumn
 }
 
 /** Bucket index of a timestamp within [from, to], clamped to the last bucket. */
