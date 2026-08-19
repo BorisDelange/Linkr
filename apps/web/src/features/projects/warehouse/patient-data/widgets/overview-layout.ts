@@ -44,6 +44,8 @@ export interface OverviewRow {
   unit?: string | null
   /** Vocabulary code, on single-concept rows only. */
   conceptCode?: string | null
+  /** The concept's own id, on single-concept rows only. */
+  conceptId?: string | null
   durational: boolean
   /** For "other" rows that are scrolled: how many concepts sit outside the window. */
   scrolledAbove?: number
@@ -207,6 +209,7 @@ export function buildOverviewRows(opts: BuildRowsOptions): BuildRowsResult {
     mixed: false,
     unit: c.unit,
     conceptCode: c.conceptCode,
+    conceptId: c.conceptId,
     durational: c.durational,
   })
 

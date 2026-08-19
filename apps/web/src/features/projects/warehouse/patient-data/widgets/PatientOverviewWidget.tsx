@@ -1517,6 +1517,15 @@ function roundRect(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * The concept's identifiers on one muted line: the id, then the vocabulary code.
+ * Either may be missing — MIMIC's d_items has no code column — so the separator
+ * only appears between two present values.
+ */
+function conceptRef(id?: string | null, code?: string | null): string | null {
+  return [id, code].filter(Boolean).join(' · ') || null
+}
+
 /** Cache key: a row's events depend on the row and the window they were fetched for. */
 function eventKey(row: OverviewRow, view: { lo: number; hi: number }): string {
   return `${row.key}|${row.kind}|${row.conceptIds.join(',')}|${Math.round(view.lo)}|${Math.round(view.hi)}`
@@ -1585,7 +1594,7 @@ function describeHit(
     // "Oral Tablet" into ", oral tablet" changes the text without hiding a word.
     const full = hit.row.kind === 'concept' ? hit.row.label : label
     if (!sameWords(full, label)) lines.unshift(full)
-    return { title: label, code: hit.row.conceptCode, lines }
+    return { title: label, code: conceptRef(hit.row.conceptId, hit.row.conceptCode), lines }
   }
 
   // Individual marks: name the event under the cursor.
@@ -1628,18 +1637,17 @@ function describeHit(
         const unit = hit.row.unit ?? ''
         const rate = hourlyRate(e.value, e.start, e.end)
         const total = e.value != null ? `${fmtValue(e.value)}${unit ? ` ${unit}` : ''}` : null
-        // The total is what was actually recorded, so it leads. The rate is an
-        // average derived from a window that may be a prescription period rather
-        // than an administration, so it sits below with the route beside it.
-        const value = hit.row.mixed ? undefined : (total ?? e.text ?? undefined)
+        // Dose and rate read as one fact — "500 mg · 55.56 mg/h" — because for an
+        // infusion neither answers the question alone. The rate stays an average
+        // over the recorded window, which is why the route sits below it.
+        const dose =
+          total && rate != null ? `${total} · ${fmtValue(rate)} ${unit}/h` : total
+        const value = hit.row.mixed ? undefined : (dose ?? e.text ?? undefined)
         const when =
           e.end != null
             ? `${fmtStamp(e.start)} → ${fmtStamp(e.end)} · ${fmtDur(e.end - e.start)}`
             : fmtStamp(e.start)
         const lines = [when]
-        if (rate != null && total && !hit.row.mixed) {
-          lines.unshift(`${fmtValue(rate)} ${unit}/h`)
-        }
         // The route is what tells a drip from a single shot: the standard
         // vocabulary calls both "Intravenous", so the reader judges, not the code.
         if (e.route) lines.push(e.route)
@@ -1647,14 +1655,14 @@ function describeHit(
         // actually unknown is how much this single dot stands for.
         const merged = best.merged
         let title = label
-        let code = hit.row.conceptCode
+        let code = conceptRef(hit.row.conceptId, hit.row.conceptCode)
         if (hit.row.mixed && (!merged || merged.length === 1) && e.conceptId) {
           // One event on an aggregate row: with the figure suppressed, name the
           // concept it belongs to — that is what the row itself cannot show.
           const c = conceptsById.get(String(e.conceptId))
           if (c) {
             title = c.conceptName
-            code = c.conceptCode
+            code = conceptRef(c.conceptId, c.conceptCode)
           }
         }
         if (merged && merged.length > 1) {
