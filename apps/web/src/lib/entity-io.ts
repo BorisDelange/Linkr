@@ -988,7 +988,9 @@ export async function buildProjectZip(
   // Optional slice: partial storages (and pre-concept-list fixtures) omit it.
   const conceptLists = (await storage.conceptLists?.getByProject(projectUid)) ?? []
   for (const l of conceptLists) {
-    const label = localized(l.name) || l.id
+    // 'en' like every other export path: a file name must not depend on the
+    // UI language, or the same project exports to different paths per user.
+    const label = localized(l.name, 'en') || l.id
     zip.file(`concept-lists/${slugify(label)}.json`, json(stripInstanceFields(l)))
   }
 

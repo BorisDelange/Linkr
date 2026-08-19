@@ -589,7 +589,7 @@ describe('datasetToCsv', () => {
 describe('importProjectContent — server-mode datasets', () => {
   const emptyParsed = (over: Partial<ParsedProjectZip>): ParsedProjectZip => ({
     project: { uid: 'p1', name: { en: 'P' } } as unknown as ParsedProjectZip['project'],
-    ideFiles: [], pipelines: [], cohorts: [], connections: [],
+    ideFiles: [], pipelines: [], cohorts: [], connections: [], conceptLists: [],
     dashboards: [], dashboardTabs: [], dashboardWidgets: [],
     datasetFiles: [], datasetAnalyses: [], datasetData: [], datasetRawFiles: [],
     attachmentsMeta: [], attachmentBlobs: new Map(), ...over,
@@ -797,6 +797,7 @@ describe('importProjectContent — selective groups (project pull)', () => {
     pipelines: [{ id: 'pp1', name: { en: 'PL' } } as unknown as ParsedProjectZip['pipelines'][number]],
     cohorts: [{ id: 'c1', name: 'Coh', level: 'visit' } as unknown as ParsedProjectZip['cohorts'][number]],
     connections: [{ id: 'db1', name: 'DB' } as unknown as ParsedProjectZip['connections'][number]],
+    conceptLists: [],
     dashboards: [{ id: 'd1', name: { en: 'Dash' } } as unknown as ParsedProjectZip['dashboards'][number]],
     dashboardTabs: [], dashboardWidgets: [],
     datasetFiles: [], datasetAnalyses: [], datasetData: [], datasetRawFiles: [],
@@ -1267,7 +1268,7 @@ describe('§4 projectUid-scoped dashboard ids', () => {
   // dashboard's filterConfig has no id and a key-based scope.
   const cleanBundle = (): ParsedProjectZip => ({
     project: { name: { en: 'P' }, lineageId: 'lin-abc' } as unknown as ParsedProjectZip['project'],
-    ideFiles: [], pipelines: [], cohorts: [], connections: [],
+    ideFiles: [], pipelines: [], cohorts: [], connections: [], conceptLists: [],
     dashboards: [{
       projectUid: '', name: { en: 'Overview' }, gridV: 2,
       filterConfig: [{
@@ -1347,7 +1348,7 @@ describe('§4 projectUid-scoped dashboard ids', () => {
   it('still imports a legacy UUID-based bundle (mapId path)', async () => {
     const legacy: ParsedProjectZip = {
       project: { uid: 'p1', name: { en: 'P' } } as unknown as ParsedProjectZip['project'],
-      ideFiles: [], pipelines: [], cohorts: [], connections: [],
+      ideFiles: [], pipelines: [], cohorts: [], connections: [], conceptLists: [],
       dashboards: [{
         id: 'dash-uuid', projectUid: 'p1', name: { en: 'D' }, gridV: 2,
         filterConfig: [{

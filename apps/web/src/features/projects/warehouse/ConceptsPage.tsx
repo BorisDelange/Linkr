@@ -320,7 +320,9 @@ export function ConceptsPage() {
   }, [availableColumns])
 
   // Dictionary columns get their options from the imported sets, not from SQL.
-  const allFilterOptions = useMemo(
+  // Annotated: conceptSetOptions has literal keys, so the spread would infer an
+  // object with only those three and reject the dynamic column ids below.
+  const allFilterOptions = useMemo<Record<string, string[]>>(
     () => ({ ...filterOptions, ...conceptSetOptions }),
     [filterOptions, conceptSetOptions],
   )
