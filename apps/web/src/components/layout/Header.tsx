@@ -497,6 +497,7 @@ export function Header() {
     <EntityActionsMenu
       item={schemaItem}
       {...schemaActions}
+      syncScope="schema-presets"
       align="start"
       onDeleted={handleEntityDeleted}
       open={schemaMenuOpen}
