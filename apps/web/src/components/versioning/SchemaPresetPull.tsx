@@ -5,8 +5,10 @@ import {
   applySchemaPresetPull,
   prepareSchemaPresetPull,
   type PreparedSchemaPresetPull,
+  type SchemaPresetPullGroup,
 } from '@/lib/schema-preset-pull'
 import { buildSchemaPresetPullPlan } from '@/lib/schema-preset-pull-plan-builder'
+import { SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
 import { wholeFileId, type PullDecision, type PullPlan } from '@/lib/pull-plan'
 import { PullPanel } from './PullPanel'
 
@@ -100,15 +102,18 @@ export function SchemaPresetPull({ presetId, branch, remoteHead, mode, onPulled 
     setError(null)
     try {
       // Every row is a whole-file row, so the verdict hangs off the FILE id.
-      const paths = new Set<string>()
+      // The row's path identifies its group: schema.ddl anchors the schema,
+      // preset.json the docs — see buildSchemaPresetPullPlan.
+      const groups = new Set<SchemaPresetPullGroup>()
       for (const file of plan.files) {
-        if (decisions.get(wholeFileId(file)) === 'accept') paths.add(file.path)
+        if (decisions.get(wholeFileId(file)) !== 'accept') continue
+        groups.add(file.path === SCHEMA_PRESET_DDL_FILE ? 'schema' : 'docs')
       }
       await applySchemaPresetPull(presetId, prepared, {
-        paths,
+        groups,
         // Taking nothing IS the resolution "keep mine" — but only when it was
         // decided, never when the user simply hasn't ticked anything yet.
-        keepLocal: paths.size === 0,
+        keepLocal: groups.size === 0,
         decided: true,
       })
       _draftCache.delete(key)

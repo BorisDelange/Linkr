@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   isCompleteSchemaPresetPull,
   presetDocItems,
-  presetDocTarget,
+  presetInfoChanged,
+  presetInfoOf,
   presetMappingChanged,
-  schemaPresetPullPlanPaths,
+  schemaPresetPullPlanGroups,
   stripInstancePresetMapping,
   PRESET_MANIFEST_FILE,
   type SchemaPresetPullPlan,
@@ -20,16 +21,27 @@ const mapping = (over: Partial<SchemaMapping> = {}): SchemaMapping => ({
 } as SchemaMapping)
 
 const plan = (over: Partial<SchemaPresetPullPlan> = {}): SchemaPresetPullPlan => ({
+  schemaChanged: false,
   ddlChanged: false,
   mappingChanged: false,
   docs: [],
+  infoChanged: false,
   ...over,
 })
 
 describe('stripInstancePresetMapping', () => {
-  it('drops the DDL — it travels as its own file and is decided separately', () => {
+  it('drops the DDL — it travels as its own file', () => {
     const out = stripInstancePresetMapping(mapping({ ddl: 'CREATE TABLE person ();' }))
     expect(out.ddl).toBeUndefined()
+  })
+
+  it('drops the descriptive fields — they are decided with the docs', () => {
+    // Left here, renaming a preset upstream would light the SCHEMA row.
+    const out = stripInstancePresetMapping(
+      mapping({ presetLabel: { en: 'X' }, description: { en: 'D' } }),
+    )
+    expect(out.presetLabel).toBeUndefined()
+    expect(out.description).toBeUndefined()
   })
 
   it('keeps the mapping config itself', () => {
@@ -40,10 +52,16 @@ describe('stripInstancePresetMapping', () => {
 
 describe('presetMappingChanged', () => {
   it('ignores a DDL-only difference', () => {
-    // The DDL is its own row; counting it here would light both toggles for one
-    // change and make "take the config" mean "take the SQL too".
+    // The DDL is its own item in the schema row; counting it here would double
+    // up on one change.
     const local = mapping({ ddl: 'CREATE TABLE a ();' })
     const remote = stripInstancePresetMapping(mapping({ ddl: 'CREATE TABLE b ();' }))
+    expect(presetMappingChanged(local, remote)).toBe(false)
+  })
+
+  it('ignores a rename — that belongs to the docs group', () => {
+    const local = mapping({ presetLabel: { en: 'Old' } })
+    const remote = stripInstancePresetMapping(mapping({ presetLabel: { en: 'New' } }))
     expect(presetMappingChanged(local, remote)).toBe(false)
   })
 
@@ -75,6 +93,39 @@ describe('presetMappingChanged', () => {
 
   it('reports nothing when the remote has no mapping at all', () => {
     expect(presetMappingChanged(mapping(), null)).toBe(false)
+  })
+})
+
+describe('presetInfoChanged', () => {
+  it('reports a renamed preset', () => {
+    expect(presetInfoChanged(
+      mapping({ presetLabel: { en: 'Old' } }),
+      presetInfoOf(mapping({ presetLabel: { en: 'New' } })),
+    )).toBe(true)
+  })
+
+  it('reports a changed description', () => {
+    expect(presetInfoChanged(
+      mapping({ description: { en: 'A' } }),
+      presetInfoOf(mapping({ description: { en: 'B' } })),
+    )).toBe(true)
+  })
+
+  it('ignores everything structural', () => {
+    // A DDL or config change must light the schema row, not this one.
+    expect(presetInfoChanged(
+      mapping({ ddl: 'a', knownTables: ['x'] } as Partial<SchemaMapping>),
+      presetInfoOf(mapping({ ddl: 'b', knownTables: ['y'] } as Partial<SchemaMapping>)),
+    )).toBe(false)
+  })
+
+  it('reads the info off the RAW remote, not the stripped one', () => {
+    // stripInstancePresetMapping removes exactly these fields, so reading them
+    // off the stripped copy would always report "no change".
+    expect(presetInfoOf(stripInstancePresetMapping(mapping({ presetLabel: { en: 'X' } }))))
+      .toEqual({})
+    expect(presetInfoOf(mapping({ presetLabel: { en: 'X' } })))
+      .toEqual({ presetLabel: { en: 'X' } })
   })
 })
 
@@ -112,38 +163,28 @@ describe('presetDocItems', () => {
   })
 })
 
-describe('presetDocTarget', () => {
-  it('maps a docs path back to what it writes', () => {
-    expect(presetDocTarget('LICENSE.md')).toBe('license')
-    expect(presetDocTarget('README.md')).toEqual({ readmeLang: 'en' })
-    expect(presetDocTarget('README.fr.md')).toEqual({ readmeLang: 'fr' })
-  })
-
-  it('returns null for anything that is not a docs file', () => {
-    expect(presetDocTarget(SCHEMA_PRESET_DDL_FILE)).toBeNull()
-    expect(presetDocTarget(PRESET_MANIFEST_FILE)).toBeNull()
-  })
-})
-
 describe('isCompleteSchemaPresetPull', () => {
-  it('is complete only when every offered block was taken', () => {
-    const p = plan({ ddlChanged: true, mappingChanged: true })
-    const paths = schemaPresetPullPlanPaths(p)
-    expect(paths).toEqual(new Set([SCHEMA_PRESET_DDL_FILE, PRESET_MANIFEST_FILE]))
-    expect(isCompleteSchemaPresetPull(p, { paths })).toBe(true)
+  it('is complete only when every offered group was taken', () => {
+    const p = plan({ schemaChanged: true, infoChanged: true })
+    const groups = schemaPresetPullPlanGroups(p)
+    expect(groups).toEqual(new Set(['schema', 'docs']))
+    expect(isCompleteSchemaPresetPull(p, { groups })).toBe(true)
   })
 
-  it('is incomplete when a block was refused', () => {
-    // The content anchor may not advance here, or the refused block would never
+  it('is incomplete when a group was refused', () => {
+    // The content anchor may not advance here, or the refused group would never
     // be offered again.
-    const p = plan({ ddlChanged: true, mappingChanged: true })
-    expect(isCompleteSchemaPresetPull(p, {
-      paths: new Set([SCHEMA_PRESET_DDL_FILE]),
-    })).toBe(false)
+    const p = plan({ schemaChanged: true, infoChanged: true })
+    expect(isCompleteSchemaPresetPull(p, { groups: new Set(['schema']) })).toBe(false)
+  })
+
+  it('counts a docs-only change as the docs group', () => {
+    const p = plan({ docs: [{ key: 'README.md', exists: true }] })
+    expect(schemaPresetPullPlanGroups(p)).toEqual(new Set(['docs']))
   })
 
   it('is trivially complete when the plan offers nothing', () => {
-    expect(isCompleteSchemaPresetPull(plan(), { paths: new Set() })).toBe(true)
+    expect(isCompleteSchemaPresetPull(plan(), { groups: new Set() })).toBe(true)
   })
 })
 
@@ -152,6 +193,7 @@ describe('buildSchemaPresetPullPlan', () => {
     plan: plan(),
     remoteDdl: null,
     remoteMapping: null,
+    remoteInfo: {},
     remoteDocs: {},
     localPreset: undefined,
     clonedOid: 'oid-1',
@@ -159,45 +201,50 @@ describe('buildSchemaPresetPullPlan', () => {
     ...over,
   } as Parameters<typeof buildSchemaPresetPullPlan>[0])
 
-  it('orders rows by category, like the push list', () => {
-    // preset.json is 'general' (rank 0), schema.ddl is 'scripts' (rank 2) — the
-    // builder's own push order is irrelevant, buildPullFiles re-sorts.
-    const built = buildSchemaPresetPullPlan(
-      prepared({ plan: plan({ ddlChanged: true, mappingChanged: true }) }),
-      'main',
-    )
-    expect(built.files.map((f) => f.path)).toEqual([PRESET_MANIFEST_FILE, SCHEMA_PRESET_DDL_FILE])
+  it('offers two rows, one per subject', () => {
+    const built = buildSchemaPresetPullPlan(prepared({
+      plan: plan({ schemaChanged: true, ddlChanged: true, infoChanged: true }),
+    }), 'main')
+    expect(built.files.map((f) => f.path))
+      .toEqual([PRESET_MANIFEST_FILE, SCHEMA_PRESET_DDL_FILE])
   })
 
-  const ddlRow = (built: ReturnType<typeof buildSchemaPresetPullPlan>) =>
-    built.files.find((f) => f.path === SCHEMA_PRESET_DDL_FILE)
+  it('puts the DDL and the mapping config in ONE row', () => {
+    // They are one subject: a config taken without its DDL can name columns the
+    // local schema does not have.
+    const built = buildSchemaPresetPullPlan(prepared({
+      plan: plan({ schemaChanged: true, ddlChanged: true, mappingChanged: true }),
+    }), 'main')
+    const schemaRow = built.files.find((f) => f.path === SCHEMA_PRESET_DDL_FILE)
+    expect(schemaRow?.items.map((i) => i.key)).toEqual(['ddl', 'mapping'])
+    expect(schemaRow?.wholeFile).toBe(true)
+  })
+
+  it('groups the name/description with README and licence', () => {
+    const built = buildSchemaPresetPullPlan(prepared({
+      plan: plan({ docs: [{ key: 'README.md', exists: true }], infoChanged: true }),
+    }), 'main')
+    const docsRow = built.files.find((f) => f.path === PRESET_MANIFEST_FILE)
+    expect(docsRow?.items.map((i) => i.key)).toEqual(['README.md', 'info'])
+  })
 
   it('calls the DDL an add when we hold none, an update when we do', () => {
-    const added = buildSchemaPresetPullPlan(prepared({ plan: plan({ ddlChanged: true }) }), 'main')
-    expect(ddlRow(added)?.items[0].state).toBe('add')
+    const added = buildSchemaPresetPullPlan(prepared({
+      plan: plan({ schemaChanged: true, ddlChanged: true }),
+    }), 'main')
+    expect(added.files[0].items[0].state).toBe('add')
 
     const updated = buildSchemaPresetPullPlan(prepared({
-      plan: plan({ ddlChanged: true }),
+      plan: plan({ schemaChanged: true, ddlChanged: true }),
       localPreset: { mapping: mapping({ ddl: 'CREATE TABLE a ();' }) } as CustomSchemaPreset,
     }), 'main')
-    expect(ddlRow(updated)?.items[0].state).toBe('update')
-  })
-
-  it('marks every row whole-file — a half-taken DDL is not a schema', () => {
-    const built = buildSchemaPresetPullPlan(
-      prepared({ plan: plan({ ddlChanged: true, mappingChanged: true }) }),
-      'main',
-    )
-    expect(built.files.every((f) => f.wholeFile)).toBe(true)
-  })
-
-  it('classifies the DDL as a script, so it lands in a named group', () => {
-    const built = buildSchemaPresetPullPlan(prepared({ plan: plan({ ddlChanged: true }) }), 'main')
-    expect(ddlRow(built)?.category).toBe('scripts')
+    expect(updated.files[0].items[0].state).toBe('update')
   })
 
   it('carries the scope and the cloned head the cursors advance to', () => {
-    const built = buildSchemaPresetPullPlan(prepared({ plan: plan({ ddlChanged: true }) }), 'main')
+    const built = buildSchemaPresetPullPlan(prepared({
+      plan: plan({ schemaChanged: true, ddlChanged: true }),
+    }), 'main')
     expect(built.scope).toBe('schema-presets')
     expect(built.remoteHead).toBe('oid-1')
   })

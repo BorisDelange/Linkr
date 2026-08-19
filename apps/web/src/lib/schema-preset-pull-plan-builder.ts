@@ -1,10 +1,14 @@
 /**
  * Turn a prepared schema-preset pull into the generic pull plan (lib/pull-plan).
  *
- * Every row is a whole-file row: a preset repo has no tree, just three blocks
- * that are each only meaningful entire — the DDL (half a CREATE TABLE is not a
- * schema), the mapping config, and the docs. So the row IS the decision, exactly
- * as for the ETL settings block.
+ * Two rows, by SUBJECT rather than by file — see SchemaPresetPullGroup:
+ *   - the schema (schema.ddl + the mapping config that names its tables)
+ *   - the docs (README, licence, and the preset's name and description)
+ *
+ * Each row is whole: its parts are one decision, and the sub-items only spell out
+ * what that decision covers. A row is anchored on the file the user would look at
+ * in the repo — schema.ddl for the schema, preset.json for the docs, which is
+ * where the name and description live.
  *
  * There is no `conflict` state: like the ETL pull, this one has no merge base, so
  * it cannot tell "they changed it" from "we both did". `update` already warns it
@@ -13,9 +17,7 @@
 import { buildPullFiles, type PullItem, type PullPlan } from '@/lib/pull-plan'
 import { SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
 import {
-  PRESET_DDL_KEY,
   PRESET_MANIFEST_FILE,
-  PRESET_MAPPING_KEY,
   type PreparedSchemaPresetPull,
 } from '@/lib/schema-preset-pull'
 
@@ -23,41 +25,36 @@ export function buildSchemaPresetPullPlan(
   prepared: PreparedSchemaPresetPull,
   branch: string,
 ): PullPlan {
+  const { plan, localPreset } = prepared
   const rows: { path: string; items: PullItem[]; wholeFile?: boolean }[] = []
 
-  // Row order here is not the display order: buildPullFiles sorts by the
-  // category rank from gitFileMeta, so preset.json ('general') shows above
-  // schema.ddl ('scripts') — the same order the push list uses.
-  if (prepared.plan.ddlChanged) {
-    rows.push({
-      path: SCHEMA_PRESET_DDL_FILE,
-      items: [{
-        key: PRESET_DDL_KEY,
+  if (plan.schemaChanged) {
+    // Both halves are listed even when only one moved, so the row says what
+    // taking it will replace rather than only what differs today.
+    const items: PullItem[] = []
+    if (plan.ddlChanged) {
+      items.push({
+        key: 'ddl',
         label: SCHEMA_PRESET_DDL_FILE,
-        state: prepared.localPreset?.mapping?.ddl ? 'update' : 'add',
-      }],
-      wholeFile: true,
-    })
+        state: localPreset?.mapping?.ddl ? 'update' : 'add',
+      })
+    }
+    if (plan.mappingChanged) {
+      items.push({ key: 'mapping', label: PRESET_MANIFEST_FILE, state: 'update' })
+    }
+    rows.push({ path: SCHEMA_PRESET_DDL_FILE, items, wholeFile: true })
   }
 
-  if (prepared.plan.mappingChanged) {
-    rows.push({
-      path: PRESET_MANIFEST_FILE,
-      items: [{ key: PRESET_MAPPING_KEY, label: PRESET_MAPPING_KEY, state: 'update' }],
-      wholeFile: true,
-    })
-  }
-
-  for (const item of prepared.plan.docs) {
-    rows.push({
-      path: item.key,
-      items: [{
-        key: item.key,
-        label: item.key.split('/').pop() ?? item.key,
-        state: item.exists ? 'update' : 'add',
-      }],
-      wholeFile: true,
-    })
+  if (plan.docs.length > 0 || plan.infoChanged) {
+    const items: PullItem[] = plan.docs.map((item) => ({
+      key: item.key,
+      label: item.key,
+      state: item.exists ? 'update' : 'add',
+    }))
+    if (plan.infoChanged) {
+      items.push({ key: 'info', label: PRESET_MANIFEST_FILE, state: 'update' })
+    }
+    rows.push({ path: PRESET_MANIFEST_FILE, items, wholeFile: true })
   }
 
   return {

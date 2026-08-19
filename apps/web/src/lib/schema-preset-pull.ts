@@ -17,7 +17,6 @@ import type { Storage } from '@/lib/storage'
 import { getStorage } from '@/lib/storage'
 import { gitCloneToZip, gitSetSyncState } from '@/lib/api/git'
 import { cleanGitUrl } from '@/lib/git-clone'
-import { README_FILE_RE } from '@/lib/entity-tree'
 import {
   dropForeignAuthorId,
   parseImportZip,
@@ -31,12 +30,29 @@ import {
 } from '@/lib/entity-docs-pull'
 import type { LocalizedString } from '@/types'
 
-/** The manifest carrying the preset's mapping config. */
+/** The manifest carrying the preset's mapping config and its name/description. */
 export const PRESET_MANIFEST_FILE = 'preset.json'
-/** Item key for the mapping-config block (the manifest's only unit). */
-export const PRESET_MAPPING_KEY = 'mapping'
-/** Item key for the DDL block (schema.ddl's only unit). */
-export const PRESET_DDL_KEY = 'ddl'
+
+/**
+ * The two things a preset pull offers, by SUBJECT rather than by file.
+ *
+ * `schema` is the structure of the data: the DDL and the mapping config that
+ * names the tables and columns it defines. Splitting those two would let a
+ * config land that points at a column the local DDL does not have — they are
+ * one decision.
+ *
+ * `docs` is everything descriptive: README, licence, and the preset's own name
+ * and description. Independent of the structure, hence its own decision — a
+ * corrected README is worth taking without also adopting a DDL mid-rework.
+ *
+ * They straddle preset.json: the mapping config and the name/description live in
+ * the same file, so the apply writes disjoint field sets rather than whole files.
+ */
+export type SchemaPresetPullGroup = 'schema' | 'docs'
+export const SCHEMA_PRESET_PULL_GROUPS: SchemaPresetPullGroup[] = ['schema', 'docs']
+
+/** Mapping fields that are descriptive, and so travel with the docs group. */
+const DESCRIPTIVE_MAPPING_FIELDS = ['presetLabel', 'description'] as const
 
 /**
  * Preset fields a pull must NOT take, on top of the shared export list
@@ -63,20 +79,26 @@ export interface SchemaPresetPullItem {
 }
 
 export interface SchemaPresetPullPlan {
-  /** The remote DDL differs from the local one. */
+  /** The structure changed: the DDL, the mapping config, or both. */
+  schemaChanged: boolean
+  /** The DDL specifically — only used to label the row. */
   ddlChanged: boolean
-  /** The remote mapping config differs from the local one. */
+  /** The mapping config specifically — only used to label the row. */
   mappingChanged: boolean
-  /** Docs files that differ (README*.md / LICENSE.md). */
+  /** Docs that differ: README*.md / LICENSE.md, plus the name/description. */
   docs: SchemaPresetPullItem[]
+  /** The preset's own name or description changed (part of the docs group). */
+  infoChanged: boolean
 }
 
 export interface PreparedSchemaPresetPull {
   plan: SchemaPresetPullPlan
   /** Remote `schema.ddl`, or null when the repo carries none. */
   remoteDdl: string | null
-  /** Remote mapping config, minus the DDL and instance-local fields. */
+  /** Remote mapping config, minus the DDL, the descriptive and instance-local fields. */
   remoteMapping: Partial<SchemaMapping> | null
+  /** Remote name + description — the descriptive half, applied with the docs. */
+  remoteInfo: Partial<SchemaMapping>
   /** Remote README / LICENSE, read from the files beside the manifest. */
   remoteDocs: EntityDocs
   /** The local preset row — the "mine" side of every diff. */
@@ -87,30 +109,43 @@ export interface PreparedSchemaPresetPull {
 }
 
 export interface SchemaPresetPullSelection {
-  /** Chosen paths — schema.ddl, preset.json, and/or docs files. */
-  paths: Set<string>
+  /** Chosen groups — 'schema' and/or 'docs'. */
+  groups: Set<SchemaPresetPullGroup>
   /** Deliberate "keep mine": take nothing, but still anchor on the remote commit. */
   keepLocal?: boolean
   /** Every item on offer got an explicit verdict (taken or refused). */
   decided?: boolean
 }
 
-/** Map a chosen docs path back to what it writes: a readme language, or the licence. */
-export function presetDocTarget(path: string): { readmeLang: string } | 'license' | null {
-  if (/^LICENSE\.md$/i.test(path)) return 'license'
-  const m = README_FILE_RE.exec(path)
-  return m ? { readmeLang: (m[1] ?? 'en').toLowerCase() } : null
-}
-
 /**
  * Strip the fields that belong to this instance rather than to the repo, and the
- * DDL — which travels as its own file and is decided separately.
+ * DDL — which travels as its own file.
+ *
+ * The descriptive fields go too: they are decided with the docs, not with the
+ * structure, so leaving them here would make a renamed preset light the schema
+ * row.
  */
 export function stripInstancePresetMapping(remote: SchemaMapping): Partial<SchemaMapping> {
   const copy = stripInstanceFields(dropForeignAuthorId(remote)) as Record<string, unknown>
   for (const field of EXTRA_INSTANCE_PRESET_FIELDS) delete copy[field]
+  for (const field of DESCRIPTIVE_MAPPING_FIELDS) delete copy[field]
   delete copy.ddl
   return copy as Partial<SchemaMapping>
+}
+
+/**
+ * Canonical rendering of a mapping subset, for comparison.
+ *
+ * Keys are sorted into one order rather than passed to JSON.stringify as a
+ * replacer array: a replacer filters each object by ITS OWN keys, so a field
+ * present on one side only would drop out of both renderings and compare equal.
+ */
+function normMapping(m: Partial<SchemaMapping> | undefined): string {
+  if (!m) return 'null'
+  const entries = Object.entries(m)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b))
+  return JSON.stringify(entries)
 }
 
 /** Does the remote mapping config differ from the local one? */
@@ -123,22 +158,26 @@ export function presetMappingChanged(
   // shape on each. Normalising only the remote (which is what arrives already
   // stripped) would compare it against a local copy that still carries presetId
   // and friends — every preset would then report a permanent difference.
-  //
-  // The DDL is dropped by that stripping too: it is its own row, and counting it
-  // here would light both toggles for one change.
-  //
-  // Keys are sorted into one canonical order rather than passed to
-  // JSON.stringify as a replacer array: a replacer filters each object by ITS
-  // OWN keys, so a field present on one side only would drop out of both
-  // renderings and compare equal.
-  const norm = (m: Partial<SchemaMapping> | undefined) => {
-    if (!m) return 'null'
-    const entries = Object.entries(m)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b))
-    return JSON.stringify(entries)
+  return normMapping(local ? stripInstancePresetMapping(local) : undefined) !== normMapping(remote)
+}
+
+/** The descriptive half of the mapping: the preset's name and description. */
+export function presetInfoOf(m: Partial<SchemaMapping> | undefined): Partial<SchemaMapping> {
+  const out: Record<string, unknown> = {}
+  for (const field of DESCRIPTIVE_MAPPING_FIELDS) {
+    const value = (m as Record<string, unknown> | undefined)?.[field]
+    if (value !== undefined) out[field] = value
   }
-  return norm(local ? stripInstancePresetMapping(local) : undefined) !== norm(remote)
+  return out as Partial<SchemaMapping>
+}
+
+/** Does the remote name or description differ from the local one? */
+export function presetInfoChanged(
+  local: SchemaMapping | undefined,
+  remote: Partial<SchemaMapping> | null,
+): boolean {
+  if (!remote) return false
+  return normMapping(presetInfoOf(local)) !== normMapping(presetInfoOf(remote))
 }
 
 /** Docs blocks that differ between the remote and the local preset. */
@@ -183,16 +222,25 @@ export async function prepareSchemaPresetPull(
   const remoteMapping = rawRemote.mapping
     ? stripInstancePresetMapping(rawRemote.mapping)
     : null
+  // Read off the RAW remote, not the stripped one: stripping removes exactly
+  // these fields, so the stripped copy would always report "no change".
+  const remoteInfo = presetInfoOf(rawRemote.mapping)
   const remoteDocs = readEntityDocsFrom(parsed, rawRemote)
+
+  const ddlChanged = remoteDdl != null && remoteDdl !== preset?.mapping?.ddl
+  const mappingChanged = presetMappingChanged(preset?.mapping, remoteMapping)
 
   return {
     plan: {
-      ddlChanged: remoteDdl != null && remoteDdl !== preset?.mapping?.ddl,
-      mappingChanged: presetMappingChanged(preset?.mapping, remoteMapping),
+      schemaChanged: ddlChanged || mappingChanged,
+      ddlChanged,
+      mappingChanged,
       docs: presetDocItems(remoteDocs, preset),
+      infoChanged: presetInfoChanged(preset?.mapping, remoteInfo),
     },
     remoteDdl,
     remoteMapping,
+    remoteInfo,
     remoteDocs,
     localPreset: preset,
     clonedOid: cloned.oid,
@@ -200,12 +248,13 @@ export async function prepareSchemaPresetPull(
   }
 }
 
-/** Every actionable path the plan offers — what a COMPLETE pull would take. */
-export function schemaPresetPullPlanPaths(plan: SchemaPresetPullPlan): Set<string> {
-  const out = new Set<string>()
-  if (plan.ddlChanged) out.add(SCHEMA_PRESET_DDL_FILE)
-  if (plan.mappingChanged) out.add(PRESET_MANIFEST_FILE)
-  for (const item of plan.docs) out.add(item.key)
+/** The groups the plan actually offers — what a COMPLETE pull would take. */
+export function schemaPresetPullPlanGroups(
+  plan: SchemaPresetPullPlan,
+): Set<SchemaPresetPullGroup> {
+  const out = new Set<SchemaPresetPullGroup>()
+  if (plan.schemaChanged) out.add('schema')
+  if (plan.docs.length > 0 || plan.infoChanged) out.add('docs')
   return out
 }
 
@@ -213,28 +262,29 @@ export function schemaPresetPullPlanPaths(plan: SchemaPresetPullPlan): Set<strin
  * Did this selection take everything the plan offered?
  *
  * The content anchor may only advance for a COMPLETE pull: it means "the content
- * of this commit is what we hold". Taking the DDL but refusing the mapping config
- * and then claiming the commit would hide the latter for good.
+ * of this commit is what we hold". Taking the schema but refusing the docs and
+ * then claiming the commit would hide the latter for good.
  */
 export function isCompleteSchemaPresetPull(
   plan: SchemaPresetPullPlan,
   selection: SchemaPresetPullSelection,
 ): boolean {
-  for (const path of schemaPresetPullPlanPaths(plan)) {
-    if (!selection.paths.has(path)) return false
+  for (const group of schemaPresetPullPlanGroups(plan)) {
+    if (!selection.groups.has(group)) return false
   }
   return true
 }
 
 /**
- * Apply the resolved pull: write the chosen blocks, then advance the sync anchor
+ * Apply the resolved pull: write the chosen groups, then advance the sync anchor
  * — but only when the pull was COMPLETE and every write succeeded.
  *
- * The DDL and the mapping config are written in ONE update when both are taken:
- * they are two halves of the same `mapping` field, and two sequential updates
- * would make the second overwrite the first with a stale read.
+ * Everything lands in ONE save. Both groups write to the same row — the schema
+ * group into `mapping`, the docs group into `readme`/`license` AND into the
+ * descriptive half of that same `mapping` — so two sequential saves would make
+ * the second overwrite the first with a stale read.
  *
- * Throws when a write failed, so a partial apply cannot read as a successful pull.
+ * Throws when the write failed, so a failed apply cannot read as a successful pull.
  */
 export async function applySchemaPresetPull(
   presetId: string,
@@ -242,66 +292,54 @@ export async function applySchemaPresetPull(
   selection: SchemaPresetPullSelection,
   storage: Storage = getStorage(),
 ): Promise<void> {
-  const { remoteDdl, remoteMapping, remoteDocs, branch, clonedOid, plan } = prepared
-  let failed = false
-  const track = async (op: Promise<unknown>): Promise<void> => {
-    try {
-      await op
-    } catch (e) {
-      failed = true
-      console.warn('[schema-preset-pull] write failed:', e)
-    }
-  }
+  const { remoteDdl, remoteMapping, remoteInfo, remoteDocs, branch, clonedOid, plan } = prepared
 
-  const takeDdl = selection.paths.has(SCHEMA_PRESET_DDL_FILE) && remoteDdl != null
-  const takeMapping = selection.paths.has(PRESET_MANIFEST_FILE) && remoteMapping != null
+  const takeSchema = selection.groups.has('schema')
+  const takeDocs = selection.groups.has('docs')
 
   // Read fresh rather than trusting `prepared.localPreset`: the panel keeps a
   // draft across tab switches, so the row may have moved since it was prepared.
   const fresh = await storage.schemaPresets.getById(presetId)
   if (!fresh) throw new Error('schema-preset-pull: preset no longer exists')
 
-  if (takeDdl || takeMapping) {
-    // One write, both halves. The local DDL is kept when only the config was
-    // taken (and vice versa), so a partial pull never empties the other half.
-    const mapping: SchemaMapping = {
-      ...(takeMapping ? { ...fresh.mapping, ...remoteMapping } : fresh.mapping),
-      ddl: takeDdl ? remoteDdl : fresh.mapping?.ddl,
+  if (takeSchema || takeDocs) {
+    let mapping: SchemaMapping = fresh.mapping
+    if (takeSchema) {
+      // The DDL and the config move together — they are one subject. Each half
+      // falls back to the local value when the remote carries none, so taking
+      // the group never empties what the repo simply does not have.
+      mapping = {
+        ...mapping,
+        ...(remoteMapping ?? {}),
+        ddl: remoteDdl ?? mapping?.ddl,
+      }
     }
-    await track(storage.schemaPresets.save({ ...fresh, mapping }))
-  }
+    if (takeDocs) mapping = { ...mapping, ...remoteInfo }
 
-  // Docs: the user picked FILES, so only the picked pieces are written — taking
-  // README.fr.md must not also overwrite the English one.
-  const docPaths = [...selection.paths].filter((p) => presetDocTarget(p) !== null)
-  if (docPaths.length > 0) {
-    const current = await storage.schemaPresets.getById(presetId)
-    if (current) {
-      const changes: Partial<CustomSchemaPreset> = {}
-      const readme: LocalizedString = { ...(presentReadme(current.readme) ?? {}) }
+    const changes: Partial<CustomSchemaPreset> = { mapping }
+    if (takeDocs) {
+      // Only what the remote actually carries: a repo with a README but no
+      // LICENSE must not blank out a local licence.
+      const readme: LocalizedString = { ...(presentReadme(fresh.readme) ?? {}) }
       let readmeTouched = false
-      for (const path of docPaths) {
-        const target = presetDocTarget(path)
-        if (target === 'license') {
-          if (remoteDocs.license) changes.license = remoteDocs.license
-        } else if (target) {
-          const text = remoteDocs.readme?.[target.readmeLang]
-          if (text != null) {
-            readme[target.readmeLang] = text
-            readmeTouched = true
-          }
-        }
+      for (const [lang, text] of Object.entries(presentReadme(remoteDocs.readme) ?? {})) {
+        if (text == null) continue
+        readme[lang] = text
+        readmeTouched = true
       }
       if (readmeTouched) changes.readme = readme
-      if (Object.keys(changes).length > 0) {
-        await track(storage.schemaPresets.save({ ...current, ...changes }))
-      }
+      if (remoteDocs.license) changes.license = remoteDocs.license
+    }
+
+    try {
+      await storage.schemaPresets.save({ ...fresh, ...changes })
+    } catch (e) {
+      // The local content is NOT what the commit says, so surface it and leave
+      // the anchor alone. The caller shows the error and keeps the banner.
+      console.warn('[schema-preset-pull] write failed:', e)
+      throw new Error('schema-preset-pull: changes could not be written')
     }
   }
-
-  // A write failed: the local content is NOT what the commit says, so surface it
-  // and leave the anchor alone. The caller shows the error and keeps the banner.
-  if (failed) throw new Error('schema-preset-pull: some changes could not be written')
 
   // Two cursors, two meanings — see the note in etl-pull.ts. `syncedOid` asserts
   // "we hold this commit's content" and may only advance on a complete pull;
