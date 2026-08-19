@@ -89,3 +89,46 @@ describe('buildOverviewInventoryQuery — values carry their unit', () => {
     expect(sql).toContain('NULL AS unit')
   })
 })
+
+/**
+ * MIMIC names the drug inline — `prescriptions.drug` holds "Vancomycin", not an
+ * id — so there is no dictionary to join. Omitting the key silently selects the
+ * first dictionary, which made DuckDB try to cast 'Vancomycin' to INT64; 'none'
+ * says so explicitly.
+ */
+describe('an event table can declare it has no dictionary', () => {
+  const inline = {
+    patientTable: { table: 'patients', idColumn: 'subject_id' },
+    conceptTables: [
+      { key: 'd_items', table: 'd_items', idColumn: 'itemid', nameColumn: 'label' },
+    ],
+    eventTables: {
+      Prescriptions: {
+        table: 'prescriptions',
+        conceptIdColumn: 'drug',
+        valueColumn: 'dose_val_rx',
+        valueUnitColumn: 'dose_unit_rx',
+        routeColumn: 'route',
+        patientIdColumn: 'subject_id',
+        dateColumn: 'starttime',
+        endDateColumn: 'stoptime',
+        conceptDictionaryKey: 'none',
+      },
+    },
+  } as unknown as SchemaMapping
+
+  it('joins no dictionary, so a text concept column cannot break the query', () => {
+    const sql = buildOverviewInventoryQuery(inline, 'p1', null)!
+    expect(sql).not.toContain('d_items')
+    expect(sql).toContain('prescriptions')
+  })
+
+  it('still reports the unit and the route, which do not need a dictionary', () => {
+    const sql = buildOverviewInventoryQuery(inline, 'p1', null)!
+    expect(sql).toContain('dose_unit_rx')
+    const events = buildOverviewEventsQuery(
+      inline, 'p1', null, 'Prescriptions', ['Vancomycin'], '2174-01-01', '2174-12-31', 10,
+    )!
+    expect(events).toContain('e."route"')
+  })
+})

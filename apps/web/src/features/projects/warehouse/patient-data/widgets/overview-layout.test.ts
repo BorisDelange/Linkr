@@ -3,8 +3,9 @@ import {
   buildOverviewRows,
   medianGapPx,
   shortenDrugName,
+  looksLikeDrugName,
   sameWords,
-  infusionRate,
+  hourlyRate,
   type OverviewConceptRow,
 } from './overview-layout'
 
@@ -258,54 +259,63 @@ describe('sameWords tells reordering apart from real loss', () => {
 })
 
 /**
- * The trap this guards, taken from a real record: `drug_exposure` end dates are
- * prescription windows, not administration times. An oral bisacodyl tablet spans
- * 57 hours, so dividing by the duration would report 0.18 mg/h for a drug
- * swallowed in one go. Only the route can tell the two apart.
+ * A rate here is an average over the recorded window, not a prescribed rate:
+ * OMOP end dates are order-validity periods. The figure is shown with the route
+ * beside it so the reader can judge; the code does not try to classify, because
+ * the standard vocabulary calls a drip and a bolus both "Intravenous".
  */
-describe('infusionRate only rates what actually runs continuously', () => {
+describe('hourlyRate spreads a dose over its recorded period', () => {
   const H = 3_600_000
-  const ROUTES = ['iv drip']
 
-  it('rates a drip: 1000 mL over 4 h is 250 mL/h', () => {
-    expect(infusionRate(1000, 0, 4 * H, 'IV DRIP', ROUTES)).toBe(250)
+  it('divides the quantity by the elapsed hours', () => {
+    expect(hourlyRate(1000, 0, 4 * H)).toBe(250)
+    expect(hourlyRate(150, 0, 20 * H)).toBe(7.5)
   })
 
-  it('is case- and space-insensitive about the route', () => {
-    expect(infusionRate(150, 0, 20 * H, '  iv drip ', ROUTES)).toBe(7.5)
+  it('has no rate without an end, so an instant event stays a plain dose', () => {
+    expect(hourlyRate(1000, 0, null)).toBeNull()
   })
 
-  it('refuses an oral tablet, however long its prescription window', () => {
-    expect(infusionRate(10, 0, 57 * H, 'PO', ROUTES)).toBeNull()
-  })
-
-  it('refuses an IV push — not every IV route is a drip', () => {
-    expect(infusionRate(4, 0, 57 * H, 'IV', ROUTES)).toBeNull()
-  })
-
-  it('refuses when the route is unknown, rather than guessing', () => {
-    expect(infusionRate(1000, 0, 4 * H, null, ROUTES)).toBeNull()
-  })
-
-  it('refuses a zero or backwards duration', () => {
-    expect(infusionRate(1000, 5 * H, 5 * H, 'IV DRIP', ROUTES)).toBeNull()
-    expect(infusionRate(1000, 5 * H, 1 * H, 'IV DRIP', ROUTES)).toBeNull()
+  it('refuses a zero or backwards period rather than dividing by zero', () => {
+    expect(hourlyRate(1000, 5 * H, 5 * H)).toBeNull()
+    expect(hourlyRate(1000, 5 * H, 1 * H)).toBeNull()
   })
 
   it('refuses a missing or non-positive quantity', () => {
-    expect(infusionRate(null, 0, 4 * H, 'IV DRIP', ROUTES)).toBeNull()
-    expect(infusionRate(0, 0, 4 * H, 'IV DRIP', ROUTES)).toBeNull()
+    expect(hourlyRate(null, 0, 4 * H)).toBeNull()
+    expect(hourlyRate(0, 0, 4 * H)).toBeNull()
+    expect(hourlyRate(-5, 0, 4 * H)).toBeNull()
+  })
+})
+
+/**
+ * Which names get shortened is decided by the NAME, not by the table it came
+ * from: OMOP calls the table "Drug", MIMIC "Prescriptions", and the next model
+ * something else. Triggering on the table label silently skipped MIMIC.
+ */
+describe('looksLikeDrugName reads the name, not the schema', () => {
+  it('recognises RxNorm-style names whatever table they came from', () => {
+    for (const n of [
+      '1000 ML sodium chloride 9 MG/ML Injection',
+      'metoprolol tartrate 25 MG Oral Tablet',
+      'insulin glargine 100 UNT/ML Injectable Solution [Lantus]',
+      'bisacodyl 10 MG Rectal Suppository',
+    ]) expect(looksLikeDrugName(n), n).toBe(true)
   })
 
-  it('rates nothing when the schema declares no continuous routes', () => {
-    expect(infusionRate(1000, 0, 4 * H, 'IV DRIP', [])).toBeNull()
+  it('leaves MIMIC drug names alone — they are already short', () => {
+    for (const n of ['Vancomycin', 'Heparin', 'Dextrose 50%', 'Heparin Flush (10 units/ml)'])
+      expect(looksLikeDrugName(n), n).toBe(false)
   })
 
-  it('refuses a span too long to be one infusion', () => {
-    // 8 mg of norepinephrine over 146 h is a renewed order, not a drip: rating
-    // it would report 0.05 mg/h for a vasopressor. 17% of the IV DRIP rows on a
-    // real record are like this.
-    expect(infusionRate(8, 0, 146 * H, 'IV DRIP', ROUTES)).toBeNull()
-    expect(infusionRate(8, 0, 71 * H, 'IV DRIP', ROUTES)).not.toBeNull()
+  it('does not mistake a LOINC name for a brand', () => {
+    // LOINC brackets look like RxNorm brand suffixes, so a bare bracket test
+    // would mangle every lab name. A brand only counts beside a strength.
+    for (const n of [
+      'Leukocytes [#/volume] in Blood by Automated count',
+      'Erythrocyte [DistWidth] in Red Blood Cells by Automated count',
+      'Body mass index (BMI) [Ratio]',
+      'Heart rate',
+    ]) expect(looksLikeDrugName(n), n).toBe(false)
   })
 })

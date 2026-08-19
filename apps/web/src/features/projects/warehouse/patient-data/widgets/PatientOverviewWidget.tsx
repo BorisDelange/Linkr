@@ -22,8 +22,9 @@ import {
   MIN_GAP_PX,
   FEW_EVENTS,
   shortenDrugName,
+  looksLikeDrugName,
   sameWords,
-  infusionRate,
+  hourlyRate,
   type OverviewConceptRow,
   type OverviewRow,
 } from './overview-layout'
@@ -139,18 +140,6 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const conceptsById = useMemo(
     () => new Map(concepts.map((c) => [c.conceptId, c])),
     [concepts],
-  )
-  // Union across event tables: the tooltip knows the event's route, not which
-  // table declared it.
-  const continuousRoutes = useMemo(
-    () => [
-      ...new Set(
-        Object.values(schemaMapping?.eventTables ?? {}).flatMap(
-          (et) => et.continuousRoutes ?? [],
-        ),
-      ),
-    ],
-    [schemaMapping],
   )
   const [units, setUnits] = useState<UnitStay[]>([])
   const [death, setDeath] = useState<number | null>(null)
@@ -1012,10 +1001,10 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         setTip(null)
         return
       }
-      const content = describeHit(hit, px, py, inGutter, view, t, conceptsById, continuousRoutes)
+      const content = describeHit(hit, px, py, inGutter, view, t, conceptsById)
       setTip(content ? { ...content, x: e.clientX, y: e.clientY } : null)
     },
-    [view, bounds, hitRange, repaint, rebuild, t, conceptsById, continuousRoutes],
+    [view, bounds, hitRange, repaint, rebuild, t, conceptsById],
   )
 
   const onMouseUp = useCallback(() => {
@@ -1571,7 +1560,6 @@ function describeHit(
   view: { lo: number; hi: number },
   t: (k: string, o?: Record<string, unknown>) => string,
   conceptsById: Map<string, OverviewConceptRow>,
-  continuousRoutes: readonly string[],
 ): Omit<TipContent, 'x' | 'y'> | null {
   const label = rowLabel(hit.row, t)
 
@@ -1638,23 +1626,23 @@ function describeHit(
         // concepts with different units, so `hit.row.unit` is not this event's
         // unit and the bare figure — 12.5 of what? — says nothing.
         const unit = hit.row.unit ?? ''
-        const rate = infusionRate(e.value, e.start, e.end, e.route, continuousRoutes)
+        const rate = hourlyRate(e.value, e.start, e.end)
         const total = e.value != null ? `${fmtValue(e.value)}${unit ? ` ${unit}` : ''}` : null
-        // A continuous infusion is a rate first — "10 mg/h" is the order, and the
-        // total is what it added up to over the period shown.
-        const value = hit.row.mixed
-          ? undefined
-          : rate != null && total
-            ? `${fmtValue(rate)} ${unit}/h`
-            : (total ?? e.text ?? undefined)
+        // The total is what was actually recorded, so it leads. The rate is an
+        // average derived from a window that may be a prescription period rather
+        // than an administration, so it sits below with the route beside it.
+        const value = hit.row.mixed ? undefined : (total ?? e.text ?? undefined)
         const when =
           e.end != null
             ? `${fmtStamp(e.start)} → ${fmtStamp(e.end)} · ${fmtDur(e.end - e.start)}`
             : fmtStamp(e.start)
         const lines = [when]
         if (rate != null && total && !hit.row.mixed) {
-          lines.unshift(t('patient_data.overview_dose_total', { total }))
+          lines.unshift(`${fmtValue(rate)} ${unit}/h`)
         }
+        // The route is what tells a drip from a single shot: the standard
+        // vocabulary calls both "Intravenous", so the reader judges, not the code.
+        if (e.route) lines.push(e.route)
         // On a class/domain row the table name only repeats the header. What is
         // actually unknown is how much this single dot stands for.
         const merged = best.merged
@@ -1749,8 +1737,6 @@ function fmtAxis(ms: number, withClock: boolean, locale: string): string {
     : d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-const DRUG_TABLE = /drug/i
-
 /** Generic row labels go through i18n; concept and table names come from the data. */
 function rowLabel(row: OverviewRow, t: (k: string, o?: Record<string, unknown>) => string): string {
   if (row.kind === 'other') {
@@ -1767,7 +1753,7 @@ function rowLabel(row: OverviewRow, t: (k: string, o?: Record<string, unknown>) 
     if (row.label === '__unmapped') return t('patient_data.overview_other')
     return row.label
   }
-  if (row.kind === 'concept' && DRUG_TABLE.test(row.table)) return shortenDrugName(row.label)
+  if (row.kind === 'concept' && looksLikeDrugName(row.label)) return shortenDrugName(row.label)
   return row.label.replace(/_/g, ' ')
 }
 

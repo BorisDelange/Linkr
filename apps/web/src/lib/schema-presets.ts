@@ -140,6 +140,7 @@ const omop54: SchemaMapping = {
       conceptIdColumn: 'measurement_concept_id',
       sourceConceptIdColumn: 'measurement_source_concept_id',
       valueColumn: 'value_as_number',
+      valueUnitConceptIdColumn: 'unit_concept_id',
       valueUnitColumn: 'unit_source_value',
       // CDM 5.4 has no value_as_string on measurement — that column exists on
       // observation only. The verbatim source value is the closest equivalent.
@@ -160,13 +161,13 @@ const omop54: SchemaMapping = {
       conceptIdColumn: 'drug_concept_id',
       sourceConceptIdColumn: 'drug_source_concept_id',
       // `quantity` with `dose_unit_source_value` is the dose as administered
-      // (1000 mg vancomycin, 8000 UNIT epoetin). The DRUG_STRENGTH route from
-      // the OHDSI dose spec derives the same figure from the concept, but that
-      // table ships separately from the vocabulary and is often empty.
+      // (1000 mg vancomycin, 8000 UNIT epoetin). CDM 5.4 defines no
+      // dose_unit_concept_id on drug_exposure, so the source value is the only
+      // unit available here — unlike measurement, which has unit_concept_id.
       valueColumn: 'quantity',
       valueUnitColumn: 'dose_unit_source_value',
+      routeConceptIdColumn: 'route_concept_id',
       routeColumn: 'route_source_value',
-      continuousRoutes: ['iv drip'],
       patientIdColumn: 'person_id',
       dateColumn: 'drug_exposure_start_datetime',
       endDateColumn: 'drug_exposure_end_datetime',
@@ -185,6 +186,7 @@ const omop54: SchemaMapping = {
       conceptIdColumn: 'observation_concept_id',
       sourceConceptIdColumn: 'observation_source_concept_id',
       valueColumn: 'value_as_number',
+      valueUnitConceptIdColumn: 'unit_concept_id',
       valueUnitColumn: 'unit_source_value',
       valueStringColumn: 'value_as_string',
       patientIdColumn: 'person_id',
@@ -523,6 +525,19 @@ const mimicIV: SchemaMapping = {
       dateColumn: 'starttime',
       endDateColumn: 'endtime',
       conceptDictionaryKey: 'd_items',
+    },
+    // No concept dictionary: MIMIC names the drug inline rather than through
+    // d_items, so the drug column doubles as its own identifier.
+    Prescriptions: {
+      table: 'prescriptions',
+      conceptIdColumn: 'drug',
+      valueColumn: 'dose_val_rx',
+      valueUnitColumn: 'dose_unit_rx',
+      routeColumn: 'route',
+      patientIdColumn: 'subject_id',
+      dateColumn: 'starttime',
+      endDateColumn: 'stoptime',
+      conceptDictionaryKey: 'none',
     },
   },
   genderValues: {

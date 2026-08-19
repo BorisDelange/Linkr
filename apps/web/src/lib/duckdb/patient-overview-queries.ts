@@ -80,7 +80,21 @@ function buildInventoryPart(
   const dict = getDictionaryForEvent(mapping, et)
   const visitFilter = buildVisitFilter(mapping, visitId, 'e') + buildStayFilter(et, stay)
   const endExpr = et.endDateColumn ? `e."${et.endDateColumn}"` : 'NULL'
-  const unitExpr = pickUnitColumn(et) ? `MAX(e."${pickUnitColumn(et)}")` : 'NULL'
+  // Unit of measure: the standardised concept when the schema maps one, with the
+  // source text as fallback AND as the preferred label — "mmHg" reads better
+  // than "millimeter mercury column", and "bpm"/"insp/min" both standardise to
+  // "per minute", which would make heart and respiratory rate indistinguishable.
+  const srcUnitCol = pickUnitColumn(et)
+  const unitJoin =
+    et.valueUnitConceptIdColumn && dict
+      ? `\nLEFT JOIN "${dict.table}" uc ON uc."${dict.idColumn}" = e."${et.valueUnitConceptIdColumn}"`
+      : ''
+  const srcUnitExpr = srcUnitCol ? `MAX(e."${srcUnitCol}")` : null
+  const stdUnitExpr = unitJoin ? `MAX(uc."${dict!.nameColumn}")` : null
+  const unitExpr =
+    srcUnitExpr && stdUnitExpr
+      ? `COALESCE(${srcUnitExpr}, ${stdUnitExpr})`
+      : (srcUnitExpr ?? stdUnitExpr ?? 'NULL')
 
   // Without a dictionary the concept id is all we can show — still useful, since
   // the point of the figure is where data exists, not only what it is called.
@@ -92,9 +106,10 @@ function buildInventoryPart(
   // into a vocabulary browser or another site's mapping — so it travels with the
   // name into the tooltip and the copy menu.
   const codeExpr = dict?.codeColumn ? `MAX(c."${dict.codeColumn}")` : 'NULL'
-  const join = dict
-    ? `\nLEFT JOIN "${dict.table}" c ON ${buildConceptJoinCondition('e', 'c', et, dict)}`
-    : ''
+  const join =
+    (dict
+      ? `\nLEFT JOIN "${dict.table}" c ON ${buildConceptJoinCondition('e', 'c', et, dict)}`
+      : '') + unitJoin
 
   return `SELECT '${escSql(label)}' AS table_label,
   CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_id,
@@ -207,7 +222,22 @@ export function buildOverviewEventsQuery(
   const valExpr = et.valueColumn ? `e."${et.valueColumn}"` : 'NULL'
   const strExpr =
     et.valueStringColumn && !omitValueString ? `e."${et.valueStringColumn}"` : 'NULL'
-  const routeExpr = et.routeColumn ? `e."${et.routeColumn}"` : 'NULL'
+  // The route is a concept like any other, so it resolves through the same
+  // dictionary — "Intravenous", not a local code. Joined separately from the
+  // event's own concept, on its own alias.
+  const dict = getDictionaryForEvent(mapping, et)
+  const routeJoin =
+    et.routeConceptIdColumn && dict
+      ? `\nLEFT JOIN "${dict.table}" rc ON rc."${dict.idColumn}" = e."${et.routeConceptIdColumn}"`
+      : ''
+  // Source text first: it keeps distinctions the vocabulary drops (IV DRIP and
+  // IV BOLUS are both `Intravenous`), and some models have no route concept.
+  const srcRouteExpr = et.routeColumn ? `e."${et.routeColumn}"` : null
+  const stdRouteExpr = routeJoin ? `rc."${dict!.nameColumn}"` : null
+  const routeExpr =
+    srcRouteExpr && stdRouteExpr
+      ? `COALESCE(${srcRouteExpr}, ${stdRouteExpr})`
+      : (srcRouteExpr ?? stdRouteExpr ?? 'NULL')
   // An event overlapping the window matters even if it started before it — a
   // drip running across the whole view would otherwise vanish when zoomed into.
   const overlap = et.endDateColumn
@@ -222,7 +252,7 @@ export function buildOverviewEventsQuery(
   ${valExpr} AS value_number,
   CAST(${strExpr} AS VARCHAR) AS value_string,
   CAST(${routeExpr} AS VARCHAR) AS route
-FROM "${et.table}" e
+FROM "${et.table}" e${routeJoin}
 WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND ${overlap}${visitFilter}${conceptFilter}
 ORDER BY e."${et.dateColumn}"

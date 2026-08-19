@@ -12,6 +12,10 @@ function getConceptDictionary(mapping: SchemaMapping, key: string): ConceptDicti
 
 /** Get the concept dictionary for a given event table. */
 export function getDictionaryForEvent(mapping: SchemaMapping, eventTable: EventTable): ConceptDictionary | undefined {
+  // 'none' is an explicit opt-out, distinct from "omitted": a table naming its
+  // concept inline has no dictionary to join, and falling back to the default
+  // one would join a drug name against a numeric id.
+  if (eventTable.conceptDictionaryKey === 'none') return undefined
   if (eventTable.conceptDictionaryKey) {
     return getConceptDictionary(mapping, eventTable.conceptDictionaryKey)
   }

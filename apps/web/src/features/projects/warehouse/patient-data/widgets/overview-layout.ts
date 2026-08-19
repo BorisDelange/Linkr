@@ -377,14 +377,37 @@ export function medianGapPx(timestamps: number[], plotW: number, span: number): 
  * 1000 ML sodium chloride are different orders, and on a real record five bags
  * collapse to one identical label if you delete it.
  */
+/**
+ * Does this label look like an RxNorm-style drug name — quantity, dose form, or
+ * a bracketed brand?
+ *
+ * Triggering on the table's name instead would be a guess about the schema:
+ * OMOP calls it "Drug", MIMIC "Prescriptions", and the next model something
+ * else. The name's own shape is the thing that actually needs shortening, and it
+ * is the same shape wherever it comes from.
+ */
+export function looksLikeDrugName(name: string): boolean {
+  // A leading quantity, or a dose form at the end. NOT a bracketed suffix on its
+  // own: LOINC uses brackets too ("Leukocytes [#/volume] in Blood"), and reading
+  // that as a brand would mangle every lab name. A brand only counts alongside a
+  // strength, which lab names do not carry.
+  if (LEADING_QTY_RE.test(name)) return true
+  if (DOSE_FORM_RE.test(name)) return true
+  return /\[[^\]]+\]\s*$/.test(name) && STRENGTH_RE.test(name)
+}
+
+const LEADING_QTY_RE = /^\d+(?:\.\d+)?\s*(?:ML|MG|L|G|UNT|MEQ)\s+/i
+/** A dose strength anywhere in the name: "100 UNT/ML", "25 MG". */
+const STRENGTH_RE = /\d+(?:\.\d+)?\s*(?:MG|ML|G|UNT|MEQ)(?:\/(?:ML|MG|L|HR))?\b/i
+const DOSE_FORM_RE =
+  /\s+(Injectable Solution|Prefilled Syringe|Injection|Oral Tablet|Oral Capsule|Oral Solution|Delayed Release Oral Tablet|Extended Release Oral Tablet|Rectal Suppository|Topical Cream|Topical Ointment|Nasal Spray|Ophthalmic Solution|Auto-Injector|Transdermal System|Oral Lozenge|Medicated Patch)\s*$/i
+
 export function shortenDrugName(name: string): string {
   const qty = name.match(/^(\d+(?:\.\d+)?\s*(?:ML|MG|L|G|UNT|MEQ))\s+/i)
   let s = qty ? name.slice(qty[0].length) : name
   const brand = s.match(/\[([^\]]+)\]\s*$/)
   s = s.replace(/\s*\[[^\]]+\]\s*$/, '')
-  const form = s.match(
-    /\s+(Injectable Solution|Prefilled Syringe|Injection|Oral Tablet|Oral Capsule|Oral Solution|Topical Cream|Topical Ointment|Nasal Spray|Ophthalmic Solution|Auto-Injector|Transdermal System)\s*$/i,
-  )
+  const form = s.match(DOSE_FORM_RE)
   if (form) s = s.slice(0, -form[0].length)
   if (brand) s = `${s} [${brand[1]}]`
   s = s.trim()
@@ -410,39 +433,25 @@ export function sameWords(a: string, b: string): boolean {
 }
 
 /**
- * Infusion rate for a dose given over a period, as `perHour` in the dose's own
- * unit — or null when a rate would be a fiction.
+ * Average rate for a dose spread over a period: quantity per hour, in the dose's
+ * own unit.
  *
- * `drug_exposure` end dates are prescription windows, not administration times:
- * an oral bisacodyl tablet spans 57 hours on a real record, and dividing by that
- * would report 0.18 mg/h for a drug swallowed in one go. Only rows whose route
- * says they run continuously get a rate, which is why the caller must pass the
- * routes its schema uses rather than this guessing from the duration.
+ * This is an average over the recorded window, NOT a prescribed rate. OMOP's
+ * end date is when the order stopped being valid, which for a single
+ * administration is not when the drug finished going in: an intramuscular
+ * vaccine on a real record spans 57 hours, giving 0.009 mL/h. The standard
+ * vocabulary cannot tell those apart — a drip and a bolus are both
+ * `Intravenous` — so the caller shows the route beside the figure and lets the
+ * reader judge, rather than the code guessing.
  */
-export function infusionRate(
+export function hourlyRate(
   quantity: number | null,
   startMs: number,
   endMs: number | null,
-  route: string | null,
-  continuousRoutes: readonly string[],
 ): number | null {
   if (quantity == null || !(quantity > 0)) return null
   if (endMs == null || !(endMs > startMs)) return null
-  if (!route) return null
-  const r = route.trim().toLowerCase()
-  if (!continuousRoutes.some((c) => c.toLowerCase() === r)) return null
   const hours = (endMs - startMs) / 3_600_000
-  if (!(hours > 0) || hours > MAX_INFUSION_HOURS) return null
+  if (!(hours > 0)) return null
   return quantity / hours
 }
-
-/**
- * Beyond this, a "duration" is a prescription window rather than one infusion.
- *
- * Even rows flagged as continuous are not all administrations: on a real record
- * 17% of them span more than three days, and 8 mg of norepinephrine over 146
- * hours is an order that was renewed, not a drip. Rating those would report
- * 0.05 mg/h for a vasopressor — wrong in the direction that matters, so the
- * total is shown alone instead.
- */
-const MAX_INFUSION_HOURS = 72

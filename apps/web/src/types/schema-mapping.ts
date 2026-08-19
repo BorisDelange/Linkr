@@ -237,19 +237,33 @@ export interface EventTable {
    */
   valueUnitColumn?: string
   /**
-   * Column naming the administration route (OMOP `route_source_value`).
+   * FK to the concept naming the value's unit (OMOP `unit_concept_id`).
    *
-   * Only used to decide whether a duration is an infusion or a prescription
-   * window: an oral tablet's row can span two days without the drug having been
-   * given over two days, so a rate may only be inferred for routes in
-   * `continuousRoutes`.
+   * Preferred over `valueUnitColumn`: it is the standardised unit rather than
+   * whatever text the source wrote. Note the two disagree in a way that matters
+   * for reading — the standard name is "millimeter mercury column" where the
+   * source says "mmHg", and both "bpm" and "insp/min" standardise to "per
+   * minute" — so the source text is kept as the fallback and, where it exists,
+   * as the shorter label.
+   */
+  valueUnitConceptIdColumn?: string
+  /**
+   * FK to the concept naming the administration route (OMOP `route_concept_id`).
+   *
+   * Resolved through the concept dictionary like any other concept, so the route
+   * shows as "Intravenous" rather than a local code. Note that the standard
+   * vocabulary does not distinguish a continuous drip from a bolus — both are
+   * `Intravenous` — so this names the route but cannot classify it.
+   */
+  routeConceptIdColumn?: string
+  /**
+   * Column holding the route as text (MIMIC `route`, OMOP `route_source_value`).
+   *
+   * Preferred over the concept when both are set — it is shorter and keeps
+   * distinctions the vocabulary drops — and it is the only option for a model
+   * with no route concept at all.
    */
   routeColumn?: string
-  /**
-   * Route values, lowercased, whose rows really are administered continuously —
-   * the only ones where quantity ÷ duration is a rate rather than a fiction.
-   */
-  continuousRoutes?: string[]
   /** Patient FK column. Defaults to patientTable.idColumn name if omitted. */
   patientIdColumn?: string
   /** Event date column (measurement_datetime, charttime, document_date, start_at). */
@@ -261,8 +275,15 @@ export interface EventTable {
    * instead of points.
    */
   endDateColumn?: string
-  /** Which concept dictionary this event table uses. References ConceptDictionary.key. If omitted, uses the first dictionary. */
-  conceptDictionaryKey?: string
+  /**
+   * Which concept dictionary this event table uses (ConceptDictionary.key).
+   *
+   * Omitted means "the first dictionary" — convenient, but wrong for a table
+   * that names its concept inline (MIMIC `prescriptions.drug` holds
+   * "Vancomycin", not an id), where joining the default dictionary fails on the
+   * type. Set `'none'` for those: the concept column is its own label.
+   */
+  conceptDictionaryKey?: string | 'none'
 }
 
 /**
