@@ -11,7 +11,9 @@ import {
   type SchemaPresetPullPlan,
 } from './schema-preset-pull'
 import { buildSchemaPresetPullPlan } from './schema-preset-pull-plan-builder'
+import { buildSchemaPresetPullDiff } from './schema-preset-pull-diff'
 import { SCHEMA_PRESET_DDL_FILE } from './entity-io'
+import type { PullFile } from './pull-plan'
 import type { CustomSchemaPreset, SchemaMapping } from '@/types'
 
 const mapping = (over: Partial<SchemaMapping> = {}): SchemaMapping => ({
@@ -251,5 +253,66 @@ describe('buildSchemaPresetPullPlan', () => {
 
   it('is empty when nothing differs', () => {
     expect(buildSchemaPresetPullPlan(prepared(), 'main').files).toEqual([])
+  })
+})
+
+describe('buildSchemaPresetPullDiff', () => {
+  const file = (path: string): PullFile => ({ path, category: 'scripts', order: 1, items: [], wholeFile: true })
+
+  const prepared = (over: Record<string, unknown> = {}) => ({
+    plan: plan(),
+    remoteDdl: null,
+    remoteMapping: null,
+    remoteInfo: {},
+    remoteDocs: {},
+    localPreset: undefined,
+    clonedOid: 'oid-1',
+    branch: 'main',
+    ...over,
+  } as Parameters<typeof buildSchemaPresetPullDiff>[1])
+
+  it('shows the DDL before and after, as SQL', () => {
+    const diff = buildSchemaPresetPullDiff(file(SCHEMA_PRESET_DDL_FILE), prepared({
+      plan: plan({ schemaChanged: true, ddlChanged: true }),
+      remoteDdl: 'CREATE TABLE b ();',
+      localPreset: { mapping: mapping({ ddl: 'CREATE TABLE a ();' }) },
+    }))
+    expect(diff.oldContent).toBe('CREATE TABLE a ();')
+    expect(diff.newContent).toBe('CREATE TABLE b ();')
+    expect(diff.language).toBe('sql')
+  })
+
+  it('shows the config instead when only the config moved', () => {
+    // Diffing the DDL there would render "no change" on a row that IS changed.
+    const diff = buildSchemaPresetPullDiff(file(SCHEMA_PRESET_DDL_FILE), prepared({
+      plan: plan({ schemaChanged: true, mappingChanged: true }),
+      remoteDdl: 'SAME',
+      remoteMapping: stripInstancePresetMapping(mapping({ knownTables: ['b'] } as Partial<SchemaMapping>)),
+      localPreset: { mapping: mapping({ ddl: 'SAME', knownTables: ['a'] } as Partial<SchemaMapping>) },
+    }))
+    expect(diff.language).toBe('json')
+    expect(diff.oldContent).toContain('"a"')
+    expect(diff.newContent).toContain('"b"')
+  })
+
+  it('shows the whole descriptive block for the docs row', () => {
+    const diff = buildSchemaPresetPullDiff(file(PRESET_MANIFEST_FILE), prepared({
+      plan: plan({ infoChanged: true }),
+      remoteInfo: { presetLabel: { en: 'New' } },
+      remoteDocs: { readme: { en: 'remote readme' } },
+      localPreset: { mapping: mapping({ presetLabel: { en: 'Old' } }), readme: { en: 'local readme' } },
+    }))
+    expect(diff.oldContent).toContain('Old')
+    expect(diff.oldContent).toContain('local readme')
+    expect(diff.newContent).toContain('New')
+    expect(diff.newContent).toContain('remote readme')
+  })
+
+  it('sorts keys so key order never reads as a difference', () => {
+    const diff = buildSchemaPresetPullDiff(file(PRESET_MANIFEST_FILE), prepared({
+      remoteInfo: { presetLabel: { en: 'X' }, description: { en: 'D' } },
+      localPreset: { mapping: mapping({ description: { en: 'D' }, presetLabel: { en: 'X' } }) },
+    }))
+    expect(diff.oldContent).toBe(diff.newContent)
   })
 })

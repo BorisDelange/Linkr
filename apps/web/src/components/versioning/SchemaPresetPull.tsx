@@ -8,9 +8,11 @@ import {
   type SchemaPresetPullGroup,
 } from '@/lib/schema-preset-pull'
 import { buildSchemaPresetPullPlan } from '@/lib/schema-preset-pull-plan-builder'
+import { buildSchemaPresetPullDiff } from '@/lib/schema-preset-pull-diff'
 import { SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
 import { wholeFileId, type PullDecision, type PullPlan } from '@/lib/pull-plan'
 import { PullPanel } from './PullPanel'
+import { PullDiffDialog } from './PullDiffDialog'
 
 interface SchemaPresetPullProps {
   presetId: string
@@ -36,8 +38,9 @@ const draftKey = (presetId: string, branch: string) => `${presetId}|${branch}`
  * The schema-preset pull, rendered inline where the push list normally sits — the
  * same shell as the ETL pull, over a different plan builder.
  *
- * No diff viewer: every row is a whole block taken or left, so there is no merge
- * projection to read that the row's own label does not already say.
+ * Rows open a diff like everywhere else: a row is taken or left whole, but what
+ * it would replace is a DDL or a block of docs, and seeing the change is what
+ * decides whether to accept it.
  */
 export function SchemaPresetPull({ presetId, branch, remoteHead, mode, onPulled }: SchemaPresetPullProps) {
   const { t } = useTranslation()
@@ -55,6 +58,7 @@ export function SchemaPresetPull({ presetId, branch, remoteHead, mode, onPulled 
   const [loading, setLoading] = useState(!_draftCache.has(key))
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
+  const [diffPath, setDiffPath] = useState<string | null>(null)
 
   useEffect(() => {
     if (_draftCache.has(key)) return
@@ -158,9 +162,19 @@ export function SchemaPresetPull({ presetId, branch, remoteHead, mode, onPulled 
         decisions={decisions}
         onDecide={decide}
         mode={mode}
+        onOpenDiff={setDiffPath}
         onFinalize={handleFinalize}
         applying={applying}
       />
+
+      {diffPath && prepared && (
+        <PullDiffDialog
+          plan={plan}
+          initialPath={diffPath}
+          buildDiff={(file) => buildSchemaPresetPullDiff(file, prepared)}
+          onClose={() => setDiffPath(null)}
+        />
+      )}
     </>
   )
 }
