@@ -51,6 +51,7 @@ import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { parseImportZip, SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
+import { readEntityDocsFrom, type EntityDocs } from '@/lib/entity-docs-pull'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { uniqueName } from '@/lib/unique-name'
@@ -1292,7 +1293,7 @@ export function SchemaPresetsPage() {
   const [newPresetDescription, setNewPresetDescription] = useState('')
   const [importOpen, setImportOpen] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
-  const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping; gitRemote?: ImportGitRemote } | null>(null)
+  const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping; docs?: EntityDocs; gitRemote?: ImportGitRemote } | null>(null)
 
   const loadCustomPresets = useCallback(() => loadPresets(wsUid), [loadPresets, wsUid])
 
@@ -1340,7 +1341,7 @@ export function SchemaPresetsPage() {
     await storeSave(buildSchemaPreset(presetId, mapping, existing, wsUid))
   }
 
-  const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean, gitRemote?: ImportGitRemote) => {
+  const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean, gitRemote?: ImportGitRemote, docs?: EntityDocs) => {
     const presetId = duplicate ? `custom-${crypto.randomUUID().slice(0, 8)}` : mapping.presetId!
     // Legacy export ZIPs may carry a plain-string label; coerce so it stays bilingual.
     const label = typeof mapping.presetLabel === 'string' ? { en: mapping.presetLabel, fr: mapping.presetLabel } : mapping.presetLabel
@@ -1355,19 +1356,32 @@ export function SchemaPresetsPage() {
     const preset = buildSchemaPreset(presetId, importedMapping, undefined, wsUid)
     // Imported from a git repo → pre-link the preset's Versioning to that repo.
     if (gitRemote) preset.gitRemoteConfig = gitRemote
+    if (docs?.readme) preset.readme = docs.readme
+    if (docs?.license) preset.license = docs.license
     await storeSave(preset)
   }, [wsUid, language, storeDelete, storeSave])
 
-  // A schema-preset export ZIP carries the preset in preset.json and its DDL in
-  // schema.ddl beside it; a plain file upload is a bare mapping JSON carrying
-  // its own ddl. Accept both — the ZIP's DDL has to be folded back in, since
-  // preset.json no longer holds it.
-  const extractMapping = (parsed: Record<string, unknown>): SchemaMapping | null => {
-    const presetFile = parsed['preset.json'] as { mapping?: SchemaMapping } | undefined
+  // A schema-preset export ZIP carries the preset in preset.json, its DDL in
+  // schema.ddl and its docs in README.md / LICENSE.md beside them; a plain file
+  // upload is a bare mapping JSON carrying its own ddl. Accept both — the ZIP's
+  // DDL has to be folded back in, since preset.json no longer holds it.
+  //
+  // The docs come back too: they are entity FIELDS living in files, so importing
+  // the mapping alone left `readme` empty while the repo had one — and the
+  // Versioning tab then reported a pull on a preset just imported from it.
+  const extractPreset = (
+    parsed: Record<string, unknown>,
+  ): { mapping: SchemaMapping; docs: EntityDocs } | null => {
+    const presetFile = parsed['preset.json'] as
+      | { mapping?: SchemaMapping; license?: { id?: string; name?: string }; readmeLang?: string }
+      | undefined
     const mapping = (presetFile?.mapping ?? parsed['preset.json'] ?? Object.values(parsed)[0]) as SchemaMapping | undefined
     if (!mapping?.presetId || !mapping?.presetLabel) return null
     const ddl = parsed[SCHEMA_PRESET_DDL_FILE]
-    return typeof ddl === 'string' && ddl ? { ...mapping, ddl } : mapping
+    return {
+      mapping: typeof ddl === 'string' && ddl ? { ...mapping, ddl } : mapping,
+      docs: readEntityDocsFrom(parsed, presetFile ?? null),
+    }
   }
 
   const handleImportSource = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
@@ -1375,20 +1389,21 @@ export function SchemaPresetsPage() {
       // A schema preset exports as a bare mapping .json (see useSchemaPresetActions)
       // or, via git, as a ZIP with preset.json. Try the plain JSON first, then the
       // ZIP layout — so both the file upload and a git clone work.
-      let mapping: SchemaMapping | null = null
+      let extracted: { mapping: SchemaMapping; docs: EntityDocs } | null = null
       try {
-        mapping = extractMapping({ 'preset.json': JSON.parse(await file.text()) })
+        extracted = extractPreset({ 'preset.json': JSON.parse(await file.text()) })
       } catch { /* not plain JSON — fall through to ZIP */ }
-      if (!mapping) mapping = extractMapping(await parseImportZip(file))
-      if (!mapping) {
+      if (!extracted) extracted = extractPreset(await parseImportZip(file))
+      if (!extracted) {
         setImportError(t('settings.schema_preset_import_invalid'))
         return
       }
+      const { mapping, docs } = extracted
       const existing = customPresets.find((p) => p.presetId === mapping.presetId)
       if (existing) {
-        setImportConflict({ name: localized(existing.mapping.presetLabel, language), mapping, gitRemote })
+        setImportConflict({ name: localized(existing.mapping.presetLabel, language), mapping, docs, gitRemote })
       } else {
-        await doPresetImport(mapping, false, gitRemote)
+        await doPresetImport(mapping, false, gitRemote, docs)
       }
       setImportOpen(false)
     } catch {
@@ -1703,8 +1718,8 @@ export function SchemaPresetsPage() {
             open={!!importConflict}
             onOpenChange={(open) => { if (!open) setImportConflict(null) }}
             existingName={importConflict?.name ?? ''}
-            onDuplicate={() => { if (importConflict) doPresetImport(importConflict.mapping, true, importConflict.gitRemote); setImportConflict(null) }}
-            onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false, importConflict.gitRemote); setImportConflict(null) }}
+            onDuplicate={() => { if (importConflict) doPresetImport(importConflict.mapping, true, importConflict.gitRemote, importConflict.docs); setImportConflict(null) }}
+            onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false, importConflict.gitRemote, importConflict.docs); setImportConflict(null) }}
           />
 
           {/* Readme + licence, opened by a card's licence chip */}
