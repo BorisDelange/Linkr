@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Suspense, lazy, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, Suspense, lazy, useMemo, useRef, useId, createContext, useContext } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -58,7 +58,7 @@ import { uniqueName } from '@/lib/unique-name'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
-import { localized, localizedRaw, setLocalized } from '@/lib/localized'
+import { localized, setLocalized } from '@/lib/localized'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
@@ -410,18 +410,6 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
           </div>
         )}
 
-        {mapping.knownTables && mapping.knownTables.length > 0 && (
-          <div>
-            <h5 className="text-xs font-medium text-foreground mb-1">
-              {t('settings.schema_preset_known_tables')} ({mapping.knownTables.length})
-            </h5>
-            <div className="rounded-md border bg-muted/30 px-3 py-2">
-              <p className="text-xs font-mono text-muted-foreground leading-relaxed">
-                {mapping.knownTables.join(', ')}
-              </p>
-            </div>
-          </div>
-        )}
       </div>
     </div>
     </div>
@@ -432,17 +420,35 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
 // Inline editor for custom presets
 // ---------------------------------------------------------------------------
 
+/**
+ * The schema's table names, offered as completions in every "Table" field.
+ *
+ * Passed by context rather than threaded through seven editor components: it is
+ * ambient reference data, not a prop any of them acts on. `knownTables` still
+ * earns its place in the mapping — AddDatabaseDialog reads it to recognise table
+ * names in parquet paths — it just has no business being printed as a wall of
+ * text in the mapping view.
+ */
+const KnownTablesContext = createContext<string[]>([])
+
 function EditableField({
   label,
   value,
   onChange,
   placeholder,
+  suggestions,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
+  /** Offered as completions, not enforced: a schema may hold a table the
+   *  preset's knownTables never listed, and refusing it would be wrong. */
+  suggestions?: string[]
 }) {
+  // A datalist rather than a combobox: the field stays free text, which is what
+  // a mapping needs, and the browser handles filtering.
+  const listId = useId()
   return (
     <div className="grid grid-cols-[120px_1fr] items-center gap-2">
       <Label className="text-xs text-muted-foreground">{label}</Label>
@@ -451,7 +457,15 @@ function EditableField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="h-7 text-xs font-mono"
+        list={suggestions?.length ? listId : undefined}
       />
+      {suggestions?.length ? (
+        <datalist id={listId}>
+          {suggestions.map((tbl) => (
+            <option key={tbl} value={tbl} />
+          ))}
+        </datalist>
+      ) : null}
     </div>
   )
 }
@@ -463,6 +477,7 @@ function EditablePatientTable({
   table: SchemaMapping['patientTable']
   onChange: (t: SchemaMapping['patientTable']) => void
 }) {
+  const knownTables = useContext(KnownTablesContext)
   const { t } = useTranslation()
   const val = table ?? { table: '', idColumn: '' }
 
@@ -474,7 +489,7 @@ function EditablePatientTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_patient_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="person" />
+        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="person" />
         <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="person_id" />
         <EditableField label="Birth date" value={val.birthDateColumn ?? ''} onChange={(v) => update('birthDateColumn', v)} placeholder="birth_datetime" />
         <EditableField label="Birth year" value={val.birthYearColumn ?? ''} onChange={(v) => update('birthYearColumn', v)} placeholder="year_of_birth" />
@@ -492,6 +507,7 @@ function EditableDeathTable({
   table: SchemaMapping['deathTable']
   onChange: (t: SchemaMapping['deathTable']) => void
 }) {
+  const knownTables = useContext(KnownTablesContext)
   const { t } = useTranslation()
   const val = table ?? { table: '', patientIdColumn: '', dateColumn: '' }
 
@@ -503,7 +519,7 @@ function EditableDeathTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_death_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="death" />
+        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="death" />
         <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
         <EditableField label="Date column" value={val.dateColumn} onChange={(v) => update('dateColumn', v)} placeholder="death_datetime" />
       </div>
@@ -518,6 +534,7 @@ function EditableNoteTable({
   table: SchemaMapping['noteTable']
   onChange: (t: SchemaMapping['noteTable']) => void
 }) {
+  const knownTables = useContext(KnownTablesContext)
   const { t } = useTranslation()
   const val = table ?? { table: '', idColumn: '', patientIdColumn: '', dateColumn: '', textColumn: '' }
 
@@ -529,7 +546,7 @@ function EditableNoteTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_note_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="note" />
+        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="note" />
         <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="note_id" />
         <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
         <EditableField label="Visit ID" value={val.visitIdColumn ?? ''} onChange={(v) => update('visitIdColumn', v)} placeholder="visit_occurrence_id" />
@@ -549,6 +566,7 @@ function EditableVisitTable({
   table: SchemaMapping['visitTable']
   onChange: (t: SchemaMapping['visitTable']) => void
 }) {
+  const knownTables = useContext(KnownTablesContext)
   const { t } = useTranslation()
   const val = table ?? { table: '', idColumn: '', patientIdColumn: '', startDateColumn: '' }
 
@@ -560,7 +578,7 @@ function EditableVisitTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_visit_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="visit_occurrence" />
+        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="visit_occurrence" />
         <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="visit_occurrence_id" />
         <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
         <EditableField label="Start date" value={val.startDateColumn} onChange={(v) => update('startDateColumn', v)} placeholder="visit_start_datetime" />
@@ -610,6 +628,7 @@ function EditableEventTable({
   onTableChange: (et: EventTable) => void
   onRemove: () => void
 }) {
+  const knownTables = useContext(KnownTablesContext)
   const update = (key: string, v: string) => {
     onTableChange({ ...et, [key]: v || undefined } as EventTable)
   }
@@ -627,7 +646,7 @@ function EditableEventTable({
           <X size={12} />
         </Button>
       </div>
-      <EditableField label="Table" value={et.table} onChange={(v) => update('table', v)} placeholder="measurement" />
+      <EditableField suggestions={knownTables} label="Table" value={et.table} onChange={(v) => update('table', v)} placeholder="measurement" />
       <EditableField label="Concept ID" value={et.conceptIdColumn} onChange={(v) => update('conceptIdColumn', v)} placeholder="measurement_concept_id" />
       <EditableField label="Source ID" value={et.sourceConceptIdColumn ?? ''} onChange={(v) => update('sourceConceptIdColumn', v)} />
       <EditableField label="Patient ID" value={et.patientIdColumn ?? ''} onChange={(v) => update('patientIdColumn', v)} />
@@ -651,6 +670,7 @@ function EditableVisitDetailTable({
   table: SchemaMapping['visitDetailTable']
   onChange: (t: SchemaMapping['visitDetailTable']) => void
 }) {
+  const knownTables = useContext(KnownTablesContext)
   const { t } = useTranslation()
   const val = table ?? { table: '', idColumn: '', visitIdColumn: '', patientIdColumn: '', startDateColumn: '' }
 
@@ -662,7 +682,7 @@ function EditableVisitDetailTable({
     <div>
       <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_visit_detail_table')}</h5>
       <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="visit_detail" />
+        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="visit_detail" />
         <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="visit_detail_id" />
         <EditableField label="Hospitalization ID" value={val.visitIdColumn} onChange={(v) => update('visitIdColumn', v)} placeholder="visit_occurrence_id" />
         <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
@@ -755,6 +775,7 @@ function EditableConceptDict({
   onChange: (d: ConceptDictionary) => void
   onRemove: () => void
 }) {
+  const knownTables = useContext(KnownTablesContext)
   const update = (key: string, v: string) => {
     onChange({ ...dict, [key]: v || undefined } as ConceptDictionary)
   }
@@ -772,7 +793,7 @@ function EditableConceptDict({
           <X size={12} />
         </Button>
       </div>
-      <EditableField label="Table" value={dict.table} onChange={(v) => update('table', v)} placeholder="concept" />
+      <EditableField suggestions={knownTables} label="Table" value={dict.table} onChange={(v) => update('table', v)} placeholder="concept" />
       <EditableField label="ID column" value={dict.idColumn ?? ''} onChange={(v) => update('idColumn', v)} placeholder="concept_id" />
       <EditableField label="Name column" value={dict.nameColumn} onChange={(v) => update('nameColumn', v)} placeholder="concept_name" />
       <EditableField label="Code column" value={dict.codeColumn ?? ''} onChange={(v) => update('codeColumn', v)} />
@@ -788,6 +809,8 @@ function EditableConceptDict({
   )
 }
 
+type MapTabId = 'patient' | 'stay' | 'notes' | 'events' | 'concepts'
+
 function PresetEditor({
   mapping,
   onChange,
@@ -796,7 +819,7 @@ function PresetEditor({
   onChange: (m: SchemaMapping) => void
 }) {
   const { t } = useTranslation()
-  const language = useAppStore((s) => s.language)
+  const [mapTab, setMapTab] = useState<MapTabId>('patient')
 
   const addEventTable = () => {
     const eventTables = { ...(mapping.eventTables ?? {}) }
@@ -839,125 +862,112 @@ function PresetEditor({
   }
 
   return (
+    <KnownTablesContext.Provider value={mapping.knownTables ?? []}>
     <div className="space-y-4">
-      {/* Name + description (bilingual, active language only) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 rounded-md border bg-muted/30 px-3 py-2.5">
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">{t('schemas.field_name')}<RequiredMark /></Label>
-          <Input
-            value={localizedRaw(mapping.presetLabel, language)}
-            onChange={(e) => onChange({ ...mapping, presetLabel: setLocalized(mapping.presetLabel, language, e.target.value) })}
-            className="h-8 text-sm"
-          />
+      {/* Grouped by clinical subject rather than by table: a flat column of a
+          dozen sections made you hunt for the one you wanted. */}
+      <Tabs value={mapTab} onValueChange={(v) => setMapTab(v as MapTabId)}>
+        <div className="flex items-center">
+          <div className="flex-1" />
+          <TabsList>
+            <TabsTrigger value="patient">{t('settings.schema_map_tab_patient')}</TabsTrigger>
+            <TabsTrigger value="stay">{t('settings.schema_map_tab_stay')}</TabsTrigger>
+            <TabsTrigger value="notes">{t('settings.schema_map_tab_notes')}</TabsTrigger>
+            <TabsTrigger value="events">{t('settings.schema_map_tab_events')}</TabsTrigger>
+            <TabsTrigger value="concepts">{t('settings.schema_map_tab_concepts')}</TabsTrigger>
+          </TabsList>
+          <div className="flex-1" />
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">{t('schemas.field_description')}</Label>
-          <Input
-            value={localizedRaw(mapping.description, language)}
-            onChange={(e) => onChange({ ...mapping, description: setLocalized(mapping.description ?? {}, language, e.target.value) })}
-            className="h-8 text-sm"
-            placeholder={t('schemas.field_description_placeholder')}
-          />
-        </div>
-        {/* Read-only: the id keys the store and every reference to this schema,
-            so it is fixed at creation — shown because it is what exports and git
-            use as the folder name. */}
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">{t('entity_id.label')}</Label>
-          <Input
-            value={mapping.presetId}
-            readOnly
-            disabled
-            className="h-8 font-mono text-xs"
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left column: patient, gender, visit, concept dictionaries */}
-        <div className="space-y-4">
-          <EditablePatientTable
-            table={mapping.patientTable}
-            onChange={(patientTable) => onChange({ ...mapping, patientTable })}
-          />
 
-          <EditableGenderValues
-            genderValues={mapping.genderValues}
-            onChange={(genderValues) => onChange({ ...mapping, genderValues })}
-          />
-
-          <EditableVisitTable
-            table={mapping.visitTable}
-            onChange={(visitTable) => onChange({ ...mapping, visitTable })}
-          />
-
-          <EditableVisitDetailTable
-            table={mapping.visitDetailTable}
-            onChange={(visitDetailTable) => onChange({ ...mapping, visitDetailTable })}
-          />
-
-          <EditableDeathTable
-            table={mapping.deathTable}
-            onChange={(deathTable) => onChange({ ...mapping, deathTable })}
-          />
-
-          <EditableNoteTable
-            table={mapping.noteTable}
-            onChange={(noteTable) => onChange({ ...mapping, noteTable })}
-          />
-
-          {/* Concept dictionaries */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h5 className="text-xs font-medium text-foreground">
-                {t('settings.schema_preset_concept_dictionaries')}
-              </h5>
-              <Button variant="ghost" size="sm" onClick={addConceptDict} className="h-6 text-xs gap-1">
-                <Plus size={10} />
-                Add
-              </Button>
-            </div>
-            <div className="space-y-2">
-              {(mapping.conceptTables ?? []).map((dict, i) => (
-                <EditableConceptDict
-                  key={i}
-                  dict={dict}
-                  onChange={(d) => updateConceptDict(i, d)}
-                  onRemove={() => removeConceptDict(i)}
-                />
-              ))}
+        <TabsContent value="patient" className="mt-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <EditablePatientTable
+              table={mapping.patientTable}
+              onChange={(patientTable) => onChange({ ...mapping, patientTable })}
+            />
+            <div className="space-y-4">
+              <EditableGenderValues
+                genderValues={mapping.genderValues}
+                onChange={(genderValues) => onChange({ ...mapping, genderValues })}
+              />
+              <EditableDeathTable
+                table={mapping.deathTable}
+                onChange={(deathTable) => onChange({ ...mapping, deathTable })}
+              />
             </div>
           </div>
-        </div>
+        </TabsContent>
 
-        {/* Right column: event tables */}
-        <div className="space-y-4">
-          {/* Event tables */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h5 className="text-xs font-medium text-foreground">
-                {t('settings.schema_preset_event_tables')}
-              </h5>
-              <Button variant="ghost" size="sm" onClick={addEventTable} className="h-6 text-xs gap-1">
-                <Plus size={10} />
-                Add
-              </Button>
-            </div>
-            <div className="space-y-2">
-              {Object.entries(mapping.eventTables ?? {}).map(([label, et]) => (
-                <EditableEventTable
-                  key={label}
-                  label={label}
-                  et={et}
-                  onLabelChange={(newLabel) => updateEventTable(label, newLabel, et)}
-                  onTableChange={(newEt) => updateEventTable(label, label, newEt)}
-                  onRemove={() => removeEventTable(label)}
-                />
-              ))}
-            </div>
+        <TabsContent value="stay" className="mt-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <EditableVisitTable
+              table={mapping.visitTable}
+              onChange={(visitTable) => onChange({ ...mapping, visitTable })}
+            />
+            <EditableVisitDetailTable
+              table={mapping.visitDetailTable}
+              onChange={(visitDetailTable) => onChange({ ...mapping, visitDetailTable })}
+            />
           </div>
-        </div>
-      </div>
+        </TabsContent>
+
+        <TabsContent value="notes" className="mt-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <EditableNoteTable
+              table={mapping.noteTable}
+              onChange={(noteTable) => onChange({ ...mapping, noteTable })}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="events" className="mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <h5 className="text-xs font-medium text-foreground">
+              {t('settings.schema_preset_event_tables')}
+            </h5>
+            <Button variant="ghost" size="sm" onClick={addEventTable} className="h-6 text-xs gap-1">
+              <Plus size={10} />
+              Add
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {Object.entries(mapping.eventTables ?? {}).map(([label, et]) => (
+              <EditableEventTable
+                key={label}
+                label={label}
+                et={et}
+                onLabelChange={(newLabel) => updateEventTable(label, newLabel, et)}
+                onTableChange={(newEt) => updateEventTable(label, label, newEt)}
+                onRemove={() => removeEventTable(label)}
+              />
+            ))}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="concepts" className="mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <h5 className="text-xs font-medium text-foreground">
+              {t('settings.schema_preset_concept_dictionaries')}
+            </h5>
+            <Button variant="ghost" size="sm" onClick={addConceptDict} className="h-6 text-xs gap-1">
+              <Plus size={10} />
+              Add
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {(mapping.conceptTables ?? []).map((dict, i) => (
+              <EditableConceptDict
+                key={i}
+                dict={dict}
+                onChange={(d) => updateConceptDict(i, d)}
+                onRemove={() => removeConceptDict(i)}
+              />
+            ))}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
+    </KnownTablesContext.Provider>
   )
 }
 
