@@ -207,6 +207,7 @@ export function buildOverviewEventsQuery(
   const valExpr = et.valueColumn ? `e."${et.valueColumn}"` : 'NULL'
   const strExpr =
     et.valueStringColumn && !omitValueString ? `e."${et.valueStringColumn}"` : 'NULL'
+  const routeExpr = et.routeColumn ? `e."${et.routeColumn}"` : 'NULL'
   // An event overlapping the window matters even if it started before it — a
   // drip running across the whole view would otherwise vanish when zoomed into.
   const overlap = et.endDateColumn
@@ -219,7 +220,8 @@ export function buildOverviewEventsQuery(
   e."${et.dateColumn}" AS event_start,
   ${endExpr} AS event_end,
   ${valExpr} AS value_number,
-  CAST(${strExpr} AS VARCHAR) AS value_string
+  CAST(${strExpr} AS VARCHAR) AS value_string,
+  CAST(${routeExpr} AS VARCHAR) AS route
 FROM "${et.table}" e
 WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND ${overlap}${visitFilter}${conceptFilter}

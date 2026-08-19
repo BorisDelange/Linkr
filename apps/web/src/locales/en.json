@@ -1473,6 +1473,7 @@
     "overview_copy_name": "Copy concept name",
     "overview_copy_id": "Copy concept ID",
     "overview_copy_code": "Copy concept code",
+    "overview_dose_total": "{{total}} total",
     "overview_events": "events",
     "overview_events_one": "event",
     "overview_zoom_hint": "zoom in for values",

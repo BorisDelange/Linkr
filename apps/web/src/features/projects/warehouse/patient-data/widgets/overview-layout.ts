@@ -408,3 +408,41 @@ export function sameWords(a: string, b: string): boolean {
   }
   return words(a) === words(b)
 }
+
+/**
+ * Infusion rate for a dose given over a period, as `perHour` in the dose's own
+ * unit — or null when a rate would be a fiction.
+ *
+ * `drug_exposure` end dates are prescription windows, not administration times:
+ * an oral bisacodyl tablet spans 57 hours on a real record, and dividing by that
+ * would report 0.18 mg/h for a drug swallowed in one go. Only rows whose route
+ * says they run continuously get a rate, which is why the caller must pass the
+ * routes its schema uses rather than this guessing from the duration.
+ */
+export function infusionRate(
+  quantity: number | null,
+  startMs: number,
+  endMs: number | null,
+  route: string | null,
+  continuousRoutes: readonly string[],
+): number | null {
+  if (quantity == null || !(quantity > 0)) return null
+  if (endMs == null || !(endMs > startMs)) return null
+  if (!route) return null
+  const r = route.trim().toLowerCase()
+  if (!continuousRoutes.some((c) => c.toLowerCase() === r)) return null
+  const hours = (endMs - startMs) / 3_600_000
+  if (!(hours > 0) || hours > MAX_INFUSION_HOURS) return null
+  return quantity / hours
+}
+
+/**
+ * Beyond this, a "duration" is a prescription window rather than one infusion.
+ *
+ * Even rows flagged as continuous are not all administrations: on a real record
+ * 17% of them span more than three days, and 8 mg of norepinephrine over 146
+ * hours is an order that was renewed, not a drip. Rating those would report
+ * 0.05 mg/h for a vasopressor — wrong in the direction that matters, so the
+ * total is shown alone instead.
+ */
+const MAX_INFUSION_HOURS = 72

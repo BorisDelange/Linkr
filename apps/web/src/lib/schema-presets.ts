@@ -165,6 +165,8 @@ const omop54: SchemaMapping = {
       // table ships separately from the vocabulary and is often empty.
       valueColumn: 'quantity',
       valueUnitColumn: 'dose_unit_source_value',
+      routeColumn: 'route_source_value',
+      continuousRoutes: ['iv drip'],
       patientIdColumn: 'person_id',
       dateColumn: 'drug_exposure_start_datetime',
       endDateColumn: 'drug_exposure_end_datetime',

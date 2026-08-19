@@ -236,6 +236,20 @@ export interface EventTable {
    * which means a hospital ward.
    */
   valueUnitColumn?: string
+  /**
+   * Column naming the administration route (OMOP `route_source_value`).
+   *
+   * Only used to decide whether a duration is an infusion or a prescription
+   * window: an oral tablet's row can span two days without the drug having been
+   * given over two days, so a rate may only be inferred for routes in
+   * `continuousRoutes`.
+   */
+  routeColumn?: string
+  /**
+   * Route values, lowercased, whose rows really are administered continuously —
+   * the only ones where quantity ÷ duration is a rate rather than a fiction.
+   */
+  continuousRoutes?: string[]
   /** Patient FK column. Defaults to patientTable.idColumn name if omitted. */
   patientIdColumn?: string
   /** Event date column (measurement_datetime, charttime, document_date, start_at). */

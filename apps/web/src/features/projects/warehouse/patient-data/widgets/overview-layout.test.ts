@@ -4,6 +4,7 @@ import {
   medianGapPx,
   shortenDrugName,
   sameWords,
+  infusionRate,
   type OverviewConceptRow,
 } from './overview-layout'
 
@@ -253,5 +254,58 @@ describe('sameWords tells reordering apart from real loss', () => {
 
   it('does not confuse two different strengths', () => {
     expect(sameWords('bisacodyl 5 MG', 'bisacodyl 10 MG')).toBe(false)
+  })
+})
+
+/**
+ * The trap this guards, taken from a real record: `drug_exposure` end dates are
+ * prescription windows, not administration times. An oral bisacodyl tablet spans
+ * 57 hours, so dividing by the duration would report 0.18 mg/h for a drug
+ * swallowed in one go. Only the route can tell the two apart.
+ */
+describe('infusionRate only rates what actually runs continuously', () => {
+  const H = 3_600_000
+  const ROUTES = ['iv drip']
+
+  it('rates a drip: 1000 mL over 4 h is 250 mL/h', () => {
+    expect(infusionRate(1000, 0, 4 * H, 'IV DRIP', ROUTES)).toBe(250)
+  })
+
+  it('is case- and space-insensitive about the route', () => {
+    expect(infusionRate(150, 0, 20 * H, '  iv drip ', ROUTES)).toBe(7.5)
+  })
+
+  it('refuses an oral tablet, however long its prescription window', () => {
+    expect(infusionRate(10, 0, 57 * H, 'PO', ROUTES)).toBeNull()
+  })
+
+  it('refuses an IV push — not every IV route is a drip', () => {
+    expect(infusionRate(4, 0, 57 * H, 'IV', ROUTES)).toBeNull()
+  })
+
+  it('refuses when the route is unknown, rather than guessing', () => {
+    expect(infusionRate(1000, 0, 4 * H, null, ROUTES)).toBeNull()
+  })
+
+  it('refuses a zero or backwards duration', () => {
+    expect(infusionRate(1000, 5 * H, 5 * H, 'IV DRIP', ROUTES)).toBeNull()
+    expect(infusionRate(1000, 5 * H, 1 * H, 'IV DRIP', ROUTES)).toBeNull()
+  })
+
+  it('refuses a missing or non-positive quantity', () => {
+    expect(infusionRate(null, 0, 4 * H, 'IV DRIP', ROUTES)).toBeNull()
+    expect(infusionRate(0, 0, 4 * H, 'IV DRIP', ROUTES)).toBeNull()
+  })
+
+  it('rates nothing when the schema declares no continuous routes', () => {
+    expect(infusionRate(1000, 0, 4 * H, 'IV DRIP', [])).toBeNull()
+  })
+
+  it('refuses a span too long to be one infusion', () => {
+    // 8 mg of norepinephrine over 146 h is a renewed order, not a drip: rating
+    // it would report 0.05 mg/h for a vasopressor. 17% of the IV DRIP rows on a
+    // real record are like this.
+    expect(infusionRate(8, 0, 146 * H, 'IV DRIP', ROUTES)).toBeNull()
+    expect(infusionRate(8, 0, 71 * H, 'IV DRIP', ROUTES)).not.toBeNull()
   })
 })

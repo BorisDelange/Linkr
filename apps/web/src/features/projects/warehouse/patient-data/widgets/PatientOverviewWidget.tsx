@@ -23,6 +23,7 @@ import {
   FEW_EVENTS,
   shortenDrugName,
   sameWords,
+  infusionRate,
   type OverviewConceptRow,
   type OverviewRow,
 } from './overview-layout'
@@ -50,6 +51,8 @@ interface OverviewEvent {
   text: string | null
   /** Only meaningful on a class/domain row, where several concepts share a row. */
   conceptId: string | null
+  /** Administration route, when mapped — decides whether a rate is meaningful. */
+  route: string | null
 }
 
 /** Whole-record density for the range selector's background. */
@@ -136,6 +139,18 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const conceptsById = useMemo(
     () => new Map(concepts.map((c) => [c.conceptId, c])),
     [concepts],
+  )
+  // Union across event tables: the tooltip knows the event's route, not which
+  // table declared it.
+  const continuousRoutes = useMemo(
+    () => [
+      ...new Set(
+        Object.values(schemaMapping?.eventTables ?? {}).flatMap(
+          (et) => et.continuousRoutes ?? [],
+        ),
+      ),
+    ],
+    [schemaMapping],
   )
   const [units, setUnits] = useState<UnitStay[]>([])
   const [death, setDeath] = useState<number | null>(null)
@@ -488,6 +503,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
               value: r.value_number == null ? null : Number(r.value_number),
               text: r.value_string == null ? null : String(r.value_string),
               conceptId: r.concept_id == null ? null : String(r.concept_id),
+              route: r.route == null ? null : String(r.route),
             })),
           )
           repaint()
@@ -996,10 +1012,10 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         setTip(null)
         return
       }
-      const content = describeHit(hit, px, py, inGutter, view, t, conceptsById)
+      const content = describeHit(hit, px, py, inGutter, view, t, conceptsById, continuousRoutes)
       setTip(content ? { ...content, x: e.clientX, y: e.clientY } : null)
     },
-    [view, bounds, hitRange, repaint, rebuild, t, conceptsById],
+    [view, bounds, hitRange, repaint, rebuild, t, conceptsById, continuousRoutes],
   )
 
   const onMouseUp = useCallback(() => {
@@ -1555,6 +1571,7 @@ function describeHit(
   view: { lo: number; hi: number },
   t: (k: string, o?: Record<string, unknown>) => string,
   conceptsById: Map<string, OverviewConceptRow>,
+  continuousRoutes: readonly string[],
 ): Omit<TipContent, 'x' | 'y'> | null {
   const label = rowLabel(hit.row, t)
 
@@ -1620,16 +1637,24 @@ function describeHit(
         // aggregate row ("Other", a concept class) the dot stands for many
         // concepts with different units, so `hit.row.unit` is not this event's
         // unit and the bare figure — 12.5 of what? — says nothing.
+        const unit = hit.row.unit ?? ''
+        const rate = infusionRate(e.value, e.start, e.end, e.route, continuousRoutes)
+        const total = e.value != null ? `${fmtValue(e.value)}${unit ? ` ${unit}` : ''}` : null
+        // A continuous infusion is a rate first — "10 mg/h" is the order, and the
+        // total is what it added up to over the period shown.
         const value = hit.row.mixed
           ? undefined
-          : e.value != null
-            ? `${fmtValue(e.value)}${hit.row.unit ? ` ${hit.row.unit}` : ''}`
-            : (e.text ?? undefined)
+          : rate != null && total
+            ? `${fmtValue(rate)} ${unit}/h`
+            : (total ?? e.text ?? undefined)
         const when =
           e.end != null
             ? `${fmtStamp(e.start)} → ${fmtStamp(e.end)} · ${fmtDur(e.end - e.start)}`
             : fmtStamp(e.start)
         const lines = [when]
+        if (rate != null && total && !hit.row.mixed) {
+          lines.unshift(t('patient_data.overview_dose_total', { total }))
+        }
         // On a class/domain row the table name only repeats the header. What is
         // actually unknown is how much this single dot stands for.
         const merged = best.merged
