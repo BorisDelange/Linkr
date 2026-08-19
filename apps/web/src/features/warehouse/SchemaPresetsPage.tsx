@@ -293,10 +293,19 @@ function EventTableSection({ label, et }: { label: string; et: EventTable }) {
         {et.conceptCodeColumn && (
           <DetailRow label="Code column" value={et.conceptCodeColumn} />
         )}
-        {et.valueColumn && <DetailRow label="Value (numeric)" value={et.valueColumn} />}
-        {et.valueStringColumn && <DetailRow label="Value (string)" value={et.valueStringColumn} />}
         {et.patientIdColumn && <DetailRow label="Patient ID" value={et.patientIdColumn} />}
         {et.dateColumn && <DetailRow label="Date column" value={et.dateColumn} />}
+        {et.endDateColumn && <DetailRow label="End date column" value={et.endDateColumn} />}
+        {et.valueColumn && <DetailRow label="Value (numeric)" value={et.valueColumn} />}
+        {et.valueStringColumn && <DetailRow label="Value (string)" value={et.valueStringColumn} />}
+        {et.valueUnitColumn && <DetailRow label="Unit (text)" value={et.valueUnitColumn} />}
+        {et.valueUnitConceptIdColumn && (
+          <DetailRow label="Unit concept ID" value={et.valueUnitConceptIdColumn} />
+        )}
+        {et.routeColumn && <DetailRow label="Route (text)" value={et.routeColumn} />}
+        {et.routeConceptIdColumn && (
+          <DetailRow label="Route concept ID" value={et.routeConceptIdColumn} />
+        )}
         {et.conceptDictionaryKey && (
           <DetailRow label="Dictionary" value={et.conceptDictionaryKey} />
         )}
@@ -365,6 +374,11 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
         <TableSection
           title={t('settings.schema_preset_death_table')}
           mapping={mapping.deathTable as unknown as Record<string, string | undefined>}
+        />
+
+        <TableSection
+          title={t('settings.schema_preset_note_table')}
+          mapping={mapping.noteTable as unknown as Record<string, string | undefined>}
         />
 
         {mapping.conceptTables && mapping.conceptTables.length > 0 && (
@@ -497,6 +511,37 @@ function EditableDeathTable({
   )
 }
 
+function EditableNoteTable({
+  table,
+  onChange,
+}: {
+  table: SchemaMapping['noteTable']
+  onChange: (t: SchemaMapping['noteTable']) => void
+}) {
+  const { t } = useTranslation()
+  const val = table ?? { table: '', idColumn: '', patientIdColumn: '', dateColumn: '', textColumn: '' }
+
+  const update = (key: string, v: string) => {
+    onChange({ ...val, [key]: v || undefined } as typeof val)
+  }
+
+  return (
+    <div>
+      <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_note_table')}</h5>
+      <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+        <EditableField label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="note" />
+        <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="note_id" />
+        <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
+        <EditableField label="Visit ID" value={val.visitIdColumn ?? ''} onChange={(v) => update('visitIdColumn', v)} placeholder="visit_occurrence_id" />
+        <EditableField label="Date column" value={val.dateColumn} onChange={(v) => update('dateColumn', v)} placeholder="note_datetime" />
+        <EditableField label="Title column" value={val.titleColumn ?? ''} onChange={(v) => update('titleColumn', v)} placeholder="note_title" />
+        <EditableField label="Text column" value={val.textColumn} onChange={(v) => update('textColumn', v)} placeholder="note_text" />
+        <EditableField label="Type column" value={val.typeColumn ?? ''} onChange={(v) => update('typeColumn', v)} placeholder="note_source_value" />
+      </div>
+    </div>
+  )
+}
+
 function EditableVisitTable({
   table,
   onChange,
@@ -585,11 +630,16 @@ function EditableEventTable({
       <EditableField label="Table" value={et.table} onChange={(v) => update('table', v)} placeholder="measurement" />
       <EditableField label="Concept ID" value={et.conceptIdColumn} onChange={(v) => update('conceptIdColumn', v)} placeholder="measurement_concept_id" />
       <EditableField label="Source ID" value={et.sourceConceptIdColumn ?? ''} onChange={(v) => update('sourceConceptIdColumn', v)} />
-      <EditableField label="Value (num)" value={et.valueColumn ?? ''} onChange={(v) => update('valueColumn', v)} placeholder="value_as_number" />
-      <EditableField label="Value (str)" value={et.valueStringColumn ?? ''} onChange={(v) => update('valueStringColumn', v)} placeholder="value_as_string" />
       <EditableField label="Patient ID" value={et.patientIdColumn ?? ''} onChange={(v) => update('patientIdColumn', v)} />
       <EditableField label="Date" value={et.dateColumn ?? ''} onChange={(v) => update('dateColumn', v)} />
-      <EditableField label="Dictionary" value={et.conceptDictionaryKey ?? ''} onChange={(v) => update('conceptDictionaryKey', v)} />
+      <EditableField label="End date" value={et.endDateColumn ?? ''} onChange={(v) => update('endDateColumn', v)} placeholder="drug_exposure_end_datetime" />
+      <EditableField label="Value (num)" value={et.valueColumn ?? ''} onChange={(v) => update('valueColumn', v)} placeholder="value_as_number" />
+      <EditableField label="Value (str)" value={et.valueStringColumn ?? ''} onChange={(v) => update('valueStringColumn', v)} placeholder="value_as_string" />
+      <EditableField label="Unit (text)" value={et.valueUnitColumn ?? ''} onChange={(v) => update('valueUnitColumn', v)} placeholder="unit_source_value" />
+      <EditableField label="Unit concept ID" value={et.valueUnitConceptIdColumn ?? ''} onChange={(v) => update('valueUnitConceptIdColumn', v)} placeholder="unit_concept_id" />
+      <EditableField label="Route (text)" value={et.routeColumn ?? ''} onChange={(v) => update('routeColumn', v)} placeholder="route_source_value" />
+      <EditableField label="Route concept ID" value={et.routeConceptIdColumn ?? ''} onChange={(v) => update('routeConceptIdColumn', v)} placeholder="route_concept_id" />
+      <EditableField label="Dictionary" value={et.conceptDictionaryKey ?? ''} onChange={(v) => update('conceptDictionaryKey', v)} placeholder="none" />
     </div>
   )
 }
@@ -848,6 +898,11 @@ function PresetEditor({
           <EditableDeathTable
             table={mapping.deathTable}
             onChange={(deathTable) => onChange({ ...mapping, deathTable })}
+          />
+
+          <EditableNoteTable
+            table={mapping.noteTable}
+            onChange={(noteTable) => onChange({ ...mapping, noteTable })}
           />
 
           {/* Concept dictionaries */}
