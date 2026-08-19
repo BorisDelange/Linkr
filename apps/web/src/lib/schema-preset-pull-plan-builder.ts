@@ -42,7 +42,14 @@ export function buildSchemaPresetPullPlan(
     if (plan.mappingChanged) {
       items.push({ key: 'mapping', label: PRESET_MANIFEST_FILE, state: 'update' })
     }
-    rows.push({ path: SCHEMA_PRESET_DDL_FILE, items, wholeFile: true })
+    // Anchored on the file that actually moved. Always anchoring on schema.ddl
+    // labelled a mapping-only change "schema.ddl" and then opened a pane of
+    // JSON under it — the diff was right, the heading was not.
+    rows.push({
+      path: plan.ddlChanged ? SCHEMA_PRESET_DDL_FILE : PRESET_MANIFEST_FILE,
+      items,
+      wholeFile: true,
+    })
   }
 
   if (plan.docs.length > 0 || plan.infoChanged) {

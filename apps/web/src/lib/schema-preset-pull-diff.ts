@@ -11,7 +11,7 @@
  */
 import type { PullFile } from '@/lib/pull-plan'
 import type { PreparedSchemaPresetPull } from '@/lib/schema-preset-pull'
-import { presetInfoOf, stripInstancePresetMapping } from '@/lib/schema-preset-pull'
+import { presetInfoOf, stripInstancePresetMapping, PRESET_MANIFEST_FILE } from '@/lib/schema-preset-pull'
 import { SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { presentReadme } from '@/lib/entity-docs-pull'
@@ -49,19 +49,21 @@ export function buildSchemaPresetPullDiff(
   const { localPreset, remoteDdl, remoteMapping, remoteInfo, remoteDocs, plan } = prepared
 
   if (file.path === SCHEMA_PRESET_DDL_FILE) {
-    // When only the config moved, the DDL sides are identical and a DDL diff
-    // would render as "no change" on a row that IS changed — show the config.
-    if (!plan.ddlChanged && plan.mappingChanged) {
-      return {
-        oldContent: stable(localPreset?.mapping ? stripInstancePresetMapping(localPreset.mapping) : {}),
-        newContent: stable(remoteMapping ?? {}),
-        language: 'json',
-      }
-    }
     return {
       oldContent: localPreset?.mapping?.ddl ?? '',
       newContent: remoteDdl ?? '',
       language: 'sql',
+    }
+  }
+
+  // The schema row anchors on preset.json when only the mapping moved, so that
+  // row's diff is the mapping — distinct from the docs row, which also anchors
+  // on preset.json but carries just the name and description.
+  if (file.path === PRESET_MANIFEST_FILE && plan.mappingChanged && !plan.ddlChanged) {
+    return {
+      oldContent: stable(localPreset?.mapping ? stripInstancePresetMapping(localPreset.mapping) : {}),
+      newContent: stable(remoteMapping ?? {}),
+      language: 'json',
     }
   }
 

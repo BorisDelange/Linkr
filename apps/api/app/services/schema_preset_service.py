@@ -62,10 +62,16 @@ async def save(db: AsyncSession, data: SchemaPresetSave) -> SchemaPreset:
         db.add(preset)
     else:
         git_secret.apply_to_entity(preset, payload)
-        # preset_id is the PK — never reassign it on update. created_at is the
-        # element's original creation date — never move it on a re-save.
+        # preset_id is the PK — never reassign it on update.
         payload.pop("preset_id", None)
-        payload.pop("created_at", None)
+        # created_at is the element's original creation date, so an ordinary
+        # re-save (which sends none) must not move it. An import DOES carry one —
+        # the repo's provenance — and dropping it unconditionally left the local
+        # row stamped with the moment it first appeared here, which then exported
+        # back as a false creation date. See createdat-git-roundtrip: same bug,
+        # fixed for the *Update schemas but this upsert PUT was not covered.
+        if payload.get("created_at") is None:
+            payload.pop("created_at", None)
         for key, value in payload.items():
             setattr(preset, key, value)
     await db.commit()

@@ -9,7 +9,6 @@ import {
 } from '@/lib/schema-preset-pull'
 import { buildSchemaPresetPullPlan } from '@/lib/schema-preset-pull-plan-builder'
 import { buildSchemaPresetPullDiff } from '@/lib/schema-preset-pull-diff'
-import { SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
 import { wholeFileId, type PullDecision, type PullPlan } from '@/lib/pull-plan'
 import { PullPanel } from './PullPanel'
 import { PullDiffDialog } from './PullDiffDialog'
@@ -106,12 +105,16 @@ export function SchemaPresetPull({ presetId, branch, remoteHead, mode, onPulled 
     setError(null)
     try {
       // Every row is a whole-file row, so the verdict hangs off the FILE id.
-      // The row's path identifies its group: schema.ddl anchors the schema,
-      // preset.json the docs — see buildSchemaPresetPullPlan.
+      // The group comes from the row's ITEM keys, not from its path: the schema
+      // row anchors on preset.json when only the mapping moved, and keying off
+      // the path then filed it under docs — the mapping was silently never
+      // written, and the panel went straight on to offer a push of the stale
+      // local over the remote it had just accepted.
       const groups = new Set<SchemaPresetPullGroup>()
       for (const file of plan.files) {
         if (decisions.get(wholeFileId(file)) !== 'accept') continue
-        groups.add(file.path === SCHEMA_PRESET_DDL_FILE ? 'schema' : 'docs')
+        const schema = file.items.some((i) => i.key === 'ddl' || i.key === 'mapping')
+        groups.add(schema ? 'schema' : 'docs')
       }
       await applySchemaPresetPull(presetId, prepared, {
         groups,

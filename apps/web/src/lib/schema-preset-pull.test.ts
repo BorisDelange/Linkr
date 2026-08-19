@@ -203,6 +203,24 @@ describe('buildSchemaPresetPullPlan', () => {
     ...over,
   } as Parameters<typeof buildSchemaPresetPullPlan>[0])
 
+  /**
+   * The panel maps each accepted row back to a pull group. It used to do that by
+   * path, assuming the schema row always anchored on schema.ddl — once a
+   * mapping-only change anchored on preset.json instead, the schema row was
+   * filed under "docs", the mapping was never written, and the panel then
+   * offered to push the stale local over the remote it had just accepted.
+   */
+  it('marks a mapping-only change with the mapping key, on preset.json', () => {
+    const built = buildSchemaPresetPullPlan(prepared({
+      plan: plan({ schemaChanged: true, mappingChanged: true }),
+    }), 'main')
+    const row = built.files.find((f) => f.path === PRESET_MANIFEST_FILE)
+    expect(row, 'a mapping-only change anchors on preset.json').toBeDefined()
+    expect(row!.items.some((i) => i.key === 'mapping')).toBe(true)
+    // The docs row's key must not collide, or both would resolve to one group.
+    expect(built.files.flatMap((f) => f.items.map((i) => i.key))).not.toContain('info')
+  })
+
   it('offers two rows, one per subject', () => {
     const built = buildSchemaPresetPullPlan(prepared({
       plan: plan({ schemaChanged: true, ddlChanged: true, infoChanged: true }),
@@ -296,9 +314,10 @@ describe('buildSchemaPresetPullDiff', () => {
     expect(diff.language).toBe('sql')
   })
 
-  it('shows the config instead when only the config moved', () => {
-    // Diffing the DDL there would render "no change" on a row that IS changed.
-    const diff = buildSchemaPresetPullDiff(file(SCHEMA_PRESET_DDL_FILE), prepared({
+  it('shows the config under preset.json when only the config moved', () => {
+    // The row anchors on the file that actually moved: labelling a mapping-only
+    // change "schema.ddl" and then opening a pane of JSON under it was a lie.
+    const diff = buildSchemaPresetPullDiff(file(PRESET_MANIFEST_FILE), prepared({
       plan: plan({ schemaChanged: true, mappingChanged: true }),
       remoteDdl: 'SAME',
       remoteMapping: stripInstancePresetMapping(mapping({ knownTables: ['b'] } as Partial<SchemaMapping>)),

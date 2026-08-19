@@ -165,3 +165,35 @@ async def test_preset_persists_author_provenance(client):
     r = await client.get(f"{API}/schema-presets", headers=headers)
     authored = next(p for p in r.json() if p["presetId"] == "authored")
     assert authored["createdBy"] == "Ada Lovelace"
+
+
+async def test_preset_keeps_its_creation_date_but_accepts_an_imported_one(client):
+    """createdAt is provenance, so an import must be able to restore the repo's
+    date onto a row that already exists — while an ordinary re-save, which sends
+    none, must not move it.
+
+    The update branch used to drop created_at unconditionally, so a preset pulled
+    onto an existing row kept the moment it first appeared on this instance and
+    then exported that back as a false creation date. Same bug as
+    createdat-git-roundtrip, in the one path that upserts through PUT."""
+    headers = await _admin_headers(client)
+    body = {"presetId": "dated", "mapping": {"tables": []}}
+
+    r = await client.put(f"{API}/schema-presets/dated", headers=headers, json=body)
+    assert r.status_code == 200
+    stamped = r.json()["createdAt"]
+
+    # An ordinary re-save carries no createdAt and must leave it alone.
+    r = await client.put(
+        f"{API}/schema-presets/dated", headers=headers, json={**body, "mapping": {"tables": ["a"]}}
+    )
+    assert r.json()["createdAt"] == stamped
+
+    # An import carries the repo's date, which is the row's real provenance.
+    r = await client.put(
+        f"{API}/schema-presets/dated",
+        headers=headers,
+        json={**body, "createdAt": "2026-08-10T11:24:04.076Z"},
+    )
+    assert r.status_code == 200
+    assert r.json()["createdAt"].startswith("2026-08-10T11:24:04")
