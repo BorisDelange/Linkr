@@ -6,6 +6,7 @@ import {
   looksLikeDrugName,
   sameWords,
   hourlyRate,
+  unitIsRate,
   type OverviewConceptRow,
 } from './overview-layout'
 
@@ -317,5 +318,95 @@ describe('looksLikeDrugName reads the name, not the schema', () => {
       'Body mass index (BMI) [Ratio]',
       'Heart rate',
     ]) expect(looksLikeDrugName(n), n).toBe(false)
+  })
+})
+
+// The overflow lived exactly at `budget === tables * 3`, where the class level
+// looks affordable only if the unit lane is counted as free. One fixed record
+// never lands on that boundary, so the table count is swept alongside the
+// budget rather than held constant.
+describe('buildOverviewRows — the unit lane is paid for, not assumed free', () => {
+  function nTables(n: number): OverviewConceptRow[] {
+    const out: OverviewConceptRow[] = []
+    for (let t = 0; t < n; t++) {
+      for (let i = 0; i < 6; i++) {
+        out.push(concept(`table_${t}`, `t${t}_c${i}`, 50 - i, `Class ${i % 3}`))
+      }
+    }
+    return out
+  }
+
+  it('fits the budget at every table-count × budget boundary, with units shown', () => {
+    for (let tables = 1; tables <= 8; tables++) {
+      const concepts = nTables(tables)
+      for (let budget = 4; budget <= tables * 3 + 6; budget++) {
+        for (const byClass of [false, true]) {
+          const { rows } = buildOverviewRows({
+            ...base,
+            concepts,
+            budget,
+            byClass,
+            hasUnits: true,
+          })
+          expect(
+            rows.length,
+            `${tables} tables, budget ${budget}, byClass=${byClass} produced ${rows.length} rows`,
+          ).toBeLessThanOrEqual(budget)
+        }
+      }
+    }
+  })
+
+  it('still fills the height when there is no unit lane to pay for', () => {
+    const concepts = nTables(2)
+    const withUnits = buildOverviewRows({ ...base, concepts, budget: 6, byClass: true, hasUnits: true })
+    const without = buildOverviewRows({ ...base, concepts, budget: 6, byClass: true, hasUnits: false })
+    expect(withUnits.rows.length).toBeLessThanOrEqual(6)
+    expect(without.rows.length).toBeLessThanOrEqual(6)
+    // Dropping the lane frees exactly one row for content, never more.
+    expect(without.rows.filter((r) => r.kind !== 'units').length).toBeGreaterThanOrEqual(
+      withUnits.rows.filter((r) => r.kind !== 'units').length,
+    )
+  })
+})
+
+// The inventory query resolves a concept's unit with MAX(), which picks one
+// alphabetically. That is right for a concept charted in one unit and a wrong
+// clinical fact for one charted in several — a drug in both mg and mL.
+describe('units that cannot be trusted are not shown', () => {
+  function unitConcept(unit: string | null, unitCount: number): OverviewConceptRow {
+    return { ...concept('measurement', 'c1', 10), unit, unitCount }
+  }
+
+  const opts = { ...base, byClass: false, hasUnits: false, budget: 40 }
+
+  it('labels a concept charted in a single unit', () => {
+    const { rows } = buildOverviewRows({ ...opts, concepts: [unitConcept('mmHg', 1)] })
+    expect(rows.find((r) => r.kind === 'concept')?.unit).toBe('mmHg')
+  })
+
+  it('withholds the unit when the concept was charted in several', () => {
+    const { rows } = buildOverviewRows({ ...opts, concepts: [unitConcept('mL', 3)] })
+    expect(rows.find((r) => r.kind === 'concept')?.unit).toBeNull()
+  })
+
+  it('treats a missing count as single-unit, so older data still labels', () => {
+    const c = { ...concept('measurement', 'c1', 10), unit: 'kg' }
+    const { rows } = buildOverviewRows({ ...opts, concepts: [c] })
+    expect(rows.find((r) => r.kind === 'concept')?.unit).toBe('kg')
+  })
+})
+
+describe('unitIsRate', () => {
+  it('recognises the rate units a value column can already hold', () => {
+    for (const u of ['mL/h', 'mL/hr', 'mcg/kg/min', 'U/hour', 'mg / min', 'L/day', 'mL/h.']) {
+      expect(unitIsRate(u), u).toBe(true)
+    }
+  })
+
+  it('leaves plain quantity units alone, so the rate is still derived', () => {
+    for (const u of ['mL', 'mg', 'mmHg', 'kg', '%', 'mEq/L', 'mg/dL', null, undefined, '']) {
+      expect(unitIsRate(u), String(u)).toBe(false)
+    }
   })
 })

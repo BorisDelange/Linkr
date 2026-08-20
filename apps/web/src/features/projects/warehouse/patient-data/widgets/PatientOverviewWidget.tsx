@@ -25,6 +25,7 @@ import {
   looksLikeDrugName,
   sameWords,
   hourlyRate,
+  unitIsRate,
   type OverviewConceptRow,
   type OverviewRow,
 } from './overview-layout'
@@ -292,6 +293,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           conceptCode: r.concept_code == null ? null : String(r.concept_code),
           conceptClass: r.concept_class == null ? null : String(r.concept_class),
           unit: r.unit == null ? null : String(r.unit),
+          unitCount: Number(r.unit_count ?? 0),
           eventCount: Number(r.event_count ?? 0),
           durational: r.durational === true || r.durational === 'true',
         }))
@@ -389,10 +391,21 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     ro.observe(el)
     measure()
     return () => ro.disconnect()
-  })
+    // Mount-only: the wrapper is always rendered, so its ref is stable. Without
+    // the empty deps this tore down and rebuilt the observer on every render —
+    // and this component re-renders on every mouse move and every drag frame.
+  }, [])
 
-  const chartH = Math.max(60, size.h - FOOT - (showRange ? RANGE_H : 0))
-  const budget = Math.max(4, Math.floor(chartH / rowH))
+  // Both floors below round *up*, so on a short widget the rows would claim more
+  // height than exists and the axis drew underneath the range strip. The range
+  // selector is the affordance worth sacrificing: it is navigation, whereas the
+  // rows are the data. Dropped only when keeping it would leave no room to draw.
+  const MIN_ROWS = 4
+  const roomWithRange = size.h - FOOT - RANGE_H
+  const rangeFits = roomWithRange >= MIN_ROWS * rowH
+  const drawRange = showRange && rangeFits
+  const chartH = Math.max(60, size.h - FOOT - (drawRange ? RANGE_H : 0))
+  const budget = Math.max(MIN_ROWS, Math.floor(chartH / rowH))
 
   // Collapse/hide/scroll live in refs so a drag doesn't re-render, but the row
   // list must be rebuilt when they change — this counter is the one piece of
@@ -793,7 +806,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       ctx.strokeRect(a + 0.5, 0.5, b - a - 1, bodyH - 1)
     }
 
-    if (showRange) {
+    if (drawRange) {
       // Pinned to the bottom of the widget, not to where the rows happen to
       // end: a short record would otherwise leave it floating mid-card.
       rangeRef.current = drawRangeSelector(
@@ -1371,10 +1384,14 @@ function drawEvents(
   // Dots closer together than their own diameter paint on top of each other, so
   // they become one mark carrying every event under it — otherwise the tooltip
   // reports whichever one happened to be last in the array.
+  // Capped: each merge pushes x1 further right, so on a dense row one mark would
+  // keep swallowing its neighbours and end up spanning the plot — the whole row
+  // becoming a single hit-target reporting hundreds of events.
+  const MAX_MARK_W = 6 * r
   let last: Mark | null = null
   for (const e of events) {
     const px = x(e.start)
-    if (last && px - last.x1 <= 0) {
+    if (last && px - last.x1 <= 0 && px + r + 2 - last.x0 <= MAX_MARK_W) {
       last.x1 = px + r + 2
       last.merged?.push(e)
       continue
@@ -1640,8 +1657,12 @@ function describeHit(
         // Dose and rate read as one fact — "500 mg · 55.56 mg/h" — because for an
         // infusion neither answers the question alone. The rate stays an average
         // over the recorded window, which is why the route sits below it.
+        // A value already expressed per hour must not be divided by the duration
+        // a second time — that prints a confidently wrong "mL/h".
         const dose =
-          total && rate != null ? `${total} · ${fmtValue(rate)} ${unit}/h` : total
+          total && rate != null && !unitIsRate(unit)
+            ? `${total} · ${fmtValue(rate)} ${unit}/h`
+            : total
         const value = hit.row.mixed ? undefined : (dose ?? e.text ?? undefined)
         const when =
           e.end != null

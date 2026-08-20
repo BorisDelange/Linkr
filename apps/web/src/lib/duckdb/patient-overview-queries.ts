@@ -95,6 +95,17 @@ function buildInventoryPart(
     srcUnitExpr && stdUnitExpr
       ? `COALESCE(${srcUnitExpr}, ${stdUnitExpr})`
       : (srcUnitExpr ?? stdUnitExpr ?? 'NULL')
+  // MAX() picks one unit alphabetically. That is fine when a concept is charted
+  // in a single unit and actively misleading when it is not — a drug recorded in
+  // both mg and mL, a weight in kg and lb. Count the distinct units so the label
+  // can be withheld rather than confidently wrong.
+  const unitCountSrc = srcUnitCol ? `e."${srcUnitCol}"` : null
+  const unitCountStd = unitJoin ? `uc."${dict!.nameColumn}"` : null
+  const unitCountArg =
+    unitCountSrc && unitCountStd
+      ? `COALESCE(${unitCountSrc}, ${unitCountStd})`
+      : (unitCountSrc ?? unitCountStd)
+  const unitCountExpr = unitCountArg ? `COUNT(DISTINCT ${unitCountArg})` : '0'
 
   // Without a dictionary the concept id is all we can show — still useful, since
   // the point of the figure is where data exists, not only what it is called.
@@ -117,6 +128,7 @@ function buildInventoryPart(
   ${codeExpr} AS concept_code,
   ${classExpr} AS concept_class,
   ${unitExpr} AS unit,
+  ${unitCountExpr} AS unit_count,
   COUNT(*) AS event_count,
   MIN(e."${et.dateColumn}") AS first_event,
   MAX(COALESCE(${endExpr}, e."${et.dateColumn}")) AS last_event,

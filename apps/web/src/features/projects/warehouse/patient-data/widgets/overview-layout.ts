@@ -21,6 +21,12 @@ export interface OverviewConceptRow {
   conceptCode: string | null
   conceptClass: string | null
   unit: string | null
+  /**
+   * How many distinct units this concept was charted in for this patient. Above
+   * one, `unit` is whichever the aggregate happened to pick, so it must not be
+   * shown as if it applied to every event.
+   */
+  unitCount?: number
   eventCount: number
   durational: boolean
 }
@@ -137,12 +143,16 @@ export function buildOverviewRows(opts: BuildRowsOptions): BuildRowsResult {
 
   // Every table costs a header, and every class costs one more. Below this the
   // class level cannot be afforded at all, so fall back to the flat tree rather
-  // than drawing a figure taller than its container.
-  const classAffordable = byClass && budget >= tables.length * 3
+  // than drawing a figure taller than its container. The unit lane is already
+  // spoken for, so it comes off the budget before anything else is priced —
+  // counting it as free overflowed the figure by exactly one row whenever
+  // `budget === tables.length * 3`.
+  const rowBudget = budget - unitLine
+  const classAffordable = byClass && rowBudget >= tables.length * 3
   const classesDropped = byClass && !classAffordable
 
   // Total class rows the figure can carry, shared across the tables in turn.
-  let classBudget = Math.max(tables.length, Math.floor((budget - tables.length) / 2))
+  let classBudget = Math.max(tables.length, Math.floor((rowBudget - tables.length) / 2))
   let tablesLeft = tables.length
 
   const groups: Group[] = []
@@ -207,7 +217,9 @@ export function buildOverviewRows(opts: BuildRowsOptions): BuildRowsResult {
     conceptCount: 1,
     eventCount: c.eventCount,
     mixed: false,
-    unit: c.unit,
+    // Charted in more than one unit: the aggregate's pick describes some events
+    // and not others, and a wrong unit on a dose reads as a real measurement.
+    unit: (c.unitCount ?? 1) > 1 ? null : c.unit,
     conceptCode: c.conceptCode,
     conceptId: c.conceptId,
     durational: c.durational,
@@ -361,9 +373,15 @@ export const FEW_EVENTS = 12
 
 export function medianGapPx(timestamps: number[], plotW: number, span: number): number {
   if (timestamps.length < 2) return Infinity
+  // A zero or NaN span yields NaN, and `NaN >= MIN_GAP_PX` is false — the row
+  // would silently collapse to a density band instead of drawing its events.
+  // Infinity is the honest answer: with no span there is no crowding.
+  if (!(span > 0)) return Infinity
   const ts = [...timestamps].sort((a, b) => a - b)
   const gaps = new Float64Array(ts.length - 1)
   for (let i = 1; i < ts.length; i++) gaps[i - 1] = ts[i] - ts[i - 1]
+  // Typed arrays sort numerically by default. On an even count this takes the
+  // upper of the two middle gaps rather than their mean — fine for a threshold.
   gaps.sort()
   return (gaps[gaps.length >> 1] / span) * plotW
 }
@@ -433,6 +451,20 @@ export function sameWords(a: string, b: string): boolean {
     return w.sort().join(' ')
   }
   return words(a) === words(b)
+}
+
+/**
+ * Whether a unit already expresses a rate — `mL/h`, `mcg/kg/min`, `U/hr`.
+ *
+ * When the schema points `valueColumn` at a column that is itself a rate (MIMIC
+ * `inputevents.rate`), dividing it by the duration again produces a figure that
+ * is wrong by hours and prints as a plausible "0.07 mL/h". The unit string is
+ * the only signal available that this has happened, so the caller uses it to
+ * withhold the derived rate rather than publish a fabricated one.
+ */
+export function unitIsRate(unit: string | null | undefined): boolean {
+  if (!unit) return false
+  return /\/\s*(h|hr|hour|min|minute|sec|second|d|day)\b\.?$/i.test(unit.trim())
 }
 
 /**
