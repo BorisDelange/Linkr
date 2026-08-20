@@ -1,15 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Upload, AlertTriangle } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { importAtlasCohort, type ImportResult } from './atlas-converter'
 import type { CriteriaGroupNode } from '@/types'
 
@@ -71,14 +63,16 @@ export function ImportAtlasDialog({ open, onOpenChange, onImport }: ImportAtlasD
   const criteriaCount = result ? countNodes(result.criteriaTree) : 0
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{t('cohorts.atlas_import_title')}</DialogTitle>
-          <DialogDescription>{t('cohorts.atlas_import_description')}</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
+    <DialogShell
+      open={open}
+      onOpenChange={handleClose}
+      kind="settings"
+      title={t('cohorts.atlas_import_title')}
+      description={t('cohorts.atlas_import_description')}
+      onConfirm={handleImport}
+      confirmLabel={t('cohorts.atlas_import_confirm')}
+      confirmDisabled={!result}
+    >
           {/* File input */}
           <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed px-6 py-8 text-center transition-colors hover:border-primary/50 hover:bg-muted/30">
             <Upload size={24} className="text-muted-foreground" />
@@ -125,18 +119,7 @@ export function ImportAtlasDialog({ open, onOpenChange, onImport }: ImportAtlasD
               )}
             </div>
           )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => handleClose(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleImport} disabled={!result}>
-            {t('cohorts.atlas_import_confirm')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }
 

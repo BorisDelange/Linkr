@@ -1,14 +1,7 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useFileStore } from '@/stores/file-store'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Button } from '@/components/ui/button'
 import { Upload, Loader2 } from 'lucide-react'
 import {
@@ -122,12 +115,29 @@ export function UploadDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!busy) { if (!next) close(); else onOpenChange(next) } }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('files.upload')}</DialogTitle>
-          <DialogDescription>{t('files.upload_description')}</DialogDescription>
-        </DialogHeader>
+    <DialogShell
+      open={open}
+      onOpenChange={(next) => { if (!busy) { if (!next) close(); else onOpenChange(next) } }}
+      title={t('files.upload')}
+      description={t('files.upload_description')}
+      cancelLabel={t('common.cancel')}
+      onConfirm={pending ? () => void apply(pending.candidates, 'replace') : undefined}
+      confirmLabel={t('files.upload_replace')}
+      /* Destructive styling: it overwrites a file's contents, and the previous
+         version is not kept anywhere. */
+      destructive
+      busy={busy}
+      footerExtra={pending && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => void apply(pending.candidates, 'keep-both')}
+        >
+          {t('files.upload_keep_both')}
+        </Button>
+      )}
+    >
         {pending ? (
           <div className="mt-4 space-y-3">
             <p className="text-sm">
@@ -183,32 +193,6 @@ export function UploadDialog({
           </div>
         )}
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-        <DialogFooter className="mt-4">
-          <Button variant="outline" disabled={busy} onClick={close}>
-            {t('common.cancel')}
-          </Button>
-          {pending && (
-            <>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => void apply(pending.candidates, 'keep-both')}
-              >
-                {t('files.upload_keep_both')}
-              </Button>
-              {/* Destructive styling: it overwrites a file's contents, and the
-                  previous version is not kept anywhere. */}
-              <Button
-                variant="destructive"
-                disabled={busy}
-                onClick={() => void apply(pending.candidates, 'replace')}
-              >
-                {t('files.upload_replace')}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

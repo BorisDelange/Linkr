@@ -73,7 +73,7 @@ export function GitConfigDialog({
                 <KeyRound size={10} />
                 {hasToken ? t('versioning.remote_token_set') : t('versioning.remote_no_token')}
               </span>
-              <Button variant="outline" size="sm" className="h-7 shrink-0 gap-1 text-xs" onClick={onEditToken} disabled={saving}>
+              <Button variant="outline" size="sm-tight" className="shrink-0" onClick={onEditToken} disabled={saving}>
                 <KeyRound size={12} />
                 {/* Until the status resolves, keep the neutral "Edit"; only assert
                     "Add" once we know there is no token. */}
@@ -93,8 +93,8 @@ export function GitConfigDialog({
             </p>
             <Button
               variant="ghost"
-              size="sm"
-              className="h-7 shrink-0 gap-1 text-xs text-muted-foreground hover:text-destructive"
+              size="sm-tight"
+              className="shrink-0 text-muted-foreground hover:text-destructive"
               onClick={onDisconnect}
               disabled={saving}
             >

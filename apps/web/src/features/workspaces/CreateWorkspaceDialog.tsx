@@ -6,14 +6,7 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import type { ProjectBadge, BadgeColor } from '@/types'
 import { Plus, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { EditableBadge } from '@/components/ui/editable-badge'
@@ -70,8 +63,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     setBadges((prev) => prev.map((b) => (b.id === id ? { ...b, label: setLocalized(b.label, i18n.language, next) } : b)))
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async () => {
     if (!name.trim()) return
 
     const newId = await addWorkspace({
@@ -90,14 +82,16 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>{t('workspaces.create_dialog_title')}</DialogTitle>
-            <DialogDescription>{t('workspaces.create_dialog_description')}</DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      kind="settings"
+      title={t('workspaces.create_dialog_title')}
+      description={t('workspaces.create_dialog_description')}
+      onConfirm={handleSubmit}
+      confirmLabel={t('common.create')}
+      confirmDisabled={!name.trim()}
+    >
             {/* Workspace fields */}
             <div className="space-y-2">
               <Label htmlFor="ws-name">{t('workspaces.field_name')}<RequiredMark /></Label>
@@ -106,6 +100,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('workspaces.field_name_placeholder')}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
                 autoFocus
               />
             </div>
@@ -197,17 +192,6 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                 </div>
               </div>
             </div>
-          </div>
-          <DialogFooter className="mt-6">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" disabled={!name.trim()}>
-              {t('common.create')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

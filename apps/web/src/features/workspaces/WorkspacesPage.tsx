@@ -1183,8 +1183,8 @@ export function WorkspacesPage() {
                   </div>
                   {isServerMode() && (
                     <Button
-                      size="sm" variant="outline"
-                      className="h-7 shrink-0 gap-1 text-[11px]"
+                      size="sm-tight" variant="outline"
+                      className="shrink-0 text-[11px]"
                       disabled={st === 'pending' || st === 'done'}
                       onClick={() => handleCloneEntity(e)}
                     >

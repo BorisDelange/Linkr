@@ -199,8 +199,8 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
 
       <Button
         variant="outline"
-        size="sm"
-        className="h-7 w-full gap-1 text-xs"
+        size="sm-tight"
+        className="w-full"
         onClick={addSearch}
         disabled={!hasNotes}
       >

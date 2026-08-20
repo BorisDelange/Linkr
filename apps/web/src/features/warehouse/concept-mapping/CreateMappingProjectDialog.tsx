@@ -990,7 +990,7 @@ export function CreateMappingProjectDialog({
                   <div className="flex-1">
                     <Popover>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-7 w-full justify-start text-[10px] font-normal">
+                        <Button variant="outline" size="sm-tight" className="w-full justify-start text-[10px] font-normal">
                           {(columnMapping.extraColumns?.length ?? 0) > 0
                             ? t('concept_mapping.extra_columns_selected', { count: columnMapping.extraColumns!.length })
                             : t('concept_mapping.extra_columns_placeholder')}
@@ -1325,8 +1325,8 @@ export function CreateMappingProjectDialog({
                     </div>
                     <Button
                       variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs shrink-0"
+                      size="sm-tight"
+                      className="shrink-0"
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <Upload size={12} />

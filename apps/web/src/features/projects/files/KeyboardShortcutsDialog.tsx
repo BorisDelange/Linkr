@@ -330,9 +330,9 @@ export function KeyboardShortcutsDialog({
           <div className="mt-3 flex justify-end">
             <Button
               variant="outline"
-              size="sm"
+              size="sm-tight"
               onClick={resetAll}
-              className="text-[10px] h-7"
+              className="text-[10px]"
             >
               <RotateCcw size={10} className="mr-1" />
               {t('shortcuts.reset_all')}

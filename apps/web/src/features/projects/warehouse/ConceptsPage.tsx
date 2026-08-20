@@ -874,14 +874,13 @@ export function ConceptsPage() {
                   {t('concepts.selected_hint')}
                 </p>
                 <div className="flex gap-2">
-                  <Button size="sm" className="h-7 gap-1 text-xs" onClick={addSelectedToList}>
+                  <Button size="sm-tight" onClick={addSelectedToList}>
                     <Plus size={12} />
                     {t('concept_mapping.add_to_list')}
                   </Button>
                   <Button
-                    size="sm"
+                    size="sm-tight"
                     variant="outline"
-                    className="h-7 text-xs"
                     onClick={() => setSelectedConceptIds(new Set())}
                   >
                     {t('common.clear')}

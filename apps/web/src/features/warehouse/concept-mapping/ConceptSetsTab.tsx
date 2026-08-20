@@ -1213,7 +1213,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
             {importBatches.length > 0 && (
               <Collapsible open={historyOpen} onOpenChange={setHistoryOpen} className="mb-3">
                 <CollapsibleTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground">
+                  <Button variant="ghost" size="sm-tight" className=".5 text-muted-foreground">
                     <History size={12} />
                     {t('concept_mapping.cs_import_history')} ({importBatches.length})
                   </Button>
@@ -1248,7 +1248,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
             {/* Edit mode toolbar */}
             {selectionMode && filteredSets.length > 0 && (
               <div className="mb-3 flex items-center gap-3">
-                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => {
+                <Button variant="outline" size="sm-tight" onClick={() => {
                   if (selectedIds.size === filteredSets.length) setSelectedIds(new Set())
                   else setSelectedIds(new Set(filteredSets.map((cs) => cs.id)))
                 }}>
@@ -1257,14 +1257,13 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                 </Button>
                 {selectedIds.size > 0 && (
                   <>
-                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>
+                    <Button variant="outline" size="sm-tight" onClick={() => setSelectedIds(new Set())}>
                       <SquareX size={12} />
                       {t('concept_mapping.cs_deselect_all')}
                     </Button>
                     <Button
                       variant="destructive"
-                      size="sm"
-                      className="h-7 text-xs"
+                      size="sm-tight"
                       onClick={() => setBulkDeleteOpen(true)}
                     >
                       <Trash2 size={12} />

@@ -170,8 +170,8 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
             </a>
             <Button
               variant="ghost"
-              size="sm"
-              className="h-7 shrink-0 gap-1 text-xs text-muted-foreground"
+              size="sm-tight"
+              className="shrink-0 text-muted-foreground"
               onClick={() => setConfigOpen(true)}
             >
               <Settings size={13} />

@@ -101,7 +101,12 @@ export function DialogShell({
         {!hideFooter && (
           <DialogFooter className={kind === 'workbench' ? 'shrink-0' : undefined}>
             {footerExtra}
-            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => onOpenChange(false)}
+            >
               {cancelLabel ?? t(onConfirm ? 'common.cancel' : 'common.close')}
             </Button>
             {onConfirm && (

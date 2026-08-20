@@ -278,7 +278,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAdd() }
               }}
             />
-            <Button size="sm" className="h-7 w-full text-xs" disabled={!draft.trim() || !canWrite} onClick={handleAdd}>
+            <Button size="sm-tight" className="w-full" disabled={!draft.trim() || !canWrite} onClick={handleAdd}>
               {t('concept_mapping.add_comment')}
             </Button>
           </div>
@@ -2992,7 +2992,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
             <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.import_mappings')}</TooltipContent>
           </Tooltip>
           {editMode && selected.size > 0 && (
-            <Button variant="destructive" size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowDeleteConfirm(true)}>
+            <Button variant="destructive" size="sm-tight" onClick={() => setShowDeleteConfirm(true)}>
               <Trash2 size={12} />
               {t('concept_mapping.delete_selected', { count: selected.size })}
             </Button>
@@ -3061,8 +3061,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           </Popover>
           <Button
             variant={editMode ? 'default' : 'outline'}
-            size="sm"
-            className="h-7 gap-1 text-xs"
+            size="sm-tight"
             onClick={toggleEditMode}
             disabled={!canWrite}
           >

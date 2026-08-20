@@ -89,8 +89,7 @@ function SqlTab({ active }: { active: boolean }) {
           <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5">
             <span className="text-xs text-muted-foreground">{t('settings.db_run_hint')}</span>
             <Button
-              size="sm"
-              className="h-7 text-xs"
+              size="sm-tight"
               onClick={run}
               disabled={running || !sql.trim()}
             >

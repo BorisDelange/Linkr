@@ -10,15 +10,8 @@ import {
   FlaskConical,
   Newspaper,
 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { IconPicker } from '@/components/ui/icon-picker'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
@@ -331,13 +324,15 @@ export function CreateWikiPageDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('wiki.new_page')}</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('wiki.new_page')}
+      onConfirm={handleCreate}
+      confirmLabel={t('common.create')}
+      confirmDisabled={!title.trim() || !isEntityIdValid(entityId, existingIds)}
+      contentClassName="py-0"
+    >
           <div className="space-y-2">
             <Label>{t('wiki.page_title')}<RequiredMark /></Label>
             <div className="flex items-center gap-2">
@@ -383,17 +378,6 @@ export function CreateWikiPageDialog({
               ))}
             </div>
           </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleCreate} disabled={!title.trim() || !isEntityIdValid(entityId, existingIds)}>
-            {t('common.create')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

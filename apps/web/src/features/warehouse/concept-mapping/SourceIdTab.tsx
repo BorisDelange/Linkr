@@ -448,7 +448,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium">{t('concept_mapping.source_id_ranges')}</p>
             {totalAssigned > 0 && (
-              <Button variant="ghost" size="sm" disabled={!canWrite} className="h-7 gap-1 text-xs text-destructive hover:text-destructive" onClick={() => setResetConfirm('all')}>
+              <Button variant="ghost" size="sm-tight" disabled={!canWrite} className="text-destructive hover:text-destructive" onClick={() => setResetConfirm('all')}>
                 <RefreshCw size={12} />
                 {t('concept_mapping.source_id_reset_all')}
               </Button>
@@ -545,8 +545,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                                 onChange={(e) => setEdits((prev) => ({ ...prev, [range.badgeLabel]: { ...edit, rangeEnd: e.target.value } }))}
                                 onKeyDown={onKeyDown}
                               />
-                              <Button size="sm" className="h-7 text-xs" disabled={!canWrite || !!liveError} onClick={() => saveEdit(range.badgeLabel)}>{t('common.save')}</Button>
-                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={cancelEdit}>{t('common.cancel')}</Button>
+                              <Button size="sm-tight" disabled={!canWrite || !!liveError} onClick={() => saveEdit(range.badgeLabel)}>{t('common.save')}</Button>
+                              <Button size="sm-tight" variant="ghost" onClick={cancelEdit}>{t('common.cancel')}</Button>
                             </div>
                             {liveError
                               ? <p className="text-[11px] text-destructive">{liveError}</p>
@@ -596,9 +596,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
 
                       <div className="flex items-center gap-1">
                         <Button
-                          size="sm"
+                          size="sm-tight"
                           variant="outline"
-                          className="h-7 gap-1 text-xs"
                           disabled={assignLoading === range.badgeLabel || !canWrite}
                           onClick={() => assignIds(range.badgeLabel)}
                         >

@@ -1,13 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X, Plus } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -135,12 +129,15 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
   const iconColorCustom = isCustomColor(fields.iconColor ?? 'blue')
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{mode === 'create' ? t('plugins.create_title') : t('plugins.settings_title')}</DialogTitle>
-        </DialogHeader>
-
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      kind="settings"
+      title={mode === 'create' ? t('plugins.create_title') : t('plugins.settings_title')}
+      onConfirm={handleSubmit}
+      confirmLabel={mode === 'create' ? t('common.create') : t('common.save')}
+      confirmDisabled={!canSubmit}
+    >
         <Tabs defaultValue="general" className="flex flex-col gap-4">
           <TabsList className="w-full">
             <TabsTrigger value="general" className="flex-1">{t('plugins.tab_general')}</TabsTrigger>
@@ -337,14 +334,6 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
             </TabsContent>
           )}
         </Tabs>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
-          <Button onClick={handleSubmit} disabled={!canSubmit}>
-            {mode === 'create' ? t('common.create') : t('common.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

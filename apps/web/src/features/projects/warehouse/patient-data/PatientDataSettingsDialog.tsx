@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -11,14 +10,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Info } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { DASHBOARD_GRID } from '@/features/projects/dashboard/dashboard-grid'
@@ -75,13 +67,16 @@ export function PatientDataSettingsDialog({
   })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('patient_data.settings_title')}</DialogTitle>
-          <DialogDescription>{t('patient_data.settings_description')}</DialogDescription>
-        </DialogHeader>
-
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('patient_data.settings_title')}
+      description={t('patient_data.settings_description')}
+      onConfirm={save}
+      confirmLabel={t('common.save')}
+      confirmDisabled={!canSaveNow}
+      contentClassName="space-y-0 py-0"
+    >
         <Tabs defaultValue="general" className="py-2">
           <TabsList className="w-full">
             <TabsTrigger value="general" className="flex-1">
@@ -172,16 +167,6 @@ export function PatientDataSettingsDialog({
           </TabsContent>
           </div>
         </Tabs>
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button size="sm" onClick={save} disabled={!canSaveNow}>
-            {t('common.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

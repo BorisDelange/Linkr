@@ -26,8 +26,8 @@ export function ConceptSelectField({ field, conceptCount, onOpenPicker }: Concep
         </p>
       )}
       <Button
-        size="sm"
-        className="h-7 w-full justify-start gap-1.5 text-xs"
+        size="sm-tight"
+        className="w-full justify-start .5"
         onClick={onOpenPicker}
       >
         <ListChecks size={13} />

@@ -60,8 +60,8 @@ export function DatePickerField({
         <PopoverTrigger asChild>
           <Button
             variant="outline"
-            size="sm"
-            className="h-7 min-w-0 flex-1 justify-start gap-1.5 px-2 text-xs font-normal"
+            size="sm-tight"
+            className="min-w-0 flex-1 justify-start .5 px-2 font-normal"
           >
             <CalendarIcon size={12} className="shrink-0 opacity-60" />
             <span className="truncate">

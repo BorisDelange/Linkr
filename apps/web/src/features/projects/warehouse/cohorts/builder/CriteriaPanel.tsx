@@ -231,8 +231,8 @@ export function CriteriaPanel({
         <div className="mb-2 flex items-center justify-end gap-1">
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 gap-1 text-xs text-muted-foreground"
+            size="sm-tight"
+            className="text-muted-foreground"
             onClick={() => setCollapseSignal((s) => ({ seq: s.seq + 1, collapsed: !s.collapsed }))}
           >
             {collapseSignal.collapsed ? <ChevronsUpDown size={12} /> : <ChevronsDownUp size={12} />}
@@ -240,8 +240,8 @@ export function CriteriaPanel({
           </Button>
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 gap-1 text-xs text-muted-foreground"
+            size="sm-tight"
+            className="text-muted-foreground"
             onClick={() => onChange(setAllEnabled(criteriaTree, !someEnabled))}
           >
             <Power size={12} />

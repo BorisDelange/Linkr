@@ -34,7 +34,7 @@ export function CopySelectButton({ getSql }: CopySelectButtonProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleCopy}>
+        <Button variant="outline" size="sm-tight" onClick={handleCopy}>
           {copied ? (
             <Check size={12} className="text-green-500" />
           ) : (

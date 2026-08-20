@@ -190,7 +190,7 @@ function WordSetsPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
+        <Button variant="ghost" size="sm-tight" className="px-2">
           <Search size={12} />
           {t('patient_data.notes_word_sets')}
           <ChevronDown size={12} />
@@ -253,7 +253,7 @@ function WordSetsPopover({
               placeholder={t('patient_data.notes_set_words_placeholder')}
               className="h-7 text-xs"
             />
-            <Button size="sm" className="h-7 w-full text-xs" onClick={handleAdd}>
+            <Button size="sm-tight" className="w-full" onClick={handleAdd}>
               <Plus size={12} className="mr-1" />
               {t('common.add')}
             </Button>

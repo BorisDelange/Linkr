@@ -1,15 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Loader2, Upload } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { Download, Upload } from 'lucide-react'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
 import { isServerMode } from '@/lib/api-client'
@@ -126,15 +118,22 @@ export function CatalogInstallDialog({
       onDuplicate={() => { const p = conflict; setConflict(null); if (p) void commit(p, true) }}
       onOverwrite={() => { const p = conflict; setConflict(null); if (p) void commit(p, false) }}
     />
-    <Dialog open={!!entry} onOpenChange={(o) => { if (!installing && !o) onOpenChange(false) }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{isUpdate ? t('catalog.update_title') : t('catalog.install_title')}</DialogTitle>
-          <DialogDescription>
-            {entry ? localized(entry.name, language) : ''}
-          </DialogDescription>
-        </DialogHeader>
-
+    <DialogShell
+      open={!!entry}
+      onOpenChange={(o) => { if (!installing && !o) onOpenChange(false) }}
+      title={isUpdate ? t('catalog.update_title') : t('catalog.install_title')}
+      description={entry ? localized(entry.name, language) : ''}
+      onConfirm={handleInstall}
+      confirmLabel={
+        installing
+          ? t('catalog.installing')
+          : isUpdate
+            ? <><Upload size={14} />{t('catalog.update')}</>
+            : <><Download size={14} />{t('catalog.install')}</>
+      }
+      confirmDisabled={!serverMode || !workspaceId}
+      busy={installing}
+    >
         {!serverMode ? (
           <ServerModeNotice inline description={t('catalog.install_requires_server')} />
         ) : !workspaceId ? (
@@ -160,26 +159,7 @@ export function CatalogInstallDialog({
             {error && <GitErrorInline message={t('catalog.install_failed')} detail={error} />}
           </div>
         )}
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={installing}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            size="sm"
-            className="gap-1"
-            onClick={handleInstall}
-            disabled={!serverMode || !workspaceId || installing}
-          >
-            {installing
-              ? <><Loader2 size={14} className="animate-spin" />{t('catalog.installing')}</>
-              : isUpdate
-                ? <><Upload size={14} />{t('catalog.update')}</>
-                : <><Download size={14} />{t('catalog.install')}</>}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
     </>
   )
 }

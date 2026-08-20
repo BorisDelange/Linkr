@@ -771,10 +771,10 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
                       <p className="text-sm font-medium">{t('concept_mapping.concept_info_hierarchy_large', { count: hierarchyWarn.total })}</p>
                       <p className="text-xs text-muted-foreground">{t('concept_mapping.concept_info_hierarchy_large_desc')}</p>
                       <div className="flex gap-2">
-                        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => { pendingNavRef.current = null; setHierarchyWarn(null) }}>
+                        <Button variant="outline" size="sm-tight" onClick={() => { pendingNavRef.current = null; setHierarchyWarn(null) }}>
                           {t('common.cancel')}
                         </Button>
-                        <Button size="sm" className="h-7 text-xs" onClick={() => {
+                        <Button size="sm-tight" onClick={() => {
                           const nav = pendingNavRef.current
                           pendingNavRef.current = null
                           if (nav) setHierarchyStack((s) => [...s, nav])

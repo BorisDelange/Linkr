@@ -531,8 +531,8 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, canWrite, t 
               />
               <Button
                 variant="ghost"
-                size="sm"
-                className="h-7 px-2"
+                size="sm-tight"
+                className="px-2"
                 onClick={handleAddCustom}
                 disabled={!customInput.trim() || !canWrite}
               >

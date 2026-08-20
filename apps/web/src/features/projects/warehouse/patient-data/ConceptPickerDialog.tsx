@@ -371,8 +371,7 @@ export function ConceptPickerDialog({
           {schema && Object.keys(schema).length > 0 && (
             <Button
               variant={activeTab === 'settings' ? 'secondary' : 'ghost'}
-              size="sm"
-              className="h-7 text-xs"
+              size="sm-tight"
               onClick={() => setActiveTab('settings')}
             >
               {t('patient_data.tab_settings')}
@@ -380,8 +379,7 @@ export function ConceptPickerDialog({
           )}
           <Button
             variant={activeTab === 'concepts' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-7 text-xs"
+            size="sm-tight"
             onClick={() => setActiveTab('concepts')}
           >
             {t('patient_data.tab_concepts')}
@@ -614,8 +612,8 @@ export function ConceptPickerDialog({
                   <div className="border-t px-3 py-2">
                     <Button
                       variant="ghost"
-                      size="sm"
-                      className="h-7 w-full text-xs text-muted-foreground"
+                      size="sm-tight"
+                      className="w-full text-muted-foreground"
                       onClick={clearAll}
                     >
                       {t('patient_data.clear_selection')}

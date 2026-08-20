@@ -130,8 +130,8 @@ function MultiSelect({ label, values, selected, onChange, placeholder }: MultiSe
           <div className="border-t p-1.5">
             <Button
               variant="ghost"
-              size="sm"
-              className="h-7 w-full text-xs"
+              size="sm-tight"
+              className="w-full"
               onClick={() => onChange([])}
             >
               {t('data_catalog.clear_filter')}

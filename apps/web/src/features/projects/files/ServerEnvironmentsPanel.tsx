@@ -440,9 +440,9 @@ export function ServerEnvironmentsPanel({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  size="sm"
+                  size="sm-tight"
                   variant="ghost"
-                  className="h-7 gap-1.5 text-xs"
+                  className=".5"
                   disabled={busy || checking}
                   onClick={() => void onCheckUpdates()}
                 >
@@ -504,7 +504,7 @@ export function ServerEnvironmentsPanel({
           <div className="flex flex-col items-center gap-2 py-6 text-center">
             <p className="text-xs text-muted-foreground">{t('environments.no_packages')}</p>
             {canWrite && (
-              <Button size="sm" variant="outline" className="h-7" disabled={busy} onClick={() => void onPreset()}>
+              <Button size="sm-tight" variant="outline" disabled={busy} onClick={() => void onPreset()}>
                 <Sparkles size={13} className="mr-1" />
                 {t('environments.install_preset')}
               </Button>
@@ -517,7 +517,7 @@ export function ServerEnvironmentsPanel({
             {canWrite && userPackages.length === 0 && (
               <div className="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
                 <span>{t('environments.no_user_packages')}</span>
-                <Button size="sm" variant="outline" className="h-7 shrink-0" disabled={busy} onClick={() => void onPreset()}>
+                <Button size="sm-tight" variant="outline" className="shrink-0" disabled={busy} onClick={() => void onPreset()}>
                   <Sparkles size={13} className="mr-1" />
                   {t('environments.install_preset')}
                 </Button>
@@ -562,7 +562,7 @@ export function ServerEnvironmentsPanel({
               {packages.length > 0 && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button size="sm" variant="ghost" className="h-7 px-2" disabled={busy} onClick={() => void onUpgradeAll()}>
+                    <Button size="sm-tight" variant="ghost" className="px-2" disabled={busy} onClick={() => void onUpgradeAll()}>
                       {pendingPkgs.has('*') ? (
                         <Loader2 size={13} className="mr-1 animate-spin" />
                       ) : (
@@ -581,9 +581,9 @@ export function ServerEnvironmentsPanel({
                 <TooltipTrigger asChild>
                   <span>
                     <Button
-                      size="sm"
+                      size="sm-tight"
                       variant={needsBuild ? 'default' : 'outline'}
-                      className="h-7 px-2"
+                      className="px-2"
                       disabled={busy || !needsBuild || env?.status === 'building'}
                       onClick={() => void onBuild()}
                     >

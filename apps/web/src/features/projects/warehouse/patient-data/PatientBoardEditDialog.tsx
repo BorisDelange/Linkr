@@ -1,17 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { VersionField } from '@/components/ui/version-field'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { localized, setLocalized } from '@/lib/localized'
@@ -53,13 +45,16 @@ export function PatientBoardEditDialog({
   })
 
   return (
-    <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('patient_data.edit_board_title')}</DialogTitle>
-          <DialogDescription>{t('patient_data.edit_board_description')}</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
+    <DialogShell
+      open
+      onOpenChange={onOpenChange}
+      title={t('patient_data.edit_board_title')}
+      description={t('patient_data.edit_board_description')}
+      onConfirm={save}
+      confirmLabel={t('common.save')}
+      confirmDisabled={!canSaveNow}
+      contentClassName="space-y-3 py-2"
+    >
           <div className="space-y-1">
             <Label>{t('common.name')}<RequiredMark /></Label>
             <Input
@@ -80,16 +75,6 @@ export function PatientBoardEditDialog({
             />
           </div>
           <VersionField value={version} onChange={setVersion} />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button size="sm" onClick={save} disabled={!canSaveNow}>
-            {t('common.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

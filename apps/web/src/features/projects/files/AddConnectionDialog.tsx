@@ -4,20 +4,11 @@ import {
   Upload,
   File as FileIcon,
   X,
-  Loader2,
   HardDrive,
   FolderOpen,
   AlertTriangle,
 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -179,16 +170,17 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{t('connections.add_connection')}</DialogTitle>
-          <DialogDescription>
-            {t('connections.add_description')}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="mt-2 space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={handleClose}
+      kind="settings"
+      title={t('connections.add_connection')}
+      description={t('connections.add_description')}
+      onConfirm={handleSubmit}
+      confirmLabel={uploading ? t('connections.adding') : t('connections.add_connection')}
+      confirmDisabled={!canSubmit}
+      busy={uploading}
+    >
           {/* Connection name */}
           <div className="space-y-2">
             <Label>{t('connections.field_name')}</Label>
@@ -327,19 +319,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
               </div>
             </div>
           )}
-        </div>
-
-        <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={() => handleClose(false)} disabled={uploading}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleSubmit} disabled={!canSubmit || uploading} className="gap-1.5">
-            {uploading && <Loader2 size={14} className="animate-spin" />}
-            {uploading ? t('connections.adding') : t('connections.add_connection')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }
 

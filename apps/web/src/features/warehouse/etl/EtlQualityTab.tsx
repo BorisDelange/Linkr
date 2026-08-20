@@ -218,9 +218,9 @@ function StatisticsView({
             </span>
           )}
           <Button
-            size="sm"
+            size="sm-tight"
             variant={computedAt ? 'outline' : 'default'}
-            className="h-7 shrink-0 px-2.5 text-xs"
+            className="shrink-0 px-2.5"
             disabled={loading}
             onClick={() => void computeStats()}
           >

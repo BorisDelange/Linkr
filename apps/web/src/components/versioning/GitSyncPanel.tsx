@@ -179,7 +179,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
       {/* Inline pull needs no button: the panel below IS the pull. The other
           scopes still open their dialog from here. */}
       {!inlinePull && (
-        <Button size="sm" variant="outline" className="h-7 shrink-0 gap-1 text-xs" onClick={() => setPullOpen(true)}>
+        <Button size="sm-tight" variant="outline" className="shrink-0" onClick={() => setPullOpen(true)}>
           <ArrowDownToLine size={12} />
           {t('versioning.pull_action')}
         </Button>

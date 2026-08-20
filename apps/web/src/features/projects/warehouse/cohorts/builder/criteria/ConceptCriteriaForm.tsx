@@ -180,8 +180,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
           ))}
           <Button
             variant="outline"
-            size="sm"
-            className="h-7 gap-1 text-xs"
+            size="sm-tight"
             onClick={addValueFilter}
           >
             <Plus size={10} />

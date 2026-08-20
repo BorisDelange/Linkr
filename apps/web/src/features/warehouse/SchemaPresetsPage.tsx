@@ -1182,16 +1182,16 @@ function SchemaDetailView({
               layoutEditing ? (
                 <>
                   {baseMapping.erdLayout && Object.keys(baseMapping.erdLayout).length > 0 && (
-                    <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => onSave(schemaId, { ...baseMapping, erdLayout: undefined })}>
+                    <Button variant="ghost" size="sm-tight" onClick={() => onSave(schemaId, { ...baseMapping, erdLayout: undefined })}>
                       <RotateCcw size={12} />
                       {t('schemas.erd_reset_layout')}
                     </Button>
                   )}
-                  <Button variant={groupsPanelOpen ? 'default' : 'outline'} size="sm" className="h-7 gap-1 text-xs" onClick={() => setGroupsPanelOpen((v) => !v)}>
+                  <Button variant={groupsPanelOpen ? 'default' : 'outline'} size="sm-tight" onClick={() => setGroupsPanelOpen((v) => !v)}>
                     <Palette size={12} />
                     {t('schemas.erd_groups')}
                   </Button>
-                  <Button size="sm" className="h-7 gap-1 text-xs" onClick={() => { setLayoutEditing(false); setGroupsPanelOpen(false) }}>
+                  <Button size="sm-tight" onClick={() => { setLayoutEditing(false); setGroupsPanelOpen(false) }}>
                     <Check size={12} />
                     {t('schemas.erd_done')}
                   </Button>
@@ -1199,12 +1199,12 @@ function SchemaDetailView({
               ) : (
                 <>
                   {(baseMapping.erdGroups ?? []).length > 0 && (
-                    <Button variant={filterOpen ? 'default' : 'outline'} size="sm" className="h-7 gap-1 text-xs" onClick={() => setFilterOpen((v) => !v)}>
+                    <Button variant={filterOpen ? 'default' : 'outline'} size="sm-tight" onClick={() => setFilterOpen((v) => !v)}>
                       <Filter size={12} />
                       {t('schemas.erd_filter')}
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" disabled={!canWrite} className="h-7 gap-1 text-xs" onClick={() => { setLayoutEditing(true); setFilterOpen(false) }}>
+                  <Button variant="outline" size="sm-tight" disabled={!canWrite} onClick={() => { setLayoutEditing(true); setFilterOpen(false) }}>
                     <Pencil size={12} />
                     {t('common.edit')}
                   </Button>
@@ -1215,11 +1215,11 @@ function SchemaDetailView({
               null
             ) : isEditing ? (
               <>
-                <Button variant="ghost" size="sm" onClick={cancelEdit} className="h-7 gap-1 text-xs">
+                <Button variant="ghost" size="sm-tight" onClick={cancelEdit}>
                   <X size={12} />
                   {t('common.cancel')}
                 </Button>
-                <Button size="sm" onClick={handleSave} className="h-7 gap-1 text-xs">
+                <Button size="sm-tight" onClick={handleSave}>
                   <Check size={12} />
                   {t('common.save')}
                 </Button>
@@ -1232,7 +1232,7 @@ function SchemaDetailView({
                     {t('schemas.reset_to_default')}
                   </Button>
                 )}
-                <Button variant="outline" size="sm" disabled={!canWrite} onClick={startEdit} className="h-7 gap-1 text-xs">
+                <Button variant="outline" size="sm-tight" disabled={!canWrite} onClick={startEdit}>
                   <Pencil size={12} />
                   {t('common.edit')}
                 </Button>

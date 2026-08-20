@@ -615,17 +615,17 @@ export function DashboardAgentSidebar({
                   </p>
                   <div className="flex gap-1.5">
                     <Button
-                      size="sm"
+                      size="sm-tight"
                       variant="destructive"
-                      className="h-7 flex-1 text-xs"
+                      className="flex-1"
                       onClick={confirmPending}
                     >
                       {t('agent.confirm_yes')}
                     </Button>
                     <Button
-                      size="sm"
+                      size="sm-tight"
                       variant="outline"
-                      className="h-7 flex-1 text-xs"
+                      className="flex-1"
                       onClick={cancelPending}
                     >
                       {t('common.cancel')}

@@ -33,15 +33,7 @@ import {
 } from '@/components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { cn } from '@/lib/utils'
 import { contentSize } from '@/lib/file-tree-sort'
 import { actionableTargets, isRowInBulkSelection } from '@/lib/tree-selection'
@@ -619,28 +611,21 @@ export function FileTreeItem({
         ))}
 
       {/* Delete confirmation dialog */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('files.delete_confirm_title')}</DialogTitle>
-            <DialogDescription>
-              {bulk
-                ? t('files.delete_confirm_count', { count: targetNodes.length })
-                : isFolder
-                  ? t('files.delete_confirm_folder', { name: node.name })
-                  : t('files.delete_confirm_file', { name: node.name })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="destructive" onClick={handleDelete}>
-              {bulk ? t('files.delete_count', { count: targetNodes.length }) : t('files.delete')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DialogShell
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title={t('files.delete_confirm_title')}
+        description={bulk
+          ? t('files.delete_confirm_count', { count: targetNodes.length })
+          : isFolder
+            ? t('files.delete_confirm_folder', { name: node.name })
+            : t('files.delete_confirm_file', { name: node.name })}
+        onConfirm={handleDelete}
+        confirmLabel={bulk ? t('files.delete_count', { count: targetNodes.length }) : t('files.delete')}
+        destructive
+      >
+        {null}
+      </DialogShell>
     </>
   )
 }

@@ -109,9 +109,9 @@ export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSea
             </p>
             <Button
               variant="outline"
-              size="sm"
+              size="sm-tight"
               disabled={!canEdit}
-              className="mt-3 h-7 text-xs"
+              className="mt-3"
               onClick={() => onCreatePage(null)}
             >
               <Plus size={12} />

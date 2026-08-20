@@ -5,14 +5,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import type { Project, ProjectStatus, ProjectBadge, BadgeColor } from '@/types'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { EditableBadge } from '@/components/ui/editable-badge'
 import { Label } from '@/components/ui/label'
@@ -101,8 +94,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
     setBadges((prev) => prev.map((b) => (b.id === id ? { ...b, label: setLocalized(b.label, language, next) } : b)))
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async () => {
     if (!canSubmit) return
     if (isEditing && editingProject) {
       await updateProject(editingProject.uid, name.trim(), description.trim())
@@ -125,14 +117,15 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>{isEditing ? t('projects.edit_dialog_title') : t('projects.create_dialog_title')}</DialogTitle>
-            <DialogDescription>{isEditing ? t('projects.edit_dialog_description') : t('projects.create_dialog_description')}</DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEditing ? t('projects.edit_dialog_title') : t('projects.create_dialog_title')}
+      description={isEditing ? t('projects.edit_dialog_description') : t('projects.create_dialog_description')}
+      onConfirm={handleSubmit}
+      confirmLabel={isEditing ? t('common.save') : t('common.create')}
+      confirmDisabled={!canSubmit}
+    >
             <div className="space-y-2">
               <Label htmlFor="project-name">{t('projects.field_name')}<RequiredMark /></Label>
               <Input
@@ -140,6 +133,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('projects.field_name_placeholder')}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
                 autoFocus
               />
             </div>
@@ -236,17 +230,6 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 />
               </div>
             )}
-          </div>
-          <DialogFooter className="mt-6">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" disabled={!canSubmit}>
-              {isEditing ? t('common.save') : t('common.create')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

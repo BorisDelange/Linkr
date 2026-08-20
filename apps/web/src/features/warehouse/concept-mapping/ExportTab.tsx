@@ -5,7 +5,7 @@ import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { getScoresFile } from '@/lib/concept-mapping/scores-storage'
 import { isServerMode } from '@/lib/api-client'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
@@ -646,14 +646,21 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       </div>
 
       {/* Linkr ZIP export options modal */}
-      <Dialog open={zipDialogOpen} onOpenChange={setZipDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('concept_mapping.export_linkr_zip')}</DialogTitle>
-            <DialogDescription>{t('concept_mapping.export_zip_modal_desc')}</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
+      <DialogShell
+        open={zipDialogOpen}
+        onOpenChange={setZipDialogOpen}
+        title={t('concept_mapping.export_linkr_zip')}
+        description={t('concept_mapping.export_zip_modal_desc')}
+        contentClassName="space-y-3 py-0"
+        onConfirm={confirmZipExport}
+        confirmLabel={
+          <>
+            {!zipExporting && <Download size={14} />}
+            {t('concept_mapping.export_download')}
+          </>
+        }
+        busy={zipExporting}
+      >
             {/* Core files — always included */}
             <div className="flex items-start gap-2.5 rounded-md border bg-muted/30 p-2.5">
               <Archive size={15} className="mt-0.5 shrink-0 text-amber-500" />
@@ -688,19 +695,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                 </p>
               </div>
             </label>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setZipDialogOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button size="sm" onClick={confirmZipExport} disabled={zipExporting}>
-              {zipExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              {t('concept_mapping.export_download')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </DialogShell>
     </div>
   )
 }

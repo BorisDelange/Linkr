@@ -393,7 +393,7 @@ export function CohortConceptPickerDialog({
             <div className="flex items-center justify-end border-b px-2 py-1">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
+                  <Button variant="ghost" size="sm-tight">
                     <Settings2 size={12} />
                     {t('concepts.column_visibility', 'Columns')}
                   </Button>
@@ -610,8 +610,8 @@ export function CohortConceptPickerDialog({
                 <div className="border-t px-3 py-2">
                   <Button
                     variant="ghost"
-                    size="sm"
-                    className="h-7 w-full text-xs text-muted-foreground"
+                    size="sm-tight"
+                    className="w-full text-muted-foreground"
                     onClick={clearAll}
                   >
                     {t('patient_data.clear_selection')}

@@ -116,8 +116,8 @@ function FilterDropdown({ label, values, selected, onToggle, onClear }: FilterDr
           <div className="border-t p-1.5">
             <Button
               variant="ghost"
-              size="sm"
-              className="h-7 w-full text-xs"
+              size="sm-tight"
+              className="w-full"
               onClick={onClear}
             >
               {t('data_catalog.clear_filter')}
@@ -141,8 +141,8 @@ function SortButton({ colKey, sortKey: _sortKey, sortDesc: _sortDesc, onSort, ch
   return (
     <Button
       variant="ghost"
-      size="sm"
-      className="-ml-2 h-7 text-xs font-medium"
+      size="sm-tight"
+      className="-ml-2 font-medium"
       onClick={() => onSort(colKey)}
     >
       {children}

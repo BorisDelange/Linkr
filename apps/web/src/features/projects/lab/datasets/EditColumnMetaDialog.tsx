@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -94,16 +93,16 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
   }, [open])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{t('datasets.col_meta_title')}</DialogTitle>
-          <DialogDescription>
-            {t('datasets.col_meta_desc', { name: column.name })}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      kind="settings"
+      title={t('datasets.col_meta_title')}
+      description={t('datasets.col_meta_desc', { name: column.name })}
+      onConfirm={handleSave}
+      confirmLabel={t('common.save')}
+      contentClassName="py-0"
+    >
           <div className="space-y-1.5">
             <Label htmlFor="col-label" className="text-xs">{t('datasets.col_meta_label')}</Label>
             <Input
@@ -147,15 +146,6 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
               </ScrollArea>
             </div>
           )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleSave}>{t('common.save')}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

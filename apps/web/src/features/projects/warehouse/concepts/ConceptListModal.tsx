@@ -245,8 +245,8 @@ export function ConceptListModal({
         <div className="flex shrink-0 items-center justify-between gap-2 pt-2">
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 gap-1 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+            size="sm-tight"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={onClear}
             disabled={concepts.length === 0}
           >

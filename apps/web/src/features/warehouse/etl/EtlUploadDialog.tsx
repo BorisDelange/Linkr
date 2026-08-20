@@ -1,14 +1,7 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Upload, Loader2 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Button } from '@/components/ui/button'
 import { useEtlStore } from '@/stores/etl-store'
 import { inferEtlLanguage, safeEtlFileName } from './etl-file-language'
@@ -130,12 +123,29 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!busy) { setError(null); onOpenChange(next) } }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('etl.upload_files')}</DialogTitle>
-          <DialogDescription>{t('etl.upload_files_description')}</DialogDescription>
-        </DialogHeader>
+    <DialogShell
+      open={open}
+      onOpenChange={(next) => { if (!busy) { setError(null); if (!next) setPending(null); onOpenChange(next) } }}
+      title={t('etl.upload_files')}
+      description={t('etl.upload_files_description')}
+      cancelLabel={t('common.cancel')}
+      onConfirm={pending ? () => void apply(pending.candidates, 'replace') : undefined}
+      confirmLabel={t('files.upload_replace')}
+      /* Destructive styling: it overwrites a script's contents, and the previous
+         version is not kept anywhere. */
+      destructive
+      busy={busy}
+      footerExtra={pending && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          onClick={() => void apply(pending.candidates, 'keep-both')}
+        >
+          {t('files.upload_keep_both')}
+        </Button>
+      )}
+    >
         {pending ? (
           <div className="mt-4 space-y-3">
             <p className="text-sm">
@@ -191,36 +201,6 @@ export function EtlUploadDialog({ open, onOpenChange, pipelineId, parentId = nul
         {error && (
           <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
         )}
-        <DialogFooter className="mt-4">
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() => { setPending(null); onOpenChange(false) }}
-          >
-            {t('common.cancel')}
-          </Button>
-          {pending && (
-            <>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => void apply(pending.candidates, 'keep-both')}
-              >
-                {t('files.upload_keep_both')}
-              </Button>
-              {/* Destructive styling: it overwrites a script's contents, and the
-                  previous version is not kept anywhere. */}
-              <Button
-                variant="destructive"
-                disabled={busy}
-                onClick={() => void apply(pending.candidates, 'replace')}
-              >
-                {t('files.upload_replace')}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

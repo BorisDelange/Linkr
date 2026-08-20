@@ -102,8 +102,8 @@ export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Pr
                     </div>
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="h-7 shrink-0 gap-1 text-[11px]"
+                      size="sm-tight"
+                      className="shrink-0 text-[11px]"
                       disabled={!entry.report}
                       onClick={() => { onRestore(entry); onOpenChange(false) }}
                     >
