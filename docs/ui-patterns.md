@@ -122,6 +122,11 @@ select-all control) and `cell` (the per-row box), keeping the toggle semantics
 in your own state; `PullConceptsDialog` is the reference. Pair it with
 `onVisibleRowsChange` so select-all acts on the filtered rows.
 
+Pass **`viewKey`** for a table inside a dialog: sort, filters, column sizes,
+order and visibility are remembered under that key, so reopening the dialog
+gives the user back the view they left. It is a module-level cache on purpose —
+meant to survive a remount, not a reload.
+
 ### When a bespoke table is still legitimate
 
 `ConceptDataTable` does not (yet) cover: column pinning, server-side pagination,

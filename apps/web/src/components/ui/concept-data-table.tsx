@@ -204,6 +204,36 @@ interface ConceptDataTableProps<T> {
    * the raw `data` prop instead would silently act on rows the user filtered out.
    */
   onVisibleRowsChange?: (rows: T[]) => void
+  /**
+   * Remember sort, filters, column sizes, order and visibility under this key,
+   * so a table that lives in a dialog comes back the way the user left it
+   * instead of resetting every time it is reopened. Module-level and
+   * deliberately not persisted: it should survive a remount, not a reload.
+   */
+  viewKey?: string
+}
+
+interface ViewState {
+  sorting: Sorting
+  filters: Record<string, string | string[] | undefined>
+  columnSizing: Record<string, number>
+  columnOrder: ColumnOrderState
+  columnVisibility: VisibilityState
+}
+
+const viewCache = new Map<string, ViewState>()
+
+/** Sets don't survive the cache, so filters are stored as arrays. */
+export function toStoredFilters(f: Record<string, string | Set<string> | undefined>) {
+  return Object.fromEntries(
+    Object.entries(f).map(([k, v]) => [k, v instanceof Set ? [...v] : v]),
+  )
+}
+
+export function fromStoredFilters(f: Record<string, string | string[] | undefined>) {
+  return Object.fromEntries(
+    Object.entries(f).map(([k, v]) => [k, Array.isArray(v) ? new Set(v) : v]),
+  )
 }
 
 /** Header cell for a reorderable table: adds the drag grip and drop indicator. */
@@ -244,19 +274,34 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey }: ConceptDataTableProps<T>) {
   const { t } = useTranslation()
   /** Where a Shift-range starts: the last row clicked without Shift. */
   const selectionAnchor = useRef<string | number | null>(null)
-  const [sorting, setSorting] = useState<Sorting>(initialSorting ?? null)
-  const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>({})
+  const restored = viewKey ? viewCache.get(viewKey) : undefined
+  const [sorting, setSorting] = useState<Sorting>(restored?.sorting ?? initialSorting ?? null)
+  const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>(
+    () => (restored ? fromStoredFilters(restored.filters) : {}),
+  )
   const [page, setPage] = useState(0)
-  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
-  const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([])
+  const [columnSizing, setColumnSizing] = useState<Record<string, number>>(restored?.columnSizing ?? {})
+  const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(restored?.columnOrder ?? [])
   const [overColumnId, setOverColumnId] = useState<string | null>(null)
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
-    () => Object.fromEntries(cols.filter((c) => c.hidden).map((c) => [c.id, false])),
+    () => restored?.columnVisibility
+      ?? Object.fromEntries(cols.filter((c) => c.hidden).map((c) => [c.id, false])),
   )
+
+  useEffect(() => {
+    if (!viewKey) return
+    viewCache.set(viewKey, {
+      sorting,
+      filters: toStoredFilters(filters),
+      columnSizing,
+      columnOrder,
+      columnVisibility,
+    })
+  }, [viewKey, sorting, filters, columnSizing, columnOrder, columnVisibility])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),

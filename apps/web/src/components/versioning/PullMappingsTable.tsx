@@ -1,16 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-} from '@tanstack/react-table'
-import { ArrowDown, ArrowUp, ArrowUpDown, CheckSquare, Square } from 'lucide-react'
+import { CheckSquare, Square } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { cn } from '@/lib/utils'
 import type { MappingChange } from '@/lib/concept-mapping/merge'
 import type { ConceptMapping } from '@/types'
@@ -94,89 +87,42 @@ function toRow(c: MappingChange): Row {
   }
 }
 
-/** Rows added per scroll batch. Mounting a few thousand rows at once is what
- *  made this dialog crawl — 3973 changes × up to 17 cells is ~60k DOM nodes,
- *  paid on open and again on every filter keystroke. Matches MappingsTab. */
-const PAGE_SIZE = 50
+/** Rows mounted at once. Handing the table a few thousand rows is what made this
+ *  dialog crawl — 3973 changes × up to 17 cells is ~60k DOM nodes, paid on open
+ *  and again on every filter keystroke. */
+const PAGE_SIZE = 100
 
-type SortState = { columnId: string; desc: boolean } | null
 type TypeFilter = 'all' | MappingChange['type']
 const TYPE_FILTERS: TypeFilter[] = ['all', 'add', 'update', 'delete', 'conflict']
 
-/** Columns off until asked for: they exist to explain an "updated" row, and
- *  showing all of them by default would bury the identity columns. */
-const DEFAULT_HIDDEN = [
-  'targetVocab', 'targetDomain', 'targetStandard', 'equivalence', 'status',
-  'mappedOn', 'comments', 'reviews', 'reviewedBy', 'reviewedOn',
-]
-
-/** Plain-text labels for the visibility menu, which searches on text and so
- *  cannot use the columns' rendered headers. Kept in the columns' own order —
- *  source, then target (vocabulary first, its attributes trailing the name),
- *  then how the mapping was made, then who touched it — so the menu reads like
- *  the table. */
-const COLUMN_LABELS = (t: (k: string) => string): Record<string, string> => ({
-  type: t('versioning.pull_col_change'),
-  sourceVocab: t('concept_mapping.col_source_vocabulary'),
-  sourceCode: t('concept_mapping.col_source_concept_code'),
-  sourceName: t('concept_mapping.col_source_concept_name'),
-  targetVocab: t('concept_mapping.col_target_vocabulary'),
-  targetCode: t('concept_mapping.col_target_concept_code'),
-  targetName: t('concept_mapping.col_target_concept_name'),
-  targetDomain: t('concept_mapping.col_domain'),
-  targetStandard: t('concept_mapping.col_standard'),
-  equivalence: t('concept_mapping.col_equivalence'),
-  status: t('concept_mapping.col_status'),
-  comments: t('concept_mapping.comments'),
-  reviews: t('concept_mapping.col_reviews'),
-  mappedBy: t('concept_mapping.col_mapped_by'),
-  mappedOn: t('concept_mapping.col_mapped_on'),
-  reviewedBy: t('concept_mapping.col_reviewed_by'),
-  reviewedOn: t('concept_mapping.col_reviewed_on'),
-})
-
-/** Remembered view state, so closing and reopening lands where you left off. */
-interface ViewState {
-  sorting: SortState
-  filters: Record<string, string>
-  columnSizing: Record<string, number>
-  typeFilter: TypeFilter
-  hidden: string[]
-}
-const _viewCache = new Map<string, ViewState>()
+/** The one piece of view state the table cannot remember for us: its control
+ *  lives above the table, so `viewKey` — which covers sort, filters, sizes,
+ *  order and visibility — never sees it. Same key, same lifetime. */
+const typeFilterCache = new Map<string, TypeFilter>()
 
 /**
- * Full-size datatable to pick which mapping changes to pull. Uses the same table
- * engine + interaction model as the mapping tab (sortable column headers, inline
- * per-column filters, column resizing) so it feels identical — plus a checkbox
- * column, a change-type column and a per-conflict mine/theirs toggle.
+ * Full-size datatable to pick which mapping changes to pull. Built on the shared
+ * `ConceptDataTable` — the same engine and interaction model as the mapping tab
+ * and its twin `PullConceptsDialog` (sortable headers, inline per-column filters,
+ * column resizing and a visibility menu) — plus a checkbox column, a change-type
+ * column and an out-of-table change-type filter.
  */
 export function PullMappingsTable({ changes, selected, conflictChoices, viewKey, onClose, onApply, readOnly }: PullMappingsTableProps) {
   const { t } = useTranslation()
-  const [sel, setSel] = useState<Set<string>>(new Set(selected))
+  const [sel, setSel] = useState<Set<string>>(() => new Set(selected))
   // Conflict resolutions are no longer editable in this table (the resolution
   // column was dropped); each conflict keeps its incoming default (remote), which
   // we pass straight back on apply.
   const [choices] = useState<Record<string, 'remote' | 'local'>>({ ...conflictChoices })
-  const restored = viewKey ? _viewCache.get(viewKey) : undefined
-  const [sorting, setSorting] = useState<SortState>(restored?.sorting ?? null)
-  const [filters, setFilters] = useState<Record<string, string>>(restored?.filters ?? {})
-  const [columnSizing, setColumnSizing] = useState<Record<string, number>>(restored?.columnSizing ?? {})
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>(restored?.typeFilter ?? 'all')
-  const [hidden, setHidden] = useState<Set<string>>(new Set(restored?.hidden ?? DEFAULT_HIDDEN))
-
-  // What the inputs show, kept apart from what the table filters on: re-filtering
-  // thousands of rows on every keystroke made typing stutter. The committed value
-  // trails by a beat, so a word is typed against one re-render, not one per letter.
-  const [draftFilters, setDraftFilters] = useState<Record<string, string>>(restored?.filters ?? {})
-  useEffect(() => {
-    const id = setTimeout(() => setFilters(draftFilters), 250)
-    return () => clearTimeout(id)
-  }, [draftFilters])
-
-  useEffect(() => {
-    if (viewKey) _viewCache.set(viewKey, { sorting, filters, columnSizing, typeFilter, hidden: [...hidden] })
-  }, [viewKey, sorting, filters, columnSizing, typeFilter, hidden])
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>(
+    () => (viewKey ? typeFilterCache.get(viewKey) : undefined) ?? 'all',
+  )
+  const pickType = (tf: TypeFilter) => {
+    setTypeFilter(tf)
+    if (viewKey) typeFilterCache.set(viewKey, tf)
+  }
+  // The rows left by the table's own filters: select-all must act on what is shown.
+  const [visible, setVisible] = useState<Row[]>([])
 
   const allRows = useMemo(() => changes.map(toRow), [changes])
 
@@ -186,164 +132,90 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
     return c
   }, [allRows])
 
-  // Filter (per-column, case-insensitive substring) then sort — outside TanStack,
-  // matching the mapping tab's approach (TanStack owns only sizing + rendering).
-  const rows = useMemo(() => {
-    let out = allRows
-    if (typeFilter !== 'all') out = out.filter((r) => r.type === typeFilter)
-    for (const [col, val] of Object.entries(filters)) {
-      const q = val.trim().toLowerCase()
-      if (!q) continue
-      out = out.filter((r) => String((r as unknown as Record<string, unknown>)[col] ?? '').toLowerCase().includes(q))
-    }
-    if (sorting) {
-      const { columnId, desc } = sorting
-      out = [...out].sort((a, b) => {
-        const av = String((a as unknown as Record<string, unknown>)[columnId] ?? '')
-        const bv = String((b as unknown as Record<string, unknown>)[columnId] ?? '')
-        return desc ? bv.localeCompare(av) : av.localeCompare(bv)
-      })
-    }
-    return out
-  }, [allRows, filters, sorting, typeFilter])
+  // Change type is the first cut anyone makes on a pull, and its control lives
+  // above the table, so it is applied before the table ever sees the rows.
+  const rows = useMemo(
+    () => (typeFilter === 'all' ? allRows : allRows.filter((r) => r.type === typeFilter)),
+    [allRows, typeFilter],
+  )
 
   const toggle = (key: string) => {
-    const next = new Set(sel)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    setSel(next)
-  }
-
-  const allVisibleSelected = rows.length > 0 && rows.every((r) => sel.has(r.key))
-  const setAllVisible = (on: boolean) => {
-    const next = new Set(sel)
-    for (const r of rows) {
-      if (on) next.add(r.key)
-      else next.delete(r.key)
-    }
-    setSel(next)
-  }
-
-  const handleSort = (columnId: string) => {
-    setSorting((s) => {
-      if (s?.columnId === columnId) return s.desc ? { columnId, desc: false } : null
-      return { columnId, desc: true }
-    })
-  }
-
-  const columns = useMemo<ColumnDef<Row>[]>(() => [
-    // Nothing to tick when the changes are already decided (push side).
-    ...(readOnly ? [] : [{
-      id: '_select',
-      header: () => (
-        <button className="flex w-full justify-center" onClick={() => setAllVisible(!allVisibleSelected)}>
-          {allVisibleSelected ? <CheckSquare size={14} className="text-primary" /> : <Square size={14} className="text-muted-foreground" />}
-        </button>
-      ),
-      cell: ({ row }) => (
-        <button className="flex w-full justify-center" onClick={() => toggle(row.original.key)}>
-          {sel.has(row.original.key) ? <CheckSquare size={14} className="text-primary" /> : <Square size={14} className="text-muted-foreground" />}
-        </button>
-      ),
-      size: 36,
-      minSize: 36,
-      enableResizing: false,
-    } as ColumnDef<Row>]),
-    {
-      id: 'type',
-      header: () => t('versioning.pull_col_change'),
-      cell: ({ row }) => (
-        <span className={cn('rounded px-1.5 py-0.5 text-[9px] font-bold uppercase', CHANGE_CLS[row.original.type])}>
-          {t(`versioning.pull_change_${row.original.type}`)}
-        </span>
-      ),
-      size: 90,
-      minSize: 60,
-    },
-    { id: 'sourceVocab', header: () => t('concept_mapping.col_source_vocabulary'), cell: ({ row }) => row.original.sourceVocab, size: 100, minSize: 50 },
-    { id: 'sourceCode', header: () => t('concept_mapping.col_source_concept_code'), cell: ({ row }) => row.original.sourceCode, size: 110, minSize: 50 },
-    { id: 'sourceName', header: () => t('concept_mapping.col_source_concept_name'), cell: ({ row }) => row.original.sourceName, size: 220, minSize: 80 },
-    { id: 'targetVocab', header: () => t('concept_mapping.col_target_vocabulary'), cell: ({ row }) => row.original.targetVocab, size: 100, minSize: 50 },
-    { id: 'targetCode', header: () => t('concept_mapping.col_target_concept_code'), cell: ({ row }) => row.original.targetCode, size: 110, minSize: 50 },
-    { id: 'targetName', header: () => t('concept_mapping.col_target_concept_name'), cell: ({ row }) => row.original.targetName, size: 220, minSize: 80 },
-    { id: 'targetDomain', header: () => t('concept_mapping.col_domain'), cell: ({ row }) => row.original.targetDomain, size: 110, minSize: 50 },
-    { id: 'targetStandard', header: () => t('concept_mapping.col_standard'), cell: ({ row }) => row.original.targetStandard, size: 90, minSize: 50 },
-    { id: 'equivalence', header: () => t('concept_mapping.col_equivalence'), cell: ({ row }) => row.original.equivalence, size: 150, minSize: 60 },
-    { id: 'status', header: () => t('concept_mapping.col_status'), cell: ({ row }) => row.original.status, size: 100, minSize: 50 },
-    { id: 'comments', header: () => t('concept_mapping.comments'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.comments}</span>, size: 90, minSize: 50 },
-    { id: 'reviews', header: () => t('concept_mapping.col_reviews'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.reviews}</span>, size: 90, minSize: 50 },
-    { id: 'mappedBy', header: () => t('concept_mapping.col_mapped_by'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.mappedBy}</span>, size: 140, minSize: 60 },
-    { id: 'mappedOn', header: () => t('concept_mapping.col_mapped_on'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.mappedOn}</span>, size: 170, minSize: 60 },
-    { id: 'reviewedBy', header: () => t('concept_mapping.col_reviewed_by'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.reviewedBy}</span>, size: 140, minSize: 60 },
-    { id: 'reviewedOn', header: () => t('concept_mapping.col_reviewed_on'), cell: ({ row }) => <span className="text-muted-foreground">{row.original.reviewedOn}</span>, size: 170, minSize: 60 },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [t, sel, allVisibleSelected])
-
-  const columnVisibility = useMemo(
-    () => Object.fromEntries([...hidden].map((id) => [id, false])),
-    [hidden],
-  )
-
-  // Only the rows on screen are handed to the table; the rest arrive as the user
-  // scrolls. `rows` stays the full filtered set, so counts and "select all"
-  // still speak for everything matched, not just what is mounted.
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
-  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [filters, sorting, typeFilter])
-  const visibleRows = useMemo(() => rows.slice(0, visibleCount), [rows, visibleCount])
-
-  // A sentinel row at the end of the list, watched by an IntersectionObserver
-  // rather than a scroll listener: the dialog mounts its content after this
-  // component's first effects run, so a ref-based listener attached on mount
-  // binds to null and never fires. A callback ref catches the node whenever it
-  // appears, and re-fires as soon as the sentinel is scrolled back into view.
-  const hasMore = visibleCount < rows.length
-  const loadMoreRef = useCallback((node: HTMLElement | null) => {
-    observerRef.current?.disconnect()
-    if (!node) return
-    const io = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting) {
-        setVisibleCount((prev) => prev + PAGE_SIZE)
-      }
-    }, { rootMargin: '200px' })
-    io.observe(node)
-    observerRef.current = io
-  }, [])
-  const observerRef = useRef<IntersectionObserver | null>(null)
-  useEffect(() => () => observerRef.current?.disconnect(), [])
-
-  const table = useReactTable({
-    data: visibleRows,
-    columns,
-    state: { columnSizing, columnVisibility },
-    onColumnSizingChange: setColumnSizing,
-    columnResizeMode: 'onChange',
-    getCoreRowModel: getCoreRowModel(),
-  })
-
-  // Every column except the checkbox, which is the row's control, not data.
-  const toggleableColumns = useMemo(
-    () => columns
-      .map((c) => c.id!)
-      .filter((id) => id !== '_select')
-      .map((id) => ({ id, label: COLUMN_LABELS(t)[id] ?? id, visible: !hidden.has(id) })),
-    [columns, hidden, t],
-  )
-
-  const setColumnVisible = (id: string, visible: boolean) => {
-    setHidden((prev) => {
-      const next = new Set(prev)
-      if (visible) next.delete(id)
-      else next.add(id)
+    setSel((s) => {
+      const next = new Set(s)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
 
-  const NON_SORTABLE = new Set(['_select'])
-  const NON_FILTERABLE = new Set(['_select'])
+  const allVisibleSelected = visible.length > 0 && visible.every((r) => sel.has(r.key))
+  const setAllVisible = (on: boolean) => {
+    setSel((s) => {
+      const next = new Set(s)
+      for (const r of visible) {
+        if (on) next.add(r.key)
+        else next.delete(r.key)
+      }
+      return next
+    })
+  }
+
+  const columns = useMemo<ConceptColumn<Row>[]>(() => [
+    // Nothing to tick when the changes are already decided (push side).
+    ...(readOnly ? [] : [{
+      id: '_select',
+      header: '',
+      headerCell: () => (
+        <button type="button" className="flex w-full justify-center" onClick={() => setAllVisible(!allVisibleSelected)}>
+          {allVisibleSelected ? <CheckSquare size={14} className="text-primary" /> : <Square size={14} className="text-muted-foreground" />}
+        </button>
+      ),
+      accessor: () => '',
+      cell: (r) => (
+        <button type="button" className="flex w-full justify-center" onClick={() => toggle(r.key)}>
+          {sel.has(r.key) ? <CheckSquare size={14} className="text-primary" /> : <Square size={14} className="text-muted-foreground" />}
+        </button>
+      ),
+      filter: 'none',
+      size: 36,
+      minSize: 36,
+    } as ConceptColumn<Row>]),
+    {
+      id: 'type',
+      header: t('versioning.pull_col_change'),
+      accessor: (r) => r.type,
+      cell: (r) => (
+        <span className={cn('rounded px-1.5 py-0.5 text-[9px] font-bold uppercase', CHANGE_CLS[r.type])}>
+          {t(`versioning.pull_change_${r.type}`)}
+        </span>
+      ),
+      filter: 'select',
+      selectOptionLabel: (v) => t(`versioning.pull_change_${v}`),
+      size: 90,
+      minSize: 60,
+    },
+    { id: 'sourceVocab', header: t('concept_mapping.col_source_vocabulary'), accessor: (r) => r.sourceVocab, filter: 'select', size: 100, minSize: 50 },
+    { id: 'sourceCode', header: t('concept_mapping.col_source_concept_code'), accessor: (r) => r.sourceCode, filter: 'text', size: 110, minSize: 50 },
+    { id: 'sourceName', header: t('concept_mapping.col_source_concept_name'), accessor: (r) => r.sourceName, filter: 'text', size: 220, minSize: 80 },
+    { id: 'targetVocab', header: t('concept_mapping.col_target_vocabulary'), accessor: (r) => r.targetVocab, filter: 'select', size: 100, minSize: 50, hidden: true },
+    { id: 'targetCode', header: t('concept_mapping.col_target_concept_code'), accessor: (r) => r.targetCode, filter: 'text', size: 110, minSize: 50 },
+    { id: 'targetName', header: t('concept_mapping.col_target_concept_name'), accessor: (r) => r.targetName, filter: 'text', size: 220, minSize: 80 },
+    { id: 'targetDomain', header: t('concept_mapping.col_domain'), accessor: (r) => r.targetDomain, filter: 'select', size: 110, minSize: 50, hidden: true },
+    { id: 'targetStandard', header: t('concept_mapping.col_standard'), accessor: (r) => r.targetStandard, filter: 'select', size: 90, minSize: 50, hidden: true },
+    { id: 'equivalence', header: t('concept_mapping.col_equivalence'), accessor: (r) => r.equivalence, filter: 'select', size: 150, minSize: 60, hidden: true },
+    { id: 'status', header: t('concept_mapping.col_status'), accessor: (r) => r.status, filter: 'select', size: 100, minSize: 50, hidden: true },
+    { id: 'comments', header: t('concept_mapping.comments'), accessor: (r) => r.comments, filter: 'text', tooltip: 'text-muted-foreground', size: 90, minSize: 50, hidden: true },
+    { id: 'reviews', header: t('concept_mapping.col_reviews'), accessor: (r) => r.reviews, filter: 'text', tooltip: 'text-muted-foreground', size: 90, minSize: 50, hidden: true },
+    { id: 'mappedBy', header: t('concept_mapping.col_mapped_by'), accessor: (r) => r.mappedBy, filter: 'text', tooltip: 'text-muted-foreground', size: 140, minSize: 60 },
+    { id: 'mappedOn', header: t('concept_mapping.col_mapped_on'), accessor: (r) => r.mappedOn, filter: 'text', tooltip: 'text-muted-foreground', size: 170, minSize: 60, hidden: true },
+    { id: 'reviewedBy', header: t('concept_mapping.col_reviewed_by'), accessor: (r) => r.reviewedBy, filter: 'text', tooltip: 'text-muted-foreground', size: 140, minSize: 60, hidden: true },
+    { id: 'reviewedOn', header: t('concept_mapping.col_reviewed_on'), accessor: (r) => r.reviewedOn, filter: 'text', tooltip: 'text-muted-foreground', size: 170, minSize: 60, hidden: true },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [t, sel, allVisibleSelected, visible, readOnly])
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="flex h-[90vh] w-[97vw] max-w-[1500px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1500px]">
+      <DialogContent className="flex h-[90vh] w-[97vw] max-w-[1500px] grid-cols-[minmax(0,1fr)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1500px]">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
           <DialogTitle>
             {t(readOnly ? 'versioning.push_mappings_review' : 'versioning.pull_mappings_pick')}
@@ -362,9 +234,9 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
                 <button
                   key={tf}
                   disabled={count === 0 && tf !== 'all'}
-                  onClick={() => setTypeFilter(tf)}
+                  onClick={() => pickType(tf)}
                   className={cn(
-                    'rounded px-2 py-0.5 text-[11px] transition-colors',
+                    'rounded px-2 py-0.5 text-xs transition-colors',
                     typeFilter === tf ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
                     count === 0 && tf !== 'all' && 'opacity-40 hover:bg-transparent',
                   )}
@@ -375,101 +247,22 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
               )
             })}
           </div>
-          {/* Shown rows vs matched rows, so a filtered view does not read as if
-              it held everything — the rest arrive on scroll. */}
-          <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
-            {visibleRows.length < rows.length && `${visibleRows.length} / ${rows.length} · `}
-            {t('versioning.pull_selected_count', { count: sel.size, total: changes.length })}
-          </span>
-          <ColumnVisibilityMenu
-            items={toggleableColumns}
-            onToggle={setColumnVisible}
-            onSetMany={(ids, visible) => setHidden((prev) => {
-              const next = new Set(prev)
-              for (const id of ids) {
-                if (visible) next.delete(id)
-                else next.add(id)
-              }
-              return next
-            })}
-            align="end"
-          />
+          {!readOnly && (
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+              {t('versioning.pull_selected_count', { count: sel.size, total: changes.length })}
+            </span>
+          )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
-          <Table className="w-full" style={{ tableLayout: 'fixed' }}>
-            <TableHeader>
-              <TableRow>
-                {table.getHeaderGroups()[0].headers.map((header) => {
-                  const colId = header.column.id
-                  const sortable = !NON_SORTABLE.has(colId)
-                  const icon = !sorting || sorting.columnId !== colId
-                    ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                    : sorting.desc ? <ArrowDown size={10} className="shrink-0 text-primary" /> : <ArrowUp size={10} className="shrink-0 text-primary" />
-                  return (
-                    <TableHead key={header.id} className="relative select-none overflow-hidden text-xs" style={{ width: header.getSize(), maxWidth: header.getSize() }}>
-                      {sortable ? (
-                        <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden hover:text-foreground" onClick={() => handleSort(colId)}>
-                          <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
-                          {icon}
-                        </button>
-                      ) : (
-                        <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
-                      )}
-                      {header.column.getCanResize() && (
-                        <div
-                          onMouseDown={header.getResizeHandler()}
-                          onTouchStart={header.getResizeHandler()}
-                          onDoubleClick={() => header.column.resetSize()}
-                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                        >
-                          <div className={cn('absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors', header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40')} />
-                        </div>
-                      )}
-                    </TableHead>
-                  )
-                })}
-              </TableRow>
-              {/* Per-column filter inputs */}
-              <TableRow>
-                {table.getHeaderGroups()[0].headers.map((header) => {
-                  const colId = header.column.id
-                  return (
-                    <TableHead key={header.id} className="overflow-hidden p-1" style={{ width: header.getSize(), maxWidth: header.getSize() }}>
-                      {!NON_FILTERABLE.has(colId) && (
-                        <input
-                          value={draftFilters[colId] ?? ''}
-                          onChange={(e) => setDraftFilters((f) => ({ ...f, [colId]: e.target.value }))}
-                          placeholder={t('common.filter')}
-                          className="h-6 w-full rounded border bg-background px-1 text-[11px]"
-                        />
-                      )}
-                    </TableHead>
-                  )
-                })}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows.map((row) => (
-                <TableRow key={row.original.key} className={cn(sel.has(row.original.key) && 'bg-muted/40')}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="overflow-hidden truncate text-xs" style={{ width: cell.column.getSize(), maxWidth: cell.column.getSize() }} title={String((cell.row.original as unknown as Record<string, unknown>)[cell.column.id] ?? '')}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-              {hasMore && (
-                <TableRow>
-                  <TableCell colSpan={table.getVisibleLeafColumns().length} className="p-0">
-                    <div ref={loadMoreRef} className="py-3 text-center text-[11px] text-muted-foreground">
-                      {t('common.loading')}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <ConceptDataTable
+            data={rows}
+            columns={columns}
+            rowKey={(r) => r.key}
+            pageSize={PAGE_SIZE}
+            viewKey={viewKey}
+            onVisibleRowsChange={setVisible}
+          />
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t px-4 py-3">

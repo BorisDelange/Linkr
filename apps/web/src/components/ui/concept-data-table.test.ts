@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampPage, nextSelection, pageCountOf, type RowKey } from './concept-data-table'
+import { clampPage, fromStoredFilters, nextSelection, pageCountOf, toStoredFilters, type RowKey } from './concept-data-table'
 
 describe('pageCountOf', () => {
   it('is 1 when pagination is off, whatever the size', () => {
@@ -100,5 +100,32 @@ describe('nextSelection', () => {
     // The anchor row can vanish when a filter narrows the set under it.
     const r = nextSelection(new Set(['a']), 'c', order, range, 'gone')
     expect([...r.selection]).toEqual(['c'])
+  })
+})
+
+describe('view-cache filter serialisation', () => {
+  it('stores a multi-select filter as an array, since a Set would not survive', () => {
+    expect(toStoredFilters({ domain: new Set(['Drug', 'Condition']) })).toEqual({
+      domain: ['Drug', 'Condition'],
+    })
+  })
+
+  it('leaves a text filter as a string', () => {
+    expect(toStoredFilters({ name: 'aspirin' })).toEqual({ name: 'aspirin' })
+  })
+
+  it('round-trips a multi-select back to a Set the table can use', () => {
+    const restored = fromStoredFilters(toStoredFilters({ domain: new Set(['Drug']) }))
+    expect(restored.domain).toBeInstanceOf(Set)
+    expect([...(restored.domain as Set<string>)]).toEqual(['Drug'])
+  })
+
+  it('round-trips a text filter unchanged', () => {
+    expect(fromStoredFilters(toStoredFilters({ name: 'aspirin' }))).toEqual({ name: 'aspirin' })
+  })
+
+  it('keeps a cleared filter absent rather than turning it into an empty Set', () => {
+    // undefined means "no filter"; an empty Set would filter everything out.
+    expect(fromStoredFilters(toStoredFilters({ domain: undefined }))).toEqual({ domain: undefined })
   })
 })
