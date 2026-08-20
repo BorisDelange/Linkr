@@ -349,3 +349,59 @@ def test_gitignore_exception_escapes_metacharacters():
         versioned_data_files={"scripts/a[1]*.csv"},
     )
     assert r"!scripts/a\[1\]\*.csv" in tree[".gitignore"].decode()
+
+
+def _board_tree(tabs: list[dict]) -> dict[str, bytes]:
+    """Export one patient board carrying the given tabs, in the order given."""
+    board = {"id": "b1", "name": {"en": "Bedside"}, "projectUid": "p"}
+    return build_project_tree(
+        project={"uid": "p", "name": {"en": "P"}},
+        organization=None,
+        ide_files=[], pipelines=[], cohorts=[], connections=[], dashboards=[],
+        dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+        attachments=[], attachment_blobs={},
+        versioned_data_files=set(),
+        patient_dashboards=[{"patientDashboard": board, "tabs": tabs, "widgets": []}],
+    )
+
+
+def test_same_named_tabs_export_the_same_bytes_whatever_the_row_order():
+    # The collision suffix (#<displayOrder>) is assigned while iterating the tab
+    # list, so an unordered DB read made two tabs called "Labs" swap keys between
+    # exports — a phantom git diff, and ids that flip on reimport. The service
+    # now orders by (display_order, id); this pins that the export depends on
+    # nothing else.
+    a = {"id": "t1", "name": {"en": "Labs"}, "displayOrder": 0, "patientDashboardId": "b1"}
+    b = {"id": "t2", "name": {"en": "Labs"}, "displayOrder": 1, "patientDashboardId": "b1"}
+
+    forward = _board_tree([a, b])["patient-dashboards/bedside.json"]
+    reverse = _board_tree([b, a])["patient-dashboards/bedside.json"]
+
+    assert forward == reverse, "tab order changed the exported bytes"
+    keys = {t["key"] for t in json.loads(forward.decode())["tabs"]}
+    assert keys == {"bedside/labs", "bedside/labs#1"}
+
+
+def test_a_widget_with_no_layout_keys_like_its_ts_twin():
+    # JS interpolates a missing coordinate as `undefined`; Python used to write
+    # `None`, so a partial/legacy layout keyed differently on the two engines —
+    # precisely the case where byte-parity matters most.
+    tab = {"id": "t1", "name": {"en": "Labs"}, "displayOrder": 0, "patientDashboardId": "b1"}
+    widget = {"id": "w1", "name": {"en": "W"}, "tabId": "t1", "layout": {}, "pluginId": "p"}
+    tree = build_project_tree(
+        project={"uid": "p", "name": {"en": "P"}},
+        organization=None,
+        ide_files=[], pipelines=[], cohorts=[], connections=[], dashboards=[],
+        dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+        attachments=[], attachment_blobs={},
+        versioned_data_files=set(),
+        patient_dashboards=[
+            {
+                "patientDashboard": {"id": "b1", "name": {"en": "Bedside"}, "projectUid": "p"},
+                "tabs": [tab],
+                "widgets": [widget],
+            }
+        ],
+    )
+    key = json.loads(tree["patient-dashboards/bedside.json"].decode())["widgets"][0]["key"]
+    assert key.endswith("@undefined,undefined"), key

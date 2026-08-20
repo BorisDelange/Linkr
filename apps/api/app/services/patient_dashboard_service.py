@@ -20,8 +20,14 @@ from app.schemas.patient_dashboard import (
 
 
 async def list_for_project(db: AsyncSession, project_uid: str) -> list[PatientDashboard]:
+    # Ordered so the export is byte-stable. The exporter sorts by content key,
+    # but the collision suffix it appends to same-named rows is assigned while
+    # iterating this list, so an unordered read makes two boards called "Labs"
+    # swap ids between exports and show a phantom git diff.
     result = await db.execute(
-        select(PatientDashboard).where(PatientDashboard.project_uid == project_uid)
+        select(PatientDashboard)
+        .where(PatientDashboard.project_uid == project_uid)
+        .order_by(PatientDashboard.id)
     )
     return list(result.scalars().all())
 
@@ -67,9 +73,9 @@ async def list_tabs(
     db: AsyncSession, patient_dashboard_id: str
 ) -> list[PatientDashboardTab]:
     result = await db.execute(
-        select(PatientDashboardTab).where(
-            PatientDashboardTab.patient_dashboard_id == patient_dashboard_id
-        )
+        select(PatientDashboardTab)
+        .where(PatientDashboardTab.patient_dashboard_id == patient_dashboard_id)
+        .order_by(PatientDashboardTab.display_order, PatientDashboardTab.id)
     )
     return list(result.scalars().all())
 
@@ -119,7 +125,9 @@ async def delete_tabs_for_dashboard(
 
 async def list_widgets(db: AsyncSession, tab_id: str) -> list[PatientDashboardWidget]:
     result = await db.execute(
-        select(PatientDashboardWidget).where(PatientDashboardWidget.tab_id == tab_id)
+        select(PatientDashboardWidget)
+        .where(PatientDashboardWidget.tab_id == tab_id)
+        .order_by(PatientDashboardWidget.id)
     )
     return list(result.scalars().all())
 

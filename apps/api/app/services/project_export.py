@@ -173,12 +173,16 @@ def _build_widget_key_map(
     """Port of ``buildWidgetKeyMap`` (entity-io.ts:361)."""
     key_of: dict[str, str] = {}
     seen: set[str] = set()
-    for w in widgets:
+    # Same reason as the tabs: the `#i` counter is assigned in iteration order.
+    for w in sorted(widgets, key=lambda x: str(x.get("id") or "")):
         tab_key = tab_key_map.get(w["tabId"], "")
         layout = w.get("layout") or {}
+        # "undefined", not None: JS interpolates a missing coordinate as
+        # `undefined`, and this key must match its TS twin byte for byte on a
+        # partial layout — which is exactly when the two would otherwise differ.
         base = (
             f"{tab_key}/{_slugify(_localized_en(w.get('name')))}"
-            f"@{layout.get('y')},{layout.get('x')}"
+            f"@{layout.get('y', 'undefined')},{layout.get('x', 'undefined')}"
         )
         key = base
         i = 1
@@ -263,10 +267,16 @@ def _patient_dashboard_key(board: dict) -> str:
 
 
 def _build_patient_tab_key_map(board_key: str, tabs: list[dict]) -> dict[str, str]:
-    """Port of ``buildPatientTabKeyMap`` — flat tabs, no parent nesting."""
+    """Port of ``buildPatientTabKeyMap`` — flat tabs, no parent nesting.
+
+    Iterated in a fixed order, because the ``#`` suffix that disambiguates two
+    same-named tabs is handed out as we go: reading the rows in a different
+    order gives the same two tabs each other's keys, which reimports as swapped
+    ids and shows up as a phantom git diff. The service orders its query too;
+    this makes the export correct whoever calls it."""
     key_of: dict[str, str] = {}
     seen: set[str] = set()
-    for tab in tabs:
+    for tab in sorted(tabs, key=lambda t: (t.get("displayOrder") or 0, str(t.get("id") or ""))):
         key = f"{board_key}/{_slugify(_localized_en(tab.get('name')))}"
         if key in seen:
             key = f"{key}#{tab.get('displayOrder')}"
@@ -281,12 +291,16 @@ def _build_patient_widget_key_map(
     """Port of ``buildPatientWidgetKeyMap``."""
     key_of: dict[str, str] = {}
     seen: set[str] = set()
-    for w in widgets:
+    # Same reason as the tabs: the `#i` counter is assigned in iteration order.
+    for w in sorted(widgets, key=lambda x: str(x.get("id") or "")):
         tab_key = tab_key_map.get(w["tabId"], "")
         layout = w.get("layout") or {}
+        # "undefined", not None: JS interpolates a missing coordinate as
+        # `undefined`, and this key must match its TS twin byte for byte on a
+        # partial layout — which is exactly when the two would otherwise differ.
         base = (
             f"{tab_key}/{_slugify(_localized_en(w.get('name')))}"
-            f"@{layout.get('y')},{layout.get('x')}"
+            f"@{layout.get('y', 'undefined')},{layout.get('x', 'undefined')}"
         )
         key = base
         i = 1

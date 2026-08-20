@@ -707,10 +707,17 @@ function buildTabKeyMap(dashKey: string, tabs: DashboardTab[]): Map<string, stri
  * widgetKeyMap — every widget id → its content key, qualified by its tab key and
  * disambiguated by grid position (widgets have no order field), then `#i` on a tie.
  */
+/** Code-point order on the id, matching Python's `sorted(key=str)`. The `#i`
+ *  collision counter below is handed out in iteration order, so an unordered
+ *  read would give two same-named widgets each other's keys. */
+function byId<T extends { id: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0))
+}
+
 function buildWidgetKeyMap(tabKeyMap: Map<string, string>, widgets: DashboardWidget[]): Map<string, string> {
   const keyOf = new Map<string, string>()
   const seen = new Set<string>()
-  for (const w of widgets) {
+  for (const w of byId(widgets)) {
     const tabKey = tabKeyMap.get(w.tabId) ?? ''
     const base = `${tabKey}/${slugify(localized(w.name, 'en') || '')}@${w.layout.y},${w.layout.x}`
     let key = base
@@ -736,7 +743,20 @@ function buildPatientTabKeyMap(
 ): Map<string, string> {
   const keyOf = new Map<string, string>()
   const seen = new Set<string>()
-  for (const tab of tabs) {
+  // Fixed order: the `#` suffix that separates two same-named tabs is handed out
+  // as we go, so iterating them in a different order gives the pair each other's
+  // keys — swapped ids on reimport and a git diff with no change behind it. The
+  // Python twin sorts identically.
+  // Code-point order on the id, matching Python's str sort — localeCompare would
+  // reorder ids differently per locale and reintroduce the drift on the tie-break.
+  const ordered = [...tabs].sort((a, b) => {
+    const byOrder = (a.displayOrder ?? 0) - (b.displayOrder ?? 0)
+    if (byOrder !== 0) return byOrder
+    const x = String(a.id)
+    const y = String(b.id)
+    return x < y ? -1 : x > y ? 1 : 0
+  })
+  for (const tab of ordered) {
     const base = `${boardKey}/${slugify(localized(tab.name, 'en') || '')}`
     let key = base
     if (seen.has(key)) key = `${key}#${tab.displayOrder}`
@@ -754,7 +774,7 @@ function buildPatientWidgetKeyMap(
 ): Map<string, string> {
   const keyOf = new Map<string, string>()
   const seen = new Set<string>()
-  for (const w of widgets) {
+  for (const w of byId(widgets)) {
     const tabKey = tabKeyMap.get(w.tabId) ?? ''
     const base = `${tabKey}/${slugify(localized(w.name, 'en') || '')}@${w.layout.y},${w.layout.x}`
     let key = base
@@ -2256,7 +2276,12 @@ export function canonicalSchemaMapping(mapping: Record<string, unknown>): Record
   // Table labels sorted too: they are a user-keyed map, so their insertion order
   // is just as arbitrary as the fields'.
   for (const label of Object.keys(src).sort()) {
-    ordered[label] = orderKeys(src[label], EVENT_TABLE_FIELD_ORDER)
+    const et = src[label]
+    // A null or non-object entry is passed through rather than ordered, which
+    // is what the server twin (_canonical_schema_mapping) does. Throwing here
+    // instead meant a hand-edited or partially-written preset exported fine
+    // from the server and not at all from the browser.
+    ordered[label] = et && typeof et === 'object' ? orderKeys(et, EVENT_TABLE_FIELD_ORDER) : et
   }
   return { ...mapping, eventTables: ordered }
 }

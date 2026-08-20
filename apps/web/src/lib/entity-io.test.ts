@@ -1708,6 +1708,19 @@ describe('canonicalSchemaMapping orders event tables deterministically', () => {
     expect(Object.keys(out.eventTables)).toEqual(['Alpha', 'Zeta'])
   })
 
+  it('passes a null or non-object entry through, like the server twin', () => {
+    // _canonical_schema_mapping guards `isinstance(et, dict)`. Throwing here
+    // instead meant a hand-edited or partially-written preset exported from the
+    // server and not at all from the browser — the exact divergence the
+    // deterministic ordering exists to prevent.
+    const out = canonicalSchemaMapping({
+      eventTables: { A: null, B: 'oops', C: { table: 'c', conceptIdColumn: 'i', dateColumn: 'd' } },
+    }) as { eventTables: Record<string, unknown> }
+    expect(out.eventTables.A).toBeNull()
+    expect(out.eventTables.B).toBe('oops')
+    expect(Object.keys(out.eventTables.C as object)).toContain('table')
+  })
+
   it('appends unknown fields sorted, so a new one is stable before it is placed', () => {
     const out = canonicalSchemaMapping({
       eventTables: { T: { zzz: 1, table: 't', aaa: 2 } },

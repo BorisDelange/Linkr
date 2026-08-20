@@ -16,6 +16,20 @@
             "visit_occurrence_id": "visit_id"
           }
         }
+      },
+      "eventTables": {
+        "Zeta labs": {
+          "dateColumn": "measurement_date",
+          "table": "measurement",
+          "valueColumn": "value_as_number",
+          "conceptIdColumn": "measurement_concept_id"
+        },
+        "Alpha drugs": {
+          "conceptIdColumn": "drug_concept_id",
+          "endDateColumn": "drug_exposure_end_date",
+          "table": "drug_exposure",
+          "dateColumn": "drug_exposure_start_date"
+        }
       }
     },
     "gitRemoteConfig": {

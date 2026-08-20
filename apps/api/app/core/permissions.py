@@ -18,10 +18,10 @@ ROLE_ORDER = {"viewer": 0, "editor": 1, "owner": 2}
 # from this catalogue. The UI reads it (GET /permissions) to render the matrix.
 #
 # Actions are per-resource (not a uniform read/write/delete): most resources use
-# read/write/delete, but some differ — "concepts" is read-only (browse only),
-# "summary" has no delete, and "ide" adds "execute" (running R/Python/SQL, the
-# app's only real server-side code execution). Order matters: the UI renders the
-# matrix in catalogue order, grouped into Workspace / Project sections client-side.
+# read/write/delete, but some differ — "summary" has no delete, and "ide" adds
+# "execute" (running R/Python/SQL, the app's only real server-side code
+# execution). Order matters: the UI renders the matrix in catalogue order,
+# grouped into Workspace / Project sections client-side.
 RWD = ["read", "write", "delete"]
 
 # Workspace-tier resources → their actions. Inherited by the workspace's projects;

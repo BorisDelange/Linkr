@@ -50,8 +50,9 @@ const widgets: PatientDashboardWidget[] = [
   },
 ]
 
-/** Storage returning the fixture for patient boards and nothing for everything else. */
-function makeStorage(): Storage {
+/** Storage returning the fixture for patient boards and nothing for everything else.
+ *  `rowsTabs` lets a test hand the same tabs back in a different order. */
+function makeStorage(rowsTabs: PatientDashboardTab[] = tabs): Storage {
   const empty = () => Promise.resolve([])
   const collection = (rows: unknown[]) =>
     new Proxy(
@@ -81,7 +82,7 @@ function makeStorage(): Storage {
     {
       get: (_t, prop) => {
         if (prop === 'patientDashboards') return collection([board])
-        if (prop === 'patientDashboardTabs') return collection(tabs)
+        if (prop === 'patientDashboardTabs') return collection(rowsTabs)
         if (prop === 'patientDashboardWidgets') return collection(widgets)
         if (prop === 'projects') {
           return { getById: () => Promise.resolve(project) }
@@ -103,8 +104,8 @@ const project = {
 } as unknown as Project
 
 /** jsdom's Blob cannot be re-read by JSZip, so hand back an ArrayBuffer instead. */
-async function buildZip(): Promise<ArrayBuffer> {
-  const built = await buildProjectZip('proj-uuid', makeStorage())
+async function buildZip(rowsTabs?: PatientDashboardTab[]): Promise<ArrayBuffer> {
+  const built = await buildProjectZip('proj-uuid', makeStorage(rowsTabs))
   expect(built).toBeTruthy()
   return await (built!.blob as Blob).arrayBuffer()
 }
@@ -192,5 +193,30 @@ describe('patient board round-trip', () => {
     expect(parsed!.patientDashboards).toEqual([])
     expect(parsed!.patientDashboardTabs).toEqual([])
     expect(parsed!.patientDashboardWidgets).toEqual([])
+  })
+})
+
+describe('patient board export is independent of DB row order', () => {
+  // Two tabs sharing a name collide on their content key, and the `#` suffix
+  // that separates them is handed out while iterating. Read the rows in the
+  // other order and the pair swap keys: ids flip on reimport and git shows a
+  // diff with no change behind it. The old "sorts by key" test could not catch
+  // this — it sorted the output and never varied the input.
+  const sameName: PatientDashboardTab[] = [
+    { id: 'uuid-tab-a', patientDashboardId: 'uuid-board-1', name: { en: 'Labs' }, displayOrder: 0 },
+    { id: 'uuid-tab-b', patientDashboardId: 'uuid-board-1', name: { en: 'Labs' }, displayOrder: 1 },
+  ]
+
+  async function boardBytes(rows: PatientDashboardTab[]): Promise<string> {
+    const zip = await JSZip.loadAsync(await buildZip(rows))
+    return await zip.file('patient-dashboards/haemodynamics.json')!.async('string')
+  }
+
+  it('gives two same-named tabs the same keys whichever order they arrive in', async () => {
+    const forward = await boardBytes(sameName)
+    const reverse = await boardBytes([...sameName].reverse())
+    expect(forward).toBe(reverse)
+    const keys = (JSON.parse(forward) as { tabs: { key: string }[] }).tabs.map((t) => t.key)
+    expect(keys).toEqual(['haemodynamics/labs', 'haemodynamics/labs#1'])
   })
 })
