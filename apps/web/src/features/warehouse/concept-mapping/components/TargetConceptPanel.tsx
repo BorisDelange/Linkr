@@ -59,7 +59,7 @@ import {
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
-import { SuggestionsTable, DEFAULT_SUGGESTIONS_VIEW, type SuggestionsTableView } from './SuggestionsTable'
+import { SuggestionsTable } from './SuggestionsTable'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
@@ -384,11 +384,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     setSelectedTarget(null)
     startTabTransition(() => setDeferredBrowseMode(mode))
   }, [])
-
-  // Persisted suggestions-table view (column visibility / sort / sizing). Held here,
-  // not inside SuggestionsTable, so it survives that table unmounting while the
-  // suggestions reload on a source-concept change (otherwise the columns reset).
-  const [suggestionsView, setSuggestionsView] = useState<SuggestionsTableView>(DEFAULT_SUGGESTIONS_VIEW)
 
   // Suggestions state (from imported scores)
   const [suggestionsImporting, setSuggestionsImporting] = useState(false)
@@ -2051,8 +2046,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       <SuggestionsTable
         suggestions={enrichedSuggestions}
         weights={weights}
-        view={suggestionsView}
-        onViewChange={setSuggestionsView}
         alreadyMappedIds={suggestionsAlreadyMappedIds}
         selectedConceptId={selectedTarget?.conceptId ?? null}
         onSelect={(s) => {

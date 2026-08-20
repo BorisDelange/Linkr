@@ -134,6 +134,16 @@ export interface ConceptColumn<T> {
   cell?: (row: T) => ReactNode
   filter?: ConceptColumnFilter
   /**
+   * Custom filter control, for a predicate the built-in filters cannot express —
+   * a column whose cell shows several values and whose filter matches a row when
+   * ANY of them is picked. The caller owns both the control and the filtering
+   * (pass rows already narrowed); this slot only places it under the header so it
+   * lines up with the other filters instead of floating above the table.
+   *
+   * Takes precedence over `filter`.
+   */
+  filterCell?: () => ReactNode
+  /**
    * Disable sorting on this column (e.g. an actions/links column). Default true,
    * except for a `headerCell` column, whose header is a control and not a label.
    */
@@ -173,6 +183,12 @@ interface ConceptDataTableProps<T> {
   onRowClick?: (row: T) => void
   /** Key of the currently selected row — highlighted when set. */
   selectedRowKey?: string | number | null
+  /**
+   * Extra classes for one row, to mark a state the table cannot know about —
+   * dimming rows that are already dealt with elsewhere. Applied on top of the
+   * selection and hover styling, so it should carry state, not replace them.
+   */
+  rowClassName?: (row: T) => string | undefined
   /**
    * Rows per page. Omit to render every row, which is right for the short lists
    * most callers pass; set it when the data can run to thousands, where a row per
@@ -274,7 +290,7 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey }: ConceptDataTableProps<T>) {
   const { t } = useTranslation()
   /** Where a Shift-range starts: the last row clicked without Shift. */
   const selectionAnchor = useRef<string | number | null>(null)
@@ -394,7 +410,9 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
 
   const renderFilter = (columnId: string) => {
     const col = colById.get(columnId)
-    if (!col || !col.filter || col.filter === 'none') return null
+    if (!col) return null
+    if (col.filterCell) return col.filterCell()
+    if (!col.filter || col.filter === 'none') return null
     if (col.filter === 'select') {
       const rawOpts = selectOptions[columnId] ?? []
       if (rawOpts.length < 2) return null
@@ -562,6 +580,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                     (selectedRowKey != null && key === selectedRowKey) || selectedRowKeys?.has(key)
                       ? 'bg-accent'
                       : (onRowClick || selectedRowKeys) && 'hover:bg-accent/50',
+                    rowClassName?.(row.original),
                   )}
                 >
                   {row.getVisibleCells().map((cell) => {

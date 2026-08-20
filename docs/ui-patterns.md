@@ -127,6 +127,12 @@ order and visibility are remembered under that key, so reopening the dialog
 gives the user back the view they left. It is a module-level cache on purpose —
 meant to survive a remount, not a reload.
 
+Two escape hatches for what the table cannot know: **`filterCell`** places your
+own control in the filter row when a column's predicate isn't per-value (a row
+listing several providers must match a pick of any one of them), and
+**`rowClassName`** marks a row state the table has no concept of, such as
+dimming entries already handled elsewhere.
+
 ### When a bespoke table is still legitimate
 
 **Server-side pagination is the real dividing line.** `ConceptDataTable` owns
