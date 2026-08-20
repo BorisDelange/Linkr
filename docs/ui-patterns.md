@@ -121,14 +121,12 @@ sticky headers, virtualisation. If you need one of those, the rule is **extend
 the shared component**, not fork it — reorder and multi-selection both moved in
 that way.
 
-**Known debt (do not extend, help retire):** the richer `ColumnVisibilityMenu`
-(search + select all/none) still belongs in `ConceptDataTable`;
-`ConceptTable.tsx` should then consume it rather than carry its own copy.
-`RelationsTable.tsx` is the *ancestor* `ConceptDataTable` was generalized from
-and was never migrated back to its own descendant. `ResultsTable.tsx` (72 lines)
-pulls in TanStack for no sorting, filtering or resizing at all.
+**Known debt (do not extend, help retire):** roughly ten files still hand-roll a
+table with `useReactTable`, most of them in `features/warehouse/concept-mapping/`.
+`ConceptTable.tsx` carries its own copies of reorder, multi-selection and the
+visibility menu that now all live in the shared component.
 `ConceptPickerDialog` / `CohortConceptPickerDialog` and `PullConceptsDialog` /
-`PullMappingsTable` are near-duplicate pairs.
+`PullMappingsTable` are near-duplicate pairs — migrate one and the other follows.
 
 ### Table styling — exact classes
 
@@ -152,7 +150,7 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 | Component | Use for |
 |---|---|
 | `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter selects all matches. |
-| `ColumnVisibilityMenu` | Column toggling **with search + select all/none** — richer than the menu built into `ConceptDataTable`. |
+| `ColumnVisibilityMenu` | Column toggling with search + select all/none. `ConceptDataTable` uses it, so you only reach for it directly in a bespoke table. |
 | `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. |
 | `DebouncedInput` | Any search box over a large set (300 ms). |
 

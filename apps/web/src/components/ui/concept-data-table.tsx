@@ -25,9 +25,9 @@ import {
   horizontalListSortingStrategy,
   useSortable,
 } from '@dnd-kit/sortable'
-import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, GripVertical, Settings2 } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import {
@@ -38,14 +38,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { cn } from '@/lib/utils'
 
@@ -188,6 +180,12 @@ interface ConceptDataTableProps<T> {
    */
   selectedRowKeys?: Set<string | number>
   onSelectedRowKeysChange?: (keys: Set<string | number>) => void
+  /**
+   * The rows currently passing the filters, in sort order. Needed by callers
+   * whose own toolbar acts on the visible set — a Copy button that reaches for
+   * the raw `data` prop instead would silently act on rows the user filtered out.
+   */
+  onVisibleRowsChange?: (rows: T[]) => void
 }
 
 /** Header cell for a reorderable table: adds the drag grip and drop indicator. */
@@ -228,7 +226,7 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange }: ConceptDataTableProps<T>) {
   const { t } = useTranslation()
   /** Where a Shift-range starts: the last row clicked without Shift. */
   const selectionAnchor = useRef<string | number | null>(null)
@@ -304,6 +302,11 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
   // Clamped, not reset to 0: narrowing a filter should not throw away the user's
   // position when the page they are on still exists.
   const safePage = clampPage(page, pageCount)
+  // In an effect, not during render: callers store this in their own state.
+  const notifyVisible = useRef(onVisibleRowsChange)
+  notifyVisible.current = onVisibleRowsChange
+  useEffect(() => { notifyVisible.current?.(filtered) }, [filtered])
+
   /**
    * Ranges run over the filtered, sorted rows rather than the raw data, so
    * Shift-click selects what the user actually sees between the two clicks.
@@ -551,33 +554,20 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
               </Button>
             </div>
           )}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-                    <Settings2 size={12} />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="start" className="w-[180px]">
-              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {table.getAllColumns().map((col) => (
-                <DropdownMenuCheckboxItem
-                  key={col.id}
-                  checked={col.getIsVisible()}
-                  onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                  onSelect={(e) => e.preventDefault()}
-                  className="text-xs"
-                >
-                  {colById.get(col.id)?.header ?? col.id}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ColumnVisibilityMenu
+            items={table.getAllColumns().map((col) => ({
+              id: col.id,
+              label: colById.get(col.id)?.header ?? col.id,
+              visible: col.getIsVisible(),
+            }))}
+            onToggle={(id, visible) => table.getColumn(id)?.toggleVisibility(visible)}
+            onSetMany={(ids, visible) =>
+              setColumnVisibility((v) => ({
+                ...v,
+                ...Object.fromEntries(ids.map((id) => [id, visible])),
+              }))
+            }
+          />
         </div>
       </div>
     </div>
