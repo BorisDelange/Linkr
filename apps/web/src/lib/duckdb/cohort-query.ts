@@ -19,6 +19,31 @@ import type { SchemaMapping, EventTable } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 
 // ---------------------------------------------------------------------------
+// Untrusted-input guards
+// ---------------------------------------------------------------------------
+//
+// A cohort's criteria are NOT developer-authored config: `importProjectZip`
+// JSON.parses `cohorts/*.json` straight into storage with no schema validation,
+// so every field here can be attacker-supplied. The forms coerce with Number()
+// and constrain the operators to their unions, but an imported cohort bypasses
+// the forms entirely. `conceptIds` was already guarded (validateIntegerIds);
+// these cover the rest of the values that reach SQL unquoted.
+
+/** A finite number safe to interpolate into SQL, or null if it is anything else. */
+function sqlNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+const VALUE_FILTER_OPERATORS = new Set(['>', '>=', '=', '<=', '<', '!=', 'between'])
+const COUNT_OPERATORS = new Set(['>=', '>', '=', '<=', '<'])
+
+/** A comparison operator from the declared union, or null. Never interpolate the
+ *  stored string directly: `IS NOT NULL OR 1=1 --` is a valid JSON string. */
+function sqlOperator(value: unknown, allowed: Set<string>): string | null {
+  return typeof value === 'string' && allowed.has(value) ? value : null
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -369,10 +394,28 @@ function buildAgeCriteria(
   else if (yearAge) ageExpr = yearAge
   else return '1=1'
 
+  const min = sqlNumber(config.min)
+  const max = sqlNumber(config.max)
   const parts: string[] = []
-  if (config.min != null) parts.push(`${ageExpr} >= ${config.min}`)
-  if (config.max != null) parts.push(`${ageExpr} <= ${config.max}`)
-  return parts.join(' AND\n    ') || '1=1'
+  if (min != null) parts.push(`${ageExpr} >= ${min}`)
+  if (max != null) parts.push(`${ageExpr} <= ${max}`)
+  return parts.length > 0 ? `(${parts.join(' AND\n    ')})` : '1=1'
+}
+
+/**
+ * Whether an age criterion can be answered at all by this mapping. In days or
+ * months the birth *year* is too coarse (a neonatology filter needs the date),
+ * so a mapping carrying only a year cannot express the question — on MIMIC-IV,
+ * where `birth_datetime` is NULL for every patient, such a criterion silently
+ * matched nobody while the results table went on displaying ages. The builder
+ * still emits the honest clause; the UI uses this to say so out loud.
+ */
+export function ageCriterionUnsatisfiable(
+  config: AgeCriteriaConfig,
+  mapping: SchemaMapping,
+): boolean {
+  if ((config.ageUnit ?? 'years') === 'years') return false
+  return !mapping.patientTable?.birthDateColumn
 }
 
 // --- Sex ---
@@ -585,7 +628,11 @@ function buildDurationCriteria(
   mapping: SchemaMapping,
   baseTable: string,
 ): string {
-  if (config.minDays == null && config.maxDays == null) return '1=1'
+  // Bounds are only usable if they are real numbers — an imported cohort can
+  // carry anything here, and both reach SQL unquoted.
+  const minDays = sqlNumber(config.minDays)
+  const maxDays = sqlNumber(config.maxDays)
+  if (minDays == null && maxDays == null) return '1=1'
 
   const targetLevel = config.durationLevel ?? 'visit'
   const datePart =
@@ -603,16 +650,19 @@ function buildDurationCriteria(
   if (targetLevel === level) {
     const durExpr = `DATE_DIFF('${datePart}', "${baseTable}"."${targetStartCol}", "${baseTable}"."${targetEndCol}")`
     const parts: string[] = []
-    if (config.minDays != null) parts.push(`${durExpr} >= ${config.minDays}`)
-    if (config.maxDays != null) parts.push(`${durExpr} <= ${config.maxDays}`)
-    return parts.join(' AND ')
+    if (minDays != null) parts.push(`${durExpr} >= ${minDays}`)
+    if (maxDays != null) parts.push(`${durExpr} <= ${maxDays}`)
+    // Wrapped so the clause survives being placed in an OR group, and so an
+    // empty join can never produce a bare `` in the WHERE.
+    return parts.length > 0 ? `(${parts.join(' AND ')})` : '1=1'
   }
 
   // Otherwise use a subquery (e.g. patient level filtering on visit duration)
   const durExpr = `DATE_DIFF('${datePart}', "${targetTable}"."${targetStartCol}", "${targetTable}"."${targetEndCol}")`
   const durConditions: string[] = []
-  if (config.minDays != null) durConditions.push(`${durExpr} >= ${config.minDays}`)
-  if (config.maxDays != null) durConditions.push(`${durExpr} <= ${config.maxDays}`)
+  if (minDays != null) durConditions.push(`${durExpr} >= ${minDays}`)
+  if (maxDays != null) durConditions.push(`${durExpr} <= ${maxDays}`)
+  if (durConditions.length === 0) return '1=1'
 
   // Link target to base table
   const linkCondition = buildSubqueryLink(level, targetLevel, mapping, baseTable, targetTable)
@@ -724,13 +774,18 @@ function buildConceptCriteria(
   // Link to base table patient
   conditions.push(`e."${et.patientIdColumn ?? patientIdCol}" = "${baseTable}"."${patientIdCol}"`)
 
-  // Multiple value filters (ANDed together)
+  // Multiple value filters (ANDed together). Operator and bounds are both
+  // validated: an imported cohort can put arbitrary strings in either.
   if (config.valueFilters && config.valueFilters.length > 0 && et.valueColumn) {
     for (const vf of config.valueFilters) {
-      if (vf.operator === 'between' && vf.value2 != null) {
-        conditions.push(`e."${et.valueColumn}" BETWEEN ${vf.value} AND ${vf.value2}`)
-      } else {
-        conditions.push(`e."${et.valueColumn}" ${vf.operator} ${vf.value}`)
+      const op = sqlOperator(vf.operator, VALUE_FILTER_OPERATORS)
+      const value = sqlNumber(vf.value)
+      if (!op || value == null) continue
+      const value2 = sqlNumber(vf.value2)
+      if (op === 'between' && value2 != null) {
+        conditions.push(`e."${et.valueColumn}" BETWEEN ${value} AND ${value2}`)
+      } else if (op !== 'between') {
+        conditions.push(`e."${et.valueColumn}" ${op} ${value}`)
       }
     }
   }
@@ -739,18 +794,29 @@ function buildConceptCriteria(
   // no longer exists on the current type, so read it through `unknown`.
   const legacyVf = (config as unknown as Record<string, unknown>).valueFilter as { operator: string; value: number; value2?: number } | undefined
   if (legacyVf && et.valueColumn && (!config.valueFilters || config.valueFilters.length === 0)) {
-    if (legacyVf.operator === 'between' && legacyVf.value2 != null) {
-      conditions.push(`e."${et.valueColumn}" BETWEEN ${legacyVf.value} AND ${legacyVf.value2}`)
-    } else {
-      conditions.push(`e."${et.valueColumn}" ${legacyVf.operator} ${legacyVf.value}`)
+    const op = sqlOperator(legacyVf.operator, VALUE_FILTER_OPERATORS)
+    const value = sqlNumber(legacyVf.value)
+    const value2 = sqlNumber(legacyVf.value2)
+    if (op && value != null) {
+      if (op === 'between' && value2 != null) {
+        conditions.push(`e."${et.valueColumn}" BETWEEN ${value} AND ${value2}`)
+      } else if (op !== 'between') {
+        conditions.push(`e."${et.valueColumn}" ${op} ${value}`)
+      }
     }
   }
 
   const whereStr = conditions.join('\n      AND ')
 
-  // Occurrence count → IN subquery with GROUP BY + HAVING
-  if (config.occurrenceCount) {
-    const oc = config.occurrenceCount
+  // Occurrence count → IN subquery with GROUP BY + HAVING. Both halves of the
+  // HAVING are validated: an unchecked `count` here closes the subquery and
+  // appends arbitrary SQL (a `UNION ALL ... read_csv('http://...')` egress
+  // channel), so a rejected operator or count drops the clause entirely rather
+  // than falling through to an unfiltered one.
+  const oc = config.occurrenceCount
+  const ocOperator = sqlOperator(oc?.operator, COUNT_OPERATORS)
+  const ocCount = sqlNumber(oc?.count)
+  if (oc && ocOperator && ocCount != null) {
     const pidCol = et.patientIdColumn ?? patientIdCol
     return [
       `"${baseTable}"."${patientIdCol}" IN (`,
@@ -758,7 +824,7 @@ function buildConceptCriteria(
       `    FROM "${et.table}" e`,
       `    WHERE ${whereStr}`,
       `    GROUP BY e."${pidCol}"`,
-      `    HAVING COUNT(*) ${oc.operator} ${oc.count}`,
+      `    HAVING COUNT(*) ${ocOperator} ${ocCount}`,
       `)`,
     ].join('\n')
   }

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { stampAuthored } from '@/stores/app-store'
 import type { CustomSchemaPreset, GitRemoteConfig, SchemaMapping } from '@/types'
 
@@ -27,9 +28,13 @@ export const useSchemaPresetStore = create<SchemaPresetState>((set, get) => ({
 
   loadPresets: async (workspaceId) => {
     const storage = getStorage()
-    const presets = workspaceId
+    const rows = workspaceId
       ? await storage.schemaPresets.getByWorkspace(workspaceId)
       : await storage.schemaPresets.getAll()
+    // Also validated on read: an imported ZIP, a cloned repo, a pull and the
+    // seed loader all write presets straight to storage without coming through
+    // savePreset, and a preset's mapping ends up interpolated into SQL.
+    const presets = rows.map((p) => ({ ...p, mapping: sanitizeSchemaMapping(p.mapping) }))
     set({ presets, loaded: true })
   },
 
@@ -37,13 +42,18 @@ export const useSchemaPresetStore = create<SchemaPresetState>((set, get) => ({
     get().presets.filter((p) => p.workspaceId === workspaceId),
 
   savePreset: async (preset) => {
-    await getStorage().schemaPresets.save(preset)
+    // The one door every preset comes through — a manual save, an imported ZIP,
+    // a cloned repo, the seed loader. Its table/column names are interpolated
+    // straight into SQL downstream, so they are validated here rather than at
+    // each of the ~100 interpolation sites.
+    const safe = { ...preset, mapping: sanitizeSchemaMapping(preset.mapping) }
+    await getStorage().schemaPresets.save(safe)
     set((s) => {
-      const exists = s.presets.some((p) => p.presetId === preset.presetId)
+      const exists = s.presets.some((p) => p.presetId === safe.presetId)
       return {
         presets: exists
-          ? s.presets.map((p) => (p.presetId === preset.presetId ? preset : p))
-          : [...s.presets, preset],
+          ? s.presets.map((p) => (p.presetId === safe.presetId ? safe : p))
+          : [...s.presets, safe],
       }
     })
   },

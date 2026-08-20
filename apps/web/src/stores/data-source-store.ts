@@ -4,6 +4,7 @@ import { isServerMode } from '@/lib/api-client'
 import { createFromDdlOnServer, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
+import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useConnectionStore } from '@/stores/connection-store'
@@ -159,6 +160,12 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
           }
           if (dirty) getStorage().dataSources.update(ds.id, { alias: ds.alias, workspaceId: ds.workspaceId })
           engine.registerAlias(ds.id, ds.alias)
+          // Validated on the way OUT of storage, not only on the way in: a row
+          // can be written by an imported ZIP, a cloned repo or the seed loader
+          // without passing through this store, and every warehouse query
+          // interpolates these table/column names straight into SQL. This array
+          // is what those queries read, so this is the one gate they all share.
+          if (ds.schemaMapping) ds.schemaMapping = sanitizeSchemaMapping(ds.schemaMapping)
         }
         set({ dataSources: all, dataSourcesLoaded: true })
       } finally {
@@ -326,7 +333,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       description: source.description,
       sourceType: source.sourceType,
       connectionConfig: connectionConfig as unknown as ConnectionConfig,
-      schemaMapping: source.schemaMapping,
+      schemaMapping: sanitizeSchemaMapping(source.schemaMapping),
       status: 'configuring' as DataSourceStatus,
       ...(source.isVocabularyReference ? { isVocabularyReference: true } : {}),
       workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
@@ -413,7 +420,13 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     return id
   },
 
-  updateDataSource: async (id, changes) => {
+  updateDataSource: async (id, rawChanges) => {
+    // A mapping attached to a source is interpolated into SQL by every
+    // warehouse query, and reaches here from an imported or cloned workspace as
+    // readily as from the editor — validate its identifiers first.
+    const changes = rawChanges.schemaMapping
+      ? { ...rawChanges, schemaMapping: sanitizeSchemaMapping(rawChanges.schemaMapping) }
+      : rawChanges
     // Await persistence: a follow-up retest reads the stored (encrypted)
     // password server-side, so the write must land before it runs.
     await getStorage().dataSources.update(id, changes)
@@ -516,7 +529,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       description: source.description,
       sourceType: 'database',
       connectionConfig: connectionConfig as unknown as ConnectionConfig,
-      schemaMapping: source.schemaMapping,
+      schemaMapping: sanitizeSchemaMapping(source.schemaMapping),
       status: 'configuring' as DataSourceStatus,
       workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
       ...stampAuthored(),

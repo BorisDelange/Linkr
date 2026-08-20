@@ -1,4 +1,71 @@
 import type { ConceptDictionary, EventTable, SchemaMapping } from '@/types/schema-mapping'
+import { isSafeIdentifier } from '@/lib/format-helpers'
+
+// ---------------------------------------------------------------------------
+// Trust boundary: schema-mapping identifiers
+// ---------------------------------------------------------------------------
+//
+// Every table/column name in a SchemaMapping is interpolated into SQL as a bare
+// `"${name}"` by the query builders (patient-overview-queries, cohort-query,
+// concept-queries, patient-data-queries, data-quality, catalog-queries), so a
+// single `"` in a name breaks out of the quoting.
+//
+// These names are NOT developer constants: they are free text in the schema
+// editor and arrive verbatim from four untrusted paths — a workspace ZIP, a
+// cloned git repo, a manually imported preset, and the seed loader. Validating
+// here, once, is what makes the ~100 interpolation sites downstream safe;
+// patching each site individually would leave the next one to be written
+// unguarded.
+//
+// A rejected field is dropped rather than rewritten: a mapping that names a
+// column `foo"bar` is broken regardless, and silently querying a *different*
+// column would be worse than not querying it.
+
+/** Fields holding a SQL identifier, by suffix. Matches `table`, `idColumn`,
+ *  `careSiteNameTable`, `valueColumn`, … without enumerating all ~40 of them,
+ *  so a field added later is covered by default rather than by remembering. */
+function isIdentifierField(key: string): boolean {
+  return /(^|[a-z])(table|column)s?$/i.test(key)
+}
+
+/** Drop every identifier-valued field that is not a safe SQL identifier.
+ *  Recurses into the nested table descriptors, event tables and dictionaries. */
+function sanitizeNode<T>(node: T): T {
+  if (!node || typeof node !== 'object') return node
+  if (Array.isArray(node)) return node.map((v) => sanitizeNode(v)) as unknown as T
+
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (isIdentifierField(key)) {
+      if (typeof value === 'string') {
+        if (isSafeIdentifier(value)) out[key] = value
+        continue
+      }
+      // `knownTables: string[]` and `tables: string[]` (ERD groups) — keep only
+      // the safe entries rather than dropping the whole list.
+      if (Array.isArray(value) && value.every((v) => typeof v === 'string')) {
+        out[key] = (value as string[]).filter(isSafeIdentifier)
+        continue
+      }
+      // `conceptTables` / `eventTables` are collections of descriptors, not
+      // identifiers — the suffix test catches them, so recurse instead.
+      out[key] = sanitizeNode(value)
+      continue
+    }
+    out[key] = sanitizeNode(value)
+  }
+  return out as T
+}
+
+/**
+ * Validate every SQL identifier in a schema mapping, dropping the unsafe ones.
+ * Call this at each point a mapping enters the app from outside (import, clone,
+ * seed, manual save) — never trust one that has not been through here.
+ */
+export function sanitizeSchemaMapping<T extends SchemaMapping | undefined | null>(mapping: T): T {
+  if (!mapping || typeof mapping !== 'object') return mapping
+  return sanitizeNode(mapping)
+}
 
 /** Get the default (first) concept dictionary. */
 function getDefaultConceptDictionary(mapping: SchemaMapping): ConceptDictionary | undefined {
