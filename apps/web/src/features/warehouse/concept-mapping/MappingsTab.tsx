@@ -8,7 +8,7 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table'
 import {
-  Check, Flag, X, MessageSquare, EyeOff, Eye,
+  Check, Flag, X, MessageSquare, EyeOff,
   Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
   Upload, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown,
@@ -829,7 +829,6 @@ interface ReviewActionsCellProps {
   myReview: MappingStatus | 'unchecked'
   commentsCount: number
   reviewsCount: number
-  onOpenDetail: (mappingId: string) => void
   onOpenComments: (mappingId: string) => void
   onOpenReviews: (mappingId: string) => void
   onReview: (mappingId: string, status: MappingStatus) => void
@@ -883,19 +882,10 @@ const EquivalenceEditCell = memo(function EquivalenceEditCell({
 
 const ReviewActionsCell = memo(function ReviewActionsCell({
   mappingId, isOwn, canWrite, myReview, commentsCount, reviewsCount,
-  onOpenDetail, onOpenComments, onOpenReviews, onReview, t,
+  onOpenComments, onOpenReviews, onReview, t,
 }: ReviewActionsCellProps) {
   return (
     <span className="flex items-center justify-end gap-1">
-      <Button
-        variant="outline"
-        size="icon-sm"
-        className="size-5"
-        title={t('concept_mapping.view_detail')}
-        onClick={(e) => { e.stopPropagation(); onOpenDetail(mappingId) }}
-      >
-        <Eye size={11} />
-      </Button>
       <Button
         variant="outline"
         size="icon-sm"
@@ -2441,7 +2431,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
               myReview={d?.myReviewStatus ?? 'unchecked'}
               commentsCount={(m.comments ?? []).length}
               reviewsCount={(m.reviews ?? []).length}
-              onOpenDetail={onOpenDetail}
               onOpenComments={onOpenComments}
               onOpenReviews={onOpenReviews}
               onReview={handleReview}
@@ -2457,7 +2446,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, handleChangeEquivalence, onOpenDetail, onOpenComments, onOpenReviews, toggleSelect, currentUser, rowDerived, sourceConceptIdMap, useRegistryForId])
+  }, [t, editMode, selected, pageAllSelected, handleReview, handleChangeEquivalence, onOpenComments, onOpenReviews, toggleSelect, currentUser, rowDerived, sourceConceptIdMap, useRegistryForId])
 
   const table = useReactTable({
     data: visibleItems,
@@ -3156,8 +3145,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.original.id}
-                  className="group"
+                  className="group cursor-pointer"
                   data-state={selected.has(row.original.id) ? 'selected' : undefined}
+                  onClick={() => onOpenDetail(row.original.id)}
                 >
                   {row.getVisibleCells().map((cell) => {
                     const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())

@@ -1509,7 +1509,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_flagged')}</p>
                 </Card>
                 <Card className="p-4 text-center">
-                  <p className="text-2xl font-bold text-gray-500">{totals.ignored.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-muted-foreground">{totals.ignored.toLocaleString()}</p>
                   <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_ignored')}</p>
                 </Card>
               </div>
