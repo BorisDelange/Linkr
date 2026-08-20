@@ -61,6 +61,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { SectionLabel } from '@/components/ui/section-label'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -843,9 +844,9 @@ function DatabaseSidebarDetail({
           {stats && (
             <>
               <div className="border-t pt-3">
-                <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <SectionLabel as="h4" className="mb-2">
                   {t('etl.sidebar_overview')}
-                </h4>
+                </SectionLabel>
                 <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-md border p-2 text-center">
                     <Users size={14} className="mx-auto mb-1 text-blue-500" />
@@ -868,9 +869,9 @@ function DatabaseSidebarDetail({
               {/* Gender distribution */}
               {(stats.genderDistribution.male > 0 || stats.genderDistribution.female > 0) && (
                 <div className="border-t pt-3">
-                  <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel as="h4" className="mb-2">
                     {t('etl.sidebar_gender')}
-                  </h4>
+                  </SectionLabel>
                   <GenderBar distribution={stats.genderDistribution} />
                 </div>
               )}
@@ -878,9 +879,9 @@ function DatabaseSidebarDetail({
               {/* Descriptive stats */}
               {stats.descriptiveStats.ageMean != null && (
                 <div className="border-t pt-3">
-                  <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel as="h4" className="mb-2">
                     {t('etl.sidebar_age_stats')}
-                  </h4>
+                  </SectionLabel>
                   <div className="space-y-1.5 text-xs">
                     {stats.descriptiveStats.ageMean != null && (
                       <DetailRow label={t('etl.sidebar_mean')} value={String(stats.descriptiveStats.ageMean)} />
@@ -901,9 +902,9 @@ function DatabaseSidebarDetail({
               {/* Visit stats */}
               {stats.descriptiveStats.losMean != null && (
                 <div className="border-t pt-3">
-                  <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel as="h4" className="mb-2">
                     {t('etl.sidebar_visit_stats')}
-                  </h4>
+                  </SectionLabel>
                   <div className="space-y-1.5 text-xs">
                     {stats.descriptiveStats.admissionDateMin && stats.descriptiveStats.admissionDateMax && (
                       <DetailRow
@@ -927,9 +928,9 @@ function DatabaseSidebarDetail({
               {/* Table list with row counts */}
               {stats.tableCounts.length > 0 && (
                 <div className="border-t pt-3">
-                  <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel as="h4" className="mb-2">
                     {t('etl.sidebar_tables')} ({stats.tableCounts.length})
-                  </h4>
+                  </SectionLabel>
                   <div className="space-y-0.5">
                     {stats.tableCounts.map((tc) => (
                       <div key={tc.tableName} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/30">

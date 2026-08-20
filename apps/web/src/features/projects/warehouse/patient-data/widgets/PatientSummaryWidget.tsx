@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { User, Calendar, Bed, Heart, HeartOff, List, GanttChart, ZoomIn, ZoomOut, Maximize2, ExternalLink } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
+import { SectionLabel } from '@/components/ui/section-label'
 import {
   Tooltip,
   TooltipContent,
@@ -875,9 +876,9 @@ export function PatientSummaryWidget() {
         <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
           {/* Header with toggle */}
           <div className="flex items-center gap-1 shrink-0 mb-1">
-            <h4 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <SectionLabel as="h4">
               {t('patient_data.hospitalizations_list')}
-            </h4>
+            </SectionLabel>
             <div className="ml-auto flex items-center">
               <TooltipProvider delayDuration={300}>
                 <Tooltip>

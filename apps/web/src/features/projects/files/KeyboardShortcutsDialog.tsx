@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { SectionLabel } from '@/components/ui/section-label'
 import {
   Tooltip,
   TooltipContent,
@@ -185,9 +186,9 @@ export function KeyboardShortcutsDialog({
               return (
               <div key={group.titleKey}>
                 <div className="mb-1.5 flex items-center justify-between">
-                  <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel as="h3">
                     {t(group.titleKey)}
-                  </h3>
+                  </SectionLabel>
                   {prefix && (
                     <div className="flex items-center gap-1">
                       <span className="text-[9px] text-muted-foreground">{t('shortcuts.preset')}:</span>
