@@ -16,6 +16,8 @@ import {
   Loader2,
   Search,
   X,
+  ChevronLeft,
+  ChevronRight,
   Download,
   Check,
   SlidersHorizontal,
@@ -76,7 +78,6 @@ const MONO_COLUMNS = new Set(['concept_code', 'concept_id'])
 interface SourceConceptTableProps {
   rows: SourceConceptRow[]
   totalCount: number
-  hasMore: boolean
   loading: boolean
   queryError?: string | null
   filters: SourceConceptFilters
@@ -115,7 +116,10 @@ interface SourceConceptTableProps {
   hasPatientCount?: boolean
   /** True when at least one row has info_json data. */
   hasInfoJson?: boolean
-  onLoadMore: () => void
+  /** Zero-based current page, and the total the SQL COUNT(*) reported. */
+  page: number
+  totalPages: number
+  onPageChange: (page: number) => void
   onFiltersChange: (filters: SourceConceptFilters) => void
   onSortingChange: (sorting: SourceConceptSorting | null) => void
   onMappingStatusFilterChange: (filter: MappingStatusFilter) => void
@@ -213,7 +217,6 @@ function SortIndicator({ columnId, sorting }: { columnId: string; sorting: Sourc
 export function SourceConceptTable({
   rows,
   totalCount,
-  hasMore,
   loading,
   queryError,
   filters,
@@ -237,7 +240,9 @@ export function SourceConceptTable({
   hasRecordCount,
   hasPatientCount,
   hasInfoJson,
-  onLoadMore,
+  page,
+  totalPages,
+  onPageChange,
   onFiltersChange,
   onSortingChange,
   onMappingStatusFilterChange,
@@ -291,13 +296,6 @@ export function SourceConceptTable({
     }
   }
 
-  // Infinite scroll via scroll event on the container
-  const onLoadMoreRef = useRef(onLoadMore)
-  onLoadMoreRef.current = onLoadMore
-  const hasMoreRef = useRef(hasMore)
-  hasMoreRef.current = hasMore
-  const loadingRef2 = useRef(loading)
-  loadingRef2.current = loading
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
 
   const onScrollTopChangeRef = useRef(onScrollTopChange)
@@ -310,16 +308,14 @@ export function SourceConceptTable({
     if (initialScrollTop) {
       el.scrollTop = initialScrollTop
     }
-    const onScroll = () => {
-      onScrollTopChangeRef.current?.(el.scrollTop)
-      if (!hasMoreRef.current || loadingRef2.current) return
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
-        onLoadMoreRef.current()
-      }
-    }
+    const onScroll = () => onScrollTopChangeRef.current?.(el.scrollTop)
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A page swap replaces every row: staying scrolled down would read as nothing
+  // having happened.
+  useEffect(() => { scrollContainerRef.current?.scrollTo({ top: 0 }) }, [page])
 
   const handleSort = (columnId: string) => {
     if (columnId === '_info') return
@@ -1141,19 +1137,14 @@ export function SourceConceptTable({
             )}
           </TableBody>
         </Table>
-        {/* Loading indicator when fetching next page */}
-        {loading && hasMore && (
-          <div className="flex h-8 items-center justify-center">
-            <Loader2 size={12} className="animate-spin text-muted-foreground" />
-          </div>
-        )}
       </div>
 
-      {/* Footer: count + column visibility */}
+      {/* Footer: count + columns on the left, paging on the right — the layout
+          ConceptDataTable uses, so every table in the app reads the same. */}
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-muted-foreground">
-            {rows.length.toLocaleString()}{hasMore ? '+' : ''} / {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
+            {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
           </span>
           <ColumnVisibilityMenu
             trigger={
@@ -1174,6 +1165,33 @@ export function SourceConceptTable({
             }}
           />
         </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onPageChange(page - 1)}
+              disabled={page === 0 || loading}
+              aria-label={t('common.previous')}
+            >
+              <ChevronLeft size={14} />
+            </Button>
+            <span className="flex items-center gap-1 text-[10px] tabular-nums text-muted-foreground">
+              {loading && <Loader2 size={10} className="animate-spin" />}
+              {page + 1} / {totalPages}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onPageChange(page + 1)}
+              disabled={page >= totalPages - 1 || loading}
+              aria-label={t('common.next')}
+            >
+              <ChevronRight size={14} />
+            </Button>
+          </div>
+        )}
       </div>
       {/* Bulk-list modal: every external mapping for the source row, each with
           its own Import button. After a successful import the body swaps to a

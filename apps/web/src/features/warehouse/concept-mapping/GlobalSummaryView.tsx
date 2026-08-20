@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown, Download, FileCode, FileText, Search, SlidersHorizontal, X } from 'lucide-react'
+import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Loader2, Download, FileCode, FileText, Search, SlidersHorizontal, X } from 'lucide-react'
 import {
   flexRender,
   getCoreRowModel,
@@ -371,7 +371,6 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [tableRows, setTableRows] = useState<Record<string, unknown>[]>([])
   const [tableTotalCount, setTableTotalCount] = useState(0)
   const [tableLoading, setTableLoading] = useState(false)
-  const [tableHasMore, setTableHasMore] = useState(false)
   const [tableReady, setTableReady] = useState(false)
   // Server mode: the cache signature returned by /global-table/build. Every
   // /global-table/query passes it so the server serves the prebuilt Parquet
@@ -388,7 +387,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   // server (paged; can take a while on 100k+ rows). Without this the table shows
   // "No results" during that load instead of a spinner.
   const [loadingSourceConcepts, setLoadingSourceConcepts] = useState(false)
-  const tablePage = useRef(0)
+  const [tablePageIdx, setTablePageIdx] = useState(0)
   const tableLoadingRef = useRef(false)
   // Bumped on every page-0 (re)load so a superseded in-flight request discards
   // its result instead of the mutex dropping the new load and leaving the
@@ -634,9 +633,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       if (pageToLoad === 0) {
         setTableRows(rows)
       } else {
-        setTableRows((prev) => [...prev, ...rows])
+        setTableRows(rows)
       }
-      setTableHasMore(rows.length === PAGE_SIZE)
     } catch (err) {
       console.error('Failed to load table rows:', err)
       if (gen === tableLoadGen.current && pageToLoad === 0) setTableRows([])
@@ -696,18 +694,18 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   // Load first page when table is ready or filters/sorting change
   useEffect(() => {
     if (!tableReady) return
-    tablePage.current = 0
+    setTablePageIdx(0)
     setTableRows([])
-    setTableHasMore(false)
     loadTableRowsRef.current(0)
   }, [tableReady, colFilters, sorting])
 
-  // Load next page on scroll
-  const handleLoadMore = useCallback(() => {
-    if (tableLoading || !tableHasMore) return
-    tablePage.current += 1
-    loadTableRowsRef.current(tablePage.current)
-  }, [tableLoading, tableHasMore])
+  const tableTotalPages = Math.max(1, Math.ceil(tableTotalCount / PAGE_SIZE))
+  const handleTablePageChange = useCallback((next: number) => {
+    if (tableLoading) return
+    const clamped = Math.min(Math.max(0, next), tableTotalPages - 1)
+    setTablePageIdx(clamped)
+    loadTableRowsRef.current(clamped)
+  }, [tableLoading, tableTotalPages])
 
   const groupStats = useMemo(
     () => computeGroupStats(allMappings, projects, groupMode, dbProjectTotals),
@@ -1305,30 +1303,16 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     },
   ], [t, groupMode])
 
-  // Infinite scroll for table tab — use callback ref since Radix TabsContent
-  // unmounts/remounts content, so a regular ref + useEffect misses the element.
-  const hasMoreRef = useRef(tableHasMore)
-  hasMoreRef.current = tableHasMore
-  const handleLoadMoreRef = useRef(handleLoadMore)
-  handleLoadMoreRef.current = handleLoadMore
-  const scrollCleanupRef = useRef<(() => void) | null>(null)
-
+  // Callback ref rather than a plain one: Radix TabsContent unmounts and
+  // remounts its content, so a ref + useEffect misses the element.
+  const scrollElRef = useRef<HTMLDivElement | null>(null)
   const scrollContainerRef = useCallback((el: HTMLDivElement | null) => {
-    // Clean up previous listener
-    if (scrollCleanupRef.current) {
-      scrollCleanupRef.current()
-      scrollCleanupRef.current = null
-    }
-    if (!el) return
-    const onScroll = () => {
-      if (!hasMoreRef.current) return
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
-        handleLoadMoreRef.current()
-      }
-    }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    scrollCleanupRef.current = () => el.removeEventListener('scroll', onScroll)
+    scrollElRef.current = el
   }, [])
+
+  // A page swap replaces every row: staying scrolled down would read as nothing
+  // having happened.
+  useEffect(() => { scrollElRef.current?.scrollTo({ top: 0 }) }, [tablePageIdx])
 
   // Active columns depend on groupMode
   const activeColumns = groupMode === 'badge' ? dedupedColumns : flatColumns
@@ -1889,6 +1873,33 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             <span className="ml-2 text-[10px] text-muted-foreground">
               {t('concept_mapping.global_showing', { shown: tableRows.length.toLocaleString(), total: tableTotalCount.toLocaleString() } as Record<string, string>)}
             </span>
+
+            {tableTotalPages > 1 && (
+              <div className="ml-auto flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => handleTablePageChange(tablePageIdx - 1)}
+                  disabled={tablePageIdx === 0 || tableLoading}
+                  aria-label={t('common.previous')}
+                >
+                  <ChevronLeft size={14} />
+                </Button>
+                <span className="flex items-center gap-1 text-[10px] tabular-nums text-muted-foreground">
+                  {tableLoading && <Loader2 size={10} className="animate-spin" />}
+                  {tablePageIdx + 1} / {tableTotalPages}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => handleTablePageChange(tablePageIdx + 1)}
+                  disabled={tablePageIdx >= tableTotalPages - 1 || tableLoading}
+                  aria-label={t('common.next')}
+                >
+                  <ChevronRight size={14} />
+                </Button>
+              </div>
+            )}
           </div>
         </TabsContent>
 

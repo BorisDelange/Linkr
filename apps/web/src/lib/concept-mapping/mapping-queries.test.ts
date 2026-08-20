@@ -279,3 +279,41 @@ describe('buildFileSourceConceptsQuery — source concept id search', () => {
     expect(sql).not.toContain('CAST(concept_id AS VARCHAR)')
   })
 })
+
+describe('buildFileSourceConceptsQuery — pagination is a stable window', () => {
+  // A LIMIT/OFFSET over a non-unique ORDER BY is not a window over one total
+  // order: ties resolve however the engine feels, and DuckDB parallelises, so
+  // two pages of the same set can both contain a row — or neither. That showed
+  // up as concepts stuck at the top of the table after paging or filtering.
+  const q = (
+    filters: Parameters<typeof buildFileSourceConceptsQuery>[0],
+    sorting: Parameters<typeof buildFileSourceConceptsQuery>[1],
+  ) => buildFileSourceConceptsQuery(filters, sorting, 50, 50)
+
+  it('breaks ties on concept_id when sorting by a non-unique column', () => {
+    // record_count is 0 for thousands of concepts.
+    expect(q({}, { columnId: 'record_count', desc: true })).toContain(
+      'ORDER BY record_count DESC NULLS LAST, concept_id ASC',
+    )
+  })
+
+  it('breaks ties on concept_id when sorting ascending too', () => {
+    expect(q({}, { columnId: 'patient_count', desc: false })).toContain(
+      'ORDER BY patient_count ASC NULLS LAST, concept_id ASC',
+    )
+  })
+
+  it('breaks ties on concept_id with no explicit sort', () => {
+    // Two concepts can share a name across vocabularies.
+    expect(q({}, null)).toContain('ORDER BY concept_name ASC, concept_id ASC')
+  })
+
+  it('breaks ties on concept_id when ordering by fuzzy relevance', () => {
+    const sql = q({ searchText: 'heart' }, null)
+    expect(sql).toContain('concept_name ASC, concept_id ASC')
+  })
+
+  it('still applies the window after the tiebreaker', () => {
+    expect(q({}, { columnId: 'record_count', desc: true })).toContain('LIMIT 50 OFFSET 50')
+  })
+})

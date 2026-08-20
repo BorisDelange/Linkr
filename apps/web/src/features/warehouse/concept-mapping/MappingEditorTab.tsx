@@ -105,7 +105,6 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const [rows, setRows] = useState<SourceConceptRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
-  const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
   const [queryError, setQueryError] = useState<string | null>(null)
   // Filters are restored from the editor-filters store so they survive navigating
@@ -505,8 +504,9 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
         return row
       })
 
-      setRows((prev) => pageToLoad === 0 ? parsedRows : [...prev, ...parsedRows])
-      setHasMore(parsedRows.length === PAGE_SIZE)
+      // Each page replaces the last: the table pages rather than accumulating,
+      // so the DOM holds PAGE_SIZE rows however deep into the list you go.
+      setRows(parsedRows)
     } catch (err) {
       if (isStale()) return
       console.error('Failed to load source concepts:', err)
@@ -534,7 +534,6 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     isFileSourceWithoutConceptIdRef.current = isFileSourceWithoutConceptId
     setPage(0)
     setRows([])
-    setHasMore(false)
     loadConceptsRef.current(0)
 
     // `sourceConceptIdMap` is a dependency because an id search is resolved
@@ -542,16 +541,18 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     // restored from saved filters) before it arrived would otherwise stay empty.
   }, [isFileSource, isFileSourceWithoutConceptId, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, mappingStatusFilter, suggestionCategoryKeys, sourceConceptIdMap])
 
-  // Load more when page increments (scroll infinite)
-  useEffect(() => {
-    if (page === 0) return
-    loadConceptsRef.current(page)
-  }, [page])
-
-  const handleLoadMore = useCallback(() => {
-    if (loading || !hasMore) return
-    setPage((p) => p + 1)
-  }, [loading, hasMore])
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+  // The fetch is driven from the click, not from an effect on `page`. An effect
+  // had to special-case page 0 (the reset effect having just loaded it), and
+  // that exception is what left the previous page's rows on screen when the
+  // user paged back to the first one.
+  const handlePageChange = useCallback((next: number) => {
+    if (loading) return
+    const clamped = Math.min(Math.max(0, next), totalPages - 1)
+    if (clamped === page) return
+    setPage(clamped)
+    loadConceptsRef.current(clamped)
+  }, [loading, totalPages, page])
 
   // Mapping status is keyed by (vocabulary_id, concept_code) — a source concept's
   // stable identity — not by the row-position concept_id (which shifts if the
@@ -699,7 +700,6 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
           <SourceConceptTable
             rows={finalRows}
             totalCount={filteredTotalCount}
-            hasMore={hasMore}
             loading={loading}
             queryError={queryError}
             filters={filters}
@@ -724,7 +724,9 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             hasPatientCount={isFileSource && !!project.fileSourceData?.columnMapping.patientCountColumn}
             hasInfoJson={hasInfoJson}
             ignoredConceptIds={ignoredConceptIds}
-            onLoadMore={handleLoadMore}
+            page={page}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
             onFiltersChange={setFilters}
             onSortingChange={setSorting}
             onMappingStatusFilterChange={setMappingStatusFilter}

@@ -29,6 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { clampPage, pageCountOf } from '@/components/ui/concept-data-table'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -1008,7 +1009,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
   const [colFilters, setColFilters] = useState<MappingColumnFilters>({})
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>({ columnId: 'createdAt', desc: true })
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [page, setPage] = useState(0)
   const [editMode, setEditMode] = useState(false)
   const [detailMapping, setDetailMapping] = useState<ConceptMapping | null>(null)
   const [detailSource, setDetailSource] = useState<SourceDetail>({ counts: null, infoJson: undefined })
@@ -1326,29 +1327,17 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     return out
   }, [filtered, sorting, rowDerived, colFilters, myReviewFilter, includedStatuses, approvalRule, rowKey])
 
-  const visibleItems = sorted.slice(0, visibleCount)
-  const hasMore = visibleCount < sorted.length
+  const pageCount = pageCountOf(sorted.length, PAGE_SIZE)
+  // Clamped rather than reset: narrowing a filter should not throw away the
+  // user's position when the page they are on still exists.
+  const safePage = clampPage(page, pageCount)
+  const visibleItems = sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
-  // Reset visible count when filters/sorting change
-  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [colFilters, sorting, includedStatuses, approvalRule, myReviewFilter])
-
-  // Infinite scroll
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
-  const hasMoreRef = useRef(hasMore)
-  hasMoreRef.current = hasMore
 
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const onScroll = () => {
-      if (!hasMoreRef.current) return
-      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
-        setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, sorted.length))
-      }
-    }
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [sorted.length])
+  // Back to the top of the list on a page change: the rows all changed, and
+  // landing mid-table would read as not having moved.
+  useEffect(() => { scrollContainerRef.current?.scrollTo({ top: 0 }) }, [safePage])
 
   const handleSort = (columnId: string) => {
     if (sorting?.columnId === columnId) {
@@ -3169,19 +3158,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
             )}
           </TableBody>
         </Table>
-        {/* Loading indicator when fetching next page */}
-        {hasMore && (
-          <div className="flex h-8 items-center justify-center">
-            <Loader2 size={12} className="animate-spin text-muted-foreground" />
-          </div>
-        )}
       </div>
 
-      {/* Footer: count + column visibility */}
-      <div className="flex shrink-0 items-center border-t px-4 py-1.5">
+      {/* Footer: count + columns on the left, paging on the right — the layout
+          ConceptDataTable uses, so the two read the same. */}
+      <div className="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-muted-foreground">
-            {visibleItems.length.toLocaleString()}{hasMore ? '+' : ''} / {sorted.length.toLocaleString()} {t('concept_mapping.existing_mappings').toLowerCase()}
+            {sorted.length.toLocaleString()} {t('concept_mapping.existing_mappings').toLowerCase()}
           </span>
           <DropdownMenu>
             <Tooltip>
@@ -3213,6 +3197,32 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+
+        {pageCount > 1 && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setPage(safePage - 1)}
+              disabled={safePage === 0}
+              aria-label={t('common.previous')}
+            >
+              <ChevronLeft size={14} />
+            </Button>
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              {safePage + 1} / {pageCount}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setPage(safePage + 1)}
+              disabled={safePage >= pageCount - 1}
+              aria-label={t('common.next')}
+            >
+              <ChevronRight size={14} />
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Delete confirmation dialog */}

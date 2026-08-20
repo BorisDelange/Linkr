@@ -119,12 +119,15 @@ export function buildSourceConceptsQuery(
 
   // Sorting precedence: explicit user sort > fuzzy relevance > default (concept_name).
   // This lets the user override the fuzzy ranking by clicking a column header.
+  // Every branch ends on concept_id: see the note in buildFileSourceConceptsQuery
+  // — without a unique tiebreaker, LIMIT/OFFSET is not a stable window and rows
+  // reappear on the next page.
   if (sorting) {
-    sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST`
+    sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST, concept_id ASC`
   } else if (fuzzy) {
-    sql += ` ORDER BY ${fuzzy.rankExpr} ASC, concept_name ASC`
+    sql += ` ORDER BY ${fuzzy.rankExpr} ASC, concept_name ASC, concept_id ASC`
   } else {
-    sql += ' ORDER BY concept_name ASC'
+    sql += ' ORDER BY concept_name ASC, concept_id ASC'
   }
 
   sql += ` LIMIT ${limit} OFFSET ${offset}`
@@ -417,13 +420,19 @@ export function buildFileSourceConceptsQuery(
   if (sorting) {
     // fall through to the original branch below
   } else if (fuzzy) {
-    sql += ` ORDER BY ${fuzzy.rankExpr} ASC, concept_name ASC LIMIT ${limit} OFFSET ${offset}`
+    sql += ` ORDER BY ${fuzzy.rankExpr} ASC, concept_name ASC, concept_id ASC LIMIT ${limit} OFFSET ${offset}`
     return sql
   }
+  // Every ORDER BY ends on concept_id, which is unique. Sorting on record_count
+  // alone leaves ties (thousands of concepts share a count of 0) in whatever
+  // order the engine happens to produce, and DuckDB parallelises — so two
+  // queries for two pages of the same set can disagree about which rows those
+  // are, showing a row twice and dropping another. A unique tiebreaker makes
+  // LIMIT/OFFSET a stable window over one total order.
   if (sorting) {
-    sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST`
+    sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST, concept_id ASC`
   } else {
-    sql += ' ORDER BY concept_name ASC'
+    sql += ' ORDER BY concept_name ASC, concept_id ASC'
   }
 
   sql += ` LIMIT ${limit} OFFSET ${offset}`
