@@ -99,34 +99,30 @@ const columns: ConceptColumn<Row>[] = [
 It already gives you: **per-column sort** (tri-state desc → asc → off),
 **column resize** (drag, double-click to reset), **inline filters** under each
 header (text / number / multi-select), **column visibility** menu, **client
-pagination**, and **truncation tooltips**. `ConceptColumn` also supports `cell`
-(custom renderer), `sortable`, `hidden`, `center`, `size`/`minSize`,
-`selectOptionLabel` and `tooltip`.
+pagination**, and **truncation tooltips**. Pass `reorderable` to let users drag
+columns into a different order — off by default, since the drag grip is noise on
+a three-column table. `ConceptColumn` also supports `cell` (custom renderer),
+`sortable`, `hidden`, `center`, `size`/`minSize`, `selectOptionLabel` and
+`tooltip`.
 
 **Do not hand-roll a `useReactTable`** to get sorting or resizing. 14 files do
 today; the resize handle alone is copy-pasted verbatim in 11 of them.
 
 ### When a bespoke table is still legitimate
 
-`ConceptDataTable` does not (yet) cover: multi-row selection, column reorder,
-column pinning, server-side pagination, sticky headers, virtualisation. If you
-need one of those, the rule is **extend the shared component**, not fork it.
+`ConceptDataTable` does not (yet) cover: multi-row selection, column pinning,
+server-side pagination, sticky headers, virtualisation. If you need one of
+those, the rule is **extend the shared component**, not fork it — column reorder
+already moved in that way.
 
-Two files are richer than the canonical one and are the reference for what
-should be lifted into it:
-- `features/projects/warehouse/concepts/ConceptTable.tsx` — column reorder
-  (dnd-kit) + file-explorer multi-selection (plain / Ctrl-Cmd toggle /
-  Shift-range with anchor) + server pagination.
-- `features/warehouse/concept-mapping/components/SourceConceptTable.tsx` —
-  uses the better `ColumnVisibilityMenu`.
-
-**Known debt (do not extend, help retire):** reorder, multi-selection and
-`ColumnVisibilityMenu` belong in `ConceptDataTable`; `ConceptTable` should then
-consume it. `RelationsTable.tsx` is the *ancestor* `ConceptDataTable` was
-generalized from and was never migrated back to its own descendant.
-`ResultsTable.tsx` (72 lines) pulls in TanStack for no sorting, filtering or
-resizing at all. `ConceptPickerDialog` / `CohortConceptPickerDialog` and
-`PullConceptsDialog` / `PullMappingsTable` are near-duplicate pairs.
+**Known debt (do not extend, help retire):** multi-selection and the richer
+`ColumnVisibilityMenu` still belong in `ConceptDataTable`;
+`ConceptTable.tsx` should then consume it rather than carry its own copy.
+`RelationsTable.tsx` is the *ancestor* `ConceptDataTable` was generalized from
+and was never migrated back to its own descendant. `ResultsTable.tsx` (72 lines)
+pulls in TanStack for no sorting, filtering or resizing at all.
+`ConceptPickerDialog` / `CohortConceptPickerDialog` and `PullConceptsDialog` /
+`PullMappingsTable` are near-duplicate pairs.
 
 ### Table styling — exact classes
 

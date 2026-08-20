@@ -726,6 +726,8 @@ function ConceptQualityView({
           pageSize={100}
           // Biggest source volumes first: those are the mappings whose gaps matter.
           initialSorting={{ columnId: 'sourceRows', desc: true }}
+          // Eleven columns, and which ones matter depends on what you're chasing.
+          reorderable
         />
       </div>
     </div>

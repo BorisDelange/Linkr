@@ -17,11 +17,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Label } from '@/components/ui/label'
 import {
   AlertDialog,
@@ -259,40 +258,32 @@ function MapWithCommentDialog({
   const [text, setText] = useState(initialText)
 
   return (
-    <Dialog open onOpenChange={(next) => { if (!next) onClose({ equivalence, text }) }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('concept_mapping.map_with_comment')}</DialogTitle>
-          <DialogDescription>{t('concept_mapping.map_with_comment_desc')}</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label>{t('concept_mapping.equivalence')}</Label>
-            <div>
-              <EquivalencePickerButton value={equivalence} onPick={setEquivalence} />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="map-comment">{t('concept_mapping.comment')}</Label>
-            <Textarea
-              id="map-comment"
-              rows={3}
-              placeholder={t('concept_mapping.comment_placeholder')}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
-          </div>
+    <DialogShell
+      open
+      onOpenChange={(next) => { if (!next) onClose({ equivalence, text }) }}
+      title={t('concept_mapping.map_with_comment')}
+      description={t('concept_mapping.map_with_comment_desc')}
+      onConfirm={() => onSubmit(equivalence, text.trim())}
+      confirmLabel={t('concept_mapping.save_mapping')}
+      contentClassName="py-0"
+    >
+      <div className="space-y-2">
+        <Label>{t('concept_mapping.equivalence')}</Label>
+        <div>
+          <EquivalencePickerButton value={equivalence} onPick={setEquivalence} />
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onClose({ equivalence, text })}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={() => onSubmit(equivalence, text.trim())}>
-            {t('concept_mapping.save_mapping')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="map-comment">{t('concept_mapping.comment')}</Label>
+        <Textarea
+          id="map-comment"
+          rows={3}
+          placeholder={t('concept_mapping.comment_placeholder')}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+      </div>
+    </DialogShell>
   )
 }
 
@@ -2742,35 +2733,28 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       )}
 
       {/* "Ignore with comment" dialog */}
-      <Dialog open={ignoreDialogOpen} onOpenChange={setIgnoreDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('concept_mapping.ignore_with_comment')}</DialogTitle>
-            <DialogDescription>{t('concept_mapping.ignore_with_comment_desc')}</DialogDescription>
-          </DialogHeader>
-          {sourceConcept && (
-            <div className="space-y-2">
-              <Label htmlFor="ignore-comment">{t('concept_mapping.comment')}</Label>
-              <Textarea
-                id="ignore-comment"
-                rows={3}
-                placeholder={t('concept_mapping.comment_placeholder')}
-                value={ignoreCommentText}
-                onChange={(e) => setIgnoreCommentText(e.target.value)}
-              />
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIgnoreDialogOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button onClick={handleIgnoreDialogSubmit}>
-              <EyeOff size={14} />
-              {t('concept_mapping.ignore')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DialogShell
+        open={ignoreDialogOpen}
+        onOpenChange={setIgnoreDialogOpen}
+        title={t('concept_mapping.ignore_with_comment')}
+        description={t('concept_mapping.ignore_with_comment_desc')}
+        onConfirm={handleIgnoreDialogSubmit}
+        confirmLabel={<><EyeOff size={14} />{t('concept_mapping.ignore')}</>}
+        contentClassName="py-0"
+      >
+        {sourceConcept && (
+          <div className="space-y-2">
+            <Label htmlFor="ignore-comment">{t('concept_mapping.comment')}</Label>
+            <Textarea
+              id="ignore-comment"
+              rows={3}
+              placeholder={t('concept_mapping.comment_placeholder')}
+              value={ignoreCommentText}
+              onChange={(e) => setIgnoreCommentText(e.target.value)}
+            />
+          </div>
+        )}
+      </DialogShell>
 
       {/* Concept set detail sheet */}
       <ConceptSetDetailSheet

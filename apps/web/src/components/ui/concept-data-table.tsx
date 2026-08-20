@@ -5,9 +5,27 @@ import {
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
+  type ColumnOrderState,
+  type Header,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, GripVertical, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
@@ -123,21 +141,66 @@ interface ConceptDataTableProps<T> {
    * matters when the interesting rows are the big ones.
    */
   initialSorting?: { columnId: string; desc: boolean }
+  /**
+   * Let the user drag column headers into a different order. Off by default:
+   * it adds a grip to every header, which is noise on a table of three columns.
+   */
+  reorderable?: boolean
+}
+
+/** Header cell for a reorderable table: adds the drag grip and drop indicator. */
+function SortableHead<T>({
+  header,
+  children,
+  isDropTarget,
+}: {
+  header: Header<T, unknown>
+  children: ReactNode
+  isDropTarget: boolean
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: header.column.id })
+  return (
+    <TableHead
+      ref={setNodeRef}
+      className={cn('relative select-none overflow-hidden text-xs', isDropTarget && 'bg-primary/10')}
+      style={{ width: header.getSize(), maxWidth: header.getSize(), opacity: isDragging ? 0.4 : 1 }}
+    >
+      {isDropTarget && <div className="absolute left-0 top-0 h-full w-0.5 bg-primary" />}
+      <div className="flex items-center gap-1 overflow-hidden">
+        <button
+          type="button"
+          className="shrink-0 cursor-grab touch-none text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical size={10} />
+        </button>
+        {children}
+      </div>
+    </TableHead>
+  )
 }
 
 /**
- * Shared OMOP-style concept datatable: per-column sort, resize, inline filters
- * (text / number / multi-select), column-visibility menu and a results count.
- * Generalized from RelationsTable so concept lists read the same everywhere.
+ * Shared OMOP-style concept datatable: per-column sort, resize, reorder, inline
+ * filters (text / number / multi-select), column-visibility menu and a results
+ * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting, reorderable }: ConceptDataTableProps<T>) {
   const { t } = useTranslation()
   const [sorting, setSorting] = useState<Sorting>(initialSorting ?? null)
   const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>({})
   const [page, setPage] = useState(0)
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
+  const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([])
+  const [overColumnId, setOverColumnId] = useState<string | null>(null)
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
     () => Object.fromEntries(cols.filter((c) => c.hidden).map((c) => [c.id, false])),
+  )
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
   )
 
   const handleSort = (columnId: string) => {
@@ -251,16 +314,35 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
   const table = useReactTable({
     data: paged,
     columns,
-    state: { columnVisibility, columnSizing },
+    state: { columnVisibility, columnSizing, columnOrder },
     onColumnVisibilityChange: setColumnVisibility,
     onColumnSizingChange: setColumnSizing,
+    onColumnOrderChange: setColumnOrder,
     getCoreRowModel: getCoreRowModel(),
     columnResizeMode: 'onChange',
     manualSorting: true,
     manualFiltering: true,
   })
 
-  return (
+  const handleDragOver = (e: DragOverEvent) => {
+    const { over, active } = e
+    setOverColumnId(over && over.id !== active.id ? String(over.id) : null)
+  }
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    setOverColumnId(null)
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const current = columnOrder.length ? columnOrder : table.getAllLeafColumns().map((c) => c.id)
+    const from = current.indexOf(String(active.id))
+    const to = current.indexOf(String(over.id))
+    if (from === -1 || to === -1) return
+    setColumnOrder(arrayMove(current, from, to))
+  }
+
+  const headerIds = table.getVisibleLeafColumns().map((c) => c.id)
+
+  const body = (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex-1 overflow-auto">
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
@@ -270,40 +352,46 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                 hg.headers.map((header) => {
                   const colId = header.column.id
                   const canSort = colById.get(colId)?.sortable !== false
-                  return (
+                  const label = (
+                    <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                    </TruncatedHeader>
+                  )
+                  const content = canSort ? (
+                    <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground" onClick={() => handleSort(colId)}>
+                      {label}
+                      {!sorting || sorting.columnId !== colId
+                        ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
+                        : sorting.desc
+                          ? <ArrowDown size={10} className="shrink-0 text-primary" />
+                          : <ArrowUp size={10} className="shrink-0 text-primary" />}
+                    </button>
+                  ) : (
+                    <div className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2">{label}</div>
+                  )
+                  const resizeHandle = header.column.getCanResize() && (
+                    <div
+                      onMouseDown={header.getResizeHandler()}
+                      onTouchStart={header.getResizeHandler()}
+                      onDoubleClick={() => header.column.resetSize()}
+                      className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                    >
+                      <div className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'}`} />
+                    </div>
+                  )
+                  return reorderable ? (
+                    <SortableHead key={header.id} header={header} isDropTarget={overColumnId === colId}>
+                      {content}
+                      {resizeHandle}
+                    </SortableHead>
+                  ) : (
                     <TableHead
                       key={header.id}
                       className="relative select-none overflow-hidden text-xs"
                       style={{ width: header.getSize(), maxWidth: header.getSize() }}
                     >
-                      {canSort ? (
-                        <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground" onClick={() => handleSort(colId)}>
-                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                          </TruncatedHeader>
-                          {!sorting || sorting.columnId !== colId
-                            ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                            : sorting.desc
-                              ? <ArrowDown size={10} className="shrink-0 text-primary" />
-                              : <ArrowUp size={10} className="shrink-0 text-primary" />}
-                        </button>
-                      ) : (
-                        <div className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2">
-                          <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                          </TruncatedHeader>
-                        </div>
-                      )}
-                      {header.column.getCanResize() && (
-                        <div
-                          onMouseDown={header.getResizeHandler()}
-                          onTouchStart={header.getResizeHandler()}
-                          onDoubleClick={() => header.column.resetSize()}
-                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                        >
-                          <div className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'}`} />
-                        </div>
-                      )}
+                      {content}
+                      {resizeHandle}
                     </TableHead>
                   )
                 }),
@@ -424,5 +512,20 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
         </div>
       </div>
     </div>
+  )
+
+  if (!reorderable) return body
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext items={headerIds} strategy={horizontalListSortingStrategy}>
+        {body}
+      </SortableContext>
+    </DndContext>
   )
 }
