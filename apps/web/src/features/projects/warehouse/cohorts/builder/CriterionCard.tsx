@@ -312,7 +312,7 @@ function CriteriaConfigForm({
   // but TS can't narrow `config` from the separate `type` discriminant — cast per branch.
   switch (type) {
     case 'age':
-      return <AgeCriteriaForm config={config as AgeCriteriaConfig} onChange={onChange} />
+      return <AgeCriteriaForm config={config as AgeCriteriaConfig} onChange={onChange} schemaMapping={schemaMapping} />
     case 'sex':
       return <SexCriteriaForm config={config as SexCriteriaConfig} onChange={onChange} genderValues={genderValues} />
     case 'death':

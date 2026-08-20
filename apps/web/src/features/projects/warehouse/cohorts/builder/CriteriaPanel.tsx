@@ -221,7 +221,9 @@ export function CriteriaPanel({
   }
 
   const [collapseSignal, setCollapseSignal] = useState({ seq: 0, collapsed: false })
-  const allEnabled = anyEnabled(criteriaTree)
+  // Any node still on means the button offers to turn everything off — the
+  // label follows this, so naming it `allEnabled` read as the opposite rule.
+  const someEnabled = anyEnabled(criteriaTree)
 
   return (
     <div className="p-3 space-y-0">
@@ -240,10 +242,10 @@ export function CriteriaPanel({
             variant="ghost"
             size="sm"
             className="h-7 gap-1 text-xs text-muted-foreground"
-            onClick={() => onChange(setAllEnabled(criteriaTree, !allEnabled))}
+            onClick={() => onChange(setAllEnabled(criteriaTree, !someEnabled))}
           >
             <Power size={12} />
-            {allEnabled ? t('cohorts.disable_all') : t('cohorts.enable_all')}
+            {someEnabled ? t('cohorts.disable_all') : t('cohorts.enable_all')}
           </Button>
         </div>
       )}

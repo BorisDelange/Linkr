@@ -40,6 +40,9 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
   // Fetch distinct care site values when level or data source changes
   useEffect(() => {
     if (!dataSourceId || !schemaMapping) return
+    // Switching level twice quickly races the two queries, and without this the
+    // slower one wins and lists the other level's care sites.
+    let cancelled = false
 
     const fetchValues = async () => {
       setLoading(true)
@@ -47,25 +50,33 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
       try {
         const sql = buildCareSiteQuery(config.careSiteLevel, schemaMapping)
         if (!sql) {
-          setUnmapped(true)
-          setAvailableValues([])
+          if (!cancelled) {
+            setUnmapped(true)
+            setAvailableValues([])
+          }
           return
         }
-        setUnmapped(false)
         const rows = await queryDataSource(dataSourceId, sql)
-        const values = rows
-          .map((r) => String(r.care_site_label ?? ''))
-          .filter((v) => v.length > 0)
-        setAvailableValues(values)
+        if (cancelled) return
+        // Only cleared once the query for THIS level has actually come back,
+        // so an in-flight switch cannot flash "unmapped" off and on.
+        setUnmapped(false)
+        setAvailableValues(
+          rows.map((r) => String(r.care_site_label ?? '')).filter((v) => v.length > 0),
+        )
       } catch {
+        if (cancelled) return
         setError(true)
         setAvailableValues([])
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchValues()
+    return () => {
+      cancelled = true
+    }
   }, [dataSourceId, schemaMapping, config.careSiteLevel])
 
   const toggleValue = (value: string) => {
@@ -168,7 +179,7 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
             {config.values.map((v) => (
               <span
                 key={v}
-                className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] text-muted-foreground"
               >
                 {v}
                 <button

@@ -114,7 +114,7 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv }:
               {/* Showing a truncated page as if it were the whole cohort is the
                   bug this replaces — say so when rows were left behind. */}
               {result.totalCount > result.rows.length && (
-                <p className="shrink-0 border-b bg-muted/40 px-4 py-1.5 text-[11px] text-muted-foreground">
+                <p className="shrink-0 border-b bg-muted/40 px-4 py-1.5 text-[10px] text-muted-foreground">
                   {t('cohorts.results_truncated', {
                     shown: result.rows.length.toLocaleString(),
                     total: result.totalCount.toLocaleString(),

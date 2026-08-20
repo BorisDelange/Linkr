@@ -372,13 +372,21 @@ export const useCohortStore = create<CohortState>((set, get) => ({
 
       return totalCount
     } catch (err) {
-      set((s) => ({
-        executionLoading: new Map(s.executionLoading).set(id, false),
-        executionErrors: new Map(s.executionErrors).set(
-          id,
-          err instanceof Error ? err.message : String(err),
-        ),
-      }))
+      set((s) => {
+        // Drop the previous run's result. The panel only shows the error when
+        // there is no result to show, so keeping a stale one made a failed
+        // re-run display the *old* cohort's count as if it were current.
+        const results = new Map(s.executionResults)
+        results.delete(id)
+        return {
+          executionResults: results,
+          executionLoading: new Map(s.executionLoading).set(id, false),
+          executionErrors: new Map(s.executionErrors).set(
+            id,
+            err instanceof Error ? err.message : String(err),
+          ),
+        }
+      })
       throw err
     }
   },
@@ -395,7 +403,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
 
     try {
       const sql = buildCohortMembershipSql(cohort, schemaMapping)
-      if (!sql) return 0
+      // Returning here without clearing the spinner left the button turning for
+      // ever with nothing to explain it — surface it as the failure it is.
+      if (!sql) throw new Error('EMPTY_QUERY')
 
       const rows = await engine.queryDataSource(dataSourceId, sql)
       const ids: string[] = []
@@ -426,6 +436,10 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     } catch (err) {
       set((s) => ({
         executionLoading: new Map(s.executionLoading).set(id, false),
+        executionErrors: new Map(s.executionErrors).set(
+          id,
+          err instanceof Error ? err.message : String(err),
+        ),
       }))
       throw err
     }

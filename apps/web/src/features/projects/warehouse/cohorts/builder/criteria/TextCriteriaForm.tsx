@@ -28,8 +28,14 @@ const MATCH_MODES: TextMatchMode[] = ['contains', 'word', 'regex']
 const INPUT_CLASS =
   'h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-xs shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50'
 
-/** Terms are typed as a comma-separated list — the shape a clinician writes. */
-function parseTerms(raw: string): string[] {
+/** Terms are typed as a comma-separated list — the shape a clinician writes.
+ *  Except in regex mode, where a comma is part of the syntax: splitting
+ *  `\d{2,3}` on it yields two broken patterns that match nothing. */
+function parseTerms(raw: string, mode: TextMatchMode): string[] {
+  if (mode === 'regex') {
+    const term = raw.trim()
+    return term ? [term] : []
+  }
   return raw
     .split(',')
     .map((t) => t.trim())
@@ -66,11 +72,11 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
           placeholder={t('cohorts.text_label_placeholder')}
           className={INPUT_CLASS}
         />
-        <p className="text-[11px] text-muted-foreground">{t('cohorts.text_label_hint')}</p>
+        <p className="text-[10px] text-muted-foreground">{t('cohorts.text_label_hint')}</p>
       </div>
 
       {!hasNotes && (
-        <p className="rounded-md border border-dashed px-2 py-1.5 text-[11px] text-muted-foreground">
+        <p className="rounded-md border border-dashed px-2 py-1.5 text-[10px] text-muted-foreground">
           {t('cohorts.text_no_note_table')}
         </p>
       )}
@@ -160,7 +166,9 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
 
           <DebouncedInput
             value={search.terms.join(', ')}
-            onChange={(raw) => updateSearch(index, { terms: parseTerms(raw) })}
+            onChange={(raw) =>
+              updateSearch(index, { terms: parseTerms(raw, search.mode ?? 'contains') })
+            }
             placeholder={t(
               search.mode === 'regex' ? 'cohorts.text_regex_placeholder' : 'cohorts.text_terms_placeholder',
             )}
@@ -201,7 +209,7 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
       </Button>
 
       {searches.length > 1 && (
-        <p className="text-[11px] text-muted-foreground">{t('cohorts.text_fields_anded')}</p>
+        <p className="text-[10px] text-muted-foreground">{t('cohorts.text_fields_anded')}</p>
       )}
 
       <div className="space-y-1">

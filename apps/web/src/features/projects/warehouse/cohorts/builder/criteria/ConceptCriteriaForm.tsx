@@ -89,7 +89,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
             <Button
               variant="outline"
               size="sm"
-              className="h-6 gap-1 text-[11px]"
+              className="h-6 gap-1 text-[10px]"
               onClick={onOpenConceptPicker}
             >
               <Search size={10} />
@@ -100,7 +100,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
         {config.conceptIds.length > 0 ? (
           <div className="flex flex-wrap gap-1">
             {config.conceptIds.map((id) => (
-              <Badge key={id} variant="secondary" className="gap-1 text-[11px] py-0.5 px-2">
+              <Badge key={id} variant="secondary" className="gap-1 text-[10px] py-0.5 px-2">
                 <span className="truncate max-w-[180px]">
                   {config.conceptNames[id] ?? id}
                 </span>
@@ -236,7 +236,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
               className="h-8 text-xs flex-1"
             />
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-[10px] text-muted-foreground">
             {t('cohorts.concept_occurrence_hint')}
           </p>
         </CollapsibleContent>

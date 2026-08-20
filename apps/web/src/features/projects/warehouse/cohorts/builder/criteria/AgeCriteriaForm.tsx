@@ -8,15 +8,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { AgeCriteriaConfig, AgeUnit } from '@/types'
+import { AlertTriangle } from 'lucide-react'
+import { ageCriterionUnsatisfiable } from '@/lib/duckdb/cohort-query'
+import type { AgeCriteriaConfig, AgeUnit, SchemaMapping } from '@/types'
 
 interface AgeCriteriaFormProps {
   config: AgeCriteriaConfig
   onChange: (config: AgeCriteriaConfig) => void
+  schemaMapping?: SchemaMapping
 }
 
-export function AgeCriteriaForm({ config, onChange }: AgeCriteriaFormProps) {
+export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteriaFormProps) {
   const { t } = useTranslation()
+
+  // Days/months need a birth date; a mapping with only a birth year cannot
+  // answer them and would quietly return an empty cohort.
+  const unsatisfiable = schemaMapping ? ageCriterionUnsatisfiable(config, schemaMapping) : false
 
   const referenceOptions: { value: AgeCriteriaConfig['ageReference']; labelKey: string }[] = [
     { value: 'admission', labelKey: 'cohorts.age_admission' },
@@ -91,6 +98,12 @@ export function AgeCriteriaForm({ config, onChange }: AgeCriteriaFormProps) {
           </Select>
         </div>
       </div>
+      {unsatisfiable && (
+        <p className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-500">
+          <AlertTriangle size={12} className="mt-px shrink-0" />
+          {t('cohorts.age_needs_birth_date')}
+        </p>
+      )}
     </div>
   )
 }
