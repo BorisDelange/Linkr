@@ -1,6 +1,7 @@
 import { Library } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { unpackSetNames } from './concept-set-names'
 
 /** Columns whose own renderer wins over the generic copy tooltip — they are
  *  badges or buttons, not text worth lifting out of a cell. */
@@ -38,7 +39,7 @@ export function ConceptSetCell({
   if (!value) return <span className="text-[10px] text-muted-foreground">—</span>
   return (
     <div className="flex min-w-0 items-center gap-1">
-      {value.split(', ').map((name) => (
+      {unpackSetNames(value).map((name) => (
         <Tooltip key={name}>
           <TooltipTrigger asChild>
             <button

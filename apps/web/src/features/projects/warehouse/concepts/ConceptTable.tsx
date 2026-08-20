@@ -92,6 +92,12 @@ const AFFORDANCE_COLUMNS = new Set(['_select', '_action'])
 interface ConceptTableProps {
   concepts: ConceptRow[]
   totalCount: number
+  /**
+   * A dictionary-column filter is active. Those columns are joined in after the
+   * page is fetched, so the SQL COUNT(*) behind `totalCount` never saw them —
+   * reporting it would claim "1–50 of 1,500,000" over three visible rows.
+   */
+  clientFiltered?: boolean
   page: number
   pageSize: number
   totalPages: number
@@ -257,6 +263,7 @@ function SortableColumnHeader({
 export function ConceptTable({
   concepts,
   totalCount,
+  clientFiltered,
   page,
   pageSize,
   totalPages,
@@ -740,7 +747,9 @@ export function ConceptTable({
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-2">
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {t('concepts.pagination_total', { count: totalCount })}
+            {clientFiltered
+              ? t('concepts.pagination_filtered_page', { count: concepts.length })
+              : t('concepts.pagination_total', { count: totalCount })}
           </span>
           <DropdownMenu>
             <Tooltip>

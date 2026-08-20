@@ -22,6 +22,12 @@ interface ImportConceptSetDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /**
+   * Fired only after sets have actually been written. "Replace dictionary"
+   * hangs the removal of the old sets off this, so cancelling the import
+   * cannot leave the workspace with neither the old nor the new dictionary.
+   */
+  onImported?: () => void
+  /**
    * Mapping project to link the imported sets to. Optional: the warehouse
    * Concepts page imports dictionaries workspace-wide, with no mapping project
    * to attach them to — the sets themselves are workspace-scoped either way.
@@ -154,7 +160,7 @@ function parseConceptSetJson(json: unknown, lang = 'en'): ParsedConceptSet | nul
   return { ...base, ...metadata, translations }
 }
 
-export function ImportConceptSetDialog({ open, onOpenChange, project, dictionaryMode }: ImportConceptSetDialogProps) {
+export function ImportConceptSetDialog({ open, onOpenChange, onImported, project, dictionaryMode }: ImportConceptSetDialogProps) {
   const { t, i18n } = useTranslation()
   const { activeWorkspaceId } = useWorkspaceStore()
   const lang = i18n.language?.substring(0, 2) ?? 'en'
@@ -245,6 +251,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project, dictionary
         })
       }
 
+      onImported?.()
       onOpenChange(false)
       setFileContent('')
       setFileName('')
@@ -335,6 +342,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project, dictionary
         }
       }
 
+      if (newIds.length > 0) onImported?.()
       onOpenChange(false)
     } catch (err) {
       setCatalogError(err instanceof Error ? err.message : String(err))

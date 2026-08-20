@@ -57,6 +57,7 @@ import { ImportConceptSetDialog } from '@/features/warehouse/concept-mapping/Imp
 import { ConceptSetDetailSheet } from '@/features/warehouse/concept-mapping/ConceptSetDetailSheet'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { hasValueColumnForDict, DEFAULT_HIDDEN_COLUMNS, CONCEPT_SET_COLUMNS } from './concepts/concept-queries'
+import { packSetNames, unpackSetNames } from './concepts/concept-set-names'
 import { ConceptTable } from './concepts/ConceptTable'
 import { ConceptDetail } from './concepts/ConceptDetail'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -121,6 +122,8 @@ export function ConceptsPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [deletingList, setDeletingList] = useState<ConceptList | null>(null)
   const [importDictOpen, setImportDictOpen] = useState(false)
+  /** Sets awaiting removal once a replacement dictionary has been imported. */
+  const setsToReplaceRef = useRef<string[]>([])
   const [openSetName, setOpenSetName] = useState<string | null>(null)
   const [selectedConceptIds, setSelectedConceptIds] = useState<Set<number>>(new Set())
 
@@ -251,11 +254,26 @@ export function ConceptsPage() {
     }
   }, [workspaceConceptSets, t])
 
-  /** Replacing means dropping the current sets first — one dictionary at a time. */
-  const replaceDictionary = async () => {
-    await deleteConceptSetsBatch(workspaceConceptSets.map((cs) => cs.id))
+  /**
+   * Replacing means only one dictionary survives — but the old one is dropped
+   * *after* the new one lands, never before. Deleting up front left a cancelled
+   * or failed import with neither: the sets are workspace-scoped, shared with
+   * every mapping project in it, and there is no undo.
+   */
+  const replaceDictionary = () => {
+    // A ref, not state: the dialog fires onImported immediately before closing,
+    // and the close handler clears the pending list — through state those two
+    // batch together and the removal is lost.
+    setsToReplaceRef.current = workspaceConceptSets.map((cs) => cs.id)
     setSettingsOpen(false)
     setImportDictOpen(true)
+  }
+
+  /** The import committed, so the dictionary it replaces can now go. */
+  const onDictionaryImported = async () => {
+    const ids = setsToReplaceRef.current
+    setsToReplaceRef.current = []
+    if (ids.length > 0) await deleteConceptSetsBatch(ids)
   }
 
   const openConceptSet = useMemo(
@@ -268,16 +286,34 @@ export function ConceptsPage() {
     [openSetName, workspaceConceptSets, i18n.language],
   )
 
+  /** Filters on the joined dictionary columns, which SQL never saw. */
+  const activeConceptSetFilters = useMemo(
+    () =>
+      CONCEPT_SET_COLUMNS.map((id) => {
+        const raw = filters[id]
+        const values = Array.isArray(raw) ? raw : raw ? [raw] : []
+        return { id, values }
+      }).filter((f) => f.values.length > 0),
+    [filters],
+  )
+  const hasConceptSetFilter = activeConceptSetFilters.length > 0
+
   // Join the dictionary columns onto the page of rows, then apply the filters for
   // those columns here — they have no SQL counterpart, so the server cannot.
   const enrichedConcepts = useMemo<ConceptRow[]>(() => {
     const rows = concepts.map((c) => {
       const membership = conceptSetIndex.get(membershipKey(c.vocabulary_id, c.concept_code))
       if (!membership) return c
+      // Set NAMES are NUL-joined, not ", ": the cell splits them back into one
+      // button each, and a set legitimately called "Labs, chemistry" split into
+      // two phantom buttons that resolved to nothing. The separator cannot occur
+      // in a name, which ", " very much can.
+      const uniqNames = packSetNames
+      // Categories are plain text in the table, so they stay human-readable.
       const uniq = (vals: string[]) => [...new Set(vals.filter(Boolean))].join(', ')
       return {
         ...c,
-        concept_set_name: uniq(membership.sets.map((s) => s.name)),
+        concept_set_name: uniqNames(membership.sets.map((s) => s.name)),
         concept_set_category: uniq(membership.sets.map((s) => s.category)),
         concept_set_subcategory: uniq(membership.sets.map((s) => s.subcategory)),
       }
@@ -285,22 +321,19 @@ export function ConceptsPage() {
 
     // A cell lists every set the concept belongs to, so a filter has to match on
     // an INDIVIDUAL value rather than the joined string.
-    const active = CONCEPT_SET_COLUMNS.map((id) => {
-      const raw = filters[id]
-      const values = Array.isArray(raw) ? raw : raw ? [raw] : []
-      return { id, values }
-    }).filter((f) => f.values.length > 0)
+    const active = activeConceptSetFilters
     if (active.length === 0) return rows
 
     return rows.filter((row) =>
       active.every(({ id, values }) => {
         const cell = String(row[id] ?? '')
         if (!cell) return false
-        const parts = cell.split(', ')
+        // Names carry the NUL separator, categories the readable one.
+        const parts = id === 'concept_set_name' ? unpackSetNames(cell) : cell.split(', ')
         return values.some((v) => parts.includes(v))
       }),
     )
-  }, [concepts, conceptSetIndex, filters])
+  }, [concepts, conceptSetIndex, activeConceptSetFilters])
 
   // Whether the source actually exposes concept codes. MIMIC's d_items/d_labitems
   // have no code column, so the column never appears and copying codes would
@@ -776,13 +809,20 @@ export function ConceptsPage() {
         excludeOutliers={excludeOutliers}
         onExcludeOutliersChange={setExcludeOutliers}
         dictionary={importedDictionary}
-        onImportDictionary={() => { setSettingsOpen(false); setImportDictOpen(true) }}
+        onImportDictionary={() => { setsToReplaceRef.current = []; setSettingsOpen(false); setImportDictOpen(true) }}
         onReplaceDictionary={replaceDictionary}
       />
 
       <ImportConceptSetDialog
         open={importDictOpen}
-        onOpenChange={setImportDictOpen}
+        onOpenChange={(o) => {
+          // Dismissed without importing: the old dictionary stays, so forget
+          // the pending removal rather than applying it to the next import.
+          // onImported has already consumed the list when the import succeeded.
+          if (!o) setsToReplaceRef.current = []
+          setImportDictOpen(o)
+        }}
+        onImported={onDictionaryImported}
         dictionaryMode
       />
 
@@ -799,6 +839,7 @@ export function ConceptsPage() {
             <ConceptTable
               concepts={enrichedConcepts}
               totalCount={totalCount}
+              clientFiltered={hasConceptSetFilter}
               page={page}
               pageSize={pageSize}
               totalPages={totalPages}
