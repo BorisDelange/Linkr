@@ -7,7 +7,6 @@ import {
   PanelRight,
   PanelLeft,
   Loader2,
-  Search,
   RefreshCw,
   ArrowUp,
   ArrowDown,
@@ -28,6 +27,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { CopySelectButton } from '@/components/ui/copy-select-button'
 import { TypeBadge, mapColumnType } from '@/components/ui/type-badge'
 import { SectionLabel } from '@/components/ui/section-label'
+import { SearchInput } from '@/components/ui/search-input'
 import { cn } from '@/lib/utils'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { getStorage } from '@/lib/storage'
@@ -653,16 +653,12 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
                   </Tooltip>
                 </div>
                 <div className="border-b px-2 py-1.5">
-                  <div className="relative">
-                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      type="text"
-                      value={tableSearch}
-                      onChange={(e) => setTableSearch(e.target.value)}
-                      placeholder={t('etl.profiling_filter_tables')}
-                      className="h-7 w-full rounded-md border bg-transparent pl-7 pr-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
-                  </div>
+                  <SearchInput
+                    value={tableSearch}
+                    onChange={setTableSearch}
+                    placeholder={t('etl.profiling_filter_tables')}
+                    size="dense"
+                  />
                 </div>
                 <ScrollArea className="h-full flex-1">
                   <div className="py-1">

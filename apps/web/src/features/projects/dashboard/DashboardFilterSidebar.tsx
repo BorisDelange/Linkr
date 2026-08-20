@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert, Search } from 'lucide-react'
+import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert } from 'lucide-react'
+import { SearchInput } from '@/components/ui/search-input'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DatePickerField } from '@/components/ui/date-picker-field'
@@ -1398,15 +1399,13 @@ function FilterScopeSelector({
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-52 p-2" align="start">
-            <div className="relative mb-2">
-              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder={t('common.search')}
-                className="h-7 pl-7 text-xs"
-              />
-            </div>
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder={t('common.search')}
+              size="dense"
+              className="mb-2"
+            />
             <div className="mb-2 flex items-center gap-1">
               <button
                 onClick={() => onChange({ type: 'tabs', tabIds: tabs.map(tab => tab.id) })}
@@ -1468,15 +1467,13 @@ function FilterScopeSelector({
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-56 p-2" align="start">
-            <div className="relative mb-2">
-              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder={t('common.search')}
-                className="h-7 pl-7 text-xs"
-              />
-            </div>
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder={t('common.search')}
+              size="dense"
+              className="mb-2"
+            />
             <div className="mb-2 flex items-center gap-1">
               <button
                 onClick={() => onChange({ type: 'widgets', widgetIds: widgets.map(w => w.id) })}

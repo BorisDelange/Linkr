@@ -11,7 +11,6 @@ import {
   Save,
   ShieldCheck,
   Filter,
-  Search,
   Pencil,
   Eye,
   EyeOff,
@@ -20,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SearchInput } from '@/components/ui/search-input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -598,15 +598,13 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
 
                 {/* Search input */}
                 <div className="border-b px-2 py-1.5">
-                  <div className="relative">
-                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder={t('common.search')}
-                      className="h-6 border-0 bg-accent/50 pl-6 text-xs shadow-none placeholder:text-muted-foreground/60"
-                    />
-                  </div>
+                  <SearchInput
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    placeholder={t('common.search')}
+                    size="dense"
+                    borderless
+                  />
                 </div>
 
                 {/* Radix wraps viewport children in a shrink-to-fit `display:table` div;

@@ -11,13 +11,11 @@ import {
   Download,
   Loader2,
   RefreshCw,
-  Search,
   Table2,
   Users,
-  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { SearchInput } from '@/components/ui/search-input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
@@ -408,24 +406,13 @@ function TableCountList({ counts }: { counts: TableRowCount[] }) {
         <h4 className="shrink-0 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           {t('etl.sidebar_tables')} ({shown.length === counts.length ? counts.length : `${shown.length}/${counts.length}`})
         </h4>
-        <div className="relative ml-auto min-w-0 flex-1">
-          <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t('etl.quality_stats_search_tables')}
-            className="h-6 pl-6 pr-6 text-[11px]"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              title={t('common.clear')}
-            >
-              <X size={11} />
-            </button>
-          )}
-        </div>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder={t('etl.quality_stats_search_tables')}
+          size="dense"
+          className="ml-auto min-w-0 flex-1"
+        />
       </div>
 
       <div className="flex items-center gap-2 border-b px-1 pb-1">

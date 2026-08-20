@@ -1877,7 +1877,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                                 else next.add(status)
                                 return next
                               })}
-                              className="size-3.5 rounded border-gray-300 accent-primary"
+                              className="size-3.5 rounded border-border accent-primary"
                             />
                             <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
                             <Badge variant="secondary" >
@@ -1913,7 +1913,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                       type="checkbox"
                       checked={exportIncludeUnmapped}
                       onChange={() => setExportIncludeUnmapped((v) => !v)}
-                      className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary"
+                      className="mt-0.5 size-3.5 rounded border-border accent-primary"
                     />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">

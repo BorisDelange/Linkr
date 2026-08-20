@@ -24,7 +24,7 @@ export const STATUS_CONFIG: Record<DqCheckStatus, { icon: typeof CheckCircle2; c
   pass: { icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400', label: 'status_pass' },
   fail: { icon: XCircle, color: 'text-red-600 dark:text-red-400', label: 'status_fail' },
   error: { icon: Bug, color: 'text-red-600 dark:text-red-400', label: 'status_error' },
-  not_applicable: { icon: Minus, color: 'text-gray-400', label: 'status_not_applicable' },
+  not_applicable: { icon: Minus, color: 'text-muted-foreground', label: 'status_not_applicable' },
 }
 
 export const SEVERITY_CONFIG: Record<DqSeverity, { icon: typeof ShieldAlert; color: string }> = {

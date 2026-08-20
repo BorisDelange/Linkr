@@ -480,7 +480,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                           type="checkbox"
                           checked={checked}
                           onChange={() => toggleStatus(status)}
-                          className="size-3.5 rounded border-gray-300 accent-primary"
+                          className="size-3.5 rounded border-border accent-primary"
                         />
                         <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
                         <Badge variant="secondary" >{count}</Badge>
@@ -518,7 +518,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                   type="checkbox"
                   checked={includeAllSourceConcepts}
                   onChange={() => setIncludeAllSourceConcepts((v) => !v)}
-                  className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary"
+                  className="mt-0.5 size-3.5 rounded border-border accent-primary"
                 />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -677,7 +677,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                 checked={includeScores}
                 disabled={!scoresSize}
                 onChange={() => setIncludeScores((v) => !v)}
-                className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary"
+                className="mt-0.5 size-3.5 rounded border-border accent-primary"
               />
               <div className="min-w-0">
                 <div className="flex items-center gap-2">

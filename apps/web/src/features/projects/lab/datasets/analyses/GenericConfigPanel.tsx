@@ -1,6 +1,6 @@
 import { useCallback, useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Search, Puzzle, ChevronsUpDown, Info, Ban, ChevronRight } from 'lucide-react'
+import { Check, Puzzle, ChevronsUpDown, Info, Ban, ChevronRight } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/tooltip'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { SearchInput } from '@/components/ui/search-input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
@@ -536,15 +537,13 @@ function MultiColumnSelect({
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2 bg-popover" align="start">
-          <div className="relative mb-2">
-            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder={t('common.search')}
-              className="h-7 pl-7 text-xs"
-            />
-          </div>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder={t('common.search')}
+            size="dense"
+            className="mb-2"
+          />
           <div className="mb-2 flex items-center gap-1">
             <button onClick={selectAll} className="text-[10px] text-muted-foreground hover:text-foreground">
               {t('common.select_all')}
@@ -650,15 +649,13 @@ function SingleColumnSelect({
         </PopoverTrigger>
         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2 bg-popover" align="start">
           {filtered.length > 5 && (
-            <div className="relative mb-2">
-              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder={t('common.search')}
-                className="h-7 pl-7 text-xs"
-              />
-            </div>
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder={t('common.search')}
+              size="dense"
+              className="mb-2"
+            />
           )}
           <div
             className="max-h-[200px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border bg-popover"
@@ -1146,15 +1143,13 @@ function IconSelectField({
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-64 p-2" align="start">
-          <div className="relative mb-2">
-            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search icons..."
-              className="h-7 pl-7 text-xs"
-            />
-          </div>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search icons..."
+            size="dense"
+            className="mb-2"
+          />
           <ScrollArea className="max-h-[200px]">
             <div className="grid grid-cols-6 gap-1">
               {/* None option */}

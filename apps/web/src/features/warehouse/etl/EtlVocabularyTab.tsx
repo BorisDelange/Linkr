@@ -674,7 +674,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                             type="checkbox"
                             checked={checked}
                             onChange={() => toggleStatus(status)}
-                            className="size-3.5 rounded border-gray-300 accent-primary"
+                            className="size-3.5 rounded border-border accent-primary"
                           />
                           <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
                           <Badge variant="secondary" >{count}</Badge>

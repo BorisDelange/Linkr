@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Search, ArrowUpDown, ChevronDown, X, Check } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, X, Check } from 'lucide-react'
 import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { SearchInput } from '@/components/ui/search-input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -73,15 +73,12 @@ function FilterDropdown({ label, values, selected, onToggle, onClear }: FilterDr
       </PopoverTrigger>
       <PopoverContent align="start" className="w-56 p-0" onCloseAutoFocus={(e) => e.preventDefault()}>
         <div className="border-b p-2">
-          <div className="relative">
-            <Search size={12} className="absolute left-2 top-2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t('data_catalog.search_filter_values')}
-              className="h-8 pl-7 text-xs"
-            />
-          </div>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder={t('data_catalog.search_filter_values')}
+            size="dense"
+          />
         </div>
         <div className="max-h-72 overflow-y-auto p-1">
           {filtered.length === 0 ? (
@@ -320,15 +317,13 @@ function ConceptsView({ catalog, cache }: Props) {
     <div className="space-y-4">
       {/* Search + Filters */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-64">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t('data_catalog.search_concepts')}
-            className="h-8 pl-8 text-xs"
-          />
-        </div>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder={t('data_catalog.search_concepts')}
+          size="dense"
+          className="w-64"
+        />
         {filterColumns.map((col) => (
           <FilterDropdown
             key={col.key}

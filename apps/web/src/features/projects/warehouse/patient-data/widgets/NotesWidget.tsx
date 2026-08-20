@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { FileText, Search, X, Plus, Trash2, ChevronDown, ArrowDownUp } from 'lucide-react'
+import { FileText, Search, Plus, Trash2, ChevronDown, ArrowDownUp } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
+import { SearchInput } from '@/components/ui/search-input'
 import { Button } from '@/components/ui/button'
 import {
   Popover,
@@ -500,26 +501,13 @@ export function NotesWidget({
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-2 py-1.5">
-        <div className="relative flex-1">
-          <Search
-            size={12}
-            className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            placeholder={t('patient_data.notes_filter_name')}
-            className="h-7 pl-7 text-xs"
-          />
-          {nameFilter && (
-            <button
-              onClick={() => setNameFilter('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
+        <SearchInput
+          value={nameFilter}
+          onChange={setNameFilter}
+          placeholder={t('patient_data.notes_filter_name')}
+          size="dense"
+          className="flex-1"
+        />
         <Button
           variant="ghost"
           size="icon-xs"
@@ -528,26 +516,13 @@ export function NotesWidget({
         >
           <ArrowDownUp size={12} />
         </Button>
-        <div className="relative flex-1">
-          <Search
-            size={12}
-            className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            value={textSearch}
-            onChange={(e) => setTextSearch(e.target.value)}
-            placeholder={t('patient_data.notes_search_text')}
-            className="h-7 pl-7 text-xs"
-          />
-          {textSearch && (
-            <button
-              onClick={() => setTextSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
+        <SearchInput
+          value={textSearch}
+          onChange={setTextSearch}
+          placeholder={t('patient_data.notes_search_text')}
+          size="dense"
+          className="flex-1"
+        />
         <WordSetsPopover
           wordSets={config.wordSets ?? []}
           activeWords={activeWordsSet}

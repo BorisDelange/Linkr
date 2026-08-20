@@ -12,6 +12,11 @@ interface SearchInputProps {
    * magnifier icons ran from 11px to 16px and heights from h-7 to h-9.
    */
   size?: 'page' | 'dense'
+  /**
+   * Drops the border for a search that reads as part of its panel rather than
+   * as a control sitting on it (sidebar filters).
+   */
+  borderless?: boolean
   className?: string
   autoFocus?: boolean
 }
@@ -21,6 +26,7 @@ export function SearchInput({
   onChange,
   placeholder,
   size = 'page',
+  borderless,
   className,
   autoFocus,
 }: SearchInputProps) {
@@ -43,7 +49,10 @@ export function SearchInput({
         placeholder={placeholder ?? t('common.search')}
         autoFocus={autoFocus}
         className={cn(
-          'w-full rounded-md border bg-transparent outline-none placeholder:text-muted-foreground focus:border-primary',
+          'w-full rounded-md outline-none placeholder:text-muted-foreground',
+          borderless
+            ? 'border-0 bg-accent/50 shadow-none placeholder:text-muted-foreground/60'
+            : 'border bg-transparent focus:border-primary',
           dense ? 'h-8 pl-7 pr-7 text-xs' : 'h-9 pl-9 pr-9 text-sm',
         )}
       />

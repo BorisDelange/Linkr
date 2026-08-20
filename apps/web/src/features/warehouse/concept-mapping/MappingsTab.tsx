@@ -3019,7 +3019,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                             if (next.has(status)) next.delete(status); else next.add(status)
                             return next
                           })}
-                          className="size-3.5 rounded border-gray-300 accent-primary"
+                          className="size-3.5 rounded border-border accent-primary"
                         />
                         <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
                         <Badge variant="secondary" className="ml-auto">{count}</Badge>

@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Play, Loader2, Users, Clock, Tag, X, Calendar, Check, ChevronDown, Search } from 'lucide-react'
+import { Play, Loader2, Users, Clock, Tag, X, Calendar, Check, ChevronDown } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { SearchInput } from '@/components/ui/search-input'
 import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -88,15 +89,12 @@ function MultiSelect({ label, values, selected, onChange, placeholder }: MultiSe
       <PopoverContent align="start" className="w-64 p-0" onCloseAutoFocus={(e) => e.preventDefault()}>
         {values.length > 6 && (
           <div className="border-b p-2">
-            <div className="relative">
-              <Search size={12} className="absolute left-2 top-2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t('data_catalog.search_filter_values')}
-                className="h-8 pl-7 text-xs"
-              />
-            </div>
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder={t('data_catalog.search_filter_values')}
+              size="dense"
+            />
           </div>
         )}
         <div className="max-h-56 overflow-y-auto p-1">
