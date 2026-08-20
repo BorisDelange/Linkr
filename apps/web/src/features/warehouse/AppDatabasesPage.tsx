@@ -16,14 +16,7 @@ import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Select,
   SelectContent,
@@ -145,14 +138,28 @@ function CreateFromPresetDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('databases.create_from_schema')}</DialogTitle>
-          <DialogDescription>{t('databases.create_from_schema_description')}</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('databases.create_from_schema')}
+      description={t('databases.create_from_schema_description')}
+      onConfirm={handleCreate}
+      confirmLabel={t('common.create')}
+      confirmDisabled={!name.trim() || !selectedPreset}
+      busy={creating}
+      footerExtra={
+        /* Running the DDL can take a while on a large schema — say so, rather
+           than leaving a disabled button as the only feedback. */
+        <span className="flex items-center gap-2 text-xs text-muted-foreground sm:mr-auto">
+          {creating && (
+            <>
+              <Loader2 size={13} className="shrink-0 animate-spin" />
+              {t('databases.creating_may_take_a_while')}
+            </>
+          )}
+        </span>
+      }
+    >
           <div className="space-y-2">
             <Label>{t('databases.schema_preset')}<RequiredMark /></Label>
             <Select value={selectedPresetId} onValueChange={setSelectedPresetId}>
@@ -209,34 +216,7 @@ function CreateFromPresetDialog({
               placeholder={t('databases.field_description_placeholder')}
             />
           </div>
-        </div>
-
-        <DialogFooter className="sm:justify-between">
-          {/* Running the DDL can take a while on a large schema — say so, rather
-              than leaving a disabled button as the only feedback. */}
-          <span className="flex items-center gap-2 text-xs text-muted-foreground sm:mr-auto">
-            {creating && (
-              <>
-                <Loader2 size={13} className="shrink-0 animate-spin" />
-                {t('databases.creating_may_take_a_while')}
-              </>
-            )}
-          </span>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={!name.trim() || !selectedPreset || creating}
-            >
-              {creating && <Loader2 size={14} className="animate-spin" />}
-              {t('common.create')}
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }
 

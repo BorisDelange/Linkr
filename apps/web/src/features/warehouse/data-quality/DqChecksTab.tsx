@@ -53,6 +53,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
+import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { queryDataSource } from '@/lib/duckdb/engine'
@@ -496,9 +497,9 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
             <Allotment.Pane preferredSize={280} minSize={180} maxSize={600} visible={sidebarVisible}>
               <div className="flex h-full min-h-0 flex-col border-r">
                 <div className="flex items-center justify-between border-b px-3 py-1.5">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel>
                     {t('data_quality.checks')}
-                  </span>
+                  </SectionLabel>
                   <div className="flex items-center gap-0.5">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>

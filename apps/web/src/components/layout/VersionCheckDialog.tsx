@@ -1,15 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Trash2, X, Info } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { useAppStore } from '@/stores/app-store'
 import { checkVersion, acknowledgeVersion, clearAllData, type VersionStatus } from '@/lib/version-check'
 import {
@@ -124,32 +116,24 @@ export function VersionCheckDialog() {
     }
 
     return (
-      <Dialog open onOpenChange={(open) => { if (!open) handleDismiss() }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('version_check.schema_title')}</DialogTitle>
-            <DialogDescription asChild>
-              <div className="space-y-3">
-                <p>{t('version_check.schema_description')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('version_check.schema_hint')}
-                </p>
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={handleDismiss}>
-                {t('version_check.dismiss')}
-              </Button>
-              <Button variant="destructive" onClick={handleResetData}>
-                <Trash2 size={14} />
-                {t('version_check.reset_data')}
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DialogShell
+        open
+        onOpenChange={(open) => { if (!open) handleDismiss() }}
+        title={t('version_check.schema_title')}
+        description={t('version_check.schema_description')}
+        onConfirm={handleResetData}
+        confirmLabel={
+          <>
+            <Trash2 size={14} />
+            {t('version_check.reset_data')}
+          </>
+        }
+        destructive
+        cancelLabel={t('version_check.dismiss')}
+        contentClassName="space-y-0 py-0"
+      >
+        <p className="text-xs text-muted-foreground">{t('version_check.schema_hint')}</p>
+      </DialogShell>
     )
   }
 

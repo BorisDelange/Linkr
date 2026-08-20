@@ -33,13 +33,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Tooltip,
   TooltipContent,
@@ -833,27 +827,21 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
       />
 
       {/* Unsaved changes dialog */}
-      <Dialog open={!!closeConfirmFileId} onOpenChange={(open) => { if (!open) setCloseConfirmFileId(null) }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('files.unsaved_changes_title')}</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            {t('files.unsaved_changes_description', {
-              name: files.find((f) => f.id === closeConfirmFileId)?.name ?? '',
-            })}
-          </p>
-          <DialogFooter className="sm:justify-between">
-            <Button variant="outline" onClick={() => setCloseConfirmFileId(null)}>
-              {t('common.cancel')}
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={handleDiscardAndClose}>{t('files.dont_save')}</Button>
-              <Button onClick={handleSaveAndClose}>{t('common.save')}</Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DialogShell
+        open={!!closeConfirmFileId}
+        onOpenChange={(open) => { if (!open) setCloseConfirmFileId(null) }}
+        title={t('files.unsaved_changes_title')}
+        description={t('files.unsaved_changes_description', {
+          name: files.find((f) => f.id === closeConfirmFileId)?.name ?? '',
+        })}
+        onConfirm={handleSaveAndClose}
+        confirmLabel={t('common.save')}
+        footerExtra={
+          <Button variant="ghost" size="sm" onClick={handleDiscardAndClose}>{t('files.dont_save')}</Button>
+        }
+      >
+        {null}
+      </DialogShell>
 
       {/* Database schema browser */}
       {activeDbId && (

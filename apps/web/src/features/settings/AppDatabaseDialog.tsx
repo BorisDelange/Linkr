@@ -9,6 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { CopySelectButton } from '@/components/ui/copy-select-button'
 import { TypeBadge } from '@/components/ui/type-badge'
+import { SectionLabel } from '@/components/ui/section-label'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { queryAppDatabase, fetchAppDatabaseSchema } from '@/lib/api/database'
@@ -164,9 +165,9 @@ function SchemaTab({ active }: { active: boolean }) {
       <Allotment.Pane preferredSize={220} minSize={140} maxSize={360}>
         <div className="flex h-full flex-col border-r">
           <div className="flex items-center border-b px-3 py-2">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <SectionLabel>
               {t('etl.profiling_tables')} ({tables.length})
-            </span>
+            </SectionLabel>
           </div>
           <div className="border-b px-2 py-1.5">
             <div className="relative">

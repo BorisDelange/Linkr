@@ -18,13 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Select,
   SelectContent,
@@ -244,15 +238,17 @@ export function OrganizationsTab() {
       )}
 
       {/* Create / Edit dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {editingId ? t('settings.edit_organization') : t('settings.add_organization')}
-            </DialogTitle>
-          </DialogHeader>
+      <DialogShell
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        kind="settings"
+        title={editingId ? t('settings.edit_organization') : t('settings.add_organization')}
+        onConfirm={save}
+        confirmLabel={editingId ? t('common.save') : t('common.create')}
+        confirmDisabled={!canSaveNow}
+      >
           <div
-            className="mt-2 grid gap-3 sm:grid-cols-2"
+            className="grid gap-3 sm:grid-cols-2"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
                 e.preventDefault()
@@ -346,16 +342,7 @@ export function OrganizationsTab() {
               />
             </div>
           </div>
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button onClick={save} disabled={!canSaveNow}>
-              {editingId ? t('common.save') : t('common.create')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </DialogShell>
 
       {/* Delete confirmation — type the name to confirm */}
       <AlertDialog

@@ -12,14 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { GatedButton } from '@/components/ui/gated-button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -271,13 +264,16 @@ export function PatientDataListPage() {
       </div>
 
       {/* Create dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('patient_data.create_board_title')}</DialogTitle>
-            <DialogDescription>{t('patient_data.create_board_description')}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
+      <DialogShell
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        title={t('patient_data.create_board_title')}
+        description={t('patient_data.create_board_description')}
+        contentClassName="space-y-3 py-2"
+        onConfirm={handleCreate}
+        confirmLabel={t('patient_data.create_board')}
+        confirmDisabled={!isNameValid}
+      >
             <div className="space-y-1">
               <Label>{t('common.name')}<RequiredMark /></Label>
               <Input
@@ -306,17 +302,7 @@ export function PatientDataListPage() {
                 className="resize-none text-sm"
               />
             </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button size="sm" onClick={handleCreate} disabled={!isNameValid}>
-              {t('patient_data.create_board')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </DialogShell>
 
       {/* Delete confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>

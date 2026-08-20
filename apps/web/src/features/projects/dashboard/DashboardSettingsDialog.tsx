@@ -7,14 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Select,
   SelectContent,
@@ -146,13 +139,15 @@ export function DashboardSettingsDialog({
 
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('dashboard.settings_title')}</DialogTitle>
-          <DialogDescription>{t('dashboard.settings_description')}</DialogDescription>
-        </DialogHeader>
-
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('dashboard.settings_title')}
+      description={t('dashboard.settings_description')}
+      onConfirm={settings.save}
+      confirmDisabled={!settings.canSaveNow}
+      contentClassName="space-y-0 py-0"
+    >
         <Tabs defaultValue="general" className="py-2">
           <TabsList className="w-full">
             <TabsTrigger value="general" className="flex-1">{t('dashboard.settings_tab_general', 'General')}</TabsTrigger>
@@ -269,17 +264,7 @@ export function DashboardSettingsDialog({
           </TabsContent>
           </div>
         </Tabs>
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button size="sm" onClick={settings.save} disabled={!settings.canSaveNow}>
-            {t('common.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
 
     <AlertDialog open={bulkAssignScope !== null} onOpenChange={v => { if (!v) setBulkAssignScope(null) }}>
       <AlertDialogContent>

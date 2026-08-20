@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslation } from 'react-i18next'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -55,9 +56,9 @@ export function DqCategoryCharts({ checks, results }: Props) {
     <div className="flex gap-4 px-4 py-3">
       {/* Distribution by category */}
       <div className="flex-1">
-        <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <SectionLabel className="mb-1">
           {t('data_quality.chart_distribution')}
-        </p>
+        </SectionLabel>
         <ResponsiveContainer width="100%" height={120}>
           <BarChart data={data} barSize={20}>
             <XAxis
@@ -97,9 +98,9 @@ export function DqCategoryCharts({ checks, results }: Props) {
 
       {/* Failure rate by category */}
       <div className="flex-1">
-        <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <SectionLabel className="mb-1">
           {t('data_quality.chart_failure_rate')}
-        </p>
+        </SectionLabel>
         <ResponsiveContainer width="100%" height={120}>
           <BarChart data={data} barSize={20}>
             <XAxis

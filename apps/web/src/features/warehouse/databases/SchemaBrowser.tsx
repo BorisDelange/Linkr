@@ -27,6 +27,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import { CopySelectButton } from '@/components/ui/copy-select-button'
 import { TypeBadge, mapColumnType } from '@/components/ui/type-badge'
+import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { getStorage } from '@/lib/storage'
@@ -918,9 +919,9 @@ function ColumnStatsDetail({
               {/* Histogram */}
               {stats.histogram.length > 0 && (
                 <div className="border-t pt-3">
-                  <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel className="mb-2">
                     {t('etl.profiling_distribution')}
-                  </p>
+                  </SectionLabel>
                   <ResponsiveContainer width="100%" height={140}>
                     <BarChart data={stats.histogram} margin={{ top: 2, right: 4, bottom: 0, left: 0 }}>
                       <XAxis dataKey="label" interval="preserveStartEnd" tick={{ fontSize: 9 }} />
@@ -943,9 +944,9 @@ function ColumnStatsDetail({
               {/* Top values */}
               {stats.topValues.length > 0 && (
                 <div className="border-t pt-3">
-                  <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <SectionLabel className="mb-2">
                     {t('etl.profiling_top_values')}
-                  </p>
+                  </SectionLabel>
                   <div className="space-y-1.5">
                     {stats.topValues.map((item) => (
                       <div key={item.value} className="group">

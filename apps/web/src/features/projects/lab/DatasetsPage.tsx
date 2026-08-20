@@ -16,14 +16,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Tooltip,
   TooltipContent,
@@ -731,39 +724,25 @@ export function DatasetsPage() {
       )}
 
       {/* Unsaved changes confirmation dialog */}
-      <Dialog
+      <DialogShell
         open={!!closeConfirmFileId}
         onOpenChange={(open) => {
           if (!open) setCloseConfirmFileId(null)
         }}
+        title={t('files.unsaved_changes_title')}
+        description={t('files.unsaved_changes_description', {
+          name: files.find((n) => n.id === closeConfirmFileId)?.name ?? '',
+        })}
+        onConfirm={handleSaveAndClose}
+        confirmLabel={t('common.save')}
+        footerExtra={
+          <Button variant="ghost" size="sm" onClick={handleDiscardAndClose}>
+            {t('files.dont_save')}
+          </Button>
+        }
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('files.unsaved_changes_title')}</DialogTitle>
-            <DialogDescription>
-              {t('files.unsaved_changes_description', {
-                name: files.find((n) => n.id === closeConfirmFileId)?.name ?? '',
-              })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="sm:justify-between">
-            <Button
-              variant="outline"
-              onClick={() => setCloseConfirmFileId(null)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={handleDiscardAndClose}>
-                {t('files.dont_save')}
-              </Button>
-              <Button onClick={handleSaveAndClose}>
-                {t('common.save')}
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {null}
+      </DialogShell>
     </TooltipProvider>
   )
 }

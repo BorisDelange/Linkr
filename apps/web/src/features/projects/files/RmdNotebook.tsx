@@ -53,6 +53,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SectionLabel } from '@/components/ui/section-label'
 import {
   Select,
   SelectContent,
@@ -1137,9 +1138,9 @@ function ChunkOptionsPopover({
 
         {/* General */}
         <div className="space-y-1">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <SectionLabel>
             {t('files.chunk_general')}
-          </span>
+          </SectionLabel>
           {BOOL_OPTIONS.filter((o) => o.section === 'general').map((opt) => (
             <div key={opt.key} className="flex items-center justify-between gap-2">
               <div className="min-w-0">
@@ -1157,9 +1158,9 @@ function ChunkOptionsPopover({
 
         {/* Output */}
         <div className="space-y-1">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <SectionLabel>
             {t('files.chunk_output')}
-          </span>
+          </SectionLabel>
           {BOOL_OPTIONS.filter((o) => o.section === 'output').map((opt) => (
             <div key={opt.key} className="flex items-center justify-between gap-2">
               <div className="min-w-0">
@@ -1197,9 +1198,9 @@ function ChunkOptionsPopover({
 
         {/* Figure */}
         <div className="space-y-1">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <SectionLabel>
             {t('files.chunk_figure')}
-          </span>
+          </SectionLabel>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-0.5">
               <Label className="text-[10px] font-mono">fig.width</Label>

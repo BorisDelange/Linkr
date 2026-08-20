@@ -54,7 +54,11 @@ interface DialogShellProps {
   /** Spinner in the primary button; also blocks a second submit. */
   busy?: boolean
   cancelLabel?: ReactNode
-  /** Extra footer content, placed before Cancel (e.g. a tertiary action). */
+  /**
+   * Extra footer content, placed before Cancel (e.g. a tertiary action).
+   * Pinned to the far left, away from the primary pair — a discard action
+   * shouldn't sit next to the button it undoes.
+   */
   footerExtra?: ReactNode
   hideFooter?: boolean
   /** Escape hatch for the rare dialog needing its own width or padding. */
@@ -99,28 +103,35 @@ export function DialogShell({
         <div className={cn(BODY_CLASS[kind], contentClassName)}>{children}</div>
 
         {!hideFooter && (
-          <DialogFooter className={kind === 'workbench' ? 'shrink-0' : undefined}>
-            {footerExtra}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => onOpenChange(false)}
-            >
-              {cancelLabel ?? t(onConfirm ? 'common.cancel' : 'common.close')}
-            </Button>
-            {onConfirm && (
-              <Button
-                size="sm"
-                variant={destructive ? 'destructive' : 'default'}
-                onClick={onConfirm}
-                disabled={confirmDisabled || busy}
-                className="gap-1.5"
-              >
-                {busy && <Loader2 size={14} className="animate-spin" />}
-                {confirmLabel ?? t('common.save')}
-              </Button>
+          <DialogFooter
+            className={cn(
+              kind === 'workbench' && 'shrink-0',
+              footerExtra && 'sm:justify-between',
             )}
+          >
+            {footerExtra}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => onOpenChange(false)}
+              >
+                {cancelLabel ?? t(onConfirm ? 'common.cancel' : 'common.close')}
+              </Button>
+              {onConfirm && (
+                <Button
+                  size="sm"
+                  variant={destructive ? 'destructive' : 'default'}
+                  onClick={onConfirm}
+                  disabled={confirmDisabled || busy}
+                  className="gap-1.5"
+                >
+                  {busy && <Loader2 size={14} className="animate-spin" />}
+                  {confirmLabel ?? t('common.save')}
+                </Button>
+              )}
+            </div>
           </DialogFooter>
         )}
       </DialogContent>

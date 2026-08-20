@@ -8,6 +8,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import { useBrowserMetrics } from '@/hooks/use-browser-metrics'
 import { useServerKernels } from '@/hooks/use-server-kernels'
@@ -261,9 +262,9 @@ export function StatusBar() {
 
               {/* Runtimes — server kernels in server mode, browser WASM otherwise */}
               <div className="space-y-2">
-                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <SectionLabel>
                   {server ? t('server.kernels') : t('server.runtimes')}
-                </p>
+                </SectionLabel>
                 {server ? (
                   kernels.length === 0 ? (
                     <p className="text-[10px] text-muted-foreground italic">{t('server.no_kernels')}</p>

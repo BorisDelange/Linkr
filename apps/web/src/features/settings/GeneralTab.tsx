@@ -9,13 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Select,
   SelectContent,
@@ -146,12 +140,20 @@ function FileBrowserDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (v) handleOpen() }}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{t('settings.general_db_browse_title')}</DialogTitle>
-        </DialogHeader>
-
+    <DialogShell
+      open={open}
+      onOpenChange={(v) => { onOpenChange(v); if (v) handleOpen() }}
+      kind="settings"
+      title={t('settings.general_db_browse_title')}
+      onConfirm={handleConfirm}
+      confirmLabel={t('settings.general_db_browse_select')}
+      confirmDisabled={!selectedFile}
+      footerExtra={
+        <Button variant="outline" size="sm" onClick={handleSelectFolder}>
+          {t('settings.general_db_browse_use_folder')}
+        </Button>
+      }
+    >
         {/* Current path breadcrumb */}
         <div className="flex items-center gap-1 rounded-md bg-muted px-3 py-1.5 text-xs font-mono text-muted-foreground">
           <span className="truncate">{currentPath}</span>
@@ -213,17 +215,7 @@ function FileBrowserDialog({
             </button>
           ))}
         </div>
-
-        <DialogFooter className="gap-2">
-          <Button variant="outline" size="sm" onClick={handleSelectFolder}>
-            {t('settings.general_db_browse_use_folder')}
-          </Button>
-          <Button size="sm" onClick={handleConfirm} disabled={!selectedFile}>
-            {t('settings.general_db_browse_select')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }
 

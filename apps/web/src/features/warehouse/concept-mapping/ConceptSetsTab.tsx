@@ -60,6 +60,7 @@ import {
 } from '@/components/ui/collapsible'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -1803,9 +1804,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                   {/* Detected files, each one opt-out except CONCEPT. */}
                   {vocabFiles.length > 0 && (
                     <div className="mt-4 w-full max-w-sm rounded-md border p-3">
-                      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      <SectionLabel className="mb-1.5">
                         {t('concept_mapping.vocab_import_tables_found', { count: vocabFiles.length })}
-                      </p>
+                      </SectionLabel>
                       {/* Same All / None + count affordance as MultiSelectFilter. */}
                       <div className="mb-2 flex items-center justify-between">
                         <div className="flex items-center gap-1">

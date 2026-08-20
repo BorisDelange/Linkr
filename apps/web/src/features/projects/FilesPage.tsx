@@ -36,14 +36,7 @@ import {
   Save,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Tooltip,
   TooltipContent,
@@ -92,6 +85,7 @@ import { UploadDialog } from './files/UploadDialog'
 import { RunButton } from './files/RunButton'
 import { SessionDropdown } from '@/components/execution/SessionDropdown'
 import { PythonLogo, RLogo } from '@/components/ui/language-icon'
+import { SectionLabel } from '@/components/ui/section-label'
 import { TerminalPanel } from '@/components/terminal/TerminalPanel'
 import { useSessionStore } from '@/stores/session-store'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
@@ -1859,9 +1853,9 @@ export function FilesPage() {
                         visible={outlineVisible && isNotebook}
                       >
                         <div className="h-full border-l bg-muted/20 overflow-y-auto">
-                          <div className="px-2 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground border-b">
+                          <SectionLabel className="px-2 py-2 border-b">
                             {t('files.outline')}
-                          </div>
+                          </SectionLabel>
                           <div className="py-1">
                             {outlineCells.map((cell, idx) => {
                               const state = outlineCellStates.get(cell.id)
@@ -1958,31 +1952,23 @@ export function FilesPage() {
         )}
 
         {/* Unsaved changes confirmation dialog */}
-        <Dialog open={!!closeConfirmFileId} onOpenChange={(open) => { if (!open) setCloseConfirmFileId(null) }}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t('files.unsaved_changes_title')}</DialogTitle>
-              <DialogDescription>
-                {t('files.unsaved_changes_description', {
-                  name: nodes.find((n) => n.id === closeConfirmFileId)?.name ?? '',
-                })}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter className="sm:justify-between">
-              <Button variant="outline" onClick={() => setCloseConfirmFileId(null)}>
-                {t('common.cancel')}
-              </Button>
-              <div className="flex gap-2">
-                <Button variant="ghost" onClick={handleDiscardAndClose}>
-                  {t('files.dont_save')}
-                </Button>
-                <Button onClick={handleSaveAndClose}>
-                  {t('common.save')}
-                </Button>
-              </div>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <DialogShell
+          open={!!closeConfirmFileId}
+          onOpenChange={(open) => { if (!open) setCloseConfirmFileId(null) }}
+          title={t('files.unsaved_changes_title')}
+          description={t('files.unsaved_changes_description', {
+            name: nodes.find((n) => n.id === closeConfirmFileId)?.name ?? '',
+          })}
+          onConfirm={handleSaveAndClose}
+          confirmLabel={t('common.save')}
+          footerExtra={
+            <Button variant="ghost" size="sm" onClick={handleDiscardAndClose}>
+              {t('files.dont_save')}
+            </Button>
+          }
+        >
+          {null}
+        </DialogShell>
       </div>
     </TooltipProvider>
   )

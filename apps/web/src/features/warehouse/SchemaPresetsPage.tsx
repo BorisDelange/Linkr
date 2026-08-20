@@ -29,14 +29,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1649,13 +1642,16 @@ export function SchemaPresetsPage() {
           )}
 
           {/* Create schema dialog */}
-          <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) setShowCreateDialog(false) }}>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>{t('schemas.create_title')}</DialogTitle>
-                <DialogDescription>{t('settings.schema_preset_new_description')}</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
+          <DialogShell
+            open={showCreateDialog}
+            onOpenChange={(open) => { if (!open) setShowCreateDialog(false) }}
+            title={t('schemas.create_title')}
+            description={t('settings.schema_preset_new_description')}
+            contentClassName="py-0"
+            onConfirm={confirmCreatePreset}
+            confirmLabel={t('common.create')}
+            confirmDisabled={!canCreatePreset}
+          >
                 {/* Template picker */}
                 <div className="space-y-1.5">
                   <Label>{t('schemas.template')}</Label>
@@ -1746,13 +1742,7 @@ export function SchemaPresetsPage() {
                   htmlId="schema-preset-id"
                   placeholder="my-schema"
                 />
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>
-                <Button onClick={confirmCreatePreset} disabled={!canCreatePreset}>{t('common.create')}</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          </DialogShell>
 
           {/* Import source (ZIP or git) — same modal as the other list pages */}
           <ImportSourceDialog

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   CheckCheck,
@@ -39,14 +39,7 @@ import { useSaveForm } from '@/hooks/use-save-form'
 import type { Permission, Role } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
@@ -339,6 +332,8 @@ export function RolesTab() {
   const [renameTarget, setRenameTarget] = useState<Role | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [roleTab, setRoleTab] = useState<'workspace' | 'global'>('global')
+  const addFormRef = useRef<HTMLFormElement>(null)
+  const renameFormRef = useRef<HTMLFormElement>(null)
 
   const applyRoles = useCallback((r: Role[]) => {
     setRoles(r)
@@ -510,14 +505,17 @@ export function RolesTab() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md">
-          <form onSubmit={handleAdd}>
-            <DialogHeader>
-              <DialogTitle>{t('settings.add_role')}</DialogTitle>
-              <DialogDescription>{t('settings.add_role_description')}</DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 space-y-4">
+      <DialogShell
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        title={t('settings.add_role')}
+        description={t('settings.add_role_description')}
+        onConfirm={() => addFormRef.current?.requestSubmit()}
+        confirmLabel={t('common.create')}
+        confirmDisabled={!newName.trim()}
+      >
+          <form ref={addFormRef} onSubmit={handleAdd}>
+            <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="role-name">{t('settings.role_name')}<RequiredMark /></Label>
                 <Input id="role-name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="data-scientist" autoFocus />
@@ -540,40 +538,25 @@ export function RolesTab() {
               </div>
               {error && <p className="text-xs text-destructive">{error}</p>}
             </div>
-            <DialogFooter className="mt-6">
-              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={!newName.trim()}>
-                {t('common.create')}
-              </Button>
-            </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+      </DialogShell>
 
-      <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) setRenameTarget(null) }}>
-        <DialogContent className="sm:max-w-md">
-          <form onSubmit={confirmRename}>
-            <DialogHeader>
-              <DialogTitle>{t('settings.rename_role')}</DialogTitle>
-              <DialogDescription>{t('settings.rename_role_description')}</DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 space-y-2">
+      <DialogShell
+        open={!!renameTarget}
+        onOpenChange={(open) => { if (!open) setRenameTarget(null) }}
+        title={t('settings.rename_role')}
+        description={t('settings.rename_role_description')}
+        onConfirm={() => renameFormRef.current?.requestSubmit()}
+        confirmLabel={t('common.save')}
+        confirmDisabled={!renameValue.trim()}
+      >
+          <form ref={renameFormRef} onSubmit={confirmRename}>
+            <div className="space-y-2">
               <Label htmlFor="rename-role">{t('settings.role_label')}</Label>
               <Input id="rename-role" value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
             </div>
-            <DialogFooter className="mt-6">
-              <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={!renameValue.trim()}>
-                {t('common.save')}
-              </Button>
-            </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+      </DialogShell>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <AlertDialogContent>

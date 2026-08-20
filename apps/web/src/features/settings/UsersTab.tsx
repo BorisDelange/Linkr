@@ -10,14 +10,7 @@ import { localized, localizedRaw, setLocalized, seedLocalizedForEditing, hasLoca
 import type { Role, User, UserCreateInput, LocalizedString } from '@/types'
 import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
@@ -346,14 +339,18 @@ export function UsersTab() {
         />
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+      <DialogShell
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        kind="settings"
+        title={editing ? t('settings.edit_user') : t('settings.add_user')}
+        description={t('settings.add_user_description')}
+        onConfirm={() => formRef.current?.requestSubmit()}
+        confirmLabel={editing ? t('common.save') : t('common.create')}
+        confirmDisabled={!draft.username.trim()}
+      >
           <form ref={formRef} onSubmit={handleSubmit}>
-            <DialogHeader>
-              <DialogTitle>{editing ? t('settings.edit_user') : t('settings.add_user')}</DialogTitle>
-              <DialogDescription>{t('settings.add_user_description')}</DialogDescription>
-            </DialogHeader>
-            <div className="mt-4 space-y-4">
+            <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="user-username">{t('settings.user_username')}<RequiredMark /></Label>
                 <Input
@@ -456,17 +453,8 @@ export function UsersTab() {
               </div>
               {error && <p className="text-xs text-destructive">{error}</p>}
             </div>
-            <DialogFooter className="mt-6">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={!draft.username.trim()}>
-                {editing ? t('common.save') : t('common.create')}
-              </Button>
-            </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+      </DialogShell>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <AlertDialogContent>
