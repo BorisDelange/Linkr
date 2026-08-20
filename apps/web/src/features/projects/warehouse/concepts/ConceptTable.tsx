@@ -33,10 +33,9 @@ import {
   ChevronLeft,
   ChevronRight,
   GripVertical,
-  Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -54,14 +53,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import {
@@ -700,7 +691,7 @@ export function ConceptTable({
                 ))
               ) : table.getRowModel().rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-16 text-center text-xs text-muted-foreground">
                     {emptyMessage ?? t('concepts.no_concepts')}
                   </TableCell>
                 </TableRow>
@@ -751,35 +742,18 @@ export function ConceptTable({
               ? t('concepts.pagination_filtered_page', { count: concepts.length })
               : t('concepts.pagination_total', { count: totalCount })}
           </span>
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-6 w-6">
-                    <Settings2 size={12} />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="start" className="w-[180px]">
-              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {table.getAllColumns()
-                .filter((col) => col.getCanHide())
-                .map((col) => (
-                  <DropdownMenuCheckboxItem
-                    key={col.id}
-                    checked={col.getIsVisible()}
-                    onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                    onSelect={(e) => e.preventDefault()}
-                    className="text-xs"
-                  >
-                    {columnLabel(col.id)}
-                  </DropdownMenuCheckboxItem>
-                ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ColumnVisibilityMenu
+            items={table.getAllColumns()
+              .filter((col) => col.getCanHide())
+              .map((col) => ({ id: col.id, label: columnLabel(col.id), visible: col.getIsVisible() }))}
+            onToggle={(id, visible) => table.getColumn(id)?.toggleVisibility(visible)}
+            onSetMany={(ids, visible) =>
+              onColumnVisibilityChange({
+                ...columnVisibility,
+                ...Object.fromEntries(ids.map((id) => [id, visible])),
+              })
+            }
+          />
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">

@@ -129,10 +129,17 @@ meant to survive a remount, not a reload.
 
 ### When a bespoke table is still legitimate
 
-`ConceptDataTable` does not (yet) cover: column pinning, server-side pagination,
-sticky headers, virtualisation. If you need one of those, the rule is **extend
-the shared component**, not fork it — reorder and multi-selection both moved in
-that way.
+**Server-side pagination is the real dividing line.** `ConceptDataTable` owns
+its sort, filters and paging, and computes them over the whole `data` array. A
+table whose parent drives those through callbacks and answers each one with SQL
+(`manualPagination`) is a different design, not a missing feature — migrating it
+would mean loading the entire vocabulary into memory. `ConceptTable` and
+`CohortConceptPickerDialog` stay hand-rolled for that reason.
+
+Beyond that, the shared table still lacks column pinning, sticky headers and
+virtualisation. If you need one of those, the rule is **extend the shared
+component**, not fork it — reorder, multi-selection, checkbox headers and view
+persistence all moved in that way.
 
 **Known debt (do not extend, help retire):** roughly ten files still hand-roll a
 table with `useReactTable`, most of them in `features/warehouse/concept-mapping/`.
