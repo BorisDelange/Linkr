@@ -32,13 +32,15 @@ allowed in new code:**
 | Class | Use for | Never for |
 |---|---|---|
 | `text-2xl font-bold` | Page title (one per screen) | Anything inside a card or dialog |
-| `text-sm` | Body copy, card titles, list rows, dialog headers (shadcn default) | Dense table cells |
-| `text-xs` | Dense contexts: table cells + headers, form labels, buttons, badges | Page-level prose |
+| `text-base font-semibold` | Dialog / sheet titles — set by the primitive, don't type it | Body copy |
+| `text-sm` | Body copy, card titles, list rows | Dense table cells |
+| `text-xs` | Dense contexts: table cells + headers, form labels, buttons, badges, dialog descriptions | Page-level prose |
 | `text-[10px]` | Micro-chrome only: inline column filters, result counters, pagination | Anything a user reads as content |
 
 `text-[11px]` is **deprecated** — it exists in ~226 places and is visually
-indistinguishable from `text-xs` (12px). Use `text-xs`. `text-base`, `text-lg`,
-`text-xl`, `text-3xl` are not part of the scale (11 stray uses total).
+indistinguishable from `text-xs` (12px). Use `text-xs`. `text-lg`, `text-xl` and
+`text-3xl` are not part of the scale (11 stray uses total); `text-base` is
+reserved for dialog titles and comes from the primitive, so you never type it.
 
 ### The primitives now carry the scale
 
@@ -50,7 +52,7 @@ have been recalibrated to the value the codebase had already voted for:
 |---|---|---|---|
 | `Label` | `text-sm` | `text-xs font-medium` | 143 of 147 styled labels shrank it; `Input` is `text-[13px]` with **zero** overrides |
 | `Badge` | `text-xs` | `text-[10px]` (+ `size="xs"` → 9px) | 78 of 146 uses overrode it |
-| `DialogTitle` / `AlertDialogTitle` | `text-lg` | `text-sm` | 24 call sites had already forced `text-sm` |
+| `DialogTitle` / `AlertDialogTitle` / `SheetTitle` | `text-lg` | `text-base` | 24 call sites had forced `text-sm`, but those were mostly workbench dialogs; `text-base` keeps a form title above its body |
 | `DialogDescription` / `SheetDescription` | `text-sm` | `text-xs` | matches the dense body |
 | `Button` | — | added `sm-tight` (h-7) | 36 buttons hand-rolled `className="h-7"` |
 

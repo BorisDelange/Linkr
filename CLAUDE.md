@@ -40,7 +40,7 @@ docker compose -f docker/docker-compose.yml up
 
 **Reuse before building UI** — before writing any screen, read `docs/ui-patterns.md`. Order: (1) a composed component from that doc (`ConceptDataTable`, `ListPageToolbar`, `MultiSelectFilter`, the dialog pattern…), (2) a shadcn primitive from `apps/web/src/components/ui/` (catalogue: `docs/shadcn-components.md`), (3) only then build — and document it. Never hand-roll a `useReactTable` for sorting/resizing, and never restyle a shared dialog without checking its other call sites. To add a shadcn component: copy from `../shadcn-ui/apps/v4/registry/bases/radix/ui/`, adapt imports, replace HSL colors with `var(--color-*)`.
 
-**Type scale** — only `text-2xl font-bold` (page title), `text-sm` (body), `text-xs` (dense: table cells, labels, buttons), `text-[10px]` (micro-chrome: inline filters, counters). `text-[11px]` is deprecated. Colors via theme tokens, not raw palette classes.
+**Type scale** — only `text-2xl font-bold` (page title), `text-sm` (body), `text-xs` (dense: table cells, labels, buttons), `text-[10px]` (micro-chrome: inline filters, counters). Dialog titles are `text-base` via the primitive — never type it yourself. `text-[11px]` is deprecated. Colors via theme tokens, not raw palette classes.
 
 **Path alias** — always `@/` for imports from `src/` (e.g. `@/lib/utils`, `@/stores/app-store`). Note: `cn()` is at `@/lib/utils`.
 
