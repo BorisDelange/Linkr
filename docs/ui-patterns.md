@@ -114,6 +114,14 @@ extends from the anchor). Ranges follow the *filtered, sorted* order, so a
 Shift-click selects what the user sees. The maths is `nextSelection()`, unit
 tested in `concept-data-table.test.ts`.
 
+**Checkbox selection is a different thing** — a dedicated column where every
+click is a plain toggle and the header selects all. Don't reach for
+`selectedRowKeys` there: its plain click *replaces* the selection, so unticking
+one row would untick the rest. Build the column yourself with `headerCell` (the
+select-all control) and `cell` (the per-row box), keeping the toggle semantics
+in your own state; `PullConceptsDialog` is the reference. Pair it with
+`onVisibleRowsChange` so select-all acts on the filtered rows.
+
 ### When a bespoke table is still legitimate
 
 `ConceptDataTable` does not (yet) cover: column pinning, server-side pagination,

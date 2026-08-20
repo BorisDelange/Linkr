@@ -112,6 +112,15 @@ export type ConceptColumnFilter = 'text' | 'number' | 'select' | 'none'
 export interface ConceptColumn<T> {
   id: string
   header: string
+  /**
+   * Custom header rendering, for a column whose header is a control rather than
+   * a label (a select-all checkbox). `header` stays the plain-text name used by
+   * the visibility menu and the truncation tooltip.
+   *
+   * Such a column is not sortable unless `sortable: true` is passed explicitly:
+   * clicking the control must not also reorder the table under the cursor.
+   */
+  headerCell?: () => ReactNode
   /** Value used for sorting, filtering and default cell rendering. */
   accessor: (row: T) => string | number | null | undefined
   /**
@@ -124,12 +133,21 @@ export interface ConceptColumn<T> {
   /** Optional custom cell renderer (defaults to a truncated text of the accessor value). */
   cell?: (row: T) => ReactNode
   filter?: ConceptColumnFilter
-  /** Disable sorting on this column (e.g. an actions/links column). Default true. */
+  /**
+   * Disable sorting on this column (e.g. an actions/links column). Default true,
+   * except for a `headerCell` column, whose header is a control and not a label.
+   */
   sortable?: boolean
   /** For a 'select' filter: map a raw option value to a display label (e.g. translate/capitalize). */
   selectOptionLabel?: (value: string) => string
   size?: number
   minSize?: number
+  /**
+   * Whether the user can drag this column's edge. Defaults to true, except for
+   * a `headerCell` column: a fixed-width checkbox or actions column has nothing
+   * to widen, and the grip sits on top of the control.
+   */
+  resizable?: boolean
   /** Hidden by default (still toggleable via the column menu). */
   hidden?: boolean
   /** Center the cell content (used for boolean/flag columns). */
@@ -372,7 +390,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
         : <TruncatedText text={c.display ? c.display(row.original) : String(c.accessor(row.original) ?? '')} className="text-xs" />,
     size: c.size ?? 120,
     minSize: c.minSize ?? 50,
-    enableResizing: true,
+    enableResizing: c.resizable ?? c.headerCell === undefined,
   })), [cols])
 
   const table = useReactTable({
@@ -415,13 +433,16 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
               {table.getHeaderGroups().map((hg) =>
                 hg.headers.map((header) => {
                   const colId = header.column.id
-                  const canSort = colById.get(colId)?.sortable !== false
+                  const def = colById.get(colId)
+                  const canSort = def?.sortable ?? !def?.headerCell
                   const label = (
                     <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                       {flexRender(header.column.columnDef.header, header.getContext())}
                     </TruncatedHeader>
                   )
-                  const content = canSort ? (
+                  const content = def?.headerCell ? (
+                    <div className="flex w-full min-w-0 items-center overflow-hidden pr-2">{def.headerCell()}</div>
+                  ) : canSort ? (
                     <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground" onClick={() => handleSort(colId)}>
                       {label}
                       {!sorting || sorting.columnId !== colId
