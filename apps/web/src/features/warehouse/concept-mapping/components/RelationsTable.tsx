@@ -98,6 +98,8 @@ export function RelationsTable({ relations }: RelationsTableProps) {
 
   return (
     <ConceptDataTable
+      cellTooltips="all"
+      pageSize={100}
       data={relations}
       columns={columns}
       rowKey={(r) => `${r.relationship_id}__${r.concept_id}`}

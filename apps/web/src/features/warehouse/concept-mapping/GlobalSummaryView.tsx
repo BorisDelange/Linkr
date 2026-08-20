@@ -36,6 +36,7 @@ import { useUrlTab } from '@/hooks/use-url-tab'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
 import { MultiSelectFilter as SharedMultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { DebouncedInput } from '@/components/ui/debounced-input'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import {
@@ -112,6 +113,9 @@ const EQUIV_BADGE: Record<string, { label: string; className: string }> = {
 
 const PAGE_SIZE = 50
 const TOP_N = 10
+/** Column widths / sort of the Summary tab's per-group table, kept across a
+ *  remount (switching tabs unmounts it) but not across a reload. */
+const GROUP_TABLE_VIEW_KEY = 'concept-mapping.global-summary.groups'
 const GLOBAL_TABS = ['summary', 'table', 'source-ids', 'export'] as const
 type GlobalTabId = (typeof GLOBAL_TABS)[number]
 
@@ -271,6 +275,19 @@ function computeGroupStats(
   const result = new Map(top)
   result.set('__other__', other)
   return result
+}
+
+// Row of the Summary tab's per-group table: one group (project name or badge
+// label), with its counts already aggregated out of GroupStat.
+interface GroupSummaryRow {
+  key: string
+  name: string
+  projectCount: number
+  uniqueSourceConcepts: number
+  approved: number
+  flagged: number
+  rejected: number
+  pct: number
 }
 
 /// Raw source concept row loaded from DuckDB or file
@@ -706,6 +723,25 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     if (key === '__other__') return 'Other'
     return key
   }, [])
+
+  // Per-group summary rows. `pct` = alignment progress: aligned / total source
+  // concepts of the group, i.e. how much of the source has at least one mapping
+  // (regardless of approval state).
+  const groupRows = useMemo<GroupSummaryRow[]>(() => groupNames.map((name) => {
+    const g = groupStats.get(name)!
+    return {
+      key: name,
+      name: getDisplayName(name),
+      projectCount: g.projectCount,
+      uniqueSourceConcepts: g.uniqueSourceConcepts,
+      approved: g.approved,
+      flagged: g.flagged,
+      rejected: g.rejected,
+      pct: g.totalSourceConceptsFromStats > 0
+        ? Math.round((g.uniqueSourceConcepts / g.totalSourceConceptsFromStats) * 100)
+        : 0,
+    }
+  }), [groupNames, groupStats, getDisplayName])
 
   const totals = useMemo(() => {
     // Count unique source concepts globally (across all groups, deduplicated)
@@ -1426,6 +1462,90 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     ? t('concept_mapping.global_group_by_project')
     : t('concept_mapping.global_badge')
 
+  // The projects count only means something when a group aggregates several
+  // projects, i.e. in badge mode; in project mode a group IS one project.
+  const groupColumns = useMemo<ConceptColumn<GroupSummaryRow>[]>(() => [
+    {
+      id: 'name',
+      header: groupModeLabel,
+      accessor: (r) => r.name,
+      filter: 'none',
+      tooltip: 'text-xs font-medium',
+      size: 200,
+      minSize: 100,
+    },
+    ...(groupMode === 'badge' ? [{
+      id: 'projectCount',
+      header: t('concept_mapping.global_projects'),
+      accessor: (r: GroupSummaryRow) => r.projectCount,
+      filter: 'none' as const,
+      tooltip: 'text-xs text-muted-foreground',
+      center: true,
+      size: 90,
+      minSize: 60,
+    }] : []),
+    {
+      id: 'uniqueSourceConcepts',
+      header: t('concept_mapping.prog_source_concepts'),
+      accessor: (r) => r.uniqueSourceConcepts,
+      display: (r) => r.uniqueSourceConcepts.toLocaleString(),
+      filter: 'none',
+      tooltip: 'text-xs',
+      center: true,
+      size: 110,
+      minSize: 70,
+    },
+    {
+      id: 'approved',
+      header: t('concept_mapping.prog_approved'),
+      accessor: (r) => r.approved,
+      display: (r) => r.approved.toLocaleString(),
+      filter: 'none',
+      tooltip: 'text-xs text-green-600',
+      center: true,
+      size: 90,
+      minSize: 60,
+    },
+    {
+      id: 'flagged',
+      header: t('concept_mapping.prog_flagged'),
+      accessor: (r) => r.flagged,
+      display: (r) => r.flagged.toLocaleString(),
+      filter: 'none',
+      tooltip: 'text-xs text-orange-500',
+      center: true,
+      size: 90,
+      minSize: 60,
+    },
+    {
+      id: 'rejected',
+      header: t('concept_mapping.status_rejected'),
+      accessor: (r) => r.rejected,
+      display: (r) => r.rejected.toLocaleString(),
+      filter: 'none',
+      tooltip: 'text-xs text-red-500',
+      center: true,
+      size: 90,
+      minSize: 60,
+    },
+    {
+      id: 'pct',
+      header: '%',
+      accessor: (r) => r.pct,
+      cell: (r) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-green-500" style={{ width: `${r.pct}%` }} />
+          </div>
+          <span className="w-9 text-right tabular-nums text-muted-foreground">{r.pct}%</span>
+        </div>
+      ),
+      filter: 'none',
+      size: 130,
+      minSize: 110,
+    },
+  ], [t, groupMode, groupModeLabel])
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
@@ -1549,52 +1669,12 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
               {/* Per-group table */}
               <Card className="overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-xs">{groupModeLabel}</TableHead>
-                      {groupMode === 'badge' && (
-                        <TableHead className="text-right text-xs capitalize">{t('concept_mapping.global_projects')}</TableHead>
-                      )}
-                      <TableHead className="text-right text-xs capitalize">{t('concept_mapping.prog_source_concepts')}</TableHead>
-                      <TableHead className="text-right text-xs">{t('concept_mapping.prog_approved')}</TableHead>
-                      <TableHead className="text-right text-xs">{t('concept_mapping.prog_flagged')}</TableHead>
-                      <TableHead className="text-right text-xs">{t('concept_mapping.status_rejected')}</TableHead>
-                      <TableHead className="text-right text-xs">%</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {groupNames.map((name) => {
-                      const g = groupStats.get(name)!
-                      // % alignment progress = aligned / total source concepts of the
-                      // group. Indicates how much of the source CSV has at least one
-                      // mapping created (regardless of approval state).
-                      const pct = g.totalSourceConceptsFromStats > 0
-                        ? Math.round((g.uniqueSourceConcepts / g.totalSourceConceptsFromStats) * 100)
-                        : 0
-                      return (
-                        <TableRow key={name} className="text-xs">
-                          <TableCell className="font-medium">{getDisplayName(name)}</TableCell>
-                          {groupMode === 'badge' && (
-                            <TableCell className="text-right text-muted-foreground">{g.projectCount}</TableCell>
-                          )}
-                          <TableCell className="text-right">{g.uniqueSourceConcepts.toLocaleString()}</TableCell>
-                          <TableCell className="text-right text-green-600">{g.approved.toLocaleString()}</TableCell>
-                          <TableCell className="text-right text-orange-500">{g.flagged.toLocaleString()}</TableCell>
-                          <TableCell className="text-right text-red-500">{g.rejected.toLocaleString()}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
-                                <div className="h-full rounded-full bg-green-500" style={{ width: `${pct}%` }} />
-                              </div>
-                              <span className="w-9 text-right tabular-nums text-muted-foreground">{pct}%</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
+                <ConceptDataTable
+                  data={groupRows}
+                  columns={groupColumns}
+                  rowKey={(r) => r.key}
+                  viewKey={GROUP_TABLE_VIEW_KEY}
+                />
               </Card>
             </div>
           )}

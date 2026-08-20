@@ -306,6 +306,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
 
   return (
     <ConceptDataTable
+      pageSize={100}
       data={rows}
       columns={columns}
       rowKey={(r) => r.concept_id}

@@ -133,6 +133,17 @@ listing several providers must match a pick of any one of them), and
 **`rowClassName`** marks a row state the table has no concept of, such as
 dimming entries already handled elsewhere.
 
+**Always paginate.** Pass `pageSize` (100 unless you have a reason) on any table
+that can run long: a DOM node per row is what makes sorting and row selection
+lag. The app has no infinite-scroll tables — paging is the one idiom, and the
+footer places it identically everywhere.
+
+**`cellTooltips`** decides what a hover reveals: `truncated` (default) only when
+text is cut, `all` for tables whose values get copied out routinely — concept
+ids, source codes — and `readOnly` to drop the copy button in dense
+pick-a-row tables, where a hoverable panel would sit over the next rows. No mode
+mounts a tooltip per cell; they are built on first hover.
+
 ### When a bespoke table is still legitimate
 
 **Server-side pagination is the real dividing line.** `ConceptDataTable` owns
@@ -164,7 +175,7 @@ Copy these; they are what `ConceptDataTable` renders.
 | Body cell | `overflow-hidden truncate px-2 py-1 text-xs` |
 | Inline filter input | `h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px]` |
 | Empty state row | `h-16 text-center text-xs text-muted-foreground` |
-| Footer bar | `border-t px-3 py-1.5`, counter `text-[10px]` |
+| Footer bar | `border-t px-3 py-1.5`, counter `text-[10px]`. **Left:** result count + column menu. **Right:** page arrows and `n / m`. Same in every table — don't rebuild it. |
 | Sticky header (when needed) | `sticky top-0 z-10 bg-muted` |
 
 Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits

@@ -169,6 +169,7 @@ export function PullConceptsDialog({ diff, changes, declined, onClose, onApply }
 
         <div className="min-h-0 flex-1 overflow-hidden">
           <ConceptDataTable
+            pageSize={100}
             data={changes}
             columns={columns}
             rowKey={(r) => r.key}

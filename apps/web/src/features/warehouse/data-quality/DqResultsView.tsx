@@ -328,6 +328,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
             <Allotment proportionalLayout={false}>
               <Allotment.Pane minSize={400}>
                 <ConceptDataTable
+                  pageSize={100}
                   data={rows}
                   columns={columns}
                   rowKey={(r) => r.check.id}

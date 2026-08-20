@@ -190,6 +190,21 @@ interface ConceptDataTableProps<T> {
    */
   rowClassName?: (row: T) => string | undefined
   /**
+   * How much a cell's hover tooltip offers.
+   *
+   * `truncated` (default) reveals a cell only when its text is actually cut,
+   * and the tooltip is hoverable so the value can be selected or copied out of
+   * a narrow column.
+   * `all` shows it even when the text fits, for tables whose values are
+   * routinely copied elsewhere — concept ids, source codes.
+   * `readOnly` drops the copy button and stops the tooltip swallowing the
+   * pointer, for dense pick-a-row tables where a panel floating over the next
+   * rows gets in the way.
+   *
+   * Neither mode mounts a tooltip per cell: they are built on first hover.
+   */
+  cellTooltips?: 'truncated' | 'all' | 'readOnly'
+  /**
    * Rows per page. Omit to render every row, which is right for the short lists
    * most callers pass; set it when the data can run to thousands, where a row per
    * DOM node makes sorting and resizing visibly slow.
@@ -290,7 +305,7 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated' }: ConceptDataTableProps<T>) {
   const { t } = useTranslation()
   /** Where a Shift-range starts: the last row clicked without Shift. */
   const selectionAnchor = useRef<string | number | null>(null)
@@ -308,16 +323,24 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
       ?? Object.fromEntries(cols.filter((c) => c.hidden).map((c) => [c.id, false])),
   )
 
+  // Written on unmount, not on every change: columnSizing ticks once per pixel
+  // while a column is dragged, and the cache only has to be right by the time
+  // the table comes back.
+  const viewState = useRef({ sorting, filters, columnSizing, columnOrder, columnVisibility })
+  viewState.current = { sorting, filters, columnSizing, columnOrder, columnVisibility }
   useEffect(() => {
     if (!viewKey) return
-    viewCache.set(viewKey, {
-      sorting,
-      filters: toStoredFilters(filters),
-      columnSizing,
-      columnOrder,
-      columnVisibility,
-    })
-  }, [viewKey, sorting, filters, columnSizing, columnOrder, columnVisibility])
+    return () => {
+      const v = viewState.current
+      viewCache.set(viewKey, {
+        sorting: v.sorting,
+        filters: toStoredFilters(v.filters),
+        columnSizing: v.columnSizing,
+        columnOrder: v.columnOrder,
+        columnVisibility: v.columnVisibility,
+      })
+    }
+  }, [viewKey])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -450,7 +473,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     cell: ({ row }) =>
       c.cell
         ? c.cell(row.original)
-        : <TruncatedText text={c.display ? c.display(row.original) : String(c.accessor(row.original) ?? '')} className="text-xs" />,
+        : <TruncatedText text={c.display ? c.display(row.original) : String(c.accessor(row.original) ?? '')} className="text-xs" alwaysShow={cellTooltips === 'all'} readOnly={cellTooltips === 'readOnly'} />,
     size: c.size ?? 120,
     minSize: c.minSize ?? 50,
     enableResizing: c.resizable ?? c.headerCell === undefined,
@@ -596,7 +619,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                         style={{ maxWidth: cell.column.getSize() }}
                       >
                         {useTooltip
-                          ? <TruncatedText text={shown} className={typeof col?.tooltip === 'string' ? col.tooltip : undefined} />
+                          ? <TruncatedText text={shown} className={typeof col?.tooltip === 'string' ? col.tooltip : undefined} alwaysShow={cellTooltips === 'all'} readOnly={cellTooltips === 'readOnly'} />
                           : flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     )
@@ -609,36 +632,13 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
         </Table>
       </div>
 
-      <div className="flex shrink-0 items-center border-t px-3 py-1.5">
+      {/* Footer: what is shown and what can be shown on the left, where you are
+          in the set on the right — the same layout in every table. */}
+      <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-muted-foreground">
             {filtered.length} / {data.length} {t('common.results').toLowerCase()}
           </span>
-          {pageSize && pageCount > 1 && (
-            <div className="ml-1 flex items-center gap-0.5">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setPage(safePage - 1)}
-                disabled={safePage === 0}
-                aria-label={t('common.previous')}
-              >
-                <ChevronLeft size={12} />
-              </Button>
-              <span className="text-[10px] tabular-nums text-muted-foreground">
-                {safePage + 1} / {pageCount}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setPage(safePage + 1)}
-                disabled={safePage >= pageCount - 1}
-                aria-label={t('common.next')}
-              >
-                <ChevronRight size={12} />
-              </Button>
-            </div>
-          )}
           <ColumnVisibilityMenu
             items={table.getAllColumns().map((col) => ({
               id: col.id,
@@ -654,6 +654,32 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
             }
           />
         </div>
+
+        {pageSize && pageCount > 1 && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setPage(safePage - 1)}
+              disabled={safePage === 0}
+              aria-label={t('common.previous')}
+            >
+              <ChevronLeft size={14} />
+            </Button>
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              {safePage + 1} / {pageCount}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setPage(safePage + 1)}
+              disabled={safePage >= pageCount - 1}
+              aria-label={t('common.next')}
+            >
+              <ChevronRight size={14} />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )

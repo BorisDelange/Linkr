@@ -288,6 +288,8 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
               </div>
             ) : (
               <ConceptDataTable
+                cellTooltips="all"
+                pageSize={100}
                 data={resolvedConcepts}
                 rowKey={(c) => c.conceptId}
                 columns={resolvedColumns}

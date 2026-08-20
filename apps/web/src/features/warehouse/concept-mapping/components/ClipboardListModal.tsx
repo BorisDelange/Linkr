@@ -134,6 +134,8 @@ export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClea
         ) : (
           <div className="max-h-[55vh] overflow-auto rounded border">
             <ConceptDataTable
+              cellTooltips="all"
+              pageSize={100}
               data={items}
               columns={columns}
               rowKey={(r) => r.concept_id}

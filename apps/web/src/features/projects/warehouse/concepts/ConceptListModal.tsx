@@ -235,6 +235,8 @@ export function ConceptListModal({
 
         <div className="min-h-0 flex-1 overflow-hidden">
           <ConceptDataTable
+            cellTooltips="all"
+            pageSize={100}
             data={concepts}
             columns={columns}
             rowKey={(c) => c.concept_id}
