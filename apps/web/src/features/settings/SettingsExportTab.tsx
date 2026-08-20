@@ -33,7 +33,7 @@ export function SettingsExportTab() {
         <p className="leading-relaxed">{t('settings.versioning_no_passwords_notice')}</p>
       </div>
       <div className="space-y-2">
-        <Label className="text-xs">{t('settings.ie_export_label')}</Label>
+        <Label>{t('settings.ie_export_label')}</Label>
         <p className="text-xs text-muted-foreground">{t('settings.ie_export_intro')}</p>
         <Button size="sm" onClick={doExport} disabled={busy} className="gap-1.5">
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}

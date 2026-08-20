@@ -261,7 +261,7 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
         <span className="truncate font-medium">{change.entityLabel}</span>
         <Badge
           variant={changeBadgeVariant[change.changeType]}
-          className="ml-auto shrink-0 gap-0.5 px-1.5 py-0.5 text-[10px] leading-none [&>svg]:size-2.5"
+          className="ml-auto shrink-0 gap-0.5 px-1.5 py-0.5 leading-none [&>svg]:size-2.5"
         >
           <ChangeIcon className="shrink-0" />
           {t(`version_check.seed_change_${change.changeType}`)}

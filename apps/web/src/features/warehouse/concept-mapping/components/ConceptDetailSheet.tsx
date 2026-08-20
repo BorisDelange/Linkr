@@ -652,13 +652,13 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
         />
 
         <SheetHeader className="shrink-0 border-b px-4 py-3">
-          <SheetTitle className="text-sm font-semibold leading-tight">{target.concept_name}</SheetTitle>
+          <SheetTitle className="leading-tight">{target.concept_name}</SheetTitle>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-xs text-muted-foreground">#{target.concept_id}</span>
-            {target.vocabulary_id && <Badge variant="outline" className="text-[10px]">{target.vocabulary_id}</Badge>}
-            {isStandard && <Badge variant="default" className="bg-green-600 text-[10px]">{t('concept_mapping.concept_info_standard')}</Badge>}
-            {isClassification && <Badge variant="secondary" className="text-[10px]">{t('concept_mapping.concept_info_classification')}</Badge>}
-            {!isStandard && !isClassification && <Badge variant="outline" className="text-[10px] text-destructive border-destructive">{t('concept_mapping.concept_info_non_standard')}</Badge>}
+            {target.vocabulary_id && <Badge variant="outline" >{target.vocabulary_id}</Badge>}
+            {isStandard && <Badge variant="default" className="bg-green-600">{t('concept_mapping.concept_info_standard')}</Badge>}
+            {isClassification && <Badge variant="secondary" >{t('concept_mapping.concept_info_classification')}</Badge>}
+            {!isStandard && !isClassification && <Badge variant="outline" className="text-destructive border-destructive">{t('concept_mapping.concept_info_non_standard')}</Badge>}
           </div>
         </SheetHeader>
 
@@ -693,15 +693,15 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
                 )}
                 <DetailRow label={t('concept_mapping.col_std')}>
                   {isStandard
-                    ? <Badge variant="default" className="bg-green-600 text-[10px] px-1.5 py-0">{t('concept_mapping.concept_info_standard')}</Badge>
+                    ? <Badge variant="default" className="bg-green-600 px-1.5 py-0">{t('concept_mapping.concept_info_standard')}</Badge>
                     : isClassification
-                    ? <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{t('concept_mapping.concept_info_classification')}</Badge>
-                    : <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-destructive border-destructive">{t('concept_mapping.concept_info_non_standard')}</Badge>}
+                    ? <Badge variant="secondary" className="px-1.5 py-0">{t('concept_mapping.concept_info_classification')}</Badge>
+                    : <Badge variant="outline" className="px-1.5 py-0 text-destructive border-destructive">{t('concept_mapping.concept_info_non_standard')}</Badge>}
                 </DetailRow>
                 <DetailRow label={t('concept_mapping.concept_info_validity')}>
                   {isValid
-                    ? <Badge variant="default" className="bg-green-600 text-[10px] px-1.5 py-0">{t('concept_mapping.concept_info_valid')}</Badge>
-                    : <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-destructive border-destructive">{target.invalid_reason ?? t('concept_mapping.concept_info_invalid')}</Badge>}
+                    ? <Badge variant="default" className="bg-green-600 px-1.5 py-0">{t('concept_mapping.concept_info_valid')}</Badge>
+                    : <Badge variant="outline" className="px-1.5 py-0 text-destructive border-destructive">{target.invalid_reason ?? t('concept_mapping.concept_info_invalid')}</Badge>}
                 </DetailRow>
                 <div className="pt-2">
                   <a href={`https://athena.ohdsi.org/search-terms/terms/${target.concept_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">

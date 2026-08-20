@@ -359,7 +359,7 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
               </Tooltip>
               <span className="truncate text-sm font-medium">{name}</span>
               {entry.version && (
-                <Badge variant="outline" className="ml-auto shrink-0 font-mono text-[10px]">v{entry.version}</Badge>
+                <Badge variant="outline" className="ml-auto shrink-0 font-mono">v{entry.version}</Badge>
               )}
             </div>
 
@@ -376,13 +376,13 @@ function CatalogEntryCard({ entry, language, serverMode, hasWorkspace, installed
                 {entry.status && (
                   <Badge
                     variant="outline"
-                    className="shrink-0 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-400"
+                    className="shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
                   >
                     {t(`catalog.status_${entry.status}`)}
                   </Badge>
                 )}
                 {(entry.badges ?? []).map((b) => (
-                  <Badge key={b} variant="outline" className="max-w-32 shrink-0 truncate text-[10px]">{b}</Badge>
+                  <Badge key={b} variant="outline" className="max-w-32 shrink-0 truncate">{b}</Badge>
                 ))}
               </div>
             )}

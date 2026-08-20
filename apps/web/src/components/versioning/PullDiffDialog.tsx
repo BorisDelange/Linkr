@@ -45,7 +45,7 @@ export function PullDiffDialog({ plan, initialPath, buildDiff, onClose }: PullDi
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex h-[85vh] w-[92vw] max-w-[1400px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1400px]">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
-          <DialogTitle className="flex items-center gap-2 truncate font-mono text-sm">
+          <DialogTitle className="flex items-center gap-2 truncate font-mono">
             {path}
             <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-sans text-[10px] font-normal text-muted-foreground">
               {t('versioning.pull_diff_direction')}

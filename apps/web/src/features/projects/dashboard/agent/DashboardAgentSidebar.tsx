@@ -510,7 +510,7 @@ export function DashboardAgentSidebar({
           <Sparkles size={15} className="text-primary" />
           <span className="text-sm font-medium">{t('agent.title')}</span>
           {isRemote ? (
-            <Badge variant="destructive" className="gap-1 text-[10px]">
+            <Badge variant="destructive" className="gap-1">
               <AlertTriangle size={10} />
               {t('agent.external_api')}
             </Badge>

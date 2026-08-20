@@ -23,7 +23,7 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">{t('cohorts.duration_level')}</Label>
+          <Label>{t('cohorts.duration_level')}</Label>
           <Select
             value={config.durationLevel ?? 'visit'}
             onValueChange={(v) => onChange({ ...config, durationLevel: v as 'visit' | 'visit_detail' })}
@@ -42,7 +42,7 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
           </Select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">{t('cohorts.duration_unit')}</Label>
+          <Label>{t('cohorts.duration_unit')}</Label>
           <Select
             value={unit}
             onValueChange={(v) => onChange({ ...config, durationUnit: v as DurationUnit })}
@@ -66,7 +66,7 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">
+          <Label>
             {t('cohorts.duration_min', { unit: t(`cohorts.duration_${unit}`) })}
           </Label>
           <Input
@@ -79,7 +79,7 @@ export function DurationCriteriaForm({ config, onChange }: DurationCriteriaFormP
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">
+          <Label>
             {t('cohorts.duration_max', { unit: t(`cohorts.duration_${unit}`) })}
           </Label>
           <Input

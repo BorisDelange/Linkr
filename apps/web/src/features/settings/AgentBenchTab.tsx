@@ -543,7 +543,7 @@ function CaseRow({ result }: { result: CaseResult }) {
         ) : null}
       </td>
       <td className="w-12 py-1 pr-2 text-right">
-        <Badge variant="secondary" className="text-[10px] uppercase">
+        <Badge variant="secondary" className="uppercase">
           {result.lang}
         </Badge>
       </td>

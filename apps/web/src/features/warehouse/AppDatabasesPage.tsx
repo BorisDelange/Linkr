@@ -427,7 +427,7 @@ export function AppDatabasesPage() {
                       {linkedProjects.map((p) => {
                         const name = p.name[language] ?? p.name['en'] ?? Object.values(p.name)[0] ?? ''
                         return (
-                          <Badge key={p.uid} variant="secondary" className="shrink-0 truncate px-1.5 py-0 text-[10px]">
+                          <Badge key={p.uid} variant="secondary" className="shrink-0 truncate px-1.5 py-0">
                             {name}
                           </Badge>
                         )

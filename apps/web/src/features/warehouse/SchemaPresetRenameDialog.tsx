@@ -1,18 +1,10 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { EntityIdField } from '@/components/ui/entity-id-field'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
 import { useSaveForm } from '@/hooks/use-save-form'
@@ -47,44 +39,40 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
   })
 
   return (
-    <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('schemas.edit_title')}</DialogTitle>
-          <DialogDescription>{t('schemas.edit_description')}</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-2">
-            <Label>{t('schemas.field_name')}<RequiredMark /></Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
-              autoFocus
-            />
-          </div>
-          <EntityIdField
-            name={name}
-            value={item.presetId}
-            onChange={() => {}}
-            existingIds={[]}
-            htmlId="schema-preset-id"
-            readOnly
-          />
-          <div className="space-y-2">
-            <Label>{t('schemas.field_description')}</Label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('schemas.field_description_placeholder')}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
-          <Button onClick={save} disabled={!canSaveNow}>{t('common.save')}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <DialogShell
+      open
+      onOpenChange={onOpenChange}
+      title={t('schemas.edit_title')}
+      description={t('schemas.edit_description')}
+      onConfirm={save}
+      confirmLabel={t('common.save')}
+      confirmDisabled={!canSaveNow}
+    >
+      <div className="space-y-2">
+        <Label>{t('schemas.field_name')}<RequiredMark /></Label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
+          autoFocus
+        />
+      </div>
+      <EntityIdField
+        name={name}
+        value={item.presetId}
+        onChange={() => {}}
+        existingIds={[]}
+        htmlId="schema-preset-id"
+        readOnly
+      />
+      <div className="space-y-2">
+        <Label>{t('schemas.field_description')}</Label>
+        <Input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder={t('schemas.field_description_placeholder')}
+        />
+      </div>
+    </DialogShell>
   )
 }

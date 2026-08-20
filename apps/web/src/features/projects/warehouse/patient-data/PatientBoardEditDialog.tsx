@@ -61,7 +61,7 @@ export function PatientBoardEditDialog({
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1">
-            <Label className="text-xs">{t('common.name')}<RequiredMark /></Label>
+            <Label>{t('common.name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -71,7 +71,7 @@ export function PatientBoardEditDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">{t('common.description')}</Label>
+            <Label>{t('common.description')}</Label>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}

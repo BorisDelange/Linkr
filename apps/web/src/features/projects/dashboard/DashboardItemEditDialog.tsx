@@ -1,18 +1,10 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { useAppStore } from '@/stores/app-store'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { localized, setLocalized } from '@/lib/localized'
@@ -66,45 +58,38 @@ export function DashboardItemEditDialog({
   })
 
   return (
-    <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{t('dashboard.item_edit_description')}</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1">
-            <Label className="text-xs">{t('dashboard.item_field_name')}<RequiredMark /></Label>
-            <Input
-              value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
-              className={`h-8 text-sm ${isDuplicate ? 'border-destructive focus-visible:ring-destructive/40' : ''}`}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
-              autoFocus
-            />
-            {isDuplicate && (
-              <p className="text-[11px] text-destructive">{t('dashboard.item_name_exists')}</p>
-            )}
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">{t('dashboard.item_field_description')}</Label>
-            <Textarea
-              value={descriptionValue}
-              onChange={(e) => setDescriptionValue(e.target.value)}
-              className="min-h-24 text-sm"
-              placeholder={t('dashboard.item_field_description_placeholder')}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button size="sm" onClick={save} disabled={!canSaveNow}>
-            {t('common.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <DialogShell
+      open
+      onOpenChange={onOpenChange}
+      title={title}
+      description={t('dashboard.item_edit_description')}
+      onConfirm={save}
+      confirmLabel={t('common.save')}
+      confirmDisabled={!canSaveNow}
+      contentClassName="space-y-3"
+    >
+      <div className="space-y-1">
+        <Label className="text-xs">{t('dashboard.item_field_name')}<RequiredMark /></Label>
+        <Input
+          value={nameValue}
+          onChange={(e) => setNameValue(e.target.value)}
+          className={`h-8 text-sm ${isDuplicate ? 'border-destructive focus-visible:ring-destructive/40' : ''}`}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
+          autoFocus
+        />
+        {isDuplicate && (
+          <p className="text-[11px] text-destructive">{t('dashboard.item_name_exists')}</p>
+        )}
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">{t('dashboard.item_field_description')}</Label>
+        <Textarea
+          value={descriptionValue}
+          onChange={(e) => setDescriptionValue(e.target.value)}
+          className="min-h-24 text-sm"
+          placeholder={t('dashboard.item_field_description_placeholder')}
+        />
+      </div>
+    </DialogShell>
   )
 }

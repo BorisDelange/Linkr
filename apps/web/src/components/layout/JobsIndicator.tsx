@@ -143,7 +143,7 @@ export function JobsIndicator() {
           shrink-wrap the (unwrapped, 3-line) content. */}
       <DialogContent className="flex h-[90vh] w-[90vw] flex-col sm:max-w-[60vw]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-sm">
+          <DialogTitle className="flex items-center gap-2">
             {logJob && <JobStatusIcon status={logJob.status} />}
             {logJob?.label}
           </DialogTitle>

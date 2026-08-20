@@ -1085,7 +1085,7 @@ export function WorkspacesPage() {
           onEscapeKeyDown={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm">
+            <DialogTitle className="flex items-center gap-2">
               <Loader2 size={14} className="animate-spin text-primary" />
               {t('workspaces.import_progress_title')}
             </DialogTitle>
@@ -1123,7 +1123,7 @@ export function WorkspacesPage() {
           onEscapeKeyDown={(e) => e.preventDefault()}
         >
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm">
+            <DialogTitle className="flex items-center gap-2">
               <Loader2 size={14} className="animate-spin text-primary" />
               {t('workspaces.delete_progress_title')}
             </DialogTitle>

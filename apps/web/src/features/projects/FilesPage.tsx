@@ -1859,7 +1859,7 @@ export function FilesPage() {
                         visible={outlineVisible && isNotebook}
                       >
                         <div className="h-full border-l bg-muted/20 overflow-y-auto">
-                          <div className="px-2 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b">
+                          <div className="px-2 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground border-b">
                             {t('files.outline')}
                           </div>
                           <div className="py-1">

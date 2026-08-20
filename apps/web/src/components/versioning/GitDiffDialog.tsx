@@ -71,7 +71,7 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex h-[85vh] w-[92vw] max-w-[1400px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1400px]">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
-          <DialogTitle className="truncate font-mono text-sm">{path}</DialogTitle>
+          <DialogTitle className="truncate font-mono">{path}</DialogTitle>
         </DialogHeader>
 
         <div className="min-h-0 flex-1">

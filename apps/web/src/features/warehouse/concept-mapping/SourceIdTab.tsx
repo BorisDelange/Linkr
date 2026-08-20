@@ -484,7 +484,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                       <div className="min-w-0 flex-1 space-y-2">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium">{range.badgeLabel}</span>
-                          <Badge variant="secondary" className="text-[10px]">
+                          <Badge variant="secondary" >
                             {range.assignedCount.toLocaleString()} {t('concept_mapping.source_id_assigned')}
                           </Badge>
                           {used > 0 && (

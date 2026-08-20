@@ -726,13 +726,13 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                     ) : selectedBuiltinCheck && (
                       <>
                         <span className="text-xs font-medium truncate">{selectedBuiltinCheck.description || selectedBuiltinCheck.name}</span>
-                        <Badge variant="outline" className="shrink-0 text-[10px]">
+                        <Badge variant="outline" className="shrink-0">
                           {selectedBuiltinCheck.source === 'schema' ? t('data_quality.source_schema') : t('data_quality.source_builtin')}
                         </Badge>
-                        <Badge variant="outline" className="shrink-0 text-[10px]">
+                        <Badge variant="outline" className="shrink-0">
                           {t(`data_quality.category_${selectedBuiltinCheck.category}`)}
                         </Badge>
-                        <Badge variant="outline" className="shrink-0 text-[10px]">
+                        <Badge variant="outline" className="shrink-0">
                           {t(`data_quality.severity_${selectedBuiltinCheck.severity}`)}
                         </Badge>
                       </>

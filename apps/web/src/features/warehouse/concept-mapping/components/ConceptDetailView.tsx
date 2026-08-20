@@ -77,7 +77,7 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-semibold" title={concept.concept_name}>{concept.concept_name}</span>
             {concept.concept_code && (
-              <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
+              <Badge variant="outline" className="shrink-0 font-mono">
                 {concept.concept_code}
               </Badge>
             )}
@@ -141,7 +141,7 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
       <Dialog open={jsonModalOpen} onOpenChange={setJsonModalOpen}>
         <DialogContent className="flex max-h-[90vh] w-[90vw] sm:max-w-5xl flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm">
+            <DialogTitle className="flex items-center gap-2">
               <Code2 size={14} />
               {t('concept_mapping.detail_raw_json')}
               {concept.concept_name && (

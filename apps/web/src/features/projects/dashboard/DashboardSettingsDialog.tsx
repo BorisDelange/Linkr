@@ -165,7 +165,7 @@ export function DashboardSettingsDialog({
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <div className="flex items-center gap-1">
-                <Label className="text-xs font-medium">{t('dashboard.reload_widgets_on_tab_switch')}</Label>
+                <Label>{t('dashboard.reload_widgets_on_tab_switch')}</Label>
                 <TooltipProvider delayDuration={150}>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -188,21 +188,21 @@ export function DashboardSettingsDialog({
           <TabsContent value="style" className="space-y-5 pt-3">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
-              <Label className="text-xs font-medium">{t('dashboard.show_widget_titles')}</Label>
+              <Label>{t('dashboard.show_widget_titles')}</Label>
               <p className="text-[11px] text-muted-foreground">{t('dashboard.show_widget_titles_hint')}</p>
             </div>
             <Switch checked={showWidgetTitles} onCheckedChange={setShowWidgetTitles} />
           </div>
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
-              <Label className="text-xs font-medium">{t('dashboard.fit_to_height')}</Label>
+              <Label>{t('dashboard.fit_to_height')}</Label>
               <p className="text-[11px] text-muted-foreground">{t('dashboard.fit_to_height_hint')}</p>
             </div>
             <Switch checked={fitToHeight} onCheckedChange={setFitToHeight} />
           </div>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label className="text-xs font-medium">{t('dashboard.widget_spacing', 'Widget spacing')}</Label>
+              <Label>{t('dashboard.widget_spacing', 'Widget spacing')}</Label>
               <span className="text-[11px] tabular-nums text-muted-foreground">{widgetSpacing} px</span>
             </div>
             <p className="text-[11px] text-muted-foreground">{t('dashboard.widget_spacing_hint', 'Gap between widgets on the grid.')}</p>
@@ -220,7 +220,7 @@ export function DashboardSettingsDialog({
 
           <TabsContent value="dataset" className="space-y-5 pt-3">
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('dashboard.default_dataset')}</Label>
+            <Label>{t('dashboard.default_dataset')}</Label>
             <p className="text-[11px] text-muted-foreground">{t('dashboard.default_dataset_hint')}</p>
             <Select
               value={defaultDatasetFileId ?? '__none__'}
@@ -244,7 +244,7 @@ export function DashboardSettingsDialog({
           </div>
           {defaultDatasetFileId && (
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('dashboard.assign_dataset')}</Label>
+              <Label>{t('dashboard.assign_dataset')}</Label>
               <p className="text-[11px] text-muted-foreground">{t('dashboard.assign_dataset_hint')}</p>
               <div className="flex gap-2">
                 <Button

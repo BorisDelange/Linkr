@@ -1,15 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Select,
   SelectContent,
@@ -115,14 +108,14 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            {isEdit ? t('data_quality.edit_rs_title') : t('data_quality.create_rs_title')}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEdit ? t('data_quality.edit_rs_title') : t('data_quality.create_rs_title')}
+      onConfirm={handleSubmit}
+      confirmLabel={isEdit ? t('common.save') : t('common.create')}
+      confirmDisabled={!name.trim() || (!isEdit && !isEntityIdValid(entityId, existingIds))}
+    >
           <div>
             <Label>{t('data_quality.rs_name')}<RequiredMark /></Label>
             <Input
@@ -184,16 +177,6 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               />
             </div>
           )}
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleSubmit} disabled={!name.trim() || (!isEdit && !isEntityIdValid(entityId, existingIds))}>
-            {isEdit ? t('common.save') : t('common.create')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

@@ -167,7 +167,7 @@ export function LicenseEditor({
               >
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-sm font-medium text-card-foreground">{tpl.title}</span>
-                  <Badge variant="outline" className="shrink-0 text-[10px]">
+                  <Badge variant="outline" className="shrink-0">
                     {t(LICENSE_CATEGORY_KEYS[tpl.category])}
                   </Badge>
                 </div>

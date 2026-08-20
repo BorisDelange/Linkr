@@ -2,6 +2,11 @@
 
 Source repo cloned at: `../shadcn-ui/apps/v4/registry/bases/radix/ui/`
 
+> This is the **upstream catalogue** — what shadcn offers and what's installed.
+> For how OUR composed components are built and styled (datatable, dialogs,
+> toolbars, page headers, type scale), see **`docs/ui-patterns.md`** — read that
+> first before building any UI.
+
 ## All Available Components (59 total)
 
 ### Layout & Navigation
@@ -76,13 +81,18 @@ Source repo cloned at: `../shadcn-ui/apps/v4/registry/bases/radix/ui/`
 alert-dialog, avatar, badge, button, card, checkbox, collapsible, context-menu, dialog, dropdown-menu, input, label, popover, progress, scroll-area, select, separator, sheet, sidebar, skeleton, switch, table, tabs, textarea, tooltip
 
 ## Custom Components (not from shadcn/ui)
-color-picker-popover, entity-id-field, export-dialog, icon-picker, import-conflict-dialog, linkr-logo, multi-select-filter, palette-editor
+
+Composed in-house — **see `docs/ui-patterns.md` for when and how to use them.**
+
+- **Tables**: `concept-data-table` (canonical datatable), `column-visibility-menu`, `multi-select-filter`, `truncated-header`, `truncated-text`
+- **Lists & entities**: `list-page-toolbar`, `card-meta-footer`, `badge-strip`, `type-badge`, `entity-actions-menu`, `entity-id-field`, `entity-docs-dialog`, `entity-versioning-dialog`, `authoring-fields`, `version-field`
+- **Dialogs**: `import-conflict-dialog`, `import-source-dialog`, `import-error-dialog`, `export-dialog` (⚠ no call sites)
+- **Inputs**: `searchable-select` (⚠ 1 call site), `debounced-input`, `password-input`, `icon-picker`, `color-picker-popover`, `palette-editor`, `editable-badge`, `badge-editor`, `badge-color-button`, `required-mark`
+- **Misc**: `linkr-logo`, `file-type-icon`, `language-icon`, `file-tree-header`, `gated-button`, `copy-select-button`, `no-access-notice`, `server-mode-notice`, `execute-not-permitted`, `lang-hint`
 
 ## Components Not Yet Installed (candidates)
 - **Command** - For command palette (Ctrl+K)
 - **Breadcrumb** - For Header navigation
 - **Accordion** - Expandable sections
 - **Sonner/Toast** - For notifications
-- **Data Table** - Full TanStack Table integration
 - **Calendar / Date Picker** - For date inputs
-- **Carousel** - Content carousel

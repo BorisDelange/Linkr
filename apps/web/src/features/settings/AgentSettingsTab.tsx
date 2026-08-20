@@ -200,16 +200,16 @@ export function AgentSettingsTab({ workspaceId, canWrite }: AgentSettingsTabProp
                         {providerName(provider)}
                       </span>
                       {provider.isLocal ? (
-                        <Badge variant="secondary" className="text-[10px]">
+                        <Badge variant="secondary" >
                           {t('agent.provider_local')}
                         </Badge>
                       ) : (
-                        <Badge variant="destructive" className="text-[10px]">
+                        <Badge variant="destructive" >
                           {t('agent.provider_remote')}
                         </Badge>
                       )}
                       {provider.hasApiKey ? (
-                        <Badge variant="outline" className="text-[10px]">
+                        <Badge variant="outline" >
                           {t('agent.provider_has_key')}
                         </Badge>
                       ) : null}

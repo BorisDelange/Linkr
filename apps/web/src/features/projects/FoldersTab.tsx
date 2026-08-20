@@ -121,7 +121,7 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
     const defaultHint = t(meta.def)
     return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{t(meta.label)}</Label>
+      <Label>{t(meta.label)}</Label>
       <p className="text-xs text-muted-foreground">{t(meta.desc)}</p>
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1 truncate rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono" title={current || defaultHint}>
@@ -191,7 +191,7 @@ export function FoldersTab({ projectUid, canEdit }: Props) {
               <div className="break-all">{pending?.newPath}</div>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">{t('project_folders.on_conflict')}</Label>
+              <Label>{t('project_folders.on_conflict')}</Label>
               <Select value={conflict} onValueChange={(v) => setConflict(v as FsConflictStrategy)}>
                 <SelectTrigger className="h-8 text-xs [&>span]:truncate"><SelectValue /></SelectTrigger>
                 <SelectContent>

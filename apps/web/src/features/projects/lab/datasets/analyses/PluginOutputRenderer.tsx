@@ -117,7 +117,7 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
   if (isExecuting) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center p-6">
-        <div className="size-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <Loader2 size={20} className="animate-spin text-primary" />
         <p className="mt-3 text-xs text-muted-foreground">
           {statusMessage ?? t('datasets.analysis_running')}
         </p>

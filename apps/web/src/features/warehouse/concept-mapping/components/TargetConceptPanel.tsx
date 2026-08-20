@@ -2127,28 +2127,28 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             {/* Vocabulary */}
             {searchFilterOptions.vocabs.length > 0 && (
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_vocabulary')}</label>
+                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_vocabulary')}</label>
                 <ResolvedMultiSelect options={searchFilterOptions.vocabs} selected={searchFilterVocabs} onChange={setSearchFilterVocabs} />
               </div>
             )}
             {/* Domain */}
             {searchFilterOptions.domains.length > 0 && (
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_domain')}</label>
+                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_domain')}</label>
                 <ResolvedMultiSelect options={searchFilterOptions.domains} selected={searchFilterDomains} onChange={setSearchFilterDomains} />
               </div>
             )}
             {/* Concept Class */}
             {searchFilterOptions.classes.length > 0 && (
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_concept_class')}</label>
+                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_concept_class')}</label>
                 <ResolvedMultiSelect options={searchFilterOptions.classes} selected={searchFilterClasses} onChange={setSearchFilterClasses} />
               </div>
             )}
             {/* Standard */}
             {searchFilterOptions.standards.length > 0 && (
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_std')}</label>
+                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_std')}</label>
                 <div className="flex gap-1">
                   {searchFilterOptions.standards.map((s) => (
                     <Button
@@ -2170,7 +2170,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             )}
             {/* Max results */}
             <div className="space-y-1">
-              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.search_max_results')}</label>
+              <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.search_max_results')}</label>
               <Input
                 type="number"
                 className="h-7 text-xs"
@@ -2420,7 +2420,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     <Dialog open={suggestionsSettingsOpen} onOpenChange={setSuggestionsSettingsOpen}>
       <DialogContent className="max-w-md gap-0 p-0">
         <DialogHeader className="border-b p-4">
-          <DialogTitle className="text-sm font-semibold">{t('concept_mapping.suggestions_manage')}</DialogTitle>
+          <DialogTitle>{t('concept_mapping.suggestions_manage')}</DialogTitle>
           <p className="mt-0.5 text-xs text-muted-foreground">{t('concept_mapping.suggestions_manage_subtitle')}</p>
         </DialogHeader>
         <div className="p-4">

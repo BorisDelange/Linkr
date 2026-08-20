@@ -38,7 +38,7 @@ export function SchemaBrowserDialog({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <DialogHeader className="border-b px-4 py-3">
-          <DialogTitle className="text-sm">{dbName ?? t('etl.browse_schema')}</DialogTitle>
+          <DialogTitle>{dbName ?? t('etl.browse_schema')}</DialogTitle>
         </DialogHeader>
         <div className="min-h-0 flex-1">
           <SchemaBrowser dataSourceId={dataSourceId} tableQualifier={tableQualifier} />

@@ -172,7 +172,7 @@ export function CatalogExportTab({ catalog, cache }: Props) {
       <Dialog open={previewHtml !== null} onOpenChange={(open) => { if (!open) setPreviewHtml(null) }}>
         <DialogContent className="!top-0 !left-0 !translate-x-0 !translate-y-0 !max-w-none flex h-screen max-h-screen w-screen flex-col gap-0 rounded-none border-0 p-0">
           <DialogHeader className="shrink-0 border-b px-4 py-3">
-            <DialogTitle className="text-sm">{t('data_catalog.export_preview_title')}</DialogTitle>
+            <DialogTitle>{t('data_catalog.export_preview_title')}</DialogTitle>
           </DialogHeader>
           <iframe
             srcDoc={previewHtml ?? undefined}

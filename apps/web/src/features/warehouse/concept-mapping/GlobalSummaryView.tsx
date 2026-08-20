@@ -1453,7 +1453,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             </SelectContent>
           </Select>
         </div>
-        <Badge variant="secondary" className="text-[10px] ml-auto">
+        <Badge variant="secondary" className="ml-auto">
           {projects.length} {t('concept_mapping.global_projects')} · {totals.total.toLocaleString()} {t('concept_mapping.prog_total_source_concepts')}
         </Badge>
       </div>
@@ -1880,7 +1880,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                               className="size-3.5 rounded border-gray-300 accent-primary"
                             />
                             <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
-                            <Badge variant="secondary" className="text-[10px]">
+                            <Badge variant="secondary" >
                               {exportGroupOnlyMappings.filter((m) => effectiveStatus(m) === status).length}
                             </Badge>
                           </label>
@@ -1919,7 +1919,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                       <div className="flex items-center gap-2">
                         <span className="text-xs">{t('concept_mapping.export_unmapped')}</span>
                         {totals.unmapped > 0 && (
-                          <Badge variant="secondary" className="text-[10px]">{totals.unmapped}</Badge>
+                          <Badge variant="secondary" >{totals.unmapped}</Badge>
                         )}
                       </div>
                       <p className="mt-0.5 text-[10px] text-muted-foreground">{t('concept_mapping.export_unmapped_stcm_only')}</p>
@@ -1952,7 +1952,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   <div className={`flex items-center gap-2.5 px-4 py-3 ${fmt.bg}`}>
                     <fmt.icon size={16} className={`shrink-0 ${fmt.color}`} />
                     <span className="text-sm font-medium">{fmt.name}</span>
-                    <Badge variant="outline" className="ml-auto text-[10px]">.{fmt.ext}</Badge>
+                    <Badge variant="outline" className="ml-auto">.{fmt.ext}</Badge>
                   </div>
                   <div className="px-4 py-3">
                     <p className="text-xs text-muted-foreground">{fmt.description}</p>
@@ -1978,7 +1978,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                 <div className="flex items-center gap-2.5 bg-blue-50 px-4 py-3 dark:bg-blue-950/30">
                   <FileText size={16} className="shrink-0 text-blue-500" />
                   <span className="text-sm font-medium">{t('concept_mapping.export_ohdsi')}</span>
-                  <Badge variant="outline" className="ml-auto text-[10px]">
+                  <Badge variant="outline" className="ml-auto">
                     {ohdsiExt(exportOhdsiFormat)}
                   </Badge>
                 </div>

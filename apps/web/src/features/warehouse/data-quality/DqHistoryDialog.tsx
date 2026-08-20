@@ -87,7 +87,7 @@ export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Pr
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium">{new Date(entry.startedAt).toLocaleString()}</span>
-                        <Badge variant="outline" className="text-[10px]">{t(cfg.label)}</Badge>
+                        <Badge variant="outline" >{t(cfg.label)}</Badge>
                         {entry.score != null && (
                           <span className="text-[10px] text-muted-foreground">{entry.score}%</span>
                         )}

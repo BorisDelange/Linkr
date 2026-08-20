@@ -17,6 +17,8 @@ import type { AuthorDetails } from '@/types/author'
 import { Button } from '@/components/ui/button'
 import { GatedButton } from '@/components/ui/gated-button'
 import { Card } from '@/components/ui/card'
+import { PageContainer, PageHeader } from '@/components/ui/page-header'
+import { EmptyState } from '@/components/ui/empty-state'
 import {
   Tooltip,
   TooltipContent,
@@ -153,17 +155,12 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   const [licenseTarget, setLicenseTarget] = useState<T | null>(null)
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10">
-        {/* Header */}
-        <div>
-          {backAction && <div className="mb-1">{backAction}</div>}
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">{t(titleKey)}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">{t(descriptionKey)}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
+    <PageContainer>
+        <PageHeader
+          title={t(titleKey)}
+          description={t(descriptionKey)}
+          above={backAction}
+          actions={<>
             {headerActions}
             {onImport ? (
               <GatedButton
@@ -200,21 +197,18 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
               <Plus size={14} />
               {t(newButtonKey)}
             </GatedButton>
-            </div>
-          </div>
-          {toolbar}
-        </div>
+          </>}
+        />
+        {toolbar}
 
         {/* Empty state / Item grid */}
         {items.length === 0 ? (
           <Card className="mt-6">
-            <div className="flex flex-col items-center py-12">
-              <EmptyIcon size={40} className="text-muted-foreground" />
-              <p className="mt-4 text-sm font-medium text-foreground">{t(emptyTitleKey)}</p>
-              <p className="mt-1 max-w-sm text-center text-xs text-muted-foreground">
-                {t(emptyDescriptionKey)}
-              </p>
-            </div>
+            <EmptyState
+              icon={EmptyIcon}
+              title={t(emptyTitleKey)}
+              description={t(emptyDescriptionKey)}
+            />
           </Card>
         ) : (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -278,7 +272,6 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
             ))}
           </div>
         )}
-      </div>
 
       {/* Create dialog */}
       {renderCreateDialog({
@@ -315,6 +308,6 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
           onImport={onImport}
         />
       )}
-    </div>
+    </PageContainer>
   )
 }

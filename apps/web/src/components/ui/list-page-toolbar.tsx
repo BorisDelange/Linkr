@@ -1,8 +1,9 @@
 import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDown, ArrowUp, Check, Search, SlidersHorizontal, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { SearchInput } from '@/components/ui/search-input'
 import {
   Popover,
   PopoverContent,
@@ -237,26 +238,12 @@ export function ListPageToolbar({
         </Popover>
       )}
 
-      <div className="relative flex-1">
-        <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder={searchPlaceholder ?? t('common.search')}
-          className="h-9 w-full rounded-md border bg-transparent pl-9 pr-9 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            onClick={() => onSearchChange('')}
-            aria-label={t('common.clear')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-          >
-            <X size={14} />
-          </button>
-        )}
-      </div>
+      <SearchInput
+        value={searchQuery}
+        onChange={onSearchChange}
+        placeholder={searchPlaceholder}
+        className="flex-1"
+      />
 
       {children}
     </div>

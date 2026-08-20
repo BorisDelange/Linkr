@@ -211,7 +211,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const branchRow = (
     <div className="flex items-center justify-between gap-2">
       <div className="flex items-center gap-2">
-        <Label className="text-xs">{t('versioning.sync_branch')}</Label>
+        <Label>{t('versioning.sync_branch')}</Label>
         <Select value={branch} onValueChange={changeBranch}>
           <SelectTrigger className="h-8 w-44 text-xs">
             <SelectValue placeholder={branch} />
@@ -443,7 +443,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
       )}
 
       <div className="shrink-0 space-y-2">
-        <Label className="text-xs">{t('versioning.sync_message')}</Label>
+        <Label>{t('versioning.sync_message')}</Label>
         <Textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}

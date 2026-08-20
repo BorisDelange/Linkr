@@ -185,7 +185,7 @@ export function KeyboardShortcutsDialog({
               return (
               <div key={group.titleKey}>
                 <div className="mb-1.5 flex items-center justify-between">
-                  <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {t(group.titleKey)}
                   </h3>
                   {prefix && (

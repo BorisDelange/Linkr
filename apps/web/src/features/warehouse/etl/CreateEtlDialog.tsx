@@ -1,14 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -134,14 +126,16 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{isEditing ? t('etl.edit_title') : t('etl.create_title')}</DialogTitle>
-          <DialogDescription>{isEditing ? t('etl.edit_description') : t('etl.create_description')}</DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEditing ? t('etl.edit_title') : t('etl.create_title')}
+      description={isEditing ? t('etl.edit_description') : t('etl.create_description')}
+      onConfirm={handleSubmit}
+      confirmLabel={isEditing ? t('common.save') : t('common.create')}
+      confirmDisabled={!name.trim() || (!isEditing && !isEntityIdValid(entityId, existingIds))}
+      busy={saving}
+    >
           <div className="space-y-2">
             <Label>{t('etl.pipeline_name')}<RequiredMark /></Label>
             <Input
@@ -225,20 +219,6 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
               />
             </div>
           )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={!name.trim() || saving || (!isEditing && !isEntityIdValid(entityId, existingIds))}
-          >
-            {isEditing ? t('common.save') : t('common.create')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

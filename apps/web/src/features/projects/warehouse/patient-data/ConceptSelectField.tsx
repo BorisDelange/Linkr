@@ -19,7 +19,7 @@ export function ConceptSelectField({ field, conceptCount, onOpenPicker }: Concep
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-medium">{field.label[lang] ?? field.label.en}</Label>
+      <Label>{field.label[lang] ?? field.label.en}</Label>
       {field.description && (
         <p className="text-[10px] text-muted-foreground">
           {field.description[lang] ?? field.description.en}

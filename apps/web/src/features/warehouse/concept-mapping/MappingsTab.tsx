@@ -207,7 +207,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-[480px] flex-col gap-0 p-0 sm:max-w-[480px]">
         <SheetHeader className="border-b px-4 py-3">
-          <SheetTitle className="text-sm">{t('concept_mapping.comments')}</SheetTitle>
+          <SheetTitle>{t('concept_mapping.comments')}</SheetTitle>
           <p className="text-xs text-muted-foreground truncate">{mapping.sourceConceptName} → {mapping.targetConceptName}</p>
         </SheetHeader>
         <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
@@ -352,7 +352,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-[540px] flex-col gap-0 p-0 sm:max-w-[540px]">
         <SheetHeader className="border-b px-4 py-3">
-          <SheetTitle className="text-sm">{t('concept_mapping.reviews_title')}</SheetTitle>
+          <SheetTitle>{t('concept_mapping.reviews_title')}</SheetTitle>
           <p className="text-xs text-muted-foreground truncate">{mapping.sourceConceptName} → {mapping.targetConceptName}</p>
         </SheetHeader>
         <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
@@ -2646,7 +2646,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
             <PopoverContent align="start" className="w-[320px] p-3 space-y-3" onCloseAutoFocus={(e) => e.preventDefault()}>
               {bulkFilterOptions.projects.length > 0 && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_source_project')}</label>
+                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_source_project')}</label>
                   <MultiSelectFilter
                     value={bulkFilters.sourceProjectIds}
                     options={bulkFilterOptions.projects}
@@ -2658,7 +2658,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
               )}
               {bulkFilterOptions.sourceVocabs.length > 0 && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_source_vocabulary')}</label>
+                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_source_vocabulary')}</label>
                   <MultiSelectFilter
                     value={bulkFilters.sourceVocabIds}
                     options={bulkFilterOptions.sourceVocabs}
@@ -2670,7 +2670,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
               )}
               {bulkFilterOptions.targetVocabs.length > 0 && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_target_vocabulary')}</label>
+                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_target_vocabulary')}</label>
                   <MultiSelectFilter
                     value={bulkFilters.targetVocabIds}
                     options={bulkFilterOptions.targetVocabs}
@@ -2682,7 +2682,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
               )}
               {bulkFilterOptions.equivalences.length > 0 && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_equivalence')}</label>
+                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_equivalence')}</label>
                   <MultiSelectFilter
                     value={bulkFilters.equivalences}
                     options={bulkFilterOptions.equivalences}
@@ -2694,7 +2694,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
               )}
               {bulkFilterOptions.statuses.length > 0 && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_status')}</label>
+                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_status')}</label>
                   <MultiSelectFilter
                     value={bulkFilters.statuses}
                     options={bulkFilterOptions.statuses.map((s) => ({ value: s, label: t(`concept_mapping.status_${s}`) }))}
@@ -3033,7 +3033,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                           className="size-3.5 rounded border-gray-300 accent-primary"
                         />
                         <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
-                        <Badge variant="secondary" className="text-[10px] ml-auto">{count}</Badge>
+                        <Badge variant="secondary" className="ml-auto">{count}</Badge>
                       </label>
                       {status === 'approved' && checked && (
                         <div className="ml-6 mt-1.5 space-y-1">

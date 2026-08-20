@@ -168,7 +168,7 @@ export function ConnectionsPanel({ open, onOpenChange, projectUid }: Connections
                   <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     {t('connections.custom_connections')}
                   </h3>
-                  <Badge variant="secondary" className="ml-auto text-[10px] px-1.5 py-0">
+                  <Badge variant="secondary" className="ml-auto px-1.5 py-0">
                     {customConns.length}
                   </Badge>
                 </div>

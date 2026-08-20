@@ -200,18 +200,18 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
         />
 
         <SheetHeader className="shrink-0 border-b px-4 py-3">
-          <SheetTitle className="text-sm font-semibold leading-tight truncate">{csI18n!.name}</SheetTitle>
+          <SheetTitle className="leading-tight truncate">{csI18n!.name}</SheetTitle>
           <div className="mt-1 flex flex-wrap gap-1">
             {csI18n!.category && (
-              <Badge variant="outline" className="text-[10px]">{csI18n!.category}</Badge>
+              <Badge variant="outline" >{csI18n!.category}</Badge>
             )}
             {csI18n!.subcategory && (
-              <Badge variant="outline" className="text-[10px]">{csI18n!.subcategory}</Badge>
+              <Badge variant="outline" >{csI18n!.subcategory}</Badge>
             )}
             {conceptSet.provenance && (
-              <Badge variant="secondary" className="text-[10px]">{conceptSet.provenance}</Badge>
+              <Badge variant="secondary" >{conceptSet.provenance}</Badge>
             )}
-            <Badge variant="secondary" className="text-[10px]">
+            <Badge variant="secondary" >
               {conceptSet.expression.items.length} {t('concept_mapping.cs_concepts')}
             </Badge>
           </div>
@@ -233,7 +233,7 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
             <TabsTrigger value="resolved" disabled={!resolvedUrl} className="text-xs px-3">
               {t('concept_mapping.cs_detail_resolved')}
               {resolvedLoaded && resolvedConcepts.length > 0 && (
-                <Badge variant="secondary" className="ml-1.5 text-[10px]">{resolvedConcepts.length}</Badge>
+                <Badge variant="secondary" className="ml-1.5">{resolvedConcepts.length}</Badge>
               )}
             </TabsTrigger>
             <TabsTrigger value="expression" className="text-xs px-3">

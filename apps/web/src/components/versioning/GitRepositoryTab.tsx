@@ -201,7 +201,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label className="text-xs">{t('versioning.remote_url')}</Label>
+        <Label>{t('versioning.remote_url')}</Label>
         <Input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -210,7 +210,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
         />
       </div>
       <div className="space-y-2">
-        <Label className="text-xs">
+        <Label>
           {t('versioning.remote_token')}
           {tokenRequired && <span className="ml-1 text-destructive">*</span>}
         </Label>

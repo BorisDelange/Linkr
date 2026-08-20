@@ -3,17 +3,9 @@ import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
 import { useTranslation } from 'react-i18next'
 import { useFileStore, buildScriptsFolderTree, getScriptsFolderId, RESERVED_ROOT_FOLDERS } from '@/stores/file-store'
 import { FolderOpen } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -64,8 +56,7 @@ export function CreateFolderDialog({
     ((!actualParentId && RESERVED_ROOT_FOLDERS.has(trimmedName)) ||
       isReservedTreeName(trimmedName, actualParentId))
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = () => {
     if (!trimmedName || isDuplicate || isReserved) return
     createFolder(trimmedName, actualParentId)
     setName('')
@@ -73,24 +64,15 @@ export function CreateFolderDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="sm:max-w-md"
-        onOpenAutoFocus={(e) => {
-          // Radix would focus the first tabbable element (the parent Select);
-          // send the caret to the name field (the only <input> here) instead.
-          e.preventDefault()
-          ;(e.currentTarget as HTMLElement).querySelector('input')?.focus()
-        }}
-      >
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>{t('files.create_folder')}</DialogTitle>
-            <DialogDescription>
-              {t('files.create_folder_description')}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('files.create_folder')}
+      description={t('files.create_folder_description')}
+      onConfirm={handleSubmit}
+      confirmLabel={t('common.create')}
+      confirmDisabled={!trimmedName || isDuplicate || isReserved}
+    >
             <div className="space-y-2">
               <Label>{t('files.parent_folder')}</Label>
               <Select
@@ -139,21 +121,6 @@ export function CreateFolderDialog({
                 <p className="text-xs text-destructive">{t(reservedTreeNameReason(trimmedName))}</p>
               )}
             </div>
-          </div>
-          <DialogFooter className="mt-6">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" disabled={!trimmedName || isDuplicate || isReserved}>
-              {t('common.create')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

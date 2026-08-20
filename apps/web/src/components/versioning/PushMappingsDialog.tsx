@@ -61,7 +61,7 @@ export function PushMappingsDialog({ scope, id, branch, onClose }: PushMappingsD
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-sm">{t('versioning.push_mappings_review')}</DialogTitle>
+          <DialogTitle>{t('versioning.push_mappings_review')}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col items-center gap-3 px-2 py-6 text-center text-sm text-muted-foreground">
           {state.kind === 'loading' ? (

@@ -1,15 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Select,
   SelectContent,
@@ -81,8 +74,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
 
   const canSubmit = !!name.trim() && (isEdit || isEntityIdValid(entityId, existingIds))
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async () => {
     if (!canSubmit || !activeWorkspaceId) return
 
     if (isEdit && editingCatalog) {
@@ -122,15 +114,14 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>
-              {isEdit ? t('data_catalog.edit_title') : t('data_catalog.create_title')}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEdit ? t('data_catalog.edit_title') : t('data_catalog.create_title')}
+      onConfirm={handleSubmit}
+      confirmLabel={isEdit ? t('common.save') : t('common.create')}
+      confirmDisabled={!canSubmit}
+    >
             <div>
               <Label>{t('data_catalog.name')}<RequiredMark /></Label>
               <Input
@@ -193,17 +184,6 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
                 />
               </div>
             )}
-          </div>
-          <DialogFooter className="mt-6">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" disabled={!canSubmit}>
-              {isEdit ? t('common.save') : t('common.create')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

@@ -44,7 +44,7 @@ export function DeathCriteriaForm({ config, onChange }: DeathCriteriaFormProps) 
         })}
       </div>
       <div className="space-y-1">
-        <Label className="text-xs">{t('cohorts.death_reference')}</Label>
+        <Label>{t('cohorts.death_reference')}</Label>
         <Select
           value={config.deathReference ?? 'any'}
           onValueChange={(v) =>

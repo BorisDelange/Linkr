@@ -1,17 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useAppStore } from '@/stores/app-store'
 import { useSaveForm } from '@/hooks/use-save-form'
@@ -47,43 +39,36 @@ export function DashboardEditDialog({ item, onOpenChange }: { item: Dashboard; o
   })
 
   return (
-    <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('dashboard.edit_title')}</DialogTitle>
-          <DialogDescription>{t('dashboard.edit_description')}</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1">
-            <Label className="text-xs">{t('dashboard.field_name')}<RequiredMark /></Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="h-8 text-sm"
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
-              autoFocus
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">{t('dashboard.field_description')}</Label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="text-sm"
-              placeholder={t('dashboard.field_description_placeholder')}
-            />
-          </div>
-          <VersionField value={version} onChange={setVersion} />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button size="sm" onClick={save} disabled={!canSaveNow}>
-            {t('common.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <DialogShell
+      open
+      onOpenChange={onOpenChange}
+      title={t('dashboard.edit_title')}
+      description={t('dashboard.edit_description')}
+      onConfirm={save}
+      confirmLabel={t('common.save')}
+      confirmDisabled={!canSaveNow}
+      contentClassName="space-y-3"
+    >
+      <div className="space-y-1">
+        <Label className="text-xs">{t('dashboard.field_name')}<RequiredMark /></Label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="h-8 text-sm"
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save() } }}
+          autoFocus
+        />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">{t('dashboard.field_description')}</Label>
+        <Input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          className="text-sm"
+          placeholder={t('dashboard.field_description_placeholder')}
+        />
+      </div>
+      <VersionField value={version} onChange={setVersion} />
+    </DialogShell>
   )
 }

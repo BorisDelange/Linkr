@@ -73,9 +73,12 @@ export function Foo({ value, onChange }: FooProps) {
 
 ## Dialogs (modals)
 
-Reference implementations: `DashboardSettingsDialog` (settings-style) and
-`CreateMappingProjectDialog` (form-style). Copy their shape rather than inventing
-one — a modal that sizes its own text drifts from the rest of the app.
+Reference implementation: **`DashboardSettingsDialog`**. Copy its shape rather
+than inventing one — a modal that sizes its own text drifts from the rest of the
+app. `CreateMappingProjectDialog` is a reference for *multi-page dialog flow
+only*: it uses bare `<Label>` (`text-sm`), which is **not** the convention.
+
+Full UI guidance (widths, shared dialogs, tables, type scale) → `docs/ui-patterns.md`.
 
 ```tsx
 <DialogContent className="sm:max-w-md">   {/* md; lg/2xl+ only if content needs it */}
@@ -90,7 +93,7 @@ one — a modal that sizes its own text drifts from the rest of the app.
     </TabsList>
     <TabsContent value="general" className="space-y-5 pt-3">
       <Label className="text-xs font-medium">…</Label>
-      <p className="text-[11px] text-muted-foreground">…</p>   {/* hint under a label */}
+      <p className="text-xs text-muted-foreground">…</p>   {/* hint under a label */}
     </TabsContent>
   </Tabs>
 
@@ -102,7 +105,7 @@ one — a modal that sizes its own text drifts from the rest of the app.
 ```
 
 - **Header: no size overrides.** `DialogTitle`/`DialogDescription` keep the shadcn
-  defaults. Only the *body* is dense (`text-xs` labels, `text-[11px]` hints).
+  defaults. Only the *body* is dense (`text-xs` labels and hints).
 - Tabs fill the width: `TabsList className="w-full"` + `TabsTrigger className="flex-1"`.
 - Footer buttons: `size="sm"`, cancel as `variant="outline"` first, confirm second.
   In-body buttons add only `gap-1.5` for their icon, not a height or text size.

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileSpreadsheet, AlertCircle } from 'lucide-react'
+import { FileSpreadsheet, AlertCircle, Loader2 } from 'lucide-react'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import {
@@ -328,7 +328,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
         <div className="flex-1 overflow-hidden flex flex-col gap-4">
           {loadingRaw ? (
             <div className="flex items-center justify-center py-8">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <Loader2 size={20} className="animate-spin text-primary" />
             </div>
           ) : !rawBlob ? (
             <div className="flex items-center gap-2 rounded-md border border-muted p-4 text-sm text-muted-foreground">
@@ -354,7 +354,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
               {showCSVOptions && (
                 <div className="grid grid-cols-4 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_delimiter')}</Label>
+                    <Label>{t('datasets.upload_delimiter')}</Label>
                     <Select value={delimiter} onValueChange={(v) => setDelimiter(v as Delimiter)}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
@@ -369,7 +369,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_encoding')}</Label>
+                    <Label>{t('datasets.upload_encoding')}</Label>
                     <Select value={encoding} onValueChange={(v) => setEncoding(v as Encoding)}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
@@ -382,7 +382,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
+                    <Label>{t('datasets.upload_skip_rows')}</Label>
                     <Input
                       type="number"
                       min={0}
@@ -392,7 +392,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_header')}</Label>
+                    <Label>{t('datasets.upload_header')}</Label>
                     <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
@@ -411,7 +411,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                 <div className="grid grid-cols-3 gap-3">
                   {sheetNames.length > 1 && (
                     <div className="space-y-1">
-                      <Label className="text-xs">{t('datasets.upload_sheet')}</Label>
+                      <Label>{t('datasets.upload_sheet')}</Label>
                       <Select value={selectedSheet} onValueChange={setSelectedSheet}>
                         <SelectTrigger className="h-8 text-xs">
                           <SelectValue />
@@ -425,7 +425,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                     </div>
                   )}
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
+                    <Label>{t('datasets.upload_skip_rows')}</Label>
                     <Input
                       type="number"
                       min={0}
@@ -435,7 +435,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_header')}</Label>
+                    <Label>{t('datasets.upload_header')}</Label>
                     <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
@@ -460,7 +460,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
               {/* Loading */}
               {loading && (
                 <div className="flex items-center justify-center py-8">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  <Loader2 size={20} className="animate-spin text-primary" />
                 </div>
               )}
 

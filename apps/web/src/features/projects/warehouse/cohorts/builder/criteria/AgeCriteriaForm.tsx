@@ -33,7 +33,7 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <Label className="text-xs">{t('cohorts.age_reference')}</Label>
+        <Label>{t('cohorts.age_reference')}</Label>
         <div className="flex gap-2">
           {referenceOptions.map((opt) => {
             const selected = config.ageReference === opt.value
@@ -58,7 +58,7 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
           value, and an unset bound means "no limit", not zero. */}
       <div className="grid grid-cols-3 gap-3">
         <div className="space-y-1">
-          <Label className="text-xs">{t('cohorts.age_min')}</Label>
+          <Label>{t('cohorts.age_min')}</Label>
           <Input
             type="number"
             value={config.min ?? ''}
@@ -69,7 +69,7 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">{t('cohorts.age_max')}</Label>
+          <Label>{t('cohorts.age_max')}</Label>
           <Input
             type="number"
             value={config.max ?? ''}
@@ -80,7 +80,7 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">{t('cohorts.age_unit')}</Label>
+          <Label>{t('cohorts.age_unit')}</Label>
           <Select
             value={config.ageUnit ?? 'years'}
             onValueChange={(v) => onChange({ ...config, ageUnit: v as AgeUnit })}

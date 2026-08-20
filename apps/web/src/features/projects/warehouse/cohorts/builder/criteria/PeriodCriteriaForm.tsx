@@ -18,7 +18,7 @@ function DateField({
   const { t } = useTranslation()
   return (
     <div className="space-y-1">
-      <Label className="text-xs">{label}</Label>
+      <Label>{label}</Label>
       <DatePickerField
         value={value}
         onChange={onChange}

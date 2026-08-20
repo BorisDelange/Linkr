@@ -238,7 +238,7 @@ function RoleMatrix({ description, roles, catalogue, sections, draft, onToggle, 
                             <Pencil size={12} />
                           </Button>
                           {role.isSystem ? (
-                            <Badge variant="outline" className="text-[10px]">{t('settings.role_system')}</Badge>
+                            <Badge variant="outline" >{t('settings.role_system')}</Badge>
                           ) : (
                             <Button variant="ghost" size="icon-xs" onClick={() => onDelete(role)} title={t('common.delete')}>
                               <Trash2 size={12} />

@@ -354,7 +354,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
                   <div className="flex items-center gap-2 min-w-0">
                     <Package size={12} className="text-muted-foreground shrink-0" />
                     <span className="font-medium truncate">{pkg.name}</span>
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+                    <Badge variant="secondary" className="px-1.5 py-0 shrink-0">
                       {pkg.version}
                     </Badge>
                   </div>
@@ -463,7 +463,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
             <TabsTrigger value="python" className="flex-1">
               Python
               {pythonReady && (
-                <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
+                <Badge variant="secondary" className="ml-1.5 px-1.5 py-0">
                   {pythonPackages.length}
                 </Badge>
               )}
@@ -471,7 +471,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
             <TabsTrigger value="r" className="flex-1">
               R
               {rReady && (
-                <Badge variant="secondary" className="ml-1.5 text-[10px] px-1.5 py-0">
+                <Badge variant="secondary" className="ml-1.5 px-1.5 py-0">
                   {rPackages.length}
                 </Badge>
               )}

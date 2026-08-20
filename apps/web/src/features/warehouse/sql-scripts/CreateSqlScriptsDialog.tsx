@@ -1,13 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -148,13 +141,15 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{isEditing ? t('sql_scripts.edit_title') : t('sql_scripts.create_title')}</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEditing ? t('sql_scripts.edit_title') : t('sql_scripts.create_title')}
+      onConfirm={handleSubmit}
+      confirmLabel={isEditing ? t('common.save') : t('common.create')}
+      confirmDisabled={!name.trim() || (!isEditing && !isEntityIdValid(entityId, existingIds))}
+      busy={saving}
+    >
           <div className="space-y-2">
             <Label>{t('sql_scripts.collection_name')}<RequiredMark /></Label>
             <Input
@@ -223,20 +218,6 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
               />
             </div>
           )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={!name.trim() || saving || (!isEditing && !isEntityIdValid(entityId, existingIds))}
-          >
-            {isEditing ? t('common.save') : t('common.create')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

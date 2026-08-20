@@ -47,7 +47,7 @@ export function GitTokenDialog({ url, onSave, onClose }: GitTokenDialogProps) {
           <DialogDescription>{t('versioning.token_dialog_desc')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label className="text-xs">{t('versioning.remote_token')}</Label>
+          <Label>{t('versioning.remote_token')}</Label>
           <PasswordInput
             value={token}
             autoFocus

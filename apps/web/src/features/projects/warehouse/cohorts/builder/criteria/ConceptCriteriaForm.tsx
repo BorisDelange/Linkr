@@ -61,7 +61,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
     <div className="space-y-3">
       {/* Event table selector */}
       <div className="space-y-1">
-        <Label className="text-xs">{t('cohorts.concept_event_table')}</Label>
+        <Label>{t('cohorts.concept_event_table')}</Label>
         <Select
           value={config.eventTableLabel}
           onValueChange={(value) => onChange({ ...config, eventTableLabel: value })}
@@ -82,7 +82,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
       {/* Selected concepts + picker button */}
       <div className="space-y-1">
         <div className="flex items-center justify-between">
-          <Label className="text-xs">
+          <Label>
             {t('cohorts.concept_selected')} ({config.conceptIds.length})
           </Label>
           {onOpenConceptPicker && (
@@ -100,7 +100,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
         {config.conceptIds.length > 0 ? (
           <div className="flex flex-wrap gap-1">
             {config.conceptIds.map((id) => (
-              <Badge key={id} variant="secondary" className="gap-1 text-[10px] py-0.5 px-2">
+              <Badge key={id} variant="secondary" className="gap-1 py-0.5 px-2">
                 <span className="truncate max-w-[180px]">
                   {config.conceptNames[id] ?? id}
                 </span>
@@ -131,7 +131,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
           <ChevronRight className={`size-3.5 transition-transform ${valueFilterOpen ? 'rotate-90' : ''}`} />
           {t('cohorts.concept_value_filter')}
           {(config.valueFilters?.length ?? 0) > 0 && (
-            <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0">
+            <Badge variant="secondary" className="ml-1 px-1 py-0">
               {config.valueFilters!.length}
             </Badge>
           )}

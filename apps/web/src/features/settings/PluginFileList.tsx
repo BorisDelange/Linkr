@@ -370,7 +370,7 @@ export function PluginFileList({ onCollapse, readOnly, scope = 'lab', manifestLa
                 <TooltipContent>{t('plugins.test_config')}</TooltipContent>
               </Tooltip>
               <PopoverContent align="start" className="w-[240px] space-y-3">
-                <Label className="text-xs font-medium">{t('plugins.test_config')}</Label>
+                <Label>{t('plugins.test_config')}</Label>
 
                 {/* Lab mode: project + dataset */}
                 {scope === 'lab' && (

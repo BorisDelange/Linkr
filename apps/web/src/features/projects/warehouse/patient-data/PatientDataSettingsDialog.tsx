@@ -97,7 +97,7 @@ export function PatientDataSettingsDialog({
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <div className="flex items-center gap-1">
-                <Label className="text-xs font-medium">
+                <Label>
                   {t('dashboard.reload_widgets_on_tab_switch')}
                 </Label>
                 <TooltipProvider delayDuration={150}>
@@ -129,7 +129,7 @@ export function PatientDataSettingsDialog({
           <TabsContent value="style" className="space-y-5 pt-3">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
-              <Label className="text-xs font-medium">{t('dashboard.show_widget_titles')}</Label>
+              <Label>{t('dashboard.show_widget_titles')}</Label>
               <p className="text-[11px] text-muted-foreground">
                 {t('dashboard.show_widget_titles_hint')}
               </p>
@@ -142,7 +142,7 @@ export function PatientDataSettingsDialog({
 
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
-              <Label className="text-xs font-medium">{t('dashboard.fit_to_height')}</Label>
+              <Label>{t('dashboard.fit_to_height')}</Label>
               <p className="text-[11px] text-muted-foreground">{t('dashboard.fit_to_height_hint')}</p>
             </div>
             <Switch
@@ -153,7 +153,7 @@ export function PatientDataSettingsDialog({
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label className="text-xs font-medium">{t('dashboard.widget_spacing')}</Label>
+              <Label>{t('dashboard.widget_spacing')}</Label>
               <span className="text-[11px] tabular-nums text-muted-foreground">
                 {draft.widgetSpacing} px
               </span>

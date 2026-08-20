@@ -43,7 +43,7 @@ export function GitConfigDialog({
 
         <div className="min-w-0 space-y-4">
           <div className="min-w-0 space-y-1.5">
-            <Label className="text-xs">{t('versioning.remote_url')}</Label>
+            <Label>{t('versioning.remote_url')}</Label>
             <a
               href={url}
               target="_blank"
@@ -61,7 +61,7 @@ export function GitConfigDialog({
           </div>
 
           <div className="min-w-0 space-y-1.5">
-            <Label className="text-xs">{t('versioning.remote_token')}</Label>
+            <Label>{t('versioning.remote_token')}</Label>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <span
                 className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${

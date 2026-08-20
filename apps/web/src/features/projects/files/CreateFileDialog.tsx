@@ -9,17 +9,9 @@ import {
   Notebook,
   FolderOpen,
 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -146,8 +138,7 @@ export function CreateFileDialog({
     (f) => f.name === finalName && f.parentId === actualParentId
   )
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = () => {
     if (!finalName || isDuplicate || isReserved) return
     createFile(finalName, actualParentId, selectedType.lang)
 
@@ -204,24 +195,16 @@ export function CreateFileDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="sm:max-w-lg"
-        onOpenAutoFocus={(e) => {
-          // Radix would focus the first tabbable element (the type Select);
-          // send the caret to the name field (the only <input> here) instead.
-          e.preventDefault()
-          ;(e.currentTarget as HTMLElement).querySelector('input')?.focus()
-        }}
-      >
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>{t('files.create_file')}</DialogTitle>
-            <DialogDescription>
-              {t('files.create_file_description')}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      kind="settings"
+      title={t('files.create_file')}
+      description={t('files.create_file_description')}
+      onConfirm={handleSubmit}
+      confirmLabel={t('common.create')}
+      confirmDisabled={!name.trim() || isDuplicate || isReserved}
+    >
             <div className="space-y-2">
               <Label>{t('files.file_type')}</Label>
               <Select value={fileType} onValueChange={handleTypeChange}>
@@ -287,6 +270,7 @@ export function CreateFileDialog({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={`${t('files.file_name_placeholder')}${selectedType.ext}`}
+                autoFocus
               />
               {isDuplicate && (
                 <p className="text-xs text-destructive">{t('files.name_already_exists')}</p>
@@ -295,21 +279,6 @@ export function CreateFileDialog({
                 <p className="text-xs text-destructive">{t(reservedTreeNameReason(finalName))}</p>
               )}
             </div>
-          </div>
-          <DialogFooter className="mt-6">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" disabled={!name.trim() || isDuplicate || isReserved}>
-              {t('common.create')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

@@ -2,16 +2,9 @@ import { useMemo, useState } from 'react'
 import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
 import { useTranslation } from 'react-i18next'
 import { FileCode, FileText, FolderOpen } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
@@ -102,8 +95,7 @@ export function CreateSqlScriptFileDialog({
 
   const isReserved = !!finalName && isReservedTreeName(finalName, actualParentId)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async () => {
     if (!finalName || isDuplicate || isReserved) return
     const now = new Date().toISOString()
     const node: SqlScriptFile = folderMode
@@ -121,21 +113,15 @@ export function CreateSqlScriptFileDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="sm:max-w-lg"
-        onOpenAutoFocus={(e) => {
-          // Radix would focus the first tabbable element (the type Select);
-          // send the caret to the name field (the only <input> here) instead.
-          e.preventDefault()
-          ;(e.currentTarget as HTMLElement).querySelector('input')?.focus()
-        }}
-      >
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>{folderMode ? t('files.new_folder') : t('sql_scripts.new_file')}</DialogTitle>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      kind="settings"
+      title={folderMode ? t('files.new_folder') : t('sql_scripts.new_file')}
+      onConfirm={handleSubmit}
+      confirmLabel={t('common.create')}
+      confirmDisabled={!name.trim() || isDuplicate || isReserved}
+    >
             {!folderMode && (
               <div className="space-y-2">
                 <Label>{t('files.file_type')}</Label>
@@ -192,6 +178,7 @@ export function CreateSqlScriptFileDialog({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={folderMode ? 'measurement' : `urine_output${selectedType.ext}`}
+                autoFocus
               />
               {isDuplicate && (
                 <p className="text-xs text-destructive">
@@ -202,17 +189,6 @@ export function CreateSqlScriptFileDialog({
                 <p className="text-xs text-destructive">{t(reservedTreeNameReason(finalName))}</p>
               )}
             </div>
-          </div>
-          <DialogFooter className="mt-6">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" disabled={!name.trim() || isDuplicate || isReserved}>
-              {t('common.create')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

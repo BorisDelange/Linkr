@@ -70,7 +70,7 @@ export function SettingsImportTab() {
       </div>
 
       <div className="space-y-2">
-        <Label className="text-xs">{t('settings.import_label')}</Label>
+        <Label>{t('settings.import_label')}</Label>
         <p className="text-xs text-muted-foreground">
           {linked ? t('settings.import_intro_linked') : t('settings.import_intro')}
         </p>

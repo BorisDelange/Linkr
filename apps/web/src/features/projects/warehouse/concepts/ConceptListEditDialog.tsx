@@ -1,13 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -59,48 +52,38 @@ export function ConceptListEditDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            {list ? t('concepts.list_edit_title') : t('concepts.list_create_title')}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs">{t('concepts.column_name')}</Label>
-            <Input
-              autoFocus
-              className="h-8 text-xs"
-              placeholder={t('concepts.list_name_placeholder')}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); handleSave() }
-              }}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">{t('common.description')}</Label>
-            <Textarea
-              className="min-h-[72px] text-xs"
-              placeholder={t('concepts.list_description_placeholder')}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={!canSave}>
-            {t('common.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      kind="settings"
+      title={list ? t('concepts.list_edit_title') : t('concepts.list_create_title')}
+      onConfirm={handleSave}
+      confirmLabel={t('common.save')}
+      confirmDisabled={!canSave}
+      contentClassName="space-y-3 py-0"
+    >
+      <div className="space-y-1.5">
+        <Label className="text-xs">{t('concepts.column_name')}</Label>
+        <Input
+          autoFocus
+          className="h-8 text-xs"
+          placeholder={t('concepts.list_name_placeholder')}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); handleSave() }
+          }}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-xs">{t('common.description')}</Label>
+        <Textarea
+          className="min-h-[72px] text-xs"
+          placeholder={t('concepts.list_description_placeholder')}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+    </DialogShell>
   )
 }

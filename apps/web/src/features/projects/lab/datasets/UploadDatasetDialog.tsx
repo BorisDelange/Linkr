@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Upload, FileSpreadsheet, AlertCircle, X, TriangleAlert } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, X, TriangleAlert, Loader2 } from 'lucide-react'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import {
@@ -684,7 +684,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
               {showCSVOptions && (
                 <div className="grid grid-cols-4 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_delimiter')}</Label>
+                    <Label>{t('datasets.upload_delimiter')}</Label>
                     <Select value={delimiter} onValueChange={(v) => setDelimiter(v as Delimiter)}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
@@ -699,7 +699,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_encoding')}</Label>
+                    <Label>{t('datasets.upload_encoding')}</Label>
                     <Select value={encoding} onValueChange={(v) => setEncoding(v as Encoding)}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
@@ -712,7 +712,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
+                    <Label>{t('datasets.upload_skip_rows')}</Label>
                     <Input
                       type="number"
                       min={0}
@@ -722,7 +722,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_header')}</Label>
+                    <Label>{t('datasets.upload_header')}</Label>
                     <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
@@ -741,7 +741,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                 <div className="grid grid-cols-3 gap-3">
                   {sheetNames.length > 1 && (
                     <div className="space-y-1">
-                      <Label className="text-xs">{t('datasets.upload_sheet')}</Label>
+                      <Label>{t('datasets.upload_sheet')}</Label>
                       <Select value={selectedSheet} onValueChange={setSelectedSheet}>
                         <SelectTrigger className="h-8 text-xs">
                           <SelectValue />
@@ -755,7 +755,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                     </div>
                   )}
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
+                    <Label>{t('datasets.upload_skip_rows')}</Label>
                     <Input
                       type="number"
                       min={0}
@@ -765,7 +765,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{t('datasets.upload_header')}</Label>
+                    <Label>{t('datasets.upload_header')}</Label>
                     <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
@@ -798,7 +798,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
               {/* Loading */}
               {loading && (
                 <div className="flex items-center justify-center py-8">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  <Loader2 size={20} className="animate-spin text-primary" />
                 </div>
               )}
 
@@ -861,17 +861,17 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
             {t('common.cancel')}
           </Button>
           {parsed && !existingFile && (
-            <Button onClick={handleImport} size="default" disabled={importing}>
-              {importing && <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />}
+            <Button onClick={handleImport} disabled={importing}>
+              {importing && <Loader2 size={14} className="animate-spin" />}
               {t('datasets.import')} ({parsed.totalRows.toLocaleString()} {t('datasets.rows')})
             </Button>
           )}
           {parsed && existingFile && (
             <>
-              <Button variant="outline" onClick={() => doImport('copy')} size="default" disabled={importing}>
+              <Button variant="outline" onClick={() => doImport('copy')} disabled={importing}>
                 {t('datasets.upload_import_copy')}
               </Button>
-              <Button onClick={() => doImport('overwrite')} size="default" disabled={importing}>
+              <Button onClick={() => doImport('overwrite')} disabled={importing}>
                 {t('datasets.upload_overwrite')}
               </Button>
             </>

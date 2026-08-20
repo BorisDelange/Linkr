@@ -1,17 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { VersionField } from '@/components/ui/version-field'
 
@@ -55,47 +47,37 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit, editing }: Cr
   })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{isEditing ? t('cohorts.edit_title') : t('cohorts.create_title')}</DialogTitle>
-          <DialogDescription>{isEditing ? t('cohorts.edit_description') : t('cohorts.create_description')}</DialogDescription>
-        </DialogHeader>
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isEditing ? t('cohorts.edit_title') : t('cohorts.create_title')}
+      description={isEditing ? t('cohorts.edit_description') : t('cohorts.create_description')}
+      onConfirm={handleSubmit}
+      confirmLabel={isEditing ? t('common.save') : t('common.create')}
+      confirmDisabled={!name.trim()}
+    >
+      <div className="space-y-1.5">
+        <Label>{t('cohorts.field_name')}<RequiredMark /></Label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
+          placeholder={t('cohorts.field_name_placeholder')}
+          autoFocus
+        />
+      </div>
 
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <Label>{t('cohorts.field_name')}<RequiredMark /></Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
-              placeholder={t('cohorts.field_name_placeholder')}
-              autoFocus
-            />
-          </div>
+      <div className="space-y-1.5">
+        <Label>{t('cohorts.field_description')}</Label>
+        <Input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
+          placeholder={t('cohorts.field_description_placeholder')}
+        />
+      </div>
 
-          <div className="space-y-1.5">
-            <Label>{t('cohorts.field_description')}</Label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
-              placeholder={t('cohorts.field_description_placeholder')}
-            />
-          </div>
-
-          <VersionField value={version} onChange={setVersion} />
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleSubmit} disabled={!name.trim()}>
-            {isEditing ? t('common.save') : t('common.create')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <VersionField value={version} onChange={setVersion} />
+    </DialogShell>
   )
 }

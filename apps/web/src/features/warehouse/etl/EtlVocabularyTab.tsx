@@ -651,7 +651,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('etl.vocab_from_project')}</Label>
+              <Label>{t('etl.vocab_from_project')}</Label>
               <SearchableSelect
                 value={selectedProjectId}
                 options={projectOptions}
@@ -677,7 +677,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                             className="size-3.5 rounded border-gray-300 accent-primary"
                           />
                           <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
-                          <Badge variant="secondary" className="text-[10px]">{count}</Badge>
+                          <Badge variant="secondary" >{count}</Badge>
                         </label>
 
                         {/* Approval sub-rules */}
@@ -718,7 +718,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
               data rebuilt after every clone. */}
           <div className="flex flex-col gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('etl.vocab_mode')}</Label>
+              <Label>{t('etl.vocab_mode')}</Label>
               <Select value={mode} onValueChange={(v) => setMode(v as VocabularyMode)} disabled={creating || !canWrite}>
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue />

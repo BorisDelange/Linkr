@@ -385,7 +385,7 @@ export function ConceptPickerDialog({
             onClick={() => setActiveTab('concepts')}
           >
             {t('patient_data.tab_concepts')}
-            <Badge variant="outline" className="ml-1.5 text-[10px]">
+            <Badge variant="outline" className="ml-1.5">
               {selectedIds.length}
             </Badge>
           </Button>
@@ -569,7 +569,7 @@ export function ConceptPickerDialog({
                 <span className="text-xs font-medium">
                   {t('patient_data.selected_concepts')}
                 </span>
-                <Badge variant="secondary" className="text-[10px]">
+                <Badge variant="secondary" >
                   {selectedIds.length}
                 </Badge>
               </div>

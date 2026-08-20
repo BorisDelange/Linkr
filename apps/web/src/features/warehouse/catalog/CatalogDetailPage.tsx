@@ -97,7 +97,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Badge variant={statusInfo.variant} className="cursor-help text-[10px]">
+                      <Badge variant={statusInfo.variant} className="cursor-help">
                         {t(statusInfo.label)}
                       </Badge>
                     </TooltipTrigger>
@@ -107,7 +107,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
                   </Tooltip>
                 </TooltipProvider>
               ) : (
-                <Badge variant={statusInfo.variant} className="text-[10px]">
+                <Badge variant={statusInfo.variant} >
                   {t(statusInfo.label)}
                 </Badge>
               )}

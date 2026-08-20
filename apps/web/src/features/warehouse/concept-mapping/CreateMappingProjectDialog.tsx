@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, AlertCircle, X, Database, FileUp, Settings2, ArrowLeft, Check, Plus, Info } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, X, Database, FileUp, Settings2, ArrowLeft, Check, Plus, Info, Loader2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
@@ -928,14 +928,14 @@ export function CreateMappingProjectDialog({
             {/* Loading */}
             {fileLoading && (
               <div className="flex items-center justify-center py-6">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <Loader2 size={20} className="animate-spin text-primary" />
               </div>
             )}
 
             {/* Column mapping */}
             {parsedColumns.length > 0 && !fileLoading && (
               <div className="grid gap-2">
-                <Label className="text-xs font-medium">{t('concept_mapping.column_mapping')}</Label>
+                <Label>{t('concept_mapping.column_mapping')}</Label>
                 <p className="text-[10px] text-muted-foreground">{t('concept_mapping.column_mapping_hint')}</p>
                 <div className="grid gap-2">
                   {COLUMN_ROLE_ROWS.map((rowRoles, ri) => (
@@ -1022,7 +1022,7 @@ export function CreateMappingProjectDialog({
                     {(columnMapping.extraColumns?.length ?? 0) > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {columnMapping.extraColumns!.map((col) => (
-                          <Badge key={col} variant="secondary" className="text-[10px] gap-1 pr-1">
+                          <Badge key={col} variant="secondary" className="gap-1 pr-1">
                             {col}
                             <button
                               type="button"

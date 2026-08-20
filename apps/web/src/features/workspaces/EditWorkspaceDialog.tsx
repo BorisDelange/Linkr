@@ -9,14 +9,7 @@ import { useSaveForm } from '@/hooks/use-save-form'
 import type { Workspace, ProjectBadge, BadgeColor } from '@/types'
 import { Plus, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { EditableBadge } from '@/components/ui/editable-badge'
@@ -113,20 +106,16 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
     canSave: name.trim().length > 0,
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    save()
-  }
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>{t('workspaces.edit_dialog_title')}</DialogTitle>
-            <DialogDescription>{t('workspaces.edit_dialog_description')}</DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
+    <DialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('workspaces.edit_dialog_title')}
+      description={t('workspaces.edit_dialog_description')}
+      onConfirm={save}
+      confirmLabel={t('common.save')}
+      confirmDisabled={!canSaveNow}
+    >
             <div className="space-y-2">
               <Label htmlFor="edit-ws-name">{t('workspaces.field_name')}<RequiredMark /></Label>
               <Input
@@ -232,17 +221,6 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
                 />
               </div>
             )}
-          </div>
-          <DialogFooter className="mt-6">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" disabled={!canSaveNow}>
-              {t('common.save')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    </DialogShell>
   )
 }

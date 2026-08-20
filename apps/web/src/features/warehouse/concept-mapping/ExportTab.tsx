@@ -483,7 +483,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                           className="size-3.5 rounded border-gray-300 accent-primary"
                         />
                         <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
-                        <Badge variant="secondary" className="text-[10px]">{count}</Badge>
+                        <Badge variant="secondary" >{count}</Badge>
                       </label>
 
                       {/* Approval sub-rules (only shown when approved is checked) */}
@@ -524,7 +524,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                   <div className="flex items-center gap-2">
                     <span className="text-xs">{t('concept_mapping.export_include_all_source_concepts')}</span>
                     {allSourceExtraCount !== null && allSourceExtraCount > 0 && (
-                      <Badge variant="secondary" className="text-[10px]">{allSourceExtraCount}</Badge>
+                      <Badge variant="secondary" >{allSourceExtraCount}</Badge>
                     )}
                   </div>
                   <p className="mt-0.5 text-[10px] text-muted-foreground">{t('concept_mapping.export_include_all_source_concepts_desc')}</p>
@@ -547,7 +547,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
             <div className="flex items-center gap-2.5 bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
               <Archive size={16} className="shrink-0 text-amber-500" />
               <span className="text-sm font-medium">{t('concept_mapping.export_linkr_zip')}</span>
-              <Badge variant="outline" className="ml-auto text-[10px]">.zip</Badge>
+              <Badge variant="outline" className="ml-auto">.zip</Badge>
             </div>
             <div className="px-4 py-3">
               <p className="text-xs text-muted-foreground">{t('concept_mapping.export_linkr_zip_desc')}</p>
@@ -579,7 +579,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
               <div className={`flex items-center gap-2.5 px-4 py-3 ${format.bg}`}>
                 <format.icon size={16} className={`shrink-0 ${format.color}`} />
                 <span className="text-sm font-medium">{format.name}</span>
-                <Badge variant="outline" className="text-[10px] ml-auto">.{format.ext}</Badge>
+                <Badge variant="outline" className="ml-auto">.{format.ext}</Badge>
               </div>
               <div className="px-4 py-3">
                 <p className="text-xs text-muted-foreground">{format.description}</p>
@@ -607,7 +607,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
             <div className="flex items-center gap-2.5 bg-blue-50 px-4 py-3 dark:bg-blue-950/30">
               <FileText size={16} className="shrink-0 text-blue-500" />
               <span className="text-sm font-medium">{t('concept_mapping.export_ohdsi')}</span>
-              <Badge variant="outline" className="ml-auto text-[10px]">
+              <Badge variant="outline" className="ml-auto">
                 {ohdsiExt(ohdsiFormat)}
               </Badge>
             </div>
@@ -676,7 +676,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium">{t('concept_mapping.export_include_scores')}</span>
                   {scoresSize ? (
-                    <Badge variant="secondary" className="text-[10px]">{(scoresSize / 1024 / 1024).toFixed(1)} MB</Badge>
+                    <Badge variant="secondary" >{(scoresSize / 1024 / 1024).toFixed(1)} MB</Badge>
                   ) : null}
                 </div>
                 <p className="mt-0.5 text-[10px] text-muted-foreground">

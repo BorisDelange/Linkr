@@ -186,7 +186,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
         <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-4 py-1">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs">{t('dashboard.export_scope', 'Scope')}</Label>
+              <Label>{t('dashboard.export_scope', 'Scope')}</Label>
               <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
@@ -198,7 +198,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">{t('dashboard.export_format', 'Format')}</Label>
+              <Label>{t('dashboard.export_format', 'Format')}</Label>
               <Select value={format} onValueChange={(v) => setFormat(v as ExportFormat)}>
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
@@ -213,7 +213,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
 
           {format === 'png' && (
             <div className="space-y-1.5">
-              <Label className="text-xs">{t('dashboard.export_resolution', 'Resolution')}</Label>
+              <Label>{t('dashboard.export_resolution', 'Resolution')}</Label>
               <Select value={String(dpi)} onValueChange={(v) => setDpi(Number(v))}>
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
@@ -230,7 +230,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
 
           <div className="flex min-h-0 flex-1 flex-col space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label className="text-xs">{t('dashboard.export_widgets', 'Widgets')}</Label>
+              <Label>{t('dashboard.export_widgets', 'Widgets')}</Label>
               <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                 <button type="button" onClick={() => setSelected(new Set(scopedWidgets.map(w => w.id)))} className="hover:text-foreground">
                   {t('common.select_all')}

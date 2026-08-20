@@ -901,7 +901,7 @@ export function SourceConceptTable({
             {/* Vocabulary */}
             {vocabOptions?.length ? (
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_vocabulary')}</label>
+                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_vocabulary')}</label>
                 <MultiSelectFilter
                   value={vocabValue}
                   options={vocabOptions}
@@ -915,7 +915,7 @@ export function SourceConceptTable({
             {/* Category */}
             {categoryOptions.length > 0 && (
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_category')}</label>
+                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_category')}</label>
                 <MultiSelectFilter
                   value={filters.category ?? []}
                   options={categoryOptions}
@@ -928,7 +928,7 @@ export function SourceConceptTable({
             )}
             {/* Has a suggestion from */}
             <div className="space-y-1">
-              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.filter_by_suggestion')}</label>
+              <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.filter_by_suggestion')}</label>
               <MultiSelectFilter
                 value={[...suggestionCategories]}
                 options={suggestionCategoryOptions}

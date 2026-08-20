@@ -109,7 +109,7 @@ export function StatusBar() {
         <TooltipProvider delayDuration={300}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Badge variant="secondary" className="gap-1 px-1.5 py-0 text-[10px] font-medium">
+              <Badge variant="secondary" className="gap-1 px-1.5 py-0 font-medium">
                 {server ? <Server size={9} /> : <Monitor size={9} />}
                 {server ? t('server.server_mode') : t('server.local_mode')}
               </Badge>

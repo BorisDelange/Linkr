@@ -91,7 +91,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
           {t('data_catalog.anon_threshold_description')}
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <Label className="text-xs">{t('data_catalog.threshold')}</Label>
+          <Label>{t('data_catalog.threshold')}</Label>
           <Input
             type="number"
             min={0}
@@ -99,7 +99,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
             onChange={(e) => setThresholdInput(e.target.value)}
             className="w-24"
           />
-          <Label className="text-xs">{t('data_catalog.anon_mode')}</Label>
+          <Label>{t('data_catalog.anon_mode')}</Label>
           <Select value={mode} onValueChange={(v) => setMode(v as AnonymizationMode)}>
             <SelectTrigger className="w-64">
               <SelectValue />

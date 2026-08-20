@@ -515,7 +515,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         accessorFn: (row) => row.items,
         cell: ({ row }) => (
           <span className="flex justify-center">
-            <Badge variant="secondary" className="text-[10px]">{row.original.items}</Badge>
+            <Badge variant="secondary" >{row.original.items}</Badge>
           </span>
         ),
         size: 60,
@@ -544,11 +544,11 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         cell: ({ row }) => (
           <span className="flex justify-center">
             {row.original.mappedStatus === 'mapped' ? (
-              <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
+              <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
                 {t('concept_mapping.cs_status_mapped')}
               </Badge>
             ) : (
-              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+              <Badge variant="outline" className="text-muted-foreground">
                 {t('concept_mapping.cs_status_none')}
               </Badge>
             )}
@@ -563,7 +563,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         accessorFn: (row) => row.mappedCount,
         cell: ({ row }) => {
           const { mappedCount, mappedSources } = row.original
-          const badge = <Badge variant="secondary" className="text-[10px]">{mappedCount}</Badge>
+          const badge = <Badge variant="secondary" >{mappedCount}</Badge>
           if (mappedCount === 0) return <span className="flex justify-center">{badge}</span>
           return (
             <span className="flex justify-center">
@@ -1224,7 +1224,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-medium">{batch.sourceName}</span>
-                          <Badge variant="secondary" className="text-[10px]">
+                          <Badge variant="secondary" >
                             {batch.count} {t('concept_mapping.cs_concepts')}
                           </Badge>
                         </div>
@@ -1464,7 +1464,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                           const count = vocabTableNames.length || vocabDs.stats?.tableCount
                           if (count == null) return null
                           const badge = (
-                            <Badge variant="secondary" className="text-[10px]">
+                            <Badge variant="secondary" >
                               {t('concept_mapping.vocab_import_tables_count', { count })}
                             </Badge>
                           )
@@ -1528,7 +1528,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         {/* Vocabulary */}
                         {browseVocabOptions.length > 0 && (
                           <div className="space-y-1">
-                            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_vocabulary')}</label>
+                            <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_vocabulary')}</label>
                             <MultiSelectFilter
                               value={browseVocabs}
                               options={browseVocabOptions}
@@ -1542,7 +1542,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         {/* Domain */}
                         {browseDomainOptions.length > 0 && (
                           <div className="space-y-1">
-                            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_domain')}</label>
+                            <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_domain')}</label>
                             <MultiSelectFilter
                               value={browseDomains}
                               options={browseDomainOptions}
@@ -1556,7 +1556,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         {/* Concept Class */}
                         {browseClassOptions.length > 0 && (
                           <div className="space-y-1">
-                            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_concept_class')}</label>
+                            <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_concept_class')}</label>
                             <MultiSelectFilter
                               value={browseClasses}
                               options={browseClassOptions}
@@ -1569,7 +1569,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         )}
                         {/* Standard concept */}
                         <div className="space-y-1">
-                          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_std')}</label>
+                          <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_std')}</label>
                           <div className="flex gap-1">
                             {(['S', 'C'] as const).map((s) => {
                               const active = browseStandards.includes(s)
@@ -1593,7 +1593,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         </div>
                         {/* Max results */}
                         <div className="space-y-1">
-                          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.search_max_results')}</label>
+                          <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.search_max_results')}</label>
                           <Input
                             type="number"
                             className="h-7 text-xs"
@@ -1804,7 +1804,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                   {/* Detected files, each one opt-out except CONCEPT. */}
                   {vocabFiles.length > 0 && (
                     <div className="mt-4 w-full max-w-sm rounded-md border p-3">
-                      <p className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                         {t('concept_mapping.vocab_import_tables_found', { count: vocabFiles.length })}
                       </p>
                       {/* Same All / None + count affordance as MultiSelectFilter. */}

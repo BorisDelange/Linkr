@@ -254,7 +254,7 @@ export function LabDashboardsPage() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1">
-              <Label className="text-xs">{t('dashboard.field_name')}<RequiredMark /></Label>
+              <Label>{t('dashboard.field_name')}<RequiredMark /></Label>
               <Input
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
@@ -271,7 +271,7 @@ export function LabDashboardsPage() {
               )}
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">{t('common.description')}</Label>
+              <Label>{t('common.description')}</Label>
               <Textarea
                 value={createDescription}
                 onChange={(e) => setCreateDescription(e.target.value)}

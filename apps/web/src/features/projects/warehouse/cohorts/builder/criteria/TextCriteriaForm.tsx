@@ -63,7 +63,7 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <Label className="text-xs">{t('cohorts.text_label')}</Label>
+        <Label>{t('cohorts.text_label')}</Label>
         {/* Debounced: this writes through to the cohort tree, so a raw onChange
             persisted the whole cohort on every keystroke. */}
         <DebouncedInput
@@ -213,7 +213,7 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
       )}
 
       <div className="space-y-1">
-        <Label className="text-xs">{t('cohorts.text_note')}</Label>
+        <Label>{t('cohorts.text_note')}</Label>
         <Textarea
           value={config.description ?? ''}
           onChange={(e) => update({ description: e.target.value })}

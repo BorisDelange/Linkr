@@ -375,7 +375,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
                   </div>
                   <p className="text-sm font-semibold">{t('concept_mapping.projects_widget_title')}</p>
                   {projects.length > 0 && (
-                    <Badge variant="secondary" className="ml-auto shrink-0 text-[10px]">
+                    <Badge variant="secondary" className="ml-auto shrink-0">
                       {projects.length}
                     </Badge>
                   )}

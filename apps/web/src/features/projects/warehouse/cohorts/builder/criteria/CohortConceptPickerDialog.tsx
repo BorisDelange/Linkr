@@ -571,7 +571,7 @@ export function CohortConceptPickerDialog({
               <span className="text-xs font-medium">
                 {t('cohorts.concept_selected')}
               </span>
-              <Badge variant="secondary" className="text-[10px]">
+              <Badge variant="secondary" >
                 {selectedIds.size}
               </Badge>
             </div>

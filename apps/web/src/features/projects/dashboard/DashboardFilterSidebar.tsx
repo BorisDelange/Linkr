@@ -350,7 +350,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                     <div className="space-y-2 px-2.5 pb-2.5">
                       {editMode && (
                         <div className="space-y-2">
-                          <Badge variant="secondary" className="text-[10px] gap-1">
+                          <Badge variant="secondary" className="gap-1">
                             <Database size={9} />
                             {dsFile?.name ?? '?'}
                           </Badge>
@@ -434,7 +434,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
             {editMode && (
               addingFilter ? (
                 <div className="space-y-2 rounded-lg border border-dashed p-3">
-                  <Label className="text-xs font-medium">{t('dashboard.filter_select_dataset')}</Label>
+                  <Label>{t('dashboard.filter_select_dataset')}</Label>
                   <Select
                     value={newFilterDatasetId ?? ''}
                     onValueChange={(v) => {
@@ -464,7 +464,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
 
                   {newFilterDatasetId && (
                     <>
-                      <Label className="text-xs font-medium">{t('dashboard.filter_select_column')}</Label>
+                      <Label>{t('dashboard.filter_select_column')}</Label>
                       <ColumnPicker
                         columns={newFilterColumns}
                         value={newFilterColumnId}
@@ -476,7 +476,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
 
                   {newFilterColumnId && (
                     <>
-                      <Label className="text-xs font-medium">{t('dashboard.filter_input_type')}</Label>
+                      <Label>{t('dashboard.filter_input_type')}</Label>
                       <Select
                         value={newFilterInputType}
                         onValueChange={(v) => setNewFilterInputType(v as DashboardFilter['inputType'])}

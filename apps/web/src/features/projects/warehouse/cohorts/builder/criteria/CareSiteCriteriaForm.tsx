@@ -93,7 +93,7 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
   return (
     <div className="space-y-2">
       <div className="space-y-1">
-        <Label className="text-xs">{t('cohorts.care_site_level')}</Label>
+        <Label>{t('cohorts.care_site_level')}</Label>
         <Select
           value={config.careSiteLevel}
           onValueChange={(v) => onChange({ ...config, careSiteLevel: v as 'visit' | 'visit_detail', values: [] })}
@@ -112,7 +112,7 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
         </Select>
       </div>
       <div className="space-y-1">
-        <Label className="text-xs">{t('cohorts.care_site_values')}</Label>
+        <Label>{t('cohorts.care_site_values')}</Label>
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button

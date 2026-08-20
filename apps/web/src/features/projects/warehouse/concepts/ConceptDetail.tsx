@@ -81,7 +81,7 @@ export function ConceptDetail({
               {conceptName || conceptIdLabel || t('concepts.unnamed_concept')}
             </span>
             {conceptCode && (
-              <Badge variant="outline" className="shrink-0 font-mono text-[10px]">
+              <Badge variant="outline" className="shrink-0 font-mono">
                 {conceptCode}
               </Badge>
             )}

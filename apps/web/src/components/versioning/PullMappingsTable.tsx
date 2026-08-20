@@ -345,7 +345,7 @@ export function PullMappingsTable({ changes, selected, conflictChoices, viewKey,
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex h-[90vh] w-[97vw] max-w-[1500px] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1500px]">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
-          <DialogTitle className="text-sm">
+          <DialogTitle>
             {t(readOnly ? 'versioning.push_mappings_review' : 'versioning.pull_mappings_pick')}
           </DialogTitle>
         </DialogHeader>

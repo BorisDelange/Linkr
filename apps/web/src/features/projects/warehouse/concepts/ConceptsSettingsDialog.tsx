@@ -133,7 +133,7 @@ export function ConceptsSettingsDialog({
                   <div className="flex items-center gap-2">
                     <Library size={13} className="shrink-0 text-muted-foreground" />
                     <span className="truncate text-xs font-medium">{dictionary.name}</span>
-                    <Badge variant="secondary" className="ml-auto shrink-0 text-[10px]">
+                    <Badge variant="secondary" className="ml-auto shrink-0">
                       {t('concepts.dictionary_imported')}
                     </Badge>
                   </div>

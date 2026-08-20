@@ -149,7 +149,7 @@ export function PullConceptsDialog({ diff, changes, declined, onClose, onApply }
       <Dialog open onOpenChange={(o) => !o && onClose()}>
         <DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-sm">{t('versioning.pull_concepts_title')}</DialogTitle>
+            <DialogTitle>{t('versioning.pull_concepts_title')}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col items-center gap-2 py-6 text-center text-muted-foreground">
             <AlertTriangle size={26} />
@@ -174,7 +174,7 @@ export function PullConceptsDialog({ diff, changes, declined, onClose, onApply }
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex h-[90vh] w-[97vw] max-w-[1500px] grid-cols-[minmax(0,1fr)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[1500px]">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
-          <DialogTitle className="text-sm">{t('versioning.pull_concepts_title')}</DialogTitle>
+          <DialogTitle>{t('versioning.pull_concepts_title')}</DialogTitle>
         </DialogHeader>
 
         <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">

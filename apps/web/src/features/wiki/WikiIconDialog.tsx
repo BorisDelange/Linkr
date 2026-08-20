@@ -81,7 +81,7 @@ export function WikiIconDialog({ pageId, currentIcon, onClose, onChange }: WikiI
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <DialogContent className="max-w-lg gap-0 p-0">
         <DialogHeader className="border-b px-4 py-3">
-          <DialogTitle className="text-sm">{t('wiki.change_icon')}</DialogTitle>
+          <DialogTitle>{t('wiki.change_icon')}</DialogTitle>
         </DialogHeader>
 
         <div className="flex items-center gap-2 border-b px-3 py-2">

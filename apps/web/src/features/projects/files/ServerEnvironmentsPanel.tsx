@@ -414,12 +414,12 @@ export function ServerEnvironmentsPanel({
           <div className="flex items-center gap-1.5 text-sm font-medium">
             {label}
             {env && env.status !== 'ready' && (
-              <Badge variant={statusVariant} className="text-[10px]">
+              <Badge variant={statusVariant} >
                 {t(`environments.status.${env.status}`)}
               </Badge>
             )}
             {env?.status === 'ready' && packages.length > 0 && (
-              <Badge variant="secondary" className="gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
+              <Badge variant="secondary" className="gap-1 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 size={10} />
                 {t('environments.status_up_to_date')}
               </Badge>

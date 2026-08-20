@@ -918,7 +918,7 @@ function ColumnStatsDetail({
               {/* Histogram */}
               {stats.histogram.length > 0 && (
                 <div className="border-t pt-3">
-                  <p className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {t('etl.profiling_distribution')}
                   </p>
                   <ResponsiveContainer width="100%" height={140}>
@@ -943,7 +943,7 @@ function ColumnStatsDetail({
               {/* Top values */}
               {stats.topValues.length > 0 && (
                 <div className="border-t pt-3">
-                  <p className="mb-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {t('etl.profiling_top_values')}
                   </p>
                   <div className="space-y-1.5">

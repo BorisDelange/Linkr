@@ -1106,7 +1106,7 @@ function ChunkOptionsPopover({
         {/* Chunk name + Language */}
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-0.5">
-            <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               {t('files.chunk_name')}
             </Label>
             <Input
@@ -1117,7 +1117,7 @@ function ChunkOptionsPopover({
             />
           </div>
           <div className="space-y-0.5">
-            <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            <Label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               {t('files.chunk_language')}
             </Label>
             <Select value={language} onValueChange={onLanguageChange}>
@@ -1137,7 +1137,7 @@ function ChunkOptionsPopover({
 
         {/* General */}
         <div className="space-y-1">
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             {t('files.chunk_general')}
           </span>
           {BOOL_OPTIONS.filter((o) => o.section === 'general').map((opt) => (
@@ -1157,7 +1157,7 @@ function ChunkOptionsPopover({
 
         {/* Output */}
         <div className="space-y-1">
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             {t('files.chunk_output')}
           </span>
           {BOOL_OPTIONS.filter((o) => o.section === 'output').map((opt) => (
@@ -1197,7 +1197,7 @@ function ChunkOptionsPopover({
 
         {/* Figure */}
         <div className="space-y-1">
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             {t('files.chunk_figure')}
           </span>
           <div className="grid grid-cols-2 gap-2">
@@ -1279,7 +1279,7 @@ function ChunkOptionsPopover({
 
         {/* Raw options */}
         <details className="text-xs">
-          <summary className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider cursor-pointer select-none">
+          <summary className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground cursor-pointer select-none">
             {t('files.chunk_advanced')}
           </summary>
           <textarea

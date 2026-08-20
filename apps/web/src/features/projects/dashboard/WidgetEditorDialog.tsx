@@ -375,7 +375,7 @@ function WidgetEditorBody({
     <div className="flex h-full flex-col">
       {/* Header */}
       <SheetHeader className="flex-row items-center gap-2 border-b px-3 py-2 space-y-0">
-        <SheetTitle className="text-sm truncate">{localized(widget.name, i18n.language)}</SheetTitle>
+        <SheetTitle className="truncate">{localized(widget.name, i18n.language)}</SheetTitle>
         <div className="flex-1" />
         {plugin && <PluginBadge plugin={plugin} lang={i18n.language as 'en' | 'fr'} />}
         <Select

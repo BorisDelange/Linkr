@@ -75,7 +75,7 @@ export function SettingsPullDialog({ branch, onClose, onApplied }: SettingsPullD
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex max-h-[70vh] w-[92vw] max-w-[480px] flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="shrink-0 border-b px-4 py-3">
-          <DialogTitle className="flex items-center gap-2 text-sm">
+          <DialogTitle className="flex items-center gap-2">
             <ArrowDownToLine size={16} />
             {t('settings.pull_title')}
           </DialogTitle>
