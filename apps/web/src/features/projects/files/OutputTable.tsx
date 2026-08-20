@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
+import { ResizeGrip } from '@/components/ui/table-primitives'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
 import {
   ColumnFilterInput,
@@ -213,19 +214,11 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
                     <span className="truncate">{headers[idx]}</span>
                   </div>
                   {!compact && (
-                    <div
-                      onMouseDown={(e) => handleResizeStart(idx, e)}
-                      onTouchStart={(e) => handleResizeStart(idx, e)}
-                      onDoubleClick={() => resetColWidth(idx)}
-                      className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                    >
-                      <div
-                        className={cn(
-                          'absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors',
-                          resizing === idx ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40',
-                        )}
-                      />
-                    </div>
+                    <ResizeGrip
+                      onStart={(e) => handleResizeStart(idx, e)}
+                      onReset={() => resetColWidth(idx)}
+                      active={resizing === idx}
+                    />
                   )}
                 </th>
               ))}

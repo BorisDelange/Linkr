@@ -48,6 +48,7 @@ import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSetti
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
+import { SectionLabel } from '@/components/ui/section-label'
 import { isServerMode } from '@/lib/api-client'
 import { previewFileColumnsOnServer } from '@/lib/api/mapping-projects'
 import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
@@ -1180,9 +1181,9 @@ export function CreateMappingProjectDialog({
                 if (availableSuggestions.length === 0) return null
                 return (
                   <div className="rounded-md border border-dashed bg-muted/20 p-2">
-                    <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    <SectionLabel as="p" className="mb-1.5 font-normal tracking-wide">
                       {t('concept_mapping.badge_suggestions')}
-                    </p>
+                    </SectionLabel>
                     <div className="flex flex-wrap gap-1.5">
                       {availableSuggestions.map((badge) => (
                         <button

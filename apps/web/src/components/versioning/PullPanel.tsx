@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
+import { SectionLabel } from '@/components/ui/section-label'
 import { groupGitFiles } from '@/lib/git-file-meta'
 import { cardsForScope, cardMatches, type PullCardDef } from '@/lib/pull-quick-actions'
 import {
@@ -164,9 +165,9 @@ export function PullPanel({
           <TooltipProvider delayDuration={200}>
             {groupGitFiles(plan.scope, plan.files, (f) => f.path).map((group) => (
               <div key={group.category}>
-                <div className="sticky top-0 z-10 bg-muted/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                <SectionLabel className="sticky top-0 z-10 bg-muted/60 px-3 py-1 font-semibold tracking-wide backdrop-blur">
                   {t(`versioning.file_cat_${group.category}`)}
-                </div>
+                </SectionLabel>
                 <ul className="divide-y">
                   {group.files.map((file) => (
                     <PullFileRow

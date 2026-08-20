@@ -4,6 +4,7 @@ import { Plus, Pencil, Minus, RefreshCw, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { SectionLabel } from '@/components/ui/section-label'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
@@ -298,9 +299,9 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
                 <div className="space-y-3 pl-1">
                   {groupByType(changes).map(({ type, items }) => (
                     <div key={type}>
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      <SectionLabel as="p" className="mb-1 tracking-wide">
                         {t(`version_check.seed_entity_${type}`)}
-                      </p>
+                      </SectionLabel>
                       <div className="space-y-1 pl-1">
                         {items.map((change) => renderRow(change))}
                       </div>

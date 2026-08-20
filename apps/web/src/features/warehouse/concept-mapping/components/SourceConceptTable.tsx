@@ -8,9 +8,6 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table'
 import {
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   Settings2,
   BarChart3,
   Loader2,
@@ -37,7 +34,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SectionLabel } from '@/components/ui/section-label'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { DebouncedInput } from '@/components/ui/debounced-input'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
@@ -143,75 +143,11 @@ interface SourceConceptTableProps {
   hasScores: boolean
 }
 
-const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
-
-/** Text input that debounces onChange by 300ms. */
-function DebouncedInput({
-  value: externalValue,
-  onChange,
-  className,
-  placeholder,
-}: {
-  value: string
-  onChange: (v: string) => void
-  className?: string
-  placeholder?: string
-}) {
-  const [localValue, setLocalValue] = useState(externalValue)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-
-  // Sync from external when it changes (e.g. filters reset)
-  useEffect(() => {
-    setLocalValue(externalValue)
-  }, [externalValue])
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value
-    setLocalValue(v)
-    clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => onChange(v), 300)
-  }
-
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  return (
-    <input
-      className={className}
-      placeholder={placeholder}
-      value={localValue}
-      onChange={handleChange}
-    />
-  )
-}
-
 const STATUS_COLORS: Record<string, string> = {
   unmapped: 'bg-gray-300',
   mapped: 'bg-green-500',
   mapped_elsewhere: 'bg-blue-500',
   ignored: 'bg-gray-400',
-}
-
-/** Get human-readable label for a TanStack column def. */
-function getColLabel(colDefs: ColumnDef<SourceConceptRow>[], id: string): string {
-  const def = colDefs.find((c) => 'id' in c && c.id === id)
-  if (def) {
-    if (typeof def.header === 'function') {
-      const result = (def.header as () => unknown)()
-      if (typeof result === 'string') return result
-    }
-    if (typeof def.header === 'string') return def.header
-  }
-  return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function SortIndicator({ columnId, sorting }: { columnId: string; sorting: SourceConceptSorting | null }) {
-  if (!sorting || sorting.columnId !== columnId) {
-    return <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-  }
-  if (sorting.desc) {
-    return <ArrowDown size={10} className="shrink-0 text-primary" />
-  }
-  return <ArrowUp size={10} className="shrink-0 text-primary" />
 }
 
 export function SourceConceptTable({
@@ -513,9 +449,9 @@ export function SourceConceptTable({
             if (local.length > 0) {
               tooltipContent = (
                 <div className="max-w-xs space-y-1.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <SectionLabel as="p" className="font-semibold tracking-wide">
                     {t('concept_mapping.status_tip_mapped')}
-                  </p>
+                  </SectionLabel>
                   {local.map((m) => {
                     const a = (m.reviews ?? []).filter((r) => r.status === 'approved').length
                     const r = (m.reviews ?? []).filter((rv) => rv.status === 'rejected').length
@@ -1040,21 +976,7 @@ export function SourceConceptTable({
                           <SortIndicator columnId={colId} sorting={sorting} />
                         </button>
                       )}
-                      {/* Resize handle */}
-                      {header.column.getCanResize() && (
-                        <div
-                          onMouseDown={header.getResizeHandler()}
-                          onTouchStart={header.getResizeHandler()}
-                          onDoubleClick={() => header.column.resetSize()}
-                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                        >
-                          <div
-                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                            }`}
-                          />
-                        </div>
-                      )}
+                      <ColumnResizeHandle header={header} />
                     </TableHead>
                   )
                 })
@@ -1156,7 +1078,7 @@ export function SourceConceptTable({
               .filter((col) => !col.id.startsWith('_'))
               .map((col) => ({
                 id: col.id,
-                label: getColLabel(columns, col.id),
+                label: columnLabel(columns, col.id),
                 visible: col.getIsVisible(),
               }))}
             onToggle={(id, visible) => table.getColumn(id)?.toggleVisibility(visible)}

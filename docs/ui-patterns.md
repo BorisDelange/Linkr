@@ -149,21 +149,34 @@ mounts a tooltip per cell; they are built on first hover.
 **Server-side pagination is the real dividing line.** `ConceptDataTable` owns
 its sort, filters and paging, and computes them over the whole `data` array. A
 table whose parent drives those through callbacks and answers each one with SQL
-(`manualPagination`) is a different design, not a missing feature — migrating it
-would mean loading the entire vocabulary into memory. `ConceptTable` and
-`CohortConceptPickerDialog` stay hand-rolled for that reason.
+is a different design, not a missing feature — migrating it would mean loading
+the entire vocabulary into memory. Four tables are genuinely in that case:
+`SourceConceptTable`, `ConceptTable`, `CohortConceptPickerDialog` and
+`GlobalSummaryView`'s dedup/flat pair.
+
+**Do not trust the `manual*` flags to tell you which.** `manualSorting` /
+`manualFiltering` / `manualPagination` have been copy-pasted into tables that are
+entirely client-side — `ConceptSetsTab`, `MappingsTab` and `TargetConceptPanel`
+all set them while slicing in JS (`sorted.slice(page * 50, …)`), and
+`GlobalSummaryView` is the inverse: fully SQL-driven with no flags at all. Read
+where the rows come from, not what the options say.
 
 Beyond that, the shared table still lacks column pinning, sticky headers and
 virtualisation. If you need one of those, the rule is **extend the shared
 component**, not fork it — reorder, multi-selection, checkbox headers and view
 persistence all moved in that way.
 
-**Known debt (do not extend, help retire):** roughly ten files still hand-roll a
-table with `useReactTable`, most of them in `features/warehouse/concept-mapping/`.
-`ConceptTable.tsx` carries its own copies of reorder, multi-selection and the
-visibility menu that now all live in the shared component.
-`ConceptPickerDialog` / `CohortConceptPickerDialog` and `PullConceptsDialog` /
-`PullMappingsTable` are near-duplicate pairs — migrate one and the other follows.
+**Known debt (do not extend, help retire):** the client-side hold-outs above are
+migratable in principle, but each is held back by something structural rather
+than by paging — in-cell async-import popovers (`SourceConceptTable`), a
+memoised review-workflow row and a detail view that replaces the table
+(`MappingsTab`), dnd-kit reorder plus affordance columns exempt from
+sort/filter/hide (`ConceptTable`), two row types through one render path
+(`GlobalSummaryView`), and three tables in one component (`TargetConceptPanel`).
+Retiring one means moving that capability into the shared component first.
+
+Their duplicated *pieces*, however, are already shared: see `table-primitives`
+below. Reach for those before writing a header, a sort arrow or a resize grip.
 
 ### Table styling — exact classes
 
@@ -189,7 +202,13 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 | `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter selects all matches. |
 | `ColumnVisibilityMenu` | Column toggling with search + select all/none. `ConceptDataTable` uses it, so you only reach for it directly in a bespoke table. |
 | `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. |
-| `DebouncedInput` | Any search box over a large set (300 ms). |
+| `DebouncedInput` | Any search box over a large set (300 ms). One shared copy at `ui/debounced-input` — do not re-declare it locally. |
+
+**`table-primitives`** holds the parts every table repeats, shared so a bespoke
+table still looks like the others: `FILTER_INPUT_CLASS` (and its `_DENSE`
+variant), `SortIndicator`, `nextSorting` (desc → asc → none), `columnLabel`, and
+`ColumnResizeHandle` / `ResizeGrip` — the latter headless, for the two tables
+that track widths themselves instead of through TanStack.
 
 ---
 

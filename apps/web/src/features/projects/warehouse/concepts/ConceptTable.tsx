@@ -26,9 +26,6 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -36,6 +33,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/components/ui/table-primitives'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -68,10 +66,6 @@ import type {
   ConceptSorting,
   ColumnDescriptor,
 } from './concept-queries'
-
-/** Dashed inline-filter look shared with the concept-mapping tables. */
-const FILTER_INPUT_CLASS =
-  'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
 /** Picker affordances, not data: no sort, no filter, no drag, no hiding. */
 const AFFORDANCE_COLUMNS = new Set(['_select', '_action'])
@@ -171,16 +165,6 @@ function ColumnFilterMulti({
   )
 }
 
-function SortIndicator({ columnId, sorting }: { columnId: string; sorting: ConceptSorting | null }) {
-  if (!sorting || sorting.columnId !== columnId) {
-    return <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-  }
-  if (sorting.desc) {
-    return <ArrowDown size={10} className="shrink-0 text-primary" />
-  }
-  return <ArrowUp size={10} className="shrink-0 text-primary" />
-}
-
 function SortableColumnHeader({
   header,
   sorting,
@@ -230,19 +214,7 @@ function SortableColumnHeader({
           <SortIndicator columnId={columnId} sorting={sorting} />
         </button>
       </div>
-      {/* Resize handle */}
-      <div
-        onMouseDown={header.getResizeHandler()}
-        onTouchStart={header.getResizeHandler()}
-        onDoubleClick={() => header.column.resetSize()}
-        className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-      >
-        <div
-          className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-            header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-          }`}
-        />
-      </div>
+      <ColumnResizeHandle header={header} />
     </TableHead>
   )
 }

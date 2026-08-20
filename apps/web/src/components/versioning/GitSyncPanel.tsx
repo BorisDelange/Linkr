@@ -18,6 +18,7 @@ import {
 import { useGitSyncStore } from '@/stores/git-sync-store'
 import { useAppStore } from '@/stores/app-store'
 import { cn } from '@/lib/utils'
+import { SectionLabel } from '@/components/ui/section-label'
 import { gitFileMeta, groupGitFiles } from '@/lib/git-file-meta'
 import { buildQuickActions, type QuickAction } from '@/lib/git-quick-actions'
 import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
@@ -411,9 +412,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
                 <div key={group.category}>
                   {/* Category header — helps a non-developer see what kind of
                       content each file is (General, Datasets, Dashboards, …). */}
-                  <div className="sticky top-0 z-10 bg-muted/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                  <SectionLabel className="sticky top-0 z-10 bg-muted/60 px-3 py-1 font-semibold tracking-wide backdrop-blur">
                     {t(`versioning.file_cat_${group.category}`)}
-                  </div>
+                  </SectionLabel>
                   <ul className="divide-y">
                     {group.files.map((f) => (
                       <GitFileRow
@@ -557,7 +558,7 @@ function QuickActionCard({
             <p className="text-[11px] italic text-muted-foreground/70">{t('versioning.quick_nothing')}</p>
           ) : (
             <>
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">{t('versioning.quick_will_push')}</p>
+              <SectionLabel as="p" className="tracking-wide text-muted-foreground/70">{t('versioning.quick_will_push')}</SectionLabel>
               {/* Long change lists scroll inside the card so the widgets never
                   outgrow the dialog. */}
               <ul className="mt-1 max-h-48 space-y-0.5 overflow-y-auto">

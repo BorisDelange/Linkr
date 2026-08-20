@@ -12,6 +12,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useGitSyncStore } from '@/stores/git-sync-store'
 import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
 import { monacoLanguageFor } from '@/lib/monaco-language'
+import { SectionLabel } from '@/components/ui/section-label'
 import { groupGitFiles } from '@/lib/git-file-meta'
 import { ChangeBadge } from './ChangeBadge'
 import { DiffTooLargeNotice } from './DiffTooLargeNotice'
@@ -84,9 +85,9 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
                 <TooltipProvider delayDuration={300}>
                   {groupGitFiles(scope, files, (f) => f.path).map((group) => (
                     <div key={group.category}>
-                      <div className="sticky top-0 z-10 bg-muted/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                      <SectionLabel className="sticky top-0 z-10 bg-muted/60 px-3 py-1 font-semibold tracking-wide backdrop-blur">
                         {t(`versioning.file_cat_${group.category}`)}
-                      </div>
+                      </SectionLabel>
                       <ul className="p-1">
                         {group.files.map((f) => {
                           const active = f.path === path

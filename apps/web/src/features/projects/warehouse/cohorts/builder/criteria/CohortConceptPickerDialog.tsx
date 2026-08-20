@@ -49,15 +49,12 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table'
 import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
   ChevronLeft,
   ChevronRight,
   Settings2,
 } from 'lucide-react'
+import { SortIndicator } from '@/components/ui/table-primitives'
 import { useConcepts, type ConceptRow } from '../../../concepts/use-concepts'
-import type { ConceptSorting } from '../../../concepts/concept-queries'
 import type { SchemaMapping } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -82,16 +79,6 @@ function columnLabel(id: string): string {
     .replace(/^_/, '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function SortIndicator({ columnId, sorting }: { columnId: string; sorting: ConceptSorting | null }) {
-  if (!sorting || sorting.columnId !== columnId) {
-    return <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-  }
-  if (sorting.desc) {
-    return <ArrowDown size={10} className="shrink-0 text-primary" />
-  }
-  return <ArrowUp size={10} className="shrink-0 text-primary" />
 }
 
 function ColumnFilterSelect({

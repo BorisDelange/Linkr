@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
+import { SectionLabel } from '@/components/ui/section-label'
 import { getBadgeClasses, getBadgeStyle } from '@/lib/badge-colors'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -121,9 +122,9 @@ export function BadgeEditor({ value, onChange, suggestions = [], label }: BadgeE
 
       {available.length > 0 && (
         <div className="rounded-md border border-dashed bg-muted/20 p-2">
-          <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+          <SectionLabel as="p" className="mb-1.5 font-normal tracking-wide">
             {t('concept_mapping.badge_suggestions')}
-          </p>
+          </SectionLabel>
           <div className="flex flex-wrap gap-1.5">
             {available.map((badge) => (
               <button

@@ -10,7 +10,7 @@ import {
 import {
   Check, Flag, X, MessageSquare, EyeOff,
   Pencil, Trash2, Square, CheckSquare,
-  Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
+  Settings2, Users, Filter,
   Upload, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown,
   FileJson, FolderInput, Search,
 } from 'lucide-react'
@@ -30,6 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { clampPage, pageCountOf } from '@/components/ui/concept-data-table'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -69,6 +70,7 @@ import {
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
 import { Card } from '@/components/ui/card'
+import { SectionLabel } from '@/components/ui/section-label'
 import { SectionRenderer, extractSections, extractTextFields } from './components/ConceptDetailView'
 import { useRequireIdentity } from './components/IdentityRequiredDialog'
 import { useConceptMappingStore, type ExternalMappingInfo } from '@/stores/concept-mapping-store'
@@ -110,19 +112,6 @@ const STATUS_BADGE: Record<EffectiveMappingStatus, string> = {
 // ─── Equivalence badge styling ────────────────────────────────────────
 // (defined in @/lib/concept-mapping/equivalence-badge, imported above)
 
-/** Get human-readable label for a TanStack column def. */
-function getColLabel(colDefs: ColumnDef<ConceptMapping>[], id: string): string {
-  const def = colDefs.find((c) => 'id' in c && c.id === id)
-  if (def) {
-    if (typeof def.header === 'function') {
-      const result = (def.header as () => unknown)()
-      if (typeof result === 'string') return result
-    }
-    if (typeof def.header === 'string') return def.header
-  }
-  return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
 /** Column filter state for MappingsTab. Multi-select dropdowns use arrays — empty/undefined = no filter. */
 interface MappingColumnFilters {
   sourceConceptId?: string
@@ -142,8 +131,6 @@ interface MappingColumnFilters {
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 const FILTER_STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
-
-const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
 /** Sheet showing all comments for a single mapping, with add/edit/delete. */
 function CommentsSheet({ mappingId, open, onOpenChange }: {
@@ -633,9 +620,9 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
       <div className="grid min-h-0 flex-1 grid-cols-2 divide-x overflow-hidden">
         {/* Left: Source concept */}
         <div className="overflow-auto p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <SectionLabel as="h3" className="mb-3 text-xs font-semibold tracking-wide">
             {t('concept_mapping.detail_source')}
-          </h3>
+          </SectionLabel>
           <Card className="p-3">
             <table className="w-full text-xs">
               <tbody>
@@ -655,9 +642,9 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
 
           {/* Source concept statistics (from info_json) */}
           <div className="mt-4">
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <SectionLabel as="h4" className="mb-2 text-xs font-semibold tracking-wide">
               {t('concept_mapping.detail_statistics')}
-            </h4>
+            </SectionLabel>
             {sourceDetail.infoJson === undefined ? (
               /* Still loading */
               <Card className="p-3">
@@ -707,9 +694,9 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
 
         {/* Right: Target concept */}
         <div className="overflow-auto p-4">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <SectionLabel as="h3" className="mb-3 text-xs font-semibold tracking-wide">
             {t('concept_mapping.detail_target')}
-          </h3>
+          </SectionLabel>
           <Card className="p-3">
             {mapping.status === 'ignored' || (mapping.targetConceptId === 0 && !mapping.targetConceptName) ? (
               <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
@@ -736,9 +723,9 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
 
           {/* Mapping metadata */}
           <div className="mt-4">
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <SectionLabel as="h4" className="mb-2 text-xs font-semibold tracking-wide">
               {t('concept_mapping.detail_metadata')}
-            </h4>
+            </SectionLabel>
             <Card className="p-3">
               <table className="w-full text-xs">
                 <tbody>
@@ -774,9 +761,9 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
           {/* Comments */}
           {(mapping.comments ?? []).length > 0 && (
             <div className="mt-4">
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <SectionLabel as="h4" className="mb-2 text-xs font-semibold tracking-wide">
                 {t('concept_mapping.comments')} ({(mapping.comments ?? []).length})
-              </h4>
+              </SectionLabel>
               <div className="space-y-1.5">
                 {(mapping.comments ?? []).map((c) => (
                   <div key={c.id} className="rounded-lg border bg-muted/30 px-3 py-2">
@@ -794,9 +781,9 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
           {/* Reviews */}
           {(mapping.reviews ?? []).length > 0 && (
             <div className="mt-4">
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <SectionLabel as="h4" className="mb-2 text-xs font-semibold tracking-wide">
                 {t('concept_mapping.reviews_title')} ({(mapping.reviews ?? []).length})
-              </h4>
+              </SectionLabel>
               <div className="space-y-1.5">
                 {(mapping.reviews ?? []).map((r) => (
                   <div key={r.id} className="rounded-lg border bg-muted/30 px-3 py-2">
@@ -3059,11 +3046,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                 headerGroup.headers.map((header) => {
                   const colId = header.column.id
                   const isSortable = colId !== '_select' && colId !== '_review'
-                  const sortIcon = !sorting || sorting.columnId !== colId
-                    ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                    : sorting.desc
-                      ? <ArrowDown size={10} className="shrink-0 text-primary" />
-                      : <ArrowUp size={10} className="shrink-0 text-primary" />
                   return (
                     <TableHead
                       key={header.id}
@@ -3079,28 +3061,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                           <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                             {flexRender(header.column.columnDef.header, header.getContext())}
                           </TruncatedHeader>
-                          {sortIcon}
+                          <SortIndicator columnId={colId} sorting={sorting} />
                         </button>
                       ) : (
                         <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                           {flexRender(header.column.columnDef.header, header.getContext())}
                         </TruncatedHeader>
                       )}
-                      {/* Resize handle */}
-                      {header.column.getCanResize() && (
-                        <div
-                          onMouseDown={header.getResizeHandler()}
-                          onTouchStart={header.getResizeHandler()}
-                          onDoubleClick={() => header.column.resetSize()}
-                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                        >
-                          <div
-                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                            }`}
-                          />
-                        </div>
-                      )}
+                      <ColumnResizeHandle header={header} />
                     </TableHead>
                   )
                 })
@@ -3191,7 +3159,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                     onSelect={(e) => e.preventDefault()}
                     className="text-xs"
                   >
-                    {getColLabel(columns, col.id)}
+                    {columnLabel(columns, col.id)}
                   </DropdownMenuCheckboxItem>
                 ))}
             </DropdownMenuContent>

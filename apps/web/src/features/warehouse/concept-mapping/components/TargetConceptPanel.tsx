@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info, Sparkles, Upload, Trash2 } from 'lucide-react'
+import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, EyeOff, Info, Sparkles, Upload, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
@@ -61,7 +61,9 @@ import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-q
 import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, FILTER_INPUT_CLASS_DENSE, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SectionLabel } from '@/components/ui/section-label'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { EQUIV_BADGE, normalizeEquivalence } from '@/lib/concept-mapping/equivalence-badge'
@@ -957,8 +959,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     }
   }
 
-  const FILTER_INPUT_CLASS = 'h-5 w-full rounded border border-dashed bg-transparent px-1 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
-
   const CS_FILTER_TRIGGER = 'h-5 w-full rounded border border-dashed bg-transparent px-1 text-left text-[10px] outline-none truncate focus:border-primary'
 
   const renderCsFilter = (columnId: string) => {
@@ -972,8 +972,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     if (columnId === 'subcategory' && csSubcategoryOptions.length > 0) return (
       <ResolvedMultiSelect options={csSubcategoryOptions} selected={csFilterSubcategory} onChange={setCsFilterSubcategory} triggerClass={CS_FILTER_TRIGGER} />
     )
-    if (columnId === 'name') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={csFilterName} onChange={(e) => setCsFilterName(e.target.value)} />
-    if (columnId === 'version') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={csFilterVersion} onChange={(e) => setCsFilterVersion(e.target.value)} />
+    if (columnId === 'name') return <input className={FILTER_INPUT_CLASS_DENSE} placeholder="..." value={csFilterName} onChange={(e) => setCsFilterName(e.target.value)} />
+    if (columnId === 'version') return <input className={FILTER_INPUT_CLASS_DENSE} placeholder="..." value={csFilterVersion} onChange={(e) => setCsFilterVersion(e.target.value)} />
     if (columnId === 'provenance' && csProvenanceOptions.length > 0) return (
       <ColumnFilterSelect value={csFilterProvenance || null} options={csProvenanceOptions} placeholder="..." onChange={(v) => setCsFilterProvenance(v ?? '')} triggerClass={CS_FILTER_TRIGGER} />
     )
@@ -1056,16 +1056,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       enableResizing: false,
     },
   ], [t])
-
-  /** Get the human-readable label of a column, for the column-visibility menus. */
-  const getColLabelFrom = <R,>(cols: ColumnDef<R>[], id: string): string => {
-    const def = cols.find((c) => 'id' in c && c.id === id)
-    if (def && typeof def.header === 'function') {
-      const result = (def.header as () => unknown)()
-      if (typeof result === 'string') return result
-    }
-    return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-  }
 
   const csTable = useReactTable({
     data: csFullPageItems,
@@ -1220,28 +1210,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                           <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                             {flexRender(header.column.columnDef.header, header.getContext())}
                           </TruncatedHeader>
-                          {!csSorting || csSorting.columnId !== colId
-                            ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                            : csSorting.desc
-                              ? <ArrowDown size={10} className="shrink-0 text-primary" />
-                              : <ArrowUp size={10} className="shrink-0 text-primary" />}
+                          <SortIndicator columnId={colId} sorting={csSorting} />
                         </button>
                       )}
-                      {/* Resize handle */}
-                      {header.column.getCanResize() && (
-                        <div
-                          onMouseDown={header.getResizeHandler()}
-                          onTouchStart={header.getResizeHandler()}
-                          onDoubleClick={() => header.column.resetSize()}
-                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                        >
-                          <div
-                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                            }`}
-                          />
-                        </div>
-                      )}
+                      <ColumnResizeHandle header={header} />
                     </TableHead>
                   )
                 })
@@ -1344,7 +1316,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                     onSelect={(e) => e.preventDefault()}
                     className="text-xs"
                   >
-                    {getColLabelFrom(csColumns, col.id)}
+                    {columnLabel(csColumns, col.id)}
                   </DropdownMenuCheckboxItem>
                 ))}
             </DropdownMenuContent>
@@ -1419,11 +1391,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                       hg.headers.map((header) => {
                         const colId = header.column.id
                         const isSortable = colId !== '_check'
-                        const sortIcon = !resolvedSorting || resolvedSorting.columnId !== colId
-                          ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                          : resolvedSorting.desc
-                            ? <ArrowDown size={10} className="shrink-0 text-primary" />
-                            : <ArrowUp size={10} className="shrink-0 text-primary" />
                         return (
                           <TableHead
                             key={header.id}
@@ -1439,27 +1406,14 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                                 <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                                   {flexRender(header.column.columnDef.header, header.getContext())}
                                 </TruncatedHeader>
-                                {sortIcon}
+                                <SortIndicator columnId={colId} sorting={resolvedSorting} />
                               </button>
                             ) : (
                               <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                                 {flexRender(header.column.columnDef.header, header.getContext())}
                               </TruncatedHeader>
                             )}
-                            {header.column.getCanResize() && (
-                              <div
-                                onMouseDown={header.getResizeHandler()}
-                                onTouchStart={header.getResizeHandler()}
-                                onDoubleClick={() => header.column.resetSize()}
-                                className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                              >
-                                <div
-                                  className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                                    header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                                  }`}
-                                />
-                              </div>
-                            )}
+                            <ColumnResizeHandle header={header} />
                           </TableHead>
                         )
                       })
@@ -1567,7 +1521,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                   onSelect={(e) => e.preventDefault()}
                   className="text-xs"
                 >
-                  {getColLabelFrom(resolvedColumns, col.id)}
+                  {columnLabel(resolvedColumns, col.id)}
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
@@ -1629,7 +1583,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     setSearchPage(0)
   }
 
-  const SEARCH_FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
   // Compute distinct values for inline column filters from search results
   const searchResultFilterOptions = useMemo(() => {
@@ -1644,22 +1597,22 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   const renderSearchColumnFilter = (columnId: string) => {
     if (columnId === 'vocabulary_id' && searchResultFilterOptions.vocabulary_id.length > 0) {
-      return <ResolvedMultiSelect options={searchResultFilterOptions.vocabulary_id} selected={searchColFilters.vocabulary_id} onChange={(v) => updateSearchFilter('vocabulary_id', v)} triggerClass={SEARCH_FILTER_INPUT_CLASS} />
+      return <ResolvedMultiSelect options={searchResultFilterOptions.vocabulary_id} selected={searchColFilters.vocabulary_id} onChange={(v) => updateSearchFilter('vocabulary_id', v)} triggerClass={FILTER_INPUT_CLASS} />
     }
     if (columnId === 'concept_id') {
-      return <input className={`${SEARCH_FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={searchColFilters.concept_id ?? ''} onChange={(e) => updateSearchFilter('concept_id', e.target.value || null)} />
+      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={searchColFilters.concept_id ?? ''} onChange={(e) => updateSearchFilter('concept_id', e.target.value || null)} />
     }
     if (columnId === 'concept_name') {
-      return <input className={SEARCH_FILTER_INPUT_CLASS} placeholder="..." value={searchColFilters.concept_name ?? ''} onChange={(e) => updateSearchFilter('concept_name', e.target.value || null)} />
+      return <input className={FILTER_INPUT_CLASS} placeholder="..." value={searchColFilters.concept_name ?? ''} onChange={(e) => updateSearchFilter('concept_name', e.target.value || null)} />
     }
     if (columnId === 'concept_code') {
-      return <input className={`${SEARCH_FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={searchColFilters.concept_code ?? ''} onChange={(e) => updateSearchFilter('concept_code', e.target.value || null)} />
+      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={searchColFilters.concept_code ?? ''} onChange={(e) => updateSearchFilter('concept_code', e.target.value || null)} />
     }
     if (columnId === 'domain_id' && searchResultFilterOptions.domain_id.length > 0) {
-      return <ResolvedMultiSelect options={searchResultFilterOptions.domain_id} selected={searchColFilters.domain_id} onChange={(v) => updateSearchFilter('domain_id', v)} triggerClass={SEARCH_FILTER_INPUT_CLASS} />
+      return <ResolvedMultiSelect options={searchResultFilterOptions.domain_id} selected={searchColFilters.domain_id} onChange={(v) => updateSearchFilter('domain_id', v)} triggerClass={FILTER_INPUT_CLASS} />
     }
     if (columnId === 'concept_class_id' && searchResultFilterOptions.concept_class_id.length > 0) {
-      return <ResolvedMultiSelect options={searchResultFilterOptions.concept_class_id} selected={searchColFilters.concept_class_id} onChange={(v) => updateSearchFilter('concept_class_id', v)} triggerClass={SEARCH_FILTER_INPUT_CLASS} />
+      return <ResolvedMultiSelect options={searchResultFilterOptions.concept_class_id} selected={searchColFilters.concept_class_id} onChange={(v) => updateSearchFilter('concept_class_id', v)} triggerClass={FILTER_INPUT_CLASS} />
     }
     if (columnId === 'standard_concept') {
       return (
@@ -2226,11 +2179,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                   hg.headers.map((header) => {
                     const colId = header.column.id
                     const isSortable = colId !== '_check'
-                    const sortIcon = !searchSorting || searchSorting.columnId !== colId
-                      ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                      : searchSorting.desc
-                        ? <ArrowDown size={10} className="shrink-0 text-primary" />
-                        : <ArrowUp size={10} className="shrink-0 text-primary" />
                     return (
                     <TableHead
                       key={header.id}
@@ -2246,27 +2194,14 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                           <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                             {flexRender(header.column.columnDef.header, header.getContext())}
                           </TruncatedHeader>
-                          {sortIcon}
+                          <SortIndicator columnId={colId} sorting={searchSorting} />
                         </button>
                       ) : (
                         <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                           {flexRender(header.column.columnDef.header, header.getContext())}
                         </TruncatedHeader>
                       )}
-                      {header.column.getCanResize() && (
-                        <div
-                          onMouseDown={header.getResizeHandler()}
-                          onTouchStart={header.getResizeHandler()}
-                          onDoubleClick={() => header.column.resetSize()}
-                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                        >
-                          <div
-                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                            }`}
-                          />
-                        </div>
-                      )}
+                      <ColumnResizeHandle header={header} />
                     </TableHead>
                     )
                   })
@@ -2409,7 +2344,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         </DialogHeader>
         <div className="p-4">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('concept_mapping.suggestions_weights_section')}</p>
+            <SectionLabel as="p" className="tracking-wide">{t('concept_mapping.suggestions_weights_section')}</SectionLabel>
             {ALL_PROVIDERS.some((p) => weights[p] !== DEFAULT_WEIGHTS[p]) && (
               <button
                 type="button"

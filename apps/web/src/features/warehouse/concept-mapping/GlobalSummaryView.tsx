@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Loader2, Download, FileCode, FileText, Search, SlidersHorizontal, X } from 'lucide-react'
+import { ArrowLeft, LayoutGrid, Settings2, ChevronLeft, ChevronRight, Loader2, Download, FileCode, FileText, Search, SlidersHorizontal, X } from 'lucide-react'
 import {
   flexRender,
   getCoreRowModel,
@@ -38,6 +38,7 @@ import { Input } from '@/components/ui/input'
 import { MultiSelectFilter as SharedMultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { DebouncedInput } from '@/components/ui/debounced-input'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/components/ui/table-primitives'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import {
   Table,
@@ -138,8 +139,6 @@ function serializeGlobalFilters(f: GlobalTableFilters): Record<string, unknown> 
     equivalence: f.equivalence ? [...f.equivalence] : undefined,
   }
 }
-const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
-
 interface GroupStat {
   totalMappings: number
   /** Unique source concepts (by sourceConceptCode or sourceConceptId) */
@@ -1658,6 +1657,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   columns={groupColumns}
                   rowKey={(r) => r.key}
                   viewKey={GROUP_TABLE_VIEW_KEY}
+                  cellTooltips="all"
                 />
               </Card>
             </div>
@@ -1764,33 +1764,15 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   {activeTable.getHeaderGroups().map((hg) =>
                     hg.headers.map((header) => {
                       const colId = header.column.id
-                      const sortIcon = !sorting || sorting.columnId !== colId
-                        ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                        : sorting.desc
-                          ? <ArrowDown size={10} className="shrink-0 text-primary" />
-                          : <ArrowUp size={10} className="shrink-0 text-primary" />
                       return (
                         <TableHead key={header.id} className="relative select-none overflow-hidden text-xs" style={{ width: header.getSize(), maxWidth: header.getSize() }}>
                           <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground" onClick={() => handleSort(colId)}>
                             <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                               {flexRender(header.column.columnDef.header, header.getContext())}
                             </TruncatedHeader>
-                            {sortIcon}
+                            <SortIndicator columnId={colId} sorting={sorting} />
                           </button>
-                          {header.column.getCanResize() && (
-                            <div
-                              onMouseDown={header.getResizeHandler()}
-                              onTouchStart={header.getResizeHandler()}
-                              onDoubleClick={() => header.column.resetSize()}
-                              className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                            >
-                              <div
-                                className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                                  header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                                }`}
-                              />
-                            </div>
-                          )}
+                          <ColumnResizeHandle header={header} />
                         </TableHead>
                       )
                     })

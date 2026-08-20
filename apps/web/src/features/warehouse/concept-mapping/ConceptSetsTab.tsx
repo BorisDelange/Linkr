@@ -10,7 +10,7 @@ import {
 import {
   Plus, BookOpen, Trash2, RefreshCw, Upload, Search, Loader2,
   Info, Check, CheckCheck, X, History, FolderOpen, CheckCircle2, ChevronLeft, ChevronRight, Pencil, SquareX,
-  ArrowUpDown, ArrowUp, ArrowDown, Settings2, SlidersHorizontal,
+  Settings2, SlidersHorizontal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -60,6 +60,7 @@ import {
 } from '@/components/ui/collapsible'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -112,8 +113,6 @@ const BROWSE_PAGE_SIZE = 25
 /** Rows fetched per search, mirroring the target search's own cap. */
 const BROWSE_MAX_RESULTS = 1000
 
-const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
-
 // Text columns get the shared truncating cell (hover tooltip, copyable); the
 // badge column renders itself. Same split as TargetConceptPanel.
 const BROWSE_TOOLTIP_COLUMNS = new Set(['vocabulary_id', 'concept_id', 'concept_name', 'concept_code', 'domain_id', 'concept_class_id'])
@@ -122,16 +121,6 @@ const BROWSE_MONO_COLUMNS = new Set(['concept_id', 'concept_code'])
 interface CsSorting {
   columnId: string
   desc: boolean
-}
-
-function SortIndicator({ columnId, sorting }: { columnId: string; sorting: CsSorting | null }) {
-  if (!sorting || sorting.columnId !== columnId) {
-    return <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-  }
-  if (sorting.desc) {
-    return <ArrowDown size={10} className="shrink-0 text-primary" />
-  }
-  return <ArrowUp size={10} className="shrink-0 text-primary" />
 }
 
 /** Translated row for the concept sets table. */
@@ -607,16 +596,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
 
     return cols
   }, [t, selectionMode, selectedIds, toggleSelection])
-
-  /** Get human-readable label for a column def. */
-  const getCsColLabel = (id: string): string => {
-    const def = csColumns.find((c) => 'id' in c && c.id === id)
-    if (def && typeof def.header === 'function') {
-      const result = (def.header as () => unknown)()
-      if (typeof result === 'string') return result
-    }
-    return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-  }
 
   const csTable = useReactTable({
     data: csPageItems,
@@ -1138,16 +1117,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     pageCount: browseTotalPages,
   })
 
-  /** Human-readable label for a TanStack column. */
-  const getBrowseColLabel = (id: string): string => {
-    const col = browseColumns.find((c) => 'id' in c && c.id === id)
-    if (col && typeof col.header === 'function') {
-      const r = (col.header as () => unknown)()
-      if (typeof r === 'string') return r
-    }
-    return id
-  }
-
   const importBatches = project.importBatches ?? []
 
   return (
@@ -1326,21 +1295,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                                     <SortIndicator columnId={colId} sorting={csSorting} />
                                   </button>
                                 )}
-                                {/* Resize handle */}
-                                {header.column.getCanResize() && (
-                                  <div
-                                    onMouseDown={header.getResizeHandler()}
-                                    onTouchStart={header.getResizeHandler()}
-                                    onDoubleClick={() => header.column.resetSize()}
-                                    className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                                  >
-                                    <div
-                                      className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                                        header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                                      }`}
-                                    />
-                                  </div>
-                                )}
+                                <ColumnResizeHandle header={header} />
                               </TableHead>
                             )
                           })
@@ -1422,7 +1377,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                               onSelect={(e) => e.preventDefault()}
                               className="text-xs"
                             >
-                              {getCsColLabel(col.id)}
+                              {columnLabel(csColumns, col.id)}
                             </DropdownMenuCheckboxItem>
                           ))}
                       </DropdownMenuContent>
@@ -1656,11 +1611,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                               {browseTable.getHeaderGroups().map((hg) =>
                                 hg.headers.map((header) => {
                                   const colId = header.column.id
-                                  const sortIcon = !browseSorting || browseSorting.columnId !== colId
-                                    ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                                    : browseSorting.desc
-                                      ? <ArrowDown size={10} className="shrink-0 text-primary" />
-                                      : <ArrowUp size={10} className="shrink-0 text-primary" />
                                   return (
                                     <TableHead
                                       key={header.id}
@@ -1675,22 +1625,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                                         <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
                                           {flexRender(header.column.columnDef.header, header.getContext())}
                                         </TruncatedHeader>
-                                        {sortIcon}
+                                        <SortIndicator columnId={colId} sorting={browseSorting} />
                                       </button>
-                                      {header.column.getCanResize() && (
-                                        <div
-                                          onMouseDown={header.getResizeHandler()}
-                                          onTouchStart={header.getResizeHandler()}
-                                          onDoubleClick={() => header.column.resetSize()}
-                                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                                        >
-                                          <div
-                                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                                            }`}
-                                          />
-                                        </div>
-                                      )}
+                                      <ColumnResizeHandle header={header} />
                                     </TableHead>
                                   )
                                 })
@@ -1770,7 +1707,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                                 onSelect={(e) => e.preventDefault()}
                                 className="text-xs"
                               >
-                                {getBrowseColLabel(col.id)}
+                                {columnLabel(browseColumns, col.id)}
                               </DropdownMenuCheckboxItem>
                             ))}
                           </DropdownMenuContent>

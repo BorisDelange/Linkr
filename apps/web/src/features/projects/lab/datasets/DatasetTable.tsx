@@ -41,6 +41,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
+import { ResizeGrip } from '@/components/ui/table-primitives'
 import { TypeBadge } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { useColumnDistinct } from './use-column-distinct'
@@ -492,21 +493,11 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                    {/* Resize handle */}
-                    <div
-                      onMouseDown={(e) => handleResizeStart(col.id, e)}
-                      onTouchStart={(e) => handleResizeStart(col.id, e)}
-                      onDoubleClick={() => resetColWidth(col.id)}
-                      className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                    >
-                      <div
-                        className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                          resizing?.colId === col.id
-                            ? 'bg-primary'
-                            : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                        }`}
-                      />
-                    </div>
+                    <ResizeGrip
+                      onStart={(e) => handleResizeStart(col.id, e)}
+                      onReset={() => resetColWidth(col.id)}
+                      active={resizing?.colId === col.id}
+                    />
                   </th>
                   </ContextMenuTrigger>
                   <ContextMenuContent className="w-[200px]">

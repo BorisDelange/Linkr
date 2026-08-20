@@ -25,9 +25,11 @@ import {
   horizontalListSortingStrategy,
   useSortable,
 } from '@dnd-kit/sortable'
-import { ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
+import { ChevronLeft, ChevronRight, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
+import { DebouncedInput } from '@/components/ui/debounced-input'
+import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/components/ui/table-primitives'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import {
@@ -84,23 +86,6 @@ export function nextSelection(
     return { selection: next, anchor: key }
   }
   return { selection: new Set([key]), anchor: key }
-}
-
-const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
-
-function DebouncedInput({ value: ext, onChange, className, placeholder }: {
-  value: string; onChange: (v: string) => void; className?: string; placeholder?: string
-}) {
-  const [local, setLocal] = useState(ext)
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  useEffect(() => { setLocal(ext) }, [ext])
-  const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocal(e.target.value)
-    clearTimeout(timer.current)
-    timer.current = setTimeout(() => onChange(e.target.value), 300)
-  }
-  useEffect(() => () => clearTimeout(timer.current), [])
-  return <input className={className} placeholder={placeholder} value={local} onChange={handle} />
 }
 
 /** Cell text with an instant tooltip shown only when the content is truncated. */
@@ -531,25 +516,12 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                   ) : canSort ? (
                     <button type="button" className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground" onClick={() => handleSort(colId)}>
                       {label}
-                      {!sorting || sorting.columnId !== colId
-                        ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
-                        : sorting.desc
-                          ? <ArrowDown size={10} className="shrink-0 text-primary" />
-                          : <ArrowUp size={10} className="shrink-0 text-primary" />}
+                      <SortIndicator columnId={colId} sorting={sorting} />
                     </button>
                   ) : (
                     <div className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2">{label}</div>
                   )
-                  const resizeHandle = header.column.getCanResize() && (
-                    <div
-                      onMouseDown={header.getResizeHandler()}
-                      onTouchStart={header.getResizeHandler()}
-                      onDoubleClick={() => header.column.resetSize()}
-                      className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                    >
-                      <div className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'}`} />
-                    </div>
-                  )
+                  const resizeHandle = <ColumnResizeHandle header={header} />
                   return reorderable ? (
                     <SortableHead key={header.id} header={header} isDropTarget={overColumnId === colId}>
                       {content}

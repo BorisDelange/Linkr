@@ -23,6 +23,7 @@ import {
   type ConceptColumn,
 } from '@/components/ui/concept-data-table'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import { getStorage } from '@/lib/storage'
 import * as duckdbEngine from '@/lib/duckdb/engine'
@@ -403,9 +404,9 @@ function TableCountList({ counts }: { counts: TableRowCount[] }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2">
-        <h4 className="shrink-0 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        <SectionLabel as="h4" className="shrink-0">
           {t('etl.sidebar_tables')} ({shown.length === counts.length ? counts.length : `${shown.length}/${counts.length}`})
-        </h4>
+        </SectionLabel>
         <SearchInput
           value={search}
           onChange={setSearch}
@@ -717,6 +718,7 @@ function ConceptQualityView({
     <div className="flex h-full min-w-0 flex-col">
       <div className="min-h-0 min-w-0 flex-1">
         <ConceptDataTable
+          cellTooltips="all"
           data={shown}
           columns={columns}
           rowKey={(r) => `${r.sourceVocabularyId}|${r.sourceCode}|${r.targetConceptId}`}

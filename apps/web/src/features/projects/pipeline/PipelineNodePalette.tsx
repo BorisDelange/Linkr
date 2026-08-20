@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Database, Code, UsersRound, Table2, LayoutDashboard, Group } from 'lucide-react'
+import { SectionLabel } from '@/components/ui/section-label'
 import type { PipelineNodeType } from '@/types'
 
 interface PaletteItem {
@@ -107,9 +108,9 @@ export function PipelineNodePalette({ onAddNode, canWrite = true }: PipelineNode
 
   return (
     <div className="w-56 shrink-0 border-r border-border bg-card/80 p-3 overflow-auto">
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <SectionLabel as="h3" className="mb-2 font-semibold">
         {t('pipeline.palette_title')}
-      </h3>
+      </SectionLabel>
       <div className="space-y-1.5">
         {paletteItems.map((item) => (
           <PaletteItemRow
