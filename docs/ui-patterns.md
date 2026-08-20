@@ -108,15 +108,21 @@ a three-column table. `ConceptColumn` also supports `cell` (custom renderer),
 **Do not hand-roll a `useReactTable`** to get sorting or resizing. 14 files do
 today; the resize handle alone is copy-pasted verbatim in 11 of them.
 
+Multi-selection is opt-in too — pass `selectedRowKeys` + `onSelectedRowKeysChange`
+for file-explorer behaviour (plain click replaces, Ctrl/Cmd toggles, Shift
+extends from the anchor). Ranges follow the *filtered, sorted* order, so a
+Shift-click selects what the user sees. The maths is `nextSelection()`, unit
+tested in `concept-data-table.test.ts`.
+
 ### When a bespoke table is still legitimate
 
-`ConceptDataTable` does not (yet) cover: multi-row selection, column pinning,
-server-side pagination, sticky headers, virtualisation. If you need one of
-those, the rule is **extend the shared component**, not fork it — column reorder
-already moved in that way.
+`ConceptDataTable` does not (yet) cover: column pinning, server-side pagination,
+sticky headers, virtualisation. If you need one of those, the rule is **extend
+the shared component**, not fork it — reorder and multi-selection both moved in
+that way.
 
-**Known debt (do not extend, help retire):** multi-selection and the richer
-`ColumnVisibilityMenu` still belong in `ConceptDataTable`;
+**Known debt (do not extend, help retire):** the richer `ColumnVisibilityMenu`
+(search + select all/none) still belongs in `ConceptDataTable`;
 `ConceptTable.tsx` should then consume it rather than carry its own copy.
 `RelationsTable.tsx` is the *ancestor* `ConceptDataTable` was generalized from
 and was never migrated back to its own descendant. `ResultsTable.tsx` (72 lines)

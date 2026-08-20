@@ -60,6 +60,40 @@ export function clampPage(page: number, pageCount: number): number {
   return Math.min(Math.max(0, page), Math.max(0, pageCount - 1))
 }
 
+export type RowKey = string | number
+
+/**
+ * File-explorer selection maths: plain click replaces, Ctrl/Cmd toggles one,
+ * Shift extends from the anchor (and keeps the existing set when combined with
+ * Ctrl/Cmd). `order` is the filtered, sorted key list — ranges must follow what
+ * the user sees, not the underlying data order.
+ */
+export function nextSelection(
+  current: Set<RowKey>,
+  key: RowKey,
+  order: RowKey[],
+  mods: { toggle: boolean; range: boolean },
+  anchor: RowKey | null,
+): { selection: Set<RowKey>; anchor: RowKey | null } {
+  if (mods.range && anchor != null) {
+    const from = order.indexOf(anchor)
+    const to = order.indexOf(key)
+    if (from !== -1 && to !== -1) {
+      const [lo, hi] = from <= to ? [from, to] : [to, from]
+      const next = mods.toggle ? new Set(current) : new Set<RowKey>()
+      for (const k of order.slice(lo, hi + 1)) next.add(k)
+      return { selection: next, anchor }
+    }
+  }
+  if (mods.toggle) {
+    const next = new Set(current)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return { selection: next, anchor: key }
+  }
+  return { selection: new Set([key]), anchor: key }
+}
+
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
 function DebouncedInput({ value: ext, onChange, className, placeholder }: {
@@ -146,6 +180,14 @@ interface ConceptDataTableProps<T> {
    * it adds a grip to every header, which is noise on a table of three columns.
    */
   reorderable?: boolean
+  /**
+   * File-explorer multi-selection: plain click replaces the selection,
+   * Ctrl/Cmd toggles one row, Shift extends from the last plain click.
+   * Pass both to enable it; `onRowClick` still fires for the row that was hit,
+   * so a table can drive a detail panel and a selection at the same time.
+   */
+  selectedRowKeys?: Set<string | number>
+  onSelectedRowKeysChange?: (keys: Set<string | number>) => void
 }
 
 /** Header cell for a reorderable table: adds the drag grip and drop indicator. */
@@ -186,8 +228,10 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting, reorderable }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange }: ConceptDataTableProps<T>) {
   const { t } = useTranslation()
+  /** Where a Shift-range starts: the last row clicked without Shift. */
+  const selectionAnchor = useRef<string | number | null>(null)
   const [sorting, setSorting] = useState<Sorting>(initialSorting ?? null)
   const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>({})
   const [page, setPage] = useState(0)
@@ -260,6 +304,23 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
   // Clamped, not reset to 0: narrowing a filter should not throw away the user's
   // position when the page they are on still exists.
   const safePage = clampPage(page, pageCount)
+  /**
+   * Ranges run over the filtered, sorted rows rather than the raw data, so
+   * Shift-click selects what the user actually sees between the two clicks.
+   */
+  const handleSelectClick = (row: T, e: React.MouseEvent) => {
+    if (!selectedRowKeys || !onSelectedRowKeysChange) return
+    const { selection, anchor } = nextSelection(
+      selectedRowKeys,
+      rowKey(row),
+      filtered.map(rowKey),
+      { toggle: e.metaKey || e.ctrlKey, range: e.shiftKey },
+      selectionAnchor.current,
+    )
+    selectionAnchor.current = anchor
+    onSelectedRowKeysChange(selection)
+  }
+
   const paged = useMemo(
     () => (pageSize ? filtered.slice(safePage * pageSize, (safePage + 1) * pageSize) : filtered),
     [filtered, pageSize, safePage],
@@ -420,10 +481,18 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                 return (
                 <TableRow
                   key={key}
-                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  onClick={onRowClick || selectedRowKeys ? (e) => {
+                    handleSelectClick(row.original, e)
+                    onRowClick?.(row.original)
+                  } : undefined}
                   className={cn(
-                    onRowClick && 'cursor-pointer',
-                    selectedRowKey != null && key === selectedRowKey ? 'bg-accent' : onRowClick && 'hover:bg-accent/50',
+                    (onRowClick || selectedRowKeys) && 'cursor-pointer',
+                    // Shift-click would otherwise paint a browser text selection
+                    // across the range the user is trying to select.
+                    selectedRowKeys && 'select-none',
+                    (selectedRowKey != null && key === selectedRowKey) || selectedRowKeys?.has(key)
+                      ? 'bg-accent'
+                      : (onRowClick || selectedRowKeys) && 'hover:bg-accent/50',
                   )}
                 >
                   {row.getVisibleCells().map((cell) => {
