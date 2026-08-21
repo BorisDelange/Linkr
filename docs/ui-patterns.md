@@ -24,10 +24,9 @@ Scope split with the two neighbouring docs:
 
 ## 1. The type scale
 
-Nine text sizes are in use today (`text-[10px]` 635×, `text-[11px]` 226×,
-`text-xs` 1736×, `text-sm` 407×, plus `base`/`lg`/`xl`/`2xl`/`3xl`). That is the
-single biggest source of "same function, different size". **Only these four are
-allowed in new code:**
+Nine text sizes are in use across the app, which is the single biggest source of
+"same function, different size". **Only these five are allowed in new code**, and
+one of them you never type:
 
 | Class | Use for | Never for |
 |---|---|---|
@@ -37,36 +36,50 @@ allowed in new code:**
 | `text-xs` | Dense contexts: table cells + headers, form labels, buttons, badges, dialog descriptions | Page-level prose |
 | `text-[10px]` | Micro-chrome only: inline column filters, result counters, pagination | Anything a user reads as content |
 
-`text-[11px]` is **deprecated** — it exists in ~226 places and is visually
-indistinguishable from `text-xs` (12px). Use `text-xs`. `text-lg`, `text-xl` and
-`text-3xl` are not part of the scale (11 stray uses total); `text-base` is
-reserved for dialog titles and comes from the primitive, so you never type it.
+`text-[11px]` is **deprecated** — it is visually indistinguishable from `text-xs`
+(12px) yet still widespread, so it is the one size you will see in neighbouring
+code and must not copy. Use `text-xs`. `text-lg`, `text-xl` and `text-3xl` are
+not part of the scale (a handful of stray uses); `text-base` is reserved for
+dialog titles and comes from the primitive, so you never type it.
 
-### The primitives now carry the scale
+### The primitives carry the scale
 
-The drift was mechanical, not a discipline problem: several primitives shipped a
-default the app rejected, so every call site fixed it by hand. Those defaults
-have been recalibrated to the value the codebase had already voted for:
+Each primitive's default **is** the scale value, so the correct call site passes
+no size class at all. Each default was moved off the shadcn value to the one the
+app's own call sites had settled on — the table records why, because a default
+with no rationale gets "corrected" back to upstream:
 
-| Primitive | Was | Now | Evidence |
+| Primitive | shadcn | Ours | Why |
 |---|---|---|---|
-| `Label` | `text-sm` | `text-xs font-medium` | 143 of 147 styled labels shrank it; `Input` is `text-[13px]` with **zero** overrides |
-| `Badge` | `text-xs` | `text-[10px]` (+ `size="xs"` → 9px) | 78 of 146 uses overrode it |
-| `DialogTitle` / `AlertDialogTitle` / `SheetTitle` | `text-lg` | `text-base` | 24 call sites had forced `text-sm`, but those were mostly workbench dialogs; `text-base` keeps a form title above its body |
+| `Label` | `text-sm` | `text-xs font-medium` | nearly every styled label was shrinking it by hand; `Input` sits at `text-[13px]` with **zero** overrides |
+| `Badge` | `text-xs` | `text-[10px]` (+ `size="xs"` → 9px) | badges are chrome, not content, and sat beside `text-[10px]` counters |
+| `DialogTitle` / `AlertDialogTitle` / `SheetTitle` | `text-lg` | `text-base` | `text-lg` was overridden all over; `text-base` still keeps a form title above its body, where the majority `text-sm` would flatten it |
 | `DialogDescription` / `SheetDescription` | `text-sm` | `text-xs` | matches the dense body |
-| `Button` | — | added `sm-tight` (h-7) | 36 buttons hand-rolled `className="h-7"` |
+| `Button` | — | added `sm-tight` (h-7) | dozens of buttons hand-rolled `className="h-7"` |
 
-**Consequence: write `<Label>`, `<Badge>`, `<DialogTitle>` with no size class.**
-Adding one now means deliberately departing from the scale.
+> The `DialogTitle` row is the cautionary one: the raw majority vote was
+> `text-sm`, but it came almost entirely from workbench dialogs (diffs, viewers)
+> where a quiet title fits. Applied to a form it left the title the same size as
+> the body. Count the call sites, then check they are the same *kind*.
 
-Because `cn()` runs `twMerge`, a leftover override still wins over the new
-default — which is why recalibrating was safe, and why the redundant ones are
-being removed rather than left to rot.
+**Write `<Label>`, `<Badge>`, `<DialogTitle>` with no size class.** Adding one is
+a deliberate departure from the scale, so it needs a reason.
+
+`cn()` runs `twMerge`, so a call-site override always beats the default. That is
+what makes changing a primitive's default safe: no call site breaks silently.
+Remove the overrides it makes redundant rather than leaving them to rot.
 
 **Colours** — use theme tokens (`text-muted-foreground`, `text-primary`,
 `text-destructive`, `bg-accent`). Raw palette classes (`text-green-600`,
-`text-blue-500`…) are used 799× today and several break dark mode. Do not add
-more; semantic domain colours (teal = warehouse, rose = lab) are the exception.
+`text-blue-500`…) are widespread. They are **not** broken in dark mode — an
+audit found the `bg-X-50 dark:bg-X-950` pairing applied nearly everywhere, and
+zero light blocks surviving into dark. Prefer tokens in new code anyway, because
+a raw pair has to be maintained by hand; semantic domain colours (teal =
+warehouse, rose = lab) are the deliberate exception.
+
+> Before reporting a colour as dark-mode-broken, read the whole class attribute:
+> a per-line `grep` for `bg-green-50` matches a line whose `dark:` variant sits
+> in the same string, and reports a violation that isn't one.
 
 ---
 
@@ -105,8 +118,10 @@ a three-column table. `ConceptColumn` also supports `cell` (custom renderer),
 `sortable`, `hidden`, `center`, `size`/`minSize`, `selectOptionLabel` and
 `tooltip`.
 
-**Do not hand-roll a `useReactTable`** to get sorting or resizing. 14 files do
-today; the resize handle alone is copy-pasted verbatim in 11 of them.
+**Do not hand-roll a `useReactTable`** to get sorting or resizing. Seven files still
+do; each is listed below with the specific thing holding it back. The pieces they
+used to copy (resize grip, sort arrow, filter field, column label) now come from
+`table-primitives` — so a new table has no excuse to re-declare any of them.
 
 Multi-selection is opt-in too — pass `selectedRowKeys` + `onSelectedRowKeysChange`
 for file-explorer behaviour (plain click replaces, Ctrl/Cmd toggles, Shift
@@ -271,7 +286,7 @@ sent ~35 files off-pattern. It's now a reference for *multi-page dialog flow onl
   The one sanctioned alternative is `variant="line"` for *detail* panels
   (`entity-docs-dialog`, the detail sheets) — consistent among themselves.
 - **Destructive actions go through an `AlertDialog`.** This one is well held
-  (63 uses, consistent styling) — keep it that way.
+  (used consistently throughout) — keep it that way.
 
 ### Shared dialogs — check call sites before restyling
 
@@ -281,8 +296,9 @@ Editing one changes every caller. If only the wording differs, take a mode prop
 and switch i18n keys (see `ImportConceptSetDialog`'s `dictionaryMode`) rather
 than touching styling.
 
-`components/ui/export-dialog.tsx` has **zero call sites** — likely superseded by
-`EntityExportContent`. Don't build on it without checking.
+`components/ui/export-dialog.tsx` has **zero call sites** — superseded by the
+export UI inside `entity-versioning-dialog.tsx` (file-private, so not importable).
+Don't build on `export-dialog.tsx` without checking why it was abandoned.
 
 ---
 
@@ -310,11 +326,11 @@ Use **`PageHeader`** + **`PageContainer`** (`components/ui/page-header.tsx`):
 </PageContainer>
 ```
 
-Don't hand-roll `<h1 className="text-2xl font-bold">` — 20 pages did, which is
+Don't hand-roll `<h1 className="text-2xl font-bold">` — most pages still do, which is
 why the title drifted. `ListPageTemplate` already consumes both.
 
-Two known gaps: `text-2xl` doubles as *page title* (27×) **and** *KPI number*
-(14×), so a metric looks like a heading; and 4 detail pages
+Two known gaps: `text-2xl` doubles as *page title* **and** *KPI number*, so a
+metric looks like a heading; and 4 detail pages
 (`EtlPipelinePage`, `MappingProjectPage`, `DqRuleSetDetailPage`,
 `SqlScriptsEditorPage`) render **no title at all** — they open straight on a
 `<Tabs>`, so the user never sees the name of what they opened.
@@ -334,10 +350,12 @@ by hand — the author hover-card and org resolution live inside them.
 
 ### Forms outside dialogs
 
-Same scale as dialog bodies: `<Label className="text-xs font-medium">`, hint
-`text-xs text-muted-foreground`, `RequiredMark` for required fields. Use
-`<Input>`/`<Textarea>`, never a raw `<input>` (7 files still do). Reach for
-`SearchableSelect` when a `<Select>` gets long — it exists but is used once.
+Same scale as dialog bodies: a bare `<Label>` (the primitive already carries
+`text-xs font-medium` — adding it back is the redundant override §1 warns about),
+hint `text-xs text-muted-foreground`, `RequiredMark` for required fields. Use
+`<Input>`/`<Textarea>`, never a raw `<input>` — roughly 35 files outside
+`components/ui/` still do, so copying a neighbour is not a safe guide here.
+Reach for `SearchableSelect` when a `<Select>` gets long.
 
 ### Buttons
 
@@ -361,7 +379,7 @@ instead. Before this, "nothing here" existed in 4 text sizes and 8 containers.
 
 **Loading** — prefer `Skeleton` shaped like the final layout. If you use a
 spinner, it is `<Loader2 className="animate-spin" size={14} />` (14 is the
-dominant of 10 sizes in use). Never hand-roll a CSS spinner — the 6 that existed
+the dominant size). Never hand-roll a CSS spinner — the ones that existed
 have been replaced — and never `return null` while loading (3 pages still do,
 leaving the screen blank).
 
@@ -371,15 +389,109 @@ back; don't copy them.
 
 ### Section headers (uppercase group labels)
 
-Use **`SectionLabel`** (`components/ui/section-label.tsx`). The 48 inline
-occurrences are now written identically (`text-[10px] font-medium uppercase
-tracking-wider text-muted-foreground`) so they can be swapped over mechanically;
-~20 further hand-mixed variants remain.
+Use **`SectionLabel`** (`components/ui/section-label.tsx`), with `as` to keep the
+real tag where the label is a heading (`as="h3"`).
+
+**Do not use it for a form `<label>`.** ~25 sites keep a hand-written class for
+that reason: `SectionLabel` renders a `div`/`span`/heading, and swapping the tag
+would drop the association between the label and its input. Styling a label like
+a heading is not the same as it being one.
 
 ---
 
-## 5. Adding a new shared component
+## 5. Field & control catalogue
+
+Composed components that solve one recurring field or control. Most encode a
+**decision**, not just styling — rebuilding one loses the decision silently.
+Check this table before writing any form field.
+
+| Component | Use for |
+|---|---|
+| `EntityIdField` | The id field on every entity create/edit dialog (slug rules, uniqueness, locked-after-create). |
+| `VersionField` | The version input on those same dialogs. |
+| `AuthoringFields` | Author + organization on an entity dialog. Both start locked showing the originals; unlocking re-attributes and writes a frozen snapshot. Don't roll your own attribution UI. |
+| `DatePickerField` | Any date input — built on the app's own `Calendar`, so every date field matches. |
+| `PasswordInput` | Any secret input (reveal toggle). |
+| `LangHint` | Marks a field as `LocalizedString`-backed, so the user knows they are editing one translation. |
+| `RequiredMark` | The required-field asterisk. |
+| `GatedButton` | An action the user may lack permission for: renders disabled with an explanatory tooltip. **UX only — real enforcement is server-side.** |
+| `ExecuteNotPermitted` | Placeholder in place of a code-backed widget the user can't execute. |
+| `ServerModeNotice` | The single "not available in client-only mode" notice. Don't write that sentence yourself. |
+| `EditableBadge` / `BadgeEditor` / `BadgeColorButton` | Badge chips, the badge editor (offers badges already used on sibling entities), and the colour swatch. |
+| `ColorPickerPopover` / `IconPicker` | Colour and icon selection. |
+| `FileTypeIcon` / `LanguageIcon` / `FileTreeHeader` | File-tree chrome: per-extension icon, language brand logo, sortable column header. |
+| `CopySelectButton` | The "Copy SELECT" button in every database schema view. |
+| `CustomSqlDot` | Marks a widget whose SQL was hand-edited; its tooltip carries the consequence (regenerating discards the edit). |
+| `LinkrLogo` | The logo. |
+
+---
+
+## 6. Working rules
+
+Everything above says *which* component to use. These five say how to work when
+none of them quite fits — which is when drift starts.
+
+### Extend the shared component; don't degrade the caller
+
+When a shared component *almost* fits, add the missing capability to it. Do not
+fork it, and do not drop the feature from the screen you are building.
+`onVisibleRowsChange`, `headerCell`, `viewKey`, `filterCell`, `rowClassName`,
+`resizable` and `cellTooltips` exist on `ConceptDataTable` for exactly that
+reason: each one is a capability a caller needed and would otherwise have lost.
+
+The judgement call: if the capability is **general** (any table might want it),
+it goes in the shared component. If it is **specific to one screen's domain**
+(a review workflow, an import popover), that screen keeps its own code — and the
+reason goes in "when a bespoke one is legitimate" above, so it is not
+re-litigated later.
+
+### Change the default, don't hardcode the exception
+
+Writing the same override at call site after call site means the **primitive's
+default is wrong**. Fix the default and delete the overrides; the `Label`,
+`Badge` and `DialogTitle` rows in §1 are the worked examples.
+
+`cn()` runs `twMerge`, so a call-site override always beats the default — which
+is why changing a default cannot silently break a call site that opted out. Pick
+the value the codebase already votes for: count the call sites first, and weight
+them by *kind*, since the majority value can come from a context unlike the one
+you are fixing.
+
+### Three copies means it belongs in one place
+
+A literal, helper or JSX block living in three files is a shared module waiting
+to happen — that is what `table-primitives` is.
+
+**Diff the copies before merging them.** Near-identical is a different fact from
+identical. There are two `columnLabel` helpers on purpose: `table-primitives`
+takes column defs and reads a header renderer, while `lib/format-helpers` takes
+an id and strips a leading underscore, so affordance columns render as `Select`
+rather than `" Select"`. Merging them would break one caller silently. When
+copies genuinely differ, leave them and say which is for what.
+
+### Read the data flow, not the flags
+
+`manualSorting` / `manualFiltering` / `manualPagination` appear on tables that
+filter and slice entirely in JS, and are absent from one that is fully
+SQL-driven (see §2). A config option states an intention; it is not evidence.
+Trace where the rows come from before concluding what a component does. The same
+caution applies to a `grep` hit, which shows you a line and not the surrounding
+class string.
+
+### Leave the reason, not just the result
+
+When you decide a component stays bespoke, or that a default takes a given value,
+write **why** where the next person will look: this file, or a comment on the
+surprising line. A rule with no rationale gets re-litigated; a result with no
+rationale gets undone. Two docs naming different "reference" implementations for
+the same pattern is the worst case — every new screen then inherits whichever one
+its author happened to read first.
+
+---
+
+## 7. Adding a new shared component
 
 Put it in `components/ui/`, kebab-case file, PascalCase export, and **add a row
-to this file**. A shared component nobody knows about gets rebuilt:
-`SearchableSelect` has 1 call site and `ExportDialog` has 0.
+to this file** — §5 if it's a field or control, otherwise the relevant section.
+A shared component nobody knows about gets rebuilt, which is how
+`SearchableSelect` ended up with 1 call site and `ExportDialog` with 0.

@@ -69,52 +69,24 @@ export function Foo({ value, onChange }: FooProps) {
 
 - Props: named `interface` ending in `Props`. Destructure in the signature.
 - Hooks block first, then effects, then handlers, then `return`. Don't interleave.
-- Use `@/components/ui/*` (shadcn) before building any custom UI — see `docs/shadcn-components.md`.
+- Never build UI before checking what exists: **`docs/ui-patterns.md`** for our composed components (tables, dialogs, page shells, fields) and the working rules, then `docs/shadcn-components.md` for the upstream primitive catalogue.
 
 ## Dialogs (modals)
 
-Reference implementation: **`DashboardSettingsDialog`**. Copy its shape rather
-than inventing one — a modal that sizes its own text drifts from the rest of the
-app. `CreateMappingProjectDialog` is a reference for *multi-page dialog flow
-only*: it uses bare `<Label>` (`text-sm`), which is **not** the convention.
+**Use `DialogShell`, not raw `Dialog` parts.** It supplies the width, header,
+footer and busy state for the three dialog kinds (`form` / `settings` /
+`workbench`), so a new modal cannot drift from the others. Full guidance —
+kinds, widths, reference implementations, shared-dialog call sites →
+**`docs/ui-patterns.md` §3**, which is the single source of truth for dialogs.
 
-Full UI guidance (widths, shared dialogs, tables, type scale) → `docs/ui-patterns.md`.
+Only the two rules with consequences beyond styling live here:
 
-```tsx
-<DialogContent className="sm:max-w-md">   {/* md; lg/2xl+ only if content needs it */}
-  <DialogHeader>
-    <DialogTitle>…</DialogTitle>          {/* no className — shadcn defaults */}
-    <DialogDescription>…</DialogDescription>
-  </DialogHeader>
-
-  <Tabs defaultValue="general">
-    <TabsList className="w-full">
-      <TabsTrigger value="general" className="flex-1">…</TabsTrigger>
-    </TabsList>
-    <TabsContent value="general" className="space-y-5 pt-3">
-      <Label className="text-xs font-medium">…</Label>
-      <p className="text-xs text-muted-foreground">…</p>   {/* hint under a label */}
-    </TabsContent>
-  </Tabs>
-
-  <DialogFooter>
-    <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>…</Button>
-    <Button size="sm" onClick={save}>…</Button>
-  </DialogFooter>
-</DialogContent>
-```
-
-- **Header: no size overrides.** `DialogTitle`/`DialogDescription` keep the shadcn
-  defaults. Only the *body* is dense (`text-xs` labels and hints).
-- Tabs fill the width: `TabsList className="w-full"` + `TabsTrigger className="flex-1"`.
-- Footer buttons: `size="sm"`, cancel as `variant="outline"` first, confirm second.
-  In-body buttons add only `gap-1.5` for their icon, not a height or text size.
-- A destructive action always goes through a confirm `AlertDialog` — never fires
-  straight from the click.
 - **Editing a shared dialog changes it everywhere.** Before restyling one, check
   its other call sites; if only the wording should differ, take a mode prop and
   switch the i18n keys (`ImportConceptSetDialog`'s `dictionaryMode`) instead of
   touching its styling.
+- **A destructive action always goes through a confirm `AlertDialog`** — never
+  fires straight from the click.
 
 ## Zustand stores
 
