@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Database, Info } from 'lucide-react'
+import { Check, Database, Info } from 'lucide-react'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { localized } from '@/lib/localized'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -58,6 +58,7 @@ export function DashboardSettingsDialog({
 
   // Bulk-assign confirmation
   const [bulkAssignScope, setBulkAssignScope] = useState<'all' | 'tab' | null>(null)
+  const [bulkAssigned, setBulkAssigned] = useState<number | null>(null)
 
   // A dataset is selectable even before its columns are loaded: server mode lists
   // files without columns (lazy /meta on open), so requiring columns here would
@@ -90,6 +91,7 @@ export function DashboardSettingsDialog({
       setWidgetSpacing(dashboard.widgetSpacing ?? 12)
       setReloadWidgetsOnTabSwitch(dashboard.reloadWidgetsOnTabSwitch ?? false)
       setFitToHeight(dashboard.fitToHeight !== false)
+      setBulkAssigned(null)
     }
   }, [open, dashboard.showWidgetTitles, dashboard.defaultDatasetFileId, dashboard.widgetSpacing, dashboard.reloadWidgetsOnTabSwitch, dashboard.fitToHeight])
 
@@ -119,6 +121,7 @@ export function DashboardSettingsDialog({
       updateWidgetDataset(w.id, defaultDatasetFileId)
     }
     setBulkAssignScope(null)
+    setBulkAssigned(targetWidgets.length)
   }
 
   const bulkCount = bulkAssignScope === 'all' ? allDashboardWidgets.length : currentTabWidgets.length
@@ -146,6 +149,8 @@ export function DashboardSettingsDialog({
       description={t('dashboard.settings_description')}
       onConfirm={settings.save}
       confirmDisabled={!settings.canSaveNow}
+      // Nothing edited yet: the button dismisses, it doesn't undo anything.
+      cancelLabel={settings.isDirty ? t('common.cancel') : t('common.close')}
       contentClassName="space-y-0 py-0"
     >
         <Tabs defaultValue="general" className="py-2">
@@ -219,7 +224,10 @@ export function DashboardSettingsDialog({
             <p className="text-[11px] text-muted-foreground">{t('dashboard.default_dataset_hint')}</p>
             <Select
               value={defaultDatasetFileId ?? '__none__'}
-              onValueChange={v => setDefaultDatasetFileId(v === '__none__' ? null : v)}
+              onValueChange={v => {
+                setDefaultDatasetFileId(v === '__none__' ? null : v)
+                setBulkAssigned(null)
+              }}
             >
               <SelectTrigger className="mt-1 h-8 text-sm">
                 <SelectValue placeholder={t('dashboard.widget_dataset_placeholder')} />
@@ -259,6 +267,12 @@ export function DashboardSettingsDialog({
                   {t('dashboard.assign_all_tabs')} ({allDashboardWidgets.length})
                 </Button>
               </div>
+              {bulkAssigned !== null && (
+                <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                  <Check size={12} className="shrink-0" />
+                  {t('dashboard.assign_done', { count: bulkAssigned })}
+                </p>
+              )}
             </div>
           )}
           </TabsContent>

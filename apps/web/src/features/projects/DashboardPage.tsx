@@ -422,6 +422,7 @@ export function DashboardPage() {
                     <SubTabPreviewCard
                       key={tab.id}
                       name={localized(tab.name, i18n.language)}
+                      description={localized(tab.description, i18n.language)}
                       widgetCount={widgetCount}
                       isContainer={isContainer}
                       // A container child steps down to ITS first leaf; a leaf is

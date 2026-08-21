@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/tooltip'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
+import { useResizableSidebar } from '@/hooks/use-resizable-sidebar'
 import { useAuthStore } from '@/stores/auth-store'
 import {
   SAVE_CONVERSATIONS_KEY,
@@ -503,9 +504,16 @@ export function DashboardAgentSidebar({
     setDraft('')
   }
 
+  const { width, handleProps } = useResizableSidebar()
+
   return (
     <TooltipProvider>
-      <div className="flex w-80 shrink-0 flex-col border-l bg-card">
+      <div className="relative flex shrink-0 flex-col border-l bg-card" style={{ width }}>
+        {/* Drag handle on the left edge to resize the sidebar. */}
+        <div
+          {...handleProps}
+          className="absolute left-0 top-0 z-10 h-full w-1 -translate-x-1/2 cursor-col-resize hover:bg-primary/30"
+        />
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <Sparkles size={15} className="text-primary" />
           <span className="text-sm font-medium">{t('agent.title')}</span>

@@ -1,4 +1,10 @@
 import { Layers } from 'lucide-react'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 /** One skeleton block in the preview: a widget-shaped placeholder. */
@@ -7,8 +13,6 @@ interface Block {
   span: number
   /** Height class — mixed heights are what make the preview read as a page. */
   tall?: boolean
-  /** Draws the diagonals of an image/figure placeholder instead of text lines. */
-  figure?: boolean
 }
 
 /**
@@ -16,30 +20,34 @@ interface Block {
  * card mirrors how full the tab actually is. Keyed off the count alone: the
  * preview is a hint, not a faithful thumbnail, and rendering the real layouts
  * would mean mounting every sub-tab's grid.
+ *
+ * Every layout fills exactly the 6×2 grid — a taller one would overflow the
+ * card's fixed height and be clipped mid-block.
  */
 function blocksFor(widgetCount: number): Block[] {
   if (widgetCount === 0) return []
-  if (widgetCount === 1) return [{ span: 6, tall: true, figure: true }]
-  if (widgetCount === 2) return [{ span: 3, tall: true, figure: true }, { span: 3, tall: true }]
+  if (widgetCount === 1) return [{ span: 6, tall: true }]
+  if (widgetCount === 2) return [{ span: 3, tall: true }, { span: 3, tall: true }]
   if (widgetCount === 3) {
-    return [{ span: 6, figure: true }, { span: 3, tall: true }, { span: 3, tall: true, figure: true }]
+    return [{ span: 3, tall: true }, { span: 3 }, { span: 3 }]
   }
   if (widgetCount === 4) {
-    return [{ span: 3, figure: true }, { span: 3 }, { span: 3, tall: true }, { span: 3, tall: true, figure: true }]
+    return [{ span: 3 }, { span: 3 }, { span: 3 }, { span: 3 }]
   }
   // Five or more: a denser page, capped so the card stays a glanceable summary.
   return [
-    { span: 4, tall: true, figure: true },
-    { span: 2, tall: true },
     { span: 2 },
-    { span: 2, figure: true },
     { span: 2 },
-    { span: 6, figure: true },
+    { span: 2 },
+    { span: 3 },
+    { span: 3 },
   ]
 }
 
 interface SubTabPreviewCardProps {
   name: string
+  /** Resolved for the active language; shown as a hover tooltip when non-empty. */
+  description?: string
   widgetCount: number
   /** Sub-tabs of a sub-tab: this child is itself a container. */
   isContainer?: boolean
@@ -53,13 +61,14 @@ interface SubTabPreviewCardProps {
  */
 export function SubTabPreviewCard({
   name,
+  description,
   widgetCount,
   isContainer,
   onClick,
 }: SubTabPreviewCardProps) {
   const blocks = blocksFor(widgetCount)
 
-  return (
+  const card = (
     <button
       type="button"
       onClick={onClick}
@@ -71,55 +80,53 @@ export function SubTabPreviewCard({
     >
       {/* The fake page. aria-hidden: it carries no information the label below
           doesn't already give, and its blocks would read as noise to a screen reader. */}
+      {/* grid-rows-2 is explicit: without it the row-span-2 blocks create implicit
+          auto-sized rows that overflow the fixed height and get clipped mid-widget. */}
       <div
         aria-hidden
-        className="grid h-28 grid-cols-6 gap-1.5 border-b bg-muted/30 p-2"
+        className="grid h-28 grid-cols-6 grid-rows-2 gap-1.5 border-b bg-muted/30 p-2"
       >
         {blocks.length === 0 ? (
-          <div className="col-span-6 flex items-center justify-center">
+          <div className="col-span-6 row-span-2 flex items-center justify-center">
             <div className="h-full w-full rounded border border-dashed border-muted-foreground/25" />
           </div>
         ) : (
           blocks.map((block, i) => (
             <div
               key={i}
+              // overflow-hidden: a short block must clip its own lines rather than
+              // spill over the neighbour below it.
               className={cn(
-                'flex flex-col gap-1 rounded border bg-background/60 p-1.5',
+                'flex min-h-0 flex-col justify-center gap-1 overflow-hidden rounded border bg-background/60 p-1.5',
                 'transition-colors group-hover:border-primary/30',
                 block.tall ? 'row-span-2' : 'row-span-1',
               )}
               style={{ gridColumn: `span ${block.span}` }}
             >
-              {block.figure ? (
-                // Crossed diagonals — the conventional "image goes here" mark.
-                <svg
-                  className="h-full w-full text-muted-foreground/30"
-                  viewBox="0 0 40 24"
-                  preserveAspectRatio="none"
-                >
-                  <path
-                    d="M0 0 L40 24 M40 0 L0 24"
-                    stroke="currentColor"
-                    strokeWidth="1"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                </svg>
-              ) : (
-                <>
-                  <div className="h-1 w-2/3 rounded-full bg-muted-foreground/25" />
-                  <div className="h-1 w-full rounded-full bg-muted-foreground/15" />
-                  <div className="h-1 w-4/5 rounded-full bg-muted-foreground/15" />
-                </>
-              )}
+              <div className="h-1 w-2/3 shrink-0 rounded-full bg-muted-foreground/20" />
+              <div className="h-1 w-full shrink-0 rounded-full bg-muted-foreground/15" />
             </div>
           ))
         )}
       </div>
 
-      <div className="flex min-w-0 items-center gap-1.5 px-2.5 py-2">
+      {/* bg-card, not the grid's muted tint: the label sits on a clean surface so it
+          stays readable against the busy skeleton above it. */}
+      <div className="flex min-w-0 items-center gap-1.5 bg-card px-2.5 py-2">
         {isContainer && <Layers size={11} className="shrink-0 text-muted-foreground" />}
-        <span className="truncate text-xs font-medium group-hover:text-primary">{name}</span>
+        <span className="truncate text-xs font-medium text-foreground group-hover:text-primary">{name}</span>
       </div>
     </button>
+  )
+
+  if (!description?.trim()) return card
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>{card}</TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-64">{description}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }

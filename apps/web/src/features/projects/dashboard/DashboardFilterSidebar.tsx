@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert } from 'lucide-react'
+import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert, Settings2 } from 'lucide-react'
 import { SearchInput } from '@/components/ui/search-input'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,7 +27,19 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
+import { useResizableSidebar } from '@/hooks/use-resizable-sidebar'
+import { FilterConfigDialog, type FilterDraft } from './FilterConfigDialog'
 import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardTab, DashboardWidget, DatasetColumn, DatePreset, DatePresetUnit, FilterValue } from '@/types'
 import { localized, setLocalized } from '@/lib/localized'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -65,24 +77,9 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
   const { activeFilters, setFilter, clearFilter, clearAllFilters, updateDashboard } = useDashboardStore()
   const { files: datasetFiles } = useDatasetStore()
 
-  // Resizable sidebar width (drag the left edge). Default a bit wider so date From/To fields aren't clipped.
-  const [width, setWidth] = useState(340)
-  const dragRef = useRef<{ startX: number; startW: number } | null>(null)
-  const onResizeDown = (e: React.PointerEvent) => {
-    e.preventDefault()
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    dragRef.current = { startX: e.clientX, startW: width }
-  }
-  const onResizeMove = (e: React.PointerEvent) => {
-    if (!dragRef.current) return
-    // Dragging left (smaller clientX) widens the right-anchored sidebar.
-    const delta = dragRef.current.startX - e.clientX
-    setWidth(Math.max(260, Math.min(640, dragRef.current.startW + delta)))
-  }
-  const onResizeUp = (e: React.PointerEvent) => {
-    dragRef.current = null
-    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
-  }
+  // Resizable width (drag the left edge). The default is wide enough that date
+  // From/To fields aren't clipped.
+  const { width, handleProps } = useResizableSidebar()
 
   // Which filter cards are expanded (collapsed by default to save space).
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -100,11 +97,10 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     setExpanded(open === DEFAULT_FILTER_OPEN ? new Set() : new Set(dashboard.filterConfig.map(fc => fc.id)))
   }
 
-  // "Add filter" flow state
-  const [addingFilter, setAddingFilter] = useState(false)
-  const [newFilterDatasetId, setNewFilterDatasetId] = useState<string | null>(null)
-  const [newFilterColumnId, setNewFilterColumnId] = useState<string | null>(null)
-  const [newFilterInputType, setNewFilterInputType] = useState<DashboardFilter['inputType']>('multi-select')
+  // Add/edit go through one dialog; `configuring` holds the filter being edited
+  // ('new' for the add flow, null when closed).
+  const [configuring, setConfiguring] = useState<DashboardFilter | 'new' | null>(null)
+  const [pendingRemoval, setPendingRemoval] = useState<DashboardFilter | null>(null)
 
   // Collect unique dataset IDs used by widgets
   const widgetDatasetIds = useMemo(() => {
@@ -120,110 +116,63 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     [datasetFiles, widgetDatasetIds]
   )
 
-  const newFilterDataset = newFilterDatasetId ? datasetFiles.find((f) => f.id === newFilterDatasetId) : null
-  const newFilterColumns = newFilterDataset?.columns ?? []
-
-  const resetAddFlow = () => {
-    setAddingFilter(false)
-    setNewFilterDatasetId(null)
-    setNewFilterColumnId(null)
-    setNewFilterInputType('multi-select')
-  }
-
-  // Auto-detect column type and pick default inputType
-  const detectDefaults = (columnId: string) =>
-    detectColumnDefaults(newFilterColumns.find((c) => c.id === columnId))
-
-  const handleColumnChange = (columnId: string) => {
-    setNewFilterColumnId(columnId)
-    const { inputType } = detectDefaults(columnId)
-    setNewFilterInputType(inputType)
-  }
-
-  // Change the column of an EXISTING filter (edit mode). Re-derives type + input widget from
-  // the new column and clears any active value, since it no longer applies to the new column.
-  const handleFilterColumnChange = (filterId: string, columnId: string) => {
-    const filter = dashboard.filterConfig.find((f) => f.id === filterId)
-    if (!filter) return
-    const cols = datasetFiles.find((f) => f.id === filter.datasetFileId)?.columns ?? []
-    const col = cols.find((c) => c.id === columnId)
+  /** Apply a dialog draft: create the filter, or patch the one being edited. */
+  const handleSubmitConfig = (draft: FilterDraft) => {
+    if (!draft.datasetFileId || !draft.columnId) return
+    const cols = datasetFiles.find((f) => f.id === draft.datasetFileId)?.columns ?? []
+    const col = cols.find((c) => c.id === draft.columnId)
     if (!col) return
-    const { type, inputType } = detectColumnDefaults(col)
-    updateDashboard(dashboard.id, {
-      filterConfig: dashboard.filterConfig.map((f) =>
-        f.id === filterId ? { ...f, columnId: col.id, columnName: col.name, type, inputType } : f
-      ),
-    })
-    clearFilter(filterId)
-  }
+    const { type } = detectColumnDefaults(col)
+    const trimmed = draft.label.trim()
 
-  const handleAddFilter = () => {
-    if (!newFilterDatasetId || !newFilterColumnId) return
-    const col = newFilterColumns.find((c) => c.id === newFilterColumnId)
-    if (!col) return
-
-    const { type } = detectDefaults(newFilterColumnId)
-
-    const newFilter: DashboardFilter = {
-      id: crypto.randomUUID(),
-      datasetFileId: newFilterDatasetId,
-      columnId: newFilterColumnId,
-      columnName: col.name,
-      type,
-      inputType: newFilterInputType,
+    if (configuring === 'new') {
+      const newFilter: DashboardFilter = {
+        id: crypto.randomUUID(),
+        datasetFileId: draft.datasetFileId,
+        columnId: draft.columnId,
+        columnName: col.name,
+        type,
+        inputType: draft.inputType,
+        scope: draft.scope,
+        ...(trimmed ? { label: setLocalized(undefined, language, trimmed) } : {}),
+        ...(draft.datePresets.length ? { datePresets: draft.datePresets } : {}),
+      }
+      updateDashboard(dashboard.id, { filterConfig: [...dashboard.filterConfig, newFilter] })
+    } else if (configuring) {
+      const target = configuring
+      // Column or input type changing invalidates any value already picked.
+      const invalidated = target.columnId !== draft.columnId || target.inputType !== draft.inputType
+      updateDashboard(dashboard.id, {
+        filterConfig: dashboard.filterConfig.map((f) => {
+          if (f.id !== target.id) return f
+          // Edit only the active language, merged into the {en,fr} object (same convention
+          // as tab/widget names). Drop the label entirely once no language holds a value.
+          const nextLabel = setLocalized(f.label, language, trimmed)
+          const hasAny = Object.values(nextLabel).some((v) => v.trim().length > 0)
+          return {
+            ...f,
+            columnId: col.id,
+            columnName: col.name,
+            type,
+            inputType: draft.inputType,
+            scope: draft.scope,
+            label: hasAny ? nextLabel : undefined,
+            datePresets: draft.datePresets,
+          }
+        }),
+      })
+      if (invalidated) clearFilter(target.id)
     }
-
-    updateDashboard(dashboard.id, {
-      filterConfig: [...dashboard.filterConfig, newFilter],
-    })
-    resetAddFlow()
+    setConfiguring(null)
   }
 
-  const handleRemoveFilter = (filterId: string) => {
+  const handleConfirmRemoval = () => {
+    if (!pendingRemoval) return
     updateDashboard(dashboard.id, {
-      filterConfig: dashboard.filterConfig.filter((f) => f.id !== filterId),
+      filterConfig: dashboard.filterConfig.filter((f) => f.id !== pendingRemoval.id),
     })
-    clearFilter(filterId)
-  }
-
-  const handleDatePresetsChange = (filterId: string, datePresets: DashboardFilter['datePresets']) => {
-    updateDashboard(dashboard.id, {
-      filterConfig: dashboard.filterConfig.map((f) =>
-        f.id === filterId ? { ...f, datePresets } : f
-      ),
-    })
-  }
-
-  const handleScopeChange = (filterId: string, scope: DashboardFilterScope) => {
-    updateDashboard(dashboard.id, {
-      filterConfig: dashboard.filterConfig.map((f) =>
-        f.id === filterId ? { ...f, scope } : f
-      ),
-    })
-  }
-
-  const handleLabelChange = (filterId: string, label: string) => {
-    const trimmed = label.trim()
-    updateDashboard(dashboard.id, {
-      filterConfig: dashboard.filterConfig.map((f) => {
-        if (f.id !== filterId) return f
-        // Edit only the active language, merged into the {en,fr} object (same convention as
-        // tab/widget names). Drop the label entirely once no language holds a value.
-        const next = setLocalized(f.label, language, trimmed)
-        const hasAny = Object.values(next).some((v) => v.trim().length > 0)
-        return { ...f, label: hasAny ? next : undefined }
-      }),
-    })
-  }
-
-  const handleChangeInputType = (filterId: string, inputType: DashboardFilter['inputType']) => {
-    updateDashboard(dashboard.id, {
-      filterConfig: dashboard.filterConfig.map((f) =>
-        f.id === filterId ? { ...f, inputType } : f
-      ),
-    })
-    // Clear the active filter value since input type changed
-    clearFilter(filterId)
+    clearFilter(pendingRemoval.id)
+    setPendingRemoval(null)
   }
 
   // An "empty" value (Clear pressed, no selection, no bounds) does nothing, so remove the
@@ -271,9 +220,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     <div className="relative flex h-full shrink-0 flex-col border-l bg-background" style={{ width }}>
       {/* Drag handle on the left edge to resize the sidebar. */}
       <div
-        onPointerDown={onResizeDown}
-        onPointerMove={onResizeMove}
-        onPointerUp={onResizeUp}
+        {...handleProps}
         className="absolute left-0 top-0 z-10 h-full w-1 -translate-x-1/2 cursor-col-resize hover:bg-primary/30"
       />
       <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
@@ -303,7 +250,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
 
       <ScrollArea className="flex-1 min-h-0">
           <div className="p-4 space-y-4">
-            {dashboard.filterConfig.length === 0 && !addingFilter && (
+            {dashboard.filterConfig.length === 0 && (
               <p className="text-xs text-muted-foreground">
                 {t('dashboard.filter_no_columns')}
               </p>
@@ -312,9 +259,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
             {dashboard.filterConfig.map((fc) => {
               const dsFile = datasetFiles.find((f) => f.id === fc.datasetFileId)
               const inputTypeOptions = getInputTypeOptions(fc.type)
-              // A legacy filter's stored columnId can be stale; resolve the current one by name
-              // so the column picker highlights the right column (same by-name matching as runtime).
-              const currentColumnId = (dsFile?.columns ?? []).find((c) => c.name === fc.columnName)?.id ?? fc.columnId
               // Filters are collapsed by default to save space; the `expanded` set flips that.
               const toggled = expanded.has(fc.id)
               const isOpen = toggled ? !DEFAULT_FILTER_OPEN : DEFAULT_FILTER_OPEN
@@ -341,79 +285,49 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                     </button>
                     {!editMode && <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />}
                     {editMode && (
-                      <Button variant="ghost" size="icon-xs" className="-mr-1 shrink-0" onClick={() => handleRemoveFilter(fc.id)}>
-                        <X size={12} />
-                      </Button>
+                      <>
+                        <Button variant="ghost" size="icon-xs" className="shrink-0" onClick={() => setConfiguring(fc)}>
+                          <Settings2 size={12} />
+                        </Button>
+                        <Button variant="ghost" size="icon-xs" className="-mr-1 shrink-0" onClick={() => setPendingRemoval(fc)}>
+                          <X size={12} />
+                        </Button>
+                      </>
                     )}
                   </div>
 
                   {isOpen && (
                     <div className="space-y-2 px-2.5 pb-2.5">
+                      {/* Edit mode shows a read-only summary — the fields themselves live in
+                          the config dialog, so add and edit can't drift apart again. */}
                       {editMode && (
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                           <Badge variant="secondary" className="gap-1">
                             <Database size={9} />
                             {dsFile?.name ?? '?'}
                           </Badge>
-
-                          {/* Column selector — let the user re-point an existing filter to another column. */}
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_select_column')}</Label>
-                            <ColumnPicker
-                              columns={dsFile?.columns ?? []}
-                              value={currentColumnId}
-                              onChange={(columnId) => handleFilterColumnChange(fc.id, columnId)}
-                              placeholder={t('dashboard.filter_select_column')}
-                            />
-                          </div>
-
-                          {/* Optional display label — shown instead of the column name everywhere.
-                              Multilingual: only the active UI language is edited here. */}
-                          <div className="space-y-1">
-                            <Label className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_label', 'Label')}</Label>
-                            <Input
-                              key={`${fc.id}-${language}`}
-                              defaultValue={localized(fc.label, language)}
-                              placeholder={fc.columnName}
-                              onBlur={(e) => handleLabelChange(fc.id, e.target.value)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                              className="h-7 text-xs"
-                            />
-                          </div>
-
-                          {/* Scope selector — before the input-type dropdown (renders its own label) */}
-                          <FilterScopeSelector
-                            scope={fc.scope ?? { type: 'all' }}
-                            onChange={(scope) => handleScopeChange(fc.id, scope)}
-                            tabs={tabs}
-                            widgets={widgets}
-                          />
-                          {inputTypeOptions.length > 1 && (
-                            <div className="space-y-1">
-                              <Label className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_input_type', 'Filter type')}</Label>
-                              <Select
-                                value={fc.inputType}
-                                onValueChange={(v) => handleChangeInputType(fc.id, v as DashboardFilter['inputType'])}
-                              >
-                                <SelectTrigger className="h-7 text-xs w-full">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent position="popper" sideOffset={4}>
-                                  {inputTypeOptions.map((opt) => (
-                                    <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                                      {opt.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                          <dl className="space-y-0.5 text-[10px] text-muted-foreground">
+                            <div className="flex gap-1.5">
+                              <dt>{t('dashboard.filter_select_column')}</dt>
+                              <dd className="truncate font-medium text-foreground">{fc.columnName}</dd>
                             </div>
-                          )}
-                          {fc.type === 'date' && (
-                            <DatePresetEditor
-                              presets={fc.datePresets ?? []}
-                              onChange={(p) => handleDatePresetsChange(fc.id, p)}
-                            />
-                          )}
+                            <div className="flex gap-1.5">
+                              <dt>{t('dashboard.filter_input_type')}</dt>
+                              <dd className="truncate font-medium text-foreground">
+                                {inputTypeOptions.find((o) => o.value === fc.inputType)?.label ?? fc.inputType}
+                              </dd>
+                            </div>
+                            <div className="flex gap-1.5">
+                              <dt>{t('dashboard.filter_scope')}</dt>
+                              <dd className="truncate font-medium text-foreground">
+                                <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />
+                              </dd>
+                            </div>
+                          </dl>
+                          <Button variant="outline" size="xs" className="w-full gap-1.5" onClick={() => setConfiguring(fc)}>
+                            <Settings2 size={11} />
+                            {t('dashboard.filter_configure')}
+                          </Button>
                         </div>
                       )}
 
@@ -431,94 +345,71 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
               )
             })}
 
-            {/* Add filter flow — edit mode only */}
+            {/* Add filter — edit mode only; the fields live in the config dialog */}
             {editMode && (
-              addingFilter ? (
-                <div className="space-y-2 rounded-lg border border-dashed p-3">
-                  <Label>{t('dashboard.filter_select_dataset')}</Label>
-                  <Select
-                    value={newFilterDatasetId ?? ''}
-                    onValueChange={(v) => {
-                      setNewFilterDatasetId(v)
-                      setNewFilterColumnId(null)
-                    }}
-                  >
-                    <SelectTrigger className="h-7 text-xs">
-                      <SelectValue placeholder={t('dashboard.filter_select_dataset')} />
-                    </SelectTrigger>
-                    <SelectContent position="popper" sideOffset={4}>
-                      {availableDatasets.map((f) => (
-                        <SelectItem key={f.id} value={f.id}>
-                          <div className="flex items-center gap-2">
-                            <Database size={11} className="text-muted-foreground" />
-                            {f.name}
-                          </div>
-                        </SelectItem>
-                      ))}
-                      {availableDatasets.length === 0 && (
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                          {t('dashboard.filter_no_datasets')}
-                        </div>
-                      )}
-                    </SelectContent>
-                  </Select>
-
-                  {newFilterDatasetId && (
-                    <>
-                      <Label>{t('dashboard.filter_select_column')}</Label>
-                      <ColumnPicker
-                        columns={newFilterColumns}
-                        value={newFilterColumnId}
-                        onChange={handleColumnChange}
-                        placeholder={t('dashboard.filter_select_column')}
-                      />
-                    </>
-                  )}
-
-                  {newFilterColumnId && (
-                    <>
-                      <Label>{t('dashboard.filter_input_type')}</Label>
-                      <Select
-                        value={newFilterInputType}
-                        onValueChange={(v) => setNewFilterInputType(v as DashboardFilter['inputType'])}
-                      >
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent position="popper" sideOffset={4}>
-                          {getInputTypeOptions(detectDefaults(newFilterColumnId).type).map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </>
-                  )}
-
-                  <div className="flex gap-1.5 pt-1">
-                    <Button variant="outline" size="xs" onClick={resetAddFlow}>
-                      {t('common.cancel')}
-                    </Button>
-                    <Button size="xs" onClick={handleAddFilter} disabled={!newFilterColumnId}>
-                      {t('common.add')}
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-1.5 text-xs text-muted-foreground"
-                  onClick={() => setAddingFilter(true)}
-                >
-                  <Plus size={12} />
-                  {t('dashboard.filter_add')}
-                </Button>
-              )
+              <Button
+                size="sm"
+                className="w-full gap-1.5 text-xs"
+                onClick={() => setConfiguring('new')}
+              >
+                <Plus size={12} />
+                {t('dashboard.filter_add')}
+              </Button>
             )}
           </div>
         </ScrollArea>
+
+      <FilterConfigDialog
+        open={configuring !== null}
+        onOpenChange={(o) => { if (!o) setConfiguring(null) }}
+        filter={configuring && configuring !== 'new' ? configuring : undefined}
+        datasetFiles={datasetFiles}
+        availableDatasets={availableDatasets}
+        tabs={tabs}
+        widgets={widgets}
+        language={language}
+        onSubmit={handleSubmitConfig}
+        getInputTypeOptions={getInputTypeOptions}
+        detectColumnDefaults={detectColumnDefaults}
+        renderColumnPicker={(columns, value, onChange) => (
+          <ColumnPicker
+            columns={columns}
+            value={value}
+            onChange={onChange}
+            placeholder={t('dashboard.filter_select_column')}
+          />
+        )}
+        renderScope={(scope, onChange) => (
+          <FilterScopeSelector scope={scope} onChange={onChange} tabs={tabs} widgets={widgets} />
+        )}
+        renderDatePresets={(presets, onChange) => (
+          <DatePresetEditor presets={presets} onChange={onChange} />
+        )}
+      />
+
+      <AlertDialog open={pendingRemoval !== null} onOpenChange={(o) => { if (!o) setPendingRemoval(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('dashboard.filter_delete_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('dashboard.filter_delete_description', {
+                name: pendingRemoval
+                  ? localized(pendingRemoval.label, language) || pendingRemoval.columnName
+                  : '',
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmRemoval}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -951,7 +842,10 @@ function CategoricalMultiSelect({
             </div>
           )}
           <TooltipProvider delayDuration={400}>
-            <div className="max-h-40 overflow-y-auto space-y-0.5">
+            <div
+              className="max-h-40 space-y-0.5 overflow-y-auto overscroll-contain"
+              onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+            >
               {filteredValues.map((val) => (
                 <Tooltip key={val}>
                   <TooltipTrigger asChild>
@@ -1398,7 +1292,7 @@ function FilterScopeSelector({
               <ChevronsUpDown size={9} className="shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-52 p-2" align="start">
+          <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
             <SearchInput
               value={search}
               onChange={setSearch}
@@ -1422,7 +1316,12 @@ function FilterScopeSelector({
               </button>
             </div>
             <TooltipProvider delayDuration={400}>
-              <div className="max-h-40 overflow-y-auto space-y-0.5">
+              {/* onWheel: Radix blocks wheel events on popover content to stop scroll
+                  leaking to the page, which also kills scrolling inside this list. */}
+              <div
+                className="max-h-40 space-y-0.5 overflow-y-auto overscroll-contain"
+                onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+              >
                 {filteredTabs.map((tab) => {
                   const selected = (scope as { tabIds: string[] }).tabIds.includes(tab.id)
                   return (
@@ -1466,7 +1365,7 @@ function FilterScopeSelector({
               <ChevronsUpDown size={9} className="shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-56 p-2" align="start">
+          <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
             <SearchInput
               value={search}
               onChange={setSearch}
@@ -1490,7 +1389,10 @@ function FilterScopeSelector({
               </button>
             </div>
             <TooltipProvider delayDuration={400}>
-              <div className="max-h-48 overflow-y-auto space-y-0.5">
+              <div
+                className="max-h-48 space-y-0.5 overflow-y-auto overscroll-contain"
+                onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+              >
                 {filteredWidgetOptions.map(({ tabName, widgetId, widgetName }) => {
                   const selected = (scope as { widgetIds: string[] }).widgetIds.includes(widgetId)
                   return (
