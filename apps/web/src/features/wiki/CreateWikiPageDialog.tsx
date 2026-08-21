@@ -331,7 +331,6 @@ export function CreateWikiPageDialog({
       onConfirm={handleCreate}
       confirmLabel={t('common.create')}
       confirmDisabled={!title.trim() || !isEntityIdValid(entityId, existingIds)}
-      contentClassName="py-0"
     >
           <div className="space-y-2">
             <Label>{t('wiki.page_title')}<RequiredMark /></Label>

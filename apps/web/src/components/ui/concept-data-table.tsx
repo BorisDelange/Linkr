@@ -230,6 +230,8 @@ interface ConceptDataTableProps<T> {
 }
 
 interface ViewState {
+  /** The column ids this state was captured against — see `columnSignature`. */
+  signature: string
   sorting: Sorting
   filters: Record<string, string | string[] | undefined>
   columnSizing: Record<string, number>
@@ -238,6 +240,18 @@ interface ViewState {
 }
 
 const viewCache = new Map<string, ViewState>()
+
+/**
+ * The column set a remembered view belongs to. A caller whose columns are
+ * data-dependent (a dictionary with different `extraColumns`, a source without
+ * concept codes) can remount the same `viewKey` over a different set, and a
+ * restored order or visibility map would then reference ids that no longer
+ * exist — hiding a column the user never hid. Mismatched state is dropped
+ * rather than merged: starting fresh is the honest default.
+ */
+function columnSignature<T>(cols: ConceptColumn<T>[]): string {
+  return cols.map((c) => c.id).join(' ')
+}
 
 /** Sets don't survive the cache, so filters are stored as arrays. */
 export function toStoredFilters(f: Record<string, string | Set<string> | undefined>) {
@@ -294,7 +308,10 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
   const { t } = useTranslation()
   /** Where a Shift-range starts: the last row clicked without Shift. */
   const selectionAnchor = useRef<string | number | null>(null)
-  const restored = viewKey ? viewCache.get(viewKey) : undefined
+  const signature = useMemo(() => columnSignature(cols), [cols])
+  const cached = viewKey ? viewCache.get(viewKey) : undefined
+  // Only restore a view captured against the same columns — see columnSignature.
+  const restored = cached?.signature === signature ? cached : undefined
   const [sorting, setSorting] = useState<Sorting>(restored?.sorting ?? initialSorting ?? null)
   const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>(
     () => (restored ? fromStoredFilters(restored.filters) : {}),
@@ -311,13 +328,14 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
   // Written on unmount, not on every change: columnSizing ticks once per pixel
   // while a column is dragged, and the cache only has to be right by the time
   // the table comes back.
-  const viewState = useRef({ sorting, filters, columnSizing, columnOrder, columnVisibility })
-  viewState.current = { sorting, filters, columnSizing, columnOrder, columnVisibility }
+  const viewState = useRef({ signature, sorting, filters, columnSizing, columnOrder, columnVisibility })
+  viewState.current = { signature, sorting, filters, columnSizing, columnOrder, columnVisibility }
   useEffect(() => {
     if (!viewKey) return
     return () => {
       const v = viewState.current
       viewCache.set(viewKey, {
+        signature: v.signature,
         sorting: v.sorting,
         filters: toStoredFilters(v.filters),
         columnSizing: v.columnSizing,

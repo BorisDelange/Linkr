@@ -14,8 +14,6 @@ import {
 import type {
   DashboardFilter,
   DashboardFilterScope,
-  DashboardTab,
-  DashboardWidget,
   DatasetColumn,
   DatasetFile,
   DatePreset,
@@ -51,8 +49,6 @@ interface FilterConfigDialogProps {
   datasetFiles: DatasetFile[]
   /** Datasets a widget actually uses; the only ones offered when adding. */
   availableDatasets: DatasetFile[]
-  tabs: DashboardTab[]
-  widgets: DashboardWidget[]
   language: 'en' | 'fr'
   onSubmit: (draft: FilterDraft) => void
   /** Renders the scope picker — passed in to avoid duplicating it here. */

@@ -304,16 +304,14 @@ export function ConceptsPage() {
     const rows = concepts.map((c) => {
       const membership = conceptSetIndex.get(membershipKey(c.vocabulary_id, c.concept_code))
       if (!membership) return c
-      // Set NAMES are NUL-joined, not ", ": the cell splits them back into one
-      // button each, and a set legitimately called "Labs, chemistry" split into
-      // two phantom buttons that resolved to nothing. The separator cannot occur
-      // in a name, which ", " very much can.
-      const uniqNames = packSetNames
       // Categories are plain text in the table, so they stay human-readable.
+      // Set NAMES go through packSetNames instead: the cell splits them back
+      // into one button each, and a set legitimately called "Labs, chemistry"
+      // split on ", " into two phantom buttons that resolved to nothing.
       const uniq = (vals: string[]) => [...new Set(vals.filter(Boolean))].join(', ')
       return {
         ...c,
-        concept_set_name: uniqNames(membership.sets.map((s) => s.name)),
+        concept_set_name: packSetNames(membership.sets.map((s) => s.name)),
         concept_set_category: uniq(membership.sets.map((s) => s.category)),
         concept_set_subcategory: uniq(membership.sets.map((s) => s.subcategory)),
       }

@@ -365,8 +365,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
         filter={configuring && configuring !== 'new' ? configuring : undefined}
         datasetFiles={datasetFiles}
         availableDatasets={availableDatasets}
-        tabs={tabs}
-        widgets={widgets}
         language={language}
         onSubmit={handleSubmitConfig}
         getInputTypeOptions={getInputTypeOptions}

@@ -28,10 +28,17 @@ const KIND_CLASS: Record<DialogKind, string> = {
   workbench: 'flex h-[85vh] max-h-[85vh] flex-col sm:max-w-5xl',
 }
 
-/** Workbench bodies scroll internally so the header and footer stay put. */
+/**
+ * Workbench bodies scroll internally so the header and footer stay put.
+ *
+ * No vertical padding: `DialogContent` already spaces the body off the header
+ * and footer, so adding `py-2` here only double-spaced it — which is why two
+ * thirds of the call sites were cancelling it with `py-0`. A body that genuinely
+ * wants the extra room asks for it.
+ */
 const BODY_CLASS: Record<DialogKind, string> = {
-  form: 'space-y-4 py-2',
-  settings: 'space-y-4 py-2',
+  form: 'space-y-4',
+  settings: 'space-y-4',
   workbench: 'min-h-0 flex-1 overflow-auto',
 }
 
@@ -61,6 +68,11 @@ interface DialogShellProps {
    */
   footerExtra?: ReactNode
   hideFooter?: boolean
+  /**
+   * Opt out of Enter-to-confirm, for a body where Enter means something else
+   * (a code editor, a tag field that adds on Enter).
+   */
+  noEnterSubmit?: boolean
   /** Escape hatch for the rare dialog needing its own width or padding. */
   className?: string
   contentClassName?: string
@@ -87,14 +99,39 @@ export function DialogShell({
   cancelLabel,
   footerExtra,
   hideFooter,
+  noEnterSubmit,
   className,
   contentClassName,
 }: DialogShellProps) {
   const { t } = useTranslation()
 
+  /**
+   * Enter confirms, the way it does in a native `<form>`. The shell renders no
+   * `<form>`, so without this a dialog migrated onto it silently loses
+   * Enter-to-submit — type a name in the autofocused field, press Enter, nothing
+   * happens. Handled here rather than per call site, which had already drifted
+   * into three different spellings across sibling dialogs.
+   *
+   * A textarea keeps Enter for newlines, and so does any element that opted out
+   * via `data-no-enter-submit` (a tag field that adds on Enter, a combobox
+   * choosing the highlighted option). A body that kept a real `<form>` owns
+   * Enter through native submission, so the shell stays out of its way rather
+   * than firing the handler a second time. Modifier chords are left alone too:
+   * Ctrl/Cmd+Enter belongs to the body.
+   */
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (noEnterSubmit || !onConfirm || confirmDisabled || busy) return
+    if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
+    const el = e.target as HTMLElement | null
+    if (el?.tagName === 'TEXTAREA') return
+    if (el?.closest('[data-no-enter-submit], form')) return
+    e.preventDefault()
+    onConfirm()
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn(KIND_CLASS[kind], className)}>
+      <DialogContent className={cn(KIND_CLASS[kind], className)} onKeyDown={handleKeyDown}>
         <DialogHeader className={kind === 'workbench' ? 'shrink-0' : undefined}>
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}

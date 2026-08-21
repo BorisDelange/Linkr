@@ -75,7 +75,7 @@ export function PatientDataSettingsDialog({
       onConfirm={save}
       confirmLabel={t('common.save')}
       confirmDisabled={!canSaveNow}
-      contentClassName="space-y-0 py-0"
+      contentClassName="space-y-0"
     >
         <Tabs defaultValue="general" className="py-2">
           <TabsList className="w-full">

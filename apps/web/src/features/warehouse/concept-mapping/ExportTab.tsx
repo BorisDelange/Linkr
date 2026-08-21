@@ -651,7 +651,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         onOpenChange={setZipDialogOpen}
         title={t('concept_mapping.export_linkr_zip')}
         description={t('concept_mapping.export_zip_modal_desc')}
-        contentClassName="space-y-3 py-0"
+        contentClassName="space-y-3"
         onConfirm={confirmZipExport}
         confirmLabel={
           <>

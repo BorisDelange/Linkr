@@ -74,7 +74,7 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
       confirmLabel={t('common.save')}
       confirmDisabled={!canSubmit}
       hideFooter={!isServerMode}
-      contentClassName={isServerMode ? undefined : 'space-y-0 py-0'}
+      contentClassName={isServerMode ? undefined : 'space-y-0'}
     >
       {isServerMode ? (
         <>

@@ -101,7 +101,6 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
       description={t('datasets.col_meta_desc', { name: column.name })}
       onConfirm={handleSave}
       confirmLabel={t('common.save')}
-      contentClassName="py-0"
     >
           <div className="space-y-1.5">
             <Label htmlFor="col-label" className="text-xs">{t('datasets.col_meta_label')}</Label>

@@ -61,7 +61,6 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit, editing }: Cr
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
           placeholder={t('cohorts.field_name_placeholder')}
           autoFocus
         />
@@ -72,7 +71,6 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit, editing }: Cr
         <Input
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
           placeholder={t('cohorts.field_description_placeholder')}
         />
       </div>

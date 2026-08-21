@@ -151,7 +151,7 @@ export function DashboardSettingsDialog({
       confirmDisabled={!settings.canSaveNow}
       // Nothing edited yet: the button dismisses, it doesn't undo anything.
       cancelLabel={settings.isDirty ? t('common.cancel') : t('common.close')}
-      contentClassName="space-y-0 py-0"
+      contentClassName="space-y-0"
     >
         <Tabs defaultValue="general" className="py-2">
           <TabsList className="w-full">

@@ -1644,7 +1644,6 @@ export function SchemaPresetsPage() {
             onOpenChange={(open) => { if (!open) setShowCreateDialog(false) }}
             title={t('schemas.create_title')}
             description={t('settings.schema_preset_new_description')}
-            contentClassName="py-0"
             onConfirm={confirmCreatePreset}
             confirmLabel={t('common.create')}
             confirmDisabled={!canCreatePreset}
@@ -1707,12 +1706,6 @@ export function SchemaPresetsPage() {
                   <Input
                     value={newPresetName}
                     onChange={(e) => setNewPresetName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && canCreatePreset) {
-                        e.preventDefault()
-                        confirmCreatePreset()
-                      }
-                    }}
                     autoFocus
                   />
                   {newPresetName.trim() && nameDuplicate && (

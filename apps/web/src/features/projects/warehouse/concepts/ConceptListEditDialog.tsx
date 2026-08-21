@@ -60,7 +60,7 @@ export function ConceptListEditDialog({
       onConfirm={handleSave}
       confirmLabel={t('common.save')}
       confirmDisabled={!canSave}
-      contentClassName="space-y-3 py-0"
+      contentClassName="space-y-3"
     >
       <div className="space-y-1.5">
         <Label className="text-xs">{t('concepts.column_name')}</Label>

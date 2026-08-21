@@ -133,7 +133,6 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('projects.field_name_placeholder')}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
                 autoFocus
               />
             </div>
@@ -193,6 +192,8 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 <Input
                   value={newBadgeLabel}
                   onChange={(e) => setNewBadgeLabel(e.target.value)}
+                  // Enter adds the badge here; the shell must not also submit.
+                  data-no-enter-submit
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBadge() } }}
                   placeholder={t('project_settings.badge_label_placeholder')}
                   className="h-8 flex-1 text-sm"

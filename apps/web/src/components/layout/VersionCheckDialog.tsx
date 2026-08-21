@@ -130,7 +130,7 @@ export function VersionCheckDialog() {
         }
         destructive
         cancelLabel={t('version_check.dismiss')}
-        contentClassName="space-y-0 py-0"
+        contentClassName="space-y-0"
       >
         <p className="text-xs text-muted-foreground">{t('version_check.schema_hint')}</p>
       </DialogShell>

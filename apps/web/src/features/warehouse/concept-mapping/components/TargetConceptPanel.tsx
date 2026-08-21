@@ -267,7 +267,6 @@ function MapWithCommentDialog({
       description={t('concept_mapping.map_with_comment_desc')}
       onConfirm={() => onSubmit(equivalence, text.trim())}
       confirmLabel={t('concept_mapping.save_mapping')}
-      contentClassName="py-0"
     >
       <div className="space-y-2">
         <Label>{t('concept_mapping.equivalence')}</Label>
@@ -2668,7 +2667,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         description={t('concept_mapping.ignore_with_comment_desc')}
         onConfirm={handleIgnoreDialogSubmit}
         confirmLabel={<><EyeOff size={14} />{t('concept_mapping.ignore')}</>}
-        contentClassName="py-0"
       >
         {sourceConcept && (
           <div className="space-y-2">

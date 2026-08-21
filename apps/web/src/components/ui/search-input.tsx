@@ -42,6 +42,10 @@ export function SearchInput({
           dense ? 'left-2' : 'left-3',
         )}
       />
+      {/* A raw <input>, not <Input>: this needs icon padding on both sides and a
+          borderless variant, which would mean overriding most of what <Input>
+          sets. Feature code still goes through <Input> — the exemption is for
+          this primitive, which is what feature code uses instead. */}
       <input
         type="text"
         value={value}
