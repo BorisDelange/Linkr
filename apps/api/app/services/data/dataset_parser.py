@@ -29,6 +29,7 @@ from app.services.data.type_inference import (
     BOOL_FALSE,
     BOOL_TRUE,
     infer_column_type,
+    normalize_na_values,
     parse_boolean,
 )
 
@@ -50,11 +51,14 @@ def _relation(con: duckdb.DuckDBPyConnection, path: Path, name: str, opts: dict)
     return con.sql(f"SELECT * FROM {build_read_expr(con, str(path), name, opts)}")
 
 
-def _coerce(value: Any, col_type: str) -> Any:
+def _coerce(value: Any, col_type: str, na_set: set[str] | None = None) -> Any:
     if value is None:
         return None
     s = str(value)
     if s == "":
+        return None
+    # An NA token is missing data, whatever the column's type.
+    if na_set and s.strip().lower() in na_set:
         return None
     if col_type == "number":
         try:
@@ -78,26 +82,36 @@ def _typed(inferred: str, col_id: str, overrides: dict | None) -> str:
 
 
 def _columns_from(
-    headers: list[str], by_col_raw: list[list[Any]], overrides: dict | None = None
+    headers: list[str],
+    by_col_raw: list[list[Any]],
+    overrides: dict | None = None,
+    na_values: list[str] | None = None,
 ) -> list[dict]:
     ids = build_column_ids(headers)
     return [
         {
             "id": ids[idx],
             "name": name,
-            "type": _typed(infer_column_type(by_col_raw[idx]), ids[idx], overrides),
+            "type": _typed(
+                infer_column_type(by_col_raw[idx], na_values), ids[idx], overrides
+            ),
             "order": idx,
         }
         for idx, name in enumerate(headers)
     ]
 
 
-def _rows_from(raw_rows: list[tuple], columns: list[dict]) -> list[dict[str, Any]]:
+def _rows_from(
+    raw_rows: list[tuple], columns: list[dict], na_values: list[str] | None = None
+) -> list[dict[str, Any]]:
+    na_set = normalize_na_values(na_values)
     rows: list[dict[str, Any]] = []
     for row in raw_rows:
         obj: dict[str, Any] = {}
         for idx, col in enumerate(columns):
-            obj[col["id"]] = _coerce(row[idx] if idx < len(row) else None, col["type"])
+            obj[col["id"]] = _coerce(
+                row[idx] if idx < len(row) else None, col["type"], na_set
+            )
         rows.append(obj)
     return rows
 
@@ -124,8 +138,9 @@ def parse_blob(path: Path, file_name: str, parse_options: dict | None):
         for i in range(len(headers)):
             by_col_raw[i].append(row[i] if i < len(row) else None)
 
-    columns = _columns_from(headers, by_col_raw, opts.get("columnTypes"))
-    return columns, _rows_from(raw_rows, columns), len(raw_rows)
+    na_values = opts.get("naValues")
+    columns = _columns_from(headers, by_col_raw, opts.get("columnTypes"), na_values)
+    return columns, _rows_from(raw_rows, columns, na_values), len(raw_rows)
 
 
 def _our_type_for_duckdb(duckdb_type: str) -> str:
@@ -209,7 +224,7 @@ def preview_blob(path: Path, file_name: str, parse_options: dict | None) -> dict
         rel = con.sql(f"SELECT * FROM {reader}")
         headers = list(rel.columns)
         row_count = con.sql(f"SELECT count(*) FROM {reader}").fetchone()[0]
-        types = _infer_types_sql(con, reader, headers)
+        types = _infer_types_sql(con, reader, headers, opts.get("naValues"))
         preview_raw = con.sql(
             f"SELECT * FROM {reader} LIMIT {PREVIEW_ROWS}"
         ).fetchall()
@@ -225,7 +240,7 @@ def preview_blob(path: Path, file_name: str, parse_options: dict | None) -> dict
     ]
     result: dict[str, Any] = {
         "columns": columns,
-        "preview": _rows_from(preview_raw, columns),
+        "preview": _rows_from(preview_raw, columns, opts.get("naValues")),
         "rowCount": int(row_count),
     }
     if is_excel(file_name):
@@ -238,17 +253,21 @@ def _quote_ident(name: str) -> str:
 
 
 def _infer_types_sql(
-    con: duckdb.DuckDBPyConnection, reader: str, headers: list[str]
+    con: duckdb.DuckDBPyConnection,
+    reader: str,
+    headers: list[str],
+    na_values: list[str] | None = None,
 ) -> list[str]:
     """Infer each column's type over the whole file with one aggregate query,
     mirroring ``infer_column_type``'s priority (boolean > number > date > string)
     and its token/date semantics, but in SQL so no rows are materialized.
 
-    A column is a type iff EVERY non-null, non-empty value satisfies it. Empty
-    string counts as null (matching the Python coercion)."""
+    A column is a type iff EVERY present value satisfies it. Empty string and NA
+    tokens count as null (matching the Python coercion)."""
     if not headers:
         return []
     bool_tokens = ", ".join(f"'{t}'" for t in _BOOL_TOKENS)
+    na_set = normalize_na_values(na_values)
     parts = []
     for i, _name in enumerate(headers):
         c = _quote_ident(f"col{i}")
@@ -257,18 +276,24 @@ def _infer_types_sql(
         # — so a "\ttrue" cell would infer boolean at import but string in preview.
         # Build the ASCII-whitespace set via chr() so the SQL stays readable.
         tc = f"trim({c}, ' ' || chr(9) || chr(10) || chr(13) || chr(11) || chr(12))"
-        # non-null, non-empty count and per-type "all match" counts.
-        parts.append(f"count({c}) FILTER (WHERE {tc} <> '') AS n_{i}")
+        # "Present" must match is_missing_value: non-empty AND not an NA token.
+        if na_set:
+            na_list = ", ".join(_sql_str(t) for t in sorted(na_set))
+            present = f"{tc} <> '' AND lower({tc}) NOT IN ({na_list})"
+        else:
+            present = f"{tc} <> ''"
+        # present count and per-type "all match" counts.
+        parts.append(f"count({c}) FILTER (WHERE {present}) AS n_{i}")
         parts.append(
-            f"count(*) FILTER (WHERE {tc} <> '' AND "
+            f"count(*) FILTER (WHERE {present} AND "
             f"try_cast({tc} AS DOUBLE) IS NOT NULL) AS num_{i}"
         )
         parts.append(
-            f"count(*) FILTER (WHERE {tc} <> '' AND "
+            f"count(*) FILTER (WHERE {present} AND "
             f"lower({tc}) IN ({bool_tokens})) AS bool_{i}"
         )
         parts.append(
-            f"count(*) FILTER (WHERE {tc} <> '' AND "
+            f"count(*) FILTER (WHERE {present} AND "
             f"regexp_full_match({tc}, '{_DATE_RE_SQL}')) AS date_{i}"
         )
     aliased = ", ".join(f"{_quote_ident(h)} AS {_quote_ident(f'col{i}')}"

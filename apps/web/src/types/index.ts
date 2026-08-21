@@ -825,6 +825,11 @@ export interface DatasetParseOptions {
    *  distinct values; 'text' = substring search. Absent → auto (list for a
    *  low-cardinality string column, text otherwise). */
   columnFilterMode?: Record<string, 'list' | 'text'>
+  /** Tokens read as missing (case-insensitive, trimmed) on top of the empty
+   *  string — e.g. "NA", "N/A", "NULL". They become null at parse time, so a
+   *  column of numbers peppered with "NA" infers as number, not string.
+   *  Absent → DEFAULT_NA_VALUES. */
+  naValues?: string[]
 }
 
 export interface DatasetFile extends Seedable, Authored {

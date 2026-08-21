@@ -42,7 +42,7 @@ import {
 } from '@/components/ui/context-menu'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { ResizeGrip } from '@/components/ui/table-primitives'
-import { TypeBadge } from './TypeBadge'
+import { TypeBadge, renderTypeMenuItems } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { useColumnDistinct } from './use-column-distinct'
 import { EditColumnMetaDialog } from './EditColumnMetaDialog'
@@ -50,7 +50,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { hasTimeComponent, columnTint, displayColumnName, displayCellValue } from '@/lib/dataset-utils'
 import type { DatasetColumn, DatasetParseOptions } from '@/types'
 
-const COLUMN_TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 'date']
 
 interface DatasetTableProps {
   fileId: string
@@ -357,16 +356,11 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
         </Item>
         <Separator />
         {/* Force the column type (overrides inference; persisted in parseOptions). */}
-        {COLUMN_TYPES.map((ty) => (
-          <Item key={ty} onClick={() => { void setColumnType(fileId, col.id, ty) }} className="text-xs">
-            {/* Fixed-width badge cell so labels line up (Aa is wider than #/⊘/◷). */}
-            <span className="inline-flex w-6 shrink-0 justify-center">
-              <TypeBadge type={ty} size="sm" />
-            </span>
-            {t(`datasets.col_treat_as`, { type: t(`datasets.type_${ty}`), defaultValue: `Treat as {{type}}` })}
-            {col.type === ty && <span className="ml-auto text-primary">✓</span>}
-          </Item>
-        ))}
+        {renderTypeMenuItems({
+          current: col.type,
+          onSelect: (ty) => { void setColumnType(fileId, col.id, ty) },
+          Item,
+        })}
         {col.type === 'string' && (
           <>
             <Separator />

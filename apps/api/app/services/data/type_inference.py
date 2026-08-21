@@ -17,7 +17,24 @@ DATE_DATETIME_RE = re.compile(
 BOOL_TRUE = {"true", "1", "yes", "y", "t", "vrai", "oui", "o"}
 BOOL_FALSE = {"false", "0", "no", "n", "f", "faux", "non"}
 
+# Keep in lockstep with DEFAULT_NA_VALUES in dataset-utils.ts.
+DEFAULT_NA_VALUES = ["na", "n/a", "null", "nan", "none", "#n/a"]
+
 ColumnType = str  # 'string' | 'number' | 'boolean' | 'date' | 'unknown'
+
+
+def normalize_na_values(na_values: list[str] | None) -> set[str]:
+    """Normalize a configured NA list for lookup (trimmed, lower-cased, no blanks)."""
+    source = DEFAULT_NA_VALUES if na_values is None else na_values
+    return {v.strip().lower() for v in source if v.strip() != ""}
+
+
+def is_missing_value(value: object, na_set: set[str]) -> bool:
+    """True when a raw cell reads as missing: null, empty, or an NA token."""
+    if value is None:
+        return True
+    s = str(value).strip()
+    return s == "" or s.lower() in na_set
 
 
 def parse_boolean(value: object) -> bool | None:
@@ -40,16 +57,22 @@ def _is_number(s: str) -> bool:
         return False
 
 
-def infer_column_type(values: list[object]) -> ColumnType:
-    """Priority: boolean > number > date > string. Scans ALL non-null values.
+def infer_column_type(
+    values: list[object], na_values: list[str] | None = None
+) -> ColumnType:
+    """Priority: boolean > number > date > string. Scans ALL present values.
 
     Server-side we hold the whole column in memory already (parse_blob fetches
     every row), so we scan all of it rather than a 200-row sample: a column that
     is numeric for its first hundreds of rows but has an alphanumeric code later
     (e.g. MIMIC itemids then ICD codes like "G894") must be typed ``string``, not
     ``number`` — a wrong ``number`` verdict makes the Parquet cast fail and the
-    whole import silently produce no columns."""
-    non_null = [v for v in values if v is not None and v != ""]
+    whole import silently produce no columns.
+
+    ``na_values`` tokens are read as missing alongside blanks, so a numeric column
+    peppered with "NA" infers as ``number`` rather than ``string``."""
+    na_set = normalize_na_values(na_values)
+    non_null = [v for v in values if not is_missing_value(v, na_set)]
     if not non_null:
         return "unknown"
 

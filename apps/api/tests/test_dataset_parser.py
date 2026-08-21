@@ -1,7 +1,11 @@
 from pathlib import Path
 
 from app.services.data.dataset_parser import parquet_schema, parse_blob, preview_blob
-from app.services.data.type_inference import infer_column_type
+from app.services.data.type_inference import (
+    infer_column_type,
+    is_missing_value,
+    normalize_na_values,
+)
 
 
 # --- Type inference parity with apps/web/src/lib/dataset-utils.ts ---
@@ -32,6 +36,51 @@ def test_infer_string_and_unknown():
 
 def test_infer_ignores_blanks():
     assert infer_column_type(["1", "", None, "2"]) == "number"
+
+
+# --- NA handling (mirrors dataset-utils.test.ts) ---
+
+def test_infer_number_with_na_tokens():
+    assert infer_column_type(["NA", "NA", "13"]) == "number"
+
+
+def test_infer_number_when_data_starts_after_long_na_run():
+    assert infer_column_type(["NA"] * 19 + ["120.5"] * 41) == "number"
+
+
+def test_infer_all_na_is_unknown():
+    assert infer_column_type(["NA", "n/a", "NULL"]) == "unknown"
+
+
+def test_infer_dash_and_dot_are_not_missing_by_default():
+    assert infer_column_type(["-", "5"]) == "string"
+    assert infer_column_type([".", "5"]) == "string"
+
+
+def test_infer_custom_na_list():
+    assert infer_column_type(["-", ".", "5", "7"], ["-", "."]) == "number"
+
+
+def test_infer_empty_na_list_disables_detection():
+    assert infer_column_type(["NA", "13"], []) == "string"
+
+
+def test_infer_boolean_and_date_around_na():
+    assert infer_column_type(["true", "NA", "false"]) == "boolean"
+    assert infer_column_type(["2026-01-02", "NA", "2026-03-04"]) == "date"
+
+
+def test_normalize_na_values_trims_and_lowercases():
+    assert normalize_na_values([" MISSING ", "Void", "", "  "]) == {"missing", "void"}
+
+
+def test_is_missing_value_matches_tokens_case_insensitively():
+    na = normalize_na_values(None)
+    assert is_missing_value("NA", na) is True
+    assert is_missing_value(" n/a ", na) is True
+    assert is_missing_value(None, na) is True
+    assert is_missing_value("", na) is True
+    assert is_missing_value("0", na) is False
 
 
 def test_infer_scans_whole_column_not_just_head():
@@ -87,6 +136,43 @@ def test_parse_empty_cell_is_none(tmp_path):
     p = _write(tmp_path, "d.csv", "a,b\nx,\n")
     columns, rows, _ = parse_blob(p, "d.csv", {})
     assert rows[0]["col_b"] is None
+
+
+def test_parse_na_column_infers_number_and_nulls_cells(tmp_path):
+    p = _write(tmp_path, "na.csv", "v\nNA\nNA\n13\n42\n")
+    columns, rows, _ = parse_blob(p, "na.csv", {})
+    assert columns[0]["type"] == "number"
+    assert rows[0]["col_v"] is None
+    assert rows[2]["col_v"] == 13
+
+
+def test_preview_and_parse_agree_on_na_types(tmp_path):
+    # preview_blob infers in SQL, parse_blob row-by-row: a disagreement would show
+    # one type in the dialog and store another.
+    body = "".join("NA\n" for _ in range(19)) + "".join(f"{100 + i}\n" for i in range(41))
+    p = _write(tmp_path, "late.csv", "v\n" + body)
+    preview = preview_blob(p, "late.csv", {})
+    columns, _, _ = parse_blob(p, "late.csv", {})
+    assert preview["columns"][0]["type"] == "number"
+    assert columns[0]["type"] == preview["columns"][0]["type"]
+
+
+def test_preview_and_parse_agree_on_custom_na_list(tmp_path):
+    opts = {"naValues": ["-", "."]}
+    p = _write(tmp_path, "sent.csv", "v\n-\n.\n5\n7\n")
+    preview = preview_blob(p, "sent.csv", opts)
+    columns, rows, _ = parse_blob(p, "sent.csv", opts)
+    assert preview["columns"][0]["type"] == "number"
+    assert columns[0]["type"] == "number"
+    assert rows[0]["col_v"] is None
+
+
+def test_na_token_with_quote_is_escaped(tmp_path):
+    # NA tokens reach the SQL inference as literals; an apostrophe must not break it.
+    opts = {"naValues": ["it's missing"]}
+    p = _write(tmp_path, "q.csv", "v\nit's missing\n5\n")
+    preview = preview_blob(p, "q.csv", opts)
+    assert preview["columns"][0]["type"] == "number"
 
 
 def test_parse_mixed_numeric_alnum_column_is_string(tmp_path):

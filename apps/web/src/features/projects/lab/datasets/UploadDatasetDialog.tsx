@@ -22,13 +22,31 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useDatasetStore } from '@/stores/dataset-store'
-import { buildColumns } from '@/lib/dataset-utils'
+import {
+  buildColumns,
+  coerceValue,
+  inferColumnType,
+  DEFAULT_NA_VALUES,
+} from '@/lib/dataset-utils'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import { findDatasetConflict, resolveDatasetUploadTarget } from './dataset-upload-target'
 import { isServerMode } from '@/lib/api-client'
 import { importDatasetBySha, previewDatasetBySha, previewDatasetOnServer, importDatasetOnServer, setDatasetColumnMeta } from '@/lib/api/datasets'
 import { isGoupileWorkbook, parseGoupileWorkbook, type GoupileColumnMeta, type SheetMap } from '@/lib/goupile-import'
 import { Checkbox } from '@/components/ui/checkbox'
-import { TypeBadge } from './TypeBadge'
+import { TypeBadge, renderTypeMenuItems } from './TypeBadge'
 import type { DatasetColumn, DatasetParseOptions } from '@/types'
 
 interface UploadDatasetDialogProps {
@@ -54,6 +72,126 @@ interface ParsedData {
 
 type Delimiter = 'auto' | ',' | '\t' | ';' | '|'
 type Encoding = 'UTF-8' | 'ISO-8859-1' | 'Windows-1252'
+
+/** Type badge in the preview header, clickable to force the column's type. */
+function ColumnTypePicker({
+  type,
+  overridden,
+  onChange,
+}: {
+  type: DatasetColumn['type']
+  overridden: boolean
+  onChange: (type: DatasetColumn['type'] | null) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <DropdownMenu>
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  'inline-flex items-center rounded transition-opacity hover:opacity-70',
+                  overridden && 'ring-1 ring-primary ring-offset-1 ring-offset-muted',
+                )}
+              >
+                {/* The wrapper carries the tooltip, so the badge must not add its own. */}
+                <TypeBadge type={type} size="sm" noTooltip />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{t('datasets.upload_pick_type')}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <DropdownMenuContent align="start" className="min-w-40">
+        {renderTypeMenuItems({ current: type, onSelect: onChange, Item: DropdownMenuItem })}
+        {overridden && (
+          <DropdownMenuItem onClick={() => onChange(null)} className="text-xs text-muted-foreground">
+            {t('datasets.upload_reset_type')}
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** Editor for the tokens read as missing. null = the built-in defaults. */
+function NaValuesEditor({
+  value,
+  onChange,
+}: {
+  value: string[] | null
+  onChange: (value: string[] | null) => void
+}) {
+  const { t } = useTranslation()
+  const effective = value ?? DEFAULT_NA_VALUES
+  const [draft, setDraft] = useState('')
+
+  const add = () => {
+    const token = draft.trim()
+    if (!token) return
+    if (!effective.some((v) => v.toLowerCase() === token.toLowerCase())) {
+      onChange([...effective, token])
+    }
+    setDraft('')
+  }
+
+  return (
+    <div className="space-y-1.5 rounded border bg-muted/30 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-[10px] font-medium text-muted-foreground">
+          {t('datasets.upload_na_values')}
+        </Label>
+        {value !== null && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            {t('common.reset')}
+          </button>
+        )}
+      </div>
+      <p className="text-[10px] text-muted-foreground">{t('datasets.upload_na_values_hint')}</p>
+      <div className="flex flex-wrap items-center gap-1">
+        {effective.map((token) => (
+          <span
+            key={token}
+            className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[10px]"
+          >
+            {token}
+            <button
+              type="button"
+              onClick={() => onChange(effective.filter((v) => v !== token))}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X size={9} />
+            </button>
+          </span>
+        ))}
+        {effective.length === 0 && (
+          <span className="text-[10px] italic text-muted-foreground">
+            {t('datasets.upload_na_values_none')}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+          placeholder={t('datasets.upload_na_values_placeholder')}
+          className="h-6 flex-1 text-xs"
+        />
+        <Button variant="outline" size="xs" onClick={add} disabled={!draft.trim()}>
+          {t('common.add')}
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 function remapRows(rows: Record<string, unknown>[], columns: DatasetColumn[]): Record<string, unknown>[] {
   return rows.map((row) => {
@@ -88,6 +226,12 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const [encoding, setEncoding] = useState<Encoding>('UTF-8')
   const [hasHeader, setHasHeader] = useState(true)
 
+  // Tokens read as missing. null = use DEFAULT_NA_VALUES; an explicit array
+  // (possibly empty, meaning "none") overrides them.
+  const [naValues, setNaValues] = useState<string[] | null>(null)
+  // Per-column type overrides picked in the preview header, keyed by columnId.
+  const [columnTypes, setColumnTypes] = useState<Record<string, DatasetColumn['type']>>({})
+
   // Excel-specific options
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [selectedSheet, setSelectedSheet] = useState<string>('')
@@ -111,6 +255,8 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setHasHeader(true)
       setSheetNames([])
       setSelectedSheet('')
+      setNaValues(null)
+      setColumnTypes({})
       setGoupileDetected(false)
       setGoupileMode(true)
       uploadedShaRef.current = null
@@ -126,6 +272,15 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, goupileMode])
+
+  // Server mode infers types in SQL, so NA tokens only take effect on a re-preview.
+  // Front-only recomputes them locally in effectiveParsed — no re-parse needed.
+  useEffect(() => {
+    if (isServerMode() && file && !loading) {
+      parseFile(file)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [naValues])
 
   const isCSVLike = useCallback((f: File) => {
     const ext = f.name.toLowerCase()
@@ -148,8 +303,10 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     if (skipRows > 0) opts.skipRows = skipRows
     if (!hasHeader) opts.hasHeader = false
     if (selectedSheet) opts.sheet = selectedSheet
+    if (naValues !== null) opts.naValues = naValues
+    if (Object.keys(columnTypes).length > 0) opts.columnTypes = columnTypes
     return Object.keys(opts).length > 0 ? opts : undefined
-  }, [delimiter, encoding, skipRows, hasHeader, selectedSheet])
+  }, [delimiter, encoding, skipRows, hasHeader, selectedSheet, naValues, columnTypes])
 
   // Server mode: no browser parse at all — the server (DuckDB) parses the file
   // and returns columns/types/rowCount/preview (+ Excel sheet names), so what the
@@ -443,6 +600,8 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setFile(f)
       setParsed(null)
       setError(null)
+      // Overrides are keyed by columnId — they mean nothing for a different file.
+      setColumnTypes({})
       // Sniff an Excel workbook's sheet names client-side (both modes) to detect a
       // Goupile export before choosing the parse path; parseGoupile handles it when on.
       if (isExcel(f)) {
@@ -477,14 +636,54 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     [handleFile],
   )
 
+  /**
+   * The parse result with the user's NA tokens and type overrides applied.
+   *
+   * Front-only mode parses in the browser through four different paths (CSV,
+   * Excel, Parquet, Goupile), so re-typing here — once, downstream of all of
+   * them — keeps the preview and the import consistent without threading the
+   * options through each parser. Server mode already returns re-inferred
+   * columns, so only the explicit overrides are re-applied.
+   */
+  const effectiveParsed = useMemo(() => {
+    if (!parsed) return null
+    const server = isServerMode()
+    const hasOverrides = Object.keys(columnTypes).length > 0
+    // Server mode with no overrides: the response already reflects naValues.
+    if (server && !hasOverrides) return parsed
+
+    const columns = parsed.columns.map((col) => {
+      const forced = columnTypes[col.id]
+      if (forced) return { ...col, type: forced }
+      if (server) return col
+      return { ...col, type: inferColumnType(parsed.rows.map((r) => r[col.id]), naValues ?? undefined) }
+    })
+    // Server mode already coerced its cells; only the client re-coerces here.
+    if (server) return { ...parsed, columns }
+
+    const recoerce = (rows: Record<string, unknown>[]) =>
+      rows.map((row) => {
+        const out: Record<string, unknown> = {}
+        for (const col of columns) out[col.id] = coerceValue(row[col.id], col.type, naValues ?? undefined)
+        return out
+      })
+    const rows = recoerce(parsed.rows)
+    return { ...parsed, columns, rows, preview: rows.slice(0, 10) }
+  }, [parsed, columnTypes, naValues])
+
   // Check for duplicate filename when file is parsed
   const { files: storeFiles } = useDatasetStore()
+  // Suppressed while importing: the import adds the dataset to the store before
+  // onOpenChange(false) unmounts us, so the conflict would match the row we just
+  // wrote and flash the "already exists" banner on a successful upload.
   const existingFile = useMemo(
-    () => (parsed ? findDatasetConflict(parsed.fileName, parentId, storeFiles) : null),
-    [parsed, parentId, storeFiles],
+    () => (parsed && !importing ? findDatasetConflict(parsed.fileName, parentId, storeFiles) : null),
+    [parsed, parentId, storeFiles, importing],
   )
 
   const doImport = useCallback(async (mode: 'new' | 'overwrite' | 'copy') => {
+    // Import what the preview showed: types and NA tokens already applied.
+    const parsed = effectiveParsed
     if (!parsed || !file) return
     const store = useDatasetStore.getState()
 
@@ -586,7 +785,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     } finally {
       setImporting(false)
     }
-  }, [parsed, file, parentId, onOpenChange, existingFile, buildParseOptions, t])
+  }, [effectiveParsed, file, parentId, onOpenChange, existingFile, buildParseOptions, t])
   // (Goupile branch uses parentId/onOpenChange/t + refs — same closure deps.)
 
   const handleImport = useCallback(() => {
@@ -802,28 +1001,48 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                 </div>
               )}
 
-              {/* Preview table */}
-              {parsed && !loading && (
-                <div className="flex-1 min-h-0 overflow-auto rounded border">
+              {/* Missing-value tokens — drive inference, so they sit with the preview. */}
+              {effectiveParsed && !loading && (
+                <NaValuesEditor value={naValues} onChange={setNaValues} />
+              )}
+
+              {/* Preview table. Two separate fixes for the horizontal scrollbar, which
+                  overlays content on macOS: the row-count footer sits outside the
+                  scrolling box, and pb-3 reserves a strip under the last row so the
+                  bar doesn't sit on top of it either. */}
+              {effectiveParsed && !loading && (
+                <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded border">
+                  <div className="min-h-0 flex-1 overflow-auto pb-3">
                   <table className="w-full text-xs border-collapse">
                     <thead className="sticky top-0 bg-muted z-10">
                       <tr>
                         <th className="border-b border-r px-2 py-1.5 text-center font-medium text-muted-foreground w-10">#</th>
-                        {parsed.columns.map((col) => (
+                        {effectiveParsed.columns.map((col) => (
                           <th key={col.id} className="border-b px-2 py-1.5 text-left font-medium whitespace-nowrap">
                             <span className="inline-flex items-center gap-1.5">
                               {col.name}
-                              <TypeBadge type={col.type} size="sm" />
+                              <ColumnTypePicker
+                                type={col.type}
+                                overridden={columnTypes[col.id] != null}
+                                onChange={(ty) => setColumnTypes((prev) => {
+                                  const next = { ...prev }
+                                  // Re-picking the inferred type clears the override
+                                  // rather than pinning it.
+                                  if (ty === null) delete next[col.id]
+                                  else next[col.id] = ty
+                                  return next
+                                })}
+                              />
                             </span>
                           </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {parsed.preview.map((row, i) => (
+                      {effectiveParsed.preview.map((row, i) => (
                         <tr key={i} className="hover:bg-muted/50">
                           <td className="border-b border-r px-2 py-1 text-center text-muted-foreground tabular-nums">{i + 1}</td>
-                          {parsed.columns.map((col) => (
+                          {effectiveParsed.columns.map((col) => (
                             <td key={col.id} className="border-b px-2 py-1 whitespace-nowrap max-w-[200px] truncate">
                               {row[col.id] != null ? String(row[col.id]) : <span className="italic text-muted-foreground">null</span>}
                             </td>
@@ -832,9 +1051,10 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                       ))}
                     </tbody>
                   </table>
-                  {parsed.totalRows > 10 && (
-                    <div className="border-t px-2 py-1 text-[10px] text-muted-foreground bg-muted/50">
-                      {t('datasets.upload_preview_hint', { shown: 10, total: parsed.totalRows.toLocaleString() })}
+                  </div>
+                  {effectiveParsed.totalRows > 10 && (
+                    <div className="shrink-0 border-t bg-muted/50 px-2 py-1 text-[10px] text-muted-foreground">
+                      {t('datasets.upload_preview_hint', { shown: 10, total: effectiveParsed.totalRows.toLocaleString() })}
                     </div>
                   )}
                 </div>
@@ -868,10 +1088,12 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
           )}
           {parsed && existingFile && (
             <>
-              <Button variant="outline" onClick={() => doImport('copy')} disabled={importing}>
+              {/* No spinner here: `importing` doesn't say WHICH action is running,
+                  so it would also spin when Overwrite was the one clicked. */}
+              <Button onClick={() => doImport('copy')} disabled={importing}>
                 {t('datasets.upload_import_copy')}
               </Button>
-              <Button onClick={() => doImport('overwrite')} disabled={importing}>
+              <Button variant="destructive" onClick={() => doImport('overwrite')} disabled={importing}>
                 {t('datasets.upload_overwrite')}
               </Button>
             </>

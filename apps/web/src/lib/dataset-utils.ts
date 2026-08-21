@@ -10,6 +10,36 @@ export const DATE_DATETIME_RE =
 
 const DATETIME_TIME_RE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/
 
+/**
+ * Tokens treated as missing when no explicit list is configured. Deliberately
+ * conservative: only spellings that are unambiguous as "no value". Sentinels
+ * like "-" or "." are NOT included — they are legitimate content in some
+ * columns, so opting into them is left to the user.
+ */
+export const DEFAULT_NA_VALUES = ['na', 'n/a', 'null', 'nan', 'none', '#n/a']
+
+const DEFAULT_NA_SET = new Set(DEFAULT_NA_VALUES)
+// coerceValue runs per cell, so rebuilding the Set each call would be a hot-path
+// allocation on large datasets. Keyed by the caller's array identity.
+const naSetCache = new WeakMap<string[], Set<string>>()
+
+/** Normalize a configured NA list for lookup (trimmed, lower-cased, no blanks). */
+export function normalizeNaValues(naValues?: string[]): Set<string> {
+  if (!naValues) return DEFAULT_NA_SET
+  const cached = naSetCache.get(naValues)
+  if (cached) return cached
+  const set = new Set(naValues.map((v) => v.trim().toLowerCase()).filter((v) => v !== ''))
+  naSetCache.set(naValues, set)
+  return set
+}
+
+/** True when a raw cell reads as missing: null, empty, or one of the NA tokens. */
+export function isMissingValue(value: unknown, naSet: Set<string>): boolean {
+  if (value == null) return true
+  const s = String(value).trim()
+  return s === '' || naSet.has(s.toLowerCase())
+}
+
 /** Recognized truthy/falsy tokens for boolean columns (EN + FR), case-insensitive. */
 const BOOL_TRUE = new Set(['true', '1', 'yes', 'y', 't', 'vrai', 'oui', 'o'])
 const BOOL_FALSE = new Set(['false', '0', 'no', 'n', 'f', 'faux', 'non'])
@@ -28,10 +58,16 @@ export function parseBoolean(value: unknown): boolean | null {
  *  the original string; boolean → bool when a known token else the string;
  *  string/date/unknown → the original string. Used when a column's type is
  *  overridden client-side so rows re-read consistently. */
-export function coerceValue(value: unknown, type: DatasetColumn['type']): unknown {
+export function coerceValue(
+  value: unknown,
+  type: DatasetColumn['type'],
+  naValues?: string[],
+): unknown {
   if (value == null) return null
   const s = String(value)
   if (s === '') return null
+  // An NA token is missing data, whatever the column's type.
+  if (normalizeNaValues(naValues).has(s.trim().toLowerCase())) return null
   if (type === 'number') {
     const n = Number(s)
     return isNaN(n) ? s : n
@@ -55,10 +91,15 @@ export function hasTimeComponent(values: unknown[]): boolean {
 
 /**
  * Infer a column type from a sample of values.
- * Samples up to 200 non-null values. Priority: boolean > number > date > string.
+ * Samples up to 200 present values. Priority: boolean > number > date > string.
+ *
+ * The 200 cap counts values that are actually present: missing ones are dropped
+ * first, so a column whose real data only starts after a long run of NA/blank
+ * rows is still inferred from its data rather than from the gap.
  */
-export function inferColumnType(values: unknown[]): DatasetColumn['type'] {
-  const nonNull = values.filter((v) => v !== null && v !== undefined && v !== '')
+export function inferColumnType(values: unknown[], naValues?: string[]): DatasetColumn['type'] {
+  const naSet = normalizeNaValues(naValues)
+  const nonNull = values.filter((v) => !isMissingValue(v, naSet))
   if (nonNull.length === 0) return 'unknown'
 
   let allNumbers = true
@@ -78,6 +119,9 @@ export function inferColumnType(values: unknown[]): DatasetColumn['type'] {
   if (allDates) return 'date'
   return 'string'
 }
+
+/** Types a user can force on a column, in menu order ('unknown' is never chosen). */
+export const COLUMN_TYPES: DatasetColumn['type'][] = ['string', 'number', 'boolean', 'date']
 
 /** Subtle per-column background tints, alternating with transparent columns for separation. */
 export const COLUMN_TINTS = [
@@ -118,12 +162,13 @@ export function displayCellValue(col: Pick<DatasetColumn, 'valueLabels'>, raw: u
 export function buildColumns(
   headers: string[],
   rows: Record<string, unknown>[],
+  naValues?: string[],
 ): DatasetColumn[] {
   const ids = buildColumnIds(headers)
   return headers.map((name, idx) => ({
     id: ids[idx],
     name,
-    type: inferColumnType(rows.map((r) => r[name])),
+    type: inferColumnType(rows.map((r) => r[name]), naValues),
     order: idx,
   }))
 }
