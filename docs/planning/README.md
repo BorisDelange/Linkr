@@ -53,13 +53,40 @@ path passes no credentials.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Create the `linkr-catalog` repo (entries/ + schema + build.mjs + GitLab CI) | S |
+| 🔜 | Create the `linkr-catalog` repo (entries/ + schema + build.mjs + GitLab CI) — **blocks [default-data-repos-plan.md](default-data-repos-plan.md)** | S |
 | ✅ | `lib/catalog/` fetch + hash-diff + localStorage cache (+ unit tests) | S |
 | ✅ | Rewrite `CatalogPage.tsx`: grid, toolbar, load/refresh (card opens the repo) | M |
 | ✅ | Install dialog → clone → `applyClonedEntity` (workspace picker + conflict prompt) | M |
 | ✅ | Custom catalog URL — Settings → Catalog tab | S |
 | ✅ | Installed-state by lineageId + version badge + Update flow (workspace picked in the toolbar) | M |
 | 💤 | "Propose to catalog" prefill | S |
+
+## Default data as external repos — [default-data-repos-plan.md](default-data-repos-plan.md)
+
+Move the bundled default data (33 MB in `apps/web/public/data/`, mostly MIMIC-IV demo
+Parquet) out of this repo into one public git repo per entity — the same repos the
+catalog indexes. Client-only gets them baked in at CI build time (clone → seed folder,
+so Reset-all-data still restores them); server mode clones on first run; both get a
+"from default data" tab in the import dialog. **Decided**: one repo per entity, Git LFS
+for Parquet, and the registry + install path are the **community catalog** — no second
+mechanism. So this effort now **depends on the `linkr-catalog` repo existing**. Legal
+check done: MIMIC-IV demo OMOP is Open Access ODbL 1.0, redistribution is fine provided
+the notices travel with the data.
+
+| St | Item | Effort |
+|----|------|--------|
+| ✅ | All design decisions taken (plan §11): install-once + upgrade via the catalog, `demo`/`lean` build profiles, no auto-seeded schema presets | — |
+| ✅ | 4 schema repos filled + pushed (OMOP 5.4/5.3, MIMIC-IV/III) — private until the import test passes | M |
+| 🔜 | **Stop auto-creating schema presets** (workspace-store + seed-loader); presets arrive by import/catalog like anything else — lands *with* the build fetch, never before | M |
+| 🐛 | App builds `omop-5.3` from the **5.4 DDL** (spread inherits `ddl`); correct DDL now in the repo, fixed for free by the item above | S |
+| 🔜 | Verify `mimic-iv-demo` (source format) license page + version/DOI | S |
+| 🔜 | Create the **database** repos (ODbL text, NOTICE, PROVENANCE, conversion script, LFS, tag `v1`) | M |
+| 🔜 | git-lfs in the API image + test that a cloned Parquet is data, not an LFS pointer | S |
+| 🔜 | Catalog schema: `database` type, `git.ref`, `bundled`, `defaultInstall`, `sizeBytes` | M |
+| 🔜 | Extract `seed-manifest.mjs` from the portal `build.sh` + unit tests (kills the duplicate-logic drift risk) | M |
+| 🔜 | `fetch-default-data.mjs` + CI wiring + clone cache | M |
+| 🔜 | Import dialog third tab, on a shared catalog card/install component | M |
+| 🔜 | Server mode: gate the browser seed, `instance_settings`, setup-wizard step, install job | L |
 
 ## AI agents — [ai-agents-plan.md](ai-agents-plan.md)
 
