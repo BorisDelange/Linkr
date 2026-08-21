@@ -167,10 +167,10 @@ export function ProfilePage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Label>{t('profile.affiliation')}</Label>
+                  <Label>
+                    {t('profile.affiliation')}
                     <LangHint lang={language} />
-                  </div>
+                  </Label>
                   <Input
                     value={localizedRaw(draft.affiliation, language)}
                     placeholder={t('profile.affiliation_placeholder')}
@@ -179,10 +179,10 @@ export function ProfilePage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Label>{t('profile.profession')}</Label>
+                    <Label>
+                      {t('profile.profession')}
                       <LangHint lang={language} />
-                    </div>
+                    </Label>
                     <Input
                       value={localizedRaw(draft.profession, language)}
                       placeholder={t('profile.profession_placeholder')}

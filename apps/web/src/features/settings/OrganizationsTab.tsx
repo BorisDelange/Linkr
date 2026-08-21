@@ -257,10 +257,10 @@ export function OrganizationsTab() {
             }}
           >
             <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Label>{t('workspaces.field_org_name')}</Label>
+              <Label>
+                {t('workspaces.field_org_name')}
                 <LangHint lang={language} />
-              </div>
+              </Label>
               <Input
                 value={localizedRaw(form.name, language)}
                 onChange={(e) => setForm({ ...form, name: setLocalized(form.name, language, e.target.value) })}
@@ -285,10 +285,10 @@ export function OrganizationsTab() {
             </div>
             {form.type === 'other' && (
               <div className="space-y-2 sm:col-span-2">
-                <div className="flex items-center gap-2">
-                  <Label>{t('workspaces.field_org_custom_type')}</Label>
+                <Label>
+                  {t('workspaces.field_org_custom_type')}
                   <LangHint lang={language} />
-                </div>
+                </Label>
                 <Input
                   value={localizedRaw(form.customType, language)}
                   onChange={(e) => setForm({ ...form, customType: setLocalized(form.customType, language, e.target.value) })}
