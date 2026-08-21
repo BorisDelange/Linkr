@@ -2557,10 +2557,16 @@ export async function applyClonedEntity(
     // schema that silently does nothing.
     const ddl = await readText(SCHEMA_PRESET_DDL_FILE)
     if (!ddl) return false
+    // `workspaceId` must be re-stamped from the caller: unlike the other types
+    // here, a preset has no shell row carrying it (save() is an upsert keyed by
+    // presetId), and the repo's own value — if any — belongs to another instance.
+    // Without it the preset is saved outside every workspace, so getByWorkspace()
+    // never returns it and the install looks like it silently did nothing.
     const withDocs = await withEntityDocs(
       dropForeignAuthorId({
         ...preset,
         presetId: targetId,
+        workspaceId,
         mapping: { ...preset.mapping, ddl },
       }) as CustomSchemaPreset,
       'schema-preset',

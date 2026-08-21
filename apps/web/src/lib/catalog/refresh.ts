@@ -11,7 +11,10 @@
  */
 import type { CatalogEntryType } from './types'
 
-export async function refreshStoresAfterInstall(type: CatalogEntryType): Promise<void> {
+export async function refreshStoresAfterInstall(
+  type: CatalogEntryType,
+  workspaceId: string,
+): Promise<void> {
   // The workspace list carries per-workspace entity counts, so it is stale after any
   // install, whatever the type.
   const { useWorkspaceStore } = await import('@/stores/workspace-store')
@@ -49,9 +52,10 @@ export async function refreshStoresAfterInstall(type: CatalogEntryType): Promise
       break
     }
     case 'schema-preset': {
-      // Loaded per workspace; passing none re-reads the store's current scope.
+      // Scoped to the target workspace — the Schemas page loads the same way, and
+      // an unscoped reload would list every workspace's presets.
       const { useSchemaPresetStore } = await import('@/stores/schema-preset-store')
-      reloads.push(useSchemaPresetStore.getState().loadPresets())
+      reloads.push(useSchemaPresetStore.getState().loadPresets(workspaceId))
       break
     }
   }

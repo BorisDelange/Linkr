@@ -70,7 +70,7 @@ export function CatalogInstallDialog({
       // holds a list of this entity type is stale — a Projects page open in another
       // tab of the app would keep showing the list it loaded on mount. Refreshing
       // only the workspace list (for its counts) was not enough.
-      await refreshStoresAfterInstall(prepared.entry.type)
+      await refreshStoresAfterInstall(prepared.entry.type, workspaceId)
       onInstalled?.(prepared.entry, result.id!)
       onOpenChange(false)
     } catch (err) {
