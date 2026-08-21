@@ -287,7 +287,7 @@ and `databases` must be **created** (checked 2026-08-21).
 |---|---|---|---|
 | 1–4 | `database-schemas/{omop-cdm-5.4, omop-cdm-5.3, mimic-iv, mimic-iii}` | `lib/schema-presets.ts` + `lib/schema-ddl/` | ✅ pushed |
 | 5 | `projects/icu-mortality-prediction` | `seed/default/projects/…` + `demo-scripts/` (5 scripts) | ✅ pushed |
-| 6 | `projects/icu-activity-dashboard` | same + `activity-dashboard.json` + `demo-scripts-activity/` (2 scripts) | ✅ pushed — **dataset not included yet** |
+| 6 | `projects/icu-activity-dashboard` | same + dashboard + `demo-scripts-activity/` + the ICU dataset (1 810 rows × 55 cols, 646 KB CSV) | ✅ pushed |
 | 7 | `mapping-projects/mimic-iv-demo` | `seed/default/mapping-projects/` + `mimic-iv-concept-mappings.json` (1 786 rows) | ✅ pushed |
 | 8 | `etl-pipelines/mimic-iv-demo-to-omop` | `seed/default/etl/` + `mimic-iv-etl-scripts.json` (18 scripts) | ✅ pushed |
 | 9 | `dq-rule-sets/mimic-iv-demo` | `seed/default/data-quality/` | ⏸ deferred — DQ rework pending |
@@ -316,6 +316,17 @@ Likewise the `default` **workspace** and the `Demo Hospital` **organization** (d
 
 Repos 11–13 are blocked on the new **`database` catalog type** (§2 gap 1) — nothing reads
 them until that exists. Repos 1–10 work with today's code.
+
+> 🐛 **Export bug: a widget's `datasetFileId` is written as a local UUID.**
+> Found 2026-08-21 by diffing a hand-built repo against a real round-trip export.
+> `datasets/_tree.json` declares the dataset under its portable id
+> (`icu_activity.csv`), but `dashboards/*.json` writes `datasetFileId` as the
+> instance's UUID (`dc114ff5-…`). On import both go through `mapId`, which hashes
+> them against the target `projectUid` — two different inputs, two different ids —
+> so `resolveDatasetId` finds nothing and **every widget is orphaned**: the dashboard
+> imports with all its widgets and no data to plot. The repo keeps the portable form
+> by hand; the exporter should emit it too (resolve the UUID back to the dataset's
+> tree id when writing, the way tabs/widgets already resolve to content keys).
 
 ### Three things to settle before filling 5–10
 
