@@ -287,6 +287,13 @@ sent ~35 files off-pattern. It's now a reference for *multi-page dialog flow onl
   (`entity-docs-dialog`, the detail sheets) — consistent among themselves.
 - **Destructive actions go through an `AlertDialog`.** This one is well held
   (used consistently throughout) — keep it that way.
+- **`DialogShell` renders no `<form>` — it confirms on Enter itself.** Don't
+  re-add a `<form onSubmit>`, and don't hand-roll an `onKeyDown` Enter guard per
+  dialog: those were three different spellings across sibling dialogs, and four
+  dialogs migrated off `<form>` silently lost Enter-to-submit altogether.
+  Textareas and anything inside a real `<form>` keep Enter. For a field where
+  Enter means something else (a tag input that adds on Enter), mark that field
+  `data-no-enter-submit`; to disable it for a whole dialog, pass `noEnterSubmit`.
 
 ### Shared dialogs — check call sites before restyling
 

@@ -139,6 +139,13 @@ Only the two rules with consequences beyond styling live here:
 - `use-*.ts` file, `useX` export. Generic and reusable where possible.
 - Return a **destructurable object** (`{ data, loading, reload, ... }`), not a positional tuple, unless mirroring a built-in hook shape.
 - Own your side effects: revoke blob URLs, clear timers, remove listeners in the effect cleanup (`use-attachments.ts`, `use-mobile.ts`).
+- **Re-check your guard after every `await`.** A condition read before an async
+  call — a render-time closure value, or a caller's check one frame earlier — is
+  stale by the time the result lands, and the write that follows clobbers
+  whatever changed meanwhile. Read the live value (`useStore.getState()`, not the
+  closure), re-assert the identity you loaded for (`activeId`, `sameProject`)
+  *after* the await and bail if it moved, and give any effect that can re-fire a
+  `cancelled` flag or a sequence token so the slower response loses.
 
 ## Error handling
 
@@ -154,6 +161,20 @@ Current convention is **context-dependent** — keep it consistent within each c
 - Never let an unhandled rejection reach the user as a blank screen. Prefer a degraded but rendered state.
 - When you add a genuinely user-facing failure, surface it (and add an i18n key) rather than swallowing it silently.
 
+Three failure modes recur often enough to be rules of their own:
+
+- **Never `.catch(() => {})` a write that something downstream believes
+  happened.** A swallowed sync anchor or file write makes the caller report
+  success and buries the real state. If a `try/catch` already surrounds the call,
+  let it propagate.
+- **A failed re-run must drop the previous result**, not leave it rendered.
+  Delete the stale entry in the `catch` — an error shown only `if (!result)` is
+  invisible after a first success, which is exactly how a "fixed" silent failure
+  came back.
+- **Every early `return` inside a `try` must still clear its spinner.** Throw a
+  sentinel and let the existing `catch`/`finally` do it, rather than returning
+  past the reset and leaving the button turning for ever.
+
 ## SQL safety (DuckDB-WASM)
 
 This is security-critical because user data and user-authored SQL meet here.
@@ -164,9 +185,78 @@ This is security-critical because user data and user-authored SQL meet here.
 - OMOP queries: always match both `_concept_id` **and** `_source_concept_id` (OR), per `docs/architecture.md`.
 - Fuzzy search: use `buildFuzzySearchSql()` from `@/lib/fuzzy-search` — see `docs/fuzzy-search.md`.
 
+### Validate at the trust boundary, not at the sink
+
+Every exportable entity is also **importable** — from a ZIP, a git clone, a pull,
+the catalog, or the seed loader. Anything read back from storage is therefore
+attacker-supplyable, however developer-authored it looked when it was written.
+This assumption has broken four separate times; the list above was in this file
+for all four, because it says which helper to call and never says *where*.
+
+- **Validate once, where untrusted data enters — not at each sink.** One builder
+  had ~100 interpolation sites; guarding them individually leaves the next one
+  to be written unguarded. `sanitizeSchemaMapping()` (`lib/schema-helpers.ts`) is
+  the model to copy.
+- **Gate on load as well as on save.** Import, pull, catalog install and the seed
+  loader all write storage directly, bypassing the store's own save method — a
+  save-only gate catches none of them.
+- **Cover every shape the field can take.** `string`, `string[]` and
+  `Record<string, string>` have each been the hole in turn; matching the field
+  *name* is not enough if you only handle two of its three shapes.
+- **A rejected value is dropped, never widened.** Returning an unfiltered clause
+  when an operator fails validation turns a rejected filter into no filter.
+- A documented rule with zero call sites is worse than no rule: it reads as a
+  guarantee. If you add a validator, wire it in the same change.
+
 ## Sanitization
 
 - Any `dangerouslySetInnerHTML` MUST go through `sanitizeHtml()` from `@/lib/sanitize`. No raw user/plugin HTML into the DOM. (Existing usages already wrap; keep that invariant.)
+
+## Export twins (front ⟷ back)
+
+Several exporters exist twice: a TS builder (`lib/entity-io.ts`, `lib/export.ts`)
+and a byte-faithful Python twin (`services/project_export.py`,
+`workspace_export.py`, …). They must write the **same bytes**, or a mixed-mode
+team churns a phantom git diff on every push. This is the most frequently
+recurring defect class in this repo's review history.
+
+- **Touch one twin, touch the other in the same change**, and add the case to the
+  golden fixture in `__fixtures__/export-golden/`. A fix that isn't in a fixture
+  is invisible to the next person.
+- The divergences that keep recurring: whole floats (`100.0` vs `100`), absent
+  keys (`JSON.stringify` drops `undefined`, `json.dumps` emits `null` — omit on
+  both), sort order (JS compares UTF-16 code units, Python code points), and
+  tolerance (a malformed entry one side `continue`s past must not throw on the
+  other).
+- A fixture that doesn't carry the awkward shape proves nothing. Put the empty
+  collection, the second attachment, the duplicate name in the fixture.
+
+## Sort before you serialize or paginate
+
+DB iteration order, an IDB index and a `Set` are all arbitrary. Anything that
+becomes bytes, an id, or a page window needs an explicit total order:
+
+- **Every exported list carries an `ORDER BY` / `.sort()` on both engines**, and
+  a collision suffix (`name#2`) is assigned **after** the sort — assigning it
+  during the pre-sort pass makes two same-named rows swap ids between exports.
+- **Every paginated SQL query ends with a unique tiebreak column**
+  (`… ORDER BY record_count DESC, concept_id ASC`). DuckDB parallelises, so
+  without one the same row can appear on two pages and another on neither.
+- Sort on the raw code point (`a < b ? -1 : 1`), not `localeCompare` and not a
+  `sensitivity: 'base'` collator: both return 0 for values that differ, silently
+  reopening the tie the sort exists to close.
+
+## Wire a change into every sibling
+
+Most features here exist once per scope — 9 exportable entity types, 6 provenance
+scopes, 4 file trees, 2 pull scopes, and a client builder beside a server one. A
+guard, field or helper added to one and not the rest is worse than absent: the
+badge, docstring or commit message then asserts a behaviour that holds in one
+place only.
+
+Before finishing, grep the new symbol and count its call sites against the
+sibling set. If the count is short, either wire the rest or write down, next to
+the one you skipped, why that scope is genuinely different.
 
 ## Backend (FastAPI)
 
@@ -211,3 +301,14 @@ See `.claude/skills/write-tests/SKILL.md`. Short version:
 - Test **pure, critical logic** (SQL escaping/validation, OMOP query builders, fuzzy-search, import/export, format helpers). These contracts are stable.
 - Do **not** unit-test volatile React components — they churn every iteration and the tests rot. Cover them via manual/E2E checks instead.
 - When you change a tested function, update its test **in the same change**. A test is part of the contract, not a separate chore.
+
+Two rules the review log keeps re-learning:
+
+- **Test the input that breaks it, not the one that works.** A builder tested
+  only on valid data proves nothing about its escaping, and a golden fixture
+  whose values are all safe passes whether or not the guard exists. Add the
+  adversarial string, the duplicate name, the empty list.
+- **Watch a new test fail before you trust it.** Revert the fix, run the test,
+  confirm it goes red, restore. A test written after the fix and never seen red
+  routinely asserts something the fix didn't change — including tests that look
+  like they cover the bug and don't.
