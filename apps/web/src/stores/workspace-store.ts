@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
-import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { isShellHtml, toLocalized, setLocalized, localized } from '@/lib/localized'
 import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString, EntityLicense } from '@/types'
@@ -120,23 +119,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
       updatedAt: now,
     }
     await getStorage().workspaces.create(workspace)
-    // Seed the built-in schema presets (OMOP 5.4/5.3, MIMIC-IV/III) so every new
-    // workspace ships with them, in both local and server mode.
-    await Promise.all(
-      BUILTIN_PRESET_IDS.map((presetId) =>
-        getStorage()
-          .schemaPresets.save({
-            presetId,
-            workspaceId: id,
-            mapping: structuredClone(SCHEMA_PRESETS[presetId]),
-            createdAt: now,
-            updatedAt: now,
-          })
-          .catch((e) => console.warn('[workspace-store] preset seed:', presetId, e)),
-      ),
-    )
+    // No schema presets are created here any more: a schema is an ordinary entity,
+    // installed from the catalog or imported like anything else. See
+    // docs/planning/default-data-repos-plan.md §11.10.
     // Seed a copy of every built-in plugin so the workspace lists them in its
-    // Plugins page (same rationale as the schema presets above).
+    // Plugins page.
     await seedBuiltinPluginsForWorkspace(id)
     set((s) => ({
       _workspacesRaw: [...s._workspacesRaw, workspace],

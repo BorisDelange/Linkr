@@ -13,7 +13,7 @@
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
-import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS, getSchemaPreset } from '@/lib/schema-presets'
+import { getSchemaPreset } from '@/lib/schema-presets'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -488,13 +488,15 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
 
   const wsId = workspace.id
 
-  // --- Seed built-in schemas for this workspace ---
-  for (const presetId of BUILTIN_PRESET_IDS) {
-    const mapping = SCHEMA_PRESETS[presetId]
-    if (!mapping) continue
-    const preset: CustomSchemaPreset = { presetId, mapping, workspaceId: wsId, createdAt: now, updatedAt: now }
-    await storage.schemaPresets.save(preset).catch(() => {})
-  }
+  // Schema presets are NOT seeded: they are ordinary entities now, installed from
+  // the catalog or shipped in the seed folder like any other entity. See
+  // docs/planning/default-data-repos-plan.md §11.10.
+  //
+  // `getSchemaPreset` below is a separate matter and still reads the compiled table:
+  // a seeded database declares its schema inline or by preset id ("omop-5.4"), and
+  // that id must resolve to a mapping even when no preset entity is installed. It
+  // will move to the workspace's stored presets once the databases themselves ship
+  // as repos (same plan, §3bis B).
 
   // --- Seed built-in plugins for this workspace ---
   await seedBuiltinPluginsForWorkspace(wsId)

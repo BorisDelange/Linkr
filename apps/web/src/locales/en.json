@@ -2463,17 +2463,12 @@
     "new_schema": "New schema",
     "create_title": "Create a schema",
     "edit_title": "Edit schema",
-    "template": "Template",
-    "template_blank": "Blank schema",
-    "template_hint": "Start from an empty schema, or copy a built-in one (OMOP, MIMIC) — useful to restore a default you deleted.",
     "empty_title": "No schemas",
     "empty_description": "Add a schema to define how tables and columns are mapped in your databases.",
     "tab_schema_ddl": "Schema (DDL)",
     "tab_ddl": "DDL",
     "tab_mapping": "Mapping",
     "tab_schema_mapping": "Schema (Mapping)",
-    "reset_to_default": "Reset to default",
-    "reset_confirm": "This will discard your changes and restore the original built-in schema. This action cannot be undone.",
     "edit_description": "Update this schema's name and description.",
     "field_name": "Schema name",
     "field_description": "Description",
@@ -2489,8 +2484,7 @@
     "erd_add_group": "Add group",
     "erd_reset_layout": "Reset layout",
     "erd_filter": "Filter",
-    "erd_ungrouped": "Ungrouped",
-    "template_already_added": "Already added to this workspace"
+    "erd_ungrouped": "Ungrouped"
   },
   "organization": {
     "title": "Organization",

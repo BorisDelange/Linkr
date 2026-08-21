@@ -33,7 +33,6 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   AlertDialog,
   AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -46,8 +45,6 @@ import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import
 import { parseImportZip, SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
-import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
-import { uniqueName } from '@/lib/unique-name'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset } from '@/stores/schema-preset-store'
@@ -1051,34 +1048,25 @@ function SchemaDetailView({
   schemaId,
   customPresets,
   onSave,
-  onDelete,
   onBack,
 }: {
   schemaId: string
   customPresets: CustomSchemaPreset[]
   onSave: (presetId: string, mapping: SchemaMapping) => Promise<void>
-  onDelete: (presetId: string) => Promise<void>
   onBack: () => void
 }) {
   const { t } = useTranslation()
   const { can } = useMyWorkspaceRole()
   const canWrite = can('schemas:write')
-  const isBuiltin = BUILTIN_PRESET_IDS.includes(schemaId)
-
-  // Resolve mapping: IDB override > built-in > custom
-  const baseMapping = useMemo(() => {
-    // Check custom/overrides first (IDB)
-    const custom = customPresets.find((p) => p.presetId === schemaId)
-    if (custom) return custom.mapping
-    // Fallback to built-in
-    const builtin = SCHEMA_PRESETS[schemaId]
-    if (builtin) return builtin
-    return null
-  }, [schemaId, customPresets])
+  // Every schema is a stored entity now — there is no compiled-in fallback to
+  // resolve against, and nothing is "built-in".
+  const baseMapping = useMemo(
+    () => customPresets.find((p) => p.presetId === schemaId)?.mapping ?? null,
+    [schemaId, customPresets],
+  )
 
   const [isEditing, setIsEditing] = useState(false)
   const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
-  const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [activeTab, setActiveTab] = useUrlTab<SchemaTabId>({
     key: `schema:${schemaId}`,
     tabs: SCHEMA_TAB_IDS,
@@ -1105,9 +1093,6 @@ function SchemaDetailView({
     canSave: isEditing && !!editMapping,
     enabled: isEditing && (activeTab === 'ddl' || activeTab === 'mapping'),
   })
-
-  // Check if built-in has been customized (override exists in IDB)
-  const hasCustomOverride = isBuiltin && customPresets.some((p) => p.presetId === schemaId)
 
   if (!baseMapping) {
     return (
@@ -1137,14 +1122,6 @@ function SchemaDetailView({
   const handleSave = async () => {
     if (!editMapping) return
     await onSave(schemaId, editMapping)
-    setIsEditing(false)
-    setEditMapping(null)
-  }
-
-  const handleReset = async () => {
-    // Delete the stored override → falls back to the built-in mapping.
-    await onDelete(schemaId)
-    setShowResetConfirm(false)
     setIsEditing(false)
     setEditMapping(null)
   }
@@ -1216,12 +1193,6 @@ function SchemaDetailView({
               </>
             ) : (
               <>
-                {isBuiltin && hasCustomOverride && (
-                  <Button variant="ghost" size="sm" disabled={!canWrite} onClick={() => setShowResetConfirm(true)} className="h-7 gap-1 text-xs">
-                    <RotateCcw size={12} />
-                    {t('schemas.reset_to_default')}
-                  </Button>
-                )}
                 <Button variant="outline" size="sm-tight" disabled={!canWrite} onClick={startEdit}>
                   <Pencil size={12} />
                   {t('common.edit')}
@@ -1305,21 +1276,6 @@ function SchemaDetailView({
         </TabsContent>
       </Tabs>
 
-      {/* Reset confirmation */}
-      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('schemas.reset_to_default')}</AlertDialogTitle>
-            <AlertDialogDescription>{t('schemas.reset_confirm')}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleReset}>
-              {t('schemas.reset_to_default')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
@@ -1385,10 +1341,6 @@ export function SchemaPresetsPage() {
     }
     delete (newMapping as { knownTables?: string[] }).knownTables
     await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid))
-  }
-
-  const deletePreset = async (presetId: string) => {
-    await storeDelete(presetId)
   }
 
   const savePreset = async (presetId: string, mapping: SchemaMapping) => {
@@ -1462,14 +1414,12 @@ export function SchemaPresetsPage() {
     }
   }, [customPresets, language, doPresetImport, t])
 
-  const [createTemplate, setCreateTemplate] = useState<string>('blank')
   const [newPresetId, setNewPresetId] = useState('')
 
   const openCreateDialog = () => {
     setNewPresetName('')
     setNewPresetDescription('')
     setNewPresetId('')
-    setCreateTemplate('blank')
     setShowCreateDialog(true)
   }
 
@@ -1483,10 +1433,6 @@ export function SchemaPresetsPage() {
   // Optional: left empty, creation derives one. Typed, it must be valid and free.
   const typedId = newPresetId.trim()
   const presetIdOk = typedId === '' || isEntityIdValid(typedId, takenIds)
-  /** Prefill helper: same base name, first free "(n)" suffix. */
-  const freeSchemaName = (base: string) =>
-    uniqueName(base, customPresets.map((p) => localized(p.mapping.presetLabel, language)))
-
   const nameDuplicate = customPresets.some(
     (p) => localized(p.mapping.presetLabel, language).toLowerCase() === newPresetName.trim().toLowerCase(),
   )
@@ -1498,28 +1444,10 @@ export function SchemaPresetsPage() {
 
     const label = setLocalized({}, language, name)
     const description = newPresetDescription.trim() ? setLocalized({}, language, newPresetDescription.trim()) : undefined
-    // If using a built-in template, copy its mapping and remember the provenance
-    const templateMapping = createTemplate !== 'blank' && SCHEMA_PRESETS[createTemplate]
-      ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: label, description, templateId: createTemplate }
-      : undefined
 
-    // What the user typed always wins. Otherwise a built-in template keeps its
-    // own id (so a deleted default can be restored), unless that id is taken —
-    // the store upserts by presetId, so reusing it would overwrite that schema
-    // rather than add a second one.
-    const fallbackId =
-      createTemplate !== 'blank'
-        ? (customPresets.some((p) => p.presetId === createTemplate)
-            ? `${createTemplate}-${crypto.randomUUID().slice(0, 8)}`
-            : createTemplate)
-        : `custom-${crypto.randomUUID().slice(0, 8)}`
-    const presetId = newPresetId.trim() || fallbackId
-    const newMapping: SchemaMapping = templateMapping ?? {
-      presetId,
-      presetLabel: label,
-      description,
-    }
-    newMapping.presetId = presetId
+    // What the user typed always wins; otherwise derive a free id.
+    const presetId = newPresetId.trim() || `custom-${crypto.randomUUID().slice(0, 8)}`
+    const newMapping: SchemaMapping = { presetId, presetLabel: label, description }
     await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid))
     setShowCreateDialog(false)
     navigate(presetId)
@@ -1541,7 +1469,6 @@ export function SchemaPresetsPage() {
         schemaId={schemaId}
         customPresets={customPresets}
         onSave={savePreset}
-        onDelete={deletePreset}
         onBack={navigateToList}
       />
     )
@@ -1648,58 +1575,6 @@ export function SchemaPresetsPage() {
             confirmLabel={t('common.create')}
             confirmDisabled={!canCreatePreset}
           >
-                {/* Template picker */}
-                <div className="space-y-1.5">
-                  <Label>{t('schemas.template')}</Label>
-                  <p className="text-xs text-muted-foreground">{t('schemas.template_hint')}</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {[
-                      { id: 'blank', label: t('schemas.template_blank'), added: false },
-                      ...BUILTIN_PRESET_IDS.map(pid => ({
-                        id: pid,
-                        label: SCHEMA_PRESETS[pid]?.presetLabel ? localized(SCHEMA_PRESETS[pid]!.presetLabel, language) : pid,
-                        // Marked, but still selectable: reusing a template creates a
-                        // second schema. Created schemas carry the template in
-                        // mapping.templateId (their own presetId is the name slug);
-                        // the presetId match covers seeded/restored defaults that
-                        // kept the built-in id.
-                        added: customPresets.some(cp => cp.presetId === pid || cp.mapping.templateId === pid),
-                      })),
-                    ].map(tpl => (
-                      <button
-                        key={tpl.id}
-                        type="button"
-                        title={tpl.added ? t('schemas.template_already_added') : undefined}
-                        onClick={() => {
-                          setCreateTemplate(tpl.id)
-                          if (tpl.id === 'blank') {
-                            // Going back to blank clears what the template filled
-                            // in, so the form does not keep a name and an id that
-                            // describe a template no longer selected.
-                            setNewPresetName('')
-                            setNewPresetId('')
-                            return
-                          }
-                          // Names must be unique, so a template already in the
-                          // workspace is prefilled with a free "(2)", "(3)"… suffix
-                          // rather than a name the Create button would reject.
-                          setNewPresetName(freeSchemaName(tpl.label))
-                          setNewPresetId('')
-                        }}
-                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
-                          createTemplate === tpl.id
-                            ? 'border-primary bg-primary/5 text-primary'
-                            : 'border-border hover:bg-accent'
-                        }`}
-                      >
-                        {tpl.added
-                          ? <Check size={14} className="shrink-0 text-emerald-500" />
-                          : <Database size={14} className="shrink-0 text-muted-foreground" />}
-                        <span className="truncate">{tpl.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
                 {/* Name */}
                 <div className="space-y-1.5">
                   <Label>{t('common.name')}<RequiredMark /></Label>

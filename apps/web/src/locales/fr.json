@@ -2463,17 +2463,12 @@
     "new_schema": "Nouveau schéma",
     "create_title": "Créer un schéma",
     "edit_title": "Modifier le schéma",
-    "template": "Modèle",
-    "template_blank": "Schéma vide",
-    "template_hint": "Partez d'un schéma vide, ou copiez un schéma intégré (OMOP, MIMIC) — utile pour restaurer un modèle par défaut supprimé.",
     "empty_title": "Aucun schéma",
     "empty_description": "Ajoutez un schéma pour définir comment les tables et colonnes sont mappées dans vos bases de données.",
     "tab_schema_ddl": "Schéma (DDL)",
     "tab_ddl": "DDL",
     "tab_mapping": "Mapping",
     "tab_schema_mapping": "Schéma (Mapping)",
-    "reset_to_default": "Réinitialiser",
-    "reset_confirm": "Cela supprimera vos modifications et restaurera le schéma intégré d'origine. Cette action est irréversible.",
     "edit_description": "Modifiez le nom et la description de ce schéma.",
     "field_name": "Nom du schéma",
     "field_description": "Description",
@@ -2489,8 +2484,7 @@
     "erd_add_group": "Ajouter un groupe",
     "erd_reset_layout": "Réinitialiser la disposition",
     "erd_filter": "Filtrer",
-    "erd_ungrouped": "Non groupées",
-    "template_already_added": "Déjà ajouté à ce workspace"
+    "erd_ungrouped": "Non groupées"
   },
   "organization": {
     "title": "Organisation",
