@@ -2507,7 +2507,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         <AlertDialogHeader>
           <AlertDialogTitle>{t('concept_mapping.import_mappings_result_title')}</AlertDialogTitle>
           <AlertDialogDescription asChild>
-            <div className="space-y-1 text-sm">
+            <div className="space-y-1">
               <p>{t('concept_mapping.import_mappings_imported', { count: importResult?.imported ?? 0 })}</p>
               {(importResult?.merged ?? 0) > 0 && (
                 <p className="text-muted-foreground">
@@ -2910,7 +2910,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         <AlertDialogHeader>
           <AlertDialogTitle>{t('concept_mapping.bulk_import_done_title')}</AlertDialogTitle>
           <AlertDialogDescription asChild>
-            <div className="space-y-1 text-sm">
+            <div className="space-y-1">
               <p>{t('concept_mapping.bulk_import_done_imported', { count: bulkResult?.imported ?? 0 })}</p>
               {(bulkResult?.skipped ?? 0) > 0 && (
                 <p className="text-muted-foreground">

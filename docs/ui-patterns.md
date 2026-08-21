@@ -33,7 +33,7 @@ one of them you never type:
 | `text-2xl font-bold` | Page title (one per screen) | Anything inside a card or dialog |
 | `text-base font-semibold` | Dialog / sheet titles — set by the primitive, don't type it | Body copy |
 | `text-sm` | Body copy, card titles, list rows | Dense table cells |
-| `text-xs` | Dense contexts: table cells + headers, form labels, buttons, badges, dialog descriptions | Page-level prose |
+| `text-xs` | Dense contexts: table cells + headers, form labels, buttons, badges, dialog descriptions | Page-level prose, alert-dialog descriptions |
 | `text-[10px]` | Micro-chrome only: inline column filters, result counters, pagination | Anything a user reads as content |
 
 `text-[11px]` is **deprecated** — it is visually indistinguishable from `text-xs`
@@ -55,6 +55,7 @@ with no rationale gets "corrected" back to upstream:
 | `Badge` | `text-xs` | `text-[10px]` (+ `size="xs"` → 9px) | badges are chrome, not content, and sat beside `text-[10px]` counters |
 | `DialogTitle` / `AlertDialogTitle` / `SheetTitle` | `text-lg` | `text-base` | `text-lg` was overridden all over; `text-base` still keeps a form title above its body, where the majority `text-sm` would flatten it |
 | `DialogDescription` / `SheetDescription` | `text-sm` | `text-xs` | matches the dense body |
+| `AlertDialogDescription` | `text-sm` | `text-sm` | an alert's description *is* its content — the consequences of a destructive action — not a subtitle over a dense form; nine call sites were already overriding `text-xs` back to `text-sm` |
 | `Button` | — | added `sm-tight` (h-7) | dozens of buttons hand-rolled `className="h-7"` |
 
 > The `DialogTitle` row is the cautionary one: the raw majority vote was
@@ -275,7 +276,10 @@ sent ~35 files off-pattern. It's now a reference for *multi-page dialog flow onl
 ### Remaining rules
 
 - **Never put a size class on `DialogTitle`/`DialogDescription`/`SheetTitle`** —
-  the primitives now carry the right size. `sr-only` is still fine.
+  the primitives now carry the right size. `sr-only` is still fine. Same for
+  `AlertDialogDescription`, including inside an `asChild` wrapper: it is
+  `text-sm`, so the `<p className="text-sm">` that used to sit in every
+  "type the name to confirm" body is now the redundant override §1 warns about.
 - **Hints are `text-xs text-muted-foreground`** (no `mt-1.5`, no `/60` opacity
   variants — those were 15 spellings of one rule).
 - **Footer buttons take `size="sm"`**, cancel `variant="outline"` first, confirm

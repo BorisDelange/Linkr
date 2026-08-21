@@ -361,7 +361,7 @@ export function OrganizationsTab() {
                     {t('settings.delete_organization_removes_link')}
                   </span>
                 )}
-                <span className="block text-sm">
+                <span className="block">
                   {t('settings.delete_organization_confirm')}{' '}
                   <span className="font-semibold text-foreground">{localized(deleteOrg?.name, language)}</span>
                 </span>

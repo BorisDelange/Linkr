@@ -1047,7 +1047,7 @@ export function WorkspacesPage() {
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>{t('workspaces.delete_workspace_description')}</p>
-                <p className="text-sm">
+                <p>
                   {t('workspaces.delete_workspace_confirm')}{' '}
                   <span className="font-semibold text-foreground">{deleteTarget?.name}</span>
                 </p>

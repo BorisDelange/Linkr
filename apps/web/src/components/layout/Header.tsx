@@ -768,7 +768,7 @@ export function Header() {
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>{t('workspaces.delete_workspace_description')}</p>
-                <p className="text-sm">
+                <p>
                   {t('workspaces.delete_workspace_confirm')}{' '}
                   <span className="font-semibold text-foreground">{activeWorkspaceName}</span>
                 </p>
@@ -810,7 +810,7 @@ export function Header() {
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p>{t('project_settings.delete_confirm_description')}</p>
-                <p className="text-sm">
+                <p>
                   {t('project_settings.delete_confirm_type')}{' '}
                   <span className="font-semibold text-foreground">{activeProjectName}</span>
                 </p>

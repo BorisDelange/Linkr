@@ -148,7 +148,7 @@ export function ProjectSettingsPage() {
                       <AlertDialogDescription asChild>
                         <div className="space-y-3">
                           <p>{t('project_settings.delete_confirm_description')}</p>
-                          <p className="text-sm">
+                          <p>
                             {t('project_settings.delete_confirm_type')}{' '}
                             <span className="font-semibold text-foreground">{projectDisplayName}</span>
                           </p>
