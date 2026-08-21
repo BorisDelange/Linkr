@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import { applySort, baseSortFields } from '@/lib/list-sort'
-import { getCatalogSource } from '@/lib/catalog/settings'
+import { getCatalogSource, loadCatalogTargetWorkspace, saveCatalogTargetWorkspace } from '@/lib/catalog/settings'
 import { ENTRY_TYPES, ENTRY_TYPE_META } from '@/lib/catalog/entry-meta'
 import { findInstalled, type InstalledInfo } from '@/lib/catalog/installed'
 import { useCatalog } from '@/hooks/use-catalog'
@@ -51,8 +51,9 @@ export function CatalogPage() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const loadWorkspaces = useWorkspaceStore((s) => s.loadWorkspaces)
-  /** Explicit pick only; the effective workspace is derived below. */
-  const [pickedWorkspaceId, setPickedWorkspaceId] = useState('')
+  /** Explicit pick only; the effective workspace is derived below. Restored from
+   *  localStorage so leaving the page and coming back keeps the chosen target. */
+  const [pickedWorkspaceId, setPickedWorkspaceId] = useState(loadCatalogTargetWorkspace)
   /** Installed copies in the selected workspace, keyed by catalog entry id. */
   const [installed, setInstalled] = useState<Record<string, InstalledInfo>>({})
   /** Bumped after an install to re-read storage; nothing else changes. */
@@ -221,7 +222,10 @@ export function CatalogPage() {
                 installed is answered per workspace — so the choice belongs here, next
                 to the list it qualifies, rather than inside the install dialog. */}
             {serverMode && workspaces.length > 0 && (
-              <Select value={workspaceId} onValueChange={setPickedWorkspaceId}>
+              <Select
+                value={workspaceId}
+                onValueChange={(id) => { setPickedWorkspaceId(id); saveCatalogTargetWorkspace(id) }}
+              >
                 <SelectTrigger className="h-9 w-52 shrink-0" aria-label={t('catalog.install_workspace')}>
                   <SelectValue placeholder={t('catalog.install_workspace_placeholder')} />
                 </SelectTrigger>

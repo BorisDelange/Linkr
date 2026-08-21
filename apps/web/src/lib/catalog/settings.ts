@@ -73,3 +73,34 @@ export function resetCatalogSettings(): void {
 export function isDefaultCatalog(): boolean {
   return getCatalogSource().repoUrl === DEFAULT_CATALOG_SOURCE.repoUrl
 }
+
+// ---------------------------------------------------------------------------
+// Install target
+// ---------------------------------------------------------------------------
+
+const TARGET_KEY = 'linkr-catalog-target-workspace'
+
+/**
+ * The workspace the catalog installs into, remembered across visits — leaving the
+ * page and coming back used to reset the picker, so a second install silently
+ * targeted a different workspace than the first.
+ *
+ * Deliberately NOT the app's `activeWorkspaceId`: switching that closes the open
+ * project (see `openWorkspace`), which browsing a catalog must never do.
+ */
+export function loadCatalogTargetWorkspace(): string {
+  try {
+    return localStorage.getItem(TARGET_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function saveCatalogTargetWorkspace(id: string): void {
+  try {
+    if (id) localStorage.setItem(TARGET_KEY, id)
+    else localStorage.removeItem(TARGET_KEY)
+  } catch {
+    /* storage disabled — the pick applies for this session only */
+  }
+}

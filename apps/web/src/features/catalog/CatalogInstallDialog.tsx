@@ -8,6 +8,7 @@ import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { commitCatalogInstall, prepareCatalogInstall, type PreparedInstall } from '@/lib/catalog/install'
+import { refreshStoresAfterInstall } from '@/lib/catalog/refresh'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { InstalledInfo } from '@/lib/catalog/installed'
@@ -44,7 +45,6 @@ export function CatalogInstallDialog({
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const workspaces = useWorkspaceStore((s) => s.workspaces)
-  const loadWorkspaces = useWorkspaceStore((s) => s.loadWorkspaces)
 
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -66,9 +66,11 @@ export function CatalogInstallDialog({
         setError(result.error ?? t('catalog.install_failed'))
         return
       }
-      // Freshly cloned rows land straight in storage; refresh the workspace list so
-      // counts and the target workspace's contents reflect the install.
-      await loadWorkspaces()
+      // Freshly cloned rows land straight in storage, so every store that already
+      // holds a list of this entity type is stale — a Projects page open in another
+      // tab of the app would keep showing the list it loaded on mount. Refreshing
+      // only the workspace list (for its counts) was not enough.
+      await refreshStoresAfterInstall(prepared.entry.type)
       onInstalled?.(prepared.entry, result.id!)
       onOpenChange(false)
     } catch (err) {
