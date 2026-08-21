@@ -424,6 +424,39 @@ Check this table before writing any form field.
 | `CustomSqlDot` | Marks a widget whose SQL was hand-edited; its tooltip carries the consequence (regenerating discards the edit). |
 | `LinkrLogo` | The logo. |
 
+### Tooltips
+
+**"Tooltip" means the Radix one** — `components/ui/tooltip.tsx`: dark background,
+light text, rounded, `text-xs`, arrow, animated in. It is theme-aware
+(`bg-foreground text-background`), so it inverts correctly in dark mode. When a
+tooltip is asked for, this is the default; never reach for the browser's.
+
+```tsx
+<Tooltip>
+  <TooltipTrigger asChild><Button size="icon-sm"><Trash2 size={14} /></Button></TooltipTrigger>
+  <TooltipContent side="bottom">{t('common.delete')}</TooltipContent>
+</Tooltip>
+```
+
+Style it as little as possible — `side`/`align` and, at most, a width. The dark
+panel, the padding and the text size come from the primitive.
+
+For **text that may be cut off**, don't build the tooltip by hand: use
+`TruncatedText` / `TruncatedHeader`, or a table's `cellTooltips` (§2). They
+measure the overflow, only reveal what is actually truncated, add the copy
+button, and mount nothing until the pointer arrives.
+
+**The native `title=` attribute is the exception, not the fallback.** It renders
+the OS tooltip — pale, unstyled, ~1s delay, unthemed — so it does not match the
+app. It is legitimate in exactly one case: a long list where a Radix tooltip per
+row costs too much (`MappingsTab` uses it across 50 rows for that reason, and
+says so). Outside that, `title=` on a control is a bug; there are ~285 of them
+left, so a neighbour is not evidence.
+
+`GatedButton` already carries its own tooltip for the disabled-by-permission
+case — a disabled element emits no pointer events, so a plain `Tooltip` around
+one silently never opens.
+
 ---
 
 ## 6. Working rules
