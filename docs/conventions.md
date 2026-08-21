@@ -8,7 +8,7 @@ Single source of truth for how code is written in this repo. These describe the 
 
 - **i18n** — every user-facing string goes through `t('key')`. Add the key to **both** `apps/web/src/locales/en.json` and `fr.json`. Keys are dotted and hierarchical (`settings.general`, `patient_data.male`).
 - **Path alias** — always `@/` for imports from `apps/web/src/` (`@/lib/utils`, `@/stores/app-store`). Never `../../../`. `@default-plugins/*` maps to `packages/default-plugins/`.
-- **No narrating comments** — a comment explains a non-obvious WHY (hidden constraint, workaround, surprising invariant), never WHAT the code does. If the code reads clearly, no comment.
+- **No narrating comments** — the default is no comment: name things well and let the code speak. Write one when it earns its place (see [Comments](#comments)), never to restate the line below it.
 - **No new `any`** — type it properly. The few existing `any` (e.g. `idb-storage.ts` promise casts, `rehypePlugins: any[]`) are tolerated legacy, not a precedent.
 - **No `console.log`** in committed code. `console.error`/`console.warn` are allowed for genuine error logging (see Error handling).
 - **No secrets in code** — no API keys, tokens, passwords, connection strings. Config comes from env (backend `LINKR_*`) or `config.local.json` (gitignored).
@@ -28,6 +28,44 @@ Single source of truth for how code is written in this repo. These describe the 
 
 - **Target < 600 lines per file.** Above ~800, treat it as a refactor signal: extract sub-components, hooks, or helpers.
 - Several legacy files exceed this (`MappingsTab.tsx` ~3200, `TargetConceptPanel.tsx` ~2400). Do **not** add to them blindly — when you touch one substantially, prefer extracting the part you change rather than growing the file.
+
+## Comments
+
+**Default: no comment.** A comment is a claim you have to keep true — it can go
+stale in a way code cannot, so it must buy more than it costs. Rename the
+variable, extract the function, or simplify the branch first; reach for a comment
+only when the code genuinely cannot carry the meaning.
+
+**Never narrate.** A comment that restates the line below it is the one kind that
+is always wrong: it adds nothing on the day it is written and lies the day the
+line changes.
+
+```ts
+// Build a colType lookup                          ← delete
+const colTypeMap = {}
+for (const col of columns) colTypeMap[col.id] = col.type
+
+// Save analysis config                            ← delete, the name says it
+const handleSave = useCallback(() => saveAnalysis(analysis.id), [analysis.id])
+```
+
+**Write one when it carries what the code cannot.** Six cases:
+
+| Case | Example |
+|---|---|
+| **Why, not what** — a constraint, workaround, or decision that looks arbitrary until explained | `// Start at 2: the untouched base name is conceptually the first one.` (`lib/unique-name.ts`) |
+| **A surprising invariant** a future edit would silently break | `// Collected, not swallowed: a failed row must not read as a successful pull.` (`lib/etl-pull.ts`) |
+| **Domain or spec fact** not derivable from the code — OMOP/CDM rules, locale conventions, an external API's behaviour | `// CDM 5.4 has no value_as_string on measurement — that column exists on observation only.` (`lib/schema-presets.ts`) |
+| **Opaque by nature** — a regex, dynamically-built SQL, encoding maths. A one-line summary of what it *produces* is a legitimate reading aid, even though it describes the what | `// Matches a CSI SGR sequence: ESC [ <params> m` (`lib/ansi.ts`) |
+| **Contract on exported API** — defaults, units, what a caller must not pass. JSDoc on a shared component's props shows at every call site, so it reaches readers who never open the file | the prop docs in `components/ui/concept-data-table.tsx` |
+| **Section banner** in a long file — navigation, not description. Earns its place over a region of a hundred-plus lines, not over six | a `// ----` rule with a title, as in `lib/format-helpers.ts` |
+
+**Deferred work gets a tag**, so it is greppable: `// TODO(scope): what and why`.
+Prose like "for now we skip this" is invisible to `grep TODO` and rots in place.
+Do not leave commented-out code — git remembers it.
+
+**On review**, the question is not "is this commented enough?" but "would deleting
+this comment lose anything?" If not, delete it.
 
 ## Imports — order
 

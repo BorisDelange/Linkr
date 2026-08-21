@@ -46,7 +46,7 @@ docker compose -f docker/docker-compose.yml up
 
 **File naming** — TypeScript/React: kebab-case files + PascalCase exports. Python: snake_case. API routes: kebab-case URLs.
 
-**No comments** — only add a comment when the WHY is non-obvious (hidden constraint, workaround, surprising invariant). Never describe what the code does.
+**Comments** — default to none: name things well and let the code speak. Never restate the line below. Write one only when the code can't carry it: a non-obvious why, an invariant an edit would break, a domain/spec fact, opaque code (regex, generated SQL), a contract on exported API, or a section banner in a long file. Deferred work gets `// TODO(scope):`, never prose. Details → `docs/conventions.md` § Comments.
 
 **Tests follow the code** — when you change or add *pure, critical* logic (SQL escaping/validation, OMOP/query builders, fuzzy-search, import/export, format helpers), add or update its test in the same change. Run `npm run test` before pushing. Do not unit-test volatile UI components. Details → `docs/conventions.md` + `.claude/skills/write-tests/`.
 

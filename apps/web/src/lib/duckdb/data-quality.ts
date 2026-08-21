@@ -343,16 +343,10 @@ function generateSchemaChecks(
     }
   }
 
-  // --- Consistency: foreign key integrity (visit ↔ event tables) ---
-  if (vt && mapping.eventTables && existingTables.has(vt.table)) {
-    for (const [, et] of Object.entries(mapping.eventTables)) {
-      if (!existingTables.has(et.table)) continue
-      // Check if event table has a visit FK column — look for common patterns
-      // In OMOP: visit_occurrence_id is present in all clinical tables
-      // We only check if the event table has the visit ID column via a dynamic query
-      // For now, we skip this check as it requires column discovery
-    }
-  }
+  // TODO(data-quality): visit ↔ event foreign-key integrity. Every OMOP clinical
+  // table carries visit_occurrence_id, but the mapping does not record which
+  // column holds it, so the check needs column discovery on each event table
+  // before it can be generated.
 
   return checks
 }

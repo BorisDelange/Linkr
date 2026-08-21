@@ -48,7 +48,9 @@ Go file by file through the diff. For **each** finding, record: file:line, sever
 - **A bespoke component may still be right** — the test is whether the diff says *why*. Silent divergence is the finding; a documented exception is not.
 
 ### 4. Comments & readability
-- Flag comments that describe **what** the code does (should be deleted). Keep only WHY-comments (non-obvious constraints/workarounds).
+- Flag **narrating** comments — ones that restate the line below (`// Save the config` above `saveConfig()`). These are the violation; they add nothing and rot when the line changes.
+- Do **not** flag a comment just for describing *what*. `docs/conventions.md` § Comments lists six cases that earn their place: non-obvious why, invariant an edit would break, domain/spec fact (OMOP/CDM), opaque code (regex, generated SQL, encoding maths), contract on exported API, section banner in a long file. Test each comment with "would deleting this lose anything?" — not "is this a why or a what?".
+- Flag deferred work written as prose (`// for now we skip…`) — it must be `// TODO(scope):` to be greppable.
 - Flag dead code, commented-out code, leftover debug.
 
 ### 5. Tests
