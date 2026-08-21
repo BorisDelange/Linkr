@@ -23,17 +23,27 @@ DEFAULT_NA_VALUES = ["na", "n/a", "null", "nan", "none", "#n/a"]
 ColumnType = str  # 'string' | 'number' | 'boolean' | 'date' | 'unknown'
 
 
+# The whitespace a cell is trimmed of before it is read. Deliberately the ASCII
+# set and NOT Python's str.strip(), which also trims Unicode spaces (NBSP, the
+# en/em spaces): the preview infers types in SQL, and DuckDB's trim() takes an
+# explicit character set, so the two would disagree on a cell padded with NBSP —
+# missing to the importer, present to the preview, and the preview would then
+# advertise a type the import does not produce. _infer_types_sql builds the same
+# set with chr(); keep the two in lockstep.
+ASCII_WS = " \t\n\r\v\f"
+
+
 def normalize_na_values(na_values: list[str] | None) -> set[str]:
     """Normalize a configured NA list for lookup (trimmed, lower-cased, no blanks)."""
     source = DEFAULT_NA_VALUES if na_values is None else na_values
-    return {v.strip().lower() for v in source if v.strip() != ""}
+    return {v.strip(ASCII_WS).lower() for v in source if v.strip(ASCII_WS) != ""}
 
 
 def is_missing_value(value: object, na_set: set[str]) -> bool:
     """True when a raw cell reads as missing: null, empty, or an NA token."""
     if value is None:
         return True
-    s = str(value).strip()
+    s = str(value).strip(ASCII_WS)
     return s == "" or s.lower() in na_set
 
 
@@ -78,7 +88,7 @@ def infer_column_type(
 
     all_numbers = all_booleans = all_dates = True
     for v in non_null:
-        s = str(v).strip()
+        s = str(v).strip(ASCII_WS)
         if all_numbers and not _is_number(s):
             all_numbers = False
         if all_booleans and parse_boolean(s) is None:

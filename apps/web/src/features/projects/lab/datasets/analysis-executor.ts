@@ -83,6 +83,25 @@ export async function executeAnalysisCode(
 // ---------------------------------------------------------------------------
 
 /**
+ * The R frame name for each column, positionally.
+ *
+ * A duplicate name would silently overwrite the earlier column (JSON keys are
+ * unique), dropping data. The suffixed name is what R actually sees, so it has
+ * to be resolved in ONE place and read by both the data and the coercions —
+ * building the data from the suffixed name while coercing against the raw one
+ * left the second `dup` un-coerced and applied its neighbour's cast twice.
+ */
+export function resolveRColumnNames(columns: DatasetColumn[]): string[] {
+  const used = new Set<string>()
+  return columns.map((col) => {
+    let key = col.name
+    for (let i = 2; used.has(key); i++) key = `${col.name}.${i}`
+    used.add(key)
+    return key
+  })
+}
+
+/**
  * Serialise rows as a column-oriented JSON object: { "<column name>": [values...] }.
  *
  * Row-oriented JSON forces jsonlite to infer the frame's shape, and a single cell
@@ -100,9 +119,9 @@ export function buildRColumnData(
   columns: DatasetColumn[],
 ): Record<string, (string | number | boolean | null)[]> {
   const out: Record<string, (string | number | boolean | null)[]> = {}
-  const used = new Set<string>()
-  for (const col of columns) {
-    const values = rows.map((row) => {
+  const names = resolveRColumnNames(columns)
+  columns.forEach((col, idx) => {
+    out[names[idx]] = rows.map((row) => {
       const v = row[col.id]
       if (v === undefined || v === null) return null
       if (typeof v === 'number') return Number.isFinite(v) ? v : null
@@ -112,13 +131,7 @@ export function buildRColumnData(
       if (v instanceof Date) return v.toISOString()
       return JSON.stringify(v)
     })
-    // A duplicate name would silently overwrite the earlier column (JSON keys are
-    // unique), dropping data and desyncing the frame from the coercion list.
-    let key = col.name
-    for (let i = 2; used.has(key); i++) key = `${col.name}.${i}`
-    used.add(key)
-    out[key] = values
-  }
+  })
   return out
 }
 
@@ -129,10 +142,12 @@ export function buildRColumnData(
  * simplifyVector only (no data.frame guessing), then assembles the frame
  * explicitly. Types are coerced to match the column metadata.
  */
-function buildRInjectionCode(columns: DatasetColumn[]): string {
+export function buildRInjectionCode(columns: DatasetColumn[]): string {
+  // The SAME resolved names the data was written under — see resolveRColumnNames.
+  const names = resolveRColumnNames(columns)
   const coercions = columns
-    .map((c) => {
-      const name = JSON.stringify(c.name)
+    .map((c, idx) => {
+      const name = JSON.stringify(names[idx])
       if (c.type === 'number')
         return `if (${name} %in% colnames(dataset)) dataset[[${name}]] <- as.numeric(dataset[[${name}]])`
       if (c.type === 'date')

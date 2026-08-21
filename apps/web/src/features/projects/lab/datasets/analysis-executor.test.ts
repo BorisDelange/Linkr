@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildRColumnData } from './analysis-executor'
+import { buildRColumnData, buildRInjectionCode, resolveRColumnNames } from './analysis-executor'
 import type { DatasetColumn } from '@/types'
 
 const col = (id: string, name: string, type: DatasetColumn['type'] = 'string'): DatasetColumn =>
@@ -78,5 +78,53 @@ describe('buildRColumnData', () => {
 
   it('emits empty arrays when there are no rows', () => {
     expect(buildRColumnData([], [col('col_a', 'a')])).toEqual({ a: [] })
+  })
+})
+
+// The data and the type coercions are built separately but must agree on the
+// name every column ends up under, suffix included: coercing against the raw
+// name left a duplicated column un-coerced while casting its neighbour twice.
+describe('resolveRColumnNames', () => {
+  it('suffixes duplicates positionally, in column order', () => {
+    const columns = [col('col_a', 'dup'), col('col_b', 'other'), col('col_c', 'dup')]
+    expect(resolveRColumnNames(columns)).toEqual(['dup', 'other', 'dup.2'])
+  })
+
+  it('agrees with the keys buildRColumnData actually writes', () => {
+    const columns = [col('col_a', 'dup', 'number'), col('col_b', 'dup', 'number')]
+    const data = buildRColumnData([{ col_a: 1, col_b: 2 }], columns)
+    expect(Object.keys(data)).toEqual(resolveRColumnNames(columns))
+  })
+
+  it('leaves distinct names untouched', () => {
+    const columns = [col('col_a', 'age'), col('col_b', 'site')]
+    expect(resolveRColumnNames(columns)).toEqual(['age', 'site'])
+  })
+})
+
+// The preamble casts each column by name. Coercing against the raw name while
+// the data was written under the suffixed one left the second `dup` a character
+// vector and cast the first one twice — silently, because the `%in%` guard
+// turns a wrong name into a no-op rather than an error.
+describe('buildRInjectionCode', () => {
+  it('coerces every column the data was written under, suffix included', () => {
+    const columns = [col('col_a', 'dup', 'number'), col('col_b', 'dup', 'number')]
+    const r = buildRInjectionCode(columns)
+    for (const name of Object.keys(buildRColumnData([{ col_a: 1, col_b: 2 }], columns))) {
+      expect(r).toContain(`dataset[["${name}"]] <- as.numeric`)
+    }
+  })
+
+  it('casts a name once, not once per column sharing it', () => {
+    const columns = [col('col_a', 'dup', 'number'), col('col_b', 'dup', 'number')]
+    const r = buildRInjectionCode(columns)
+    expect(r.match(/dataset\[\["dup"\]\] <- as\.numeric/g)).toHaveLength(1)
+  })
+
+  it('emits a date coercion under the resolved name too', () => {
+    const columns = [col('col_a', 'when', 'date'), col('col_b', 'when', 'date')]
+    const r = buildRInjectionCode(columns)
+    expect(r).toContain('dataset[["when"]] <- as.POSIXct')
+    expect(r).toContain('dataset[["when.2"]] <- as.POSIXct')
   })
 })

@@ -28,8 +28,25 @@ function isIdentifierField(key: string): boolean {
   return /(^|[a-z])(table|column)s?$/i.test(key)
 }
 
+/** A `Record<string, string>` whose VALUES are identifiers — `extraColumns`,
+ *  where the key is a query alias and the value the real column name. */
+function isStringMap(value: unknown): value is Record<string, string> {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value).every((v) => typeof v === 'string')
+  )
+}
+
 /** Drop every identifier-valued field that is not a safe SQL identifier.
- *  Recurses into the nested table descriptors, event tables and dictionaries. */
+ *  Recurses into the nested table descriptors, event tables and dictionaries.
+ *
+ *  The three shapes an identifier field takes must ALL be handled here: a bare
+ *  string, a `string[]`, and a `Record<string, string>` whose values are the
+ *  identifiers. Matching the field *name* is not enough — `extraColumns` passed
+ *  the suffix test, fell through to the recursion, and its values reached SQL
+ *  unchecked, because only the first two shapes were covered. */
 function sanitizeNode<T>(node: T): T {
   if (!node || typeof node !== 'object') return node
   if (Array.isArray(node)) return node.map((v) => sanitizeNode(v)) as unknown as T
@@ -45,6 +62,15 @@ function sanitizeNode<T>(node: T): T {
       // the safe entries rather than dropping the whole list.
       if (Array.isArray(value) && value.every((v) => typeof v === 'string')) {
         out[key] = (value as string[]).filter(isSafeIdentifier)
+        continue
+      }
+      // `extraColumns: Record<alias, columnName>` — the values are what
+      // `resolveActualColumn` returns straight into `"${…}"`, so filter on them
+      // and keep the alias keys, which never reach SQL.
+      if (isStringMap(value)) {
+        out[key] = Object.fromEntries(
+          Object.entries(value).filter(([, v]) => isSafeIdentifier(v)),
+        )
         continue
       }
       // `conceptTables` / `eventTables` are collections of descriptors, not

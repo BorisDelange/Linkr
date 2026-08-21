@@ -68,6 +68,28 @@ describe('sanitizeSchemaMapping', () => {
     expect(sanitizeSchemaMapping(mapping)!.knownTables).toEqual(['person', 'visit'])
   })
 
+  // extraColumns is a Record<alias, columnName>: the third shape an identifier
+  // field takes, and the one that slipped through when only string and string[]
+  // were handled. Its VALUES are what resolveActualColumn feeds to `"${…}"`.
+  it('filters extraColumns on its values, keeping the aliases', () => {
+    const mapping = {
+      conceptTables: [
+        {
+          key: 'concept',
+          table: 'concept',
+          nameColumn: 'concept_name',
+          extraColumns: {
+            domain_id: 'domain_id',
+            standard_concept: evil,
+          },
+        },
+      ],
+    } as unknown as SchemaMapping
+
+    const safe = sanitizeSchemaMapping(mapping)!
+    expect(safe.conceptTables?.[0].extraColumns).toEqual({ domain_id: 'domain_id' })
+  })
+
   it('leaves non-identifier fields alone, including free text and DDL', () => {
     const mapping = {
       presetId: 'custom',

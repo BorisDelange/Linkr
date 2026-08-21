@@ -26,6 +26,7 @@ import duckdb
 from app.services.data.column_id import build_column_ids
 from app.services.data.file_reader import build_read_expr, cleanup_transcoded, is_excel
 from app.services.data.type_inference import (
+    ASCII_WS,
     BOOL_FALSE,
     BOOL_TRUE,
     infer_column_type,
@@ -58,7 +59,7 @@ def _coerce(value: Any, col_type: str, na_set: set[str] | None = None) -> Any:
     if s == "":
         return None
     # An NA token is missing data, whatever the column's type.
-    if na_set and s.strip().lower() in na_set:
+    if na_set and s.strip(ASCII_WS).lower() in na_set:
         return None
     if col_type == "number":
         try:
