@@ -20,7 +20,8 @@ import { applySort, visitSortFields } from '@/lib/list-sort'
 import { getStorage } from '@/lib/storage'
 import { parseImportZip, readBinaryFromImportZip } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
-import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
+import JSZip from 'jszip'
+import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { formatApiError, type FormattedError } from '@/lib/api-client'
@@ -292,43 +293,60 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     }
   }, [activeWorkspaceId, loadMappingProjects]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Read a mapping-project ZIP into the project row and its children. Shared by
+   *  import and duplicate, which differ only in where the ZIP comes from and
+   *  whether the result is written as a copy. */
+  const readProjectZip = useCallback(async (file: File): Promise<{ project: MappingProject; children: ImportChildren } | null> => {
+    const parsed = await parseImportZip(file)
+    const project = parsed['project.json'] as MappingProject | undefined
+    if (!project?.id) return null
+    withEntityDocs(project, parsed)
+    const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
+    // Precomputed suggestion scores (optional, large binary — read as bytes, not
+    // via parseImportZip which decodes every entry as text and corrupts parquet).
+    const scoresBuf = await readBinaryFromImportZip(file, 'similarity-scores.parquet')
+    const scoresFile = scoresBuf
+      ? new File([scoresBuf as BlobPart], `${project.id}.parquet`, { type: 'application/octet-stream' })
+      : undefined
+    const children: ImportChildren = {
+      mappings,
+      sourceIdRanges: parsed['source-concept-ids/ranges.json'],
+      sourceIdEntries: parsed['source-concept-ids/entries.json'],
+      scoresFile,
+    }
+    // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based
+    // project). The file is kept verbatim; duplicate source concepts are dropped
+    // (and counted) later, in the DuckDB source_concepts view.
+    if (project.sourceType === 'file' && project.fileSourceData) {
+      const sourceCsv = parsed['source-concepts.csv']
+      if (typeof sourceCsv === 'string' && sourceCsv.length > 0) {
+        restoreFileSourceDataFromCsv(project, sourceCsv)
+      }
+    }
+    return { project, children }
+  }, [])
+
+  const handleDuplicate = useCallback(async (source: MappingProject) => {
+    const zip = new JSZip()
+    await buildMappingProjectFolder(zip, '', source, getStorage())
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const read = await readProjectZip(new File([blob], 'dup.zip'))
+    if (!read) return
+    await doImport(read.project, read.children, true)
+  }, [readProjectZip, doImport])
+
   const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     try {
-      const parsed = await parseImportZip(file)
-      const project = parsed['project.json'] as MappingProject | undefined
-      if (!project?.id) {
+      const read = await readProjectZip(file)
+      if (!read) {
         setImportError({ summary: t('concept_mapping.import_invalid_zip'), detail: null })
         return
       }
+      const { project, children } = read
       // Imported from a git repo → pre-link the Versioning page to that repo (with
       // the token, if supplied), mirroring project import. buildMappingProjectFolder
       // strips gitRemoteConfig on export, so it's only ever set from the import source.
       if (gitRemote) project.gitRemoteConfig = gitRemote
-      withEntityDocs(project, parsed)
-      const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
-      // Precomputed suggestion scores (optional, large binary — read as bytes, not
-      // via parseImportZip which decodes every entry as text and corrupts parquet).
-      const scoresBuf = await readBinaryFromImportZip(file, 'similarity-scores.parquet')
-      const scoresFile = scoresBuf
-        ? new File([scoresBuf as BlobPart], `${project.id}.parquet`, { type: 'application/octet-stream' })
-        : undefined
-      // Assigned source-concept-ids (optional folder — absent in older ZIPs).
-      const children: ImportChildren = {
-        mappings,
-        sourceIdRanges: parsed['source-concept-ids/ranges.json'],
-        sourceIdEntries: parsed['source-concept-ids/entries.json'],
-        scoresFile,
-      }
-
-      // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based
-      // project). The file is kept verbatim; duplicate source concepts are dropped
-      // (and counted) later, in the DuckDB source_concepts view.
-      if (project.sourceType === 'file' && project.fileSourceData) {
-        const sourceCsv = parsed['source-concepts.csv']
-        if (typeof sourceCsv === 'string' && sourceCsv.length > 0) {
-          restoreFileSourceDataFromCsv(project, sourceCsv)
-        }
-      }
 
       // A conflict is "the same work already in THIS workspace" — same lineageId
       // (falling back to entityId for legacy exports). The same mapping project in
@@ -454,6 +472,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         items={filteredProjects}
         onNavigate={(id) => navigate(`${cmBase}/${id}`)}
         onDelete={mappingActions.onDelete}
+        onDuplicate={handleDuplicate}
         onExportOverride={mappingActions.onExportOverride}
         onVersioningOverride={mappingActions.onVersioningOverride}
         getGitRemote={mappingActions.getGitRemote}

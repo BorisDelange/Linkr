@@ -13,7 +13,8 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
-import { attachTreeIds, parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
+import JSZip from 'jszip'
+import { attachTreeIds, buildEtlPipelineFolder, parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import type { TreeImportNode } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
@@ -138,6 +139,21 @@ export function EtlListPage() {
     await loadEtlPipelines()
   }, [activeWorkspaceId, language, loadEtlPipelines])
 
+  /** Duplicate = export to a ZIP and re-import it in duplicate mode, so the copy
+   *  goes through the same path an imported pipeline does (fresh ids, "(copy)"
+   *  name, children re-keyed) instead of a second cloning rule to keep in sync. */
+  const handleDuplicate = useCallback(async (pipeline: EtlPipeline) => {
+    const zip = new JSZip()
+    await buildEtlPipelineFolder(zip, '', pipeline, getStorage())
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const parsed = await parseImportZip(new File([blob], 'dup.zip'))
+    const parsedPipeline = (parsed['_pipeline.json'] ?? parsed['pipeline.json']) as EtlPipeline | undefined
+    if (!parsedPipeline?.id) return
+    withEntityDocs(parsedPipeline, parsed)
+    const files = reconstructTreeFiles(parsed['_tree.json'] ?? parsed['files.json'], parsed)
+    await doImport(parsedPipeline, files, true)
+  }, [doImport])
+
   const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
     // New git-friendly layout (_pipeline.json + _tree.json + raw files) with a fallback
@@ -192,6 +208,7 @@ export function EtlListPage() {
       }
       onNavigate={(id) => navigate(id)}
       onDelete={etlActions.onDelete}
+      onDuplicate={handleDuplicate}
       onExport={etlActions.onExport}
       getGitRemote={etlActions.getGitRemote}
       docs={etlActions.docs}

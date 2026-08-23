@@ -98,8 +98,8 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
     } else {
       setFields({ ...EMPTY_FIELDS, scope })
     }
-    setEntityId('')
-  }, [open, mode, scope, language, pluginId])
+    setEntityId(mode === 'edit' ? (targetItem?.entityId ?? '') : '')
+  }, [open, mode, scope, language, pluginId, targetItem?.entityId])
 
   const set = useCallback(<K extends keyof PluginFormFields>(key: K, value: PluginFormFields[K]) => {
     setFields((f) => ({ ...f, [key]: value }))
@@ -164,17 +164,16 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
                 )}
               </div>
 
-              {mode === 'create' && (
-                <EntityIdField
-                  name={fields.name}
-                  value={entityId}
-                  onChange={setEntityId}
-                  existingIds={existingIds}
-                  htmlId="plugin-entity-id"
-                  placeholder="my-plugin"
-                  required
-                />
-              )}
+              <EntityIdField
+                name={fields.name}
+                value={entityId}
+                onChange={setEntityId}
+                existingIds={existingIds}
+                htmlId="plugin-entity-id"
+                placeholder="my-plugin"
+                required
+                readOnly={mode === 'edit'}
+              />
 
               <div className="grid gap-2">
                 <Label htmlFor="plugin-desc">{t('common.description')}</Label>

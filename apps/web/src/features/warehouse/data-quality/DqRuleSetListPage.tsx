@@ -13,7 +13,8 @@ import { useDqStore } from '@/stores/dq-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { parseImportZip } from '@/lib/entity-io'
+import JSZip from 'jszip'
+import { buildDqRuleSetFolder, parseImportZip } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import type { ImportGitRemote } from '@/components/ui/import-source-dialog'
@@ -146,6 +147,20 @@ export function DqRuleSetListPage() {
     await loadDqRuleSets()
   }, [activeWorkspaceId, loadDqRuleSets])
 
+  /** Duplicate = export to a ZIP and re-import it in duplicate mode, reusing the
+   *  import path's cloning rules rather than repeating them here. */
+  const handleDuplicate = useCallback(async (rs: DqRuleSet) => {
+    const zip = new JSZip()
+    await buildDqRuleSetFolder(zip, '', rs, getStorage())
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const parsed = await parseImportZip(new File([blob], 'dup.zip'))
+    const parsedRs = parsed['rule-set.json'] as DqRuleSet | undefined
+    if (!parsedRs?.id) return
+    withEntityDocs(parsedRs, parsed)
+    const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
+    await doImport(parsedRs, checks, true)
+  }, [doImport])
+
   const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
     // One layout: buildDqRuleSetFolder, whether the ZIP came from an export or a
@@ -201,6 +216,7 @@ export function DqRuleSetListPage() {
       }
       onNavigate={(id) => navigate(id)}
       onDelete={dqActions.onDelete}
+      onDuplicate={handleDuplicate}
       onExport={dqActions.onExport}
       getGitRemote={dqActions.getGitRemote}
       docs={dqActions.docs}

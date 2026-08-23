@@ -11,7 +11,8 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
-import { attachTreeIds, parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
+import JSZip from 'jszip'
+import { attachTreeIds, buildSqlCollectionFolder, parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import type { TreeImportNode } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
@@ -133,6 +134,20 @@ export function SqlScriptsListPage() {
     await loadCollections()
   }, [activeWorkspaceId, language, loadCollections])
 
+  /** Duplicate = export to a ZIP and re-import it in duplicate mode, reusing the
+   *  import path's cloning rules rather than repeating them here. */
+  const handleDuplicate = useCallback(async (collection: SqlScriptCollection) => {
+    const zip = new JSZip()
+    await buildSqlCollectionFolder(zip, '', collection, getStorage())
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const parsed = await parseImportZip(new File([blob], 'dup.zip'))
+    const parsedCollection = (parsed['_collection.json'] ?? parsed['collection.json']) as SqlScriptCollection | undefined
+    if (!parsedCollection?.id) return
+    withEntityDocs(parsedCollection, parsed)
+    const files = reconstructTreeFiles(parsed['_tree.json'] ?? parsed['files.json'], parsed)
+    await doImport(parsedCollection, files, true)
+  }, [doImport])
+
   const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
     // New git-friendly layout (_collection.json + _tree.json + raw files) with a fallback
@@ -187,6 +202,7 @@ export function SqlScriptsListPage() {
       }
       onNavigate={(id) => navigate(id)}
       onDelete={sqlActions.onDelete}
+      onDuplicate={handleDuplicate}
       onExport={sqlActions.onExport}
       getGitRemote={sqlActions.getGitRemote}
       docs={sqlActions.docs}

@@ -44,7 +44,7 @@ export function VersionField({ value, onChange }: VersionFieldProps) {
             onClick={() => onChange(bumpVersion(value, type))}
             className="h-auto flex-col gap-0 py-1.5"
           >
-            <span className="font-medium">{t(`plugins.bump_${type}`)}</span>
+            <span className="font-medium">{t(`common.bump_${type}`)}</span>
             <span className="text-[10px] text-muted-foreground">{bumpVersion(value, type)}</span>
           </Button>
         ))}
