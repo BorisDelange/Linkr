@@ -1020,6 +1020,12 @@ export async function buildProjectZip(
     zip.file(`databases/${slugify(c.name || c.id)}.json`, json(stripInstanceFields(c)))
   }
 
+  // Dataset ids as the export writes them (datasets/_tree.json, below), so widget and
+  // analysis references can be checked against what the ZIP actually contains.
+  const exportedDatasetIds = new Set(
+    (await storage.datasetFiles.getByProject(projectUid)).map((f) => f.id),
+  )
+
   // --- dashboards/ (each dashboard = dashboard + tabs + widgets in one file) ---
   // Serialize with content keys (not UUID ids) so a delete+reimport re-derives the
   // same ids and the git diff stays byte-stable. See the key helpers above.
@@ -1072,6 +1078,15 @@ export async function buildProjectZip(
       const tabKey = tabKeyMap.get(w.tabId)!
       delete out.id
       delete out.tabId
+      // A widget can hold a datasetFileId that no longer names any dataset: configure it
+      // front-only (ids are uuids), move the project to server mode (ids become paths),
+      // and the reference is stale. Exporting it verbatim wrote a uuid into a ZIP whose
+      // datasets/_tree.json is keyed by path, so the re-import silently produced a widget
+      // pointing at nothing. Drop it instead: the widget then reads as unconfigured, which
+      // is what it already is, and is fixable in one click.
+      if (typeof out.datasetFileId === 'string' && !exportedDatasetIds.has(out.datasetFileId)) {
+        delete out.datasetFileId
+      }
       return { ...out, key, tabKey }
     }).sort((a, b) => compareCodePoints(a.tabKey, b.tabKey) || compareCodePoints(a.key, b.key))
 
