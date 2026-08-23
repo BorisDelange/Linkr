@@ -47,7 +47,7 @@ export function WorkspaceSettingsPage() {
   // a tab here (moved to the Edit Workspace dialog); gate the owner-only danger
   // tab and the server-only environments tab.
   const requestedTab = tab ?? searchParams.get('tab') ?? 'members'
-  const availableTabs = ['members', 'assistant', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
+  const availableTabs = ['members', 'badges', 'assistant', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
   // Hold the requested tab until the role is known: 'danger' is gated on canDelete,
   // which is false while /my-role loads, so a deep-link to it would otherwise snap
   // to 'members' permanently even for the owner.
