@@ -30,9 +30,13 @@ interface CreateProjectDialogProps {
   onOpenChange: (open: boolean) => void
   workspaceId?: string
   editingProject?: Project
+  /** Fired with the new project's uid after a create (never after an edit), so
+   *  the caller can open it. Navigation lives with the caller: it owns the
+   *  workspace the project is being listed under. */
+  onCreated?: (uid: string, name: string) => void
 }
 
-export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingProject }: CreateProjectDialogProps) {
+export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingProject, onCreated }: CreateProjectDialogProps) {
   const { t } = useTranslation()
   const { addProject, updateProject, updateProjectStatus, updateProjectBadges, updateProjectVersion, updateProjectAuthoring, _projectsRaw, language } = useAppStore()
   const isEditing = !!editingProject
@@ -86,6 +90,9 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       if (status !== 'active') updateProjectStatus(uid, status)
       if (badges.length > 0) updateProjectBadges(uid, badges)
       if (version.trim() && version.trim() !== '0.1.0') updateProjectVersion(uid, version.trim())
+      onOpenChange(false)
+      onCreated?.(uid, name.trim())
+      return
     }
     onOpenChange(false)
   }

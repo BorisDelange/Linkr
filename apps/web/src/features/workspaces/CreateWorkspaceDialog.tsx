@@ -24,11 +24,14 @@ import {
 interface CreateWorkspaceDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Fired with the new workspace's id, so the caller can open it. Opening also
+   *  has to set the active workspace, which is the caller's business. */
+  onCreated?: (id: string, name: string) => void
 }
 
 const NONE = '__none__'
 
-export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDialogProps) {
+export function CreateWorkspaceDialog({ open, onOpenChange, onCreated }: CreateWorkspaceDialogProps) {
   const { t, i18n } = useTranslation()
   const { addWorkspace, updateWorkspaceBadges } = useWorkspaceStore()
   const { _organizationsRaw } = useOrganizationStore()
@@ -79,6 +82,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     setNewBadgeLabel('')
     setNewBadgeColor('blue')
     onOpenChange(false)
+    onCreated?.(newId, name.trim())
   }
 
   return (

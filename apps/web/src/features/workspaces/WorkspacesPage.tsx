@@ -1030,7 +1030,7 @@ export function WorkspacesPage() {
         )}
       </div>
 
-      <CreateWorkspaceDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <CreateWorkspaceDialog open={dialogOpen} onOpenChange={setDialogOpen} onCreated={handleOpenWorkspace} />
 
       <EditWorkspaceDialog
         open={!!editingWorkspace}

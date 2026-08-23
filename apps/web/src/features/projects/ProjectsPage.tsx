@@ -510,7 +510,12 @@ export function ProjectsPage() {
         )}
       </div>
 
-      <CreateProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} workspaceId={wsUid} />
+      <CreateProjectDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        workspaceId={wsUid}
+        onCreated={handleOpenProject}
+      />
 
       <CreateProjectDialog
         open={!!editingProject}

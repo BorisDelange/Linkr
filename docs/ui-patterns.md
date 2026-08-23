@@ -236,6 +236,7 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 | `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter selects all matches. |
 | `ColumnVisibilityMenu` | Column toggling with search + select all/none. `ConceptDataTable` uses it, so you only reach for it directly in a bespoke table. |
 | `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. |
+| `OverflowBadgeList` | A badge row too narrow for its items. Keeps whole badges, folds the rest into `+N` with the full list as bullets on hover. Never clip a badge row with `overflow-hidden`. |
 | `DebouncedInput` | Any search box over a large set (300 ms). One shared copy at `ui/debounced-input` — do not re-declare it locally. |
 
 **`table-primitives`** holds the parts every table repeats, shared so a bespoke
@@ -290,6 +291,23 @@ comment. Never invent a pixel width (`max-w-[1400px]`), and never write bare
 `conventions.md` used to cite `CreateMappingProjectDialog` as a co-reference,
 but it disagreed with the other on label sizing — that's the contradiction that
 sent ~35 files off-pattern. It's now a reference for *multi-page dialog flow only*.
+
+### Entity create/edit dialogs: `EntityDialogTabs`
+
+Every entity's create/edit dialog wears the same tabs — **General** (name,
+identifier, description), an optional domain tab, **Metadata** (status, badges,
+version), and **Attribution** (edit only). Pass the panels, not a `Tabs` tree.
+
+The dialog is sized to its tallest panel from the first frame, so switching never
+moves the triggers out from under the pointer. Two traps, both already paid for:
+
+- Every panel is measured, including the ones not on screen — measuring only what
+  has been *shown* still grows the dialog on the first visit to a taller tab.
+- Measure with `offsetHeight`, never `getBoundingClientRect()`. A dialog opens
+  under `zoom-in-95`, and a rect read mid-animation comes back 5% short.
+
+Edit dialogs also pass `dirtyTracked` + a `useSaveForm` baseline, which greys Save
+and turns Cancel into Close while nothing has changed.
 
 ### Remaining rules
 
