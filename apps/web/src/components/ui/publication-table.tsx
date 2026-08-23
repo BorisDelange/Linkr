@@ -78,8 +78,12 @@ export function PublicationTable<T extends PublicationRow>({
   useEffect(() => {
     widthsRef.current = widths
   }, [widths])
-  const drag = useRef<{ id: string; startX: number; startWidth: number } | null>(null)
+  const drag = useRef<
+    { id: string; startX: number; startWidth: number; startScrollLeft: number } | null
+  >(null)
   const [resizing, setResizing] = useState<string | null>(null)
+  /** The scroll container, so a drag can tell cursor movement from scrolling. */
+  const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const widthOf = (col: PublicationColumn<T>) => widths[col.id] ?? col.width ?? 140
 
@@ -94,6 +98,7 @@ export function PublicationTable<T extends PublicationRow>({
         id: col.id,
         startX: point.clientX,
         startWidth: widthsRef.current[col.id] ?? col.width ?? 140,
+        startScrollLeft: scrollRef.current?.scrollLeft ?? 0,
       }
       setResizing(col.id)
 
@@ -101,7 +106,13 @@ export function PublicationTable<T extends PublicationRow>({
         const d = drag.current
         if (!d) return
         const p = 'touches' in ev ? ev.touches[0] : ev
-        const next = Math.max(col.minWidth ?? 60, d.startWidth + (p.clientX - d.startX))
+        // Widening a column widens the table, so a container scrolled away from
+        // the left edge re-anchors and slides the whole table under the cursor.
+        // clientX alone then measures cursor movement PLUS that slide, and the
+        // grip drifts away from the pointer. Adding back the scroll delta makes
+        // the measurement relative to the table rather than to the viewport.
+        const scrolled = (scrollRef.current?.scrollLeft ?? 0) - d.startScrollLeft
+        const next = Math.max(col.minWidth ?? 60, d.startWidth + (p.clientX - d.startX) + scrolled)
         setWidths((w) => (w[d.id] === next ? w : { ...w, [d.id]: next }))
       }
       const up = () => {
@@ -144,7 +155,7 @@ export function PublicationTable<T extends PublicationRow>({
     a === 'right' ? 'text-right' : a === 'center' ? 'text-center' : 'text-left'
 
   return (
-    <div className={cn('overflow-auto', className)}>
+    <div ref={scrollRef} className={cn('overflow-auto', className)}>
       <table
         ref={tableRef}
         className="border-collapse bg-background text-xs"

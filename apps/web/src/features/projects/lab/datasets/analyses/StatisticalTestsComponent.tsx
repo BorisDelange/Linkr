@@ -1278,7 +1278,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
           group: groupLabel,
           cell: (r) => descriptiveCell(r.result, gn),
           align: 'right',
-          width: 150,
+          width: 130,
         })
       }
     }
@@ -1288,7 +1288,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
         header: t('datasets.stats_col_test'),
         cell: (r) => <TestCell result={r.result} lang={lang} />,
         align: 'left',
-        width: 150,
+        width: 140,
       })
     }
     if (showCol('statistic')) {
@@ -1305,7 +1305,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
             <span className="text-muted-foreground/40">{DASH}</span>
           ),
         align: 'right',
-        width: 120,
+        width: 100,
       })
     }
     if (showCol('df')) {
@@ -1321,7 +1321,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
             <span className="text-muted-foreground/40">{DASH}</span>
           ),
         align: 'right',
-        width: 70,
+        width: 56,
       })
     }
     if (showCol('p')) {
@@ -1330,7 +1330,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
         header: 'p',
         cell: (r) => <PValueCell result={r.result} alpha={alpha} highlight={highlightSignificant} />,
         align: 'right',
-        width: 110,
+        width: 86,
       })
     }
     if (showCol('ci')) {
@@ -1344,7 +1344,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
             <span className="text-muted-foreground/40">{DASH}</span>
           ),
         align: 'right',
-        width: 130,
+        width: 118,
       })
     }
     if (showCol('effectSize')) {
@@ -1361,7 +1361,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
             <span className="text-muted-foreground/40">{DASH}</span>
           ),
         align: 'right',
-        width: 130,
+        width: 112,
       })
     }
     return cols
