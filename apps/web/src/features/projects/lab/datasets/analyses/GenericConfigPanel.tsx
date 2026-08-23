@@ -24,6 +24,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { SearchInput } from '@/components/ui/search-input'
+import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
@@ -493,7 +494,12 @@ function MultiColumnSelect({
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const filtered = filterColumns(columns, field.filter)
-  const selected = (value as string[] | undefined) ?? (field.defaultAll ? filtered.map(c => c.id) : [])
+  // Memoized: the `??` fallback builds a fresh array each render, which would
+  // otherwise re-run every hook that depends on `selected` on every render.
+  const selected = useMemo(
+    () => (value as string[] | undefined) ?? (field.defaultAll ? filtered.map(c => c.id) : []),
+    [value, field.defaultAll, filtered],
+  )
 
   const toggle = useCallback(
     (colId: string) => {
@@ -519,11 +525,12 @@ function MultiColumnSelect({
     return filtered.filter(c => c.name.toLowerCase().includes(q))
   }, [filtered, search])
 
-  const triggerLabel = selected.length === filtered.length
-    ? t('common.select_all')
-    : selected.length === 0
-      ? t('common.select_none')
-      : `${selected.length} / ${filtered.length}`
+  // Column LABELS, not ids: the trigger is read, so it should say what the user
+  // named the column rather than its storage name.
+  const selectedLabels = useMemo(
+    () => filtered.filter(c => selected.includes(c.id)).map(displayColumnName),
+    [filtered, selected],
+  )
 
   return (
     <div className="space-y-1.5">
@@ -533,7 +540,11 @@ function MultiColumnSelect({
           <button
             className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
           >
-            <span className="truncate text-muted-foreground">{triggerLabel}</span>
+            <SelectionTriggerLabel
+              labels={selectedLabels}
+              total={filtered.length}
+              className="text-muted-foreground"
+            />
             <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
           </button>
         </PopoverTrigger>
@@ -919,11 +930,10 @@ function MultiSelectField({
     onConfigChange({ [fieldKey]: [] })
   }, [fieldKey, onConfigChange])
 
-  const triggerLabel = selected.length === options.length
-    ? t('common.select_all')
-    : selected.length === 0
-      ? t('common.select_none')
-      : `${selected.length} / ${options.length}`
+  const selectedLabels = useMemo(
+    () => options.filter(o => selected.includes(o.value)).map(o => o.label[lang] ?? o.label.en ?? o.value),
+    [options, selected, lang],
+  )
 
   return (
     <div className="space-y-1.5">
@@ -933,7 +943,11 @@ function MultiSelectField({
           <button
             className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
           >
-            <span className="truncate text-muted-foreground">{triggerLabel}</span>
+            <SelectionTriggerLabel
+              labels={selectedLabels}
+              total={options.length}
+              className="text-muted-foreground"
+            />
             <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
           </button>
         </PopoverTrigger>

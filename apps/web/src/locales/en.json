@@ -3101,7 +3101,9 @@
     "year": "Year",
     "bump_major": "Major",
     "bump_minor": "Minor",
-    "bump_patch": "Patch"
+    "bump_patch": "Patch",
+    "all_selected": "All selected",
+    "none_selected": "None selected"
   },
   "user_menu": {
     "profile": "User settings",

@@ -186,10 +186,19 @@ all set them while slicing in JS (`sorted.slice(page * 50, …)`), and
 `GlobalSummaryView` is the inverse: fully SQL-driven with no flags at all. Read
 where the rows come from, not what the options say.
 
-Beyond that, the shared table still lacks column pinning, sticky headers and
-virtualisation. If you need one of those, the rule is **extend the shared
-component**, not fork it — reorder, multi-selection, checkbox headers and view
-persistence all moved in that way.
+Column pinning, sticky headers and density moved in for the analysis plugins:
+pass `stickyHeader` to keep the header visible while the body scrolls,
+`density="compact"` for a table read as a block of figures (a dashboard widget)
+rather than browsed row by row, and `striped` for alternate row shading. On a
+column, `pinned` glues it to the left edge — pin only the leading one or two,
+since the numbers mean nothing once the variable name has scrolled off —
+`align: 'right'` lines numbers up by magnitude, and `cellClassName` carries
+styling the table cannot infer.
+
+Beyond that, the shared table still lacks **multi-level headers (`colSpan`
+groups)** and virtualisation. If you need one of those, the rule is **extend the
+shared component**, not fork it — reorder, multi-selection, checkbox headers,
+view persistence, pinning and density all moved in that way.
 
 **Known debt (do not extend, help retire):** the client-side hold-outs above are
 migratable in principle, but each is held back by something structural rather

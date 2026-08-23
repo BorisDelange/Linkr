@@ -148,6 +148,25 @@ export interface ConceptColumn<T> {
   /** Center the cell content (used for boolean/flag columns). */
   center?: boolean
   /**
+   * Cell alignment. Numbers belong on the right so their digits line up by
+   * magnitude — a column of `1.2 / 14.5 / 132.0` is unreadable ragged-left.
+   * Supersedes `center`, which stays for the boolean/flag columns already using it.
+   */
+  align?: 'left' | 'center' | 'right'
+  /**
+   * Pin the column to the left edge, so it stays visible while the rest scrolls
+   * sideways. For a wide table this is what keeps every row identifiable: the
+   * numbers mean nothing once the variable name they belong to has scrolled off.
+   * Only the leading columns should be pinned, and only a few of them.
+   */
+  pinned?: boolean
+  /**
+   * Extra classes on the cell, for styling the table cannot infer — a monospace
+   * p-value, a wrapping list. Not a licence to restyle: the padding and text
+   * size come from `density` and must stay uniform across the table.
+   */
+  cellClassName?: string
+  /**
    * Only needed alongside a custom `cell`: columns without one already show the
    * full value in a tooltip when truncated. Setting this replaces that renderer
    * with the raw accessor value, so use it when the renderer was merely styling
@@ -227,6 +246,20 @@ interface ConceptDataTableProps<T> {
    * deliberately not persisted: it should survive a remount, not a reload.
    */
   viewKey?: string
+  /**
+   * Keep the header visible while the body scrolls. Off by default because it
+   * only earns its keep on a table long enough to scroll — and a sticky header
+   * needs an opaque background, which is a visual change on a short table.
+   */
+  stickyHeader?: boolean
+  /**
+   * Cell padding and text size. `compact` is for a table read as a block of
+   * figures rather than browsed row by row — a descriptive table on a dashboard
+   * widget, where vertical space is the scarce resource.
+   */
+  density?: 'default' | 'compact'
+  /** Alternate row shading, for a wide table read across rather than down. */
+  striped?: boolean
 }
 
 interface ViewState {
@@ -304,7 +337,10 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated' }: ConceptDataTableProps<T>) {
+export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped }: ConceptDataTableProps<T>) {
+  const dense = density === 'compact'
+  const cellPad = dense ? 'px-2 py-0.5' : 'px-2 py-1'
+  const cellText = dense ? 'text-[10px]' : 'text-xs'
   const { t } = useTranslation()
   /** Where a Shift-range starts: the last row clicked without Shift. */
   const selectionAnchor = useRef<string | number | null>(null)
@@ -495,6 +531,18 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     manualFiltering: true,
   })
 
+  // Where each pinned column starts: the sum of the widths of the pinned columns
+  // before it, in the order they are currently displayed. Computed from live
+  // sizes so a pin stays glued to its neighbour after a resize or a reorder.
+  const pinnedOffset = (columnId: string): number => {
+    let left = 0
+    for (const leaf of table.getVisibleLeafColumns()) {
+      if (leaf.id === columnId) break
+      if (colById.get(leaf.id)?.pinned) left += leaf.getSize()
+    }
+    return left
+  }
+
   const handleDragOver = (e: DragOverEvent) => {
     const { over, active } = e
     setOverColumnId(over && over.id !== active.id ? String(over.id) : null)
@@ -517,7 +565,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex-1 overflow-auto">
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
-          <TableHeader>
+          <TableHeader className={cn(stickyHeader && 'sticky top-0 z-20 bg-muted')}>
             <TableRow>
               {table.getHeaderGroups().map((hg) =>
                 hg.headers.map((header) => {
@@ -548,8 +596,16 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                   ) : (
                     <TableHead
                       key={header.id}
-                      className="relative select-none overflow-hidden text-xs"
-                      style={{ width: header.getSize(), maxWidth: header.getSize() }}
+                      className={cn(
+                        'relative select-none overflow-hidden',
+                        cellText,
+                        def?.pinned && 'sticky z-10 bg-muted',
+                      )}
+                      style={{
+                        width: header.getSize(),
+                        maxWidth: header.getSize(),
+                        ...(def?.pinned ? { left: pinnedOffset(colId) } : {}),
+                      }}
                     >
                       {content}
                       {resizeHandle}
@@ -561,7 +617,14 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
             <TableRow className="hover:bg-transparent">
               {table.getHeaderGroups().map((hg) =>
                 hg.headers.map((header) => (
-                  <TableHead key={`f-${header.id}`} className="px-1 py-1" style={{ width: header.getSize() }}>
+                  <TableHead
+                    key={`f-${header.id}`}
+                    className={cn('px-1 py-1', colById.get(header.column.id)?.pinned && 'sticky z-10 bg-muted')}
+                    style={{
+                      width: header.getSize(),
+                      ...(colById.get(header.column.id)?.pinned ? { left: pinnedOffset(header.column.id) } : {}),
+                    }}
+                  >
                     {renderFilter(header.column.id)}
                   </TableHead>
                 )),
@@ -578,6 +641,15 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
             ) : (
               table.getRowModel().rows.map((row) => {
                 const key = rowKey(row.original)
+                const isSelected =
+                  (selectedRowKey != null && key === selectedRowKey) || selectedRowKeys?.has(key)
+                // Held in a variable because a pinned cell has to repaint it:
+                // `sticky` leaves the row's background behind, not with the cell.
+                const rowTint = isSelected
+                  ? 'bg-accent'
+                  : striped && row.index % 2 === 1
+                    ? 'bg-muted/30'
+                    : ''
                 return (
                 <TableRow
                   key={key}
@@ -590,9 +662,8 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                     // Shift-click would otherwise paint a browser text selection
                     // across the range the user is trying to select.
                     selectedRowKeys && 'select-none',
-                    (selectedRowKey != null && key === selectedRowKey) || selectedRowKeys?.has(key)
-                      ? 'bg-accent'
-                      : (onRowClick || selectedRowKeys) && 'hover:bg-accent/50',
+                    rowTint,
+                    !isSelected && (onRowClick || selectedRowKeys) && 'hover:bg-accent/50',
                     rowClassName?.(row.original),
                   )}
                 >
@@ -605,8 +676,21 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage,
                     return (
                       <TableCell
                         key={cell.id}
-                        className={`overflow-hidden truncate px-2 py-1 text-xs${col?.center ? ' text-center' : ''}`}
-                        style={{ maxWidth: cell.column.getSize() }}
+                        className={cn(
+                          'overflow-hidden truncate',
+                          cellPad,
+                          cellText,
+                          (col?.align ?? (col?.center ? 'center' : 'left')) === 'center' && 'text-center',
+                          (col?.align === 'right') && 'text-right',
+                          // A pinned cell must be opaque or the scrolling body
+                          // shows through it; the row's own tint comes with it.
+                          col?.pinned && cn('sticky z-[5]', rowTint || 'bg-background'),
+                          col?.cellClassName,
+                        )}
+                        style={{
+                          maxWidth: cell.column.getSize(),
+                          ...(col?.pinned ? { left: pinnedOffset(cell.column.id) } : {}),
+                        }}
                       >
                         {useTooltip
                           ? <TruncatedText text={shown} className={typeof col?.tooltip === 'string' ? col.tooltip : undefined} alwaysShow={cellTooltips === 'all'} readOnly={cellTooltips === 'readOnly'} />
