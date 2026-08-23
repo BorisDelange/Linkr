@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   addBadge,
   categoryOf,
-  groupByCategory,
   joinLabel,
   renameCategoryInBadges,
   splitLabel,
@@ -104,35 +103,6 @@ describe('addBadge', () => {
     // 'Ghost' names no category, so these are two ordinary badges.
     const out = addBadge([badge('a', 'Ghost::x')], badge('b', 'Ghost::y'), categories, EN)
     expect(out.map((b) => b.id)).toEqual(['a', 'b'])
-  })
-})
-
-describe('groupByCategory', () => {
-  it('groups by declared category, uncategorized last', () => {
-    const badges = [
-      badge('a', 'urgent'),
-      badge('b', 'Domain::ICU'),
-      badge('c', 'Source::MIMIC'),
-    ]
-    const out = groupByCategory(badges, categories, EN)
-    expect(out.map((g) => g.category?.id ?? null)).toEqual(['c1', 'c2', null])
-    expect(out[0].badges.map((b) => b.id)).toEqual(['c'])
-    expect(out[2].badges.map((b) => b.id)).toEqual(['a'])
-  })
-
-  it('follows the workspace order, not the order badges appear in', () => {
-    // Source is declared first, so it leads even though its badge comes second.
-    const out = groupByCategory([badge('a', 'Domain::ICU'), badge('b', 'Source::MIMIC')], categories, EN)
-    expect(out.map((g) => g.category?.id)).toEqual(['c1', 'c2'])
-  })
-
-  it('omits categories with no badges', () => {
-    const out = groupByCategory([badge('a', 'Source::MIMIC')], categories, EN)
-    expect(out).toHaveLength(1)
-  })
-
-  it('returns nothing for no badges', () => {
-    expect(groupByCategory([], categories, EN)).toEqual([])
   })
 })
 

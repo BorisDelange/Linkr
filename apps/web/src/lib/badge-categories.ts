@@ -92,35 +92,6 @@ export function addBadge(
 }
 
 /**
- * Group badges by declared category for the filter popover, uncategorized last.
- *
- * Returns categories in the workspace's own order (the order they were declared
- * in), so the filter list doesn't reshuffle as badges come and go.
- */
-export function groupByCategory(
-  badges: ProjectBadge[],
-  categories: BadgeCategory[],
-  lang: string,
-): { category: BadgeCategory | null; badges: ProjectBadge[] }[] {
-  const groups = new Map<string, ProjectBadge[]>()
-  const loose: ProjectBadge[] = []
-
-  for (const badge of badges) {
-    const category = categoryOf(badge, categories, lang)
-    if (!category) { loose.push(badge); continue }
-    const bucket = groups.get(category.id)
-    if (bucket) bucket.push(badge)
-    else groups.set(category.id, [badge])
-  }
-
-  const out = categories
-    .filter((c) => groups.has(c.id))
-    .map((c) => ({ category: c as BadgeCategory | null, badges: groups.get(c.id)! }))
-  if (loose.length) out.push({ category: null, badges: loose })
-  return out
-}
-
-/**
  * Rename a category across the workspace's badges.
  *
  * The label holds the category name, so renaming the category alone would leave

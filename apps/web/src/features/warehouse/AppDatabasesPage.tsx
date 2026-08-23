@@ -389,39 +389,21 @@ export function AppDatabasesPage() {
         </div>
       ) : (
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {filteredSources.map((ds) => {
-            const linkedProjects = getLinkedProjects(ds.id)
-            return (
-              <DatabaseCard
-                key={ds.id}
-                source={ds}
-                onClick={() => setSelectedSource(ds)}
-                onTestConnection={() => connectAction(ds.id)}
-                onDisconnect={() => disconnectDataSource(ds.id)}
-                onReconnect={() => reconnectAction(ds.id)}
-                onEdit={() => setSourceToEdit(ds)}
-                onRemove={() => setSourceToRemove(ds)}
-                belowStats={
-                  linkedProjects.length > 0 ? (
-                    <BadgeStrip
-                      className="mt-1"
-                      prefix={`${t('app_warehouse.linked_projects')}:`}
-                      badges={linkedProjects.map((p) => ({
-                        id: p.uid,
-                        label: p.name,
-                        // Neutral: these name projects, they aren't tags the user coloured.
-                        color: 'slate' as const,
-                      }))}
-                    />
-                  ) : (
-                    <p className="mt-1 text-[10px] text-muted-foreground/60">
-                      {t('app_warehouse.no_linked_projects')}
-                    </p>
-                  )
-                }
-              />
-            )
-          })}
+          {filteredSources.map((ds) => (
+            <DatabaseCard
+              key={ds.id}
+              source={ds}
+              onClick={() => setSelectedSource(ds)}
+              onTestConnection={() => connectAction(ds.id)}
+              onDisconnect={() => disconnectDataSource(ds.id)}
+              onReconnect={() => reconnectAction(ds.id)}
+              onEdit={() => setSourceToEdit(ds)}
+              onRemove={() => setSourceToRemove(ds)}
+              belowStats={
+                ds.badges?.length ? <BadgeStrip className="mt-1" badges={ds.badges} /> : undefined
+              }
+            />
+          ))}
         </div>
       )}
 

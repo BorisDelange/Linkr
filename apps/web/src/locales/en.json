@@ -3288,7 +3288,6 @@
     "linked_projects": "Linked projects",
     "link_to_project": "Link to project",
     "unlink": "Unlink",
-    "no_linked_projects": "Not linked to any project",
     "link_database": "Link database",
     "link_database_title": "Link a database",
     "link_database_description": "Choose a database to link to this project.",
