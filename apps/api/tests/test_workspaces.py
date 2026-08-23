@@ -140,3 +140,43 @@ async def test_workspace_badges_persist(client):
     # Persisted across a fresh read.
     r = await client.get(f"{API}/workspaces/{ws_id}", headers=headers)
     assert r.json()["badges"] == badges
+
+
+async def test_workspace_badge_categories_persist(client):
+    """Categories are declared on the workspace, so they must survive a reload.
+
+    They were dropped silently at first: the column and the three schemas didn't
+    know the field, so a PATCH parsed cleanly, wrote nothing, and the categories
+    vanished on refresh.
+    """
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/workspaces", headers=headers, json={"name": {"en": "Demo"}}
+    )
+    ws_id = r.json()["id"]
+
+    categories = [
+        {"id": "c1", "name": {"en": "Source"}, "color": "cyan", "exclusive": True},
+        {"id": "c2", "name": {"en": "Domain"}, "color": "violet", "exclusive": False},
+    ]
+    r = await client.patch(
+        f"{API}/workspaces/{ws_id}",
+        headers=headers,
+        # camelCase, as the browser client sends it.
+        json={"badgeCategories": categories},
+    )
+    assert r.status_code == 200
+    assert r.json()["badgeCategories"] == categories
+
+    # Persisted across a fresh read — the refresh that used to lose them.
+    r = await client.get(f"{API}/workspaces/{ws_id}", headers=headers)
+    assert r.json()["badgeCategories"] == categories
+
+    # And settable at creation time, not only by PATCH.
+    r = await client.post(
+        f"{API}/workspaces",
+        headers=headers,
+        json={"name": {"en": "Seeded"}, "badgeCategories": categories},
+    )
+    assert r.status_code == 201
+    assert r.json()["badgeCategories"] == categories

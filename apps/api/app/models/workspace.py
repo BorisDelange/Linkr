@@ -11,6 +11,11 @@ class Workspace(Base, UUIDPKMixin, TimestampMixin):
     description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     organization_id: Mapped[str | None] = mapped_column(String(36))
     badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    # Badge categories this workspace declares (GitLab-style scoped labels):
+    # [{id, name: LocalizedString, color, exclusive}]. The category name also
+    # lives inside each badge's own label ("Source::MIMIC"), which is what makes
+    # deleting a category harmless — no badge is rewritten.
+    badge_categories: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     # LocalizedString ({"en": ..., "fr": ...}); JSON, not Text.
     readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time

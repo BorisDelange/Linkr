@@ -9,6 +9,7 @@ class WorkspaceCreate(CamelModel):
     description: dict[str, str] = {}
     organization_id: str | None = None
     badges: list[dict] | None = None
+    badge_categories: list[dict] | None = None
     readme: dict | str | None = None
     # Entity licence ({id, name?, text}); the text travels as LICENSE.md in exports.
     # Present on Update too — a field missing there is silently dropped on
@@ -30,6 +31,7 @@ class WorkspaceUpdate(CamelModel):
     description: dict[str, str] | None = None
     organization_id: str | None = None
     badges: list[dict] | None = None
+    badge_categories: list[dict] | None = None
     readme: dict | str | None = None
     license: dict | None = None
     git_remote_config: dict | None = None
@@ -55,6 +57,7 @@ class WorkspaceResponse(CamelModel):
     description: dict[str, str]
     organization_id: str | None = None
     badges: list[dict] | None = None
+    badge_categories: list[dict] | None = None
     readme: dict | str | None = None
     license: dict | None = None
     git_remote_config: dict | None = None
