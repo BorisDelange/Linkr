@@ -365,6 +365,120 @@
         ]
       }
     },
+    "opacity": {
+      "type": "number",
+      "label": {
+        "en": "Opacity (%)",
+        "fr": "Opacité (%)"
+      },
+      "default": 70,
+      "min": 0,
+      "max": 100,
+      "row": "opacitySize",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "bar",
+          "column",
+          "histogram",
+          "pie",
+          "donut"
+        ]
+      },
+      "description": {
+        "en": "Fill opacity of the bars or slices. A little transparency keeps a dense chart from reading as a block of solid colour.",
+        "fr": "Opacité du remplissage des barres ou des parts. Un peu de transparence évite qu'un graphique dense se lise comme un aplat de couleur."
+      }
+    },
+    "barSize": {
+      "type": "number",
+      "label": {
+        "en": "Bar thickness",
+        "fr": "Épaisseur des barres"
+      },
+      "default": 0,
+      "min": 0,
+      "max": 120,
+      "row": "opacitySize",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "column",
+          "histogram"
+        ]
+      },
+      "description": {
+        "en": "Fixed bar thickness in pixels. Leave at 0 to size bars automatically — a histogram then spans each bin exactly.",
+        "fr": "Épaisseur fixe des barres en pixels. Laisser à 0 pour un dimensionnement automatique — un histogramme couvre alors exactement chaque classe."
+      }
+    },
+    "xLabelMaxLen": {
+      "type": "number",
+      "label": {
+        "en": "X label length",
+        "fr": "Longueur labels X"
+      },
+      "default": 20,
+      "min": 3,
+      "max": 60,
+      "row": "labelLenRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "column",
+          "histogram"
+        ]
+      },
+      "description": {
+        "en": "Maximum characters shown on the X axis before truncating with “…”.",
+        "fr": "Nombre maximum de caractères sur l'axe X avant troncature avec « … »."
+      }
+    },
+    "decimals": {
+      "type": "number",
+      "label": {
+        "en": "Decimals",
+        "fr": "Décimales"
+      },
+      "default": 1,
+      "min": 0,
+      "max": 6,
+      "row": "labelLenRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "bar",
+          "column",
+          "histogram",
+          "pie",
+          "donut"
+        ]
+      },
+      "description": {
+        "en": "Decimal places on axis numbers and percentages.",
+        "fr": "Nombre de décimales sur les nombres d'axe et les pourcentages."
+      }
+    },
     "showResponseRate": {
       "type": "boolean",
       "label": {

@@ -21,7 +21,7 @@
  * bare table — the sidebar's shape, which reads at a glance and never clips.
  */
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Bar,
@@ -65,6 +65,14 @@ export interface SurveyQuestionBlockProps {
   question: SurveyQuestion
   rows: Record<string, unknown>[]
   chart?: SurveyChart
+  /** Fill opacity 0..1 for bars and slices. */
+  opacity?: number
+  /** Fixed bar thickness in px; 0 = automatic (a histogram spans its bin). */
+  barSize?: number
+  /** Characters shown on the X axis before truncating. */
+  xLabelMaxLen?: number
+  /** Decimal places on axis numbers and percentages. */
+  decimals?: number
   /** Answer codes in display order, for `sort: 'custom'`. */
   choiceOrder?: string[]
   sort?: CountSort
@@ -174,6 +182,10 @@ export function SurveyQuestionBlock({
   rows,
   chart = 'auto',
   choiceOrder,
+  opacity = 0.7,
+  barSize = 0,
+  xLabelMaxLen = 20,
+  decimals = 1,
   sort = 'frequency',
   title,
   showQuestionText = true,
@@ -291,6 +303,7 @@ export function SurveyQuestionBlock({
             valueLabel={valueLabel}
             hex={resolved.hex}
             compact={compact}
+            opacity={opacity}
           />
         )
       case 'column':
@@ -301,6 +314,9 @@ export function SurveyQuestionBlock({
             hex={resolved.hex}
             showGrid={showGrid}
             compact={compact}
+            opacity={opacity}
+            barSize={barSize}
+            xLabelMaxLen={xLabelMaxLen}
           />
         )
       case 'pie':
@@ -311,6 +327,8 @@ export function SurveyQuestionBlock({
             donut={effectiveChart === 'donut'}
             palette={palette}
             compact={compact}
+            opacity={opacity}
+            decimals={decimals}
           />
         )
       case 'histogram':
@@ -318,6 +336,10 @@ export function SurveyQuestionBlock({
           <Histogram
             values={providedValues ?? numericValues(question, rows)}
             bins={bins}
+            opacity={opacity}
+            barSize={barSize}
+            xLabelMaxLen={xLabelMaxLen}
+            decimals={decimals}
             showMedian={showMedian}
             median={summary.stats?.median}
             hex={resolved.hex}
@@ -383,11 +405,13 @@ function RankedBars({
   valueLabel,
   hex,
   compact,
+  opacity,
 }: {
   counts: AnswerCount[]
   valueLabel: NonNullable<SurveyQuestionBlockProps['valueLabel']>
   hex: string
   compact?: boolean
+  opacity: number
 }) {
   // Bars are scaled to the top count, not to the total: with a multiple-choice
   // question the proportions do not sum to 1, so a total-based scale would leave
@@ -413,7 +437,7 @@ function RankedBars({
           <div className={cn('w-full overflow-hidden rounded-full bg-muted/60', compact ? 'h-1.5' : 'h-2')}>
             <div
               className="h-full rounded-full transition-[width] duration-300"
-              style={{ width: `${(c.count / top) * 100}%`, backgroundColor: hex }}
+              style={{ width: `${(c.count / top) * 100}%`, backgroundColor: hex, opacity }}
             />
           </div>
         </div>
@@ -430,12 +454,18 @@ function ColumnChart({
   hex,
   showGrid,
   compact,
+  opacity,
+  barSize,
+  xLabelMaxLen,
 }: {
   counts: AnswerCount[]
   valueLabel: NonNullable<SurveyQuestionBlockProps['valueLabel']>
   hex: string
   showGrid: boolean
   compact?: boolean
+  opacity: number
+  barSize: number
+  xLabelMaxLen: number
 }) {
   const data = counts.map((c) => ({ ...c, value: c.count }))
   // Round ticks, and headroom above the tallest bar so its value label is not
@@ -451,7 +481,7 @@ function ColumnChart({
           axisLine={false}
           interval={0}
           height={compact ? 28 : 40}
-          tick={<TruncatedTick maxLen={compact ? 8 : 14} angle={-25} textAnchor="end" dy={8} />}
+          tick={<TruncatedTick maxLen={compact ? Math.min(8, xLabelMaxLen) : xLabelMaxLen} angle={-25} textAnchor="end" dy={8} />}
         />
         <YAxis
           type="number"
@@ -469,7 +499,15 @@ function ColumnChart({
             return [formatValue(Number(value), p?.proportion ?? 0, 'both'), '']
           }}
         />
-        <Bar dataKey="value" fill={hex} fillOpacity={0.8} radius={[2, 2, 0, 0]} isAnimationActive={false}>
+        <Bar
+          dataKey="value"
+          fill={hex}
+          fillOpacity={opacity}
+          radius={[2, 2, 0, 0]}
+          barSize={barSize || undefined}
+          isAnimationActive={false}
+          activeBar={{ fillOpacity: Math.min(1, opacity + 0.2), stroke: hex, strokeWidth: 1 }}
+        >
           {valueLabel !== 'none' && (
             <LabelList
               dataKey="value"
@@ -510,11 +548,15 @@ function SharePie({
   donut,
   palette,
   compact,
+  opacity,
+  decimals,
 }: {
   counts: AnswerCount[]
   donut: boolean
   palette: string
   compact?: boolean
+  opacity: number
+  decimals: number
 }) {
   const { t } = useTranslation()
   const colors = resolvePalette(palette)
@@ -542,6 +584,7 @@ function SharePie({
               // slices without drawing a visible outline around each.
               stroke="var(--color-background)"
               strokeWidth={2}
+              fillOpacity={opacity}
               cornerRadius={donut ? 3 : 0}
               isAnimationActive={false}
               label={false}
@@ -553,7 +596,7 @@ function SharePie({
             <ChartTooltip
               {...TOOLTIP_STYLE}
               formatter={(value: unknown, name: unknown) => [
-                `${formatCount(Number(value))} (${pct(Number(value)).toFixed(1)}%)`,
+                `${formatCount(Number(value))} (${pct(Number(value)).toFixed(decimals)}%)`,
                 String(name),
               ]}
             />
@@ -591,7 +634,7 @@ function SharePie({
                   {formatCount(c.count)}
                 </span>
                 <span className="w-11 shrink-0 text-right tabular-nums font-medium">
-                  {pct(c.count).toFixed(1)}%
+                  {pct(c.count).toFixed(decimals)}%
                 </span>
               </div>
               {/* The share as a length as well as an angle: two slices a few
@@ -623,6 +666,10 @@ function Histogram({
   hex,
   showGrid,
   compact,
+  opacity,
+  barSize,
+  xLabelMaxLen,
+  decimals,
 }: {
   values: number[]
   bins: number
@@ -631,11 +678,12 @@ function Histogram({
   hex: string
   showGrid: boolean
   compact?: boolean
+  opacity: number
+  barSize: number
+  xLabelMaxLen: number
+  decimals: number
 }) {
   const { t } = useTranslation()
-  // Unique per instance: an SVG gradient is referenced by id, so two histograms
-  // on the same page would otherwise both paint with whichever rendered last.
-  const gradientId = useId()
 
   const { data, width } = useMemo(() => {
     if (values.length === 0) return { data: [], width: 1 }
@@ -689,10 +737,13 @@ function Histogram({
   }, [])
   const domainSpan = xScale ? xScale.domain[1] - xScale.domain[0] : 0
   const axisPixels = Math.max(0, plotWidth - Y_AXIS_WIDTH)
+  // An explicit thickness wins; otherwise a bar spans its bin exactly.
   const barPixels =
-    domainSpan > 0 && axisPixels > 0
-      ? Math.max(1, (width / domainSpan) * axisPixels - 1)
-      : undefined
+    barSize > 0
+      ? barSize
+      : domainSpan > 0 && axisPixels > 0
+        ? Math.max(1, (width / domainSpan) * axisPixels - 1)
+        : undefined
 
   if (data.length === 0) return <Empty text={t('survey.no_answers')} />
 
@@ -700,18 +751,7 @@ function Histogram({
     <div ref={holderRef} className="h-full w-full">
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
-        {showGrid && (
-          <CartesianGrid stroke="var(--color-border)" strokeOpacity={0.6} vertical={false} />
-        )}
-        {/* A vertical gradient rather than flat fill: the bar reads as a solid
-            mass at its base and lifts toward the top, which is what keeps a
-            dense histogram from looking like a wall of paint. */}
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={hex} stopOpacity={0.95} />
-            <stop offset="100%" stopColor={hex} stopOpacity={0.55} />
-          </linearGradient>
-        </defs>
+        {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis
           type="number"
           dataKey="center"
@@ -721,7 +761,7 @@ function Histogram({
           axisLine={false}
           height={compact ? 20 : 24}
           tick={{ fontSize: compact ? 9 : 10, fill: 'var(--color-muted-foreground)' }}
-          tickFormatter={formatAxisNumber}
+          tickFormatter={(v) => truncate(formatAxisNumber(v, decimals), xLabelMaxLen)}
         />
         <YAxis
           tickLine={false}
@@ -738,7 +778,7 @@ function Histogram({
           labelFormatter={(_label, payload) => {
             const b = payload?.[0]?.payload as { start: number; end: number } | undefined
             if (!b) return ''
-            return `${formatAxisNumber(b.start)} – ${formatAxisNumber(b.end)}`
+            return `${formatAxisNumber(b.start, decimals)} – ${formatAxisNumber(b.end, decimals)}`
           }}
           formatter={(value: number | string) => [formatCount(value), t('survey.col_count')]}
         />
@@ -746,26 +786,29 @@ function Histogram({
             width from, so it draws hairlines. The bin's share of the domain is
             the honest width: a histogram bar should span the interval it
             counts, leaving a small gap so adjacent bins stay legible. */}
+        {/* Flat fill + fillOpacity + a stroke on hover: the Plot Builder bar,
+            so the two read as the same chart drawn by the same hand. */}
         <Bar
           dataKey="value"
-          fill={`url(#${gradientId})`}
-          radius={[3, 3, 0, 0]}
+          fill={hex}
+          fillOpacity={opacity}
+          stroke="var(--color-background)"
+          strokeWidth={1}
+          radius={[2, 2, 0, 0]}
           isAnimationActive={false}
           barSize={barPixels}
           maxBarSize={9999}
+          activeBar={{ fillOpacity: Math.min(1, opacity + 0.2), stroke: hex, strokeWidth: 1 }}
         />
         {showMedian && median !== undefined && (
           <ReferenceLine
             x={median}
             stroke="var(--color-destructive)"
-            strokeWidth={1.5}
-            strokeDasharray="5 4"
-            strokeOpacity={0.75}
+            strokeDasharray="4 3"
             label={{
-              value: formatAxisNumber(median),
+              value: formatAxisNumber(median, decimals),
               position: 'top',
               fontSize: 10,
-              fontWeight: 600,
               fill: 'var(--color-destructive)',
             }}
           />
@@ -779,11 +822,16 @@ function Histogram({
 /** Width reserved for the y axis, shared by the layout and the bar-width maths. */
 const Y_AXIS_WIDTH = 40
 
-/** Axis numbers with thousands separators and at most two decimals. */
-function formatAxisNumber(v: number | string): string {
+/** Axis numbers with thousands separators and a caller-chosen precision. */
+function formatAxisNumber(v: number | string, decimals = 1): string {
   const n = typeof v === 'string' ? Number(v) : v
   if (!Number.isFinite(n)) return ''
-  return n.toLocaleString(undefined, { maximumFractionDigits: 2 })
+  return n.toLocaleString(undefined, { maximumFractionDigits: decimals })
+}
+
+/** Clip an axis label, matching Plot Builder's ellipsis. */
+function truncate(text: string, maxLen: number): string {
+  return text.length > maxLen ? `${text.slice(0, Math.max(1, maxLen - 1))}…` : text
 }
 
 // ---------------------------------------------------------------------------

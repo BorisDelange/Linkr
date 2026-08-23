@@ -137,6 +137,11 @@ export function SurveyQuestionComponent({
     color: (config.color as string) ?? 'blue',
     palette: (config.colorPalette as string) ?? 'default',
     bins: (config.bins as number) ?? 0,
+    // Percent in the manifest (a slider reads better in whole numbers), 0..1 here.
+    opacity: ((config.opacity as number) ?? 70) / 100,
+    barSize: (config.barSize as number) ?? 0,
+    xLabelMaxLen: (config.xLabelMaxLen as number) ?? 20,
+    decimals: (config.decimals as number) ?? 1,
     showMedian: config.showMedian !== false,
     showGrid: config.showGrid !== false,
     compact,
