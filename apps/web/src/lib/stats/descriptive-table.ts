@@ -45,10 +45,10 @@ export interface VariableSpec {
   /**
    * The key to read this variable out of a data row.
    *
-   * NOT the same as `id`: a column's id is a slug (`col_weight_kg`) while the
-   * rows a dataset yields are keyed by the column's NAME (`weight_kg`). Reading
-   * by id finds `undefined` in every row, which surfaces as a variable that is
-   * 100% missing rather than as an error.
+   * Separate from `id` because the two sides key rows differently: locally,
+   * `remapRows` stores each cell under the column ID, while the server renames
+   * the Parquet columns back to their NAMES before the render program sees
+   * them. The caller passes whichever applies, and this module stays agnostic.
    */
   key: string
   /** Already resolved to the column's label, never its storage name. */
@@ -123,7 +123,7 @@ function countCell(count: number, answered: number): string {
 export interface BuildOptions {
   rows: Record<string, unknown>[]
   variables: VariableSpec[]
-  /** Column to split by: its id, the row key to read it by, and its label. */
+  /** Column to split by: its id, the row key to read it by (see VariableSpec.key), and its label. */
   groupBy?: { id: string; key: string; label: string }
   stat?: SummaryStat
   /** Show a "Missing" row under each variable that has any. */

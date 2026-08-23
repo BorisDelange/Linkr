@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { buildDescriptiveTable, quantile, fmt, DASH, type VariableSpec } from './descriptive-table'
 
-// Ids are SLUGS and keys are column NAMES, deliberately different here: rows are
-// keyed by name, and a spec that reads by id finds undefined in every row.
+// `id` and `key` are deliberately different here so a lookup by the wrong one
+// fails loudly: the two sides key rows differently (locally by column id, on the
+// server by column name), so this module must use `key` and nothing else.
 const numeric: VariableSpec = { id: 'col_age', key: 'age', label: 'Âge', kind: 'numeric' }
 const categorical: VariableSpec = { id: 'col_svc', key: 'svc', label: 'Type de service', kind: 'categorical' }
 
@@ -133,9 +134,9 @@ describe('buildDescriptiveTable — grouping', () => {
 
 
 describe('buildDescriptiveTable — row keys', () => {
-  // The regression this guards: ids are slugs (`col_site`) while rows are keyed
-  // by name (`site`). Reading by id found undefined in every row, so a variable
-  // rendered as entirely missing and its heading kept the column name.
+  // The regression this guards: values must be read by `key`, never by `id`.
+  // Locally rows are keyed by column id and on the server by column name, so a
+  // module that picked either one itself would break on the other side.
   const rows = [{ site: 'Rennes' }, { site: 'Brest' }, { site: 'Rennes' }]
   const spec: VariableSpec = {
     id: 'col_site', key: 'site', label: 'Site label', kind: 'categorical',

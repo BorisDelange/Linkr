@@ -72,12 +72,12 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
     const picked = orderSelection(selectedIds, columns, variableOrder, displayColumnName)
       .map((id) => byId.get(id))
       .filter((c): c is DatasetColumn => !!c && c.id !== groupByColumn)
-    // `key` is the column NAME: data rows are keyed by name, while `c.id` is a
-    // slug (`col_weight_kg`). Reading rows by id yields undefined everywhere,
-    // which renders as a variable that is 100% missing.
+    // Local rows are keyed by column ID (`remapRows` in UploadDatasetDialog),
+    // where the server renames Parquet columns back to their names before its
+    // render program runs. This is the local path, so the key is the id.
     return picked.map((c) => ({
       id: c.id,
-      key: c.name,
+      key: c.id,
       label: displayColumnName(c),
       kind: isNumericColumn(c) ? ('numeric' as const) : ('categorical' as const),
     }))
@@ -93,7 +93,7 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
             rows,
             variables,
             groupBy: groupColumn
-              ? { id: groupColumn.id, key: groupColumn.name, label: displayColumnName(groupColumn) }
+              ? { id: groupColumn.id, key: groupColumn.id, label: displayColumnName(groupColumn) }
               : undefined,
             stat,
             showMissing,

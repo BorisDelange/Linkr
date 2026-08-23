@@ -20,6 +20,8 @@ import { groupsLookNormal } from '@/lib/stats/normality'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildStatisticalTestsSpec } from './statistical-tests-server'
+import { usePublishAnalysisTable } from './analysis-table-context'
+import type { ExportTable, ExportTableCell } from '@/lib/table-export'
 
 // ===========================================================================
 // Types
@@ -874,10 +876,7 @@ function computeAllTests(
 
   const groupMap = new Map<string, Record<string, unknown>[]>()
   for (const row of rows) {
-    // By NAME: rows are keyed by the column's name, while its id is a slug
-    // (`col_arm`). Reading by id finds undefined in every row, which collapses
-    // to "fewer than two groups" and returns no tests at all.
-    const gv = row[groupCol.name]
+    const gv = row[groupColumnId]
     if (!isNotMissing(gv)) continue
     const key = String(gv)
     if (!groupMap.has(key)) groupMap.set(key, [])
@@ -925,7 +924,7 @@ function computeAllTests(
       const groupArrays: number[][] = []
       const validGroupNames: string[] = []
       for (const gn of groupNames) {
-        const nums = extractNumbers(groupMap.get(gn)!.map((r) => r[col.name]))
+        const nums = extractNumbers(groupMap.get(gn)!.map((r) => r[colId]))
         if (nums.length > 0) {
           groupArrays.push(nums)
           validGroupNames.push(gn)
@@ -1054,7 +1053,7 @@ function computeAllTests(
       for (const gn of groupNames) {
         const vals = groupMap
           .get(gn)!
-          .map((r) => r[col.name])
+          .map((r) => r[colId])
           .filter(isNotMissing)
           .map(String)
         catGroups.set(gn, vals)
@@ -1368,6 +1367,14 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
     // eslint-disable-next-line react-hooks/exhaustive-deps -- showCol reads visibleColumns, tracked via rawVisibleColumns
   }, [t, lang, alpha, highlightSignificant, allGroupNames, groupLabel, rawVisibleColumns])
 
+  // Publish the table for the shell's Export menu (copy / LaTeX). Built from the
+  // same columns the table renders, so what you copy is what you see — including
+  // which statistics are currently shown.
+  usePublishAnalysisTable(
+    statRows.length > 0 ? () => toExportTable(statRows, tableColumns, lang, alpha) : null,
+    [statRows, tableColumns, lang, alpha],
+  )
+
   // Empty states
   if (!groupColumnId) {
     return (
@@ -1525,4 +1532,71 @@ function PValueCell({
       )}
     </span>
   )
+}
+
+
+/**
+ * The rendered table as plain text, for copy / LaTeX.
+ *
+ * Rebuilt from the results rather than scraped from the DOM: a cell renders as
+ * JSX (a tooltip trigger, a coloured marker), and a manuscript wants the value.
+ * The significance stars are kept — they carry meaning a reader expects — while
+ * the warning icon becomes nothing, since its text is already in the tooltip.
+ */
+function toExportTable(
+  rows: StatRow[],
+  columns: PublicationColumn<StatRow>[],
+  lang: 'en' | 'fr',
+  alpha: number,
+): ExportTable {
+  const head: ExportTableCell[][] = []
+  // A group header row, only when some column declares one.
+  if (columns.some((c) => c.group)) {
+    const groupRow: ExportTableCell[] = []
+    for (const col of columns) {
+      const last = groupRow[groupRow.length - 1]
+      if (last && last.text === (col.group ?? '')) last.colSpan = (last.colSpan ?? 1) + 1
+      else groupRow.push({ text: col.group ?? '', colSpan: 1, align: 'center' })
+    }
+    head.push(groupRow)
+  }
+  head.push(columns.map((c) => ({ text: c.header, align: c.align })))
+
+  const body = rows.map((r) =>
+    columns.map((c) => ({ text: exportCellText(c.id, r, lang, alpha), align: c.align })),
+  )
+  return { head, body }
+}
+
+function exportCellText(columnId: string, row: StatRow, lang: 'en' | 'fr', alpha: number): string {
+  const r = row.result
+  if (columnId === '__variable__') return row.label
+  if (columnId.startsWith('g:')) return descriptiveText(r, columnId.slice(2))
+  switch (columnId) {
+    case 'test':
+      return r.testLabel[lang]
+    case 'statistic':
+      return r.statistic != null ? `${r.statisticLabel} = ${fmt(r.statistic)}` : DASH
+    case 'df':
+      return r.df != null ? (Number.isInteger(r.df) ? String(r.df) : fmt(r.df, 1)) : DASH
+    case 'p':
+      if (r.pValue == null) return DASH
+      return `${formatP(r.pValue)}${r.pValue < alpha ? sigStars(r.pValue) : ''}`
+    case 'ci':
+      return r.ci ? `[${fmt(r.ci[0])}, ${fmt(r.ci[1])}]` : DASH
+    case 'effectSize':
+      return r.effectSize != null ? `${r.effectSizeLabel} = ${fmt(r.effectSize)}` : DASH
+    default:
+      return ''
+  }
+}
+
+function descriptiveText(result: TestResult, groupName: string): string {
+  const gd = result.groupDescriptives?.find((g) => g.groupName === groupName)
+  if (!gd) return DASH
+  if (result.variableType === 'numeric') {
+    return gd.mean != null ? `n=${gd.n}, ${fmt(gd.mean)} ± ${fmt(gd.sd ?? 0)}` : `n=${gd.n}`
+  }
+  const freqs = gd.freqs?.map((f) => `${f.category}: ${f.count} (${f.pct.toFixed(1)}%)`).join('; ')
+  return freqs ? `n=${gd.n} ${freqs}` : `n=${gd.n}`
 }
