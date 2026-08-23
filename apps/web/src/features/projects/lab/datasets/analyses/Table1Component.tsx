@@ -29,7 +29,7 @@ import {
 } from '@/lib/stats/descriptive-table'
 import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
 import type { ExportTable, ExportTableCell } from '@/lib/table-export'
-import { analysisTableRef } from './ComponentAnalysisShell'
+import { usePublishAnalysisTable } from './analysis-table-context'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import type { DatasetColumn } from '@/types'
 import { buildTable1Spec } from './table1-server'
@@ -72,8 +72,12 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
     const picked = orderSelection(selectedIds, columns, variableOrder, displayColumnName)
       .map((id) => byId.get(id))
       .filter((c): c is DatasetColumn => !!c && c.id !== groupByColumn)
+    // `key` is the column NAME: data rows are keyed by name, while `c.id` is a
+    // slug (`col_weight_kg`). Reading rows by id yields undefined everywhere,
+    // which renders as a variable that is 100% missing.
     return picked.map((c) => ({
       id: c.id,
+      key: c.name,
       label: displayColumnName(c),
       kind: isNumericColumn(c) ? ('numeric' as const) : ('categorical' as const),
     }))
@@ -88,7 +92,9 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
         : buildDescriptiveTable({
             rows,
             variables,
-            groupBy: groupColumn ? { id: groupColumn.id, label: displayColumnName(groupColumn) } : undefined,
+            groupBy: groupColumn
+              ? { id: groupColumn.id, key: groupColumn.name, label: displayColumnName(groupColumn) }
+              : undefined,
             stat,
             showMissing,
             missingLabel: t('datasets.table1_missing'),
@@ -183,12 +189,13 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
     return cols
   }, [t, groupKeys, table, showOverallColumn])
 
-  // Publish the table for the shell's Export menu (copy / LaTeX).
-  useEffect(() => {
-    if (!table) return
-    analysisTableRef.current = () => toExportTable(displayRows, tableColumns, groupKeys)
-    return () => { analysisTableRef.current = null }
-  }, [table, displayRows, tableColumns, groupKeys])
+  // Publish the table for the shell's Export menu (copy / LaTeX). Null while
+  // there is no table, which CLEARS the slot rather than leaving whatever the
+  // previously viewed analysis published in it.
+  usePublishAnalysisTable(
+    table ? () => toExportTable(displayRows, tableColumns, groupKeys) : null,
+    [table, displayRows, tableColumns, groupKeys],
+  )
 
   if (columns.length === 0) {
     return <Placeholder icon text={t('datasets.table1_no_columns')} />

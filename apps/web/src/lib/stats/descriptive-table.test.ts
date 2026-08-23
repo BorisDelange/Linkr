@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { buildDescriptiveTable, quantile, fmt, DASH, type VariableSpec } from './descriptive-table'
 
-const numeric: VariableSpec = { id: 'age', label: 'Âge', kind: 'numeric' }
-const categorical: VariableSpec = { id: 'svc', label: 'Type de service', kind: 'categorical' }
+// Ids are SLUGS and keys are column NAMES, deliberately different here: rows are
+// keyed by name, and a spec that reads by id finds undefined in every row.
+const numeric: VariableSpec = { id: 'col_age', key: 'age', label: 'Âge', kind: 'numeric' }
+const categorical: VariableSpec = { id: 'col_svc', key: 'svc', label: 'Type de service', kind: 'categorical' }
 
 describe('quantile (R type 7)', () => {
   it('matches R on a known vector', () => {
@@ -108,7 +110,7 @@ describe('buildDescriptiveTable — grouping', () => {
 
   it('splits into one cell per group, with the group sizes', () => {
     const t = buildDescriptiveTable({
-      rows, variables: [categorical], groupBy: { id: 'arm', label: 'Arm' },
+      rows, variables: [categorical], groupBy: { id: 'col_arm', key: 'arm', label: 'Arm' },
     })
     expect(t.groups).toEqual(['A', 'B'])
     expect(t.groupSizes).toEqual({ A: 3, B: 2 })
@@ -121,10 +123,41 @@ describe('buildDescriptiveTable — grouping', () => {
     // Dropping them would silently change every other column's denominator.
     const withGap = [...rows, { arm: null, svc: 'ICU' }]
     const t = buildDescriptiveTable({
-      rows: withGap, variables: [categorical], groupBy: { id: 'arm', label: 'Arm' },
+      rows: withGap, variables: [categorical], groupBy: { id: 'col_arm', key: 'arm', label: 'Arm' },
     })
     expect(t.groups).toContain(DASH)
     expect(t.groupSizes[DASH]).toBe(1)
     expect(t.total).toBe(6)
+  })
+})
+
+
+describe('buildDescriptiveTable — row keys', () => {
+  // The regression this guards: ids are slugs (`col_site`) while rows are keyed
+  // by name (`site`). Reading by id found undefined in every row, so a variable
+  // rendered as entirely missing and its heading kept the column name.
+  const rows = [{ site: 'Rennes' }, { site: 'Brest' }, { site: 'Rennes' }]
+  const spec: VariableSpec = {
+    id: 'col_site', key: 'site', label: 'Site label', kind: 'categorical',
+  }
+
+  it('reads values by key, not by id', () => {
+    const t = buildDescriptiveTable({ rows, variables: [spec] })
+    expect(t.rows.find((r) => r.label === 'Rennes')!.cells[''].text).toBe('2 (67%)')
+    expect(t.rows.some((r) => r.label === 'Missing')).toBe(false)
+  })
+
+  it('prints the label on the heading row', () => {
+    const t = buildDescriptiveTable({ rows, variables: [spec] })
+    expect(t.rows[0].label).toBe('Site label')
+  })
+
+  it('groups by key too', () => {
+    const t = buildDescriptiveTable({
+      rows: [{ site: 'R', arm: 'A' }, { site: 'B', arm: 'B' }],
+      variables: [spec],
+      groupBy: { id: 'col_arm', key: 'arm', label: 'Arm' },
+    })
+    expect(t.groups).toEqual(['A', 'B'])
   })
 })

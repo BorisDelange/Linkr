@@ -40,7 +40,17 @@ export interface DescriptiveTable {
 export const DASH = '—'
 
 export interface VariableSpec {
+  /** Identifies the row in the output; the caller's column id. */
   id: string
+  /**
+   * The key to read this variable out of a data row.
+   *
+   * NOT the same as `id`: a column's id is a slug (`col_weight_kg`) while the
+   * rows a dataset yields are keyed by the column's NAME (`weight_kg`). Reading
+   * by id finds `undefined` in every row, which surfaces as a variable that is
+   * 100% missing rather than as an error.
+   */
+  key: string
   /** Already resolved to the column's label, never its storage name. */
   label: string
   kind: 'numeric' | 'categorical'
@@ -113,8 +123,8 @@ function countCell(count: number, answered: number): string {
 export interface BuildOptions {
   rows: Record<string, unknown>[]
   variables: VariableSpec[]
-  /** Column id to split by, and its label. */
-  groupBy?: { id: string; label: string }
+  /** Column to split by: its id, the row key to read it by, and its label. */
+  groupBy?: { id: string; key: string; label: string }
   stat?: SummaryStat
   /** Show a "Missing" row under each variable that has any. */
   showMissing?: boolean
@@ -146,7 +156,7 @@ export function buildDescriptiveTable({
   const grouped = new Map<string, Record<string, unknown>[]>()
   if (groupBy) {
     for (const row of rows) {
-      const raw = row[groupBy.id]
+      const raw = row[groupBy.key]
       // A missing group value is its own group: dropping those rows would
       // silently change the denominator of every other column.
       const key = isMissing(raw) ? DASH : String(raw).trim()
@@ -168,7 +178,7 @@ export function buildDescriptiveTable({
   for (const variable of variables) {
     const answeredPerGroup: Record<string, unknown[]> = {}
     for (const k of keys) {
-      answeredPerGroup[k] = (grouped.get(k) ?? []).map((r) => r[variable.id]).filter((v) => !isMissing(v))
+      answeredPerGroup[k] = (grouped.get(k) ?? []).map((r) => r[variable.key]).filter((v) => !isMissing(v))
     }
     const answeredTotal = keys.reduce((s, k) => s + answeredPerGroup[k].length, 0)
 

@@ -14,7 +14,7 @@
 
 import { useCallback, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, Download, FileCode, FileText, Image } from 'lucide-react'
+import { Check, Copy, Download, FileCode, Image } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -77,16 +77,7 @@ export function AnalysisExportMenu({
     flash('latex')
   }, [getTable, flash])
 
-  // The compilable form, for pasting into an empty Overleaf project rather than
-  // into an existing manuscript.
-  const copyLatexDocument = useCallback(async () => {
-    const table = getTable?.()
-    if (!table) return
-    await navigator.clipboard.writeText(toLatex(table, { standalone: true }))
-    flash('latex-doc')
-  }, [getTable, flash])
-
-  const hasTable = !!getTable?.()
+  const hasTable = !!getTable
 
   return (
     <DropdownMenu>
@@ -110,10 +101,6 @@ export function AnalysisExportMenu({
             <DropdownMenuItem onClick={() => void copyLatex()}>
               <FileCode size={14} />
               {t('datasets.export_latex')}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => void copyLatexDocument()}>
-              <FileText size={14} />
-              {t('datasets.export_latex_document')}
             </DropdownMenuItem>
           </>
         )}

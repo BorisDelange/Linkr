@@ -138,20 +138,16 @@ describe('toLatex preamble', () => {
   }
 
   it('names the packages the fragment needs, as a comment', () => {
-    // Pasted into an existing manuscript, a real \usepackage in the body would
-    // be an error — but the reader still has to know booktabs is required.
+    // The reported failure: pasted into an empty main.tex this produced
+    // "Environment table undefined" with nothing pointing at booktabs.
+    // A comment, not a real \usepackage — the target document has a preamble.
     const out = toLatex(table)
     expect(out).toMatch(/^% Requires in your preamble: \\usepackage\{booktabs\}/)
     expect(out).toContain('\\begin{table}')
     expect(out).not.toContain('\\begin{document}')
   })
 
-  it('standalone compiles on its own: class, packages, document', () => {
-    const out = toLatex(table, { standalone: true })
-    expect(out).toContain('\\documentclass{article}')
-    expect(out).toContain('\\usepackage{booktabs}')
-    expect(out.indexOf('\\begin{document}')).toBeLessThan(out.indexOf('\\begin{table}'))
-    expect(out.indexOf('\\end{table}')).toBeLessThan(out.indexOf('\\end{document}'))
-    expect(out).not.toContain('% Requires')
+  it('emits nothing at all for an empty table, comment included', () => {
+    expect(toLatex({ head: [], body: [] })).toBe('')
   })
 })

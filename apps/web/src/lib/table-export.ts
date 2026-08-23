@@ -60,34 +60,17 @@ export function escapeLatex(text: string): string {
  * booktabs, and pasting in `|` separators is the classic way to undo it. A group
  * header gets a `\cmidrule` spanning only its own columns.
  *
- * `standalone` decides whether the result is a fragment or a compilable file.
- * The fragment is what you paste into an existing manuscript, and is the
- * default — but pasted alone into a fresh `main.tex` it fails with "Environment
- * table undefined", because nothing has loaded `booktabs` or opened a document.
- * The fragment therefore carries its requirements as a comment, and the
- * standalone form supplies them for real.
+ * The result is a FRAGMENT, for pasting into an existing manuscript. It opens
+ * with a comment naming the packages it needs, because pasted into an empty
+ * main.tex it would otherwise fail with "Environment table undefined" and give
+ * the reader nothing to go on. A comment rather than a real \usepackage: in a
+ * document that already has a preamble, a duplicate package line is an error.
  */
-export function toLatex(table: ExportTable, options: { standalone?: boolean } = {}): string {
+export function toLatex(table: ExportTable): string {
   const body = latexTable(table)
   if (!body) return ''
-  if (!options.standalone) {
-    // A comment, not a \usepackage: this form is destined for a preamble that
-    // already exists, and a duplicate \usepackage in the body is an error.
-    const needs = LATEX_REQUIRED_PACKAGES.map((p) => `\\usepackage{${p}}`).join(' ')
-    return `% Requires in your preamble: ${needs}\n${body}`
-  }
-  return [
-    '\\documentclass{article}',
-    ...LATEX_REQUIRED_PACKAGES.map((p) => `\\usepackage{${p}}`),
-    // The tables carry en dashes, ± and accented level names straight from the
-    // data, so the file must be able to represent them.
-    '\\usepackage[T1]{fontenc}',
-    '\\usepackage[utf8]{inputenc}',
-    '',
-    '\\begin{document}',
-    body,
-    '\\end{document}',
-  ].join('\n')
+  const needs = LATEX_REQUIRED_PACKAGES.map((p) => `\\usepackage{${p}}`).join(' ')
+  return `% Requires in your preamble: ${needs}\n${body}`
 }
 
 /** The packages the emitted table needs to compile. */

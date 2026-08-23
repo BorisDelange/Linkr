@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { AnalysisExportMenu } from '@/components/ui/analysis-export-menu'
 import type { ExportTable } from '@/lib/table-export'
+import { AnalysisTableContext } from './analysis-table-context'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
 import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
@@ -26,16 +27,6 @@ interface ComponentAnalysisShellProps {
   componentId: string
 }
 
-/**
- * Where an analysis publishes its tabular form, for the Export menu.
- *
- * A ref rather than a prop: the shell renders the component but does not know
- * what it produced, and the component is several layers down. It writes its
- * table here as a side effect of rendering, and the menu reads it on click —
- * so a chart simply never writes, and the table entries stay hidden.
- */
-export const analysisTableRef: { current: (() => ExportTable | null) | null } = { current: null }
-
 export function ComponentAnalysisShell({ analysis, configPanel, componentId }: ComponentAnalysisShellProps) {
   const { t } = useTranslation()
   const { files, getFileRows, updateAnalysis, saveAnalysis } = useDatasetStore()
@@ -43,6 +34,21 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
   const [configVisible, setConfigVisible] = useState(true)
   // The rendered result, for the Export menu's PNG.
   const resultRef = useRef<HTMLDivElement | null>(null)
+  // This analysis's OWN table slot. Previously a module-level singleton, which
+  // let one analysis's table surface in another's Export menu — and, once the
+  // publisher unmounted, left a slot that answered "there is a table" while
+  // returning nothing, so Copy wrote an empty clipboard.
+  const tableRef = useRef<(() => ExportTable | null) | null>(null)
+  const [hasTable, setHasTable] = useState(false)
+  const tableContext = useMemo(
+    () => ({
+      publish: (getTable: (() => ExportTable | null) | null) => {
+        tableRef.current = getTable
+        setHasTable(!!getTable)
+      },
+    }),
+    [],
+  )
 
   const server = isServerMode()
   const file = files.find((f) => f.id === analysis.datasetFileId)
@@ -139,7 +145,8 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
   const Component = getComponent(componentId)
 
   return (
-    <div className="flex h-full flex-col">
+    <AnalysisTableContext.Provider value={tableContext}>
+      <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-1 border-b px-2 py-1">
         <button
@@ -159,7 +166,7 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
           <AnalysisExportMenu
             name={analysis.name}
             nodeRef={resultRef}
-            getTable={() => analysisTableRef.current?.() ?? null}
+            getTable={hasTable ? () => tableRef.current?.() ?? null : undefined}
           />
           <div className="mx-1 h-4 w-px bg-border" />
           <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleCancel} disabled={!dirty}>
@@ -217,7 +224,8 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
           </Allotment.Pane>
         </Allotment>
       </div>
-    </div>
+      </div>
+    </AnalysisTableContext.Provider>
   )
 }
 
