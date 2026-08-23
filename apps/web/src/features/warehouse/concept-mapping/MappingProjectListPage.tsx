@@ -486,7 +486,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
                     <ArrowRightLeft size={20} className="text-teal-600" />
                   </div>
-                  <span className="truncate text-sm font-medium">{localized(project.name, language)}</span>
+                  <TruncatedText text={localized(project.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
                   {project.status && (
                     <span className={`ml-auto shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${MAPPING_STATUS_COLORS[project.status].bg} ${MAPPING_STATUS_COLORS[project.status].text}`}>
                       <span className={`size-1.5 rounded-full ${MAPPING_STATUS_COLORS[project.status].dot}`} />

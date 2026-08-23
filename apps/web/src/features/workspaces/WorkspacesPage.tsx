@@ -989,7 +989,7 @@ export function WorkspacesPage() {
                     </div>
                     <div className="mt-2 h-4">
                       {ws.description && (
-                        <TruncatedText text={ws.description} className="text-xs text-muted-foreground" />
+                        <TruncatedText text={ws.description} readOnly className="text-xs text-muted-foreground" />
                       )}
                     </div>
                     <BadgeStrip badges={badges} className="mt-1.5 h-5" />

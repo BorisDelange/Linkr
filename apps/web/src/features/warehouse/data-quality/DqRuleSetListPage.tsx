@@ -216,7 +216,7 @@ export function DqRuleSetListPage() {
               <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
                 <ShieldCheck size={20} className="text-teal-500" />
               </div>
-              <span className="truncate text-sm font-medium">{localized(rs.name, language)}</span>
+              <TruncatedText text={localized(rs.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
               {rs.lastScore != null && (
                 <span className={cn('shrink-0 font-mono text-xs font-medium', scoreColor(rs.lastScore))}>
                   {rs.lastScore}%

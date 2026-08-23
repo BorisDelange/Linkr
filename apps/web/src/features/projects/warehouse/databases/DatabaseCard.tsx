@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { cardMenuTriggerClass, cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -100,7 +101,7 @@ export const DatabaseCard = memo(function DatabaseCard({
         </div>
 
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-medium">{source.name}</h3>
+          <TruncatedText text={source.name} readOnly className="min-w-0 flex-1 text-sm font-medium" />
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
               className={`size-2 shrink-0 rounded-full ${statusColors[source.status] ?? statusColors.disconnected}`}

@@ -71,7 +71,7 @@ export function CohortCard({
           <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
             <UsersRound size={20} className="text-teal-500" />
           </div>
-          <h3 className="truncate text-sm font-medium">{cohort.name}</h3>
+          <TruncatedText text={cohort.name} readOnly className="min-w-0 flex-1 text-sm font-medium" />
           <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${levelColors[cohort.level] ?? ''}`}>
             {levelLabel}
           </span>

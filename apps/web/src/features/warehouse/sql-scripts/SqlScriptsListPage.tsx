@@ -200,12 +200,12 @@ export function SqlScriptsListPage() {
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
               <SquareTerminal size={20} className="text-teal-500" />
             </div>
-            <span className="truncate text-sm font-medium">{localized(collection.name, language)}</span>
+            <TruncatedText text={localized(collection.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
             <div className="ml-auto shrink-0">{actionsMenu}</div>
           </div>
           <div className="mt-2 h-4">
             {localized(collection.description, language) && (
-              <TruncatedText text={localized(collection.description, language)} className="text-xs text-muted-foreground" />
+              <TruncatedText text={localized(collection.description, language)} readOnly className="text-xs text-muted-foreground" />
             )}
           </div>
           <BadgeStrip badges={collection.badges ?? []} className="mt-1.5 h-5" />

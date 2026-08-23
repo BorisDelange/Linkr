@@ -410,7 +410,7 @@ export function ProjectsPage() {
                         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
                           <FolderOpen size={20} className="text-blue-600 dark:text-blue-400" />
                         </div>
-                        <span className="truncate text-sm font-medium text-card-foreground">{project.name}</span>
+                        <TruncatedText text={project.name} readOnly className="min-w-0 flex-1 text-sm font-medium text-card-foreground" />
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${getStatusClasses(status)}`}>
@@ -459,7 +459,7 @@ export function ProjectsPage() {
                     </div>
                     <div className="mt-2 h-4">
                       {project.description && (
-                        <TruncatedText text={project.description} className="text-xs text-muted-foreground" />
+                        <TruncatedText text={project.description} readOnly className="text-xs text-muted-foreground" />
                       )}
                     </div>
                     <BadgeStrip badges={badges} className="mt-1.5 h-5" />
