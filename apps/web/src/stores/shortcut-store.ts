@@ -74,7 +74,14 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   customBindings: initialCustom,
 
   setBinding: (id, binding) => {
-    const custom = { ...get().customBindings, [id]: binding }
+    const custom = { ...get().customBindings }
+    // Rebinding to the default value is a reset, not a customization — otherwise
+    // the row keeps offering "reset to default" when it already is the default.
+    if (combosEqual(binding, DEFAULT_SHORTCUTS[id].defaultBinding)) {
+      delete custom[id]
+    } else {
+      custom[id] = binding
+    }
     savePersisted(custom)
     set({ shortcuts: buildShortcuts(custom), customBindings: custom })
   },
@@ -105,7 +112,12 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
     return null
   },
 
-  isCustomized: (id) => id in get().customBindings,
+  // Compares values rather than trusting the key: presets and already-persisted
+  // settings can hold an entry that matches the default.
+  isCustomized: (id) => {
+    const custom = get().customBindings[id]
+    return custom ? !combosEqual(custom, DEFAULT_SHORTCUTS[id].defaultBinding) : false
+  },
 
   applyPreset: (presetId, prefix) => {
     const preset = NOTEBOOK_PRESETS.find((p) => p.id === presetId)

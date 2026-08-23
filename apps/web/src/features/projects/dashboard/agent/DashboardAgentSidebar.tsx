@@ -340,7 +340,7 @@ function SessionInfoDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[70vh] flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-sm">{t('agent.info_title')}</DialogTitle>
+          <DialogTitle>{t('agent.info_title')}</DialogTitle>
         </DialogHeader>
         <Tabs defaultValue="stats" className="flex min-h-0 flex-1 flex-col">
           <TabsList className="mx-auto w-fit shrink-0">

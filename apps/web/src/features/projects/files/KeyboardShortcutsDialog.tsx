@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { RotateCcw, Lock } from 'lucide-react'
+import { RotateCcw, Lock, Check, X } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { SectionLabel } from '@/components/ui/section-label'
 import {
   Tooltip,
@@ -98,12 +108,14 @@ export function KeyboardShortcutsDialog({
 
   const [recordingId, setRecordingId] = useState<ShortcutActionId | null>(null)
   const [pendingCombo, setPendingCombo] = useState<KeyCombo | null>(null)
+  const [confirmingResetAll, setConfirmingResetAll] = useState(false)
   const recorderRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) {
       setRecordingId(null)
       setPendingCombo(null)
+      setConfirmingResetAll(false)
     }
   }, [open])
 
@@ -165,7 +177,7 @@ export function KeyboardShortcutsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-sm">{t('shortcuts.title')}</DialogTitle>
+          <DialogTitle>{t('shortcuts.title')}</DialogTitle>
           <DialogDescription className="sr-only">
             {t('shortcuts.title')}
           </DialogDescription>
@@ -223,11 +235,14 @@ export function KeyboardShortcutsDialog({
                       <div
                         key={actionId}
                         className={cn(
-                          'flex items-center justify-between rounded-md px-2 py-1 -mx-2',
+                          // Recording swaps the key display for a prompt or for buttons +
+                          // warnings, all shorter than the keycaps. Pin the row to the
+                          // resting height so editing one doesn't shift every row below.
+                          'flex min-h-[30px] items-center justify-between rounded-md px-2 py-1 -mx-2',
                           isRecording && 'bg-accent/50 ring-1 ring-primary/30'
                         )}
                       >
-                        <span className="text-xs flex items-center gap-1.5">
+                        <span className="flex min-w-0 items-center gap-1.5 truncate text-xs">
                           {t(def.labelKey)}
                           {isMonaco && (
                             <Tooltip>
@@ -241,7 +256,7 @@ export function KeyboardShortcutsDialog({
                           )}
                         </span>
 
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex h-5 shrink-0 items-center gap-1.5">
                           {isRecording ? (
                             <div ref={recorderRef} className="flex items-center gap-2">
                               {pendingCombo ? (
@@ -262,19 +277,21 @@ export function KeyboardShortcutsDialog({
                                   <Button
                                     variant="ghost"
                                     size="icon-xs"
-                                    onClick={confirmRecording}
-                                    disabled={browserReserved}
-                                    className="h-4 w-4"
+                                    onClick={cancelRecording}
+                                    className="size-5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    aria-label={t('common.cancel')}
                                   >
-                                    <span className="text-[10px]">✓</span>
+                                    <X size={12} />
                                   </Button>
                                   <Button
                                     variant="ghost"
                                     size="icon-xs"
-                                    onClick={cancelRecording}
-                                    className="h-4 w-4"
+                                    onClick={confirmRecording}
+                                    disabled={browserReserved}
+                                    className="size-5 text-muted-foreground hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
+                                    aria-label={t('common.confirm')}
                                   >
-                                    <span className="text-[10px]">✕</span>
+                                    <Check size={12} />
                                   </Button>
                                 </>
                               ) : (
@@ -307,9 +324,9 @@ export function KeyboardShortcutsDialog({
                                   variant="ghost"
                                   size="icon-xs"
                                   onClick={() => resetBinding(actionId)}
-                                  className="h-4 w-4"
+                                  className="size-5 text-muted-foreground"
                                 >
-                                  <RotateCcw size={9} />
+                                  <RotateCcw size={12} />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
@@ -329,17 +346,32 @@ export function KeyboardShortcutsDialog({
 
         {hasAnyCustom && (
           <div className="mt-3 flex justify-end">
-            <Button
-              variant="outline"
-              size="sm-tight"
-              onClick={resetAll}
-              className="text-[10px]"
-            >
-              <RotateCcw size={10} className="mr-1" />
+            <Button variant="outline" size="sm-tight" onClick={() => setConfirmingResetAll(true)}>
+              <RotateCcw />
               {t('shortcuts.reset_all')}
             </Button>
           </div>
         )}
+
+        <AlertDialog open={confirmingResetAll} onOpenChange={setConfirmingResetAll}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('shortcuts.reset_all')}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t('shortcuts.reset_all_confirm')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={resetAll}
+                className={buttonVariants({ variant: 'destructive' })}
+              >
+                {t('shortcuts.reset_all_action')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   )
