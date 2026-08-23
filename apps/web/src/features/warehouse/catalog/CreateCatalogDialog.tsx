@@ -16,6 +16,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -122,6 +123,9 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       confirmLabel={isEdit ? t('common.save') : t('common.create')}
       confirmDisabled={!canSubmit}
     >
+      <EntityDialogTabs
+        general={
+          <>
             <div>
               <Label>{t('data_catalog.name')}<RequiredMark /></Label>
               <Input
@@ -166,24 +170,28 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
                 </SelectContent>
               </Select>
             </div>
-
+          </>
+        }
+        metadata={
+          <>
             <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
-
             <VersionField value={version} onChange={setVersion} />
-
-            {isEdit && editingCatalog && (
-              <div className="border-t pt-4">
-                <AuthoringFields
-                  value={{
-                    createdById: 'createdById' in authoring ? authoring.createdById : editingCatalog.createdById,
-                    createdBy: authoring.createdBy ?? editingCatalog.createdBy,
-                    createdByDetails: authoring.createdByDetails ?? editingCatalog.createdByDetails,
-                    organization: authoring.organization ?? editingCatalog.organization,
-                  }}
-                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
-                />
-              </div>
-            )}
+          </>
+        }
+        attribution={
+          isEdit && editingCatalog ? (
+            <AuthoringFields
+              value={{
+                createdById: 'createdById' in authoring ? authoring.createdById : editingCatalog.createdById,
+                createdBy: authoring.createdBy ?? editingCatalog.createdBy,
+                createdByDetails: authoring.createdByDetails ?? editingCatalog.createdByDetails,
+                organization: authoring.organization ?? editingCatalog.organization,
+              }}
+              onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+            />
+          ) : undefined
+        }
+      />
     </DialogShell>
   )
 }

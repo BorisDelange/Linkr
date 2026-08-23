@@ -16,6 +16,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -116,25 +117,20 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
       confirmLabel={isEdit ? t('common.save') : t('common.create')}
       confirmDisabled={!name.trim() || (!isEdit && !isEntityIdValid(entityId, existingIds))}
     >
-          <div>
-            <Label>{t('data_quality.rs_name')}<RequiredMark /></Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('data_quality.rs_name_placeholder')}
-              className="mt-1"
-              autoFocus
-            />
-          </div>
-          <div>
-            <Label>{t('common.description')}</Label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="mt-1"
-            />
-          </div>
-                      <EntityIdField
+      <EntityDialogTabs
+        general={
+          <>
+            <div>
+              <Label>{t('data_quality.rs_name')}<RequiredMark /></Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('data_quality.rs_name_placeholder')}
+                className="mt-1"
+                autoFocus
+              />
+            </div>
+            <EntityIdField
               name={name}
               value={entityId}
               onChange={setEntityId}
@@ -144,39 +140,51 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               required
               readOnly={isEdit}
             />
-          <div>
-            <Label>{t('data_quality.rs_database')}</Label>
-            <Select value={dataSourceId} onValueChange={setDataSourceId}>
-              <SelectTrigger className="mt-1">
-                <SelectValue placeholder={t('data_quality.select_database')} />
-              </SelectTrigger>
-              <SelectContent>
-                {dbSources.map((ds) => (
-                  <SelectItem key={ds.id} value={ds.id}>
-                    {ds.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
-
-          <VersionField value={version} onChange={setVersion} />
-
-          {isEdit && editingRuleSet && (
-            <div className="border-t pt-4">
-              <AuthoringFields
-                value={{
-                  createdById: 'createdById' in authoring ? authoring.createdById : editingRuleSet.createdById,
-                  createdBy: authoring.createdBy ?? editingRuleSet.createdBy,
-                  createdByDetails: authoring.createdByDetails ?? editingRuleSet.createdByDetails,
-                  organization: authoring.organization ?? editingRuleSet.organization,
-                }}
-                onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+            <div>
+              <Label>{t('common.description')}</Label>
+              <Input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="mt-1"
               />
             </div>
-          )}
+            <div>
+              <Label>{t('data_quality.rs_database')}</Label>
+              <Select value={dataSourceId} onValueChange={setDataSourceId}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder={t('data_quality.select_database')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {dbSources.map((ds) => (
+                    <SelectItem key={ds.id} value={ds.id}>
+                      {ds.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        }
+        metadata={
+          <>
+            <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
+            <VersionField value={version} onChange={setVersion} />
+          </>
+        }
+        attribution={
+          isEdit && editingRuleSet ? (
+            <AuthoringFields
+              value={{
+                createdById: 'createdById' in authoring ? authoring.createdById : editingRuleSet.createdById,
+                createdBy: authoring.createdBy ?? editingRuleSet.createdBy,
+                createdByDetails: authoring.createdByDetails ?? editingRuleSet.createdByDetails,
+                organization: authoring.organization ?? editingRuleSet.organization,
+              }}
+              onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+            />
+          ) : undefined
+        }
+      />
     </DialogShell>
   )
 }

@@ -13,6 +13,7 @@ import {
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
@@ -150,20 +151,22 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
       confirmDisabled={!name.trim() || (!isEditing && !isEntityIdValid(entityId, existingIds))}
       busy={saving}
     >
-          <div className="space-y-2">
-            <Label>{t('sql_scripts.collection_name')}<RequiredMark /></Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('sql_scripts.collection_name_placeholder')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim()) { e.preventDefault(); handleSubmit() }
-              }}
-              autoFocus
-            />
-          </div>
-
-                      <EntityIdField
+      <EntityDialogTabs
+        general={
+          <>
+            <div className="space-y-2">
+              <Label>{t('sql_scripts.collection_name')}<RequiredMark /></Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('sql_scripts.collection_name_placeholder')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && name.trim()) { e.preventDefault(); handleSubmit() }
+                }}
+                autoFocus
+              />
+            </div>
+            <EntityIdField
               name={name}
               value={entityId}
               onChange={setEntityId}
@@ -173,51 +176,53 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
               required
               readOnly={isEditing}
             />
-
-          <div className="space-y-2">
-            <Label>{t('common.description')}</Label>
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder=""
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t('sql_scripts.default_database')}</Label>
-            <Select value={defaultDbId} onValueChange={setDefaultDbId}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('sql_scripts.select_database')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">—</SelectItem>
-                {dbSources.map((ds) => (
-                  <SelectItem key={ds.id} value={ds.id}>
-                    {ds.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">{t('sql_scripts.default_database_hint')}</p>
-          </div>
-
-          <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
-
-          <VersionField value={version} onChange={setVersion} />
-
-          {isEditing && editingCollection && (
-            <div className="border-t pt-4">
-              <AuthoringFields
-                value={{
-                  createdById: 'createdById' in authoring ? authoring.createdById : editingCollection.createdById,
-                  createdBy: authoring.createdBy ?? editingCollection.createdBy,
-                  createdByDetails: authoring.createdByDetails ?? editingCollection.createdByDetails,
-                  organization: authoring.organization ?? editingCollection.organization,
-                }}
-                onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+            <div className="space-y-2">
+              <Label>{t('common.description')}</Label>
+              <Input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder=""
               />
             </div>
-          )}
+            <div className="space-y-2">
+              <Label>{t('sql_scripts.default_database')}</Label>
+              <Select value={defaultDbId} onValueChange={setDefaultDbId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('sql_scripts.select_database')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">—</SelectItem>
+                  {dbSources.map((ds) => (
+                    <SelectItem key={ds.id} value={ds.id}>
+                      {ds.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">{t('sql_scripts.default_database_hint')}</p>
+            </div>
+          </>
+        }
+        metadata={
+          <>
+            <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
+            <VersionField value={version} onChange={setVersion} />
+          </>
+        }
+        attribution={
+          isEditing && editingCollection ? (
+            <AuthoringFields
+              value={{
+                createdById: 'createdById' in authoring ? authoring.createdById : editingCollection.createdById,
+                createdBy: authoring.createdBy ?? editingCollection.createdBy,
+                createdByDetails: authoring.createdByDetails ?? editingCollection.createdByDetails,
+                organization: authoring.organization ?? editingCollection.organization,
+              }}
+              onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+            />
+          ) : undefined
+        }
+      />
     </DialogShell>
   )
 }

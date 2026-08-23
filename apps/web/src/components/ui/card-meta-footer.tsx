@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatDate } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
@@ -313,27 +313,33 @@ export function CardMetaFooter({ createdById, createdBy, createdByDetails, organ
     // to open the card. Swallow clicks so interacting with it — a chip or a link
     // inside its hover tooltip — never triggers the card's onClick navigation.
     <div className={cn('pt-3 pb-2', className)} onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center gap-2 border-t pt-2 text-[11px] text-muted-foreground">
-        {leading && <span className="min-w-0 truncate">{leading}</span>}
-        {leading && (label || created || updated) && <Sep />}
-        {label && (
-          <AuthorChip
-            label={label}
-            details={details}
-            organization={org}
-            dates={datesInAuthorTooltip ? { created, updated } : undefined}
-            lang={i18n.language}
-            t={t}
-          />
-        )}
-        {label && showDatesOnRow && <Sep />}
-        {showDatesOnRow && <DateChip created={created} updated={updated} t={t} />}
-        {(label || showDatesOnRow) && showLicense && <Sep />}
-        {showLicense && <LicenseChip license={license} onOpen={onOpenLicense} t={t} />}
-        {/* ml-auto pins the action right; the meta chips above it truncate rather
-            than push it off the row. */}
-        {trailing && <span className="ml-auto shrink-0">{trailing}</span>}
-      </div>
+      {/* One provider for the whole row: 200ms before the first chip opens (matching
+          the clipped title in TruncatedHeader, so the card behaves consistently),
+          then sliding between chips is instant. Leave the row for longer than
+          skipDelayDuration and the dwell is required again. */}
+      <TooltipProvider delayDuration={200} skipDelayDuration={500}>
+        <div className="flex items-center gap-2 border-t pt-2 text-[11px] text-muted-foreground">
+          {leading && <span className="min-w-0 truncate">{leading}</span>}
+          {leading && (label || created || updated) && <Sep />}
+          {label && (
+            <AuthorChip
+              label={label}
+              details={details}
+              organization={org}
+              dates={datesInAuthorTooltip ? { created, updated } : undefined}
+              lang={i18n.language}
+              t={t}
+            />
+          )}
+          {label && showDatesOnRow && <Sep />}
+          {showDatesOnRow && <DateChip created={created} updated={updated} t={t} />}
+          {(label || showDatesOnRow) && showLicense && <Sep />}
+          {showLicense && <LicenseChip license={license} onOpen={onOpenLicense} t={t} />}
+          {/* ml-auto pins the action right; the meta chips above it truncate rather
+              than push it off the row. */}
+          {trailing && <span className="ml-auto shrink-0">{trailing}</span>}
+        </div>
+      </TooltipProvider>
     </div>
   )
 }

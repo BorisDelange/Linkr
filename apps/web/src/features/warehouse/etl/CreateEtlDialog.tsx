@@ -18,6 +18,7 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { BadgeEditor } from '@/components/ui/badge-editor'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { localized, setLocalized } from '@/lib/localized'
@@ -136,19 +137,21 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
       confirmDisabled={!name.trim() || (!isEditing && !isEntityIdValid(entityId, existingIds))}
       busy={saving}
     >
-          <div className="space-y-2">
-            <Label>{t('etl.pipeline_name')}<RequiredMark /></Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('etl.pipeline_name_placeholder')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim()) { e.preventDefault(); handleSubmit() }
-              }}
-            />
-          </div>
-
-                      <EntityIdField
+      <EntityDialogTabs
+        general={
+          <>
+            <div className="space-y-2">
+              <Label>{t('etl.pipeline_name')}<RequiredMark /></Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('etl.pipeline_name_placeholder')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && name.trim()) { e.preventDefault(); handleSubmit() }
+                }}
+              />
+            </div>
+            <EntityIdField
               name={name}
               value={entityId}
               onChange={setEntityId}
@@ -158,67 +161,70 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
               required
               readOnly={isEditing}
             />
+            {/* Only on create: once the pipeline exists, its two databases are set
+                from the pickers in the pipeline header, and a second pair of
+                dropdowns here just invites the two to disagree. */}
+            {!isEditing && (
+              <>
+                <div className="space-y-2">
+                  <Label>{t('etl.source_database')}</Label>
+                  <Select value={sourceId} onValueChange={setSourceId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('etl.select_source')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dbSources.map((ds) => (
+                        <SelectItem key={ds.id} value={ds.id}>
+                          {ds.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {dbSources.length === 0 && (
+                    <p className="text-xs text-muted-foreground">{t('etl.no_databases_available')}</p>
+                  )}
+                </div>
 
-          {/* Only on create: once the pipeline exists, its two databases are set
-              from the pickers in the pipeline header, and a second pair of
-              dropdowns here just invites the two to disagree. */}
-          {!isEditing && (
-            <>
-              <div className="space-y-2">
-                <Label>{t('etl.source_database')}</Label>
-                <Select value={sourceId} onValueChange={setSourceId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('etl.select_source')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dbSources.map((ds) => (
-                      <SelectItem key={ds.id} value={ds.id}>
-                        {ds.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {dbSources.length === 0 && (
-                  <p className="text-xs text-muted-foreground">{t('etl.no_databases_available')}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label>{t('etl.target_database')}</Label>
-                <Select value={targetId} onValueChange={setTargetId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('etl.select_target')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dbSources.map((ds) => (
-                      <SelectItem key={ds.id} value={ds.id}>
-                        {ds.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">{t('etl.target_database_hint')}</p>
-              </div>
-            </>
-          )}
-
-          <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
-
-          <VersionField value={version} onChange={setVersion} />
-
-          {isEditing && editingPipeline && (
-            <div className="border-t pt-4">
-              <AuthoringFields
-                value={{
-                  createdById: 'createdById' in authoring ? authoring.createdById : editingPipeline.createdById,
-                  createdBy: authoring.createdBy ?? editingPipeline.createdBy,
-                  createdByDetails: authoring.createdByDetails ?? editingPipeline.createdByDetails,
-                  organization: authoring.organization ?? editingPipeline.organization,
-                }}
-                onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
-              />
-            </div>
-          )}
+                <div className="space-y-2">
+                  <Label>{t('etl.target_database')}</Label>
+                  <Select value={targetId} onValueChange={setTargetId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('etl.select_target')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dbSources.map((ds) => (
+                        <SelectItem key={ds.id} value={ds.id}>
+                          {ds.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{t('etl.target_database_hint')}</p>
+                </div>
+              </>
+            )}
+          </>
+        }
+        metadata={
+          <>
+            <BadgeEditor value={badges} onChange={setBadges} suggestions={badgeSuggestions} />
+            <VersionField value={version} onChange={setVersion} />
+          </>
+        }
+        attribution={
+          isEditing && editingPipeline ? (
+            <AuthoringFields
+              value={{
+                createdById: 'createdById' in authoring ? authoring.createdById : editingPipeline.createdById,
+                createdBy: authoring.createdBy ?? editingPipeline.createdBy,
+                createdByDetails: authoring.createdByDetails ?? editingPipeline.createdByDetails,
+                organization: authoring.organization ?? editingPipeline.organization,
+              }}
+              onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+            />
+          ) : undefined
+        }
+      />
     </DialogShell>
   )
 }

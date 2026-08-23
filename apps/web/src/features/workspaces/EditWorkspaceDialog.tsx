@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -6,15 +6,14 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
-import type { Workspace, ProjectBadge, BadgeColor } from '@/types'
-import { Plus, Info } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import type { Workspace, ProjectBadge } from '@/types'
+import { Info } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { EditableBadge } from '@/components/ui/editable-badge'
-import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { BadgeEditor } from '@/components/ui/badge-editor'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { RequiredMark } from '@/components/ui/required-mark'
 import {
   Select,
@@ -35,13 +34,18 @@ interface EditWorkspaceDialogProps {
 export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorkspaceDialogProps) {
   const { t } = useTranslation()
   const { updateWorkspace, updateWorkspaceBadges } = useWorkspaceStore()
+  const allWorkspaces = useWorkspaceStore((s) => s.workspaces)
+  // A workspace has no parent workspace, so useBadgeSuggestions (which scopes by
+  // workspaceId) doesn't apply: the siblings here are the other workspaces.
+  const badgeSuggestions = useMemo(
+    () => allWorkspaces.filter((w) => w.id !== workspace?.id).flatMap((w) => w.badges ?? []),
+    [allWorkspaces, workspace?.id],
+  )
   const organizations = useOrganizationStore((s) => s._organizationsRaw)
   const language = useAppStore((s) => s.language)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [badges, setBadges] = useState<ProjectBadge[]>([])
-  const [newBadgeLabel, setNewBadgeLabel] = useState('')
-  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
   const [selectedOrgId, setSelectedOrgId] = useState<string>(NONE)
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
@@ -50,36 +54,10 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
       setName(localized(workspace.name, language))
       setDescription(localized(workspace.description, language))
       setBadges(workspace.badges ?? [])
-      setNewBadgeLabel('')
-      setNewBadgeColor('blue')
       setSelectedOrgId(workspace.organizationId ?? NONE)
       setAuthoring({})
     }
   }, [open, workspace, language])
-
-  const handleAddBadge = () => {
-    const label = newBadgeLabel.trim()
-    if (!label) return
-    // No duplicate labels on the same element (case-insensitive).
-    if (badges.some((b) => localized(b.label, language).toLowerCase() === label.toLowerCase())) return
-    const badge: ProjectBadge = {
-      id: `b-${Date.now()}`,
-      label: setLocalized({}, language, label),
-      color: newBadgeColor,
-    }
-    setBadges((prev) => [...prev, badge])
-    setNewBadgeLabel('')
-  }
-
-  const badgeLabelExists = !!newBadgeLabel.trim() && badges.some((b) => localized(b.label, language).toLowerCase() === newBadgeLabel.trim().toLowerCase())
-
-  const handleRemoveBadge = (id: string) => {
-    setBadges((prev) => prev.filter((b) => b.id !== id))
-  }
-
-  const handleRenameBadge = (id: string, next: string) => {
-    setBadges((prev) => prev.map((b) => (b.id === id ? { ...b, label: setLocalized(b.label, language, next) } : b)))
-  }
 
   const doSave = async () => {
     if (!workspace) return
@@ -116,6 +94,9 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
       confirmLabel={t('common.save')}
       confirmDisabled={!canSaveNow}
     >
+      <EntityDialogTabs
+        general={
+          <>
             <div className="space-y-2">
               <Label htmlFor="edit-ws-name">{t('workspaces.field_name')}<RequiredMark /></Label>
               <Input
@@ -133,47 +114,6 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <Label>{t('project_settings.badges')}</Label>
-              {badges.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {badges.map((badge) => (
-                    <EditableBadge
-                      key={badge.id}
-                      label={localized(badge.label, language)}
-                      color={badge.color}
-                      onRemove={() => handleRemoveBadge(badge.id)}
-                      onRename={(next) => handleRenameBadge(badge.id, next)}
-                    />
-                  ))}
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Input
-                  value={newBadgeLabel}
-                  onChange={(e) => setNewBadgeLabel(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBadge() } }}
-                  placeholder={t('project_settings.badge_label_placeholder')}
-                  className="h-8 flex-1 text-sm"
-                />
-                <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleAddBadge}
-                  disabled={!newBadgeLabel.trim() || badgeLabelExists}
-                  className="gap-1"
-                >
-                  <Plus size={14} />
-                  {t('project_settings.add_badge')}
-                </Button>
-              </div>
-              {badgeLabelExists && (
-                <p className="text-xs text-destructive">{t('project_settings.badge_label_exists')}</p>
-              )}
-            </div>
-
             {/* Organization (live link, shared across workspaces) */}
             <div className="space-y-2">
               <Label>{t('workspaces.organization_section')}</Label>
@@ -208,19 +148,30 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
               </div>
             </div>
 
-            {workspace && (
-              <div className="border-t pt-4">
-                <AuthoringFields
-                  hideOrganization
-                  value={{
-                    createdById: 'createdById' in authoring ? authoring.createdById : workspace.createdById,
-                    createdBy: authoring.createdBy ?? workspace.createdBy,
-                    createdByDetails: authoring.createdByDetails ?? workspace.createdByDetails,
-                  }}
-                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
-                />
-              </div>
-            )}
+          </>
+        }
+        metadata={
+          <BadgeEditor
+            value={badges}
+            onChange={setBadges}
+            suggestions={badgeSuggestions}
+            label={t('project_settings.badges')}
+          />
+        }
+        attribution={
+          workspace ? (
+            <AuthoringFields
+              hideOrganization
+              value={{
+                createdById: 'createdById' in authoring ? authoring.createdById : workspace.createdById,
+                createdBy: authoring.createdBy ?? workspace.createdBy,
+                createdByDetails: authoring.createdByDetails ?? workspace.createdByDetails,
+              }}
+              onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+            />
+          ) : undefined
+        }
+      />
     </DialogShell>
   )
 }

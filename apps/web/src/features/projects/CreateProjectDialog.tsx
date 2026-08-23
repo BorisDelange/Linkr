@@ -1,13 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/app-store'
-import { localized, setLocalized } from '@/lib/localized'
-import type { Project, ProjectStatus, ProjectBadge, BadgeColor } from '@/types'
-import { Plus } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { localized } from '@/lib/localized'
+import type { Project, ProjectStatus, ProjectBadge } from '@/types'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
-import { EditableBadge } from '@/components/ui/editable-badge'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -18,10 +15,12 @@ import {
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
+import { BadgeEditor } from '@/components/ui/badge-editor'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
+import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { VersionField } from '@/components/ui/version-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { getStatusDotClass } from './ProjectSettingsPage'
-import { BadgeColorButton } from '@/components/ui/badge-color-button'
 
 const STATUS_OPTIONS: ProjectStatus[] = ['active', 'completed', 'archived', 'draft']
 
@@ -42,8 +41,6 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
   const [status, setStatus] = useState<ProjectStatus>('active')
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
-  const [newBadgeLabel, setNewBadgeLabel] = useState('')
-  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
 
   // Reset form when dialog opens; seed from the edited project when present.
@@ -57,11 +54,11 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       setStatus(editingProject?.status ?? 'active')
       setBadges(editingProject?.badges ?? [])
       setVersion(editingProject?.version ?? '0.1.0')
-      setNewBadgeLabel('')
-      setNewBadgeColor('blue')
       setAuthoring({})
     }
   }, [open, editingProject, language])
+
+  const badgeSuggestions = useBadgeSuggestions(_projectsRaw, workspaceId, editingProject?.uid)
 
   const existingIds = _projectsRaw
     .filter(p => p.workspaceId === workspaceId)
@@ -69,30 +66,6 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
     .filter((id): id is string => !!id)
 
   const canSubmit = name.trim().length > 0 && (isEditing || isEntityIdValid(entityId, existingIds))
-
-  const handleAddBadge = () => {
-    const label = newBadgeLabel.trim()
-    if (!label) return
-    // No duplicate labels on the same element (case-insensitive).
-    if (badges.some((b) => localized(b.label, language).toLowerCase() === label.toLowerCase())) return
-    const badge: ProjectBadge = {
-      id: `b-${Date.now()}`,
-      label: setLocalized({}, language, label),
-      color: newBadgeColor,
-    }
-    setBadges((prev) => [...prev, badge])
-    setNewBadgeLabel('')
-  }
-
-  const badgeLabelExists = !!newBadgeLabel.trim() && badges.some((b) => localized(b.label, language).toLowerCase() === newBadgeLabel.trim().toLowerCase())
-
-  const handleRemoveBadge = (id: string) => {
-    setBadges((prev) => prev.filter((b) => b.id !== id))
-  }
-
-  const handleRenameBadge = (id: string, next: string) => {
-    setBadges((prev) => prev.map((b) => (b.id === id ? { ...b, label: setLocalized(b.label, language, next) } : b)))
-  }
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -126,6 +99,9 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       confirmLabel={isEditing ? t('common.save') : t('common.create')}
       confirmDisabled={!canSubmit}
     >
+      <EntityDialogTabs
+        general={
+          <>
             <div className="space-y-2">
               <Label htmlFor="project-name">{t('projects.field_name')}<RequiredMark /></Label>
               <Input
@@ -136,16 +112,16 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 autoFocus
               />
             </div>
-                          <EntityIdField
-                name={name}
-                value={entityId}
-                onChange={setEntityId}
-                existingIds={existingIds}
-                htmlId="project-id"
-                placeholder="my-project"
-                required
-                readOnly={isEditing}
-              />
+            <EntityIdField
+              name={name}
+              value={entityId}
+              onChange={setEntityId}
+              existingIds={existingIds}
+              htmlId="project-id"
+              placeholder="my-project"
+              required
+              readOnly={isEditing}
+            />
             <div className="space-y-2">
               <Label htmlFor="project-description">{t('projects.field_description')}</Label>
               <Input
@@ -155,6 +131,10 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 placeholder={t('projects.field_description_placeholder')}
               />
             </div>
+          </>
+        }
+        metadata={
+          <>
             <div className="space-y-2">
               <Label>{t('project_settings.status')}</Label>
               <Select value={status} onValueChange={(value) => setStatus(value as ProjectStatus)}>
@@ -173,64 +153,29 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>{t('project_settings.badges')}</Label>
-              {badges.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {badges.map((badge) => (
-                    <EditableBadge
-                      key={badge.id}
-                      label={localized(badge.label, language)}
-                      color={badge.color}
-                      onRemove={() => handleRemoveBadge(badge.id)}
-                      onRename={(next) => handleRenameBadge(badge.id, next)}
-                    />
-                  ))}
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Input
-                  value={newBadgeLabel}
-                  onChange={(e) => setNewBadgeLabel(e.target.value)}
-                  // Enter adds the badge here; the shell must not also submit.
-                  data-no-enter-submit
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBadge() } }}
-                  placeholder={t('project_settings.badge_label_placeholder')}
-                  className="h-8 flex-1 text-sm"
-                />
-                <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleAddBadge}
-                  disabled={!newBadgeLabel.trim() || badgeLabelExists}
-                  className="gap-1"
-                >
-                  <Plus size={14} />
-                  {t('project_settings.add_badge')}
-                </Button>
-              </div>
-              {badgeLabelExists && (
-                <p className="text-xs text-destructive">{t('project_settings.badge_label_exists')}</p>
-              )}
-            </div>
-
+            <BadgeEditor
+              value={badges}
+              onChange={setBadges}
+              suggestions={badgeSuggestions}
+              label={t('project_settings.badges')}
+            />
             <VersionField value={version} onChange={setVersion} />
-
-            {isEditing && editingProject && (
-              <div className="border-t pt-4">
-                <AuthoringFields
-                  value={{
-                    createdById: 'createdById' in authoring ? authoring.createdById : editingProject.createdById,
-                    createdBy: authoring.createdBy ?? editingProject.createdBy,
-                    createdByDetails: authoring.createdByDetails ?? editingProject.createdByDetails,
-                    organization: authoring.organization ?? editingProject.organization,
-                  }}
-                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
-                />
-              </div>
-            )}
+          </>
+        }
+        attribution={
+          isEditing && editingProject ? (
+            <AuthoringFields
+              value={{
+                createdById: 'createdById' in authoring ? authoring.createdById : editingProject.createdById,
+                createdBy: authoring.createdBy ?? editingProject.createdBy,
+                createdByDetails: authoring.createdByDetails ?? editingProject.createdByDetails,
+                organization: authoring.organization ?? editingProject.organization,
+              }}
+              onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+            />
+          ) : undefined
+        }
+      />
     </DialogShell>
   )
 }
