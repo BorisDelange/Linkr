@@ -49,6 +49,14 @@ export interface QuestionSummary {
   responseRate: number
   /** Per-choice counts, for categorical questions. Empty for numeric/text. */
   counts: AnswerCount[]
+  /**
+   * The raw numeric answers, for a numeric question rendered as a histogram.
+   *
+   * Only populated by the SERVER summary: in server mode the client holds no
+   * rows to bin, so the values have to travel with the summary or the histogram
+   * has nothing to draw. Locally the block bins the rows directly.
+   */
+  values?: number[]
   /** For `multi`: total ticks across respondents (counts sum). */
   selections?: number
   /** For `multi`: mean number of ticks per responding respondent. */
@@ -384,12 +392,36 @@ export function quantile(sorted: number[], p: number): number {
  * unordered list; declared order is mandatory for a scale, where the codes carry
  * meaning (1..5) and reordering them would destroy the reading.
  */
-export type CountSort = 'declared' | 'frequency' | 'alphabetical'
+export type CountSort = 'declared' | 'frequency' | 'alphabetical' | 'custom'
 
-export function sortCounts(counts: AnswerCount[], sort: CountSort): AnswerCount[] {
+/**
+ * Order the answer choices.
+ *
+ * `custom` follows `order`, a list of answer CODES: choices named there come
+ * first in that order, and anything it does not mention keeps its declared
+ * position at the end. Tolerating unlisted choices matters because the order is
+ * saved in a widget's config while the data can gain a new answer afterwards —
+ * dropping it would silently hide a real response.
+ */
+export function sortCounts(
+  counts: AnswerCount[],
+  sort: CountSort,
+  order: string[] = [],
+): AnswerCount[] {
   const out = [...counts]
   if (sort === 'frequency') out.sort((a, b) => b.count - a.count)
   else if (sort === 'alphabetical') out.sort((a, b) => a.label.localeCompare(b.label))
+  else if (sort === 'custom') {
+    const rank = new Map(order.map((code, i) => [code, i]))
+    const declared = new Map(counts.map((c, i) => [c.code, i]))
+    out.sort((a, b) => {
+      // Unlisted choices fall to the end, in their declared order, rather than
+      // in whatever order the comparator happens to visit them.
+      const ra = rank.get(a.code) ?? order.length + declared.get(a.code)!
+      const rb = rank.get(b.code) ?? order.length + declared.get(b.code)!
+      return ra - rb
+    })
+  }
   return out
 }
 

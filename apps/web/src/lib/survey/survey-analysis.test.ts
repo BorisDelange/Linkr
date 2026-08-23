@@ -12,6 +12,7 @@ import {
   isBlank,
   toNumber,
 } from './survey-analysis'
+import type { AnswerCount } from './survey-analysis'
 import type { SurveyQuestion, SurveySchema } from './survey-schema'
 
 const SINGLE: SurveyQuestion = {
@@ -387,5 +388,31 @@ describe('coSelectionMatrix', () => {
     expect(m[0][1]).toBe(1)
     expect(m[1][0]).toBe(1)
     expect(m[0][2]).toBe(0)
+  })
+})
+
+describe('sortCounts — custom order', () => {
+  const counts: AnswerCount[] = [
+    { code: 'a', label: 'Alpha', count: 1, proportion: 0.1 },
+    { code: 'b', label: 'Bravo', count: 9, proportion: 0.9 },
+    { code: 'c', label: 'Charlie', count: 5, proportion: 0.5 },
+  ]
+
+  it('follows the given order, ignoring frequency', () => {
+    expect(sortCounts(counts, 'custom', ['c', 'a', 'b']).map((x) => x.code)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('appends codes the order does not mention, in declared order', () => {
+    // The order is saved in a widget while the data can gain an answer later.
+    // Dropping the newcomer would silently hide a real response.
+    expect(sortCounts(counts, 'custom', ['c']).map((x) => x.code)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('ignores codes that no longer exist in the data', () => {
+    expect(sortCounts(counts, 'custom', ['ghost', 'b']).map((x) => x.code)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('leaves the order untouched when none is given', () => {
+    expect(sortCounts(counts, 'custom', []).map((x) => x.code)).toEqual(['a', 'b', 'c'])
   })
 })

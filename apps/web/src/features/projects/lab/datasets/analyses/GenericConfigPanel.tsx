@@ -43,10 +43,12 @@ import { SearchInput } from '@/components/ui/search-input'
 import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { localized } from '@/lib/localized'
 import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
 import { defaultAnalysisColumns } from '@/lib/analysis-default-columns'
 import { inferSurveySchema } from '@/lib/survey/survey-infer'
-import { questionColumns } from '@/lib/survey/survey-schema'
+import { questionColumns, questionChoices } from '@/lib/survey/survey-schema'
+import { availableCharts } from './survey-charts'
 import { questionKindLabel } from '@/lib/survey/question-kind-label'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 import { isServerMode } from '@/lib/api-client'
@@ -423,6 +425,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           lang={lang}
           config={config}
           onConfigChange={onConfigChange}
+          rows={rows}
         />
       )
     case 'number':
@@ -492,9 +495,100 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
         </div>
       )
     }
+    case 'choice-order':
+      return (
+        <ChoiceOrderField
+          fieldKey={fieldKey}
+          field={field}
+          value={value}
+          columns={columns}
+          lang={lang}
+          config={config}
+          onConfigChange={onConfigChange}
+          rows={rows}
+        />
+      )
     default:
       return null
   }
+}
+
+/**
+ * Drag the ANSWERS of a survey question into an explicit order.
+ *
+ * The stored value is a list of answer codes. Codes the data has but the list
+ * does not are appended in declared order rather than dropped: the order is
+ * saved in a widget while the data can gain an answer afterwards, and silently
+ * hiding a real response would be worse than an imperfect order.
+ */
+function ChoiceOrderField({
+  fieldKey,
+  field,
+  value,
+  columns,
+  lang,
+  config,
+  onConfigChange,
+  rows,
+}: FieldRendererProps) {
+  const { t } = useTranslation()
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+
+  const choices = useMemo(() => {
+    const colId = field.columnField ? (config[field.columnField] as string | undefined) : undefined
+    if (!colId) return []
+    const schema = inferSurveySchema(columns, rows ?? [])
+    const question = schema.questions.find(q => questionColumns(q).includes(colId))
+    return question ? questionChoices(schema, question) : []
+  }, [field.columnField, config, columns, rows])
+
+  const ordered = useMemo(() => {
+    const saved = (value as string[] | undefined) ?? []
+    const known = new Set(choices.map(c => c.name))
+    const head = saved.filter(code => known.has(code))
+    const rest = choices.map(c => c.name).filter(code => !head.includes(code))
+    return [...head, ...rest]
+  }, [value, choices])
+
+  const labelOf = useMemo(() => {
+    const map = new Map(choices.map(c => [c.name, localized(c.label, lang) || c.name]))
+    return (code: string) => map.get(code) ?? code
+  }, [choices, lang])
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const from = ordered.indexOf(String(active.id))
+      const to = ordered.indexOf(String(over.id))
+      if (from < 0 || to < 0) return
+      onConfigChange({ [fieldKey]: arrayMove(ordered, from, to) })
+    },
+    [ordered, fieldKey, onConfigChange],
+  )
+
+  if (ordered.length < 2) return null
+
+  return (
+    <div className="space-y-1.5">
+      <FieldLabel field={field} config={config} lang={lang} />
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext items={ordered} strategy={verticalListSortingStrategy}>
+          <div className="max-h-[200px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border">
+            {ordered.map((code, i) => (
+              <SortableColumnRow key={code} id={code} index={i} label={labelOf(code)} />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+      <p className="text-[10px] text-muted-foreground">{t('survey.choice_order_hint')}</p>
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -939,11 +1033,32 @@ function SelectField({
   lang,
   config,
   onConfigChange,
-}: Omit<FieldRendererProps, 'rows'>) {
+  rows,
+}: FieldRendererProps) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? ''
+
+  // The survey question the filtered field is about, when it declares one.
+  // Inferred from the same data the renderer uses, so the offered charts and
+  // the drawn chart cannot disagree.
+  const surveyQuestion = useMemo(() => {
+    const key = field.filterOptionsBySurveyQuestion
+    if (!key) return null
+    const colId = config[key] as string | undefined
+    if (!colId) return null
+    const schema = inferSurveySchema(columns, rows ?? [])
+    return schema.questions.find(q => questionColumns(q).includes(colId)) ?? null
+  }, [field.filterOptionsBySurveyQuestion, config, columns, rows])
 
   const visibleOptions = useMemo(() => {
     const allOptions = field.options ?? []
+    // Charts the selected QUESTION supports. Offering the rest and quietly
+    // substituting a default was the confusing part: the panel said "Pie" while
+    // the panel below drew bars, so the fallback read as the chosen answer.
+    if (field.filterOptionsBySurveyQuestion) {
+      if (!surveyQuestion) return allOptions
+      const allowed = new Set<string>(availableCharts(surveyQuestion))
+      return allOptions.filter(opt => allowed.has(opt.value))
+    }
     if (!field.filterOptionsByColumn) return allOptions
     const colId = config[field.filterOptionsByColumn] as string | undefined
     if (!colId) return allOptions
@@ -954,7 +1069,7 @@ function SelectField({
       if (!opt.onlyForColumnType) return true
       return opt.onlyForColumnType === (isNumeric ? 'numeric' : 'categorical')
     })
-  }, [field.options, field.filterOptionsByColumn, config, columns])
+  }, [field.options, field.filterOptionsByColumn, field.filterOptionsBySurveyQuestion, surveyQuestion, config, columns])
 
   // Auto-reset when current value is not in visible options
   useEffect(() => {

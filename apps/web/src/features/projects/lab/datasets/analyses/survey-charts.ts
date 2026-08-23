@@ -55,8 +55,12 @@ export function availableCharts(question: SurveyQuestion): SurveyChart[] {
       return ['auto', 'bar', 'column', 'pie', 'donut', 'table']
     case 'integer':
     case 'decimal':
-      return ['auto', 'histogram', 'stats', 'table']
+      // No `table`: the counts table lists a question's CHOICES, and a numeric
+      // question has none — it rendered as an empty table.
+      return ['auto', 'histogram', 'stats']
     default:
-      return ['auto', 'answers', 'bar', 'stats']
+      // Free text has no numeric summary to speak of, so no `stats`; `bar`
+      // works because the answers are tallied like choices.
+      return ['auto', 'answers', 'bar', 'table']
   }
 }

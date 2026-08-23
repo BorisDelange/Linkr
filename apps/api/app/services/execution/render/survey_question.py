@@ -192,6 +192,8 @@ def _linkr_describe(values):
         "sd": _math.sqrt(var),
     }
 
+_LINKR_MAX_VALUES = 50000
+
 def _linkr_summary(total, respondents, counts, extra=None):
     out = {
         "total": total,
@@ -260,7 +262,14 @@ def _linkr_print_survey(dataset, spec):
             if n is not None:
                 nums.append(n)
         stats = _linkr_describe(nums)
-        print(_json.dumps(_linkr_summary(total, len(nums), [], {"stats": stats})))
+        # The raw values travel too: the histogram bins them client-side, and in
+        # server mode there are no rows on the client to bin. Capped because this
+        # crosses the wire and a histogram cannot show more detail than its bins
+        # anyway — the stats above are computed on the full set, uncapped.
+        print(_json.dumps(_linkr_summary(total, len(nums), [], {
+            "stats": stats,
+            "values": nums[:_LINKR_MAX_VALUES],
+        })))
         return
 
     if kind == "text":

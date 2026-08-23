@@ -1328,6 +1328,7 @@
     "table1_no_columns": "Choisissez au moins une variable à décrire."
   },
   "survey": {
+    "choice_order_hint": "Glissez les réponses dans l’ordre de lecture du graphique.",
     "respondents": "répondants",
     "others": "Autres",
     "no_dataset": "Choisissez un jeu de données contenant des réponses de questionnaire.",

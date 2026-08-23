@@ -127,6 +127,7 @@ export function SurveyQuestionComponent({
     rows,
     chart,
     sort: (config.sort as CountSort) ?? 'frequency',
+    choiceOrder: (config.choiceOrder as string[] | undefined) ?? undefined,
     title: (config.title as string) || undefined,
     showQuestionText: config.showQuestionText !== false,
     showResponseRate: config.showResponseRate !== false,
@@ -141,7 +142,11 @@ export function SurveyQuestionComponent({
     compact,
     lang: i18n.language,
     columns,
-    ...(server && serverSummary ? { summary: serverSummary } : {}),
+    // The histogram bins raw values, which server mode has to send along:
+    // `rows` is empty there, so without these it would draw an empty chart.
+    ...(server && serverSummary
+      ? { summary: serverSummary, values: serverSummary.values }
+      : {}),
   }
 
   return <SurveyQuestionBlock {...props} />

@@ -66,6 +66,8 @@ export interface SurveyQuestionBlockProps {
   question: SurveyQuestion
   rows: Record<string, unknown>[]
   chart?: SurveyChart
+  /** Answer codes in display order, for `sort: 'custom'`. */
+  choiceOrder?: string[]
   sort?: CountSort
   /** Override the question text; empty keeps the question as asked. */
   title?: string
@@ -172,6 +174,7 @@ export function SurveyQuestionBlock({
   question,
   rows,
   chart = 'auto',
+  choiceOrder,
   sort = 'frequency',
   title,
   showQuestionText = true,
@@ -201,15 +204,18 @@ export function SurveyQuestionBlock({
   const effectiveChart = chart === 'auto' ? defaultChart(question) : chart
 
   // A scale's codes carry meaning (1..5); frequency order would destroy the
-  // reading, so the declared order wins whatever the caller asked for.
-  const effectiveSort: CountSort = question.measure === 'ordinal' ? 'declared' : sort
+  // reading, so the declared order wins over an automatic sort. An explicit
+  // custom order still wins over that — it was arranged by hand for this
+  // question, so overriding it would be overruling a deliberate choice.
+  const effectiveSort: CountSort =
+    question.measure === 'ordinal' && sort !== 'custom' ? 'declared' : sort
 
   const counts = useMemo(() => {
     let list = summary.counts
     if (hideEmptyChoices) list = list.filter((c) => c.count > 0)
-    list = sortCounts(list, effectiveSort)
+    list = sortCounts(list, effectiveSort, choiceOrder)
     return capCounts(list, maxChoices, t('survey.others'))
-  }, [summary.counts, hideEmptyChoices, effectiveSort, maxChoices, t])
+  }, [summary.counts, hideEmptyChoices, effectiveSort, choiceOrder, maxChoices, t])
 
   const questionText = title || pickText(question.label, lang) || question.name
   const resolved = resolveColor(color)

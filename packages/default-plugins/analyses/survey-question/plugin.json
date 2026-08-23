@@ -37,8 +37,8 @@
         "fr": "Graphique"
       },
       "description": {
-        "en": "Auto picks the chart that fits the question type. A chart that does not apply to the selected question falls back to Auto.",
-        "fr": "Auto choisit le graphique adapté au type de question. Un graphique inapplicable à la question sélectionnée retombe sur Auto."
+        "en": "Only the charts that fit the selected question are offered — a pie asserts a part-to-whole relationship a multiple-choice question does not have.",
+        "fr": "Seuls les graphiques adaptés à la question sélectionnée sont proposés — un camembert affirme une relation partie-tout qu'une question à choix multiples n'a pas."
       },
       "options": [
         {
@@ -104,7 +104,8 @@
             "fr": "Tableau"
           }
         }
-      ]
+      ],
+      "filterOptionsBySurveyQuestion": "questionColumn"
     },
     "title": {
       "type": "string",
@@ -196,8 +197,8 @@
         "fr": "Données"
       },
       "description": {
-        "en": "Scales always keep their questionnaire order — sorting a 1-to-5 scale by frequency would destroy its meaning.",
-        "fr": "Les échelles conservent toujours l'ordre du questionnaire — trier une échelle de 1 à 5 par fréquence détruirait son sens."
+        "en": "Scales always keep their questionnaire order — sorting a 1-to-5 scale by frequency would destroy its meaning. Custom lets you drag the answers into any order.",
+        "fr": "Les échelles conservent toujours l'ordre du questionnaire — trier une échelle de 1 à 5 par fréquence détruirait son sens. Personnalisé permet de glisser les réponses dans l'ordre voulu."
       },
       "options": [
         {
@@ -220,8 +221,35 @@
             "en": "Alphabetical",
             "fr": "Alphabétique"
           }
+        },
+        {
+          "value": "custom",
+          "label": {
+            "en": "Custom (drag to reorder)",
+            "fr": "Personnalisé (glisser pour réordonner)"
+          }
         }
       ]
+    },
+    "choiceOrder": {
+      "type": "choice-order",
+      "label": {
+        "en": "Answer order",
+        "fr": "Ordre des réponses"
+      },
+      "columnField": "questionColumn",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "visibleWhen": {
+        "field": "sort",
+        "value": "custom"
+      },
+      "description": {
+        "en": "Drag the answers into the order the chart should read.",
+        "fr": "Glissez les réponses dans l'ordre de lecture du graphique."
+      }
     },
     "maxChoices": {
       "type": "number",

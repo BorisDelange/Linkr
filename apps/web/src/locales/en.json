@@ -1328,6 +1328,7 @@
     "table1_no_columns": "Pick at least one variable to describe."
   },
   "survey": {
+    "choice_order_hint": "Drag the answers into the order the chart should read.",
     "respondents": "respondents",
     "others": "Others",
     "no_dataset": "Pick a dataset with questionnaire answers.",

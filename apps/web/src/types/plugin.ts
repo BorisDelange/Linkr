@@ -12,7 +12,7 @@ export interface PluginBadge {
 export interface PluginConfigField {
   /** `concept-select` is warehouse-only: it edits a `number[]` of OMOP concept ids
    *  through the concept picker, where the lab types edit dataset columns. */
-  type: 'column-select' | 'column-value-select' | 'number' | 'select' | 'boolean' | 'string' | 'icon-select' | 'color-select' | 'palette-editor' | 'concept-select'
+  type: 'column-select' | 'column-value-select' | 'number' | 'select' | 'boolean' | 'string' | 'icon-select' | 'color-select' | 'palette-editor' | 'concept-select' | 'choice-order'
   label: { en: string; fr: string }
   multi?: boolean
   optional?: boolean
@@ -27,7 +27,8 @@ export interface PluginConfigField {
    * question is not even one column.
    */
   optionHint?: 'type' | 'survey'
-  /** For `column-value-select`: the config key of the column-select field to read values from. */
+  /** For `column-value-select` and `choice-order`: the config key of the
+   *  column-select field whose column supplies the values. */
   columnField?: string
   default?: unknown
   defaultAll?: boolean
@@ -36,7 +37,22 @@ export interface PluginConfigField {
   orderable?: boolean
   min?: number
   max?: number
-  options?: { value: string; label: { en: string; fr: string }; onlyForColumnType?: 'numeric' | 'categorical' }[]
+  options?: {
+    value: string
+    label: { en: string; fr: string }
+    onlyForColumnType?: 'numeric' | 'categorical'
+  }[]
+  /**
+   * Restrict this field's options to those the selected SURVEY QUESTION
+   * supports, naming the field that holds the question's column.
+   *
+   * Distinct from `filterOptionsByColumn`, which only knows numeric from
+   * categorical: a single-choice and a multiple-choice question are both
+   * categorical, yet a pie asserts a part-to-whole relationship that only the
+   * first one has. The allowed set comes from `availableCharts`, so the
+   * dropdown and the renderer cannot disagree.
+   */
+  filterOptionsBySurveyQuestion?: string
   /** For `select`: filter options based on the type of the column selected in this field. */
   filterOptionsByColumn?: string
   /** For `select`: render a visual preview next to each option (e.g. color swatches for palettes). */
