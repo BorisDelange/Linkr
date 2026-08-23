@@ -137,6 +137,7 @@ export function SurveyQuestionComponent({
     palette: (config.colorPalette as string) ?? 'default',
     bins: (config.bins as number) ?? 0,
     showMedian: config.showMedian !== false,
+    showGrid: config.showGrid !== false,
     compact,
     lang: i18n.language,
     ...(server && serverSummary ? { summary: serverSummary } : {}),

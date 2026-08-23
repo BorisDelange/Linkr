@@ -1310,7 +1310,10 @@
     "stat_respondents": "Répondants",
     "stat_missing": "Sans réponse",
     "distinct_answers": "{{distinct}} réponses distinctes pour {{respondents}} répondants",
-    "given_once": "{{count}} réponse(s) données une seule fois"
+    "given_once": "{{count}} réponse(s) données une seule fois",
+    "response_rate_hint": "{{respondents}} répondants sur {{total}} ont répondu ({{missing}} n'ont pas répondu).",
+    "col_answer": "Réponse",
+    "col_count": "n (%)"
   },
   "subsets": {
     "title": "Sous-ensembles",

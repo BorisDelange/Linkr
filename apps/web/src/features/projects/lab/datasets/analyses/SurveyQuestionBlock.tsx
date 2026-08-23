@@ -13,6 +13,12 @@
  *  - percentages are over RESPONDENTS, and for a multiple-choice question they
  *    legitimately exceed 100%;
  *  - a scale keeps its declared order — sorting a 1..5 by frequency destroys it.
+ *
+ * Chart craft follows the app's other plugins (Plot Builder, Key Indicator) and
+ * the dataset column-stats sidebar: a dashed CartesianGrid, round `niceTicks` on
+ * the count axis, `TruncatedTick` labels with a hover tooltip for the full text,
+ * and TOOLTIP_STYLE hovers. Category lists are ranked bars-in-rows rather than a
+ * bare table — the sidebar's shape, which reads at a glance and never clips.
  */
 
 import { useMemo } from 'react'
@@ -20,8 +26,10 @@ import { useTranslation } from 'react-i18next'
 import {
   Bar,
   BarChart,
+  CartesianGrid,
   Cell,
   LabelList,
+  Legend,
   Pie,
   PieChart,
   ReferenceLine,
@@ -32,6 +40,8 @@ import {
 } from 'recharts'
 import { cn } from '@/lib/utils'
 import { resolveColor, resolvePalette, TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
+import { niceTicks } from '@/lib/chart-ticks'
+import { BoxPlot } from '@/components/charts/box-plot'
 import { TruncatedTick, TruncatedNumericTick } from './chart-axis-helpers'
 import {
   summarizeQuestion,
@@ -66,6 +76,7 @@ export interface SurveyQuestionBlockProps {
   palette?: string
   bins?: number
   showMedian?: boolean
+  showGrid?: boolean
   /** Dense rendering, for a dashboard widget. */
   compact?: boolean
   lang?: string
@@ -82,6 +93,13 @@ export interface SurveyQuestionBlockProps {
 function pickText(label: Record<string, string> | undefined, lang: string): string {
   if (!label) return ''
   return label[lang] ?? label.fr ?? label.en ?? label.und ?? Object.values(label)[0] ?? ''
+}
+
+/** Whole numbers with grouped thousands — a count axis never wants `4.4e+3`. */
+function formatCount(val: number | string): string {
+  const n = typeof val === 'string' ? Number(val) : val
+  if (!isFinite(n)) return String(val)
+  return Math.round(n).toLocaleString(undefined, { useGrouping: true })
 }
 
 /** `42 (58%)` — the label style the CNP-CEMIR report uses on every bar. */
@@ -103,6 +121,10 @@ function formatValue(
   }
 }
 
+function round(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
+
 /**
  * n/N with a filled bar — the response-rate indicator every slide of the source
  * report carries. Non-response is a finding, not a footnote.
@@ -119,16 +141,22 @@ function ResponseRate({
   const { t } = useTranslation()
   const pct = Math.round(summary.responseRate * 100)
   return (
-    <div className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground">
-      <span className="whitespace-nowrap">
+    <div
+      className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground"
+      title={t('survey.response_rate_hint', {
+        respondents: summary.respondents,
+        total: summary.total,
+        missing: summary.missing,
+      })}
+    >
+      <span className="whitespace-nowrap tabular-nums">
         {summary.respondents}/{summary.total} ({pct}%)
       </span>
       {/* The answered share takes the widget's own colour: `bg-primary` is a
           near-black in this theme, which read as chrome rather than as data. */}
       <span className={cn('flex overflow-hidden rounded-full bg-muted', compact ? 'h-1 w-12' : 'h-1.5 w-16')}>
-        <span className="h-full" style={{ width: `${pct}%`, backgroundColor: hex }} />
+        <span className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: hex }} />
       </span>
-      <span className="sr-only">{t('survey.respondents')}</span>
     </div>
   )
 }
@@ -160,6 +188,7 @@ export function SurveyQuestionBlock({
   palette = 'default',
   bins = 0,
   showMedian = true,
+  showGrid = true,
   compact,
   lang = 'fr',
   summary: providedSummary,
@@ -190,10 +219,13 @@ export function SurveyQuestionBlock({
   const resolved = resolveColor(color)
 
   const header = (
-    <div className={cn('flex items-start justify-between gap-3', compact && 'px-3 pt-2')}>
+    <div className="flex shrink-0 items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         {showQuestionText && (
-          <p className={cn('font-medium text-foreground/90', compact ? 'text-xs' : 'text-sm')}>
+          <p
+            className={cn('font-medium leading-snug text-foreground/90', compact ? 'text-xs' : 'text-sm')}
+            title={questionText}
+          >
             {questionText}
           </p>
         )}
@@ -220,20 +252,33 @@ export function SurveyQuestionBlock({
     }
     switch (effectiveChart) {
       case 'bar':
-      case 'column':
         return (
-          <CategoryChart
+          <RankedBars
             counts={counts}
-            horizontal={effectiveChart === 'bar'}
             valueLabel={valueLabel}
             hex={resolved.hex}
+            compact={compact}
+          />
+        )
+      case 'column':
+        return (
+          <ColumnChart
+            counts={counts}
+            valueLabel={valueLabel}
+            hex={resolved.hex}
+            showGrid={showGrid}
             compact={compact}
           />
         )
       case 'pie':
       case 'donut':
         return (
-          <SharePie counts={counts} donut={effectiveChart === 'donut'} palette={palette} compact={compact} />
+          <SharePie
+            counts={counts}
+            donut={effectiveChart === 'donut'}
+            palette={palette}
+            compact={compact}
+          />
         )
       case 'histogram':
         return (
@@ -243,15 +288,16 @@ export function SurveyQuestionBlock({
             showMedian={showMedian}
             median={summary.stats?.median}
             hex={resolved.hex}
+            showGrid={showGrid}
             compact={compact}
           />
         )
       case 'stats':
-        return <Stats summary={summary} />
+        return <Stats summary={summary} compact={compact} />
       case 'answers':
-        return <AnswerList counts={counts} summary={summary} />
+        return <AnswerList counts={counts} summary={summary} hex={resolved.hex} />
       case 'table':
-        return <CountsTable counts={counts} valueLabel={valueLabel} />
+        return <CountsTable counts={counts} valueLabel={valueLabel} hex={resolved.hex} />
       default:
         return <Empty text={t('survey.no_chart')} />
     }
@@ -265,13 +311,11 @@ export function SurveyQuestionBlock({
       : null
 
   return (
-    <div className={cn('flex h-full min-h-0 flex-col', compact ? '' : 'gap-2 p-4')}>
+    <div className={cn('flex h-full min-h-0 flex-col gap-2', compact ? 'p-3' : 'p-4')}>
       {header}
-      <div className={cn('min-h-0 flex-1', compact && 'px-2 pb-2')}>{body}</div>
+      <div className="min-h-0 flex-1">{body}</div>
       {footnote && (
-        <p className={cn('text-[10px] leading-snug text-muted-foreground', compact && 'px-3 pb-2')}>
-          {footnote}
-        </p>
+        <p className="shrink-0 text-[10px] leading-snug text-muted-foreground">{footnote}</p>
       )}
     </div>
   )
@@ -297,92 +341,130 @@ function numericValues(question: SurveyQuestion, rows: Record<string, unknown>[]
   return out
 }
 
+// ---------------------------------------------------------------------------
+// Category charts
+// ---------------------------------------------------------------------------
+
 /**
- * Sorted bars with `n (pct%)` at the end — the workhorse, and what the source
- * report uses for both single and multiple choice.
+ * Ranked bars-in-rows: label above, bar below, `n (pct%)` on the right.
+ *
+ * This is the dataset column-stats sidebar's shape rather than a recharts
+ * horizontal BarChart, and deliberately so: a questionnaire option is a full
+ * sentence ("Réanimation polyvalente adulte"), which a recharts category axis
+ * either truncates to nothing or eats half the widget to show. Giving the label
+ * its own full-width line removes the tradeoff, and the list scrolls instead of
+ * squeezing bars to a few pixels when a question has twenty options.
  */
-function CategoryChart({
+function RankedBars({
   counts,
-  horizontal,
   valueLabel,
   hex,
   compact,
 }: {
   counts: AnswerCount[]
-  horizontal: boolean
   valueLabel: NonNullable<SurveyQuestionBlockProps['valueLabel']>
   hex: string
   compact?: boolean
 }) {
-  const data = counts.map((c) => ({ ...c, value: c.count }))
-  const label = (entry: AnswerCount) => formatValue(entry.count, entry.proportion, valueLabel)
+  // Bars are scaled to the top count, not to the total: with a multiple-choice
+  // question the proportions do not sum to 1, so a total-based scale would leave
+  // every bar a stub. The percentage on the right carries the absolute reading.
+  const top = Math.max(...counts.map((c) => c.count), 1)
+  return (
+    <div className="h-full space-y-1.5 overflow-auto pr-1">
+      {counts.map((c) => (
+        <div key={c.code}>
+          <div className="mb-0.5 flex items-baseline justify-between gap-2">
+            <span
+              className={cn('min-w-0 flex-1 truncate text-muted-foreground', compact ? 'text-[10px]' : 'text-xs')}
+              title={c.label}
+            >
+              {c.label}
+            </span>
+            {valueLabel !== 'none' && (
+              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                {formatValue(c.count, c.proportion, valueLabel)}
+              </span>
+            )}
+          </div>
+          <div className={cn('w-full overflow-hidden rounded-sm bg-muted', compact ? 'h-1.5' : 'h-2')}>
+            <div
+              className="h-full rounded-sm transition-all"
+              style={{ width: `${(c.count / top) * 100}%`, backgroundColor: hex, opacity: 0.75 }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
+/** Vertical bars, for the few questions where the option order is the reading
+ *  (a 1..5 scale) and the labels are short enough for an axis. */
+function ColumnChart({
+  counts,
+  valueLabel,
+  hex,
+  showGrid,
+  compact,
+}: {
+  counts: AnswerCount[]
+  valueLabel: NonNullable<SurveyQuestionBlockProps['valueLabel']>
+  hex: string
+  showGrid: boolean
+  compact?: boolean
+}) {
+  const data = counts.map((c) => ({ ...c, value: c.count }))
+  // Round ticks, and headroom above the tallest bar so its value label is not
+  // clipped by the plot edge.
+  const scale = niceTicks([0, Math.max(...data.map((d) => d.value), 1) * 1.12], true)
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart
-        data={data}
-        layout={horizontal ? 'vertical' : 'horizontal'}
-        margin={
-          horizontal
-            ? { top: 4, right: 56, bottom: 4, left: 4 }
-            : { top: 16, right: 8, bottom: 4, left: 4 }
-        }
-      >
-        {horizontal ? (
-          <>
-            <XAxis type="number" hide />
-            <YAxis
-              type="category"
-              dataKey="label"
-              width={compact ? 110 : 160}
-              tickLine={false}
-              axisLine={false}
-              interval={0}
-              tick={<TruncatedTick maxLen={compact ? 18 : 28} textAnchor="end" dx={-4} dy={3} />}
-            />
-          </>
-        ) : (
-          <>
-            <XAxis
-              dataKey="label"
-              tickLine={false}
-              axisLine={false}
-              interval={0}
-              tick={<TruncatedTick maxLen={compact ? 10 : 16} />}
-            />
-            <YAxis type="number" tick={<TruncatedNumericTick formatter={(v) => String(v)} />} tickLine={false} axisLine={false} width={36} />
-          </>
-        )}
-        <Tooltip {...TOOLTIP_STYLE} />
-        <Bar dataKey="value" fill={hex} radius={2} isAnimationActive={false}>
+      <BarChart data={data} margin={{ top: 12, right: 8, bottom: 4, left: 0 }}>
+        {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} vertical={false} />}
+        <XAxis
+          dataKey="label"
+          tickLine={false}
+          axisLine={false}
+          interval={0}
+          height={compact ? 28 : 40}
+          tick={<TruncatedTick maxLen={compact ? 8 : 14} angle={-25} textAnchor="end" dy={8} />}
+        />
+        <YAxis
+          type="number"
+          tickLine={false}
+          axisLine={false}
+          width={40}
+          domain={scale?.domain}
+          ticks={scale?.ticks}
+          tick={<TruncatedNumericTick formatter={formatCount} />}
+        />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          formatter={(value: unknown, _n: unknown, item: unknown) => {
+            const p = (item as { payload?: AnswerCount })?.payload
+            return [formatValue(Number(value), p?.proportion ?? 0, 'both'), '']
+          }}
+        />
+        <Bar dataKey="value" fill={hex} fillOpacity={0.8} radius={[2, 2, 0, 0]} isAnimationActive={false}>
           {valueLabel !== 'none' && (
             <LabelList
-              dataKey="label"
-              position={horizontal ? 'right' : 'top'}
-              content={(props: {
-                x?: string | number
-                y?: string | number
-                width?: string | number
-                height?: string | number
-                index?: number
-              }) => {
+              dataKey="value"
+              position="top"
+              content={(props: { x?: string | number; y?: string | number; width?: string | number; index?: number }) => {
                 const entry = data[props.index ?? 0]
                 if (!entry) return null
                 const num = (v: string | number | undefined) => (typeof v === 'number' ? v : Number(v ?? 0))
-                const w = num(props.width)
-                const h = num(props.height)
-                const x = num(props.x) + (horizontal ? w + 4 : w / 2)
-                const y = num(props.y) + (horizontal ? h / 2 + 3 : -4)
                 return (
                   <text
-                    x={x}
-                    y={y}
-                    fontSize={10}
+                    x={num(props.x) + num(props.width) / 2}
+                    y={num(props.y) - 4}
+                    fontSize={9}
+                    textAnchor="middle"
                     fill="currentColor"
                     className="fill-muted-foreground"
-                    textAnchor={horizontal ? 'start' : 'middle'}
                   >
-                    {label(entry)}
+                    {formatValue(entry.count, entry.proportion, valueLabel)}
                   </text>
                 )
               }}
@@ -394,7 +476,12 @@ function CategoryChart({
   )
 }
 
-/** Pie / donut — only offered for single choice, where the parts are a whole. */
+/**
+ * Pie / donut — only offered for single choice, where the parts are a whole.
+ *
+ * Slice labels are dropped in favour of a scrollable legend: a pie of long
+ * questionnaire options draws leader lines over each other and over the chart.
+ */
 function SharePie({
   counts,
   donut,
@@ -407,23 +494,48 @@ function SharePie({
   compact?: boolean
 }) {
   const colors = resolvePalette(palette)
+  const total = counts.reduce((s, c) => s + c.count, 0)
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <PieChart>
+      <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
         <Pie
           data={counts}
           dataKey="count"
           nameKey="label"
-          innerRadius={donut ? '45%' : 0}
-          outerRadius="80%"
+          cx={compact ? '50%' : '38%'}
+          innerRadius={donut ? '48%' : 0}
+          outerRadius="82%"
+          paddingAngle={counts.length > 1 ? 1.5 : 0}
+          strokeWidth={0}
           isAnimationActive={false}
-          label={compact ? false : (e: { name?: string }) => e.name ?? ''}
+          label={false}
         >
           {counts.map((c, i) => (
             <Cell key={c.code} fill={colors[i % colors.length]} />
           ))}
         </Pie>
-        <Tooltip {...TOOLTIP_STYLE} />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          formatter={(value: unknown, name: unknown) => [
+            `${Number(value)} (${total ? ((Number(value) / total) * 100).toFixed(0) : 0}%)`,
+            String(name),
+          ]}
+        />
+        {!compact && (
+          <Legend
+            layout="vertical"
+            align="right"
+            verticalAlign="middle"
+            wrapperStyle={{
+              fontSize: 10,
+              lineHeight: 1.4,
+              maxWidth: '42%',
+              maxHeight: '100%',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+            }}
+          />
+        )}
       </PieChart>
     </ResponsiveContainer>
   )
@@ -439,6 +551,7 @@ function Histogram({
   showMedian,
   median,
   hex,
+  showGrid,
   compact,
 }: {
   values: number[]
@@ -446,6 +559,7 @@ function Histogram({
   showMedian: boolean
   median?: number
   hex: string
+  showGrid: boolean
   compact?: boolean
 }) {
   const data = useMemo(() => {
@@ -471,24 +585,41 @@ function Histogram({
     return buckets
   }, [values, bins])
 
+  const scale = niceTicks([0, Math.max(...data.map((d) => d.value), 1)], true)
+
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 4, left: 4 }}>
+      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 4, left: 0 }} barCategoryGap={1}>
+        {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} vertical={false} />}
         <XAxis
           dataKey="label"
           tickLine={false}
           axisLine={false}
           interval="preserveStartEnd"
+          height={compact ? 20 : 24}
           tick={<TruncatedTick maxLen={compact ? 6 : 10} />}
         />
-        <YAxis tick={<TruncatedNumericTick formatter={(v) => String(v)} />} tickLine={false} axisLine={false} width={32} />
+        <YAxis
+          tickLine={false}
+          axisLine={false}
+          width={40}
+          domain={scale?.domain}
+          ticks={scale?.ticks}
+          tick={<TruncatedNumericTick formatter={formatCount} />}
+        />
         <Tooltip {...TOOLTIP_STYLE} />
-        <Bar dataKey="value" fill={hex} radius={2} isAnimationActive={false} />
+        <Bar dataKey="value" fill={hex} fillOpacity={0.8} radius={[2, 2, 0, 0]} isAnimationActive={false} />
         {showMedian && median !== undefined && data.length > 1 && (
           <ReferenceLine
-            x={data.reduce((best, b) => (Math.abs(b.start - median) < Math.abs(best.start - median) ? b : best), data[0]).label}
+            x={
+              data.reduce(
+                (best, b) => (Math.abs(b.start - median) < Math.abs(best.start - median) ? b : best),
+                data[0],
+              ).label
+            }
             stroke="var(--color-destructive)"
             strokeDasharray="4 3"
+            label={{ value: `~${round(median)}`, position: 'top', fontSize: 9, fill: 'var(--color-destructive)' }}
           />
         )}
       </BarChart>
@@ -496,49 +627,70 @@ function Histogram({
   )
 }
 
-/** Descriptive statistics, for a numeric question or as a text question's fallback. */
-function Stats({ summary }: { summary: QuestionSummary }) {
+// ---------------------------------------------------------------------------
+// Non-chart renderers
+// ---------------------------------------------------------------------------
+
+/**
+ * Descriptive statistics, laid out like the column-stats sidebar: paired rows,
+ * then the box plot — which is the actual figure, and says more about the shape
+ * of the distribution than the five numbers above it.
+ */
+function Stats({ summary, compact }: { summary: QuestionSummary; compact?: boolean }) {
   const { t } = useTranslation()
   const s = summary.stats
-  const entries: [string, string][] = s
-    ? [
-        [t('survey.stat_n'), String(s.n)],
-        [t('survey.stat_median'), `${round(s.median)} [${round(s.q1)} – ${round(s.q3)}]`],
-        [t('survey.stat_mean'), `${round(s.mean)} ± ${round(s.sd)}`],
-        [t('survey.stat_range'), `${round(s.min)} – ${round(s.max)}`],
-        [t('survey.stat_sum'), String(round(s.sum))],
-      ]
-    : [
-        [t('survey.stat_respondents'), String(summary.respondents)],
-        [t('survey.stat_missing'), String(summary.missing)],
-      ]
+  if (!s) {
+    return (
+      <div className="space-y-1 text-xs">
+        <StatRow label={t('survey.stat_respondents')} value={String(summary.respondents)} />
+        <StatRow label={t('survey.stat_missing')} value={String(summary.missing)} />
+      </div>
+    )
+  }
   return (
-    <div className="grid h-full grid-cols-2 content-center gap-x-4 gap-y-1 p-3 text-xs">
-      {entries.map(([k, v]) => (
-        <div key={k} className="flex items-baseline justify-between gap-2">
-          <span className="text-muted-foreground">{k}</span>
-          <span className="font-medium tabular-nums">{v}</span>
+    <div className="h-full space-y-1 overflow-auto text-xs">
+      <StatRow label={t('survey.stat_n')} value={String(s.n)} />
+      <StatRow label={t('survey.stat_median')} value={`${round(s.median)} [${round(s.q1)} – ${round(s.q3)}]`} />
+      <StatRow label={t('survey.stat_mean')} value={`${round(s.mean)} ± ${round(s.sd)}`} />
+      <StatRow label={t('survey.stat_range')} value={`${round(s.min)} – ${round(s.max)}`} />
+      <StatRow label={t('survey.stat_sum')} value={round(s.sum)} />
+      {!compact && (
+        <div className="pt-3">
+          <BoxPlot min={s.min} p25={s.q1} median={s.median} p75={s.q3} max={s.max} mean={s.mean} height={44} />
         </div>
-      ))}
+      )}
     </div>
   )
 }
 
-function round(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+function StatRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="truncate text-right font-medium tabular-nums">{value}</span>
+    </div>
+  )
 }
 
 /**
- * Free-text answers: the repeated ones first with their count, then the one-offs
- * as a plain list. A header states how many distinct answers there were, which
- * is what tells you whether the column is really an uncoded category list.
+ * Free-text answers: the repeated ones as ranked bars, then the one-offs as a
+ * plain list. The header states how many distinct answers there were, which is
+ * what tells you whether the column is really an uncoded category list.
  */
-function AnswerList({ counts, summary }: { counts: AnswerCount[]; summary: QuestionSummary }) {
+function AnswerList({
+  counts,
+  summary,
+  hex,
+}: {
+  counts: AnswerCount[]
+  summary: QuestionSummary
+  hex: string
+}) {
   const { t } = useTranslation()
   const repeated = counts.filter((c) => c.count > 1)
   const once = counts.filter((c) => c.count === 1)
   return (
-    <div className="flex h-full flex-col gap-2 overflow-auto">
+    <div className="flex h-full flex-col gap-2 overflow-auto pr-1">
       <p className="shrink-0 text-[10px] text-muted-foreground">
         {t('survey.distinct_answers', {
           distinct: summary.distinctAnswers ?? counts.length,
@@ -546,18 +698,7 @@ function AnswerList({ counts, summary }: { counts: AnswerCount[]; summary: Quest
         })}
       </p>
       {repeated.length > 0 && (
-        <table className="w-full text-xs">
-          <tbody>
-            {repeated.map((c) => (
-              <tr key={c.code} className="border-b border-border/50 last:border-0">
-                <td className="py-1 pr-2">{c.label}</td>
-                <td className="w-14 py-1 text-right tabular-nums text-muted-foreground">
-                  {c.count} ({(c.proportion * 100).toFixed(0)}%)
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <RankedBars counts={repeated} valueLabel="both" hex={hex} compact />
       )}
       {once.length > 0 && (
         <div className="min-h-0">
@@ -568,7 +709,7 @@ function AnswerList({ counts, summary }: { counts: AnswerCount[]; summary: Quest
           )}
           <ul className="space-y-0.5 text-xs text-muted-foreground">
             {once.map((c) => (
-              <li key={c.code} className="truncate">
+              <li key={c.code} className="truncate" title={c.label}>
                 {c.label}
               </li>
             ))}
@@ -579,20 +720,43 @@ function AnswerList({ counts, summary }: { counts: AnswerCount[]; summary: Quest
   )
 }
 
+/**
+ * The counts as a table, with the bar drawn behind the row: the numbers stay
+ * exact and alignable, and the ranking is still readable at a glance.
+ */
 function CountsTable({
   counts,
   valueLabel,
+  hex,
 }: {
   counts: AnswerCount[]
   valueLabel: NonNullable<SurveyQuestionBlockProps['valueLabel']>
+  hex: string
 }) {
+  const { t } = useTranslation()
+  const top = Math.max(...counts.map((c) => c.count), 1)
   return (
     <div className="h-full overflow-auto">
       <table className="w-full text-xs">
+        <thead className="sticky top-0 bg-background">
+          <tr className="border-b text-[10px] text-muted-foreground">
+            <th className="py-1 pr-2 text-left font-medium">{t('survey.col_answer')}</th>
+            <th className="w-20 py-1 text-right font-medium">{t('survey.col_count')}</th>
+          </tr>
+        </thead>
         <tbody>
           {counts.map((c) => (
-            <tr key={c.code} className="border-b border-border/50 last:border-0">
-              <td className="py-1 pr-2">{c.label}</td>
+            <tr key={c.code} className="relative border-b border-border/50 last:border-0">
+              <td className="relative py-1 pr-2">
+                {/* The bar sits behind the text rather than in its own column, so
+                    a long option keeps the full width to wrap into. */}
+                <span
+                  aria-hidden
+                  className="absolute inset-y-0.5 left-0 -z-10 rounded-sm"
+                  style={{ width: `${(c.count / top) * 100}%`, backgroundColor: hex, opacity: 0.12 }}
+                />
+                <span title={c.label}>{c.label}</span>
+              </td>
               <td className="py-1 text-right tabular-nums text-muted-foreground">
                 {formatValue(c.count, c.proportion, valueLabel === 'none' ? 'both' : valueLabel)}
               </td>

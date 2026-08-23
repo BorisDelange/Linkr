@@ -317,6 +317,28 @@
         "defaultOpen": false
       }
     },
+    "showGrid": {
+      "type": "boolean",
+      "label": {
+        "en": "Grid",
+        "fr": "Grille"
+      },
+      "default": true,
+      "row": "checksRow2",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "auto",
+          "column",
+          "histogram"
+        ]
+      }
+    },
     "showResponseRate": {
       "type": "boolean",
       "label": {

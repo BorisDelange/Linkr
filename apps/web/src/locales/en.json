@@ -1310,7 +1310,10 @@
     "stat_respondents": "Respondents",
     "stat_missing": "No answer",
     "distinct_answers": "{{distinct}} distinct answers from {{respondents}} respondents",
-    "given_once": "{{count}} answer(s) given once"
+    "given_once": "{{count}} answer(s) given once",
+    "response_rate_hint": "{{respondents}} of {{total}} respondents answered ({{missing}} did not).",
+    "col_answer": "Answer",
+    "col_count": "n (%)"
   },
   "subsets": {
     "title": "Subsets",
