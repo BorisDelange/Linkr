@@ -10,6 +10,7 @@ _ROLE_NAME = re.compile(r"[a-z_][a-z0-9_]*", re.IGNORECASE)
 
 class DataSourceCreate(CamelModel):
     id: str | None = None  # client-supplied uuid
+    entity_id: str | None = None
     workspace_id: str | None = None
     alias: str
     name: str
@@ -21,6 +22,14 @@ class DataSourceCreate(CamelModel):
     stats: dict | None = None
     error_message: str | None = None
     is_vocabulary_reference: bool = False
+    badges: list | None = None
+    readme: dict | None = None
+    license: dict | None = None
+    git_remote_config: dict | None = None
+    version: str = "0.1.0"
+    organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     origin: str = "user"
     created_by_id: int | None = None
     created_by: str | None = None
@@ -28,6 +37,7 @@ class DataSourceCreate(CamelModel):
 
 
 class DataSourceUpdate(CamelModel):
+    entity_id: str | None = None
     alias: str | None = None
     name: str | None = None
     description: str | None = None
@@ -37,10 +47,19 @@ class DataSourceUpdate(CamelModel):
     stats: dict | None = None
     error_message: str | None = None
     is_vocabulary_reference: bool | None = None
+    badges: list | None = None
+    readme: dict | None = None
+    license: dict | None = None
+    git_remote_config: dict | None = None
+    version: str | None = None
+    organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
 
 
 class DataSourceResponse(CamelModel):
     id: str
+    entity_id: str | None = None
     workspace_id: str | None = None
     alias: str
     name: str
@@ -52,6 +71,14 @@ class DataSourceResponse(CamelModel):
     stats: dict | None = None
     error_message: str | None = None
     is_vocabulary_reference: bool
+    badges: list | None = None
+    readme: dict | None = None
+    license: dict | None = None
+    git_remote_config: dict | None = None
+    version: str = "0.1.0"
+    organization: dict | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     origin: str
     created_by_id: int | None = None
     created_by: str | None = None

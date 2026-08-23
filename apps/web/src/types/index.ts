@@ -348,8 +348,10 @@ export interface DatabaseStatsCache {
   tableCounts: TableRowCount[]
 }
 
-export interface DataSource extends Seedable, Authored {
+export interface DataSource extends Seedable, Authored, Lineaged {
   id: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
+  entityId?: string
   workspaceId?: string
   /** Short, URL-safe identifier used as the DuckDB schema name. Auto-generated from `name`, editable. */
   alias: string
@@ -367,6 +369,21 @@ export interface DataSource extends Seedable, Authored {
   /** Free-text semver, like every other top-level entity. */
   version?: string
   badges?: ProjectBadge[]
+  readme?: LocalizedString
+  license?: EntityLicense
+  /**
+   * Git repository this database is linked to. When set, workspace export emits
+   * metadata + this pointer only.
+   *
+   * A database repo carries documentation and metadata, never data: the export
+   * strips the connection config down to `engine` (see sanitizeConnectionConfig)
+   * and writes no rows. Publishing an open dataset — synthetic data, MIMIC-IV
+   * demo — means adding the files to the repo by hand, outside the app, so the
+   * app can never be the path by which data leaks.
+   */
+  gitRemoteConfig?: GitRemoteConfig
+  /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
+  organization?: OrganizationInfo
   createdAt: string
   updatedAt: string
 }
@@ -416,6 +433,7 @@ export type ReadmeOwnerType =
   | 'data-catalog'
   | 'schema-preset'
   | 'user-plugin'
+  | 'data-source'
 
 export interface ReadmeAttachment {
   id: string

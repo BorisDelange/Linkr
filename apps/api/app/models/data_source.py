@@ -18,6 +18,8 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     workspace_id: Mapped[str | None] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE")
     )
+    # Human-readable, URL-safe id set once at creation (folder name in exports).
+    entity_id: Mapped[str | None] = mapped_column(String(255))
     alias: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
@@ -33,6 +35,23 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     is_vocabulary_reference: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0"
     )
+    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Entity licence: {id, name?, text} — the text is snapshotted at pick time
+    # so it travels with the export (LICENSE.md) independently of the picker.
+    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Git repo this database is linked to. The repo carries documentation and
+    # metadata only: the export strips connection_config down to `engine` and
+    # writes no rows, so the app is never the path by which data leaves.
+    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # User-facing semver, portable across export/import (see Project.version).
+    version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
+    # Frozen provenance snapshot of the origin organization (not a live link).
+    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Stable cross-instance identity (separate from the local PK). Preserved across
+    # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
+    lineage_id: Mapped[str | None] = mapped_column(String(36))
+    parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     # Creator provenance. created_by_id is the stable identity (name resolved live

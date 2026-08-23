@@ -13,7 +13,7 @@ from app.schemas.data_source import (
     DataSourceFileImportRequest,
     DataSourceUpdate,
 )
-from app.services import author_provenance, blob_store, concept_stats_cache_service
+from app.services import author_provenance, blob_store, concept_stats_cache_service, git_secret
 from app.services.data import (
     concept_cache_fs,
     connection_pool,
@@ -111,6 +111,9 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     config = payload.get("connection_config")
     secret = _extract_secret(config)
     payload["connection_config"] = strip_secrets(config)
+    # The git access token never lands in the entity's JSON column (it would be
+    # served straight back by the API); git_credential_service holds it per host.
+    git_secret.apply_to_entity(None, payload)
     source = DataSource(
         **payload,
         owner_id=owner.id,
@@ -134,6 +137,7 @@ async def update(
         if secret is not None:
             source.connection_secret = crypto.encrypt(secret)
         changes["connection_config"] = strip_secrets(changes["connection_config"])
+    git_secret.apply_to_entity(source, changes)
     for key, value in changes.items():
         setattr(source, key, value)
     await db.commit()
