@@ -161,6 +161,18 @@ export function PublicationTable<T extends PublicationRow>({
         className="border-collapse bg-background text-xs"
         style={{ tableLayout: 'fixed', width: columns.reduce((s, c) => s + widthOf(c), 0) }}
       >
+        {/* Widths live here, not on the header cells.
+            Under table-layout: fixed the browser takes column widths from the
+            FIRST row — which, whenever there are group headers, is a row of
+            colSpan cells that carry no width of their own. It then spread the
+            columns evenly and ignored every width below, so dragging a grip
+            changed nothing visible. A colgroup states the widths once, for the
+            whole table, independent of what the first row happens to be. */}
+        <colgroup>
+          {columns.map((col) => (
+            <col key={col.id} style={{ width: widthOf(col) }} />
+          ))}
+        </colgroup>
         <thead>
           {/* The three booktabs rules: toprule here, midrule under the header
               row, bottomrule on the last body row. Nothing vertical anywhere. */}
@@ -191,7 +203,6 @@ export function PublicationTable<T extends PublicationRow>({
                   hasGroups ? 'pt-1.5' : 'pt-2',
                   alignOf(col.align),
                 )}
-                style={{ width: widthOf(col) }}
               >
                 <TruncatedText text={col.header} readOnly />
                 <ResizeGrip
