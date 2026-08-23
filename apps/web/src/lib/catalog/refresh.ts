@@ -24,11 +24,20 @@ export async function refreshStoresAfterInstall(
     case 'project': {
       const { useAppStore } = await import('@/stores/app-store')
       reloads.push(useAppStore.getState().loadProjects())
+      // A project carries datasets, dashboards and concept mappings, held by stores
+      // that load lazily per project and early-return once their marker matches. An
+      // overwrite rewrites those rows underneath a store that already believes it is
+      // loaded, so the project's own pages keep rendering pre-install content until a
+      // manual reload. Clearing the markers makes the next visit — or the page effect
+      // re-running, if that project is open right now — re-read from storage.
+      await clearProjectScopedMarkers()
       break
     }
     case 'mapping-project': {
       const { useConceptMappingStore } = await import('@/stores/concept-mapping-store')
       reloads.push(useConceptMappingStore.getState().loadMappingProjects())
+      // Same staleness as above for the mappings of the project being viewed.
+      useConceptMappingStore.setState({ activeProjectId: null })
       break
     }
     case 'etl-pipeline': {
@@ -61,4 +70,23 @@ export async function refreshStoresAfterInstall(
   }
 
   await Promise.all(reloads)
+}
+
+/**
+ * Drop the active-project markers of the lazily-loaded, project-scoped stores.
+ *
+ * These stores key their cache on a project uid and skip the read when it already
+ * matches, so a re-install that rewrites a project's content in place is invisible to
+ * them. Resetting the marker (rather than reloading) is what `refreshStoresAfterReseed`
+ * does for the same stores, and it avoids having to know which project was written.
+ */
+async function clearProjectScopedMarkers(): Promise<void> {
+  const [{ useDatasetStore }, { useDashboardStore }, { useConceptMappingStore }] = await Promise.all([
+    import('@/stores/dataset-store'),
+    import('@/stores/dashboard-store'),
+    import('@/stores/concept-mapping-store'),
+  ])
+  useDatasetStore.setState({ activeProjectUid: null })
+  useDashboardStore.setState({ activeProjectUid: null, loaded: false })
+  useConceptMappingStore.setState({ activeProjectId: null })
 }
