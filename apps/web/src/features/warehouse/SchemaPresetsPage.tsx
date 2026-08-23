@@ -52,6 +52,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { ListPageToolbar, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { useSchemaPresetActions, toSchemaPresetItem } from './use-schema-preset-actions'
 import { useSaveForm } from '@/hooks/use-save-form'
@@ -1015,15 +1016,23 @@ function SchemaCard({
           </div>
 
           <div className="min-w-0 flex-1">
-            <span className="truncate text-sm font-medium">{localized(mapping.presetLabel, i18n.language)}</span>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {description || (totalCount > 0 || mappedCount > 0
+            {/* TruncatedText, not a bare `truncate`: a clipped name or description has
+                to reveal itself on hover, as it does on every other entity card. */}
+            <TruncatedText
+              text={localized(mapping.presetLabel, i18n.language)}
+              readOnly
+              className="text-sm font-medium"
+            />
+            <TruncatedText
+              text={description || (totalCount > 0 || mappedCount > 0
                 ? [
                     totalCount > 0 ? `${totalCount} ${t('settings.schema_preset_tables').toLowerCase()}` : null,
                     mappedCount > 0 ? `${mappedCount} ${t('settings.schema_preset_mapped_tables').toLowerCase()}` : null,
                   ].filter(Boolean).join(', ')
                 : t('settings.schema_preset_no_mapping'))}
-            </p>
+              readOnly
+              className="mt-0.5 text-xs text-muted-foreground"
+            />
           </div>
 
           {/* Actions */}
