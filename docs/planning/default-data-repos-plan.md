@@ -415,9 +415,23 @@ again and should not be smuggled into this plan.
 
 ## 5. The import dialog's third tab
 
-[ImportSourceDialog](../../apps/web/src/components/ui/import-source-dialog.tsx) is
-already a tabbed shell (Upload ZIP · Git). Add "Default data" — and build it on the
-catalog modules, not on a parallel implementation:
+**Server-mode half shipped 2026-08-23** (commit `005c249e`). "From the catalog" is a third
+tab of [ImportSourceDialog](../../apps/web/src/components/ui/import-source-dialog.tsx),
+implemented as [import-catalog-tab.tsx](../../apps/web/src/components/ui/import-catalog-tab.tsx)
+on the existing catalog modules — `useCatalog`, `findInstalled`, `useCatalogInstall`,
+`CatalogInstallOutcome` — so there is still one install implementation. Which type it lists
+comes from the page's `GitScope` via
+[catalog/scope.ts](../../apps/web/src/lib/catalog/scope.ts); scopes the catalog does not
+publish (workspaces, settings, user-plugins) keep the two-tab dialog. Wired on Projects,
+Schemas and the four `ListPageTemplate` pages.
+
+**Still open**: the client-only half (below) — the tab currently shows the server-mode
+notice in WASM builds, since it depends on the build-time fetch (§3) that does not exist
+yet. The `bundled || defaultInstall` filter is likewise not implemented: the tab lists every
+catalog entry of its type, which is the correct behaviour in server mode and will need the
+filter only once bundled entries exist.
+
+Original design, for the remaining half:
 
 - entries come from `getCatalogSource()` + the cached `CatalogEntry[]`, filtered to
   `bundled || defaultInstall` and to the `type` matching the calling context (a project
@@ -581,7 +595,7 @@ already been fixed once. Move the generation into this repo as a Node module
 | `app-store.ts:263` | gate `seedWorkspaces()` on `!isServerMode()` |
 | Setup wizard + `setup.py` | default-data step, `GET /setup/default-data`, background install job |
 | `instance_settings` | new — shared baseline replacing per-browser `localStorage` |
-| `ImportSourceDialog` | third tab + i18n (en + fr) |
+| `ImportSourceDialog` | ✅ third tab + i18n (en + fr) — server mode; client-only half waits on §3 |
 | `LICENCE-data` | trimmed to a pointer; full notices move into each data repo |
 | `update-default-data` skill | rewrite: the workflow becomes "edit the data repo, tag, bump the registry ref" |
 | `linkr-portal` | `build.sh` calls the shared manifest generator |
@@ -607,7 +621,7 @@ becomes a real problem.
 | 5 | Extract `seed-manifest.mjs` from the portal script + unit tests | M | de-risks everything downstream |
 | 6 | `fetch-default-data.mjs` + CI wiring + cache; verify the client-only build behaves exactly as today | M | the real proof: build, reset all data, same app |
 | 7 | Point the portal's `build.sh` at the shared generator | S | |
-| 8 | Import dialog third tab, on the shared catalog card/install component | M | |
+| 8 | Import dialog third tab, on the shared catalog card/install component | M | ✅ server mode (2026-08-23); client-only half rides on step 6 |
 | 9 | Server mode: gate the browser seed, `instance_settings`, setup wizard step, install job | L | biggest chunk; also fixes the per-browser reseed bug |
 | 10 | Rewrite the `update-default-data` skill | S | otherwise the next contributor edits the wrong repo |
 
@@ -706,6 +720,22 @@ at all. The rule from §3 applies — a build that fetched nothing must fail, no
 an installed repo **updates** the preset a user already has rather than adding a second
 one. Without it, everyone's first update produces the duplicate this decision removes.
 
-> This also fixes the **5.3 DDL bug** (§3bis A) for free: the app stops building `omop-5.3`
-> from the 5.4 DDL because it stops building it at all — the repo's correct DDL becomes the
-> only source. Until then the bug stands; patch it separately if 5.3 is needed sooner.
+> **5.3 DDL bug — status after removing the built-in presets (2026-08-23).** The bug is
+> no longer reachable from the UI: the Schemas page no longer offers built-in presets, and
+> the only remaining preset dropdown (`AddDatabaseDialog`) lists `customPresets` alone. A
+> user can no longer pick `omop-5.3` and get 5.4 tables, because they can no longer pick it.
+>
+> What survives is dead-ish code, not a live defect: `lib/schema-presets.ts` still exports
+> `SCHEMA_PRESETS` / `BUILTIN_PRESET_IDS` / `getSchemaPreset`, with `omop53` still spreading
+> `omop54` (hence still carrying `OMOP_54_DDL`). Two callers remain — `getSchemaPreset()` in
+> `AddDatabaseDialog` (resolves a *stored* `schemaPresetId`, so it still hydrates the wrong
+> DDL for a database saved as `omop-5.3` **before** this change) and `SCHEMA_PRESETS[…]` in
+> `Header.tsx` (breadcrumb label only, harmless).
+>
+> So: **delete the module rather than fix the DDL.** Fixing `omop53`'s DDL now would only
+> make a more correct copy of something the catalog already publishes properly. The cleanup
+> is (a) drop `schema-presets.ts` + the three `schema-ddl/*.ts` blobs, (b) give `Header.tsx`
+> its label from the stored preset, (c) decide what `AddDatabaseDialog` does with a legacy
+> stored `omop-5.3` id — simplest is to treat an unresolvable preset as "none" and let the
+> user re-pick an installed one. Left out of the built-in removal on purpose: it touches the
+> databases path, which is the next chunk anyway.
