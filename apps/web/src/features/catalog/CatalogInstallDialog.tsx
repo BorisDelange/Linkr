@@ -82,14 +82,17 @@ export function CatalogInstallOutcome({
               </p>
             </div>
           )}
+          {/* Same footer as ImportConflictDialog, which asks this exact question when a
+              ZIP or git import hits an existing entity: keeping the copy is the default
+              button, overwriting is destructive. */}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <Button variant="outline" onClick={() => void confirmReinstall(true)}>
+            <Button onClick={() => void confirmReinstall(true)}>
               {t('common.import_duplicate')}
             </Button>
-            <AlertDialogAction onClick={() => void confirmReinstall(false)}>
+            <Button variant="destructive" onClick={() => void confirmReinstall(false)}>
               {t('common.import_overwrite')}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
