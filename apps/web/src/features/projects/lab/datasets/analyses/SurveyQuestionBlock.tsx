@@ -762,6 +762,17 @@ function Histogram({
     return () => observer.disconnect()
   }, [])
   const domainSpan = xScale ? xScale.domain[1] - xScale.domain[0] : 0
+
+  // Where the median label hangs relative to its line. Near the left edge it
+  // has to start at the line and run right, near the right edge the reverse;
+  // in the middle it can be centred.
+  const medianLabelPosition = (() => {
+    if (!xScale || median === undefined || domainSpan <= 0) return 'top' as const
+    const at = (median - xScale.domain[0]) / domainSpan
+    if (at < 0.15) return 'insideTopLeft' as const
+    if (at > 0.85) return 'insideTopRight' as const
+    return 'top' as const
+  })()
   const axisPixels = Math.max(0, plotWidth - Y_AXIS_WIDTH)
   // An explicit thickness wins; otherwise a bar spans its bin exactly.
   const barPixels =
@@ -834,7 +845,10 @@ function Histogram({
             strokeDasharray="4 3"
             label={{
               value: `${t('survey.median_marker')} ${formatAxisNumber(median, decimals)}`,
-              position: 'top',
+              // Centred on the line, half the text falls outside the plot when
+              // the median sits near an edge — and the SVG clips it. Anchor the
+              // text away from whichever edge is closer instead.
+              position: medianLabelPosition,
               fontSize: 10,
               fontWeight: 600,
               fill: medianHex,
