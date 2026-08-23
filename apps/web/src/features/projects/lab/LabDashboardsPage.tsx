@@ -184,7 +184,7 @@ export function LabDashboardsPage() {
                 >
                   <div className="flex flex-1 flex-col px-4 pt-5">
                    <div className="flex flex-1 flex-col justify-center">
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-rose-500/10">
                           <LayoutGrid size={20} className="text-rose-500" />

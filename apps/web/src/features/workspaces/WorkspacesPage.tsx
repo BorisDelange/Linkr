@@ -937,7 +937,7 @@ export function WorkspacesPage() {
                 >
                   <div className="flex flex-1 flex-col px-4 pt-5">
                    <div className="flex flex-1 flex-col justify-center">
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
                           <Building2 size={20} className="text-amber-500" />

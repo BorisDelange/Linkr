@@ -2557,16 +2557,19 @@ export async function applyClonedEntity(
     // schema that silently does nothing.
     const ddl = await readText(SCHEMA_PRESET_DDL_FILE)
     if (!ddl) return false
-    // `workspaceId` must be re-stamped from the caller: unlike the other types
-    // here, a preset has no shell row carrying it (save() is an upsert keyed by
-    // presetId), and the repo's own value — if any — belongs to another instance.
-    // Without it the preset is saved outside every workspace, so getByWorkspace()
-    // never returns it and the install looks like it silently did nothing.
+    // `workspaceId` and `gitRemoteConfig` must be re-stamped from the caller: unlike
+    // the other types here, a preset has no shell row to carry them (save() is an
+    // upsert keyed by presetId, so createShell is a no-op for it), and the repo's own
+    // values — if any — belong to another instance. Without workspaceId the preset is
+    // saved outside every workspace and getByWorkspace() never returns it; without
+    // gitRemoteConfig the catalog cannot tell it is installed (findInstalled matches
+    // on lineageId or that URL), so the card keeps offering Install.
     const withDocs = await withEntityDocs(
       dropForeignAuthorId({
         ...preset,
         presetId: targetId,
         workspaceId,
+        ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
         mapping: { ...preset.mapping, ddl },
       }) as CustomSchemaPreset,
       'schema-preset',
