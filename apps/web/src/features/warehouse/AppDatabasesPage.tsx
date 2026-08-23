@@ -10,7 +10,7 @@ import type { DataSource, CustomSchemaPreset } from '@/types'
 import { Database, Plus, FileCode, Search, Plug, ChevronDown, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { OverflowBadgeList } from '@/components/ui/overflow-badge-list'
+import { BadgeStrip } from '@/components/ui/badge-strip'
 import { Input } from '@/components/ui/input'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { applySort, baseSortFields } from '@/lib/list-sort'
@@ -403,12 +403,14 @@ export function AppDatabasesPage() {
                 onRemove={() => setSourceToRemove(ds)}
                 belowStats={
                   linkedProjects.length > 0 ? (
-                    <OverflowBadgeList
+                    <BadgeStrip
                       className="mt-1"
-                      label={`${t('app_warehouse.linked_projects')}:`}
-                      items={linkedProjects.map((p) => ({
-                        key: p.uid,
-                        label: p.name[language] ?? p.name['en'] ?? Object.values(p.name)[0] ?? '',
+                      prefix={`${t('app_warehouse.linked_projects')}:`}
+                      badges={linkedProjects.map((p) => ({
+                        id: p.uid,
+                        label: p.name,
+                        // Neutral: these name projects, they aren't tags the user coloured.
+                        color: 'slate' as const,
                       }))}
                     />
                   ) : (

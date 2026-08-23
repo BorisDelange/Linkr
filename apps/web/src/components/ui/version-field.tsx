@@ -24,14 +24,17 @@ export function VersionField({ value, onChange }: VersionFieldProps) {
   const { t } = useTranslation()
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <Label htmlFor="element-version">{t('common.version')}</Label>
+      {/* The same 3-column grid as the bump row below, so the input lines up
+          with the "patch" button rather than sitting at some fixed width that
+          drifts as the dialog resizes. The label spans the first two columns. */}
+      <div className="grid grid-cols-3 items-center gap-1.5">
+        <Label htmlFor="element-version" className="col-span-2">{t('common.version')}</Label>
         <Input
           id="element-version"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="0.1.0"
-          className="h-7 w-24 text-right font-mono text-xs"
+          className="h-7 text-right font-mono text-xs"
         />
       </div>
       <div className="grid grid-cols-3 gap-1.5">

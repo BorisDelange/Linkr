@@ -8,6 +8,8 @@ import type { ProjectBadge } from '@/types'
 
 interface BadgeStripProps {
   badges: ProjectBadge[]
+  /** Inline text before the badges (e.g. "Linked projects:"), sharing the row. */
+  prefix?: string
   className?: string
 }
 
@@ -25,7 +27,7 @@ const badgeClass =
  * badge that would push past the edge. A too-long single badge truncates with a
  * tooltip; hidden badges are listed (bulleted) in the "+N" chip's tooltip.
  */
-export function BadgeStrip({ badges, className }: BadgeStripProps) {
+export function BadgeStrip({ badges, prefix, className }: BadgeStripProps) {
   const { i18n } = useTranslation()
   const label = (b: ProjectBadge) => localized(b.label, i18n.language)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -38,7 +40,9 @@ export function BadgeStrip({ badges, className }: BadgeStripProps) {
     if (!container || !measure) return
 
     const compute = () => {
-      const avail = container.clientWidth
+      // The prefix shares the row, so the badges only get what it leaves.
+      const prefixEl = container.querySelector<HTMLElement>('[data-badge-prefix]')
+      const avail = container.clientWidth - (prefixEl ? prefixEl.offsetWidth + GAP_PX : 0)
       const spans = Array.from(measure.querySelectorAll<HTMLElement>('[data-measure-badge]'))
       const moreChip = measure.querySelector<HTMLElement>('[data-measure-more]')
       if (spans.length === 0 || avail === 0) return
@@ -71,7 +75,7 @@ export function BadgeStrip({ badges, className }: BadgeStripProps) {
     ro.observe(container)
     compute()
     return () => ro.disconnect()
-  }, [badges])
+  }, [badges, prefix])
 
   if (badges.length === 0) return null
 
@@ -79,6 +83,9 @@ export function BadgeStrip({ badges, className }: BadgeStripProps) {
 
   return (
     <div ref={containerRef} className={cn('relative flex items-center gap-1 overflow-hidden', className)}>
+      {prefix && (
+        <span data-badge-prefix className="shrink-0 text-[10px] text-muted-foreground">{prefix}</span>
+      )}
       {/* Off-screen measurement layer: natural widths, never wraps, not visible. */}
       <div ref={measureRef} aria-hidden className="pointer-events-none invisible absolute left-0 top-0 flex gap-1">
         {badges.map((badge) => (
