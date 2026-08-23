@@ -62,21 +62,26 @@ export function CategoryBadge({
     setEditing(false)
   }
 
-  // Left half: the ordinary filled badge. Right half: the same colour drawn as
-  // border and text on the page ground, so the two read as one chip split in
-  // two rather than two badges that happen to touch.
+  // The border rings the WHOLE chip, drawn once on the parent: a border on the
+  // value half alone gets clipped at the rounded ends, since a square child
+  // inside a `rounded-full` parent loses exactly the arc the border traces.
+  // What separates the halves is then a single divider on the value's left edge.
   const pad = size === 'md' ? 'px-2.5' : 'px-2'
-  // The transparent border matches the value half's real one, so both sides are
-  // the same height and the text sits on one baseline.
-  const categoryHalf = cn(pad, 'border border-transparent py-0.5', !custom && getBadgeClasses(color))
+  const outline = !custom && getBadgeOutlineClasses(color)
+
+  const categoryHalf = cn(pad, 'py-0.5', !custom && getBadgeClasses(color))
   const categoryStyle = custom ? getBadgeStyle(color) : undefined
 
-  // A user-picked hex may be far too pale to read as text on white; presets
-  // never are, their outline token being the shade meant for a light ground.
-  const valueHalf = cn('border bg-background', !custom && getBadgeOutlineClasses(color))
+  // Left half: the ordinary filled badge. Right half: the page ground, so the
+  // colour reads as border and text. A user-picked hex may be far too pale to
+  // be legible there; presets never are, their outline token being the shade
+  // meant for a light ground.
+  const valueHalf = cn('border-l bg-background', outline)
   const valueStyle = custom
     ? { borderColor: `${color}80`, color: darkenForWhiteBackground(color) }
     : undefined
+
+  const ringStyle = custom ? { borderColor: `${color}80` } : undefined
 
   const controlClass = 'rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20'
 
@@ -84,10 +89,12 @@ export function CategoryBadge({
     <span
       {...rest}
       className={cn(
-        'inline-flex shrink-0 items-center overflow-hidden rounded-full font-medium',
+        'inline-flex shrink-0 items-center overflow-hidden rounded-full border font-medium',
+        outline,
         size === 'md' ? 'text-xs' : 'text-[10px]',
         className,
       )}
+      style={ringStyle}
     >
       <span className={categoryHalf} style={categoryStyle}>{category}</span>
       <span
