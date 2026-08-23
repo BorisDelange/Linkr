@@ -39,7 +39,7 @@ interface PluginSettingsDialogProps {
 
 export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', pluginId }: PluginSettingsDialogProps) {
   const { t } = useTranslation()
-  const { containerProps, panelProps } = useTallestPanel()
+  const { containerProps, measuredPanelProps } = useTallestPanel()
   const language = useAppStore((s) => s.language)
   const editingPluginId = usePluginEditorStore((s) => s.editingPluginId)
   const pluginList = usePluginEditorStore((s) => s.pluginList)
@@ -143,11 +143,11 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
 
           {/* Holds the tallest panel's height so switching tabs doesn't move the
               triggers out from under the pointer. */}
-          <div {...containerProps}>
-          <div {...panelProps}>
+          <div className="relative" {...containerProps}>
+          <div {...measuredPanelProps('general')}>
 
           {/* --- General --- */}
-          <TabsContent value="general" className="mt-0 max-h-[60vh] overflow-y-auto">
+          <TabsContent forceMount value="general" className="mt-0 max-h-[60vh] overflow-y-auto data-[state=inactive]:pointer-events-none data-[state=inactive]:invisible data-[state=inactive]:absolute data-[state=inactive]:inset-x-0 data-[state=inactive]:top-0">
             <div className="grid gap-4 p-1">
               <div className="grid gap-2">
                 <Label htmlFor="plugin-name">{t('common.name')}<RequiredMark /></Label>
@@ -221,7 +221,7 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
 
           {/* --- Metadata --- */}
           {!isSystemPlugin && (
-            <TabsContent value="metadata" className="mt-0 max-h-[60vh] overflow-y-auto">
+            <TabsContent forceMount value="metadata" className="mt-0 max-h-[60vh] overflow-y-auto data-[state=inactive]:pointer-events-none data-[state=inactive]:invisible data-[state=inactive]:absolute data-[state=inactive]:inset-x-0 data-[state=inactive]:top-0">
               <div className="grid gap-4 p-1">
                 <BadgeEditor
                   value={fields.badges}

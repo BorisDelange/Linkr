@@ -66,6 +66,7 @@ export function DashboardItemEditDialog({
       onConfirm={save}
       confirmLabel={t('common.save')}
       confirmDisabled={!canSaveNow}
+      dirtyTracked
       contentClassName="space-y-3"
     >
       <div className="space-y-1">

@@ -75,6 +75,7 @@ export function PatientDataSettingsDialog({
       onConfirm={save}
       confirmLabel={t('common.save')}
       confirmDisabled={!canSaveNow}
+      dirtyTracked
       contentClassName="space-y-0"
     >
         <Tabs defaultValue="general" className="py-2">

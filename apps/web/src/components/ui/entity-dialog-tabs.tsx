@@ -56,7 +56,7 @@ export function EntityDialogTabs({
   const tab = value ?? uncontrolled
   const setTab = onValueChange ?? setUncontrolled
 
-  const { containerProps, panelProps } = useTallestPanel()
+  const { containerProps, measuredPanelProps } = useTallestPanel()
 
   const tabs: EntityDialogTab[] = [
     { value: 'general', label: t('common.tab_general'), content: general, incomplete: generalIncomplete },
@@ -77,16 +77,32 @@ export function EntityDialogTabs({
           </TabsTrigger>
         ))}
       </TabsList>
-      {/* Only the active panel is mounted — stacking them all in one grid cell also
-          holds the height, but any absolutely-positioned child (a drop zone, an
-          overlay) escapes the cell and shows through the hidden panels.
-          Instead the container remembers the tallest panel it has rendered and
-          keeps that as a floor, so switching never moves the triggers out from
-          under the pointer. */}
-      <div className="pt-3" {...containerProps}>
-        <div {...panelProps} className="flex flex-col gap-4">
+      {/* The dialog is sized to the tallest tab from the start, so switching never
+          moves the triggers out from under the pointer — not even on the first
+          visit to a taller tab.
+
+          Every panel is rendered, but the inactive ones only inside a zero-height
+          measuring layer: `absolute` takes them out of the flow and `invisible`
+          hides them along with anything positioned inside them (a file drop zone
+          would otherwise escape a plain hidden panel and show through). They are
+          `inert`, so nothing in there takes focus or reaches a screen reader. */}
+      <div className="relative pt-3" {...containerProps}>
+        <div {...measuredPanelProps(tab)} className="flex flex-col gap-4">
           {tabs.find((tb) => tb.value === tab)?.content}
         </div>
+        {tabs.filter((tb) => tb.value !== tab).map((tb) => (
+          <div
+            key={tb.value}
+            aria-hidden
+            inert
+            {...measuredPanelProps(tb.value)}
+            // Absolute so it lays out at its natural height without adding any,
+            // invisible so neither it nor anything positioned inside it paints.
+            className="pointer-events-none invisible absolute inset-x-0 top-3 flex flex-col gap-4"
+          >
+            {tb.content}
+          </div>
+        ))}
       </div>
     </Tabs>
   )

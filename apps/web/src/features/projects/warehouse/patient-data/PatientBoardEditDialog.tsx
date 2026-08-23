@@ -51,6 +51,7 @@ export function PatientBoardEditDialog({
       onConfirm={save}
       confirmLabel={t('common.save')}
       confirmDisabled={!canSaveNow}
+      dirtyTracked
       contentClassName="space-y-3 py-2"
     >
           <div className="space-y-1">

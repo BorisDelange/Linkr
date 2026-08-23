@@ -47,6 +47,7 @@ export function SchemaPresetRenameDialog({ item, onOpenChange }: { item: CustomS
       onConfirm={save}
       confirmLabel={t('common.save')}
       confirmDisabled={!canSaveNow}
+      dirtyTracked
     >
       <div className="space-y-2">
         <Label>{t('schemas.field_name')}<RequiredMark /></Label>

@@ -149,6 +149,7 @@ export function DashboardSettingsDialog({
       description={t('dashboard.settings_description')}
       onConfirm={settings.save}
       confirmDisabled={!settings.canSaveNow}
+      dirtyTracked
       // Nothing edited yet: the button dismisses, it doesn't undo anything.
       cancelLabel={settings.isDirty ? t('common.cancel') : t('common.close')}
       contentClassName="space-y-0"

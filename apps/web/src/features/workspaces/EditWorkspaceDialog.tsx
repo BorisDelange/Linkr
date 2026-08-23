@@ -93,6 +93,7 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
       onConfirm={save}
       confirmLabel={t('common.save')}
       confirmDisabled={!canSaveNow}
+      dirtyTracked
     >
       <EntityDialogTabs
         general={

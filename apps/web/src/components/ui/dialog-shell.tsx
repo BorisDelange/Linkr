@@ -62,6 +62,16 @@ interface DialogShellProps {
   busy?: boolean
   cancelLabel?: ReactNode
   /**
+   * Marks an edit form that tracks its own dirty state (see `useSaveForm`) and
+   * disables the primary button when there is nothing to save. The secondary
+   * button then reads "Close" rather than "Cancel": with no pending change,
+   * there is nothing to cancel, and offering to would suggest there is.
+   *
+   * Not inferred from `confirmDisabled` alone — a create form is disabled until
+   * it is filled in, and closing that one *is* cancelling.
+   */
+  dirtyTracked?: boolean
+  /**
    * Extra footer content, placed before Cancel (e.g. a tertiary action).
    * Pinned to the far left, away from the primary pair — a discard action
    * shouldn't sit next to the button it undoes.
@@ -97,6 +107,7 @@ export function DialogShell({
   destructive,
   busy,
   cancelLabel,
+  dirtyTracked,
   footerExtra,
   hideFooter,
   noEnterSubmit,
@@ -154,7 +165,11 @@ export function DialogShell({
                 disabled={busy}
                 onClick={() => onOpenChange(false)}
               >
-                {cancelLabel ?? t(onConfirm ? 'common.cancel' : 'common.close')}
+                {cancelLabel ?? t(
+                  // Nothing pending (read-only dialog, or a dirty-tracked form with no
+                  // edits) → Close; otherwise the button really does cancel something.
+                  !onConfirm || (dirtyTracked && confirmDisabled) ? 'common.close' : 'common.cancel',
+                )}
               </Button>
               {onConfirm && (
                 <Button
