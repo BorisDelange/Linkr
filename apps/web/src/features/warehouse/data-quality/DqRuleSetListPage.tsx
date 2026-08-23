@@ -6,8 +6,8 @@ import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { cn } from '@/lib/utils'
 import { BadgeStrip } from '@/components/ui/badge-strip'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useDqStore } from '@/stores/dq-store'
@@ -34,7 +34,7 @@ function scoreColor(score?: number) {
 }
 
 export function DqRuleSetListPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
@@ -74,6 +74,7 @@ export function DqRuleSetListPage() {
 
   // Distinct badges across the workspace's items, first-seen colour per label so the
   // filter options match the chips drawn on the cards.
+  const badgeCategories = useBadgeCategories()
   const allBadges = useMemo(() => {
     const byLabel = new Map<string, string>()
     for (const rs of ruleSets) for (const b of rs.badges ?? []) {

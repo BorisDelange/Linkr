@@ -43,8 +43,8 @@ import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { EditWorkspaceDialog } from './EditWorkspaceDialog'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { ListPageToolbar, type FilterGroup, type SortState } from '@/components/ui/list-page-toolbar'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { BadgeStrip } from '@/components/ui/badge-strip'
@@ -76,6 +76,8 @@ export function WorkspacesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const [sort, setSort] = useState<SortState | null>(null)
+
+  const badgeCategories = useBadgeCategories()
 
   const allBadges = useMemo(() => {
     const byLabel = new Map<string, string>()

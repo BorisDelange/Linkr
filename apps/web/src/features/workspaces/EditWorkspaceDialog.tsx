@@ -35,7 +35,7 @@ interface EditWorkspaceDialogProps {
 export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorkspaceDialogProps) {
   const { t } = useTranslation()
   const { updateWorkspace, updateWorkspaceBadges } = useWorkspaceStore()
-  const allWorkspaces = useWorkspaceStore((s) => s.workspaces)
+  const allWorkspaces = useWorkspaceStore((s) => s._workspacesRaw)
   // A workspace has no parent workspace, so useBadgeSuggestions (which scopes by
   // workspaceId) doesn't apply: the siblings here are the other workspaces.
   const badgeCategories = useBadgeCategories()

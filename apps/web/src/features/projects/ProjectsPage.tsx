@@ -50,8 +50,9 @@ import { formatApiError, isServerMode, type FormattedError } from '@/lib/api-cli
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { CreateProjectDialog } from './CreateProjectDialog'
-import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
+import { getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import type { Project } from '@/types'
 
 export function ProjectsPage() {
@@ -96,6 +97,8 @@ export function ProjectsPage() {
   const displayProjects = wsUid ? getWorkspaceProjects(wsUid) : projects
 
   const rawByUid = useMemo(() => new Map(_projectsRaw.map((p) => [p.uid, p])), [_projectsRaw])
+
+  const badgeCategories = useBadgeCategories()
 
   const allBadges = useMemo(() => {
     const byLabel = new Map<string, string>()

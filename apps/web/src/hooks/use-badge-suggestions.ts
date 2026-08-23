@@ -1,9 +1,14 @@
 import { useMemo } from 'react'
 import type { ProjectBadge } from '@/types'
 
-/** Anything badge-carrying and workspace-scoped — the shape every entity list shares. */
+/**
+ * Anything badge-carrying and workspace-scoped — the shape every entity list
+ * shares. The primary key is `id` on most entities and `uid` on a project, so
+ * both are optional here and `excludeId` is compared against whichever exists.
+ */
 interface BadgeCarrier {
-  id: string
+  id?: string
+  uid?: string
   workspaceId?: string
   badges?: ProjectBadge[]
 }
@@ -24,7 +29,7 @@ export function useBadgeSuggestions(
   return useMemo(() => {
     if (!workspaceId) return []
     return items
-      .filter((i) => i.workspaceId === workspaceId && i.id !== excludeId)
+      .filter((i) => i.workspaceId === workspaceId && (i.id ?? i.uid) !== excludeId)
       .flatMap((i) => i.badges ?? [])
   }, [items, workspaceId, excludeId])
 }

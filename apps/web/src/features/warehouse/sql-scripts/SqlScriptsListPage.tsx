@@ -8,8 +8,8 @@ import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { BadgeStrip } from '@/components/ui/badge-strip'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
@@ -26,7 +26,7 @@ import { useSqlCollectionActions } from './use-sql-collection-actions'
 import type { SqlScriptCollection, SqlScriptFile } from '@/types'
 
 export function SqlScriptsListPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { atLeast } = useMyWorkspaceRole()
@@ -65,6 +65,7 @@ export function SqlScriptsListPage() {
 
   // Distinct badges across the workspace's items, first-seen colour per label so the
   // filter options match the chips drawn on the cards.
+  const badgeCategories = useBadgeCategories()
   const allBadges = useMemo(() => {
     const byLabel = new Map<string, string>()
     for (const c of collections) for (const b of c.badges ?? []) {

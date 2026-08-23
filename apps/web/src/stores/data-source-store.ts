@@ -17,6 +17,7 @@ import type {
   SchemaMapping,
   StoredFile,
   StoredFileHandle,
+  ProjectBadge,
 } from '@/types'
 
 // --- Active data source persistence (localStorage) ---
@@ -67,6 +68,8 @@ interface DataSourceState {
     isVocabularyReference?: boolean
     /** Override auto-generated alias (slug). */
     alias?: string
+    badges?: ProjectBadge[]
+    version?: string
   }) => Promise<string>
 
   updateDataSource: (id: string, changes: Partial<DataSource>) => Promise<void>
@@ -336,6 +339,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       schemaMapping: sanitizeSchemaMapping(source.schemaMapping),
       status: 'configuring' as DataSourceStatus,
       ...(source.isVocabularyReference ? { isVocabularyReference: true } : {}),
+      // The add dialog has offered these since databases gained badges and a
+      // version; they were being passed and dropped on the floor here.
+      ...(source.badges?.length ? { badges: source.badges } : {}),
+      version: source.version || '0.1.0',
       workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
       ...stampAuthored(),
       createdAt: now,

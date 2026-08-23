@@ -26,8 +26,8 @@ import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { formatApiError, type FormattedError } from '@/lib/api-client'
 import { TruncatedText } from '@/components/ui/truncated-text'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { BadgeStrip } from '@/components/ui/badge-strip'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
 import { ListPageTemplate } from '../ListPageTemplate'
@@ -72,7 +72,7 @@ type MappingProjectListPageProps = HomeProps | ProjectsProps
 // ---------------------------------------------------------------------------
 
 export function MappingProjectListPage(props: MappingProjectListPageProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   // Absolute concept-mapping base: the list renders at BOTH /concept-mapping (home)
@@ -112,6 +112,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
 
   // All distinct custom badges across the workspace's projects, keeping the first-seen
   // colour per label so the filter options match the badges shown on the cards.
+  const badgeCategories = useBadgeCategories()
   const allBadges = useMemo(() => {
     const byLabel = new Map<string, string>()
     for (const p of projects) for (const b of p.badges ?? []) {
