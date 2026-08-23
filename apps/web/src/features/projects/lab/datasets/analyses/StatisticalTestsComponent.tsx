@@ -3,7 +3,20 @@ import { useTranslation } from 'react-i18next'
 import { FlaskConical, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
-import { defaultAnalysisColumns } from '@/lib/analysis-default-columns'
+import {
+  defaultAnalysisColumns,
+  orderSelection,
+  type VariableOrder,
+} from '@/lib/analysis-default-columns'
+import { displayColumnName } from '@/lib/dataset-utils'
+import { PublicationTable, type PublicationColumn } from '@/components/ui/publication-table'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { groupsLookNormal } from '@/lib/stats/normality'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildStatisticalTestsSpec } from './statistical-tests-server'
@@ -28,6 +41,20 @@ interface TestResult {
   effectSizeLabel: string
   groupDescriptives: GroupDescriptive[] | null
   warning: string | null
+  /**
+   * Why THIS test, in one sentence, for the hover on the test name.
+   *
+   * Optional because the server computes results too and may not send it; the
+   * cell then shows the name alone rather than an empty tooltip.
+   */
+  rationale?: { en: string; fr: string }
+}
+
+/** A result plus the label the table prints for it. */
+interface StatRow {
+  id: string
+  result: TestResult
+  label: string
 }
 
 interface GroupDescriptive {
@@ -747,22 +774,89 @@ function kruskalWallisTest(
 
 type TestPreference = 'auto' | 'parametric' | 'nonparametric'
 
+/**
+ * Which test, and WHY — the rationale travels with the choice so the table can
+ * show it on hover.
+ *
+ * `auto` is the only mode that inspects the data: each group is checked for
+ * normality (Shapiro-Wilk), and any group failing sends the whole comparison to
+ * the rank-based test. Failing safe toward the non-parametric side is
+ * deliberate: it costs a little power when the data really were normal, whereas
+ * a t-test on a skewed variable can report a difference that is not there.
+ *
+ * `parametric` / `nonparametric` skip the check entirely — a protocol that
+ * fixed the analysis in advance should not have the tool quietly overrule it.
+ */
 function selectTest(
   variableType: 'numeric' | 'categorical',
   groupCount: number,
   preference: TestPreference,
   isTwoByTwo: boolean,
   minExpectedCount: number,
-): TestName {
+  groupValues: number[][] = [],
+): { testName: TestName; rationale: { en: string; fr: string } } {
   if (variableType === 'categorical') {
-    if (isTwoByTwo && minExpectedCount < 5) return 'fisher'
-    return 'chi-square'
+    if (isTwoByTwo && minExpectedCount < 5) {
+      return {
+        testName: 'fisher',
+        rationale: {
+          en: `2×2 table with an expected count below 5 (smallest ${minExpectedCount.toFixed(1)}), where chi-squared's approximation is unreliable — Fisher's exact test instead.`,
+          fr: `Tableau 2×2 avec un effectif attendu sous 5 (le plus petit ${minExpectedCount.toFixed(1)}), où l'approximation du chi² n'est pas fiable — test exact de Fisher à la place.`,
+        },
+      }
+    }
+    return {
+      testName: 'chi-square',
+      rationale: {
+        en: 'Categorical variable compared across groups, with expected counts large enough for the chi-squared approximation.',
+        fr: 'Variable qualitative comparée entre groupes, avec des effectifs attendus suffisants pour l’approximation du chi².',
+      },
+    }
   }
-  // Numeric
-  if (groupCount === 2) {
-    return preference === 'nonparametric' ? 'mann-whitney' : 'welch-t'
+
+  const pair = groupCount === 2
+  if (preference === 'nonparametric') {
+    return {
+      testName: pair ? 'mann-whitney' : 'kruskal-wallis',
+      rationale: {
+        en: 'Non-parametric test forced in the settings; the data were not checked for normality.',
+        fr: 'Test non paramétrique forcé dans les paramètres ; la normalité des données n’a pas été vérifiée.',
+      },
+    }
   }
-  return preference === 'nonparametric' ? 'kruskal-wallis' : 'anova'
+  if (preference === 'parametric') {
+    return {
+      testName: pair ? 'welch-t' : 'anova',
+      rationale: {
+        en: 'Parametric test forced in the settings; the data were not checked for normality.',
+        fr: 'Test paramétrique forcé dans les paramètres ; la normalité des données n’a pas été vérifiée.',
+      },
+    }
+  }
+
+  const verdict = groupsLookNormal(groupValues)
+  if (verdict.normal) {
+    const why = verdict.reason === 'not-tested-large'
+      ? {
+          en: 'Groups too large to test for normality usefully (Shapiro-Wilk rejects trivial departures at this size); the parametric test is robust here.',
+          fr: 'Groupes trop grands pour tester utilement la normalité (Shapiro-Wilk rejette des écarts négligeables à cette taille) ; le test paramétrique est robuste ici.',
+        }
+      : {
+          en: `Each group is consistent with a normal distribution (Shapiro-Wilk, smallest p = ${verdict.pValue!.toFixed(3)}).`,
+          fr: `Chaque groupe est compatible avec une distribution normale (Shapiro-Wilk, plus petit p = ${verdict.pValue!.toFixed(3)}).`,
+        }
+    return { testName: pair ? 'welch-t' : 'anova', rationale: why }
+  }
+  const why = verdict.reason === 'not-tested-small'
+    ? {
+        en: 'Too few observations per group to check normality, so the test that does not assume it was used.',
+        fr: 'Trop peu d’observations par groupe pour vérifier la normalité ; le test qui ne la suppose pas a été retenu.',
+      }
+    : {
+        en: `At least one group departs from normality (Shapiro-Wilk, smallest p = ${verdict.pValue!.toFixed(3)}), so a rank-based test was used.`,
+        fr: `Au moins un groupe s’écarte de la normalité (Shapiro-Wilk, plus petit p = ${verdict.pValue!.toFixed(3)}) ; un test sur les rangs a été utilisé.`,
+      }
+  return { testName: pair ? 'mann-whitney' : 'kruskal-wallis', rationale: why }
 }
 
 function computeAllTests(
@@ -780,7 +874,10 @@ function computeAllTests(
 
   const groupMap = new Map<string, Record<string, unknown>[]>()
   for (const row of rows) {
-    const gv = row[groupColumnId]
+    // By NAME: rows are keyed by the column's name, while its id is a slug
+    // (`col_arm`). Reading by id finds undefined in every row, which collapses
+    // to "fewer than two groups" and returns no tests at all.
+    const gv = row[groupCol.name]
     if (!isNotMissing(gv)) continue
     const key = String(gv)
     if (!groupMap.has(key)) groupMap.set(key, [])
@@ -828,7 +925,7 @@ function computeAllTests(
       const groupArrays: number[][] = []
       const validGroupNames: string[] = []
       for (const gn of groupNames) {
-        const nums = extractNumbers(groupMap.get(gn)!.map((r) => r[colId]))
+        const nums = extractNumbers(groupMap.get(gn)!.map((r) => r[col.name]))
         if (nums.length > 0) {
           groupArrays.push(nums)
           validGroupNames.push(gn)
@@ -854,7 +951,9 @@ function computeAllTests(
         continue
       }
 
-      const testName = selectTest('numeric', validGroupNames.length, testPreference, false, 0)
+      const { testName, rationale } = selectTest(
+        'numeric', validGroupNames.length, testPreference, false, 0, groupArrays,
+      )
 
       if (testName === 'welch-t') {
         const res = welchT(groupArrays[0], groupArrays[1], validGroupNames[0], validGroupNames[1], alpha)
@@ -864,6 +963,7 @@ function computeAllTests(
             variableType: 'numeric',
             testName,
             testLabel: TEST_LABELS[testName],
+          rationale,
             statistic: null,
             statisticLabel: STAT_LABELS[testName],
             df: null,
@@ -880,6 +980,7 @@ function computeAllTests(
             variableType: 'numeric',
             testName,
             testLabel: TEST_LABELS[testName],
+          rationale,
             statistic: res.t,
             statisticLabel: STAT_LABELS[testName],
             df: res.df,
@@ -898,6 +999,7 @@ function computeAllTests(
           variableType: 'numeric',
           testName,
           testLabel: TEST_LABELS[testName],
+          rationale,
           statistic: res?.U ?? null,
           statisticLabel: STAT_LABELS[testName],
           df: null,
@@ -915,6 +1017,7 @@ function computeAllTests(
           variableType: 'numeric',
           testName,
           testLabel: TEST_LABELS[testName],
+          rationale,
           statistic: res?.F ?? null,
           statisticLabel: STAT_LABELS[testName],
           df: res ? res.dfBetween : null,
@@ -933,6 +1036,7 @@ function computeAllTests(
           variableType: 'numeric',
           testName,
           testLabel: TEST_LABELS[testName],
+          rationale,
           statistic: res?.H ?? null,
           statisticLabel: STAT_LABELS[testName],
           df: res?.df ?? null,
@@ -950,7 +1054,7 @@ function computeAllTests(
       for (const gn of groupNames) {
         const vals = groupMap
           .get(gn)!
-          .map((r) => r[colId])
+          .map((r) => r[col.name])
           .filter(isNotMissing)
           .map(String)
         catGroups.set(gn, vals)
@@ -983,7 +1087,9 @@ function computeAllTests(
         }
       }
 
-      const testName = selectTest('categorical', groupCount, testPreference, isTwoByTwo, minExpected)
+      const { testName, rationale } = selectTest(
+        'categorical', groupCount, testPreference, isTwoByTwo, minExpected,
+      )
 
       if (testName === 'fisher') {
         const res = fisherExact(catGroups, groupNames)
@@ -992,6 +1098,7 @@ function computeAllTests(
           variableType: 'categorical',
           testName,
           testLabel: TEST_LABELS[testName],
+          rationale,
           statistic: null,
           statisticLabel: STAT_LABELS[testName],
           df: null,
@@ -1009,6 +1116,7 @@ function computeAllTests(
           variableType: 'categorical',
           testName,
           testLabel: TEST_LABELS[testName],
+          rationale,
           statistic: res?.chi2 ?? null,
           statisticLabel: STAT_LABELS[testName],
           df: res?.df ?? null,
@@ -1054,7 +1162,7 @@ function fmt(val: number, decimals = 2): string {
 const ALL_TABLE_COLUMNS = ['test', 'statistic', 'df', 'p', 'ci', 'effectSize', 'descriptive'] as const
 
 export function StatisticalTestsComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
   const server = isServerMode()
 
@@ -1065,14 +1173,20 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
   const rawVisibleColumns = config.visibleColumns as string[] | undefined
   const visibleColumns = new Set(rawVisibleColumns?.length ? rawVisibleColumns : ALL_TABLE_COLUMNS)
   const highlightSignificant = (config.highlightSignificant as boolean) ?? true
+  const wrap = config.wrap === true
+  const variableOrder = (config.variableOrder as VariableOrder) ?? 'dataset'
 
   const showCol = (col: string) => visibleColumns.has(col)
 
   // Default: every column worth testing, minus the grouping one. Identifiers
   // and dates are left unticked — see lib/analysis-default-columns.
-  const valueColumnIds = rawValueColumns?.length
-    ? rawValueColumns
-    : defaultAnalysisColumns(columns.filter((c) => c.id !== groupColumnId)).map((c) => c.id)
+  const testable = columns.filter((c) => c.id !== groupColumnId)
+  const valueColumnIds = orderSelection(
+    rawValueColumns?.length ? rawValueColumns : defaultAnalysisColumns(testable).map((c) => c.id),
+    testable,
+    variableOrder,
+    displayColumnName,
+  )
 
   const localResults = useMemo(
     () => (server ? null : computeAllTests(rows, columns, groupColumnId, valueColumnIds, testPreference, alpha)),
@@ -1102,6 +1216,21 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
 
   const results = useMemo(() => (server ? serverResults : localResults) ?? [], [server, serverResults, localResults])
 
+  // Results identify a variable by its column NAME (both ends agree on that);
+  // the table prints the LABEL, so map back through the column list here.
+  const statRows = useMemo<StatRow[]>(() => {
+    const labelByName = new Map(columns.map((c) => [c.name, displayColumnName(c)]))
+    return results.map((result, i) => ({
+      id: `${result.variable}:${i}`,
+      result,
+      label: labelByName.get(result.variable) ?? result.variable,
+    }))
+  }, [results, columns])
+
+  const groupColumn = groupColumnId ? columns.find((c) => c.id === groupColumnId) : undefined
+  const groupLabel = groupColumn ? displayColumnName(groupColumn) : ''
+
+
   // Collect group names for descriptive columns (always computed)
   const allGroupNames = useMemo(() => {
     if (!groupColumnId) return []
@@ -1113,6 +1242,131 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
     }
     return [...names].sort()
   }, [results, groupColumnId])
+
+  // One PublicationColumn per visible statistic, so the table gets booktabs
+  // styling, resizable columns and ellipsis-with-tooltip for free — the same
+  // component the descriptive table uses, so the two read as one family.
+  //
+  // Memoized because PublicationTable captures the column objects when a
+  // resize drag begins, and a drag re-renders on every mouse move. Rebuilding
+  // the array on each render swapped those objects mid-drag, so the column
+  // stopped following the cursor.
+  const tableColumns = useMemo<PublicationColumn<StatRow>[]>(() => {
+    const cols: PublicationColumn<StatRow>[] = []
+    cols.push({
+      id: '__variable__',
+      header: t('datasets.table1_variable'),
+      cell: (r) => (
+        <span>
+          {r.label}
+          <span className="ml-1 text-muted-foreground">
+            ({r.result.variableType === 'numeric' ? 'num.' : 'cat.'})
+          </span>
+        </span>
+      ),
+      align: 'left',
+      width: 200,
+      minWidth: 110,
+    })
+    if (showCol('descriptive')) {
+      for (const gn of allGroupNames) {
+        cols.push({
+          id: `g:${gn}`,
+          header: gn,
+          // Grouped under the grouping variable's own label, the way a journal
+          // puts "Arm" over the columns that belong to it.
+          group: groupLabel,
+          cell: (r) => descriptiveCell(r.result, gn),
+          align: 'right',
+          width: 150,
+        })
+      }
+    }
+    if (showCol('test')) {
+      cols.push({
+        id: 'test',
+        header: t('datasets.stats_col_test'),
+        cell: (r) => <TestCell result={r.result} lang={lang} />,
+        align: 'left',
+        width: 150,
+      })
+    }
+    if (showCol('statistic')) {
+      cols.push({
+        id: 'statistic',
+        header: t('datasets.stats_col_statistic'),
+        cell: (r) =>
+          r.result.statistic != null ? (
+            <span className="font-mono">
+              <span className="text-muted-foreground">{r.result.statisticLabel} = </span>
+              {fmt(r.result.statistic)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/40">{DASH}</span>
+          ),
+        align: 'right',
+        width: 120,
+      })
+    }
+    if (showCol('df')) {
+      cols.push({
+        id: 'df',
+        header: 'df',
+        cell: (r) =>
+          r.result.df != null ? (
+            <span className="font-mono">
+              {Number.isInteger(r.result.df) ? r.result.df : fmt(r.result.df, 1)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/40">{DASH}</span>
+          ),
+        align: 'right',
+        width: 70,
+      })
+    }
+    if (showCol('p')) {
+      cols.push({
+        id: 'p',
+        header: 'p',
+        cell: (r) => <PValueCell result={r.result} alpha={alpha} highlight={highlightSignificant} />,
+        align: 'right',
+        width: 110,
+      })
+    }
+    if (showCol('ci')) {
+      cols.push({
+        id: 'ci',
+        header: t('datasets.stats_col_ci'),
+        cell: (r) =>
+          r.result.ci ? (
+            <span className="font-mono">{`[${fmt(r.result.ci[0])}, ${fmt(r.result.ci[1])}]`}</span>
+          ) : (
+            <span className="text-muted-foreground/40">{DASH}</span>
+          ),
+        align: 'right',
+        width: 130,
+      })
+    }
+    if (showCol('effectSize')) {
+      cols.push({
+        id: 'effectSize',
+        header: t('datasets.stats_col_effect'),
+        cell: (r) =>
+          r.result.effectSize != null ? (
+            <span className="font-mono">
+              <span className="text-muted-foreground">{r.result.effectSizeLabel} = </span>
+              {fmt(r.result.effectSize)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/40">{DASH}</span>
+          ),
+        align: 'right',
+        width: 130,
+      })
+    }
+    return cols
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- showCol reads visibleColumns, tracked via rawVisibleColumns
+  }, [t, lang, alpha, highlightSignificant, allGroupNames, groupLabel, rawVisibleColumns])
 
   // Empty states
   if (!groupColumnId) {
@@ -1155,7 +1409,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
     )
   }
 
-  if (results.length === 0) {
+  if (statRows.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <FlaskConical size={24} className="opacity-40" />
@@ -1168,215 +1422,107 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
     )
   }
 
-  const cellCn = compact ? 'px-2 py-0.5' : 'px-3 py-1.5'
-  const textCn = compact ? 'text-[10px]' : 'text-xs'
-  const thCn = cn('border-b border-r font-medium whitespace-nowrap', cellCn)
+
 
   return (
-    <div className={cn('h-full overflow-auto', !compact && 'p-4')}>
-      <table className={cn('w-full border-collapse', textCn)}>
-        <thead className="sticky top-0 z-10">
-          <tr className="bg-muted">
-            <th className={cn(thCn, 'text-left sticky left-0 z-20 bg-muted')}>
-              Variable
-            </th>
-            {/* Group descriptive columns */}
-            {showCol('descriptive') &&
-              allGroupNames.map((gn) => (
-                <th key={gn} className={cn(thCn, 'text-right')}>
-                  {gn}
-                </th>
-              ))}
-            {showCol('test') && (
-              <th className={cn(thCn, 'text-left')}>
-                Test
-              </th>
-            )}
-            {showCol('statistic') && (
-              <th className={cn(thCn, 'text-right')}>
-                {lang === 'fr' ? 'Statistique' : 'Statistic'}
-              </th>
-            )}
-            {showCol('df') && (
-              <th className={cn(thCn, 'text-right')}>
-                df
-              </th>
-            )}
-            {showCol('p') && (
-              <th className={cn(thCn, 'text-right')}>
-                p
-              </th>
-            )}
-            {showCol('ci') && (
-              <th className={cn(thCn, 'text-right')}>
-                {lang === 'fr' ? 'IC 95%' : '95% CI'}
-              </th>
-            )}
-            {showCol('effectSize') && (
-              <th className={cn(thCn, 'text-right')}>
-                {lang === 'fr' ? 'Taille d\'effet' : 'Effect size'}
-              </th>
-            )}
-            <th className={cn('border-b font-medium text-left whitespace-nowrap', cellCn)} />
-          </tr>
-        </thead>
-        <tbody>
-          {results.map((r, idx) => {
-            const isSignificant = r.pValue != null && r.pValue < alpha
-            const rowBg = highlightSignificant && isSignificant
-              ? 'bg-green-50 dark:bg-green-950/20'
-              : idx % 2 === 1
-                ? 'bg-muted/30'
-                : ''
-            return (
-              <tr
-                key={idx}
-                className={cn('transition-colors hover:bg-accent/30', rowBg)}
-              >
-                {/* Variable */}
-                <td
-                  className={cn(
-                    'sticky left-0 z-[5] border-b border-r font-medium bg-background whitespace-nowrap',
-                    cellCn,
-                    rowBg,
-                  )}
-                >
-                  <span>{r.variable}</span>
-                  <span className="ml-1 text-muted-foreground">
-                    ({r.variableType === 'numeric' ? 'num.' : 'cat.'})
-                  </span>
-                </td>
+    <PublicationTable
+      rows={statRows}
+      columns={tableColumns}
+      wrap={wrap}
+      className={cn('h-full', !compact && 'p-4')}
+      emptyMessage={t('common.no_results')}
+    />
+  )
+}
 
-                {/* Group descriptive columns — right after variable for comparison */}
-                {showCol('descriptive') &&
-                  allGroupNames.map((gn) => {
-                    const gd = r.groupDescriptives?.find((g) => g.groupName === gn)
-                    if (!gd) {
-                      return (
-                        <td key={gn} className={cn('border-b border-r text-right whitespace-nowrap', cellCn)}>
-                          <span className="text-muted-foreground/40">{DASH}</span>
-                        </td>
-                      )
-                    }
-                    if (r.variableType === 'numeric') {
-                      return (
-                        <td key={gn} className={cn('border-b border-r text-right whitespace-nowrap', cellCn)}>
-                          <span className="text-muted-foreground">n=</span>{gd.n}
-                          {gd.mean != null && (
-                            <>
-                              {', '}
-                              {fmt(gd.mean)} ± {fmt(gd.sd ?? 0)}
-                            </>
-                          )}
-                        </td>
-                      )
-                    }
-                    // Categorical: show top categories
-                    return (
-                      <td key={gn} className={cn('border-b border-r text-right whitespace-normal max-w-[220px]', cellCn)}>
-                        <span className="text-muted-foreground">n=</span>{gd.n}
-                        {gd.freqs && (
-                          <span className="ml-1">
-                            {gd.freqs.map((f) => `${f.category}: ${f.count} (${f.pct.toFixed(1)}%)`).join('; ')}
-                          </span>
-                        )}
-                      </td>
-                    )
-                  })}
+/** The group descriptive cell: n, plus mean ± SD or the category breakdown. */
+function descriptiveCell(result: TestResult, groupName: string) {
+  const gd = result.groupDescriptives?.find((g) => g.groupName === groupName)
+  if (!gd) return <span className="text-muted-foreground/40">{DASH}</span>
+  if (result.variableType === 'numeric') {
+    return (
+      <span>
+        <span className="text-muted-foreground">n=</span>
+        {gd.n}
+        {gd.mean != null && ` , ${fmt(gd.mean)} ± ${fmt(gd.sd ?? 0)}`}
+      </span>
+    )
+  }
+  return (
+    <span>
+      <span className="text-muted-foreground">n=</span>
+      {gd.n}
+      {gd.freqs && (
+        <span className="ml-1">
+          {gd.freqs.map((f) => `${f.category}: ${f.count} (${f.pct.toFixed(1)}%)`).join('; ')}
+        </span>
+      )}
+    </span>
+  )
+}
 
-                {/* Test */}
-                {showCol('test') && (
-                  <td className={cn('border-b border-r whitespace-nowrap', cellCn)}>
-                    {r.testLabel[lang]}
-                  </td>
-                )}
+/**
+ * The test name, with WHY it was chosen behind a hover.
+ *
+ * The reason belongs next to the result rather than in the docs: "Mann-Whitney"
+ * alone does not tell a reader whether the tool judged the data non-normal or
+ * whether someone forced it, and those support very different conclusions.
+ */
+function TestCell({ result, lang }: { result: TestResult; lang: 'en' | 'fr' }) {
+  const label = result.testLabel[lang]
+  if (!result.rationale) return <span>{label}</span>
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help underline decoration-dotted underline-offset-2">{label}</span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          <p className="text-xs">{result.rationale[lang]}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
 
-                {/* Statistic */}
-                {showCol('statistic') && (
-                  <td className={cn('border-b border-r text-right font-mono whitespace-nowrap', cellCn)}>
-                    {r.statistic != null ? (
-                      <>
-                        <span className="text-muted-foreground">{r.statisticLabel} = </span>
-                        {fmt(r.statistic)}
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground/40">{DASH}</span>
-                    )}
-                  </td>
-                )}
-
-                {/* df */}
-                {showCol('df') && (
-                  <td className={cn('border-b border-r text-right font-mono whitespace-nowrap', cellCn)}>
-                    {r.df != null ? (
-                      Number.isInteger(r.df) ? r.df : fmt(r.df, 1)
-                    ) : (
-                      <span className="text-muted-foreground/40">{DASH}</span>
-                    )}
-                  </td>
-                )}
-
-                {/* p-value */}
-                {showCol('p') && (
-                  <td
-                    className={cn(
-                      'border-b border-r text-right font-mono whitespace-nowrap',
-                      cellCn,
-                      isSignificant && 'font-bold',
-                    )}
-                  >
-                    {r.pValue != null ? (
-                      <>
-                        {formatP(r.pValue)}
-                        {isSignificant && (
-                          <span className="text-green-600 dark:text-green-400">{sigStars(r.pValue)}</span>
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground/40">{DASH}</span>
-                    )}
-                  </td>
-                )}
-
-                {/* 95% CI */}
-                {showCol('ci') && (
-                  <td className={cn('border-b border-r text-right font-mono whitespace-nowrap', cellCn)}>
-                    {r.ci ? (
-                      `[${fmt(r.ci[0])}, ${fmt(r.ci[1])}]`
-                    ) : (
-                      <span className="text-muted-foreground/40">{DASH}</span>
-                    )}
-                  </td>
-                )}
-
-                {/* Effect size */}
-                {showCol('effectSize') && (
-                  <td className={cn('border-b border-r text-right font-mono whitespace-nowrap', cellCn)}>
-                    {r.effectSize != null ? (
-                      <>
-                        <span className="text-muted-foreground">{r.effectSizeLabel} = </span>
-                        {fmt(r.effectSize)}
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground/40">{DASH}</span>
-                    )}
-                  </td>
-                )}
-
-                {/* Warning */}
-                <td className={cn('border-b whitespace-nowrap', cellCn)}>
-                  {r.warning && (
-                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                      <AlertTriangle size={compact ? 10 : 12} />
-                      {r.warning}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
+/**
+ * The p-value, its significance marker, and any warning about its reliability.
+ *
+ * A fragile p is SHOWN and flagged, never hidden: suppressing it would leave
+ * the reader thinking the comparison was not run, and quietly deciding for them
+ * which results they may see is worse than telling them what is shaky.
+ */
+function PValueCell({
+  result,
+  alpha,
+  highlight,
+}: {
+  result: TestResult
+  alpha: number
+  highlight: boolean
+}) {
+  if (result.pValue == null) return <span className="text-muted-foreground/40">{DASH}</span>
+  const significant = result.pValue < alpha
+  return (
+    <span className={cn('font-mono', highlight && significant && 'font-bold')}>
+      {formatP(result.pValue)}
+      {highlight && significant && (
+        <span className="text-green-600 dark:text-green-400">{sigStars(result.pValue)}</span>
+      )}
+      {result.warning && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="ml-1 inline-flex cursor-help align-middle text-amber-600 dark:text-amber-400">
+                <AlertTriangle size={11} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p className="text-xs">{result.warning}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+    </span>
   )
 }

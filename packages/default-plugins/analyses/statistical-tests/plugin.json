@@ -1,71 +1,266 @@
 {
   "id": "linkr-analysis-statistical-tests",
   "name": {
-    "en": "Statistical Tests",
+    "en": "Statistical tests",
     "fr": "Tests statistiques"
   },
   "description": {
     "en": "Automated statistical testing: t-test, Mann-Whitney, Chi-squared, Fisher, ANOVA, Kruskal-Wallis. Automatically selects the right test per variable based on data type and group count.",
     "fr": "Tests statistiques automatisés : t-test, Mann-Whitney, Chi², Fisher, ANOVA, Kruskal-Wallis. Sélectionne automatiquement le test adapté par variable selon le type de données et le nombre de groupes."
   },
-  "version": "1.0.0",
+  "version": "2.0.0",
   "category": "statistics",
-  "tags": ["statistics", "hypothesis-testing", "t-test", "chi-square", "anova", "mann-whitney", "fisher", "kruskal-wallis"],
-  "runtime": ["component"],
+  "tags": [
+    "statistics",
+    "hypothesis-testing",
+    "t-test",
+    "chi-square",
+    "anova",
+    "mann-whitney",
+    "fisher",
+    "kruskal-wallis"
+  ],
+  "runtime": [
+    "component"
+  ],
   "languages": [],
   "icon": "FlaskConical",
   "iconColor": "indigo",
   "configSchema": {
     "groupColumn": {
       "type": "column-select",
-      "label": { "en": "Group column", "fr": "Colonne de groupe" },
+      "label": {
+        "en": "Group column",
+        "fr": "Colonne de groupe"
+      },
       "filter": "categorical",
-      "hint": { "en": "required", "fr": "requis" }
+      "hint": {
+        "en": "required",
+        "fr": "requis"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "The variable whose groups are compared. Two groups give a t-test or Mann-Whitney; three or more, an ANOVA or Kruskal-Wallis.",
+        "fr": "La variable dont les groupes sont comparés. Deux groupes donnent un t-test ou Mann-Whitney ; trois ou plus, une ANOVA ou un Kruskal-Wallis."
+      }
     },
     "valueColumns": {
       "type": "column-select",
       "multi": true,
-      "label": { "en": "Value columns", "fr": "Colonnes de valeurs" },
-      "defaultAll": true
+      "label": {
+        "en": "Variables tested",
+        "fr": "Variables testées"
+      },
+      "defaultAll": true,
+      "orderable": true,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "One row per variable. Drag to reorder when the order is Custom.",
+        "fr": "Une ligne par variable. Glissez pour réordonner quand l'ordre est Personnalisé."
+      }
+    },
+    "variableOrder": {
+      "type": "select",
+      "label": {
+        "en": "Variable order",
+        "fr": "Ordre des variables"
+      },
+      "default": "dataset",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Dataset order matches the columns as they sit in the file. Custom lets you drag the variables into the order the table should read.",
+        "fr": "L'ordre du jeu de données suit les colonnes telles qu'elles sont dans le fichier. Personnalisé permet de glisser les variables dans l'ordre de lecture du tableau."
+      },
+      "options": [
+        {
+          "value": "dataset",
+          "label": {
+            "en": "Dataset order",
+            "fr": "Ordre du jeu de données"
+          }
+        },
+        {
+          "value": "alphabetical",
+          "label": {
+            "en": "Alphabetical",
+            "fr": "Alphabétique"
+          }
+        },
+        {
+          "value": "custom",
+          "label": {
+            "en": "Custom (drag to reorder)",
+            "fr": "Personnalisé (glisser pour réordonner)"
+          }
+        }
+      ]
     },
     "testPreference": {
       "type": "select",
-      "label": { "en": "Test preference", "fr": "Préférence de test" },
+      "label": {
+        "en": "Test choice",
+        "fr": "Choix du test"
+      },
       "default": "auto",
+      "section": {
+        "en": "Test",
+        "fr": "Test"
+      },
+      "description": {
+        "en": "Auto picks per variable from the data: a normality check on each group decides between the parametric test and its rank-based counterpart. Forcing one applies it everywhere, which is what you want when a protocol fixed the analysis in advance.",
+        "fr": "Auto choisit variable par variable d'après les données : un test de normalité sur chaque groupe départage le test paramétrique et son équivalent sur les rangs. Forcer un choix l'applique partout, ce qui convient quand un protocole a fixé l'analyse à l'avance."
+      },
       "options": [
-        { "value": "auto", "label": { "en": "Auto (parametric)", "fr": "Auto (paramétrique)" } },
-        { "value": "nonparametric", "label": { "en": "Force non-parametric", "fr": "Forcer non-paramétrique" } },
-        { "value": "parametric", "label": { "en": "Force parametric", "fr": "Forcer paramétrique" } }
-      ],
-      "row": "options"
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto (guided by the data)",
+            "fr": "Auto (guidé par les données)"
+          }
+        },
+        {
+          "value": "nonparametric",
+          "label": {
+            "en": "Force non-parametric",
+            "fr": "Forcer non-paramétrique"
+          }
+        },
+        {
+          "value": "parametric",
+          "label": {
+            "en": "Force parametric",
+            "fr": "Forcer paramétrique"
+          }
+        }
+      ]
     },
     "alpha": {
       "type": "number",
-      "label": { "en": "Significance level (α)", "fr": "Seuil de significativité (α)" },
+      "label": {
+        "en": "Significance level (α)",
+        "fr": "Seuil de significativité (α)"
+      },
       "default": 0.05,
       "min": 0.001,
       "max": 0.2,
-      "row": "options"
+      "section": {
+        "en": "Test",
+        "fr": "Test"
+      },
+      "description": {
+        "en": "The threshold a p-value is compared against. It changes only what is marked significant, never the p-values themselves.",
+        "fr": "Le seuil auquel une p-value est comparée. Il ne change que ce qui est marqué significatif, jamais les p-values elles-mêmes."
+      }
     },
     "visibleColumns": {
       "type": "select",
       "multi": true,
-      "label": { "en": "Table columns", "fr": "Colonnes du tableau" },
+      "label": {
+        "en": "Table columns",
+        "fr": "Colonnes du tableau"
+      },
       "defaultAll": true,
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "test", "label": { "en": "Test name", "fr": "Nom du test" } },
-        { "value": "statistic", "label": { "en": "Statistic", "fr": "Statistique" } },
-        { "value": "df", "label": { "en": "Degrees of freedom", "fr": "Degrés de liberté" } },
-        { "value": "p", "label": { "en": "p-value", "fr": "p-value" } },
-        { "value": "ci", "label": { "en": "95% CI", "fr": "IC 95%" } },
-        { "value": "effectSize", "label": { "en": "Effect size", "fr": "Taille d'effet" } },
-        { "value": "descriptive", "label": { "en": "Group descriptives", "fr": "Stats par groupe" } }
+        {
+          "value": "test",
+          "label": {
+            "en": "Test name",
+            "fr": "Nom du test"
+          }
+        },
+        {
+          "value": "statistic",
+          "label": {
+            "en": "Statistic",
+            "fr": "Statistique"
+          }
+        },
+        {
+          "value": "df",
+          "label": {
+            "en": "Degrees of freedom",
+            "fr": "Degrés de liberté"
+          }
+        },
+        {
+          "value": "p",
+          "label": {
+            "en": "p-value",
+            "fr": "p-value"
+          }
+        },
+        {
+          "value": "ci",
+          "label": {
+            "en": "95% CI",
+            "fr": "IC 95%"
+          }
+        },
+        {
+          "value": "effectSize",
+          "label": {
+            "en": "Effect size",
+            "fr": "Taille d'effet"
+          }
+        },
+        {
+          "value": "descriptive",
+          "label": {
+            "en": "Group descriptives",
+            "fr": "Stats par groupe"
+          }
+        }
       ]
     },
     "highlightSignificant": {
       "type": "boolean",
-      "label": { "en": "Highlight significant", "fr": "Surligner significatifs" },
-      "default": true
+      "label": {
+        "en": "Highlight significant",
+        "fr": "Surligner significatifs"
+      },
+      "default": true,
+      "row": "styleOpts",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Marks rows whose p is below α. A marker, not a verdict — a small p on a fragile test still deserves the warning beside it.",
+        "fr": "Marque les lignes dont p est sous α. Un repère, pas un verdict — un petit p sur un test fragile mérite quand même l'avertissement à côté."
+      }
+    },
+    "wrap": {
+      "type": "boolean",
+      "label": {
+        "en": "Wrap long text",
+        "fr": "Retour à la ligne"
+      },
+      "default": false,
+      "row": "styleOpts",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Off by default: irregular row heights break the vertical scan that is the point of a column of figures. Long text is truncated with the full value on hover.",
+        "fr": "Désactivé par défaut : des hauteurs de lignes irrégulières cassent la lecture verticale d'une colonne de chiffres. Le texte long est tronqué, la valeur complète au survol."
+      }
     }
   }
 }

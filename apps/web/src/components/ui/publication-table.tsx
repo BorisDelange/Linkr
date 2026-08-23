@@ -20,7 +20,7 @@
  * which exists for exactly the tables that track their own widths.
  */
 
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ResizeGrip } from '@/components/ui/table-primitives'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { cn } from '@/lib/utils'
@@ -72,6 +72,12 @@ export function PublicationTable<T extends PublicationRow>({
   tableRef?: React.Ref<HTMLTableElement>
 }) {
   const [widths, setWidths] = useState<Record<string, number>>({})
+  // Mirror of `widths` for the drag handler to read, so the handler itself has
+  // no dependency on the state and never needs re-creating.
+  const widthsRef = useRef(widths)
+  useEffect(() => {
+    widthsRef.current = widths
+  }, [widths])
   const drag = useRef<{ id: string; startX: number; startWidth: number } | null>(null)
   const [resizing, setResizing] = useState<string | null>(null)
 
@@ -80,7 +86,15 @@ export function PublicationTable<T extends PublicationRow>({
   const onResizeStart = useCallback(
     (col: PublicationColumn<T>) => (e: React.MouseEvent | React.TouchEvent) => {
       const point = 'touches' in e ? e.touches[0] : e
-      drag.current = { id: col.id, startX: point.clientX, startWidth: widths[col.id] ?? col.width ?? 140 }
+      // Start width from the ref, not from a captured `widths`: this handler
+      // then has no dependencies, so a caller that rebuilds its column array on
+      // every render cannot hand the grip a stale closure mid-drag — which is
+      // exactly what made a column stop tracking the cursor.
+      drag.current = {
+        id: col.id,
+        startX: point.clientX,
+        startWidth: widthsRef.current[col.id] ?? col.width ?? 140,
+      }
       setResizing(col.id)
 
       const move = (ev: MouseEvent | TouchEvent) => {
@@ -88,7 +102,7 @@ export function PublicationTable<T extends PublicationRow>({
         if (!d) return
         const p = 'touches' in ev ? ev.touches[0] : ev
         const next = Math.max(col.minWidth ?? 60, d.startWidth + (p.clientX - d.startX))
-        setWidths((w) => ({ ...w, [d.id]: next }))
+        setWidths((w) => (w[d.id] === next ? w : { ...w, [d.id]: next }))
       }
       const up = () => {
         drag.current = null
@@ -105,7 +119,7 @@ export function PublicationTable<T extends PublicationRow>({
       window.addEventListener('touchmove', move)
       window.addEventListener('touchend', up)
     },
-    [widths],
+    [],
   )
 
   // Group headers, as runs of adjacent columns sharing a `group`. Built from the
