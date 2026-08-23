@@ -44,8 +44,8 @@ export interface CatalogInstallState {
   failure: CatalogInstallFailure | null
   /** `installed` is the local copy in the target workspace, when there is one. */
   install: (entry: CatalogEntry, installed?: InstalledInfo) => Promise<void>
-  /** Proceed with the install the confirm step was holding. */
-  confirmReinstall: () => Promise<void>
+  /** Proceed with the held install: `duplicate` keeps the existing copy alongside. */
+  confirmReinstall: (duplicate: boolean) => Promise<void>
   dismissReinstall: () => void
   /** Answer the conflict prompt. */
   resolveConflict: (duplicate: boolean) => Promise<void>
@@ -89,7 +89,7 @@ export function useCatalogInstall(
 
   /** Clone and write. Assumes any confirmation has already been given. */
   const run = useCallback(
-    async (entry: CatalogEntry) => {
+    async (entry: CatalogEntry, duplicate = false, answered = false) => {
       setFailure(null)
       setBusyId(entry.id)
       try {
@@ -100,12 +100,15 @@ export function useCatalogInstall(
           setFailure({ entry, detail: prep.error ?? t('catalog.install_failed') })
           return
         }
-        if (prep.prepared.existingName) {
+        // The re-install dialog already asked overwrite-or-duplicate for an entry the
+        // catalog recognised as installed, so only an UNrecognised collision still needs
+        // the prompt — and it is only knowable after the clone.
+        if (prep.prepared.existingName && !answered) {
           // commit() takes over the busy state once the user answers.
           setConflict(prep.prepared)
           return
         }
-        await commit(prep.prepared, false)
+        await commit(prep.prepared, duplicate)
       } catch (err) {
         setFailure({ entry, detail: err instanceof Error ? err.message : String(err) })
       } finally {
@@ -134,11 +137,14 @@ export function useCatalogInstall(
     [workspaceId, busyId, run],
   )
 
-  const confirmReinstall = useCallback(async () => {
-    const pending = reinstall
-    setReinstall(null)
-    if (pending) await run(pending.entry)
-  }, [reinstall, run])
+  const confirmReinstall = useCallback(
+    async (duplicate: boolean) => {
+      const pending = reinstall
+      setReinstall(null)
+      if (pending) await run(pending.entry, duplicate, true)
+    },
+    [reinstall, run],
+  )
 
   const resolveConflict = useCallback(
     async (duplicate: boolean) => {

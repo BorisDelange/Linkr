@@ -56,11 +56,24 @@ const META_FILE: Record<CatalogEntry['type'], string> = {
   'schema-preset': 'preset.json',
 }
 
-/** The PK field name in that metadata file. */
-function idOf(type: CatalogEntry['type'], meta: Record<string, unknown>): string | null {
-  const key = type === 'project' ? 'uid' : type === 'schema-preset' ? 'presetId' : 'id'
-  const value = meta[key]
-  return typeof value === 'string' && value ? value : null
+/**
+ * The portable id declared by that metadata file.
+ *
+ * A project publishes it as `projectId`: `buildProjectZip` drops `uid` on purpose (the
+ * local PK is regenerated on import, so writing it would churn the git diff). Reading
+ * only `uid` meant every project install minted a fresh random id, so a second install
+ * of the same entry collided with nothing and silently created a duplicate. `uid` is
+ * still accepted for repos exported before the switch.
+ */
+export function idOf(type: CatalogEntry['type'], meta: Record<string, unknown>): string | null {
+  const keys = type === 'project'
+    ? ['projectId', 'uid']
+    : type === 'schema-preset' ? ['presetId'] : ['id']
+  for (const key of keys) {
+    const value = meta[key]
+    if (typeof value === 'string' && value) return value
+  }
+  return null
 }
 
 export interface ExistingRow {

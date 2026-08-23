@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSameEntity, type ExistingRow } from './install'
+import { idOf, isSameEntity, type ExistingRow } from './install'
 import type { CatalogEntry } from './types'
 
 function entry(overrides: Partial<CatalogEntry> = {}): CatalogEntry {
@@ -34,5 +34,34 @@ describe('isSameEntity', () => {
     expect(
       isSameEntity({ gitRemoteConfig: { url: 'https://gitlab.com/org/OTHER' } }, entry()),
     ).toBe(false)
+  })
+})
+
+describe('idOf', () => {
+  // Regression: buildProjectZip writes `projectId` and deliberately drops `uid`
+  // (the local PK churns the diff). Reading only `uid` returned null, the caller
+  // fell back to a random uuid, and every re-install of the same project created a
+  // duplicate instead of being recognised as already installed.
+  it('reads a project id from projectId', () => {
+    expect(idOf('project', { projectId: 'icu-activity-dashboard' })).toBe('icu-activity-dashboard')
+  })
+
+  it('still reads uid, for repos exported before the switch', () => {
+    expect(idOf('project', { uid: 'legacy-uid' })).toBe('legacy-uid')
+  })
+
+  it('prefers projectId when a repo carries both', () => {
+    expect(idOf('project', { projectId: 'portable', uid: 'local-pk' })).toBe('portable')
+  })
+
+  it('reads presetId for a schema preset and id for everything else', () => {
+    expect(idOf('schema-preset', { presetId: 'omop-cdm-5-4' })).toBe('omop-cdm-5-4')
+    expect(idOf('etl-pipeline', { id: 'pipe-1' })).toBe('pipe-1')
+  })
+
+  it('returns null when the id is missing or not a non-empty string', () => {
+    expect(idOf('project', {})).toBeNull()
+    expect(idOf('project', { projectId: '' })).toBeNull()
+    expect(idOf('etl-pipeline', { id: 42 })).toBeNull()
   })
 })

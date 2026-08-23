@@ -3115,11 +3115,11 @@
     "open_in_app": "Open in LinkR",
     "reinstall": "Install again",
     "reinstall_title": "Already installed",
-    "reinstall_versions": "Installed version: {{from}} · Catalog version: {{to}}",
     "reinstall_same_version": "You already have this version. Installing again replaces your copy with the catalog one.",
     "update_available_hint": "A newer version is available in the catalog.",
-    "update_choice_hint": "You will then be asked whether to replace the existing copy or keep both.",
-    "version_unknown": "unknown"
+    "version_unknown": "unknown",
+    "version_installed": "Installed",
+    "version_catalog": "Catalog"
   },
   "wiki": {
     "title": "Wiki",
