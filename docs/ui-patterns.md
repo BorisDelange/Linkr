@@ -58,6 +58,15 @@ with no rationale gets "corrected" back to upstream:
 | `AlertDialogDescription` | `text-sm` | `text-sm` | an alert's description *is* its content — the consequences of a destructive action — not a subtitle over a dense form; nine call sites were already overriding `text-xs` back to `text-sm` |
 | `Button` | — | added `sm-tight` (h-7) | dozens of buttons hand-rolled `className="h-7"` |
 
+Inside a dialog, labels and the description render at **13px** rather than 12px —
+the size `Input`, `Textarea`, `Select` and `Button` already use, so a dialog reads
+as one consistent form instead of 12px labels over 13px fields. It comes from the
+`dialog-form-scale` utility (`index.css`) that `DialogContent` applies to the
+`label` and `dialog-description` slots. Nothing changes at the call site: keep
+writing `<Label>` with no size class. `text-xs` still means 12px everywhere —
+pages outside dialogs are untouched, which is why this is a scoped rule on two
+slots and **not** a redefinition of `text-xs`.
+
 > The `DialogTitle` row is the cautionary one: the raw majority vote was
 > `text-sm`, but it came almost entirely from workbench dialogs (diffs, viewers)
 > where a quiet title fits. Applied to a form it left the title the same size as

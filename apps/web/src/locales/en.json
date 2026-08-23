@@ -265,13 +265,12 @@
     "no_projects": "No projects yet",
     "no_projects_description": "Create your first project to start working with your data.",
     "create_dialog_title": "Create a project",
-    "create_dialog_description": "Set up a new research project. You can configure datasets and plugins later.",
+    "create_dialog_description": "Set up a new research project.\nYou can configure datasets and plugins later.",
     "edit_dialog_title": "Edit project",
     "edit_dialog_description": "Update this project's details.",
     "field_name": "Project name",
     "field_name_placeholder": "e.g. MIMIC-IV Analysis",
     "field_project_id": "Identifier",
-    "field_project_id_hint": "Permanent, URL-safe identifier used as folder name in exports and git. Cannot be changed after creation.",
     "field_project_id_duplicate": "This identifier is already used by another project in this workspace.",
     "field_project_id_invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only.",
     "field_project_id_readonly": "This identifier was set at creation and cannot be changed.",
@@ -2943,7 +2942,6 @@
   },
   "entity_id": {
     "label": "Identifier",
-    "hint": "Permanent, URL-safe identifier used as folder name in exports and git. Cannot be changed after creation.",
     "duplicate": "This identifier is already in use.",
     "invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only."
   },

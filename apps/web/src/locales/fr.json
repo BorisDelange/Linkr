@@ -265,13 +265,12 @@
     "no_projects": "Aucun projet",
     "no_projects_description": "Créez votre premier projet pour commencer à travailler avec vos données.",
     "create_dialog_title": "Créer un projet",
-    "create_dialog_description": "Configurez un nouveau projet de recherche. Vous pourrez ajouter des datasets et plugins plus tard.",
+    "create_dialog_description": "Configurez un nouveau projet de recherche.\nVous pourrez ajouter des datasets et plugins plus tard.",
     "edit_dialog_title": "Modifier le projet",
     "edit_dialog_description": "Modifiez les informations du projet.",
     "field_name": "Nom du projet",
     "field_name_placeholder": "ex. Analyse MIMIC-IV",
     "field_project_id": "Identifiant",
-    "field_project_id_hint": "Identifiant permanent utilisé comme nom de dossier dans les exports et git. Non modifiable après création.",
     "field_project_id_duplicate": "Cet identifiant est déjà utilisé par un autre projet dans ce workspace.",
     "field_project_id_invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement.",
     "field_project_id_readonly": "Cet identifiant a été défini à la création et ne peut pas être modifié.",
@@ -2943,7 +2942,6 @@
   },
   "entity_id": {
     "label": "Identifiant",
-    "hint": "Identifiant permanent utilisé comme nom de dossier dans les exports et git. Non modifiable après création.",
     "duplicate": "Cet identifiant est déjà utilisé.",
     "invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement."
   },

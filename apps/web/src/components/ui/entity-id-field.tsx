@@ -84,9 +84,6 @@ export function EntityIdField({
           placeholder={placeholder}
         />
       )}
-      <p className="text-xs text-muted-foreground">
-        {t('entity_id.hint')}
-      </p>
       {!readOnly && idDuplicate && (
         <p className="text-xs text-destructive">{t('entity_id.duplicate')}</p>
       )}

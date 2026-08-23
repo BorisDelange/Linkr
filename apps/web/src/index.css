@@ -145,6 +145,21 @@ body {
   }
 }
 
+/* A dialog is a short focused form, so its labels and subtitle sit at 13px —
+   the size `Input`, `Textarea`, `Select` and `Button` already use — instead of
+   the 12px dense scale pages use. Applied by `DialogContent` to the two slots
+   that carry that text; `text-xs` itself keeps meaning 12px everywhere. */
+@utility dialog-form-scale {
+  /* `Label` keeps its `leading-none` — it aligns against an inline icon. */
+  & [data-slot="label"] {
+    font-size: 0.8125rem;
+  }
+  & [data-slot="dialog-description"] {
+    font-size: 0.8125rem;
+    line-height: 1.15rem;
+  }
+}
+
 /* Hide scrollbar while keeping native scroll behavior (inertia, smooth) */
 @utility scrollbar-none {
   -ms-overflow-style: none;
