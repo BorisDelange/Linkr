@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, AlertCircle, X, Database, FileUp, Settings2, ArrowLeft, Check, Plus, Info, Loader2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, X, Database, FileUp, Settings2, ArrowLeft, Check, Info, Loader2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
@@ -32,7 +32,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 // Note: Popover is still used for the extra-columns multi-select below
 import { Badge } from '@/components/ui/badge'
@@ -42,16 +41,15 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-fields'
 import { VersionField } from '@/components/ui/version-field'
+import { BadgeEditor } from '@/components/ui/badge-editor'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
-import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
-import { SectionLabel } from '@/components/ui/section-label'
 import { isServerMode } from '@/lib/api-client'
 import { previewFileColumnsOnServer } from '@/lib/api/mapping-projects'
-import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
+import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge } from '@/types'
 
 interface CreateMappingProjectDialogProps {
   open: boolean
@@ -60,6 +58,7 @@ interface CreateMappingProjectDialogProps {
   editingProject?: MappingProject | null
 }
 
+type MainTab = 'general' | 'source' | 'metadata' | 'attribution'
 type Delimiter = 'auto' | ',' | '\t' | ';' | '|'
 type Encoding = 'UTF-8' | 'ISO-8859-1' | 'Windows-1252'
 
@@ -101,8 +100,6 @@ export function CreateMappingProjectDialog({
   const [status, setStatus] = useState<MappingProjectStatus>('in_progress')
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
-  const [newBadgeLabel, setNewBadgeLabel] = useState('')
-  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
   const [sourceType, setSourceType] = useState<MappingProjectSourceType>('file')
 
@@ -144,17 +141,12 @@ export function CreateMappingProjectDialog({
 
   // Two-page modal: 'main' | 'import-settings'
   const [page, setPage] = useState<'main' | 'import-settings'>('main')
-  const [mainTab, setMainTab] = useState<'info' | 'source'>('info')
+  const [mainTab, setMainTab] = useState<MainTab>('general')
 
   const isEdit = !!editingProject
   const { mappingProjects } = useConceptMappingStore()
   const existingIds = mappingProjects.map(p => p.entityId).filter((id): id is string => !!id)
 
-  /** Badges already attached to the current project, indexed by label (case-insensitive). */
-  const currentBadgeLabels = useMemo(
-    () => new Set(badges.map((b) => localized(b.label, language).toLowerCase())),
-    [badges, language],
-  )
 
   /** Suggestions = distinct badges from other workspace mapping projects (excluding the current one).
    *  When the same label appears with different colors across projects, we keep the first-seen color. */
@@ -174,31 +166,6 @@ export function CreateMappingProjectDialog({
     return [...seen.values()].sort((a, b) => localized(a.label, language).localeCompare(localized(b.label, language)))
   }, [mappingProjects, activeWorkspaceId, editingProject, language])
 
-  /** Set of badge labels (case-insensitive) used in any other project of this workspace. */
-  const otherProjectBadgeLabels = useMemo(
-    () => new Set(badgeSuggestions.map((b) => localized(b.label, language).toLowerCase())),
-    [badgeSuggestions, language],
-  )
-
-  /** Reasons we may forbid creating a new badge with this label. */
-  type DuplicateKind = 'current' | 'other-project' | null
-  const labelConflict = (label: string): DuplicateKind => {
-    const k = label.trim().toLowerCase()
-    if (!k) return null
-    if (currentBadgeLabels.has(k)) return 'current'
-    if (otherProjectBadgeLabels.has(k)) return 'other-project'
-    return null
-  }
-
-  /** Add a badge if its label isn't already attached to the current project. No-op otherwise.
-   *  Note: callers should pre-check against other-project conflicts; this function only blocks
-   *  same-project duplicates so suggestion clicks (which reuse an existing badge) still work. */
-  const addBadge = (badge: ProjectBadge) => {
-    const trimmed = localized(badge.label, language).trim()
-    if (!trimmed || currentBadgeLabels.has(trimmed.toLowerCase())) return
-    setBadges([...badges, { ...badge, id: `b-${Date.now()}`, label: setLocalized(badge.label, language, trimmed) }])
-    setNewBadgeLabel('')
-  }
 
   useEffect(() => {
     if (editingProject) {
@@ -214,7 +181,7 @@ export function CreateMappingProjectDialog({
         setColumnMapping(editingProject.fileSourceData.columnMapping)
       }
       setAuthoring({})
-      setMainTab('info')
+      setMainTab('general')
     } else if (open) {
       setName('')
       setEntityId('')
@@ -222,8 +189,6 @@ export function CreateMappingProjectDialog({
       setStatus('in_progress')
       setBadges([])
       setVersion('0.1.0')
-      setNewBadgeLabel('')
-      setNewBadgeColor('blue')
       setSourceType('file')
       setDataSourceId('')
       setFile(null)
@@ -242,7 +207,7 @@ export function CreateMappingProjectDialog({
       setColumnMapping({})
       setPage('main')
       setAuthoring({})
-      setMainTab('info')
+      setMainTab('general')
     }
   }, [editingProject, open, language])
 
@@ -1084,19 +1049,12 @@ export function CreateMappingProjectDialog({
         {/* ===== MAIN PAGE ===== */}
         {!isImportSettingsPage && (
           <div className="flex flex-col gap-4 py-2">
-            <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as 'info' | 'source')}>
-              <TabsList className="w-full">
-                <TabsTrigger value="info" className="flex-1 gap-1.5">
-                  {t('concept_mapping.tab_info')}
-                  {infoMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
-                </TabsTrigger>
-                <TabsTrigger value="source" className="flex-1 gap-1.5">
-                  {t('concept_mapping.tab_source')}
-                  {sourceMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="info" className="flex flex-col gap-4 pt-3">
+            <EntityDialogTabs
+              value={mainTab}
+              onValueChange={(v) => setMainTab(v as MainTab)}
+              generalIncomplete={infoMissing.length > 0}
+              general={
+                <>
             {/* Name & description */}
             <div className="grid gap-4">
               <div className="grid gap-2">
@@ -1109,16 +1067,16 @@ export function CreateMappingProjectDialog({
                   placeholder={t('concept_mapping.project_name_placeholder')}
                 />
               </div>
-                              <EntityIdField
-                  name={name}
-                  value={entityId}
-                  onChange={setEntityId}
-                  existingIds={existingIds}
-                  htmlId="mp-entity-id"
-                  placeholder="my-mapping-project"
-                  required
-                  readOnly={isEdit}
-                />
+              <EntityIdField
+                name={name}
+                value={entityId}
+                onChange={setEntityId}
+                existingIds={existingIds}
+                htmlId="mp-entity-id"
+                placeholder="my-mapping-project"
+                required
+                readOnly={isEdit}
+              />
               <div className="grid gap-2">
                 <Label htmlFor="mp-desc">{t('common.description')}</Label>
                 <Input
@@ -1129,7 +1087,10 @@ export function CreateMappingProjectDialog({
                 />
               </div>
             </div>
-
+                </>
+              }
+              metadata={
+                <>
             {/* Status */}
             <div className="grid gap-2">
               <Label>{t('concept_mapping.project_status')}</Label>
@@ -1152,120 +1113,35 @@ export function CreateMappingProjectDialog({
               </div>
             </div>
 
-            {/* Badges */}
-            <div className="grid gap-2">
-              <Label>{t('concept_mapping.project_badges')}</Label>
-              {badges.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-1">
-                  {badges.map((badge) => (
-                    <span
-                      key={badge.id}
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${getBadgeClasses(badge.color)}`}
-                      style={getBadgeStyle(badge.color)}
-                    >
-                      {localized(badge.label, language)}
-                      <button
-                        type="button"
-                        className="ml-0.5 opacity-60 hover:opacity-100"
-                        onClick={() => setBadges(badges.filter((b) => b.id !== badge.id))}
-                      >
-                        <X size={10} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              {/* Suggestions: badges already used in other projects of the workspace */}
-              {(() => {
-                const availableSuggestions = badgeSuggestions.filter((b) => !currentBadgeLabels.has(localized(b.label, language).toLowerCase()))
-                if (availableSuggestions.length === 0) return null
-                return (
-                  <div className="rounded-md border border-dashed bg-muted/20 p-2">
-                    <SectionLabel as="p" className="mb-1.5 font-normal tracking-wide">
-                      {t('concept_mapping.badge_suggestions')}
-                    </SectionLabel>
-                    <div className="flex flex-wrap gap-1.5">
-                      {availableSuggestions.map((badge) => (
-                        <button
-                          key={localized(badge.label, language)}
-                          type="button"
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 ${getBadgeClasses(badge.color)}`}
-                          style={getBadgeStyle(badge.color)}
-                          onClick={() => addBadge(badge)}
-                          title={t('concept_mapping.badge_suggestion_add')}
-                        >
-                          <Plus size={10} />
-                          {localized(badge.label, language)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })()}
-              <div className="flex flex-col gap-2">
-                {(() => {
-                  const trimmed = newBadgeLabel.trim()
-                  const conflict = labelConflict(trimmed)
-                  const errorKey = conflict === 'current'
-                    ? 'concept_mapping.badge_duplicate'
-                    : conflict === 'other-project'
-                      ? 'concept_mapping.badge_used_elsewhere'
-                      : null
-                  return (
-                    <>
-                      <div className="flex gap-2 items-center">
-                        <Input
-                          value={newBadgeLabel}
-                          onChange={(e) => setNewBadgeLabel(e.target.value)}
-                          placeholder={t('concept_mapping.badge_label_placeholder')}
-                          className={`h-8 text-xs flex-1 ${conflict ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && trimmed && !conflict) {
-                              e.preventDefault()
-                              addBadge({ id: '', label: trimmed, color: newBadgeColor })
-                            }
-                          }}
-                        />
-                        <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-2"
-                          disabled={!trimmed || !!conflict}
-                          onClick={() => addBadge({ id: '', label: trimmed, color: newBadgeColor })}
-                        >
-                          <Plus size={12} />
-                        </Button>
-                      </div>
-                      {errorKey && (
-                        <p className="text-[10px] text-destructive">{t(errorKey)}</p>
-                      )}
-                    </>
-                  )
-                })()}
-              </div>
-            </div>
+            <BadgeEditor
+              value={badges}
+              onChange={setBadges}
+              suggestions={badgeSuggestions}
+              label={t('concept_mapping.project_badges')}
+            />
 
             <VersionField value={version} onChange={setVersion} />
-
-            {isEdit && editingProject && (
-              <div className="border-t pt-4">
-                <AuthoringFields
-                  value={{
-                    createdById: 'createdById' in authoring ? authoring.createdById : editingProject.createdById,
-                    createdBy: authoring.createdBy ?? editingProject.createdBy,
-                    createdByDetails: authoring.createdByDetails ?? editingProject.createdByDetails,
-                    organization: authoring.organization ?? editingProject.organization,
-                  }}
-                  onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
-                />
-              </div>
-            )}
-
-              </TabsContent>
-
-              <TabsContent value="source" className="flex flex-col gap-4 pt-3">
+                </>
+              }
+              attribution={
+                isEdit && editingProject ? (
+                  <AuthoringFields
+                    value={{
+                      createdById: 'createdById' in authoring ? authoring.createdById : editingProject.createdById,
+                      createdBy: authoring.createdBy ?? editingProject.createdBy,
+                      createdByDetails: authoring.createdByDetails ?? editingProject.createdByDetails,
+                      organization: authoring.organization ?? editingProject.organization,
+                    }}
+                    onChange={(patch) => setAuthoring((a) => ({ ...a, ...patch }))}
+                  />
+                ) : undefined
+              }
+              extraTabs={[{
+                value: 'source',
+                label: t('concept_mapping.tab_source'),
+                incomplete: sourceMissing.length > 0,
+                content: (
+                  <>
             {/* Source type toggle */}
             <div className="grid gap-2">
               <Label>{t('concept_mapping.source_type')}</Label>
@@ -1399,8 +1275,10 @@ export function CreateMappingProjectDialog({
                 )}
               </>
             )}
-              </TabsContent>
-            </Tabs>
+                  </>
+                ),
+              }]}
+            />
           </div>
         )}
 

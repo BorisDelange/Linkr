@@ -1,7 +1,6 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { cn } from '@/lib/utils'
 
 /**
  * The tab frame every entity create/edit dialog wears, so a project, an ETL
@@ -35,6 +34,11 @@ interface EntityDialogTabsProps {
   extraTabs?: EntityDialogTab[]
   /** Marks the General trigger, for a required field left empty. */
   generalIncomplete?: boolean
+  /** Controlled selection, for a dialog that needs to jump to a tab itself
+   *  (e.g. sending the user to the tab holding a missing field). Uncontrolled
+   *  when omitted. */
+  value?: string
+  onValueChange?: (value: string) => void
 }
 
 export function EntityDialogTabs({
@@ -43,9 +47,27 @@ export function EntityDialogTabs({
   attribution,
   extraTabs = [],
   generalIncomplete,
+  value,
+  onValueChange,
 }: EntityDialogTabsProps) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState('general')
+  const [uncontrolled, setUncontrolled] = useState('general')
+  const tab = value ?? uncontrolled
+  const setTab = onValueChange ?? setUncontrolled
+
+  // Grow-only floor: the tallest panel seen so far. A ResizeObserver keeps it
+  // right when a panel grows after mount (a badge added, an error shown).
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [minHeight, setMinHeight] = useState(0)
+  useEffect(() => {
+    const el = panelRef.current
+    if (!el) return
+    const observer = new ResizeObserver(() => {
+      setMinHeight((prev) => Math.max(prev, el.getBoundingClientRect().height))
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   const tabs: EntityDialogTab[] = [
     { value: 'general', label: t('common.tab_general'), content: general, incomplete: generalIncomplete },
@@ -66,29 +88,16 @@ export function EntityDialogTabs({
           </TabsTrigger>
         ))}
       </TabsList>
-      {/* The grid stacks every panel in one cell, so the dialog is always as tall as
-          its tallest tab and switching never moves the triggers out from under the
-          cursor. Inactive panels stay mounted but inert: `invisible` keeps them
-          filling the cell (unlike `hidden`), and they must not take focus or be
-          announced while hidden. */}
-      <div className="grid pt-3">
-        {tabs.map((tb) => {
-          const active = tb.value === tab
-          return (
-            <div
-              key={tb.value}
-              role="tabpanel"
-              aria-hidden={!active}
-              inert={!active || undefined}
-              className={cn(
-                'col-start-1 row-start-1 flex flex-col gap-4',
-                !active && 'invisible',
-              )}
-            >
-              {tb.content}
-            </div>
-          )
-        })}
+      {/* Only the active panel is mounted — stacking them all in one grid cell also
+          holds the height, but any absolutely-positioned child (a drop zone, an
+          overlay) escapes the cell and shows through the hidden panels.
+          Instead the container remembers the tallest panel it has rendered and
+          keeps that as a floor, so switching never moves the triggers out from
+          under the pointer. */}
+      <div className="pt-3" style={{ minHeight: minHeight || undefined }}>
+        <div ref={panelRef} className="flex flex-col gap-4">
+          {tabs.find((tb) => tb.value === tab)?.content}
+        </div>
       </div>
     </Tabs>
   )
