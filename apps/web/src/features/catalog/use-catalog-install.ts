@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next'
 import { commitCatalogInstall, prepareCatalogInstall, type PreparedInstall } from '@/lib/catalog/install'
 import { refreshStoresAfterInstall } from '@/lib/catalog/refresh'
 import { useAppStore } from '@/stores/app-store'
+import type { InstalledInfo } from '@/lib/catalog/installed'
 import type { CatalogEntry } from '@/lib/catalog/types'
 
 export interface CatalogInstallFailure {
@@ -23,14 +24,29 @@ export interface CatalogInstallFailure {
   detail: string
 }
 
+/** An already-installed entry awaiting "yes, install it again". */
+export interface CatalogReinstall {
+  entry: CatalogEntry
+  /** Version currently installed in the target workspace, if it declares one. */
+  localVersion?: string
+  /** True when the catalog is ahead — the dialog then reads as an update. */
+  outdated: boolean
+}
+
 export interface CatalogInstallState {
   /** Entry currently being cloned/written — the card shows a spinner for it. */
   busyId: string | null
+  /** Already-installed entry awaiting confirmation. */
+  reinstall: CatalogReinstall | null
   /** Cloned repo awaiting a duplicate-or-overwrite answer. */
   conflict: PreparedInstall | null
   /** Last failure, shown in a dialog since a card has no room for a git error. */
   failure: CatalogInstallFailure | null
-  install: (entry: CatalogEntry) => Promise<void>
+  /** `installed` is the local copy in the target workspace, when there is one. */
+  install: (entry: CatalogEntry, installed?: InstalledInfo) => Promise<void>
+  /** Proceed with the install the confirm step was holding. */
+  confirmReinstall: () => Promise<void>
+  dismissReinstall: () => void
   /** Answer the conflict prompt. */
   resolveConflict: (duplicate: boolean) => Promise<void>
   dismissConflict: () => void
@@ -45,6 +61,7 @@ export function useCatalogInstall(
   const language = useAppStore((s) => s.language)
 
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [reinstall, setReinstall] = useState<CatalogReinstall | null>(null)
   const [conflict, setConflict] = useState<PreparedInstall | null>(null)
   const [failure, setFailure] = useState<CatalogInstallFailure | null>(null)
 
@@ -70,9 +87,9 @@ export function useCatalogInstall(
     [workspaceId, language, t, onInstalled],
   )
 
-  const install = useCallback(
+  /** Clone and write. Assumes any confirmation has already been given. */
+  const run = useCallback(
     async (entry: CatalogEntry) => {
-      if (!workspaceId || busyId) return
       setFailure(null)
       setBusyId(entry.id)
       try {
@@ -95,8 +112,33 @@ export function useCatalogInstall(
         setBusyId((id) => (id === entry.id ? null : id))
       }
     },
-    [workspaceId, busyId, t, commit],
+    [t, commit],
   )
+
+  const install = useCallback(
+    async (entry: CatalogEntry, installed?: InstalledInfo) => {
+      if (!workspaceId || busyId) return
+      // Already installed: ask first. Re-installing overwrites or duplicates a copy the
+      // user already has, and which version replaces which is exactly what they need to
+      // see. A first install has nothing to weigh, so it writes on click.
+      if (installed) {
+        setReinstall({
+          entry,
+          localVersion: installed.version,
+          outdated: installed.state === 'outdated',
+        })
+        return
+      }
+      await run(entry)
+    },
+    [workspaceId, busyId, run],
+  )
+
+  const confirmReinstall = useCallback(async () => {
+    const pending = reinstall
+    setReinstall(null)
+    if (pending) await run(pending.entry)
+  }, [reinstall, run])
 
   const resolveConflict = useCallback(
     async (duplicate: boolean) => {
@@ -109,9 +151,12 @@ export function useCatalogInstall(
 
   return {
     busyId,
+    reinstall,
     conflict,
     failure,
     install,
+    confirmReinstall,
+    dismissReinstall: () => setReinstall(null),
     resolveConflict,
     dismissConflict: () => setConflict(null),
     dismissFailure: () => setFailure(null),

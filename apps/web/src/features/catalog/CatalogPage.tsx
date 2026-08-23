@@ -305,7 +305,7 @@ export function CatalogPage() {
                 key={entry.id}
                 entry={entry}
                 language={language}
-                onInstall={() => void inst.install(entry)}
+                onInstall={() => void inst.install(entry, installed[entry.id])}
                 busy={inst.busyId === entry.id}
                 onOpen={openInApp(entry, installed[entry.id])}
                 serverMode={serverMode}

@@ -3113,7 +3113,13 @@
     "filter_author": "Auteur",
     "filter_organization": "Organisation",
     "open_in_app": "Ouvrir dans LinkR",
-    "reinstall": "Réinstaller"
+    "reinstall": "Réinstaller",
+    "reinstall_title": "Déjà installé",
+    "reinstall_versions": "Version installée : {{from}} · Version du catalogue : {{to}}",
+    "reinstall_same_version": "Vous avez déjà cette version. Réinstaller remplacera votre copie par celle du catalogue.",
+    "update_available_hint": "Une version plus récente est disponible dans le catalogue.",
+    "update_choice_hint": "Il vous sera ensuite demandé de remplacer la copie existante ou de conserver les deux.",
+    "version_unknown": "inconnue"
   },
   "wiki": {
     "title": "Wiki",
