@@ -14,7 +14,15 @@ import type { DatasetAnalysis } from '@/types'
 
 interface ComponentAnalysisShellProps {
   analysis: DatasetAnalysis
-  configPanel: (onConfigChange: (changes: Record<string, unknown>) => void) => React.ReactNode
+  /**
+   * Renders the config panel. It is handed the DRAFT config, not the saved one:
+   * the panel is a controlled form, so showing `analysis.config` would make
+   * every control snap back to its saved value the moment it was changed.
+   */
+  configPanel: (
+    onConfigChange: (changes: Record<string, unknown>) => void,
+    config: Record<string, unknown>,
+  ) => React.ReactNode
   componentId: string
 }
 
@@ -171,7 +179,7 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
           <Allotment.Pane preferredSize="35%" minSize={configVisible ? 200 : 0} visible={configVisible}>
             <div className="flex h-full flex-col border-r">
               <div className="min-h-0 flex-1 overflow-auto">
-                {configPanel(handleConfigChange)}
+                {configPanel(handleConfigChange, draft)}
               </div>
             </div>
           </Allotment.Pane>

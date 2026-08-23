@@ -71,8 +71,21 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
     return [...set].sort((a, b) => a.localeCompare(b))
   }, [localDistinct, serverDistinct, column.valueLabels])
 
+  // Nothing to save until something actually changed. Blank entries are dropped
+  // before comparing: typing a label and clearing it again is not a change, and
+  // an empty string would otherwise persist as a "label" that renders as blank.
+  const cleanedValueLabels = useMemo(
+    () => Object.fromEntries(Object.entries(valueLabels).filter(([, v]) => v.trim() !== '')),
+    [valueLabels],
+  )
+  const dirty =
+    label !== (column.label ?? '') ||
+    description !== (column.description ?? '') ||
+    JSON.stringify(cleanedValueLabels) !== JSON.stringify(column.valueLabels ?? {})
+
   const handleSave = () => {
-    updateColumnMeta(fileId, column.id, { label, description, valueLabels })
+    if (!dirty) return
+    updateColumnMeta(fileId, column.id, { label, description, valueLabels: cleanedValueLabels })
     onOpenChange(false)
   }
 
@@ -101,6 +114,8 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
       description={t('datasets.col_meta_desc', { name: column.name })}
       onConfirm={handleSave}
       confirmLabel={t('common.save')}
+      confirmDisabled={!dirty}
+      dirtyTracked
     >
           <div className="space-y-1.5">
             <Label htmlFor="col-label" className="text-xs">{t('datasets.col_meta_label')}</Label>
@@ -126,7 +141,15 @@ export function EditColumnMetaDialog({ fileId, column, rows, open, onOpenChange 
             <div className="space-y-1.5">
               <Label>{t('datasets.col_meta_value_labels')}</Label>
               <p className="text-xs text-muted-foreground">{t('datasets.col_meta_value_labels_hint')}</p>
-              <ScrollArea className="max-h-56 rounded-md border">
+              {/* An explicit height, not max-h: ScrollArea's viewport is h-full,
+                  so a max-height on the root never bounds it and the list
+                  overflows the dialog instead of scrolling. Sized to the rows
+                  it holds, capped at 14rem — a short list should not leave a
+                  gaping empty box. */}
+              <ScrollArea
+                className="rounded-md border"
+                style={{ height: Math.min(codes.length * 34 + 2, 224) }}
+              >
                 <div className="divide-y">
                   {codes.map((code) => (
                     <div key={code} className="flex items-center gap-2 px-2 py-1.5">

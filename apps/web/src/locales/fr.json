@@ -247,6 +247,25 @@
   "workspace_settings": {
     "delete_workspace": "Supprimer le workspace"
   },
+  "badge_categories": {
+    "title": "Badges",
+    "description": "Déclarez des catégories pour organiser les badges utilisés dans cet espace de travail. Un badge écrit Source::MIMIC affiche sa catégorie, et une catégorie exclusive ne retient qu'une valeur par élément.",
+    "empty": "Aucune catégorie pour l'instant. Les badges restent du texte libre tant que vous n'en déclarez pas.",
+    "add": "Nouvelle catégorie",
+    "name_placeholder": "Source, Domaine…",
+    "name_exists": "Une catégorie porte déjà ce nom.",
+    "name_no_colon": "Un nom de catégorie ne peut pas contenir de deux-points.",
+    "exclusive": "Exclusive",
+    "exclusive_hint": "Une seule valeur de cette catégorie par élément — en choisir une autre la remplace.",
+    "used_by_one": "{{count}} badge",
+    "used_by_other": "{{count}} badges",
+    "sample_value": "valeur",
+    "delete_title": "Supprimer cette catégorie ?",
+    "delete_description": "« {{name}} » ne sera plus proposée à l'ajout d'un badge. Les {{count}} badge(s) qui l'utilisent conservent leur libellé tel quel — ils cessent simplement d'être affichés comme catégorie.",
+    "category": "Catégorie",
+    "no_category": "Sans catégorie",
+    "pick_category": "Catégorie"
+  },
   "workspace_env": {
     "title": "Environnements par défaut",
     "description": "Packages avec lesquels démarre un nouveau projet de ce workspace. Un par ligne — un nom seul installe la dernière version, ou épinglez-en une avec un comparateur (ex. pandas==2.1.4, plotly>=5.20). Laissez un langage vide pour démarrer avec un environnement vide. Utilisez « Charger les valeurs par défaut » pour un jeu data-science courant.",
@@ -1146,7 +1165,7 @@
     "col_hide_na": "Masquer les valeurs vides",
     "col_only_na": "Afficher uniquement les valeurs vides",
     "col_view_stats": "Voir les statistiques",
-    "col_edit_meta": "Modifier le libellé et la description…",
+    "col_edit_meta": "Modifier le libellé et la description",
     "col_meta_col_id": "ID",
     "col_meta_title": "Métadonnées de la colonne",
     "col_meta_desc": "Ajoutez un libellé lisible et une description pour « {{name}} ». Le nom technique reste inchangé.",

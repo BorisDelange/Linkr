@@ -247,6 +247,25 @@
   "workspace_settings": {
     "delete_workspace": "Delete workspace"
   },
+  "badge_categories": {
+    "title": "Badges",
+    "description": "Declare badge categories to organise the badges used across this workspace. A badge written Source::MIMIC shows its category, and an exclusive category holds only one value per element.",
+    "empty": "No category yet. Badges stay free text until you declare one.",
+    "add": "New category",
+    "name_placeholder": "Source, Domain…",
+    "name_exists": "A category with this name already exists.",
+    "name_no_colon": "A category name cannot contain a colon.",
+    "exclusive": "Exclusive",
+    "exclusive_hint": "Only one value of this category per element — picking another replaces it.",
+    "used_by_one": "{{count}} badge",
+    "used_by_other": "{{count}} badges",
+    "sample_value": "value",
+    "delete_title": "Delete this category?",
+    "delete_description": "\"{{name}}\" will no longer be offered when adding a badge. The {{count}} badge(s) using it keep their label unchanged — they simply stop being displayed as a category.",
+    "category": "Category",
+    "no_category": "No category",
+    "pick_category": "Category"
+  },
   "workspace_env": {
     "title": "Default environments",
     "description": "Packages a new project in this workspace starts with. One per line — a bare name installs the latest version, or pin one with a comparator (e.g. pandas==2.1.4, plotly>=5.20). Leave a language empty to start new projects with an empty environment. Use ‘Load defaults’ for a common data-science set.",
@@ -1146,7 +1165,7 @@
     "col_hide_na": "Hide empty values",
     "col_only_na": "Show only empty values",
     "col_view_stats": "View statistics",
-    "col_edit_meta": "Edit label & description…",
+    "col_edit_meta": "Edit label & description",
     "col_meta_col_id": "ID",
     "col_meta_title": "Column metadata",
     "col_meta_desc": "Add a friendly label and description for “{{name}}”. The technical name stays unchanged.",

@@ -69,10 +69,15 @@ function ComponentAnalysis({ analysis, plugin }: { analysis: DatasetAnalysis; pl
   const dataRows = getFileRows(analysis.datasetFileId)
   const schema = plugin.manifest.configSchema
 
-  const renderConfigPanel = (onConfigChange: (changes: Record<string, unknown>) => void) => (
+  // `config` comes from the shell's draft, not from `analysis.config`: the panel
+  // is a controlled form, so the saved config would fight every edit.
+  const renderConfigPanel = (
+    onConfigChange: (changes: Record<string, unknown>) => void,
+    config: Record<string, unknown>,
+  ) => (
     <GenericConfigPanel
       schema={schema}
-      config={analysis.config}
+      config={config}
       columns={columns}
       onConfigChange={onConfigChange}
       rows={dataRows}

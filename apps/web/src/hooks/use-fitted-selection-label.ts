@@ -23,7 +23,13 @@ export function useFittedSelectionLabel(labels: string[]) {
   useLayoutEffect(() => {
     const container = containerRef.current
     const probe = probeRef.current
-    if (!container || !probe) return
+    // No probe means the caller is not offering to name the selection at all.
+    // Reset rather than returning early, or `fits` keeps a verdict about a list
+    // that is no longer on screen.
+    if (!container || !probe) {
+      setFits(true)
+      return
+    }
 
     const measure = () => {
       // The probe renders the full list unclipped off-screen; compare its
