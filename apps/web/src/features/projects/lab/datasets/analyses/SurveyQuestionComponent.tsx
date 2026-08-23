@@ -142,6 +142,8 @@ export function SurveyQuestionComponent({
     barSize: (config.barSize as number) ?? 0,
     xLabelMaxLen: (config.xLabelMaxLen as number) ?? 20,
     decimals: (config.decimals as number) ?? 1,
+    medianColor: (config.medianColor as string) ?? 'red',
+    xAxisStartZero: config.xAxisStartZero === true,
     showMedian: config.showMedian !== false,
     showGrid: config.showGrid !== false,
     compact,

@@ -73,6 +73,10 @@ export interface SurveyQuestionBlockProps {
   xLabelMaxLen?: number
   /** Decimal places on axis numbers and percentages. */
   decimals?: number
+  /** Colour name (or hex) of the histogram's median marker. */
+  medianColor?: string
+  /** Anchor the histogram's x axis at zero instead of hugging the data. */
+  xAxisStartZero?: boolean
   /** Answer codes in display order, for `sort: 'custom'`. */
   choiceOrder?: string[]
   sort?: CountSort
@@ -186,6 +190,8 @@ export function SurveyQuestionBlock({
   barSize = 0,
   xLabelMaxLen = 20,
   decimals = 1,
+  medianColor = 'red',
+  xAxisStartZero = false,
   sort = 'frequency',
   title,
   showQuestionText = true,
@@ -340,6 +346,8 @@ export function SurveyQuestionBlock({
             barSize={barSize}
             xLabelMaxLen={xLabelMaxLen}
             decimals={decimals}
+            medianHex={resolveColor(medianColor).hex}
+            startAtZero={xAxisStartZero}
             showMedian={showMedian}
             median={summary.stats?.median}
             hex={resolved.hex}
@@ -563,13 +571,21 @@ function SharePie({
   const total = counts.reduce((s, c) => s + c.count, 0)
   const pct = (n: number) => (total ? (n / total) * 100 : 0)
 
+  // Zero-count choices are dropped from the CIRCLE regardless of the "hide
+  // empty" setting. A slice of zero draws no arc, but paddingAngle still
+  // charges it a gap, so a question with ten unused options spent twenty
+  // degrees on wedges of nothing — it looked like invisible values were being
+  // plotted. The legend below still lists them, which is where a reader
+  // actually wants to see that an option went unchosen.
+  const drawn = counts.filter((c) => c.count > 0)
+
   return (
     <div className={cn('flex h-full min-h-0 w-full', compact ? 'flex-col' : 'items-center gap-3')}>
       <div className={cn('relative min-h-0', compact ? 'h-full w-full' : 'h-full flex-[3]')}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
             <Pie
-              data={counts}
+              data={drawn}
               dataKey="count"
               nameKey="label"
               cx="50%"
@@ -579,7 +595,7 @@ function SharePie({
               // less like a 2005 business chart.
               innerRadius={donut ? '62%' : 0}
               outerRadius="86%"
-              paddingAngle={counts.length > 1 ? 2 : 0}
+              paddingAngle={drawn.length > 1 ? 2 : 0}
               // A hairline in the page's own background separates neighbouring
               // slices without drawing a visible outline around each.
               stroke="var(--color-background)"
@@ -589,8 +605,11 @@ function SharePie({
               isAnimationActive={false}
               label={false}
             >
-              {counts.map((c, i) => (
-                <Cell key={c.code} fill={colors[i % colors.length]} />
+              {drawn.map((c) => (
+                // Coloured by the choice's position in the FULL list, so a
+                // colour keeps meaning the same answer whether or not some
+                // other option happens to be empty.
+                <Cell key={c.code} fill={colors[counts.indexOf(c) % colors.length]} />
               ))}
             </Pie>
             <ChartTooltip
@@ -670,6 +689,8 @@ function Histogram({
   barSize,
   xLabelMaxLen,
   decimals,
+  medianHex,
+  startAtZero,
 }: {
   values: number[]
   bins: number
@@ -682,6 +703,8 @@ function Histogram({
   barSize: number
   xLabelMaxLen: number
   decimals: number
+  medianHex: string
+  startAtZero: boolean
 }) {
   const { t } = useTranslation()
 
@@ -716,8 +739,11 @@ function Histogram({
     if (data.length === 0) return null
     const lo = data[0].start
     const hi = data[data.length - 1].end
-    return tightHistogramScale([lo, hi])
-  }, [data])
+    // Anchored at zero the axis shows where the data sits on an absolute scale;
+    // tight, it hugs the real range so a span like 467..6025 does not waste
+    // most of its width on empty space before the first bar.
+    return startAtZero ? niceTicks([0, hi], true) : tightHistogramScale([lo, hi])
+  }, [data, startAtZero])
 
   const yScale = niceTicks([0, Math.max(...data.map((d) => d.value), 1)], true)
 
@@ -750,7 +776,8 @@ function Histogram({
   return (
     <div ref={holderRef} className="h-full w-full">
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
+      {/* top margin holds the median label: at 8px it was clipped away. */}
+      <BarChart data={data} margin={{ top: showMedian && median !== undefined ? 18 : 8, right: 12, bottom: 4, left: 0 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis
           type="number"
@@ -803,13 +830,14 @@ function Histogram({
         {showMedian && median !== undefined && (
           <ReferenceLine
             x={median}
-            stroke="var(--color-destructive)"
+            stroke={medianHex}
             strokeDasharray="4 3"
             label={{
-              value: formatAxisNumber(median, decimals),
+              value: `${t('survey.median_marker')} ${formatAxisNumber(median, decimals)}`,
               position: 'top',
               fontSize: 10,
-              fill: 'var(--color-destructive)',
+              fontWeight: 600,
+              fill: medianHex,
             }}
           />
         )}

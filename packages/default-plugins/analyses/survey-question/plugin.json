@@ -168,6 +168,30 @@
         ]
       }
     },
+    "medianColor": {
+      "type": "color-select",
+      "label": {
+        "en": "Median marker",
+        "fr": "Repère de médiane"
+      },
+      "default": "red",
+      "row": "colorsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "histogram"
+        ]
+      },
+      "description": {
+        "en": "Colour of the median line and its value. It has to stand apart from the bars to read as an annotation rather than as data.",
+        "fr": "Couleur de la ligne de médiane et de sa valeur. Elle doit trancher avec les barres pour se lire comme une annotation et non comme une donnée."
+      }
+    },
     "questionColumn": {
       "type": "column-select",
       "multi": false,
@@ -363,6 +387,30 @@
           "column",
           "histogram"
         ]
+      }
+    },
+    "xAxisStartZero": {
+      "type": "boolean",
+      "label": {
+        "en": "X axis starts at zero",
+        "fr": "Axe X commence à zéro"
+      },
+      "default": false,
+      "row": "histRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "histogram"
+        ]
+      },
+      "description": {
+        "en": "Anchors the axis at zero, showing where the values sit on an absolute scale. Off, the axis hugs the real range — a span of 467 to 6025 then fills the width instead of leaving most of it empty.",
+        "fr": "Ancre l'axe à zéro, ce qui montre où se situent les valeurs sur une échelle absolue. Décoché, l'axe épouse l'étendue réelle — une plage de 467 à 6025 occupe alors toute la largeur au lieu d'en laisser l'essentiel vide."
       }
     },
     "opacity": {
@@ -568,7 +616,7 @@
         "en": "Main",
         "fr": "Principale"
       },
-      "default": "blue",
+      "default": "slate",
       "row": "colorsRow",
       "section": {
         "en": "Style",

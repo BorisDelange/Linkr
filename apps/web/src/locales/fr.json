@@ -1357,7 +1357,8 @@
     "kind_scale": "Échelle",
     "kind_numeric": "Numérique",
     "kind_date": "Date",
-    "kind_text": "Texte libre"
+    "kind_text": "Texte libre",
+    "median_marker": "Médiane"
   },
   "subsets": {
     "title": "Sous-ensembles",
@@ -4829,6 +4830,24 @@
     "no_data": "Aucune donnée disponible.",
     "corr_need_two_numeric": "Au moins 2 variables numériques sont nécessaires.",
     "corr_select_two": "Sélectionnez au moins 2 variables numériques.",
-    "corr_correlation": "corrélation"
+    "corr_correlation": "corrélation",
+    "reg_select_outcome": "Sélectionnez une variable dépendante (Y).",
+    "reg_select_predictors": "Sélectionnez au moins un prédicteur (X).",
+    "reg_failed": "Impossible de calculer la régression.",
+    "reg_logistic": "Régression logistique",
+    "reg_linear": "Régression linéaire",
+    "reg_adj_r2": "R² aj.",
+    "reg_intercept": "(Constante)",
+    "reg_col_estimate": "Estimation",
+    "reg_col_or": "OR",
+    "reg_col_se": "Erreur std.",
+    "reg_col_ci": "IC {{level}} %",
+    "reg_col_p": "p-value",
+    "reg_skipped_single": "{{name}} : une seule modalité, écartée du modèle.",
+    "reg_skipped_many": "{{name}} : {{count}} modalités, trop nombreuses pour être modélisées ; écartée.",
+    "reg_forest_or": "Odds ratio",
+    "reg_forest_estimate": "Estimation",
+    "reg_forest_axis_or": "← protecteur · risque → (absence d'effet = 1)",
+    "reg_forest_axis_linear": "← négatif · positif → (absence d'effet = 0)"
   }
 }

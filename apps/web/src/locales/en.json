@@ -1357,7 +1357,8 @@
     "kind_scale": "Scale",
     "kind_numeric": "Numeric",
     "kind_date": "Date",
-    "kind_text": "Free text"
+    "kind_text": "Free text",
+    "median_marker": "Median"
   },
   "subsets": {
     "title": "Subsets",
@@ -4829,6 +4830,24 @@
     "no_data": "No data available.",
     "corr_need_two_numeric": "At least 2 numeric variables are required.",
     "corr_select_two": "Select at least 2 numeric variables.",
-    "corr_correlation": "correlation"
+    "corr_correlation": "correlation",
+    "reg_select_outcome": "Select an outcome variable (Y).",
+    "reg_select_predictors": "Select at least one predictor (X).",
+    "reg_failed": "Unable to compute the regression.",
+    "reg_logistic": "Logistic regression",
+    "reg_linear": "Linear regression",
+    "reg_adj_r2": "Adj. R²",
+    "reg_intercept": "(Intercept)",
+    "reg_col_estimate": "Estimate",
+    "reg_col_or": "OR",
+    "reg_col_se": "Std. error",
+    "reg_col_ci": "{{level}}% CI",
+    "reg_col_p": "p-value",
+    "reg_skipped_single": "{{name}}: a single category, left out of the model.",
+    "reg_skipped_many": "{{name}}: {{count}} categories, too many to model as levels; left out.",
+    "reg_forest_or": "Odds ratio",
+    "reg_forest_estimate": "Estimate",
+    "reg_forest_axis_or": "← protective · risk → (no effect = 1)",
+    "reg_forest_axis_linear": "← negative · positive → (no effect = 0)"
   }
 }
