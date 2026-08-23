@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { Download, ExternalLink, Loader2, RefreshCw, Store } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -13,20 +12,18 @@ import {
 } from '@/components/ui/select'
 import { isServerMode } from '@/lib/api-client'
 import { formatDate } from '@/lib/format-helpers'
-import { paths } from '@/lib/paths'
 import { getCatalogSource, loadCatalogTargetWorkspace, saveCatalogTargetWorkspace } from '@/lib/catalog/settings'
 import { findInstalled, type InstalledInfo } from '@/lib/catalog/installed'
 import { useCatalog } from '@/hooks/use-catalog'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { CatalogBrowser } from './CatalogBrowser'
+import { useOpenInstalled } from './use-open-installed'
 import { CatalogInstallOutcome } from './CatalogInstallDialog'
 import { useCatalogInstall } from './use-catalog-install'
-import type { CatalogEntry } from '@/lib/catalog/types'
 
 export function CatalogPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const language = useAppStore((s) => s.language)
   const { entries, loaded, loading, error, fetchedAt, update, load, refresh } = useCatalog()
 
@@ -59,26 +56,7 @@ export function CatalogPage() {
   const bumpInstalled = useCallback(() => setInstalledNonce((n) => n + 1), [])
   const inst = useCatalogInstall(workspaceId, bumpInstalled)
 
-  /**
-   * Where an installed entity lives in the app — the entity itself, not the list page
-   * it sits on. Types with no detail route of their own (sql collections, data
-   * catalogs) return undefined, and their card keeps opening the repo, which is more
-   * useful than a list that does not say which row was just installed.
-   */
-  const openInApp = useCallback(
-    (entry: CatalogEntry, info?: InstalledInfo): (() => void) | undefined => {
-      if (!info || !workspaceId) return undefined
-      const to =
-        entry.type === 'project' ? paths.projectSummary(workspaceId, info.id)
-        : entry.type === 'mapping-project' ? paths.warehouseConceptMappingProject(workspaceId, info.id)
-        : entry.type === 'etl-pipeline' ? paths.warehouseEtlPipeline(workspaceId, info.id)
-        : entry.type === 'dq-rule-set' ? paths.warehouseDqRuleSet(workspaceId, info.id)
-        : entry.type === 'schema-preset' ? paths.warehouseSchema(workspaceId, info.id)
-        : null
-      return to ? () => navigate(to) : undefined
-    },
-    [workspaceId, navigate],
-  )
+  const openInApp = useOpenInstalled(workspaceId)
 
   // Which entries are already installed can only be answered by reading storage, so it
   // is a genuine external-system sync rather than derivable state.

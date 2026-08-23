@@ -22,6 +22,7 @@ import { isServerMode } from '@/lib/api-client'
 import { findInstalled, type InstalledInfo } from '@/lib/catalog/installed'
 import { useCatalog } from '@/hooks/use-catalog'
 import { CatalogBrowser } from '@/features/catalog/CatalogBrowser'
+import { useOpenInstalled } from '@/features/catalog/use-open-installed'
 import type { CatalogEntryType } from '@/lib/catalog/types'
 import type { CatalogInstallState } from '@/features/catalog/use-catalog-install'
 
@@ -33,12 +34,15 @@ interface ImportCatalogTabProps {
   language: string
   /** Bumped by the caller after an install, to re-read what is installed. */
   installedNonce: number
+  /** Close the host dialog — called before navigating to an installed entity. */
+  onClose: () => void
 }
 
-export function ImportCatalogTab({ type, workspaceId, install, language, installedNonce }: ImportCatalogTabProps) {
+export function ImportCatalogTab({ type, workspaceId, install, language, installedNonce, onClose }: ImportCatalogTabProps) {
   const { t } = useTranslation()
   const { entries, loaded, loading, error, load } = useCatalog()
   const [installed, setInstalled] = useState<Record<string, InstalledInfo>>({})
+  const openInApp = useOpenInstalled(workspaceId, onClose)
 
   const ofType = useMemo(() => entries.filter((e) => e.type === type), [entries, type])
 
@@ -90,10 +94,10 @@ export function ImportCatalogTab({ type, workspaceId, install, language, install
         hasWorkspace={!!workspaceId}
         busyId={install.busyId}
         onInstall={(entry) => void install.install(entry, installed[entry.id])}
-        // No in-app navigation from here: following a link would close the dialog the
-        // user is importing from. The card still offers the repo, and its `⋯` menu keeps
-        // "Open in LinkR" out of the way rather than half-working.
-        openInApp={() => undefined}
+        // Same behaviour as the Catalog page: once installed, the card and its `⋯`
+        // menu open the entity itself. The hook closes this dialog first, so the
+        // overlay doesn't linger over the page it navigates to.
+        openInApp={(entry) => openInApp(entry, installed[entry.id])}
         lockedType={type}
         gridClassName="sm:grid-cols-2"
       />

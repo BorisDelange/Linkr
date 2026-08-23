@@ -269,6 +269,7 @@ export function ImportSourceDialog({
                 install={catalogInstall}
                 language={language}
                 installedNonce={installedNonce}
+                onClose={() => onOpenChange(false)}
               />
             </TabsContent>
           )}
