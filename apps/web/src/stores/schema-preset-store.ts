@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import { stampAuthored, stampLineage } from '@/stores/app-store'
-import type { CustomSchemaPreset, GitRemoteConfig, SchemaMapping } from '@/types'
+import type { CustomSchemaPreset, GitRemoteConfig, ProjectBadge, SchemaMapping } from '@/types'
 
 interface SchemaPresetState {
   presets: CustomSchemaPreset[]
@@ -80,6 +80,8 @@ export function buildSchemaPreset(
   mapping: SchemaMapping,
   existing: CustomSchemaPreset | undefined,
   workspaceId: string | undefined,
+  /** Metadata set by the create/edit form. Absent keys keep the existing value. */
+  meta?: { version?: string; badges?: ProjectBadge[] },
 ): CustomSchemaPreset {
   const now = new Date().toISOString()
   // Stamp the creator on first save; keep the original author on update.
@@ -97,7 +99,8 @@ export function buildSchemaPreset(
     presetId,
     mapping: { ...mapping, presetId },
     gitRemoteConfig: existing?.gitRemoteConfig,
-    version: existing?.version ?? '0.1.0',
+    version: meta?.version ?? existing?.version ?? '0.1.0',
+    badges: meta?.badges ?? existing?.badges,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     workspaceId: workspaceId ?? existing?.workspaceId,

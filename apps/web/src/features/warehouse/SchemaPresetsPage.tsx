@@ -45,6 +45,10 @@ import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import
 import { parseImportZip, SCHEMA_PRESET_DDL_FILE } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { EntityIdField, isEntityIdValid, mintEntityId } from '@/components/ui/entity-id-field'
+import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
+import { BadgeEditor } from '@/components/ui/badge-editor'
+import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
+import { VersionField } from '@/components/ui/version-field'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { useSchemaPresetStore, buildSchemaPreset, forkedLineage } from '@/stores/schema-preset-store'
@@ -69,7 +73,7 @@ import type {
   CustomSchemaPreset,
 } from '@/types/schema-mapping'
 import type { AuthorDetails } from '@/types/author'
-import type { EntityLicense } from '@/types'
+import type { EntityLicense, ProjectBadge } from '@/types'
 import { EntityDocsDialog } from '@/components/ui/entity-docs-dialog'
 import type { SchemaPresetItem } from './use-schema-preset-actions'
 import type * as Monaco from 'monaco-editor'
@@ -1311,6 +1315,8 @@ export function SchemaPresetsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPresetName, setNewPresetName] = useState('')
   const [newPresetDescription, setNewPresetDescription] = useState('')
+  const [newPresetBadges, setNewPresetBadges] = useState<ProjectBadge[]>([])
+  const [newPresetVersion, setNewPresetVersion] = useState('0.1.0')
   const [importOpen, setImportOpen] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping; parsed?: Record<string, unknown>; gitRemote?: ImportGitRemote } | null>(null)
@@ -1342,11 +1348,14 @@ export function SchemaPresetsPage() {
   }, [allSchemas, searchQuery, sort, language])
 
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
-    const presetId = mintEntityId()
+    const copyName = t('settings.schema_preset_duplicate_name', { name: localized(sourceMapping.presetLabel, language) })
+    // Same readable slug the create form derives, not a uuid: this id is what the
+    // URL carries and what tells two schemas apart in a git export.
+    const presetId = uniqueEntityId(slugifyId(copyName), customPresets.map((p) => p.presetId))
     const newMapping: SchemaMapping = {
       ...structuredClone(sourceMapping),
       presetId,
-      presetLabel: setLocalized({}, language, t('settings.schema_preset_duplicate_name', { name: localized(sourceMapping.presetLabel, language) })),
+      presetLabel: setLocalized({}, language, copyName),
     }
     delete (newMapping as { knownTables?: string[] }).knownTables
     await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid))
@@ -1428,8 +1437,16 @@ export function SchemaPresetsPage() {
     setNewPresetName('')
     setNewPresetDescription('')
     setNewPresetId('')
+    setNewPresetBadges([])
+    setNewPresetVersion('0.1.0')
     setShowCreateDialog(true)
   }
+
+  /** Badges already used by the other schemas in this workspace. */
+  const schemaBadgeSuggestions = useMemo(
+    () => customPresets.flatMap((p) => p.badges ?? []),
+    [customPresets],
+  )
 
   // The identifier is optional (empty → derived at creation). A taken one is
   // only a blocker when it differs from the slug the field auto-derives from the
@@ -1453,10 +1470,13 @@ export function SchemaPresetsPage() {
     const label = setLocalized({}, language, name)
     const description = newPresetDescription.trim() ? setLocalized({}, language, newPresetDescription.trim()) : undefined
 
-    // What the user typed always wins; otherwise derive a free id.
-    const presetId = newPresetId.trim() || mintEntityId()
+    // What the user typed always wins; otherwise derive a free id from the name.
+    const presetId = newPresetId.trim() || uniqueEntityId(slugifyId(name), takenIds)
     const newMapping: SchemaMapping = { presetId, presetLabel: label, description }
-    await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid))
+    await storeSave(buildSchemaPreset(presetId, newMapping, undefined, wsUid, {
+      version: newPresetVersion.trim() || '0.1.0',
+      badges: newPresetBadges,
+    }))
     setShowCreateDialog(false)
     navigate(presetId)
   }
@@ -1583,38 +1603,55 @@ export function SchemaPresetsPage() {
             confirmLabel={t('common.create')}
             confirmDisabled={!canCreatePreset}
           >
-                {/* Name */}
-                <div className="space-y-1.5">
-                  <Label>{t('common.name')}<RequiredMark /></Label>
-                  <Input
-                    value={newPresetName}
-                    onChange={(e) => setNewPresetName(e.target.value)}
-                    autoFocus
+            <EntityDialogTabs
+              generalIncomplete={!newPresetName.trim() || nameDuplicate}
+              general={
+                <>
+                  {/* Name */}
+                  <div className="space-y-2">
+                    <Label>{t('common.name')}<RequiredMark /></Label>
+                    <Input
+                      value={newPresetName}
+                      onChange={(e) => setNewPresetName(e.target.value)}
+                      autoFocus
+                    />
+                    {newPresetName.trim() && nameDuplicate && (
+                      <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
+                    )}
+                  </div>
+                  {/* Identifier — always shown: a template can be used more than
+                      once, so its own preset id is not a usable key past the first
+                      schema. Left empty, creation derives a free one. */}
+                  <EntityIdField
+                    name={newPresetName}
+                    value={newPresetId}
+                    onChange={setNewPresetId}
+                    existingIds={takenIds}
+                    htmlId="schema-preset-id"
+                    placeholder="my-schema"
                   />
-                  {newPresetName.trim() && nameDuplicate && (
-                    <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
-                  )}
-                </div>
-                {/* Description */}
-                <div className="space-y-1.5">
-                  <Label>{t('schemas.field_description')}</Label>
-                  <Input
-                    value={newPresetDescription}
-                    onChange={(e) => setNewPresetDescription(e.target.value)}
-                    placeholder={t('schemas.field_description_placeholder')}
+                  {/* Description */}
+                  <div className="space-y-2">
+                    <Label>{t('schemas.field_description')}</Label>
+                    <Input
+                      value={newPresetDescription}
+                      onChange={(e) => setNewPresetDescription(e.target.value)}
+                      placeholder={t('schemas.field_description_placeholder')}
+                    />
+                  </div>
+                </>
+              }
+              metadata={
+                <>
+                  <BadgeEditor
+                    value={newPresetBadges}
+                    onChange={setNewPresetBadges}
+                    suggestions={schemaBadgeSuggestions}
                   />
-                </div>
-                {/* Identifier — always shown: a template can be used more than
-                    once, so its own preset id is not a usable key past the first
-                    schema. Left empty, creation derives a free one. */}
-                <EntityIdField
-                  name={newPresetName}
-                  value={newPresetId}
-                  onChange={setNewPresetId}
-                  existingIds={takenIds}
-                  htmlId="schema-preset-id"
-                  placeholder="my-schema"
-                />
+                  <VersionField value={newPresetVersion} onChange={setNewPresetVersion} />
+                </>
+              }
+            />
           </DialogShell>
 
           {/* Import source (ZIP, git or catalog) — same modal as the other list pages.

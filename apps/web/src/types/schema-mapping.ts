@@ -1,4 +1,4 @@
-import type { EntityLicense, GitRemoteConfig, LocalizedString } from './index'
+import type { EntityLicense, GitRemoteConfig, LocalizedString, ProjectBadge } from './index'
 import type { Authored, Lineaged } from './author'
 
 /**
@@ -298,6 +298,7 @@ export interface CustomSchemaPreset extends Authored, Lineaged {
   license?: EntityLicense
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
   version?: string
+  badges?: ProjectBadge[]
   /**
    * Git repository this preset is linked to. When set, workspace export emits only a
    * metadata marker (`schemas/<folder>/_schema.json`) plus a git-links.json pointer;

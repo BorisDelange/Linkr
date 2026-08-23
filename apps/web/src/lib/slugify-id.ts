@@ -14,6 +14,21 @@ export function slugifyId(name: string): string {
 }
 
 /**
+ * First id in the "foo", "foo-2", "foo-3"… series that is not taken.
+ *
+ * `base` is expected to be a slug already; an empty or 1-char one falls back to
+ * "entity", since an identifier must be at least 2 characters.
+ */
+export function uniqueEntityId(base: string, taken: Iterable<string>): string {
+  const used = new Set(taken)
+  let candidate = base || 'entity'
+  if (candidate.length < 2) candidate = `entity-${candidate}`
+  let id = candidate
+  for (let n = 2; used.has(id); n++) id = `${candidate}-${n}`
+  return id
+}
+
+/**
  * Assign entityId to entities that don't have one yet.
  * Deduplicates by appending -2, -3, etc.
  * Returns the list of entities that were mutated (for persistence).
@@ -26,11 +41,7 @@ export function migrateEntityIds<T extends { entityId?: string }>(
   const mutated: T[] = []
   for (const e of entities) {
     if (e.entityId) continue
-    let candidate = slugifyId(getName(e)) || 'entity'
-    if (candidate.length < 2) candidate = `entity-${candidate}`
-    let id = candidate
-    let suffix = 2
-    while (usedIds.has(id)) { id = `${candidate}-${suffix++}` }
+    const id = uniqueEntityId(slugifyId(getName(e)), usedIds)
     e.entityId = id
     usedIds.add(id)
     mutated.push(e)
