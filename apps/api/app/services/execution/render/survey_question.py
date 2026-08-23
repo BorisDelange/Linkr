@@ -244,8 +244,29 @@ def _linkr_print_survey(dataset, spec):
         return
 
     if kind == "text":
-        respondents = sum(1 for v in values if not _linkr_blank(v))
-        print(_json.dumps(_linkr_summary(total, respondents, [])))
+        # Free text is counted like a choice question: a text answer often is one
+        # in disguise (a facility name repeated across respondents). A column
+        # where every answer is unique simply yields a flat list.
+        tally = {}
+        respondents = 0
+        for v in values:
+            if _linkr_blank(v):
+                continue
+            respondents += 1
+            key = str(v).strip()
+            tally[key] = tally.get(key, 0) + 1
+        counts = [
+            {
+                "code": k,
+                "label": k,
+                "count": n,
+                "proportion": _linkr_rate(n, respondents),
+            }
+            for k, n in sorted(tally.items(), key=lambda kv: -kv[1])
+        ]
+        print(_json.dumps(_linkr_summary(total, respondents, counts, {
+            "distinctAnswers": len(counts),
+        })))
         return
 
     # select_one (also a scale or a yes/no): count the distinct values of the one

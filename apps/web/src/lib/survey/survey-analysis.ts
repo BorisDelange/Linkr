@@ -55,6 +55,10 @@ export interface QuestionSummary {
   meanSelections?: number
   /** Set for numeric questions. */
   stats?: NumericStats
+  /** For free text: how many DISTINCT answers were given. Close to
+   *  `respondents` means everyone wrote something different; much lower means
+   *  the column is a category list nobody coded. */
+  distinctAnswers?: number
 }
 
 export interface NumericStats {
@@ -273,6 +277,13 @@ function summarizeNumeric(
   }
 }
 
+/**
+ * Free text. Counted like a choice question, because a text answer often is one
+ * in disguise — a facility name repeated across respondents, a "specify" field
+ * where the same handful of answers recur. The counts are the distinct answers
+ * by frequency; a column where every answer is unique simply yields a flat list,
+ * which is itself the finding.
+ */
 function summarizeText(
   question: SurveyQuestion,
   rows: Record<string, unknown>[],
@@ -280,14 +291,30 @@ function summarizeText(
 ): QuestionSummary {
   const column = questionColumns(question)[0]
   if (!column) return emptySummary(total)
+
+  const tally = new Map<string, number>()
   let respondents = 0
-  for (const row of rows) if (!isBlank(row[column])) respondents++
+  for (const row of rows) {
+    const raw = row[column]
+    if (isBlank(raw)) continue
+    respondents++
+    const key = String(raw).trim()
+    tally.set(key, (tally.get(key) ?? 0) + 1)
+  }
+
+  const counts: AnswerCount[] = [...tally]
+    .map(([code, count]) => ({ code, label: code, count, proportion: rate(count, respondents) }))
+    .sort((a, b) => b.count - a.count)
+
   return {
     total,
     respondents,
     missing: total - respondents,
     responseRate: rate(respondents, total),
-    counts: [],
+    counts,
+    /** How many answers were given more than once — the signal that a text
+     *  column is really a category list that was never coded. */
+    distinctAnswers: counts.length,
   }
 }
 

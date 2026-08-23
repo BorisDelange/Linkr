@@ -1308,7 +1308,9 @@
     "stat_range": "Range",
     "stat_sum": "Total",
     "stat_respondents": "Respondents",
-    "stat_missing": "No answer"
+    "stat_missing": "No answer",
+    "distinct_answers": "{{distinct}} distinct answers from {{respondents}} respondents",
+    "given_once": "{{count}} answer(s) given once"
   },
   "subsets": {
     "title": "Subsets",
@@ -2979,6 +2981,9 @@
     "invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only."
   },
   "common": {
+    "tab_general": "General",
+    "tab_metadata": "Metadata",
+    "tab_attribution": "Attribution",
     "true": "True",
     "false": "False",
     "load_failed": "Could not load this data. Your work is not lost — retry, or reload the page.",
@@ -3620,7 +3625,7 @@
     "export_empty_hint": "Nothing to export"
   },
   "concept_mapping": {
-    "tab_info": "Details",
+    "tab_info": "General",
     "tab_source": "Source",
     "missing_fields_title": "Missing before you can create:",
     "missing_name": "A project name",

@@ -24,6 +24,8 @@ export type SurveyChart =
   | 'histogram'
   | 'stats'
   | 'table'
+  /** Free text: the most frequent answers, with a sample of the rest. */
+  | 'answers'
 
 /** The chart a question gets when none is forced. */
 export function defaultChart(question: SurveyQuestion): SurveyChart {
@@ -36,7 +38,10 @@ export function defaultChart(question: SurveyQuestion): SurveyChart {
     case 'decimal':
       return 'histogram'
     default:
-      return 'stats'
+      // Free text still has a distribution worth seeing — repeated answers, the
+      // long tail of one-offs. Two summary numbers in the middle of an empty
+      // panel say almost nothing.
+      return 'answers'
   }
 }
 
@@ -52,6 +57,6 @@ export function availableCharts(question: SurveyQuestion): SurveyChart[] {
     case 'decimal':
       return ['auto', 'histogram', 'stats', 'table']
     default:
-      return ['auto', 'stats', 'table']
+      return ['auto', 'answers', 'bar', 'stats']
   }
 }

@@ -107,17 +107,26 @@ function formatValue(
  * n/N with a filled bar — the response-rate indicator every slide of the source
  * report carries. Non-response is a finding, not a footnote.
  */
-function ResponseRate({ summary, compact }: { summary: QuestionSummary; compact?: boolean }) {
+function ResponseRate({
+  summary,
+  compact,
+  hex,
+}: {
+  summary: QuestionSummary
+  compact?: boolean
+  hex: string
+}) {
   const { t } = useTranslation()
   const pct = Math.round(summary.responseRate * 100)
   return (
-    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+    <div className="flex shrink-0 items-center gap-2 text-[10px] text-muted-foreground">
       <span className="whitespace-nowrap">
         {summary.respondents}/{summary.total} ({pct}%)
       </span>
-      <span className={cn('flex overflow-hidden rounded-full', compact ? 'h-1 w-12' : 'h-1.5 w-16')}>
-        <span className="h-full bg-primary" style={{ width: `${pct}%` }} />
-        <span className="h-full bg-destructive/40" style={{ width: `${100 - pct}%` }} />
+      {/* The answered share takes the widget's own colour: `bg-primary` is a
+          near-black in this theme, which read as chrome rather than as data. */}
+      <span className={cn('flex overflow-hidden rounded-full bg-muted', compact ? 'h-1 w-12' : 'h-1.5 w-16')}>
+        <span className="h-full" style={{ width: `${pct}%`, backgroundColor: hex }} />
       </span>
       <span className="sr-only">{t('survey.respondents')}</span>
     </div>
@@ -181,7 +190,7 @@ export function SurveyQuestionBlock({
   const resolved = resolveColor(color)
 
   const header = (
-    <div className={cn('flex items-start justify-between gap-3', compact ? 'px-3 pt-2' : 'mb-2')}>
+    <div className={cn('flex items-start justify-between gap-3', compact && 'px-3 pt-2')}>
       <div className="min-w-0 flex-1">
         {showQuestionText && (
           <p className={cn('font-medium text-foreground/90', compact ? 'text-xs' : 'text-sm')}>
@@ -196,7 +205,9 @@ export function SurveyQuestionBlock({
           </p>
         )}
       </div>
-      {showResponseRate && <ResponseRate summary={summary} compact={compact} />}
+      {showResponseRate && (
+        <ResponseRate summary={summary} compact={compact} hex={resolved.hex} />
+      )}
     </div>
   )
 
@@ -237,6 +248,8 @@ export function SurveyQuestionBlock({
         )
       case 'stats':
         return <Stats summary={summary} />
+      case 'answers':
+        return <AnswerList counts={counts} summary={summary} />
       case 'table':
         return <CountsTable counts={counts} valueLabel={valueLabel} />
       default:
@@ -252,11 +265,11 @@ export function SurveyQuestionBlock({
       : null
 
   return (
-    <div className={cn('flex h-full min-h-0 flex-col', compact ? '' : 'gap-1')}>
+    <div className={cn('flex h-full min-h-0 flex-col', compact ? '' : 'gap-2 p-4')}>
       {header}
-      <div className={cn('min-h-0 flex-1', compact ? 'px-2 pb-2' : '')}>{body}</div>
+      <div className={cn('min-h-0 flex-1', compact && 'px-2 pb-2')}>{body}</div>
       {footnote && (
-        <p className={cn('text-[10px] text-muted-foreground', compact ? 'px-3 pb-2' : '')}>
+        <p className={cn('text-[10px] leading-snug text-muted-foreground', compact && 'px-3 pb-2')}>
           {footnote}
         </p>
       )}
@@ -513,6 +526,57 @@ function Stats({ summary }: { summary: QuestionSummary }) {
 
 function round(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
+
+/**
+ * Free-text answers: the repeated ones first with their count, then the one-offs
+ * as a plain list. A header states how many distinct answers there were, which
+ * is what tells you whether the column is really an uncoded category list.
+ */
+function AnswerList({ counts, summary }: { counts: AnswerCount[]; summary: QuestionSummary }) {
+  const { t } = useTranslation()
+  const repeated = counts.filter((c) => c.count > 1)
+  const once = counts.filter((c) => c.count === 1)
+  return (
+    <div className="flex h-full flex-col gap-2 overflow-auto">
+      <p className="shrink-0 text-[10px] text-muted-foreground">
+        {t('survey.distinct_answers', {
+          distinct: summary.distinctAnswers ?? counts.length,
+          respondents: summary.respondents,
+        })}
+      </p>
+      {repeated.length > 0 && (
+        <table className="w-full text-xs">
+          <tbody>
+            {repeated.map((c) => (
+              <tr key={c.code} className="border-b border-border/50 last:border-0">
+                <td className="py-1 pr-2">{c.label}</td>
+                <td className="w-14 py-1 text-right tabular-nums text-muted-foreground">
+                  {c.count} ({(c.proportion * 100).toFixed(0)}%)
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {once.length > 0 && (
+        <div className="min-h-0">
+          {repeated.length > 0 && (
+            <p className="mb-1 text-[10px] text-muted-foreground">
+              {t('survey.given_once', { count: once.length })}
+            </p>
+          )}
+          <ul className="space-y-0.5 text-xs text-muted-foreground">
+            {once.map((c) => (
+              <li key={c.code} className="truncate">
+                {c.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function CountsTable({

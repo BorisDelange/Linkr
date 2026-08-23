@@ -1308,7 +1308,9 @@
     "stat_range": "Étendue",
     "stat_sum": "Total",
     "stat_respondents": "Répondants",
-    "stat_missing": "Sans réponse"
+    "stat_missing": "Sans réponse",
+    "distinct_answers": "{{distinct}} réponses distinctes pour {{respondents}} répondants",
+    "given_once": "{{count}} réponse(s) données une seule fois"
   },
   "subsets": {
     "title": "Sous-ensembles",
@@ -2979,6 +2981,9 @@
     "invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement."
   },
   "common": {
+    "tab_general": "Général",
+    "tab_metadata": "Métadonnées",
+    "tab_attribution": "Attribution",
     "true": "Vrai",
     "false": "Faux",
     "load_failed": "Impossible de charger ces données. Votre travail n'est pas perdu — réessayez ou rechargez la page.",
@@ -3620,7 +3625,7 @@
     "export_empty_hint": "Rien à exporter"
   },
   "concept_mapping": {
-    "tab_info": "Détails",
+    "tab_info": "Général",
     "tab_source": "Source",
     "missing_fields_title": "Éléments manquants pour créer :",
     "missing_name": "Un nom de projet",

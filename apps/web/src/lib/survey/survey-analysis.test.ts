@@ -199,6 +199,38 @@ describe('summarizeQuestion — numeric', () => {
   })
 })
 
+describe('summarizeQuestion — free text', () => {
+  const TEXT: SurveyQuestion = {
+    name: 'nom',
+    label: { fr: 'Nom' },
+    kind: 'text',
+    binding: { kind: 'single_column', column: 'nom' },
+  }
+  const schema: SurveySchema = { source: 'generic', questions: [TEXT], choices: {} }
+  const rows = [
+    { nom: 'CHU Rennes' },
+    { nom: 'CHU Rennes' },
+    { nom: 'CH Le Mans' },
+    { nom: '' },
+    { nom: null },
+  ]
+  const s = summarizeQuestion(schema, TEXT, rows)
+
+  it('counts respondents, ignoring blanks', () => {
+    expect(s.respondents).toBe(3)
+    expect(s.missing).toBe(2)
+  })
+
+  it('tallies repeated answers so a hidden category list shows up', () => {
+    expect(s.counts[0]).toMatchObject({ label: 'CHU Rennes', count: 2 })
+    expect(s.distinctAnswers).toBe(2)
+  })
+
+  it('sorts by frequency', () => {
+    expect(s.counts.map((c) => c.count)).toEqual([2, 1])
+  })
+})
+
 describe('describe / quantile', () => {
   it('returns undefined for an empty sample', () => {
     expect(describeStats([])).toBeUndefined()
