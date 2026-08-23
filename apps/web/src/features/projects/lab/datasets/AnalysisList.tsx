@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BarChart3, Pencil, Plus, Search, Trash2, Zap } from 'lucide-react'
+import { BarChart3, Pencil, Plus, Search, Trash2, X, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { GatedButton } from '@/components/ui/gated-button'
@@ -25,9 +25,10 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { InlineRenameField } from '@/components/InlineRenameField'
+import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { getPlugin } from '@/lib/plugins/registry'
-import type { AnalysisLanguage } from '@/types'
+import type { AnalysisLanguage, DatasetAnalysis } from '@/types'
 
 const LANG_BADGE: Record<string, { label: string; color: string }> = {
   python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
@@ -198,62 +199,22 @@ export function AnalysisList({
         </div>
       ) : (
         <div className="py-1" ref={listRef}>
-          {visible.map((analysis) => {
-            const isActive = analysis.id === selectedAnalysisId
-            return (
-              <ContextMenu key={analysis.id}>
-                <ContextMenuTrigger asChild>
-                  {renamingId === analysis.id ? (
-                    // Plain div (not a <button>) so the nested input keeps focus/selection.
-                    <div className="flex w-full items-center gap-1.5 px-3 py-1 text-xs">
-                      <BarChart3 size={14} className="shrink-0 text-violet-500" />
-                      <InlineRenameField
-                        initialValue={analysis.name}
-                        onSubmit={(name) => { renameAnalysis(analysis.id, name); setRenamingId(null) }}
-                        onCancel={() => setRenamingId(null)}
-                        hasClash={(candidate) =>
-                          analyses.some((a) => a.id !== analysis.id && a.datasetFileId === analysis.datasetFileId && a.name.toLowerCase() === candidate.toLowerCase())
-                        }
-                      />
-                    </div>
-                  ) : (
-                    <button
-                      data-analysis-id={analysis.id}
-                      onClick={() => selectAnalysis(isActive ? null : analysis.id)}
-                      onDoubleClick={() => setRenamingId(analysis.id)}
-                      className={cn(
-                        'group flex w-full items-center gap-1.5 px-3 py-1 text-left text-xs transition-colors hover:bg-accent/50',
-                        isActive && 'bg-accent text-accent-foreground',
-                      )}
-                    >
-                      <BarChart3 size={14} className="shrink-0 text-violet-500" />
-                      <span className="truncate">{analysis.name}</span>
-                      <LanguageBadge language={analysis.config.language as string | undefined} type={analysis.type} />
-                      {!!analysis.config.autoRun && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Zap size={10} className="shrink-0 text-amber-500 fill-amber-500" />
-                          </TooltipTrigger>
-                          <TooltipContent side="right">{t('datasets.analysis_auto_run')}</TooltipContent>
-                        </Tooltip>
-                      )}
-                    </button>
-                  )}
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem onClick={() => setRenamingId(analysis.id)}>
-                    <Pencil size={14} />
-                    {t('datasets.rename')}
-                  </ContextMenuItem>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem variant="destructive" onClick={() => setDeleteId(analysis.id)}>
-                    <Trash2 size={14} />
-                    {t('datasets.delete')}
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
-            )
-          })}
+          {visible.map((analysis) => (
+            <AnalysisRow
+              key={analysis.id}
+              analysis={analysis}
+              isActive={analysis.id === selectedAnalysisId}
+              isRenaming={renamingId === analysis.id}
+              onSelect={() => selectAnalysis(analysis.id === selectedAnalysisId ? null : analysis.id)}
+              onStartRename={() => setRenamingId(analysis.id)}
+              onSubmitRename={(name) => { renameAnalysis(analysis.id, name); setRenamingId(null) }}
+              onCancelRename={() => setRenamingId(null)}
+              hasClash={(candidate) =>
+                analyses.some((a) => a.id !== analysis.id && a.datasetFileId === analysis.datasetFileId && a.name.toLowerCase() === candidate.toLowerCase())
+              }
+              onDelete={() => setDeleteId(analysis.id)}
+            />
+          ))}
         </div>
       )}
 
@@ -282,6 +243,98 @@ export function AnalysisList({
 }
 
 /**
+ * One analysis row.
+ *
+ * A component rather than JSX inside the .map because it needs its own
+ * `useOverflowTooltip` — hooks can't be called in a loop callback. Same shape as
+ * the dataset file tree's rows, so a long name reads the same in both sidebars:
+ * ellipsis in place, full name in a tooltip, and only when actually clipped.
+ */
+function AnalysisRow({
+  analysis,
+  isActive,
+  isRenaming,
+  onSelect,
+  onStartRename,
+  onSubmitRename,
+  onCancelRename,
+  hasClash,
+  onDelete,
+}: {
+  analysis: DatasetAnalysis
+  isActive: boolean
+  isRenaming: boolean
+  onSelect: () => void
+  onStartRename: () => void
+  onSubmitRename: (name: string) => void
+  onCancelRename: () => void
+  hasClash: (candidate: string) => boolean
+  onDelete: () => void
+}) {
+  const { t } = useTranslation()
+  const { ref: nameRef, overflows: nameOverflows, triggerProps } = useOverflowTooltip()
+
+  return (
+    <Tooltip>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <TooltipTrigger asChild>
+            {isRenaming ? (
+              // Plain div (not a <button>) so the nested input keeps focus/selection.
+              <div className="flex w-full items-center gap-1.5 px-3 py-1 text-xs">
+                <BarChart3 size={14} className="shrink-0 text-violet-500" />
+                <InlineRenameField
+                  initialValue={analysis.name}
+                  onSubmit={onSubmitRename}
+                  onCancel={onCancelRename}
+                  hasClash={hasClash}
+                />
+              </div>
+            ) : (
+              <button
+                data-analysis-id={analysis.id}
+                onClick={onSelect}
+                onDoubleClick={onStartRename}
+                {...triggerProps}
+                className={cn(
+                  'group flex w-full min-w-0 items-center gap-1.5 px-3 py-1 text-left text-xs transition-colors hover:bg-accent/50',
+                  isActive && 'bg-accent text-accent-foreground',
+                )}
+              >
+                <BarChart3 size={14} className="shrink-0 text-violet-500" />
+                <span ref={nameRef} className="truncate">{analysis.name}</span>
+                <LanguageBadge language={analysis.config.language as string | undefined} type={analysis.type} />
+                {!!analysis.config.autoRun && (
+                  <Zap
+                    size={10}
+                    className="shrink-0 text-amber-500 fill-amber-500"
+                    aria-label={t('datasets.analysis_auto_run')}
+                  >
+                    <title>{t('datasets.analysis_auto_run')}</title>
+                  </Zap>
+                )}
+              </button>
+            )}
+          </TooltipTrigger>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={onStartRename}>
+            <Pencil size={14} />
+            {t('datasets.rename')}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive" onClick={onDelete}>
+            <Trash2 size={14} />
+            {t('datasets.delete')}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      {nameOverflows && <TooltipContent side="right">{analysis.name}</TooltipContent>}
+    </Tooltip>
+  )
+}
+
+/**
  * The search field, self-focusing on open.
  *
  * A separate component so the focus-on-mount lives in ITS mount rather than in a
@@ -303,19 +356,32 @@ function SearchField({
   const ref = useRef<HTMLInputElement | null>(null)
   useEffect(() => { ref.current?.focus() }, [])
   return (
-    <Input
-      ref={ref}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={t('datasets.search_analyses')}
-      className="h-6 text-xs"
-      onKeyDown={(e) => {
-        // Arrows walk the results without leaving the field, so you can type
-        // then pick without reaching for the mouse.
-        if (e.key === 'ArrowDown') { e.preventDefault(); onStep(1) }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); onStep(-1) }
-        else if (e.key === 'Escape') { e.preventDefault(); onClose() }
-      }}
-    />
+    <div className="relative">
+      <Input
+        ref={ref}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={t('datasets.search_analyses')}
+        className="h-6 pr-6 text-xs"
+        onKeyDown={(e) => {
+          // Arrows walk the results without leaving the field, so you can type
+          // then pick without reaching for the mouse.
+          if (e.key === 'ArrowDown') { e.preventDefault(); onStep(1) }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); onStep(-1) }
+          else if (e.key === 'Escape') { e.preventDefault(); onClose() }
+        }}
+      />
+      {/* Closes the search outright rather than only emptying it — the same
+          action as clicking the magnifier again, which is what a user reaching
+          for this cross expects. */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={t('common.close')}
+        className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <X size={12} />
+      </button>
+    </div>
   )
 }
