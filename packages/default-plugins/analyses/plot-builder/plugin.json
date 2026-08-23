@@ -10,168 +10,402 @@
   },
   "version": "1.0.0",
   "category": "visualization",
-  "tags": ["chart", "plot", "scatter", "histogram", "boxplot", "visualization"],
-  "runtime": ["component"],
+  "tags": [
+    "chart",
+    "plot",
+    "scatter",
+    "histogram",
+    "boxplot",
+    "visualization"
+  ],
+  "runtime": [
+    "component"
+  ],
   "languages": [],
   "icon": "ChartScatter",
   "iconColor": "violet",
   "configSchema": {
     "plotType": {
       "type": "select",
-      "label": { "en": "Plot type", "fr": "Type de graphique" },
+      "label": {
+        "en": "Plot type",
+        "fr": "Type de graphique"
+      },
       "default": "scatter",
-      "section": { "en": "Chart", "fr": "Graphique" },
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
       "options": [
-        { "value": "scatter", "label": { "en": "Scatter plot", "fr": "Nuage de points" } },
-        { "value": "line", "label": { "en": "Line plot", "fr": "Lignes" } },
-        { "value": "bar", "label": { "en": "Bar chart", "fr": "Barres" } },
-        { "value": "histogram", "label": { "en": "Histogram", "fr": "Histogramme" } },
-        { "value": "boxplot", "label": { "en": "Boxplot", "fr": "Boîte à moustaches" } },
-        { "value": "violin", "label": { "en": "Violin", "fr": "Violon" } }
+        {
+          "value": "scatter",
+          "label": {
+            "en": "Scatter plot",
+            "fr": "Nuage de points"
+          }
+        },
+        {
+          "value": "line",
+          "label": {
+            "en": "Line plot",
+            "fr": "Lignes"
+          }
+        },
+        {
+          "value": "bar",
+          "label": {
+            "en": "Bar chart",
+            "fr": "Barres"
+          }
+        },
+        {
+          "value": "histogram",
+          "label": {
+            "en": "Histogram",
+            "fr": "Histogramme"
+          }
+        },
+        {
+          "value": "boxplot",
+          "label": {
+            "en": "Boxplot",
+            "fr": "Boîte à moustaches"
+          }
+        },
+        {
+          "value": "violin",
+          "label": {
+            "en": "Violin",
+            "fr": "Violon"
+          }
+        }
       ]
     },
     "title": {
       "type": "string",
-      "label": { "en": "Title", "fr": "Titre" },
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
       "default": "",
-      "section": { "en": "Chart", "fr": "Graphique" }
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
     },
     "histogramOrientation": {
       "type": "select",
-      "label": { "en": "Orientation", "fr": "Orientation" },
+      "label": {
+        "en": "Orientation",
+        "fr": "Orientation"
+      },
       "default": "vertical",
-      "visibleWhen": { "field": "plotType", "value": "histogram" },
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "histogram"
+      },
       "row": "orientationRow",
-      "section": { "en": "Chart", "fr": "Graphique" },
-      "swapFieldsOnChange": [["xColumn", "yColumn"], ["xLabel", "yLabel"]],
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "swapFieldsOnChange": [
+        [
+          "xColumn",
+          "yColumn"
+        ],
+        [
+          "xLabel",
+          "yLabel"
+        ]
+      ],
       "options": [
-        { "value": "vertical", "label": { "en": "Vertical bars", "fr": "Barres verticales" } },
-        { "value": "horizontal", "label": { "en": "Horizontal bars", "fr": "Barres horizontales" } }
+        {
+          "value": "vertical",
+          "label": {
+            "en": "Vertical bars",
+            "fr": "Barres verticales"
+          }
+        },
+        {
+          "value": "horizontal",
+          "label": {
+            "en": "Horizontal bars",
+            "fr": "Barres horizontales"
+          }
+        }
       ]
     },
     "barMode": {
       "type": "select",
-      "label": { "en": "Bar mode", "fr": "Mode des barres" },
+      "label": {
+        "en": "Bar mode",
+        "fr": "Mode des barres"
+      },
       "default": "grouped",
-      "section": { "en": "Chart", "fr": "Graphique" },
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
       "visibleWhen": [
-        { "field": "plotType", "value": "histogram" },
-        { "field": "groupColumn", "notEmpty": true }
+        {
+          "field": "plotType",
+          "value": "histogram"
+        },
+        {
+          "field": "groupColumn",
+          "notEmpty": true
+        }
       ],
       "options": [
-        { "value": "grouped", "label": { "en": "Grouped", "fr": "Groupées" } },
-        { "value": "stacked", "label": { "en": "Stacked", "fr": "Empilées" } },
-        { "value": "overlay", "label": { "en": "Overlay", "fr": "Superposées" } }
+        {
+          "value": "grouped",
+          "label": {
+            "en": "Grouped",
+            "fr": "Groupées"
+          }
+        },
+        {
+          "value": "stacked",
+          "label": {
+            "en": "Stacked",
+            "fr": "Empilées"
+          }
+        },
+        {
+          "value": "overlay",
+          "label": {
+            "en": "Overlay",
+            "fr": "Superposées"
+          }
+        }
       ]
     },
     "binMode": {
       "type": "select",
-      "label": { "en": "Bin mode", "fr": "Mode bins" },
+      "label": {
+        "en": "Bin mode",
+        "fr": "Mode bins"
+      },
       "default": "count",
-      "visibleWhen": { "field": "plotType", "value": "histogram" },
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "histogram"
+      },
       "row": "binRow",
-      "section": { "en": "Chart", "fr": "Graphique" },
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
       "options": [
-        { "value": "count", "label": { "en": "Number of bins", "fr": "Nombre de barres" } },
-        { "value": "width", "label": { "en": "Bin width", "fr": "Largeur de barre" } }
+        {
+          "value": "count",
+          "label": {
+            "en": "Number of bins",
+            "fr": "Nombre de barres"
+          }
+        },
+        {
+          "value": "width",
+          "label": {
+            "en": "Bin width",
+            "fr": "Largeur de barre"
+          }
+        }
       ]
     },
     "bins": {
       "type": "number",
-      "label": { "en": "Bins", "fr": "Barres" },
+      "label": {
+        "en": "Bins",
+        "fr": "Barres"
+      },
       "default": 20,
       "min": 2,
       "max": 200,
       "visibleWhen": [
-        { "field": "plotType", "value": "histogram" },
-        { "field": "binMode", "value": "count" }
+        {
+          "field": "plotType",
+          "value": "histogram"
+        },
+        {
+          "field": "binMode",
+          "value": "count"
+        }
       ],
       "row": "binRow",
-      "section": { "en": "Chart", "fr": "Graphique" }
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
     },
     "binWidth": {
       "type": "number",
-      "label": { "en": "Bin width", "fr": "Largeur" },
+      "label": {
+        "en": "Bin width",
+        "fr": "Largeur"
+      },
       "default": 5,
       "min": 0.1,
       "max": 1000,
       "visibleWhen": [
-        { "field": "plotType", "value": "histogram" },
-        { "field": "binMode", "value": "width" }
+        {
+          "field": "plotType",
+          "value": "histogram"
+        },
+        {
+          "field": "binMode",
+          "value": "width"
+        }
       ],
       "row": "binRow",
-      "section": { "en": "Chart", "fr": "Graphique" }
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
     },
     "xLabel": {
       "type": "string",
-      "label": { "en": "X axis label", "fr": "Légende axe X" },
+      "label": {
+        "en": "X axis label",
+        "fr": "Légende axe X"
+      },
       "default": "",
       "row": "axisLabels",
-      "section": { "en": "Chart", "fr": "Graphique" }
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
     },
     "yLabel": {
       "type": "string",
-      "label": { "en": "Y axis label", "fr": "Légende axe Y" },
+      "label": {
+        "en": "Y axis label",
+        "fr": "Légende axe Y"
+      },
       "default": "",
       "row": "axisLabels",
-      "section": { "en": "Chart", "fr": "Graphique" }
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
     },
     "xColumn": {
       "type": "column-select",
-      "label": { "en": "X variable", "fr": "Variable X" },
+      "label": {
+        "en": "X variable",
+        "fr": "Variable X"
+      },
       "optional": true,
       "row": "columns",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "hintWhen": {
         "field": "plotType",
         "values": {
-          "scatter": { "en": "required", "fr": "requis" },
-          "line": { "en": "required", "fr": "requis" },
-          "bar": { "en": "required", "fr": "requis" },
-          "histogram": { "en": "required", "fr": "requis" },
-          "boxplot": { "en": "categories", "fr": "catégories" },
-          "violin": { "en": "categories", "fr": "catégories" }
+          "scatter": {
+            "en": "required",
+            "fr": "requis"
+          },
+          "line": {
+            "en": "required",
+            "fr": "requis"
+          },
+          "bar": {
+            "en": "required",
+            "fr": "requis"
+          },
+          "histogram": {
+            "en": "required",
+            "fr": "requis"
+          },
+          "boxplot": {
+            "en": "categories",
+            "fr": "catégories"
+          },
+          "violin": {
+            "en": "categories",
+            "fr": "catégories"
+          }
         },
         "override": {
           "field": "histogramOrientation",
           "value": "horizontal",
           "values": {
-            "histogram": { "en": "not used", "fr": "non utilisé" }
+            "histogram": {
+              "en": "not used",
+              "fr": "non utilisé"
+            }
           }
         }
       }
     },
     "yColumn": {
       "type": "column-select",
-      "label": { "en": "Y variable", "fr": "Variable Y" },
+      "label": {
+        "en": "Y variable",
+        "fr": "Variable Y"
+      },
       "optional": true,
       "row": "columns",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "hintWhen": {
         "field": "plotType",
         "values": {
-          "scatter": { "en": "required", "fr": "requis" },
-          "line": { "en": "required", "fr": "requis" },
-          "bar": { "en": "optional", "fr": "optionnel" },
-          "histogram": { "en": "not used", "fr": "non utilisé" },
-          "boxplot": { "en": "numeric", "fr": "numérique" },
-          "violin": { "en": "numeric", "fr": "numérique" }
+          "scatter": {
+            "en": "required",
+            "fr": "requis"
+          },
+          "line": {
+            "en": "required",
+            "fr": "requis"
+          },
+          "bar": {
+            "en": "optional",
+            "fr": "optionnel"
+          },
+          "histogram": {
+            "en": "not used",
+            "fr": "non utilisé"
+          },
+          "boxplot": {
+            "en": "numeric",
+            "fr": "numérique"
+          },
+          "violin": {
+            "en": "numeric",
+            "fr": "numérique"
+          }
         },
         "override": {
           "field": "histogramOrientation",
           "value": "horizontal",
           "values": {
-            "histogram": { "en": "required", "fr": "requis" }
+            "histogram": {
+              "en": "required",
+              "fr": "requis"
+            }
           }
         }
       }
     },
     "uniquePer": {
       "type": "column-select",
-      "label": { "en": "Unique per", "fr": "Unique par" },
+      "label": {
+        "en": "Unique per",
+        "fr": "Unique par"
+      },
       "optional": true,
       "row": "unique",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Group rows by this column to get one value per entity. Example: group by patient_id to get one value per patient.",
         "fr": "Regroupe les lignes selon cette colonne pour obtenir une valeur par entité. Exemple : grouper par patient_id pour une valeur par patient."
@@ -179,31 +413,88 @@
     },
     "uniqueAggregation": {
       "type": "select",
-      "label": { "en": "Per-entity function", "fr": "Fonction par entité" },
+      "label": {
+        "en": "Per-entity function",
+        "fr": "Fonction par entité"
+      },
       "default": "first",
       "row": "unique",
-      "section": { "en": "Data", "fr": "Données" },
-      "visibleWhen": { "field": "uniquePer", "notEmpty": true },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "visibleWhen": {
+        "field": "uniquePer",
+        "notEmpty": true
+      },
       "description": {
         "en": "How to reduce multiple rows into one value per entity. Use \"First\" for values that are the same across rows (e.g. age), or \"Mean\" to average measurements.",
         "fr": "Comment réduire plusieurs lignes en une valeur par entité. Utilisez « Premier » pour les valeurs identiques (ex : âge), ou « Moyenne » pour moyenner des mesures."
       },
       "options": [
-        { "value": "first", "label": { "en": "First value", "fr": "Première valeur" } },
-        { "value": "last", "label": { "en": "Last value", "fr": "Dernière valeur" } },
-        { "value": "mean", "label": { "en": "Mean", "fr": "Moyenne" } },
-        { "value": "median", "label": { "en": "Median", "fr": "Médiane" } },
-        { "value": "min", "label": { "en": "Min", "fr": "Min" } },
-        { "value": "max", "label": { "en": "Max", "fr": "Max" } },
-        { "value": "sum", "label": { "en": "Sum", "fr": "Somme" } }
+        {
+          "value": "first",
+          "label": {
+            "en": "First value",
+            "fr": "Première valeur"
+          }
+        },
+        {
+          "value": "last",
+          "label": {
+            "en": "Last value",
+            "fr": "Dernière valeur"
+          }
+        },
+        {
+          "value": "mean",
+          "label": {
+            "en": "Mean",
+            "fr": "Moyenne"
+          }
+        },
+        {
+          "value": "median",
+          "label": {
+            "en": "Median",
+            "fr": "Médiane"
+          }
+        },
+        {
+          "value": "min",
+          "label": {
+            "en": "Min",
+            "fr": "Min"
+          }
+        },
+        {
+          "value": "max",
+          "label": {
+            "en": "Max",
+            "fr": "Max"
+          }
+        },
+        {
+          "value": "sum",
+          "label": {
+            "en": "Sum",
+            "fr": "Somme"
+          }
+        }
       ]
     },
     "groupColumn": {
       "type": "column-select",
-      "label": { "en": "Group / Fill", "fr": "Groupe / Remplissage" },
+      "label": {
+        "en": "Group / Fill",
+        "fr": "Groupe / Remplissage"
+      },
       "optional": true,
       "row": "group",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Split data into groups by this column. Each group gets a different color.",
         "fr": "Sépare les données en groupes selon cette colonne. Chaque groupe a une couleur différente."
@@ -211,115 +502,240 @@
     },
     "excludeNA": {
       "type": "boolean",
-      "label": { "en": "Exclude NA / missing", "fr": "Exclure NA / manquants" },
+      "label": {
+        "en": "Exclude NA / missing",
+        "fr": "Exclure NA / manquants"
+      },
       "default": true,
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Remove rows where X or Y values are null, empty, or NA before plotting.",
         "fr": "Supprime les lignes où les valeurs X ou Y sont nulles, vides ou NA avant de tracer."
       }
     },
-
     "cardIcon": {
       "type": "icon-select",
-      "label": { "en": "Icon", "fr": "Icône" },
+      "label": {
+        "en": "Icon",
+        "fr": "Icône"
+      },
       "default": "__none__",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "centerTitle": {
       "type": "boolean",
-      "label": { "en": "Center title", "fr": "Centrer le titre" },
+      "label": {
+        "en": "Center title",
+        "fr": "Centrer le titre"
+      },
       "default": true,
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "decimals": {
       "type": "number",
-      "label": { "en": "Decimals", "fr": "Décimales" },
+      "label": {
+        "en": "Decimals",
+        "fr": "Décimales"
+      },
       "default": 1,
       "min": 0,
       "max": 10,
       "row": "decimalsLegend",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "legendPosition": {
       "type": "select",
-      "label": { "en": "Legend position", "fr": "Position légende" },
+      "label": {
+        "en": "Legend position",
+        "fr": "Position légende"
+      },
       "default": "bottom",
       "row": "decimalsLegend",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
-      "visibleWhen": { "field": "showLegend", "value": true },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "showLegend",
+        "value": true
+      },
       "options": [
-        { "value": "bottom", "label": { "en": "Bottom", "fr": "En bas" } },
-        { "value": "top-right", "label": { "en": "Top right", "fr": "Haut droite" } },
-        { "value": "top-left", "label": { "en": "Top left", "fr": "Haut gauche" } },
-        { "value": "top-center", "label": { "en": "Top center", "fr": "Haut centre" } }
+        {
+          "value": "bottom",
+          "label": {
+            "en": "Bottom",
+            "fr": "En bas"
+          }
+        },
+        {
+          "value": "top-right",
+          "label": {
+            "en": "Top right",
+            "fr": "Haut droite"
+          }
+        },
+        {
+          "value": "top-left",
+          "label": {
+            "en": "Top left",
+            "fr": "Haut gauche"
+          }
+        },
+        {
+          "value": "top-center",
+          "label": {
+            "en": "Top center",
+            "fr": "Haut centre"
+          }
+        }
       ]
     },
     "legendFontSize": {
       "type": "number",
-      "label": { "en": "Legend text size", "fr": "Taille texte légende" },
+      "label": {
+        "en": "Legend text size",
+        "fr": "Taille texte légende"
+      },
       "default": 11,
       "min": 7,
       "max": 20,
       "row": "legendStyle",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
-      "visibleWhen": { "field": "showLegend", "value": true }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "showLegend",
+        "value": true
+      }
     },
     "xAxisStartZero": {
       "type": "boolean",
-      "label": { "en": "X axis starts at 0", "fr": "Axe X commence à 0" },
+      "label": {
+        "en": "X axis starts at 0",
+        "fr": "Axe X commence à 0"
+      },
       "default": false,
       "row": "checksRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "yAxisStartZero": {
       "type": "boolean",
-      "label": { "en": "Y axis starts at 0", "fr": "Axe Y commence à 0" },
+      "label": {
+        "en": "Y axis starts at 0",
+        "fr": "Axe Y commence à 0"
+      },
       "default": false,
       "row": "checksRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "showGrid": {
       "type": "boolean",
-      "label": { "en": "Show grid", "fr": "Grille" },
+      "label": {
+        "en": "Show grid",
+        "fr": "Grille"
+      },
       "default": true,
       "row": "checksRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "showLegend": {
       "type": "boolean",
-      "label": { "en": "Show legend", "fr": "Légende" },
+      "label": {
+        "en": "Show legend",
+        "fr": "Légende"
+      },
       "default": true,
       "row": "checksRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "opacity": {
       "type": "number",
-      "label": { "en": "Opacity (%)", "fr": "Opacité (%)" },
+      "label": {
+        "en": "Opacity (%)",
+        "fr": "Opacité (%)"
+      },
       "default": 70,
       "min": 0,
       "max": 100,
       "row": "opacitySize",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "pointSize": {
       "type": "number",
-      "label": { "en": "Point / line size", "fr": "Taille points / lignes" },
+      "label": {
+        "en": "Point / line size",
+        "fr": "Taille points / lignes"
+      },
       "default": 4,
       "min": 1,
       "max": 15,
       "row": "opacitySize",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "barSize": {
       "type": "number",
-      "label": { "en": "Bar thickness", "fr": "Épaisseur des barres" },
+      "label": {
+        "en": "Bar thickness",
+        "fr": "Épaisseur des barres"
+      },
       "default": 0,
       "min": 0,
       "max": 120,
       "row": "barSizeRow",
-      "visibleWhen": { "field": "plotType", "values": ["bar", "histogram"] },
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "bar",
+          "histogram"
+        ]
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "description": {
         "en": "Fixed bar thickness in pixels. Leave at 0 to size bars automatically.",
         "fr": "Épaisseur fixe des barres en pixels. Laisser à 0 pour un dimensionnement automatique."
@@ -327,13 +743,28 @@
     },
     "xLabelMaxLen": {
       "type": "number",
-      "label": { "en": "X label length", "fr": "Longueur labels X" },
+      "label": {
+        "en": "X label length",
+        "fr": "Longueur labels X"
+      },
       "default": 20,
       "min": 3,
       "max": 60,
       "row": "labelLenRow",
-      "visibleWhen": { "field": "plotType", "values": ["bar", "histogram", "boxplot", "violin"] },
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "description": {
         "en": "Maximum characters shown for text labels on the X (category/bin) axis before truncating with “…”.",
         "fr": "Nombre maximum de caractères pour les labels texte de l'axe X (catégories/bins) avant troncature avec « … »."
@@ -341,13 +772,23 @@
     },
     "yLabelMaxLen": {
       "type": "number",
-      "label": { "en": "Y label length", "fr": "Longueur labels Y" },
+      "label": {
+        "en": "Y label length",
+        "fr": "Longueur labels Y"
+      },
       "default": 16,
       "min": 3,
       "max": 60,
       "row": "labelLenRow",
-      "visibleWhen": { "field": "plotType", "value": "histogram" },
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "histogram"
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "description": {
         "en": "Maximum characters shown for text labels on the Y axis (horizontal histogram categories) before truncating with “…”.",
         "fr": "Nombre maximum de caractères pour les labels texte de l'axe Y (catégories d'histogramme horizontal) avant troncature avec « … »."
@@ -355,37 +796,134 @@
     },
     "colorPalette": {
       "type": "select",
-      "label": { "en": "Color palette", "fr": "Palette" },
+      "label": {
+        "en": "Color palette",
+        "fr": "Palette"
+      },
       "default": "default",
       "optionPreview": "palette",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "none", "label": { "en": "None (single color)", "fr": "Aucune (couleur unique)" } },
-        { "value": "default", "label": { "en": "Default", "fr": "Par défaut" } },
-        { "value": "tableau10", "label": { "en": "Tableau 10", "fr": "Tableau 10" } },
-        { "value": "pastel", "label": { "en": "Pastel", "fr": "Pastel" } },
-        { "value": "vivid", "label": { "en": "Vivid", "fr": "Vives" } },
-        { "value": "earth", "label": { "en": "Earth tones", "fr": "Tons terre" } },
-        { "value": "ocean", "label": { "en": "Ocean", "fr": "Océan" } },
-        { "value": "warm", "label": { "en": "Warm", "fr": "Chaud" } },
-        { "value": "cool", "label": { "en": "Cool", "fr": "Froid" } },
-        { "value": "monochrome", "label": { "en": "Monochrome", "fr": "Monochrome" } },
-        { "value": "custom", "label": { "en": "Custom…", "fr": "Personnalisée…" } }
+        {
+          "value": "none",
+          "label": {
+            "en": "None (single color)",
+            "fr": "Aucune (couleur unique)"
+          }
+        },
+        {
+          "value": "default",
+          "label": {
+            "en": "Default",
+            "fr": "Par défaut"
+          }
+        },
+        {
+          "value": "tableau",
+          "label": {
+            "en": "Tableau (classic)",
+            "fr": "Tableau (classique)"
+          }
+        },
+        {
+          "value": "tableau10",
+          "label": {
+            "en": "Tableau 10",
+            "fr": "Tableau 10"
+          }
+        },
+        {
+          "value": "pastel",
+          "label": {
+            "en": "Pastel",
+            "fr": "Pastel"
+          }
+        },
+        {
+          "value": "vivid",
+          "label": {
+            "en": "Vivid",
+            "fr": "Vives"
+          }
+        },
+        {
+          "value": "earth",
+          "label": {
+            "en": "Earth tones",
+            "fr": "Tons terre"
+          }
+        },
+        {
+          "value": "ocean",
+          "label": {
+            "en": "Ocean",
+            "fr": "Océan"
+          }
+        },
+        {
+          "value": "warm",
+          "label": {
+            "en": "Warm",
+            "fr": "Chaud"
+          }
+        },
+        {
+          "value": "cool",
+          "label": {
+            "en": "Cool",
+            "fr": "Froid"
+          }
+        },
+        {
+          "value": "monochrome",
+          "label": {
+            "en": "Monochrome",
+            "fr": "Monochrome"
+          }
+        },
+        {
+          "value": "custom",
+          "label": {
+            "en": "Custom…",
+            "fr": "Personnalisée…"
+          }
+        }
       ]
     },
     "customPalette": {
       "type": "palette-editor",
-      "label": { "en": "Custom colors", "fr": "Couleurs personnalisées" },
+      "label": {
+        "en": "Custom colors",
+        "fr": "Couleurs personnalisées"
+      },
       "default": "",
-      "visibleWhen": { "field": "colorPalette", "value": "custom" },
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "visibleWhen": {
+        "field": "colorPalette",
+        "value": "custom"
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "cardColor": {
       "type": "color-select",
-      "label": { "en": "Main", "fr": "Principale" },
+      "label": {
+        "en": "Main",
+        "fr": "Principale"
+      },
       "default": "none",
       "row": "colorsRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "description": {
         "en": "Primary chart color (when no grouping).",
         "fr": "Couleur principale du graphique (sans regroupement)."
@@ -393,36 +931,75 @@
     },
     "bgColor": {
       "type": "color-select",
-      "label": { "en": "Background", "fr": "Fond" },
+      "label": {
+        "en": "Background",
+        "fr": "Fond"
+      },
       "default": "none",
       "row": "colorsRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "none", "label": { "en": "None", "fr": "Aucun" } }
+        {
+          "value": "none",
+          "label": {
+            "en": "None",
+            "fr": "Aucun"
+          }
+        }
       ]
     },
     "titleColor": {
       "type": "color-select",
-      "label": { "en": "Title", "fr": "Titre" },
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
       "default": "auto",
       "row": "colorsRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "auto", "label": { "en": "Auto", "fr": "Auto" } }
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto",
+            "fr": "Auto"
+          }
+        }
       ]
     },
     "iconColor": {
       "type": "color-select",
-      "label": { "en": "Icon", "fr": "Icône" },
+      "label": {
+        "en": "Icon",
+        "fr": "Icône"
+      },
       "default": "auto",
       "row": "colorsRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "description": {
         "en": "Defaults to the main color.",
         "fr": "Par défaut, suit la couleur principale."
       },
       "options": [
-        { "value": "auto", "label": { "en": "Auto", "fr": "Auto" } }
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto",
+            "fr": "Auto"
+          }
+        }
       ]
     }
   }

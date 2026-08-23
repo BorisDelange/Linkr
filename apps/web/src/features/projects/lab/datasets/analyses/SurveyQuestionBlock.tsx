@@ -21,7 +21,7 @@
  * bare table — the sidebar's shape, which reads at a glance and never clips.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Bar,
@@ -410,10 +410,10 @@ function RankedBars({
               </span>
             )}
           </div>
-          <div className={cn('w-full overflow-hidden rounded-sm bg-muted', compact ? 'h-1.5' : 'h-2')}>
+          <div className={cn('w-full overflow-hidden rounded-full bg-muted/60', compact ? 'h-1.5' : 'h-2')}>
             <div
-              className="h-full rounded-sm transition-all"
-              style={{ width: `${(c.count / top) * 100}%`, backgroundColor: hex, opacity: 0.75 }}
+              className="h-full rounded-full transition-[width] duration-300"
+              style={{ width: `${(c.count / top) * 100}%`, backgroundColor: hex }}
             />
           </div>
         </div>
@@ -532,10 +532,17 @@ function SharePie({
               nameKey="label"
               cx="50%"
               cy="50%"
-              innerRadius={donut ? '55%' : 0}
-              outerRadius="88%"
-              paddingAngle={counts.length > 1 ? 1.5 : 0}
-              strokeWidth={0}
+              // A thin ring rather than a thick one: the arc length carries the
+              // value, so the extra ink adds nothing and a slim ring looks far
+              // less like a 2005 business chart.
+              innerRadius={donut ? '62%' : 0}
+              outerRadius="86%"
+              paddingAngle={counts.length > 1 ? 2 : 0}
+              // A hairline in the page's own background separates neighbouring
+              // slices without drawing a visible outline around each.
+              stroke="var(--color-background)"
+              strokeWidth={2}
+              cornerRadius={donut ? 3 : 0}
               isAnimationActive={false}
               label={false}
             >
@@ -569,22 +576,33 @@ function SharePie({
           and reading it off the slices is guesswork. Swatch, label, count and
           percentage, with the full label on hover when it is clipped. */}
       {!compact && (
-        <ul className="h-full min-w-0 flex-[2] space-y-0.5 overflow-y-auto pr-1 text-xs">
+        <ul className="h-full min-w-0 flex-[2] space-y-1.5 overflow-y-auto pr-1 text-xs">
           {counts.map((c, i) => (
-            <li key={c.code} className="flex items-center gap-1.5">
-              <span
-                className="size-2 shrink-0 rounded-[2px]"
-                style={{ background: colors[i % colors.length] }}
-              />
-              <span className="min-w-0 flex-1 truncate" title={c.label}>
-                {c.label}
-              </span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">
-                {formatCount(c.count)}
-              </span>
-              <span className="w-10 shrink-0 text-right tabular-nums font-medium">
-                {pct(c.count).toFixed(1)}%
-              </span>
+            <li key={c.code} className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: colors[i % colors.length] }}
+                />
+                <span className="min-w-0 flex-1 truncate" title={c.label}>
+                  {c.label}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {formatCount(c.count)}
+                </span>
+                <span className="w-11 shrink-0 text-right tabular-nums font-medium">
+                  {pct(c.count).toFixed(1)}%
+                </span>
+              </div>
+              {/* The share as a length as well as an angle: two slices a few
+                  degrees apart are indistinguishable on the circle but obvious
+                  as bars. */}
+              <div className="ml-3.5 h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${pct(c.count)}%`, background: colors[i % colors.length] }}
+                />
+              </div>
             </li>
           ))}
         </ul>
@@ -615,6 +633,9 @@ function Histogram({
   compact?: boolean
 }) {
   const { t } = useTranslation()
+  // Unique per instance: an SVG gradient is referenced by id, so two histograms
+  // on the same page would otherwise both paint with whichever rendered last.
+  const gradientId = useId()
 
   const { data, width } = useMemo(() => {
     if (values.length === 0) return { data: [], width: 1 }
@@ -679,7 +700,18 @@ function Histogram({
     <div ref={holderRef} className="h-full w-full">
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
-        {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} vertical={false} />}
+        {showGrid && (
+          <CartesianGrid stroke="var(--color-border)" strokeOpacity={0.6} vertical={false} />
+        )}
+        {/* A vertical gradient rather than flat fill: the bar reads as a solid
+            mass at its base and lifts toward the top, which is what keeps a
+            dense histogram from looking like a wall of paint. */}
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={hex} stopOpacity={0.95} />
+            <stop offset="100%" stopColor={hex} stopOpacity={0.55} />
+          </linearGradient>
+        </defs>
         <XAxis
           type="number"
           dataKey="center"
@@ -716,9 +748,8 @@ function Histogram({
             counts, leaving a small gap so adjacent bins stay legible. */}
         <Bar
           dataKey="value"
-          fill={hex}
-          fillOpacity={0.85}
-          radius={[2, 2, 0, 0]}
+          fill={`url(#${gradientId})`}
+          radius={[3, 3, 0, 0]}
           isAnimationActive={false}
           barSize={barPixels}
           maxBarSize={9999}
@@ -727,11 +758,14 @@ function Histogram({
           <ReferenceLine
             x={median}
             stroke="var(--color-destructive)"
-            strokeDasharray="4 3"
+            strokeWidth={1.5}
+            strokeDasharray="5 4"
+            strokeOpacity={0.75}
             label={{
               value: formatAxisNumber(median),
               position: 'top',
-              fontSize: 9,
+              fontSize: 10,
+              fontWeight: 600,
               fill: 'var(--color-destructive)',
             }}
           />

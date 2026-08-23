@@ -10,34 +10,75 @@
   },
   "version": "1.1.0",
   "category": "visualization",
-  "tags": ["sankey", "flow", "pathway", "funnel", "transition", "visualization"],
-  "runtime": ["component"],
+  "tags": [
+    "sankey",
+    "flow",
+    "pathway",
+    "funnel",
+    "transition",
+    "visualization"
+  ],
+  "runtime": [
+    "component"
+  ],
   "languages": [],
   "icon": "Workflow",
   "iconColor": "teal",
   "configSchema": {
     "sourceMode": {
       "type": "select",
-      "label": { "en": "Data shape", "fr": "Forme des données" },
+      "label": {
+        "en": "Data shape",
+        "fr": "Forme des données"
+      },
       "default": "long",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "How the steps of each flow are stored:\n• Long — one row per step (recommended)\n• Levels — one column per stage\n• Path — a single column like \"A;B;C\"",
         "fr": "Comment les étapes de chaque flux sont stockées :\n• Long — une ligne par étape (recommandé)\n• Niveaux — une colonne par niveau\n• Parcours — une seule colonne type « A;B;C »"
       },
       "options": [
-        { "value": "long", "label": { "en": "Long (one row per step)", "fr": "Long (une ligne par étape)" } },
-        { "value": "levels", "label": { "en": "Level columns", "fr": "Colonnes de niveaux" } },
-        { "value": "path", "label": { "en": "Path string (A;B;C)", "fr": "Chaîne de parcours (A;B;C)" } }
+        {
+          "value": "long",
+          "label": {
+            "en": "Long (one row per step)",
+            "fr": "Long (une ligne par étape)"
+          }
+        },
+        {
+          "value": "levels",
+          "label": {
+            "en": "Level columns",
+            "fr": "Colonnes de niveaux"
+          }
+        },
+        {
+          "value": "path",
+          "label": {
+            "en": "Path string (A;B;C)",
+            "fr": "Chaîne de parcours (A;B;C)"
+          }
+        }
       ]
     },
-
     "entityColumn": {
       "type": "column-select",
-      "label": { "en": "Unique per", "fr": "Unique par" },
+      "label": {
+        "en": "Unique per",
+        "fr": "Unique par"
+      },
       "row": "longCols",
-      "visibleWhen": { "field": "sourceMode", "value": "long" },
-      "section": { "en": "Data", "fr": "Données" },
+      "visibleWhen": {
+        "field": "sourceMode",
+        "value": "long"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "The entity each flow belongs to (e.g. visit_id, patient_id, session_id). Rows are grouped by this column to reconstruct each sequence.",
         "fr": "L'entité à laquelle appartient chaque flux (ex : visit_id, patient_id, session_id). Les lignes sont regroupées par cette colonne pour reconstruire chaque séquence."
@@ -45,10 +86,19 @@
     },
     "stageColumn": {
       "type": "column-select",
-      "label": { "en": "Stage / step", "fr": "Étape" },
+      "label": {
+        "en": "Stage / step",
+        "fr": "Étape"
+      },
       "row": "longCols",
-      "visibleWhen": { "field": "sourceMode", "value": "long" },
-      "section": { "en": "Data", "fr": "Données" },
+      "visibleWhen": {
+        "field": "sourceMode",
+        "value": "long"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "The column holding each step's value (e.g. hospital unit, funnel stage, state).",
         "fr": "La colonne contenant la valeur de chaque étape (ex : unité d'hospitalisation, étape d'entonnoir, état)."
@@ -56,35 +106,60 @@
     },
     "orderColumn": {
       "type": "column-select",
-      "label": { "en": "Order by", "fr": "Ordonner par" },
+      "label": {
+        "en": "Order by",
+        "fr": "Ordonner par"
+      },
       "optional": true,
       "row": "longOrder",
-      "visibleWhen": { "field": "sourceMode", "value": "long" },
-      "section": { "en": "Data", "fr": "Données" },
+      "visibleWhen": {
+        "field": "sourceMode",
+        "value": "long"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "A date or numeric column that orders the steps within each entity (e.g. unit_in_datetime). Leave empty to keep the dataset's row order.",
         "fr": "Une colonne date ou numérique qui ordonne les étapes au sein de chaque entité (ex : unit_in_datetime). Laisser vide pour conserver l'ordre des lignes du jeu de données."
       }
     },
-
     "levelColumns": {
       "type": "column-select",
-      "label": { "en": "Level columns", "fr": "Colonnes de niveaux" },
+      "label": {
+        "en": "Level columns",
+        "fr": "Colonnes de niveaux"
+      },
       "multi": true,
-      "visibleWhen": { "field": "sourceMode", "value": "levels" },
-      "section": { "en": "Data", "fr": "Données" },
+      "visibleWhen": {
+        "field": "sourceMode",
+        "value": "levels"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Pick the columns in order, one per level (e.g. region, then city, then hospital). Each row contributes one flow across these levels.",
         "fr": "Choisissez les colonnes dans l'ordre, une par niveau (ex : région, puis ville, puis hôpital). Chaque ligne contribue un flux à travers ces niveaux."
       }
     },
-
     "pathColumn": {
       "type": "column-select",
-      "label": { "en": "Path column", "fr": "Colonne de parcours" },
+      "label": {
+        "en": "Path column",
+        "fr": "Colonne de parcours"
+      },
       "row": "pathCols",
-      "visibleWhen": { "field": "sourceMode", "value": "path" },
-      "section": { "en": "Data", "fr": "Données" },
+      "visibleWhen": {
+        "field": "sourceMode",
+        "value": "path"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "A column where each cell encodes the full ordered path as a single string (e.g. \"Réa;Soins intensifs;Sortie\").",
         "fr": "Une colonne où chaque cellule encode le parcours ordonné complet sous forme de chaîne (ex : « Réa;Soins intensifs;Sortie »)."
@@ -92,20 +167,40 @@
     },
     "pathSeparator": {
       "type": "string",
-      "label": { "en": "Separator", "fr": "Séparateur" },
+      "label": {
+        "en": "Separator",
+        "fr": "Séparateur"
+      },
       "default": ";",
       "row": "pathCols",
-      "visibleWhen": { "field": "sourceMode", "value": "path" },
-      "section": { "en": "Data", "fr": "Données" }
+      "visibleWhen": {
+        "field": "sourceMode",
+        "value": "path"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      }
     },
-
     "collapseRepeats": {
       "type": "boolean",
-      "label": { "en": "Merge consecutive repeats", "fr": "Fusionner les répétitions" },
+      "label": {
+        "en": "Merge consecutive repeats",
+        "fr": "Fusionner les répétitions"
+      },
       "default": true,
       "row": "dataOpts",
-      "visibleWhen": { "field": "sourceMode", "values": ["long", "path"] },
-      "section": { "en": "Data", "fr": "Données" },
+      "visibleWhen": {
+        "field": "sourceMode",
+        "values": [
+          "long",
+          "path"
+        ]
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Collapse A→A (same stage repeated in a row) into a single step, so self-loops don't appear.",
         "fr": "Réduit A→A (même étape répétée à la suite) en une seule étape, pour éviter les boucles sur soi-même."
@@ -113,10 +208,16 @@
     },
     "excludeNA": {
       "type": "boolean",
-      "label": { "en": "Exclude NA / empty", "fr": "Exclure NA / vide" },
+      "label": {
+        "en": "Exclude NA / empty",
+        "fr": "Exclure NA / vide"
+      },
       "default": true,
       "row": "dataOpts",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Drop steps with null, empty, or NA values before building links.",
         "fr": "Ignore les étapes nulles, vides ou NA avant de construire les liens."
@@ -124,9 +225,15 @@
     },
     "alignEndStates": {
       "type": "boolean",
-      "label": { "en": "Align end states", "fr": "Aligner les états terminaux" },
+      "label": {
+        "en": "Align end states",
+        "fr": "Aligner les états terminaux"
+      },
       "default": false,
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Merge each flow's final stage into one last column, so an end state (e.g. Death, Transfer) appears once instead of duplicated across columns when paths have different lengths.",
         "fr": "Fusionne l'étape finale de chaque flux dans une seule dernière colonne, pour qu'un état terminal (ex : Décès, Transfert) apparaisse une seule fois au lieu d'être dupliqué entre colonnes quand les parcours ont des longueurs différentes."
@@ -134,10 +241,16 @@
     },
     "addEndNode": {
       "type": "string",
-      "label": { "en": "End node label", "fr": "Libellé nœud final" },
+      "label": {
+        "en": "End node label",
+        "fr": "Libellé nœud final"
+      },
       "default": "",
       "optional": true,
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "If set, append a final node with this label to every flow (e.g. \"Discharge\", \"Exit\"). Leave empty to disable.",
         "fr": "Si renseigné, ajoute un nœud final portant ce libellé à chaque flux (ex : « Sortie »). Laisser vide pour désactiver."
@@ -145,12 +258,18 @@
     },
     "minLinkValue": {
       "type": "number",
-      "label": { "en": "Min flow size", "fr": "Flux minimum" },
+      "label": {
+        "en": "Min flow size",
+        "fr": "Flux minimum"
+      },
       "default": 1,
       "min": 1,
       "max": 100000,
       "row": "flowSize",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Hide transitions that occur fewer times than this. Use to remove rare, noisy flows.",
         "fr": "Masque les transitions se produisant moins souvent que cette valeur. Utile pour retirer les flux rares et bruités."
@@ -158,93 +277,194 @@
     },
     "maxLinkValue": {
       "type": "number",
-      "label": { "en": "Max flow size", "fr": "Flux maximum" },
+      "label": {
+        "en": "Max flow size",
+        "fr": "Flux maximum"
+      },
       "default": 0,
       "min": 0,
       "max": 100000,
       "row": "flowSize",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Hide transitions that occur more times than this. Leave at 0 for no maximum.",
         "fr": "Masque les transitions se produisant plus souvent que cette valeur. Laisser à 0 pour aucun maximum."
       }
     },
-
     "title": {
       "type": "string",
-      "label": { "en": "Title", "fr": "Titre" },
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
       "default": "",
-      "section": { "en": "Chart", "fr": "Graphique" }
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
     },
-
     "centerTitle": {
       "type": "boolean",
-      "label": { "en": "Center title", "fr": "Centrer le titre" },
+      "label": {
+        "en": "Center title",
+        "fr": "Centrer le titre"
+      },
       "default": true,
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "displayMode": {
       "type": "select",
-      "label": { "en": "Display", "fr": "Affichage" },
+      "label": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
       "default": "diagram",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "description": {
         "en": "Show the flows as a Sankey diagram, as a table (From → To, count, %), both stacked with a draggable divider, or both switchable via tabs.",
         "fr": "Afficher les flux sous forme de diagramme Sankey, de tableau (De → Vers, effectif, %), les deux empilés avec une barre de redimensionnement, ou les deux avec des onglets pour basculer."
       },
       "options": [
-        { "value": "diagram", "label": { "en": "Diagram", "fr": "Diagramme" } },
-        { "value": "table", "label": { "en": "Table", "fr": "Tableau" } },
-        { "value": "both", "label": { "en": "Diagram + table (stacked)", "fr": "Diagramme + tableau (empilés)" } },
-        { "value": "both-tabs", "label": { "en": "Diagram + table (tabs)", "fr": "Diagramme + tableau (onglets)" } }
+        {
+          "value": "diagram",
+          "label": {
+            "en": "Diagram",
+            "fr": "Diagramme"
+          }
+        },
+        {
+          "value": "table",
+          "label": {
+            "en": "Table",
+            "fr": "Tableau"
+          }
+        },
+        {
+          "value": "both",
+          "label": {
+            "en": "Diagram + table (stacked)",
+            "fr": "Diagramme + tableau (empilés)"
+          }
+        },
+        {
+          "value": "both-tabs",
+          "label": {
+            "en": "Diagram + table (tabs)",
+            "fr": "Diagramme + tableau (onglets)"
+          }
+        }
       ]
     },
     "valueDisplay": {
       "type": "select",
-      "label": { "en": "Value labels", "fr": "Étiquettes de valeur" },
+      "label": {
+        "en": "Value labels",
+        "fr": "Étiquettes de valeur"
+      },
       "default": "none",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "none", "label": { "en": "None", "fr": "Aucune" } },
-        { "value": "count", "label": { "en": "Count", "fr": "Effectif" } },
-        { "value": "percent", "label": { "en": "Percent", "fr": "Pourcentage" } }
+        {
+          "value": "none",
+          "label": {
+            "en": "None",
+            "fr": "Aucune"
+          }
+        },
+        {
+          "value": "count",
+          "label": {
+            "en": "Count",
+            "fr": "Effectif"
+          }
+        },
+        {
+          "value": "percent",
+          "label": {
+            "en": "Percent",
+            "fr": "Pourcentage"
+          }
+        }
       ]
     },
     "nodeWidth": {
       "type": "number",
-      "label": { "en": "Node width", "fr": "Largeur des nœuds" },
+      "label": {
+        "en": "Node width",
+        "fr": "Largeur des nœuds"
+      },
       "default": 16,
       "min": 4,
       "max": 60,
       "row": "nodeStyle",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "nodePadding": {
       "type": "number",
-      "label": { "en": "Node spacing", "fr": "Espacement des nœuds" },
+      "label": {
+        "en": "Node spacing",
+        "fr": "Espacement des nœuds"
+      },
       "default": 14,
       "min": 2,
       "max": 60,
       "row": "nodeStyle",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "linkOpacity": {
       "type": "number",
-      "label": { "en": "Link opacity (%)", "fr": "Opacité des liens (%)" },
+      "label": {
+        "en": "Link opacity (%)",
+        "fr": "Opacité des liens (%)"
+      },
       "default": 45,
       "min": 5,
       "max": 100,
       "row": "linkStyle",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "nodeLabelMaxLen": {
       "type": "number",
-      "label": { "en": "Label length", "fr": "Longueur des libellés" },
+      "label": {
+        "en": "Label length",
+        "fr": "Longueur des libellés"
+      },
       "default": 22,
       "min": 3,
       "max": 60,
       "row": "linkStyle",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "description": {
         "en": "Maximum characters shown on node labels before truncating with “…”.",
         "fr": "Nombre maximum de caractères affichés sur les libellés de nœuds avant troncature avec « … »."
@@ -252,46 +472,162 @@
     },
     "colorPalette": {
       "type": "select",
-      "label": { "en": "Color palette", "fr": "Palette" },
+      "label": {
+        "en": "Color palette",
+        "fr": "Palette"
+      },
       "default": "default",
       "optionPreview": "palette",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "default", "label": { "en": "Default", "fr": "Par défaut" } },
-        { "value": "tableau10", "label": { "en": "Tableau 10", "fr": "Tableau 10" } },
-        { "value": "pastel", "label": { "en": "Pastel", "fr": "Pastel" } },
-        { "value": "vivid", "label": { "en": "Vivid", "fr": "Vives" } },
-        { "value": "earth", "label": { "en": "Earth tones", "fr": "Tons terre" } },
-        { "value": "ocean", "label": { "en": "Ocean", "fr": "Océan" } },
-        { "value": "warm", "label": { "en": "Warm", "fr": "Chaud" } },
-        { "value": "cool", "label": { "en": "Cool", "fr": "Froid" } },
-        { "value": "monochrome", "label": { "en": "Monochrome", "fr": "Monochrome" } },
-        { "value": "custom", "label": { "en": "Custom…", "fr": "Personnalisée…" } }
+        {
+          "value": "default",
+          "label": {
+            "en": "Default",
+            "fr": "Par défaut"
+          }
+        },
+        {
+          "value": "tableau",
+          "label": {
+            "en": "Tableau (classic)",
+            "fr": "Tableau (classique)"
+          }
+        },
+        {
+          "value": "tableau10",
+          "label": {
+            "en": "Tableau 10",
+            "fr": "Tableau 10"
+          }
+        },
+        {
+          "value": "pastel",
+          "label": {
+            "en": "Pastel",
+            "fr": "Pastel"
+          }
+        },
+        {
+          "value": "vivid",
+          "label": {
+            "en": "Vivid",
+            "fr": "Vives"
+          }
+        },
+        {
+          "value": "earth",
+          "label": {
+            "en": "Earth tones",
+            "fr": "Tons terre"
+          }
+        },
+        {
+          "value": "ocean",
+          "label": {
+            "en": "Ocean",
+            "fr": "Océan"
+          }
+        },
+        {
+          "value": "warm",
+          "label": {
+            "en": "Warm",
+            "fr": "Chaud"
+          }
+        },
+        {
+          "value": "cool",
+          "label": {
+            "en": "Cool",
+            "fr": "Froid"
+          }
+        },
+        {
+          "value": "monochrome",
+          "label": {
+            "en": "Monochrome",
+            "fr": "Monochrome"
+          }
+        },
+        {
+          "value": "custom",
+          "label": {
+            "en": "Custom…",
+            "fr": "Personnalisée…"
+          }
+        }
       ]
     },
     "customPalette": {
       "type": "palette-editor",
-      "label": { "en": "Custom colors", "fr": "Couleurs personnalisées" },
+      "label": {
+        "en": "Custom colors",
+        "fr": "Couleurs personnalisées"
+      },
       "default": "",
-      "visibleWhen": { "field": "colorPalette", "value": "custom" },
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "visibleWhen": {
+        "field": "colorPalette",
+        "value": "custom"
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "linkColorMode": {
       "type": "select",
-      "label": { "en": "Link color", "fr": "Couleur des liens" },
+      "label": {
+        "en": "Link color",
+        "fr": "Couleur des liens"
+      },
       "default": "source",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "source", "label": { "en": "From source node", "fr": "Du nœud source" } },
-        { "value": "target", "label": { "en": "From target node", "fr": "Du nœud cible" } },
-        { "value": "gray", "label": { "en": "Neutral gray", "fr": "Gris neutre" } }
+        {
+          "value": "source",
+          "label": {
+            "en": "From source node",
+            "fr": "Du nœud source"
+          }
+        },
+        {
+          "value": "target",
+          "label": {
+            "en": "From target node",
+            "fr": "Du nœud cible"
+          }
+        },
+        {
+          "value": "gray",
+          "label": {
+            "en": "Neutral gray",
+            "fr": "Gris neutre"
+          }
+        }
       ]
     },
     "cardIcon": {
       "type": "icon-select",
-      "label": { "en": "Icon", "fr": "Icône" },
+      "label": {
+        "en": "Icon",
+        "fr": "Icône"
+      },
       "default": "__none__",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     }
   }
 }

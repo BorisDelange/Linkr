@@ -287,6 +287,7 @@ export function registerDefaultPlugins() {
           options: [
             { value: 'none', label: { en: 'None (single color)', fr: 'Aucune (couleur unique)' } },
             { value: 'default', label: { en: 'Default', fr: 'Par défaut' } },
+            { value: 'tableau', label: { en: 'Tableau (classic)', fr: 'Tableau (classique)' } },
             { value: 'tableau10', label: { en: 'Tableau 10', fr: 'Tableau 10' } },
             { value: 'pastel', label: { en: 'Pastel', fr: 'Pastel' } },
             { value: 'vivid', label: { en: 'Vivid', fr: 'Vives' } },

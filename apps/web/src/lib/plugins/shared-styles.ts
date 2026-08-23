@@ -31,7 +31,15 @@ export const DEFAULT_COLOR = COLOR_MAP.blue
 
 /** Categorical color palettes shared by chart-rendering plugins (Plot Builder, Map). */
 export const CHART_PALETTES: Record<string, string[]> = {
-  default: ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'],
+  // Drawn from the Tailwind 500/600 ramps the rest of the app is built from, so
+  // a chart sits in the same world as the buttons and badges around it. The
+  // hues are spaced around the wheel and alternate warm/cool, which keeps
+  // adjacent categories distinct without any two reading as "the same colour,
+  // slightly different" — the failing of the classic Tableau ramp, whose muted
+  // pastels also look dated beside a modern interface.
+  default: ['#2563eb', '#f97316', '#14b8a6', '#e11d48', '#8b5cf6', '#eab308', '#0ea5e9', '#84cc16', '#ec4899', '#64748b'],
+  // The 2010 Tableau ramp, kept because published figures were drawn with it.
+  tableau: ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'],
   tableau10: ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'],
   pastel: ['#aec7e8', '#ffbb78', '#ff9896', '#98df8a', '#c5b0d5', '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5'],
   vivid: ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#a65628', '#f781bf', '#999999', '#66c2a5', '#fc8d62'],
@@ -78,10 +86,22 @@ export function getLucideIcon(name: string): LucideIcons.LucideIcon {
 // ---------------------------------------------------------------------------
 
 export const TOOLTIP_STYLE = {
-  contentStyle: { fontSize: 10, padding: '4px 8px', background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' },
-  labelStyle: { fontSize: 10, color: '#fff' },
-  itemStyle: { fontSize: 10, color: '#fff', padding: 0 },
-  cursor: { fill: 'rgba(255,255,255,.15)' },
+  // Theme tokens rather than hard black: a solid black card is heavy against
+  // the app's light surfaces and, in dark mode, was the one element that did
+  // not follow the theme. The popover tokens are what every other floating
+  // surface in the app uses.
+  contentStyle: {
+    fontSize: 11,
+    padding: '6px 10px',
+    background: 'var(--color-popover)',
+    border: '1px solid var(--color-border)',
+    borderRadius: 6,
+    boxShadow: '0 4px 12px rgb(0 0 0 / 0.08)',
+    color: 'var(--color-popover-foreground)',
+  },
+  labelStyle: { fontSize: 11, fontWeight: 600, color: 'var(--color-foreground)', marginBottom: 2 },
+  itemStyle: { fontSize: 11, color: 'var(--color-muted-foreground)', padding: 0 },
+  cursor: { fill: 'var(--color-muted)', fillOpacity: 0.5 },
 } as const
 
 // ---------------------------------------------------------------------------

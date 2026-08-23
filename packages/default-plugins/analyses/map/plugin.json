@@ -10,64 +10,142 @@
   },
   "version": "1.0.0",
   "category": "visualization",
-  "tags": ["map", "geo", "geography", "points", "latitude", "longitude", "visualization"],
-  "runtime": ["component"],
+  "tags": [
+    "map",
+    "geo",
+    "geography",
+    "points",
+    "latitude",
+    "longitude",
+    "visualization"
+  ],
+  "runtime": [
+    "component"
+  ],
   "languages": [],
   "icon": "Map",
   "iconColor": "emerald",
   "configSchema": {
     "title": {
       "type": "string",
-      "label": { "en": "Title", "fr": "Titre" },
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
       "default": "",
-      "section": { "en": "Map", "fr": "Carte" }
+      "section": {
+        "en": "Map",
+        "fr": "Carte"
+      }
     },
     "basemap": {
       "type": "select",
-      "label": { "en": "Base map", "fr": "Fond de carte" },
+      "label": {
+        "en": "Base map",
+        "fr": "Fond de carte"
+      },
       "default": "osm",
-      "section": { "en": "Map", "fr": "Carte" },
+      "section": {
+        "en": "Map",
+        "fr": "Carte"
+      },
       "description": {
         "en": "Online tiles require network access. Without it, points are drawn on a neutral background.",
         "fr": "Les tuiles en ligne nécessitent un accès réseau. Sans réseau, les points sont tracés sur un fond neutre."
       },
       "options": [
-        { "value": "osm", "label": { "en": "OpenStreetMap", "fr": "OpenStreetMap" } },
-        { "value": "carto-light", "label": { "en": "Light (Carto)", "fr": "Clair (Carto)" } },
-        { "value": "carto-dark", "label": { "en": "Dark (Carto)", "fr": "Sombre (Carto)" } },
-        { "value": "none", "label": { "en": "None (offline)", "fr": "Aucun (hors-ligne)" } }
+        {
+          "value": "osm",
+          "label": {
+            "en": "OpenStreetMap",
+            "fr": "OpenStreetMap"
+          }
+        },
+        {
+          "value": "carto-light",
+          "label": {
+            "en": "Light (Carto)",
+            "fr": "Clair (Carto)"
+          }
+        },
+        {
+          "value": "carto-dark",
+          "label": {
+            "en": "Dark (Carto)",
+            "fr": "Sombre (Carto)"
+          }
+        },
+        {
+          "value": "none",
+          "label": {
+            "en": "None (offline)",
+            "fr": "Aucun (hors-ligne)"
+          }
+        }
       ]
     },
     "showLegend": {
       "type": "boolean",
-      "label": { "en": "Show legend", "fr": "Légende" },
+      "label": {
+        "en": "Show legend",
+        "fr": "Légende"
+      },
       "default": true,
-      "section": { "en": "Map", "fr": "Carte" },
-      "visibleWhen": { "field": "colorColumn", "notEmpty": true }
+      "section": {
+        "en": "Map",
+        "fr": "Carte"
+      },
+      "visibleWhen": {
+        "field": "colorColumn",
+        "notEmpty": true
+      }
     },
-
     "latColumn": {
       "type": "column-select",
-      "label": { "en": "Latitude", "fr": "Latitude" },
+      "label": {
+        "en": "Latitude",
+        "fr": "Latitude"
+      },
       "filter": "numeric",
       "row": "coords",
-      "section": { "en": "Data", "fr": "Données" },
-      "hint": { "en": "required", "fr": "requis" }
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "hint": {
+        "en": "required",
+        "fr": "requis"
+      }
     },
     "lonColumn": {
       "type": "column-select",
-      "label": { "en": "Longitude", "fr": "Longitude" },
+      "label": {
+        "en": "Longitude",
+        "fr": "Longitude"
+      },
       "filter": "numeric",
       "row": "coords",
-      "section": { "en": "Data", "fr": "Données" },
-      "hint": { "en": "required", "fr": "requis" }
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "hint": {
+        "en": "required",
+        "fr": "requis"
+      }
     },
     "colorColumn": {
       "type": "column-select",
-      "label": { "en": "Color by", "fr": "Couleur par" },
+      "label": {
+        "en": "Color by",
+        "fr": "Couleur par"
+      },
       "optional": true,
       "row": "encode",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Color each point by the value of this column (categorical).",
         "fr": "Colore chaque point selon la valeur de cette colonne (catégorielle)."
@@ -75,11 +153,17 @@
     },
     "sizeColumn": {
       "type": "column-select",
-      "label": { "en": "Size by", "fr": "Taille par" },
+      "label": {
+        "en": "Size by",
+        "fr": "Taille par"
+      },
       "optional": true,
       "filter": "numeric",
       "row": "encode",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Scale each point radius by this numeric column (bubble map).",
         "fr": "Module le rayon de chaque point selon cette colonne numérique (carte à bulles)."
@@ -87,10 +171,16 @@
     },
     "labelColumn": {
       "type": "column-select",
-      "label": { "en": "Label", "fr": "Étiquette" },
+      "label": {
+        "en": "Label",
+        "fr": "Étiquette"
+      },
       "optional": true,
       "row": "labels",
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Show a text label next to each point.",
         "fr": "Affiche une étiquette texte à côté de chaque point."
@@ -98,81 +188,211 @@
     },
     "popupColumns": {
       "type": "column-select",
-      "label": { "en": "Hover popup fields", "fr": "Champs du popup au survol" },
+      "label": {
+        "en": "Hover popup fields",
+        "fr": "Champs du popup au survol"
+      },
       "multi": true,
       "optional": true,
-      "section": { "en": "Data", "fr": "Données" },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
       "description": {
         "en": "Columns shown in the popup when hovering a point.",
         "fr": "Colonnes affichées dans le popup au survol d'un point."
       }
     },
-
     "cardIcon": {
       "type": "icon-select",
-      "label": { "en": "Icon", "fr": "Icône" },
+      "label": {
+        "en": "Icon",
+        "fr": "Icône"
+      },
       "default": "__none__",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "centerTitle": {
       "type": "boolean",
-      "label": { "en": "Center title", "fr": "Centrer le titre" },
+      "label": {
+        "en": "Center title",
+        "fr": "Centrer le titre"
+      },
       "default": true,
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "pointSize": {
       "type": "number",
-      "label": { "en": "Point size", "fr": "Taille des points" },
+      "label": {
+        "en": "Point size",
+        "fr": "Taille des points"
+      },
       "default": 6,
       "min": 1,
       "max": 30,
       "row": "markerRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "opacity": {
       "type": "number",
-      "label": { "en": "Opacity (%)", "fr": "Opacité (%)" },
+      "label": {
+        "en": "Opacity (%)",
+        "fr": "Opacité (%)"
+      },
       "default": 80,
       "min": 0,
       "max": 100,
       "row": "markerRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "colorPalette": {
       "type": "select",
-      "label": { "en": "Color palette", "fr": "Palette" },
+      "label": {
+        "en": "Color palette",
+        "fr": "Palette"
+      },
       "default": "default",
       "optionPreview": "palette",
-      "visibleWhen": { "field": "colorColumn", "notEmpty": true },
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "visibleWhen": {
+        "field": "colorColumn",
+        "notEmpty": true
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "default", "label": { "en": "Default", "fr": "Par défaut" } },
-        { "value": "tableau10", "label": { "en": "Tableau 10", "fr": "Tableau 10" } },
-        { "value": "pastel", "label": { "en": "Pastel", "fr": "Pastel" } },
-        { "value": "vivid", "label": { "en": "Vivid", "fr": "Vives" } },
-        { "value": "earth", "label": { "en": "Earth tones", "fr": "Tons terre" } },
-        { "value": "ocean", "label": { "en": "Ocean", "fr": "Océan" } },
-        { "value": "warm", "label": { "en": "Warm", "fr": "Chaud" } },
-        { "value": "cool", "label": { "en": "Cool", "fr": "Froid" } },
-        { "value": "monochrome", "label": { "en": "Monochrome", "fr": "Monochrome" } },
-        { "value": "custom", "label": { "en": "Custom…", "fr": "Personnalisée…" } }
+        {
+          "value": "default",
+          "label": {
+            "en": "Default",
+            "fr": "Par défaut"
+          }
+        },
+        {
+          "value": "tableau",
+          "label": {
+            "en": "Tableau (classic)",
+            "fr": "Tableau (classique)"
+          }
+        },
+        {
+          "value": "tableau10",
+          "label": {
+            "en": "Tableau 10",
+            "fr": "Tableau 10"
+          }
+        },
+        {
+          "value": "pastel",
+          "label": {
+            "en": "Pastel",
+            "fr": "Pastel"
+          }
+        },
+        {
+          "value": "vivid",
+          "label": {
+            "en": "Vivid",
+            "fr": "Vives"
+          }
+        },
+        {
+          "value": "earth",
+          "label": {
+            "en": "Earth tones",
+            "fr": "Tons terre"
+          }
+        },
+        {
+          "value": "ocean",
+          "label": {
+            "en": "Ocean",
+            "fr": "Océan"
+          }
+        },
+        {
+          "value": "warm",
+          "label": {
+            "en": "Warm",
+            "fr": "Chaud"
+          }
+        },
+        {
+          "value": "cool",
+          "label": {
+            "en": "Cool",
+            "fr": "Froid"
+          }
+        },
+        {
+          "value": "monochrome",
+          "label": {
+            "en": "Monochrome",
+            "fr": "Monochrome"
+          }
+        },
+        {
+          "value": "custom",
+          "label": {
+            "en": "Custom…",
+            "fr": "Personnalisée…"
+          }
+        }
       ]
     },
     "customPalette": {
       "type": "palette-editor",
-      "label": { "en": "Custom colors", "fr": "Couleurs personnalisées" },
+      "label": {
+        "en": "Custom colors",
+        "fr": "Couleurs personnalisées"
+      },
       "default": "",
       "visibleWhen": [
-        { "field": "colorColumn", "notEmpty": true },
-        { "field": "colorPalette", "value": "custom" }
+        {
+          "field": "colorColumn",
+          "notEmpty": true
+        },
+        {
+          "field": "colorPalette",
+          "value": "custom"
+        }
       ],
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     },
     "markerColor": {
       "type": "color-select",
-      "label": { "en": "Marker color", "fr": "Couleur des points" },
+      "label": {
+        "en": "Marker color",
+        "fr": "Couleur des points"
+      },
       "default": "blue",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "description": {
         "en": "Used when no \"Color by\" column is set.",
         "fr": "Utilisée quand aucune colonne « Couleur par » n'est définie."
@@ -180,10 +400,17 @@
     },
     "cardColor": {
       "type": "color-select",
-      "label": { "en": "Main", "fr": "Principale" },
+      "label": {
+        "en": "Main",
+        "fr": "Principale"
+      },
       "default": "none",
       "row": "colorsRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "description": {
         "en": "Colors the title icon.",
         "fr": "Colore l'icône du titre."
@@ -191,22 +418,48 @@
     },
     "bgColor": {
       "type": "color-select",
-      "label": { "en": "Background", "fr": "Fond" },
+      "label": {
+        "en": "Background",
+        "fr": "Fond"
+      },
       "default": "none",
       "row": "colorsRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "none", "label": { "en": "None", "fr": "Aucun" } }
+        {
+          "value": "none",
+          "label": {
+            "en": "None",
+            "fr": "Aucun"
+          }
+        }
       ]
     },
     "titleColor": {
       "type": "color-select",
-      "label": { "en": "Title", "fr": "Titre" },
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
       "default": "auto",
       "row": "colorsRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
       "options": [
-        { "value": "auto", "label": { "en": "Auto", "fr": "Auto" } }
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto",
+            "fr": "Auto"
+          }
+        }
       ]
     }
   }

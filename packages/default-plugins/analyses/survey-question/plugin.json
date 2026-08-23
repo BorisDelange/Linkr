@@ -412,6 +412,13 @@
           }
         },
         {
+          "value": "tableau",
+          "label": {
+            "en": "Tableau (classic)",
+            "fr": "Tableau (classique)"
+          }
+        },
+        {
           "value": "tableau10",
           "label": {
             "en": "Tableau 10",
