@@ -86,23 +86,28 @@ export function EntityDialogTabs({
           hides them along with anything positioned inside them (a file drop zone
           would otherwise escape a plain hidden panel and show through). They are
           `inert`, so nothing in there takes focus or reaches a screen reader. */}
-      <div className="relative pt-3" {...containerProps}>
-        <div {...measuredPanelProps(tab)} className="flex flex-col gap-4">
-          {tabs.find((tb) => tb.value === tab)?.content}
-        </div>
-        {tabs.filter((tb) => tb.value !== tab).map((tb) => (
-          <div
-            key={tb.value}
-            aria-hidden
-            inert
-            {...measuredPanelProps(tb.value)}
-            // Absolute so it lays out at its natural height without adding any,
-            // invisible so neither it nor anything positioned inside it paints.
-            className="pointer-events-none invisible absolute inset-x-0 top-3 flex flex-col gap-4"
-          >
-            {tb.content}
+      {/* The padding is on the outer element: min-height includes padding under
+          border-box, so putting it on the measured box would leave the tallest
+          panel 12px short of the floor and grow the dialog anyway. */}
+      <div className="pt-3">
+        <div className="relative" {...containerProps}>
+          <div {...measuredPanelProps(tab)} className="flex flex-col gap-4">
+            {tabs.find((tb) => tb.value === tab)?.content}
           </div>
-        ))}
+          {tabs.filter((tb) => tb.value !== tab).map((tb) => (
+            <div
+              key={tb.value}
+              aria-hidden
+              inert
+              {...measuredPanelProps(tb.value)}
+              // Absolute so it lays out at its natural height without adding any,
+              // invisible so neither it nor anything positioned inside it paints.
+              className="pointer-events-none invisible absolute inset-x-0 top-0 flex flex-col gap-4"
+            >
+              {tb.content}
+            </div>
+          ))}
+        </div>
       </div>
     </Tabs>
   )

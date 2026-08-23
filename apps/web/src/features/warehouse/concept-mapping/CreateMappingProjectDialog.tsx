@@ -740,13 +740,29 @@ export function CreateMappingProjectDialog({
 
   // Cmd/Ctrl+S submits when the form is valid. `canSubmit` already encodes all the
   // validity gates; only active on the main page (not the import-settings sub-page).
-  useSaveForm({
-    current: canSubmit,
-    baseline: false,
+  // Editing greys Save until something actually changed; creating keeps the
+  // "filled in enough" rule. Badges compare as JSON — a fresh array each render
+  // would read as dirty on every keystroke.
+  const { canSaveNow } = useSaveForm({
+    current: isEdit
+      ? { name: name.trim(), description: description.trim(), status, version: version.trim(), badges: JSON.stringify(badges), authoring: JSON.stringify(authoring) }
+      : { dirty: canSubmit },
+    baseline: isEdit
+      ? {
+          name: localized(editingProject?.name, language),
+          description: localized(editingProject?.description, language),
+          status: editingProject?.status ?? 'in_progress',
+          version: editingProject?.version ?? '0.1.0',
+          badges: JSON.stringify(editingProject?.badges ?? []),
+          authoring: '{}',
+        }
+      : { dirty: false },
     onSave: handleSubmit,
     canSave: canSubmit,
     enabled: open && page === 'main',
   })
+  /** Edit mode also requires a pending change; create only requires validity. */
+  const canConfirm = isEdit ? canSaveNow : canSubmit
 
   const buildParseOptions = (): FileSourceData['parseOptions'] => {
     const opts: NonNullable<FileSourceData['parseOptions']> = {}
@@ -1298,10 +1314,11 @@ export function CreateMappingProjectDialog({
           ) : (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t('common.cancel')}
+                {/* Nothing pending to discard → Close, not Cancel. */}
+                {isEdit && !canSaveNow ? t('common.close') : t('common.cancel')}
               </Button>
-              {canSubmit ? (
-                <Button onClick={handleSubmit}>
+              {canConfirm || allMissing.length === 0 ? (
+                <Button onClick={handleSubmit} disabled={!canConfirm}>
                   {isEdit ? t('common.save') : t('common.create')}
                 </Button>
               ) : (

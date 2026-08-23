@@ -19,6 +19,7 @@ import { BadgeEditor } from '@/components/ui/badge-editor'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -114,6 +115,24 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
     }
   }
 
+  // Editing greys Save until something actually changed (and the shell then says
+  // Close); creating keeps the "filled in enough" rule. Badges compare as JSON —
+  // a fresh array each render would read as dirty on every keystroke.
+  const { canSaveNow } = useSaveForm({
+    current: { name: name.trim(), description: description.trim(), dataSourceId, version: version.trim(), badges: JSON.stringify(badges), authoring: JSON.stringify(authoring) },
+    baseline: {
+      name: localized(editingCatalog?.name, language),
+      description: localized(editingCatalog?.description, language),
+      dataSourceId: editingCatalog?.dataSourceId ?? '',
+      version: editingCatalog?.version ?? '0.1.0',
+      badges: JSON.stringify(editingCatalog?.badges ?? []),
+      authoring: '{}',
+    },
+    onSave: handleSubmit,
+    canSave: canSubmit,
+    enabled: open && isEdit,
+  })
+
   return (
     <DialogShell
       open={open}
@@ -121,18 +140,18 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       title={isEdit ? t('data_catalog.edit_title') : t('data_catalog.create_title')}
       onConfirm={handleSubmit}
       confirmLabel={isEdit ? t('common.save') : t('common.create')}
-      confirmDisabled={!canSubmit}
+      confirmDisabled={isEdit ? !canSaveNow : !canSubmit}
+      dirtyTracked={isEdit}
     >
       <EntityDialogTabs
         general={
           <>
-            <div>
+            <div className="space-y-2">
               <Label>{t('data_catalog.name')}<RequiredMark /></Label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('data_catalog.name_placeholder')}
-                className="mt-1"
                 autoFocus
               />
             </div>
@@ -146,19 +165,18 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
               required
               readOnly={isEdit}
             />
-            <div>
+            <div className="space-y-2">
               <Label>{t('data_catalog.field_description')}</Label>
               <Input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={t('data_catalog.field_description_placeholder')}
-                className="mt-1"
               />
             </div>
-            <div>
+            <div className="space-y-2">
               <Label>{t('data_catalog.database')}</Label>
               <Select value={dataSourceId} onValueChange={setDataSourceId}>
-                <SelectTrigger className="mt-1">
+                <SelectTrigger>
                   <SelectValue placeholder={t('data_catalog.select_database')} />
                 </SelectTrigger>
                 <SelectContent>

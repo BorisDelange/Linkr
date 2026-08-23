@@ -18,6 +18,7 @@ import { AuthoringFields, type AuthoringValue } from '@/components/ui/authoring-
 import { BadgeEditor } from '@/components/ui/badge-editor'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { VersionField } from '@/components/ui/version-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { getStatusDotClass } from './ProjectSettingsPage'
@@ -89,6 +90,24 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
     onOpenChange(false)
   }
 
+  // Editing greys Save until something actually changed (and the shell then says
+  // Close); creating keeps the "filled in enough" rule. Badges compare as JSON —
+  // a fresh array each render would read as dirty on every keystroke.
+  const { canSaveNow } = useSaveForm({
+    current: { name: name.trim(), description: description.trim(), status, version: version.trim(), badges: JSON.stringify(badges), authoring: JSON.stringify(authoring) },
+    baseline: {
+      name: localized(editingProject?.name, language),
+      description: localized(editingProject?.description, language),
+      status: editingProject?.status ?? 'active',
+      version: editingProject?.version ?? '0.1.0',
+      badges: JSON.stringify(editingProject?.badges ?? []),
+      authoring: '{}',
+    },
+    onSave: handleSubmit,
+    canSave: canSubmit,
+    enabled: open && isEditing,
+  })
+
   return (
     <DialogShell
       open={open}
@@ -97,7 +116,8 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
       description={isEditing ? t('projects.edit_dialog_description') : t('projects.create_dialog_description')}
       onConfirm={handleSubmit}
       confirmLabel={isEditing ? t('common.save') : t('common.create')}
-      confirmDisabled={!canSubmit}
+      confirmDisabled={isEditing ? !canSaveNow : !canSubmit}
+      dirtyTracked={isEditing}
     >
       <EntityDialogTabs
         general={

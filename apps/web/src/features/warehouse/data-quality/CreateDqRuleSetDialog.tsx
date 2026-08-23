@@ -19,6 +19,7 @@ import { BadgeEditor } from '@/components/ui/badge-editor'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDqStore } from '@/stores/dq-store'
@@ -108,6 +109,26 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
     }
   }
 
+  const canSubmit = !!name.trim() && (isEdit || isEntityIdValid(entityId, existingIds))
+
+  // Editing greys Save until something actually changed (and the shell then says
+  // Close); creating keeps the "filled in enough" rule. Badges compare as JSON —
+  // a fresh array each render would read as dirty on every keystroke.
+  const { canSaveNow } = useSaveForm({
+    current: { name: name.trim(), description: description.trim(), dataSourceId, version: version.trim(), badges: JSON.stringify(badges), authoring: JSON.stringify(authoring) },
+    baseline: {
+      name: localized(editingRuleSet?.name, language),
+      description: localized(editingRuleSet?.description, language),
+      dataSourceId: editingRuleSet?.dataSourceId ?? '',
+      version: editingRuleSet?.version ?? '0.1.0',
+      badges: JSON.stringify(editingRuleSet?.badges ?? []),
+      authoring: '{}',
+    },
+    onSave: handleSubmit,
+    canSave: canSubmit,
+    enabled: open && isEdit,
+  })
+
   return (
     <DialogShell
       open={open}
@@ -115,18 +136,18 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
       title={isEdit ? t('data_quality.edit_rs_title') : t('data_quality.create_rs_title')}
       onConfirm={handleSubmit}
       confirmLabel={isEdit ? t('common.save') : t('common.create')}
-      confirmDisabled={!name.trim() || (!isEdit && !isEntityIdValid(entityId, existingIds))}
+      confirmDisabled={isEdit ? !canSaveNow : !canSubmit}
+      dirtyTracked={isEdit}
     >
       <EntityDialogTabs
         general={
           <>
-            <div>
+            <div className="space-y-2">
               <Label>{t('data_quality.rs_name')}<RequiredMark /></Label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('data_quality.rs_name_placeholder')}
-                className="mt-1"
                 autoFocus
               />
             </div>
@@ -140,18 +161,17 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               required
               readOnly={isEdit}
             />
-            <div>
+            <div className="space-y-2">
               <Label>{t('common.description')}</Label>
               <Input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="mt-1"
               />
             </div>
-            <div>
+            <div className="space-y-2">
               <Label>{t('data_quality.rs_database')}</Label>
               <Select value={dataSourceId} onValueChange={setDataSourceId}>
-                <SelectTrigger className="mt-1">
+                <SelectTrigger>
                   <SelectValue placeholder={t('data_quality.select_database')} />
                 </SelectTrigger>
                 <SelectContent>

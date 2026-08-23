@@ -123,19 +123,20 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   }
 
   const canSubmit = !!name.trim() && !saving && (isEditing || isEntityIdValid(entityId, existingIds))
-  useSaveForm({
+  const { canSaveNow } = useSaveForm({
     // Badges are compared as JSON: the hook diffs by value, and a fresh array each
     // render would otherwise read as dirty on every keystroke.
-    current: { name: name.trim(), entityId, description: description.trim(), defaultDbId, badges: JSON.stringify(badges) },
+    current: { name: name.trim(), entityId, description: description.trim(), defaultDbId, version: version.trim(), badges: JSON.stringify(badges) },
     baseline: isEditing
       ? {
           name: localized(editingCollection?.name, language),
           entityId: editingCollection?.entityId ?? '',
           description: localized(editingCollection?.description, language),
           defaultDbId: editingCollection?.defaultDataSourceId ?? '',
+          version: editingCollection?.version ?? '0.1.0',
           badges: JSON.stringify(editingCollection?.badges ?? []),
         }
-      : { name: '', entityId: '', description: '', defaultDbId: '', badges: '[]' },
+      : { name: '', entityId: '', description: '', defaultDbId: '', version: '', badges: '[]' },
     onSave: handleSubmit,
     canSave: canSubmit,
     enabled: open,
@@ -148,7 +149,8 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
       title={isEditing ? t('sql_scripts.edit_title') : t('sql_scripts.create_title')}
       onConfirm={handleSubmit}
       confirmLabel={isEditing ? t('common.save') : t('common.create')}
-      confirmDisabled={!name.trim() || (!isEditing && !isEntityIdValid(entityId, existingIds))}
+      confirmDisabled={isEditing ? !canSaveNow : !canSubmit}
+      dirtyTracked={isEditing}
       busy={saving}
     >
       <EntityDialogTabs

@@ -162,13 +162,13 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
   }, [pluginConfig])
 
   const nameInput = (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <Label>{t('datasets.name')}<RequiredMark /></Label>
       <Input
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder={t('datasets.new_analysis')}
-        className={cn('h-8 text-sm', nameError && 'border-destructive')}
+        className={cn(nameError && 'border-destructive')}
       />
       {nameError && (
         <p className="text-[10px] text-destructive flex items-center gap-1">

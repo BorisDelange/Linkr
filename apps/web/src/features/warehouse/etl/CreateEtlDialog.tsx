@@ -21,6 +21,7 @@ import { BadgeEditor } from '@/components/ui/badge-editor'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { VersionField } from '@/components/ui/version-field'
 import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { localized, setLocalized } from '@/lib/localized'
 import type { EtlPipeline, ProjectBadge } from '@/types'
 
@@ -126,6 +127,23 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
     }
   }
 
+  const canSubmit = !!name.trim() && (isEditing || isEntityIdValid(entityId, existingIds))
+  // Editing greys Save until something actually changed (and the shell then says
+  // Close); creating keeps the "filled in enough" rule. Badges compare as JSON —
+  // a fresh array each render would read as dirty on every keystroke.
+  const { canSaveNow } = useSaveForm({
+    current: { name: name.trim(), version: version.trim(), badges: JSON.stringify(badges), authoring: JSON.stringify(authoring) },
+    baseline: {
+      name: localized(editingPipeline?.name, language),
+      version: editingPipeline?.version ?? '0.1.0',
+      badges: JSON.stringify(editingPipeline?.badges ?? []),
+      authoring: '{}',
+    },
+    onSave: handleSubmit,
+    canSave: canSubmit,
+    enabled: open && isEditing,
+  })
+
   return (
     <DialogShell
       open={open}
@@ -134,7 +152,8 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
       description={isEditing ? t('etl.edit_description') : t('etl.create_description')}
       onConfirm={handleSubmit}
       confirmLabel={isEditing ? t('common.save') : t('common.create')}
-      confirmDisabled={!name.trim() || (!isEditing && !isEntityIdValid(entityId, existingIds))}
+      confirmDisabled={isEditing ? !canSaveNow : !canSubmit}
+      dirtyTracked={isEditing}
       busy={saving}
     >
       <EntityDialogTabs
