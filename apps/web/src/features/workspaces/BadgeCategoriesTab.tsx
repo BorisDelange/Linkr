@@ -135,6 +135,7 @@ export function BadgeCategoriesTab({ workspace, canWrite }: BadgeCategoriesTabPr
                   category={name}
                   value={t('badge_categories.sample_value')}
                   color={category.color}
+                  size="md"
                 />
                 <span className="w-28 shrink-0 text-right text-xs text-muted-foreground">
                   {t('badge_categories.used_by', { count })}

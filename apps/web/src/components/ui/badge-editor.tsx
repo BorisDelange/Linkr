@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, X } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -143,26 +143,25 @@ export function BadgeEditor({ value, onChange, categories = [], suggestions = []
           {value.map((badge) => {
             const category = categoryOf(badge, categories, language)
             const remove = () => onChange(value.filter((b) => b.id !== badge.id))
-            // A categorized badge renders two-tone and is not renamed in place:
-            // its label carries the category prefix, and free-text editing there
-            // would silently move it to another category (or out of all of them).
+            /** Rewrite this badge's label, keeping its other languages. */
+            const relabel = (next: string) => onChange(value.map((b) => (
+              b.id === badge.id ? { ...b, label: setLocalized(b.label, language, next) } : b
+            )))
+            // Renaming a typo shouldn't mean removing the badge and retyping it,
+            // categorized or not. A scoped badge renames only its value half —
+            // the category is picked, and typing over it would silently move the
+            // badge to another one (or out of all of them).
             if (category) {
               return (
-                <span key={badge.id} className="inline-flex items-center gap-0.5">
-                  <CategoryBadge
-                    category={localized(category.name, language)}
-                    value={splitLabel(localized(badge.label, language)).value}
-                    color={category.color}
-                  />
-                  <button
-                    type="button"
-                    onClick={remove}
-                    aria-label={t('common.remove')}
-                    className="rounded-full p-0.5 text-muted-foreground opacity-70 hover:opacity-100"
-                  >
-                    <X size={11} />
-                  </button>
-                </span>
+                <CategoryBadge
+                  key={badge.id}
+                  category={localized(category.name, language)}
+                  value={splitLabel(localized(badge.label, language)).value}
+                  color={category.color}
+                  size="md"
+                  onRemove={remove}
+                  onRename={(next) => relabel(joinLabel(localized(category.name, language), next))}
+                />
               )
             }
             return (
@@ -171,12 +170,7 @@ export function BadgeEditor({ value, onChange, categories = [], suggestions = []
                 label={localized(badge.label, language)}
                 color={badge.color}
                 onRemove={remove}
-                // Renaming a typo shouldn't mean removing the badge and retyping
-                // it — the workspace dialog had this before it moved onto this
-                // component, and every dialog gets it now.
-                onRename={(next) => onChange(value.map((b) => (
-                  b.id === badge.id ? { ...b, label: setLocalized(b.label, language, next) } : b
-                )))}
+                onRename={relabel}
               />
             )
           })}
