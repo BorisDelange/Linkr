@@ -181,7 +181,8 @@
       "description": {
         "en": "Any column of the question. For a multiple-choice question, picking one of its options selects the whole question.",
         "fr": "N'importe quelle colonne de la question. Pour une question à choix multiples, choisir une de ses options sélectionne la question entière."
-      }
+      },
+      "optionHint": "survey"
     },
     "sort": {
       "type": "select",

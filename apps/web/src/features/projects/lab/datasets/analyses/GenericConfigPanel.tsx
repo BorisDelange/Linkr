@@ -28,6 +28,9 @@ import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
+import { inferSurveySchema } from '@/lib/survey/survey-infer'
+import { questionColumns } from '@/lib/survey/survey-schema'
+import { questionKindLabel } from '@/lib/survey/question-kind-label'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 import { isServerMode } from '@/lib/api-client'
 import { fetchColumnDistinct } from '@/lib/api/datasets'
@@ -489,11 +492,13 @@ function MultiColumnSelect({
   lang,
   config,
   onConfigChange,
+  rows,
 }: FieldRendererProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const filtered = filterColumns(columns, field.filter)
+  const hintFor = useColumnHint(field, columns, rows)
   // Memoized: the `??` fallback builds a fresh array each render, which would
   // otherwise re-run every hook that depends on `selected` on every render.
   const selected = useMemo(
@@ -589,7 +594,9 @@ function MultiColumnSelect({
                     {isSelected && <Check size={10} />}
                   </div>
                   <span className="truncate" title={col.name}>{displayColumnName(col)}</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground/60">{col.type}</span>
+                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">
+                    {hintFor(col)}
+                  </span>
                 </button>
               )
             })}
@@ -615,6 +622,7 @@ function SingleColumnSelect({
   lang,
   config,
   onConfigChange,
+  rows,
 }: FieldRendererProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -622,6 +630,8 @@ function SingleColumnSelect({
   const filtered = filterColumns(columns, field.filter)
   const current = (value as string | undefined) ?? ''
   const currentCol = filtered.find(c => c.id === current)
+
+  const hintFor = useColumnHint(field, columns, rows)
 
   const handleSelect = useCallback((colId: string | undefined) => {
     const changes: Record<string, unknown> = { [fieldKey]: colId }
@@ -696,7 +706,9 @@ function SingleColumnSelect({
                   )}
                 >
                   <span className="truncate" title={col.name}>{displayColumnName(col)}</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground/60">{col.type}</span>
+                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">
+                    {hintFor(col)}
+                  </span>
                 </button>
               )
             })}
@@ -1254,6 +1266,35 @@ function ColorSelectField({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * The hint shown beside each option in a column picker.
+ *
+ * Defaults to the column's storage type, which is what someone choosing a
+ * column to plot wants. A plugin can ask for `survey` instead, and get the type
+ * of the QUESTION the column belongs to — "number" says nothing about a
+ * questionnaire, and a multiple-choice question spans several columns, which no
+ * storage type can express.
+ */
+function useColumnHint(
+  field: PluginConfigField,
+  columns: DatasetColumn[],
+  rows: Record<string, unknown>[] | undefined,
+): (col: DatasetColumn) => string {
+  const { t } = useTranslation()
+  const schema = useMemo(
+    () => (field.optionHint === 'survey' ? inferSurveySchema(columns, rows ?? []) : null),
+    [field.optionHint, columns, rows],
+  )
+  return useCallback(
+    (col: DatasetColumn) => {
+      if (!schema) return col.type
+      const question = schema.questions.find(q => questionColumns(q).includes(col.id))
+      return question ? questionKindLabel(question, t) : col.type
+    },
+    [schema, t],
+  )
+}
 
 function filterColumns(
   columns: DatasetColumn[],

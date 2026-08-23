@@ -23,7 +23,6 @@
 
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import {
   Bar,
   BarChart,
@@ -60,6 +59,7 @@ import {
   type SurveySchema,
 } from '@/lib/survey/survey-schema'
 import { defaultChart, type SurveyChart } from './survey-charts'
+import { questionKindLabel } from '@/lib/survey/question-kind-label'
 
 export interface SurveyQuestionBlockProps {
   schema: SurveySchema
@@ -154,26 +154,6 @@ function ResponseRate({ summary, compact }: { summary: QuestionSummary; compact?
       </div>
     </div>
   )
-}
-
-/** How the question was asked, in words — the reader needs to know whether the
- *  percentages can sum past 100% before reading them. */
-function questionKindLabel(question: SurveyQuestion, t: TFunction): string {
-  switch (question.kind) {
-    case 'select_one':
-      return question.measure === 'ordinal' ? t('survey.kind_scale') : t('survey.kind_single')
-    case 'select_multiple':
-      return t('survey.kind_multiple')
-    case 'integer':
-    case 'decimal':
-    case 'range':
-      return t('survey.kind_numeric')
-    case 'date':
-    case 'datetime':
-      return t('survey.kind_date')
-    default:
-      return t('survey.kind_text')
-  }
 }
 
 /** Fold everything past `max` into a single "Others" row, so a long option list

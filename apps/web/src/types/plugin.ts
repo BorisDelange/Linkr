@@ -17,6 +17,16 @@ export interface PluginConfigField {
   multi?: boolean
   optional?: boolean
   filter?: 'numeric' | 'categorical'
+  /**
+   * What the hint beside each option describes.
+   *
+   * Defaults to the column's storage type (`string`, `number`), which is what a
+   * user picking a column to plot wants to know. `survey` instead describes the
+   * QUESTION the column belongs to (single choice, multiple choice, scale…) —
+   * for a questionnaire, "number" says nothing useful, and a multiple-choice
+   * question is not even one column.
+   */
+  optionHint?: 'type' | 'survey'
   /** For `column-value-select`: the config key of the column-select field to read values from. */
   columnField?: string
   default?: unknown
