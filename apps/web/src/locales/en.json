@@ -4824,5 +4824,11 @@
     "title": "Readme & license",
     "description": "Document what this content is, and under which terms it may be reused.",
     "description_named": "Document what \"{{name}}\" is, and under which terms it may be reused."
+  },
+  "analyses": {
+    "no_data": "No data available.",
+    "corr_need_two_numeric": "At least 2 numeric variables are required.",
+    "corr_select_two": "Select at least 2 numeric variables.",
+    "corr_correlation": "correlation"
   }
 }

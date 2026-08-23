@@ -4824,5 +4824,11 @@
     "title": "Readme et licence",
     "description": "Documentez ce qu'est ce contenu et à quelles conditions il peut être réutilisé.",
     "description_named": "Documentez ce qu'est « {{name}} » et à quelles conditions il peut être réutilisé."
+  },
+  "analyses": {
+    "no_data": "Aucune donnée disponible.",
+    "corr_need_two_numeric": "Au moins 2 variables numériques sont nécessaires.",
+    "corr_select_two": "Sélectionnez au moins 2 variables numériques.",
+    "corr_correlation": "corrélation"
   }
 }

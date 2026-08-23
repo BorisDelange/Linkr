@@ -6,6 +6,9 @@ import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildCorrelationMatrixSpec } from './correlation-matrix-server'
+import { displayColumnName } from '@/lib/dataset-utils'
+import { defaultAnalysisColumns, orderSelection, type VariableOrder } from '@/lib/analysis-default-columns'
+import type { DatasetColumn } from '@/types'
 
 // ===========================================================================
 // Types
@@ -167,16 +170,18 @@ function assignRanks(values: number[]): number[] {
 
 function computeCorrelationMatrix(
   rows: Record<string, unknown>[],
-  columns: { id: string; name: string; type: string }[],
+  columns: DatasetColumn[],
   selectedIds: string[],
   method: 'pearson' | 'spearman',
 ): CorrelationResult {
   const colMap = new Map(columns.map(c => [c.id, c]))
   const validCols = selectedIds
     .map(id => colMap.get(id))
-    .filter((c): c is { id: string; name: string; type: string } => c != null && c.type === 'number')
+    .filter((c): c is DatasetColumn => c != null && c.type === 'number')
 
-  const names = validCols.map(c => c.name)
+  // The LABEL, so the matrix reads the way the dataset is documented rather
+  // than in storage names. Falls back to the name when no label is set.
+  const names = validCols.map(displayColumnName)
   const n = validCols.length
   const matrix: CorrelationCell[][] = Array.from({ length: n }, () =>
     Array.from({ length: n }, () => ({ r: 0, pValue: 1, n: 0 })),
@@ -248,8 +253,7 @@ function pStars(p: number): string {
 // ===========================================================================
 
 export function CorrelationMatrixComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { i18n } = useTranslation()
-  const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
+  const { t } = useTranslation()
   const server = isServerMode()
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -274,8 +278,17 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   const showSignificance = (config.showSignificance as boolean) ?? true
   const alpha = (config.alpha as number) ?? 0.05
 
+  const variableOrder = (config.variableOrder as VariableOrder) ?? 'dataset'
+
+  // Identifiers start unticked here too: a patient id correlates with nothing
+  // meaningful and only crowds the matrix, which is square in the count.
   const numericCols = columns.filter(c => c.type === 'number')
-  const selectedColumns = rawSelectedColumns?.length ? rawSelectedColumns : numericCols.map(c => c.id)
+  const selectedColumns = orderSelection(
+    rawSelectedColumns?.length ? rawSelectedColumns : defaultAnalysisColumns(numericCols).map(c => c.id),
+    numericCols,
+    variableOrder,
+    displayColumnName,
+  )
 
   const localResult = useMemo(
     () => (server ? null : computeCorrelationMatrix(rows, columns, selectedColumns, method)),
@@ -304,7 +317,14 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const result = server ? serverResult : localResult
+  const rawResult = server ? serverResult : localResult
+  // The server names variables by their storage name (that is what the spec
+  // sends). Map back to labels so both modes read identically.
+  const result = useMemo(() => {
+    if (!rawResult || !server) return rawResult
+    const labelByName = new Map(columns.map(c => [c.name, displayColumnName(c)]))
+    return { ...rawResult, names: rawResult.names.map(n => labelByName.get(n) ?? n) }
+  }, [rawResult, server, columns])
   const totalN = result?.totalN ?? rows.length
 
   if (server && serverError) {
@@ -322,7 +342,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <Grid3X3 size={24} className="opacity-40" />
-        <p className="text-xs">{lang === 'fr' ? 'Aucune donnée disponible.' : 'No data available.'}</p>
+        <p className="text-xs">{t('analyses.no_data')}</p>
       </div>
     )
   }
@@ -332,9 +352,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <Grid3X3 size={24} className="opacity-40" />
         <p className="text-xs">
-          {lang === 'fr'
-            ? 'Au moins 2 variables numériques sont nécessaires.'
-            : 'At least 2 numeric variables are required.'}
+          {t('analyses.corr_need_two_numeric')}
         </p>
       </div>
     )
@@ -354,9 +372,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <Grid3X3 size={24} className="opacity-40" />
         <p className="text-xs">
-          {lang === 'fr'
-            ? 'Sélectionnez au moins 2 variables numériques.'
-            : 'Select at least 2 numeric variables.'}
+          {t('analyses.corr_select_two')}
         </p>
       </div>
     )
@@ -397,7 +413,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
         <span className="font-semibold text-foreground">
           {method === 'pearson' ? 'Pearson' : 'Spearman'}
         </span>
-        {' '}{lang === 'fr' ? 'corrélation' : 'correlation'}
+        {' '}{t('analyses.corr_correlation')}
         {' '}(n = {totalN})
       </div>
 
@@ -425,6 +441,10 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
                   fontSize={labelFontSize}
                   transform={`rotate(-50, ${cx}, ${gridY - 6})`}
                 >
+                  {/* The full name on hover: a matrix of 12 variables has to
+                      clip its headers, and a clipped label with no way to read
+                      it makes the row it heads unidentifiable. */}
+                  <title>{name}</title>
                   {name.length > 18 ? name.slice(0, 16) + '…' : name}
                 </text>
               )
@@ -441,6 +461,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
                 opacity={0.75}
                 fontSize={labelFontSize}
               >
+                <title>{name}</title>
                 {name.length > 12 ? name.slice(0, 10) + '…' : name}
               </text>
             ))}

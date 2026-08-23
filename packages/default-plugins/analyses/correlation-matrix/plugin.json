@@ -10,8 +10,16 @@
   },
   "version": "1.0.0",
   "category": "statistics",
-  "tags": ["correlation", "heatmap", "pearson", "spearman", "statistics"],
-  "runtime": ["component"],
+  "tags": [
+    "correlation",
+    "heatmap",
+    "pearson",
+    "spearman",
+    "statistics"
+  ],
+  "runtime": [
+    "component"
+  ],
   "languages": [],
   "icon": "Grid3X3",
   "iconColor": "amber",
@@ -19,39 +27,147 @@
     "selectedColumns": {
       "type": "column-select",
       "multi": true,
-      "label": { "en": "Variables", "fr": "Variables" },
+      "label": {
+        "en": "Variables",
+        "fr": "Variables"
+      },
       "filter": "numeric",
-      "defaultAll": true
+      "defaultAll": true,
+      "orderable": true,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "The matrix is square in these: every variable is correlated with every other. Identifiers start unticked — a patient id correlates with nothing meaningful and only crowds the grid.",
+        "fr": "La matrice est carrée sur ces variables : chacune est corrélée à toutes les autres. Les identifiants sont décochés par défaut — un id patient ne corrèle avec rien d'utile et ne fait qu'encombrer la grille."
+      }
+    },
+    "variableOrder": {
+      "type": "select",
+      "label": {
+        "en": "Variable order",
+        "fr": "Ordre des variables"
+      },
+      "default": "dataset",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Grouping related variables together makes blocks of correlation visible as blocks, which is most of what a matrix is read for.",
+        "fr": "Regrouper les variables liées fait apparaître les blocs de corrélation comme des blocs, ce qui est l'essentiel de ce qu'on lit dans une matrice."
+      },
+      "options": [
+        {
+          "value": "dataset",
+          "label": {
+            "en": "Dataset order",
+            "fr": "Ordre du jeu de données"
+          }
+        },
+        {
+          "value": "alphabetical",
+          "label": {
+            "en": "Alphabetical",
+            "fr": "Alphabétique"
+          }
+        },
+        {
+          "value": "custom",
+          "label": {
+            "en": "Custom (drag to reorder)",
+            "fr": "Personnalisé (glisser pour réordonner)"
+          }
+        }
+      ]
     },
     "method": {
       "type": "select",
-      "label": { "en": "Method", "fr": "Méthode" },
+      "label": {
+        "en": "Method",
+        "fr": "Méthode"
+      },
       "default": "pearson",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Pearson measures a straight-line relationship and assumes roughly normal data; Spearman ranks the values first, so it catches any monotonic relationship and is unbothered by outliers or skew.",
+        "fr": "Pearson mesure une relation linéaire et suppose des données à peu près normales ; Spearman travaille sur les rangs, capte donc toute relation monotone et résiste aux valeurs extrêmes et à l'asymétrie."
+      },
       "options": [
-        { "value": "pearson", "label": { "en": "Pearson", "fr": "Pearson" } },
-        { "value": "spearman", "label": { "en": "Spearman", "fr": "Spearman" } }
-      ],
-      "row": "options"
-    },
-    "showValues": {
-      "type": "boolean",
-      "label": { "en": "Show values", "fr": "Afficher valeurs" },
-      "default": true,
-      "row": "options"
-    },
-    "showSignificance": {
-      "type": "boolean",
-      "label": { "en": "Show significance", "fr": "Afficher significativité" },
-      "default": true,
-      "row": "options"
+        {
+          "value": "pearson",
+          "label": {
+            "en": "Pearson",
+            "fr": "Pearson"
+          }
+        },
+        {
+          "value": "spearman",
+          "label": {
+            "en": "Spearman",
+            "fr": "Spearman"
+          }
+        }
+      ]
     },
     "alpha": {
       "type": "number",
-      "label": { "en": "Significance level (α)", "fr": "Seuil de significativité (α)" },
+      "label": {
+        "en": "Significance level (α)",
+        "fr": "Seuil de significativité (α)"
+      },
       "default": 0.05,
       "min": 0.001,
       "max": 0.2,
-      "row": "options"
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "row": "dataOpts",
+      "description": {
+        "en": "With many variables a matrix runs hundreds of tests at once, so some cells cross this threshold by chance alone. Read it as a hint, not a verdict.",
+        "fr": "Avec beaucoup de variables, une matrice lance des centaines de tests d'un coup : certaines cases franchissent ce seuil par pur hasard. À lire comme un indice, pas comme un verdict."
+      }
+    },
+    "showValues": {
+      "type": "boolean",
+      "label": {
+        "en": "Show values",
+        "fr": "Afficher les valeurs"
+      },
+      "default": true,
+      "row": "styleOpts",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "The coefficient inside each cell. Colour alone gives the pattern; the number gives the magnitude.",
+        "fr": "Le coefficient dans chaque case. La couleur seule donne la tendance ; le nombre donne l'ampleur."
+      }
+    },
+    "showSignificance": {
+      "type": "boolean",
+      "label": {
+        "en": "Show significance",
+        "fr": "Afficher la significativité"
+      },
+      "default": true,
+      "row": "styleOpts",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Marks cells whose p is below α. A large correlation on few pairs can miss the mark while a tiny one on thousands clears it — the marker says which.",
+        "fr": "Marque les cases dont p est sous α. Une forte corrélation sur peu de paires peut ne pas passer le seuil quand une très faible sur des milliers le franchit — le repère le signale."
+      }
     }
   }
 }
