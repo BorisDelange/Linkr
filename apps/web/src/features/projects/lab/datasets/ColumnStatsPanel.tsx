@@ -12,6 +12,7 @@ import { BoxPlot } from '@/components/charts/box-plot'
 import { niceStep, niceTicks } from '@/lib/chart-ticks'
 import { computeNumericStats, buildHistogram, roundBinLabel, type HistBin } from '@/lib/column-stats'
 import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
+import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 
 interface ColumnStatsPanelProps {
   fileId: string | null
@@ -171,6 +172,7 @@ function buildStatsFromServer(s: Record<string, unknown>, locale: string) {
 
 export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
   const { t, i18n } = useTranslation()
+  const booleanLabels = useBooleanLabels()
   const { files, getFileRows, _dirtyVersion } = useDatasetStore()
   const locale = i18n.language
   const server = isServerMode()
@@ -430,7 +432,7 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
                         ? `${column.valueLabels[item.value]} (${item.value})`
                         : item.value}
                     >
-                      {displayCellValue(column, item.value)}
+                      {displayCellValue(column, item.value, booleanLabels)}
                     </span>
                     <span className="text-[10px] tabular-nums text-muted-foreground shrink-0">{item.count} ({item.pct.toFixed(1)}%)</span>
                   </div>

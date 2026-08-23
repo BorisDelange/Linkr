@@ -27,6 +27,7 @@ import { SearchInput } from '@/components/ui/search-input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { displayColumnName, displayCellValue } from '@/lib/dataset-utils'
+import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 import { isServerMode } from '@/lib/api-client'
 import { fetchColumnDistinct } from '@/lib/api/datasets'
 import { ColorPickerPopover } from '@/components/ui/color-picker-popover'
@@ -714,6 +715,7 @@ function ColumnValueSelect({
   datasetFileId,
 }: FieldRendererProps) {
   const { t } = useTranslation()
+  const booleanLabels = useBooleanLabels()
   const columnFieldId = config[field.columnField ?? ''] as string | undefined
   const valueCol = useMemo(() => _columns.find(c => c.id === columnFieldId), [_columns, columnFieldId])
   const current = (value as string | undefined) ?? ''
@@ -762,7 +764,7 @@ function ColumnValueSelect({
           <SelectItem value="__none__">{t('common.auto')}</SelectItem>
           {uniqueValues.map(val => (
             <SelectItem key={val} value={val}>
-              {valueCol ? displayCellValue(valueCol, val) : val}
+              {valueCol ? displayCellValue(valueCol, val, booleanLabels) : val}
             </SelectItem>
           ))}
         </SelectContent>

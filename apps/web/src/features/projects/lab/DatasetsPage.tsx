@@ -16,6 +16,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/ui/gated-button'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Tooltip,
@@ -244,6 +245,7 @@ export function DatasetsPage() {
   } = useDatasetStore()
   const { activeProjectUid } = useAppStore()
   const canEdit = useMyProjectRole().atLeast('editor')
+  const canCreateAnalysis = !!selectedFileId && canEdit
 
   const [createDatasetOpen, setCreateDatasetOpen] = useState(false)
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
@@ -495,19 +497,38 @@ export function DatasetsPage() {
                         <span className="text-xs font-medium text-muted-foreground">
                           {t('datasets.analyses')}
                         </span>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => setCreateAnalysisOpen(true)}
-                              disabled={!selectedFileId || !canEdit}
-                            >
-                              <Plus size={14} />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>{t('datasets.new_analysis')}</TooltipContent>
-                        </Tooltip>
+                        {canCreateAnalysis ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                onClick={() => setCreateAnalysisOpen(true)}
+                                aria-label={t('datasets.new_analysis')}
+                              >
+                                <Plus size={14} />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('datasets.new_analysis')}</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          /* GatedButton, not a plain disabled Button: a disabled element
+                             emits no pointer events, so its own tooltip never opens —
+                             and greyed-out is exactly when the reason needs explaining. */
+                          <GatedButton
+                            allowed={false}
+                            notAllowedReason={
+                              !selectedFileId
+                                ? t('datasets.new_analysis_needs_dataset')
+                                : t('common.insufficient_permissions')
+                            }
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={t('datasets.new_analysis')}
+                          >
+                            <Plus size={14} />
+                          </GatedButton>
+                        )}
                       </div>
 
                       {/* Analyses list (self-contained: owns its rename/delete state so

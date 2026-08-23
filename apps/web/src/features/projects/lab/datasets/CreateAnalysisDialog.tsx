@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Code2, ArrowLeft, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   Dialog,
@@ -14,6 +14,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PythonLogo, RLogo } from '@/components/ui/language-icon'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
@@ -31,7 +33,7 @@ import { getComponent, componentSupportsServer } from '@/lib/plugins/component-r
 import { isServerMode } from '@/lib/api-client'
 import type { Plugin, PluginConfigField } from '@/types/plugin'
 
-type InlineLanguage = 'python' | 'r' | 'sql'
+type InlineLanguage = 'python' | 'r'
 
 interface CreateAnalysisDialogProps {
   open: boolean
@@ -42,7 +44,7 @@ interface CreateAnalysisDialogProps {
 /**
  * Add-analysis dialog, mirroring the dashboard "Add a widget" modal: a name
  * field, a Plugin tab (built-in components + user plugins via PluginPicker) and a
- * Custom code tab (Python/R/SQL). Component plugins with config open a second
+ * Custom code tab (Python/R). Component plugins with config open a second
  * view with a live preview. No dataset selector — the dataset is the one the
  * analysis panel belongs to (fixed prop). Creates a DatasetAnalysis; inline code
  * is stored as type 'inline' with { language, code } in config.
@@ -161,7 +163,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
 
   const nameInput = (
     <div className="space-y-1">
-      <Label>{t('datasets.name')} *</Label>
+      <Label>{t('datasets.name')}<RequiredMark /></Label>
       <Input
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -294,17 +296,22 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
           </TabsContent>
 
           <TabsContent value="inline" className="mt-3">
-            <div className="grid grid-cols-3 gap-3">
-              {(['python', 'r', 'sql'] as const).map((l) => (
+            {/* SQL is intentionally omitted: sql_query() targets a DB connection, and datasets
+                are file-based at this stage — a SQL analysis has nothing to query. */}
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                { lang: 'python', label: 'Python', Icon: PythonLogo },
+                { lang: 'r', label: 'R', Icon: RLogo },
+              ] as const).map(({ lang, label, Icon }) => (
                 <button
-                  key={l}
-                  onClick={() => handleAddInline(l)}
+                  key={lang}
+                  onClick={() => handleAddInline(lang)}
                   className="flex flex-col items-center gap-2 rounded-lg border p-4 text-center transition-colors hover:bg-accent/50"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                    <Code2 size={20} className="text-amber-500" />
+                    <Icon size={22} />
                   </div>
-                  <p className="text-sm font-medium">{l.toUpperCase()}</p>
+                  <p className="text-sm font-medium">{label}</p>
                 </button>
               ))}
             </div>

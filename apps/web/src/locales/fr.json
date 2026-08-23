@@ -1070,6 +1070,7 @@
     "new_folder": "Nouveau dossier",
     "new_folder_description": "Créer un dossier pour organiser vos jeux de données.",
     "new_analysis": "Nouvelle analyse",
+    "new_analysis_needs_dataset": "Sélectionnez d'abord un dataset pour ajouter une analyse.",
     "new_analysis_description": "Créer une analyse pour ce jeu de données.",
     "select_runtime": "Mode d'exécution",
     "upload": "Importer",
@@ -2978,6 +2979,8 @@
     "invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement."
   },
   "common": {
+    "true": "Vrai",
+    "false": "Faux",
     "load_failed": "Impossible de charger ces données. Votre travail n'est pas perdu — réessayez ou rechargez la page.",
     "filters": "Filtres",
     "badges": "Badges",

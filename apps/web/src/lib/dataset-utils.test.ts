@@ -4,6 +4,7 @@ import {
   coerceValue,
   isMissingValue,
   normalizeNaValues,
+  displayCellValue,
   DEFAULT_NA_VALUES,
 } from './dataset-utils'
 
@@ -109,5 +110,46 @@ describe('coerceValue — NA handling', () => {
 
   it('exposes a non-empty default token list', () => {
     expect(DEFAULT_NA_VALUES.length).toBeGreaterThan(0)
+  })
+})
+
+describe('displayCellValue — boolean labels', () => {
+  const LABELS = { true: 'Vrai', false: 'Faux' }
+
+  it('localizes a boolean column, native booleans and string literals alike', () => {
+    const col = { type: 'boolean' as const }
+    expect(displayCellValue(col, true, LABELS)).toBe('Vrai')
+    expect(displayCellValue(col, false, LABELS)).toBe('Faux')
+    expect(displayCellValue(col, 'true', LABELS)).toBe('Vrai')
+    expect(displayCellValue(col, 'false', LABELS)).toBe('Faux')
+  })
+
+  it('accepts the other recognized boolean tokens', () => {
+    const col = { type: 'boolean' as const }
+    expect(displayCellValue(col, 'yes', LABELS)).toBe('Vrai')
+    expect(displayCellValue(col, 'oui', LABELS)).toBe('Vrai')
+    expect(displayCellValue(col, 'no', LABELS)).toBe('Faux')
+    expect(displayCellValue(col, '0', LABELS)).toBe('Faux')
+  })
+
+  it('leaves other column types alone, so 1/0 and y/n keep their raw form', () => {
+    expect(displayCellValue({ type: 'number' }, 1, LABELS)).toBe('1')
+    expect(displayCellValue({ type: 'string' }, 'y', LABELS)).toBe('y')
+    expect(displayCellValue({ type: 'string' }, 'true', LABELS)).toBe('true')
+  })
+
+  it('keeps the raw literal when no labels are supplied', () => {
+    expect(displayCellValue({ type: 'boolean' }, true)).toBe('true')
+  })
+
+  it('lets a user-defined value label win over the generic wording', () => {
+    const col = { type: 'boolean' as const, valueLabels: { true: 'Alive' } }
+    expect(displayCellValue(col, true, LABELS)).toBe('Alive')
+    expect(displayCellValue(col, false, LABELS)).toBe('Faux')
+  })
+
+  it('renders null and undefined as an empty string', () => {
+    expect(displayCellValue({ type: 'boolean' }, null, LABELS)).toBe('')
+    expect(displayCellValue({ type: 'boolean' }, undefined, LABELS)).toBe('')
   })
 })

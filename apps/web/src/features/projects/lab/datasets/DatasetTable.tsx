@@ -48,6 +48,7 @@ import { useColumnDistinct } from './use-column-distinct'
 import { EditColumnMetaDialog } from './EditColumnMetaDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { hasTimeComponent, columnTint, displayColumnName, displayCellValue } from '@/lib/dataset-utils'
+import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 import type { DatasetColumn, DatasetParseOptions } from '@/types'
 
 
@@ -63,6 +64,7 @@ const PAGE_SIZES = [25, 50, 100, 250, 500]
 
 export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenColumns, onHiddenColumnsChange }: DatasetTableProps) {
   const { t } = useTranslation()
+  const booleanLabels = useBooleanLabels()
   const { files, getFileRows, setColumnType, setColumnFilterMode, _dirtyVersion } = useDatasetStore()
 
   const file = files.find((f) => f.id === fileId)
@@ -573,7 +575,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                       )}
                     >
                       {raw != null
-                        ? displayCellValue(col, raw)
+                        ? displayCellValue(col, raw, booleanLabels)
                         : <span className="italic text-muted-foreground/50">null</span>}
                     </td>
                     )

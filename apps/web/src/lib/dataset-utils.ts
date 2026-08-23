@@ -150,12 +150,36 @@ export function displayColumnName(col: Pick<DatasetColumn, 'name' | 'label'>): s
   return col.label?.trim() || col.name
 }
 
+/** Localized words for boolean cells, so a `boolean` column reads "Vrai"/"Faux" in
+ *  French rather than the storage literals. Callers pass these from `t()`; this
+ *  module stays free of i18next so it remains pure and testable. */
+export interface BooleanLabels {
+  true: string
+  false: string
+}
+
 /** Human-facing cell value for a categorical column: the mapped value label if one
- *  exists, else the raw code as-is. Display layer only — never mutate stored cells. */
-export function displayCellValue(col: Pick<DatasetColumn, 'valueLabels'>, raw: unknown): string {
+ *  exists, else a localized boolean word, else the raw code as-is. Display layer
+ *  only — never mutate stored cells.
+ *
+ *  A user-defined `valueLabels` entry wins over `booleanLabels`: it was set
+ *  deliberately for this column, so it outranks the generic wording. */
+export function displayCellValue(
+  col: Pick<DatasetColumn, 'valueLabels' | 'type'>,
+  raw: unknown,
+  booleanLabels?: BooleanLabels,
+): string {
   if (raw == null) return ''
   const key = String(raw)
-  return col.valueLabels?.[key] ?? key
+  const mapped = col.valueLabels?.[key]
+  if (mapped != null) return mapped
+  // Only for a boolean column: `parseBoolean` also accepts 1/0 and y/n, which
+  // must stay as-is in a number or string column.
+  if (booleanLabels && col.type === 'boolean') {
+    const parsed = parseBoolean(raw)
+    if (parsed !== null) return parsed ? booleanLabels.true : booleanLabels.false
+  }
+  return key
 }
 
 /** Build DatasetColumn metadata from raw headers and rows. */

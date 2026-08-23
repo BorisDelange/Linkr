@@ -1070,6 +1070,7 @@
     "new_folder": "New folder",
     "new_folder_description": "Create a folder to organize your datasets.",
     "new_analysis": "New analysis",
+    "new_analysis_needs_dataset": "Select a dataset first to add an analysis.",
     "new_analysis_description": "Create an analysis for this dataset.",
     "select_runtime": "Runtime",
     "upload": "Upload",
@@ -2978,6 +2979,8 @@
     "invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only."
   },
   "common": {
+    "true": "True",
+    "false": "False",
     "load_failed": "Could not load this data. Your work is not lost — retry, or reload the page.",
     "filters": "Filters",
     "badges": "Badges",
