@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Trash2, Pencil, Download, GitBranch, MoreHorizontal, BookOpen, Scale } from 'lucide-react'
+import { Trash2, Pencil, Copy, Download, GitBranch, MoreHorizontal, BookOpen, Scale } from 'lucide-react'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { EntityDocsDialog, type DocsTab } from '@/components/ui/entity-docs-dialog'
 import { EtlPipelinePull } from '@/components/versioning/EtlPipelinePull'
@@ -38,6 +38,9 @@ import {
 export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedString | string }> {
   item: T
   onDelete: (id: string) => void | Promise<void>
+  /** Adds a Duplicate item after Edit. Omit for an entity that can't be copied
+   *  (a workspace, whose contents are too tangled to clone meaningfully). */
+  onDuplicate?: (item: T) => void | Promise<void>
   onExport?: (item: T) => void
   getGitRemote?: (item: T) => GitRemoteConfig | null
   onSaveGitRemote?: (item: T, config: GitRemoteConfig | null) => Promise<void>
@@ -95,6 +98,7 @@ export interface EntityDocsAccessors<T> {
 export function EntityActionsMenu<T extends { id: string; name: LocalizedString | string }>({
   item,
   onDelete,
+  onDuplicate,
   onExport,
   getGitRemote,
   onSaveGitRemote,
@@ -167,6 +171,12 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             <Pencil size={14} />
             {t('common.edit')}
           </DropdownMenuItem>
+          {onDuplicate && (
+            <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onDuplicate(item) }}>
+              <Copy size={14} />
+              {t('common.duplicate')}
+            </DropdownMenuItem>
+          )}
           {(onExport || onExportOverride) && (
             <DropdownMenuItem onClick={(e) => {
               e.stopPropagation()

@@ -4,7 +4,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { DialogShell } from '@/components/ui/dialog-shell'
-import { VersionField } from '@/components/ui/version-field'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { localized, setLocalized } from '@/lib/localized'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
@@ -26,20 +25,19 @@ export function PatientBoardEditDialog({
   const initialVersion = item.version ?? '0.1.0'
   const [name, setName] = useState(initialName)
   const [description, setDescription] = useState(initialDescription)
-  const [version, setVersion] = useState(initialVersion)
 
   const doSave = () => {
     updateDashboard(item.id, {
       name: setLocalized(item.name, language, name.trim()),
       description: setLocalized(item.description ?? {}, language, description.trim()),
-      version: version.trim() || '0.1.0',
+      version: initialVersion,
     })
     onOpenChange(false)
   }
 
   const { canSaveNow, save } = useSaveForm({
-    current: { name: name.trim(), description: description.trim(), version: version.trim() },
-    baseline: { name: initialName, description: initialDescription, version: initialVersion },
+    current: { name: name.trim(), description: description.trim() },
+    baseline: { name: initialName, description: initialDescription },
     onSave: doSave,
     canSave: name.trim().length > 0,
   })
@@ -74,7 +72,6 @@ export function PatientBoardEditDialog({
               placeholder={t('patient_data.board_description_placeholder')}
             />
           </div>
-          <VersionField value={version} onChange={setVersion} />
     </DialogShell>
   )
 }

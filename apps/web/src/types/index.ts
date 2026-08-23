@@ -338,6 +338,9 @@ export interface DataSource extends Seedable, Authored {
   errorMessage?: string
   /** True when this data source is a vocabulary reference (ATHENA). Hidden from database pages. */
   isVocabularyReference?: boolean
+  /** Free-text semver, like every other top-level entity. */
+  version?: string
+  badges?: ProjectBadge[]
   createdAt: string
   updatedAt: string
 }

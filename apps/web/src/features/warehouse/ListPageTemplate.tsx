@@ -54,6 +54,8 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
   onNavigate: (id: string) => void
   /** Delete an item */
   onDelete: (id: string) => Promise<void>
+  /** Adds Duplicate to the card menu. */
+  onDuplicate?: (item: T) => void | Promise<void>
 
   /** Export a single item as ZIP. When provided, the Export menu item is enabled. */
   onExport?: (item: T) => void
@@ -115,6 +117,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   items,
   onNavigate,
   onDelete,
+  onDuplicate,
   onExport,
   onExportOverride,
   onVersioningOverride,
@@ -225,6 +228,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                       <EntityActionsMenu
                         item={item}
                         onDelete={onDelete}
+                        onDuplicate={onDuplicate}
                         onExport={onExport}
                         onExportOverride={onExportOverride}
                         onVersioningOverride={onVersioningOverride}

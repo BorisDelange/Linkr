@@ -16,6 +16,7 @@ import type {
   DatabaseEngine,
   SchemaPresetId,
   CustomSchemaPreset,
+  ProjectBadge,
 } from '@/types'
 import {
   Database,
@@ -45,6 +46,9 @@ import { Label } from '@/components/ui/label'
 import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { BadgeEditor } from '@/components/ui/badge-editor'
+import { VersionField } from '@/components/ui/version-field'
+import { useBadgeSuggestions } from '@/hooks/use-badge-suggestions'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Select,
@@ -53,6 +57,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+
+type DbTab = 'general' | 'connection' | 'metadata'
 
 interface AddDatabaseDialogProps {
   open: boolean
@@ -110,7 +116,13 @@ export function AddDatabaseDialog({
   const { wsUid } = useResolvedParams()
   const { addDataSource, updateDataSource, removeDataSource, retestDataSource, dataSources } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
-  const [dbTab, setDbTab] = useState<'general' | 'connection'>('general')
+  const [dbTab, setDbTab] = useState<DbTab>('general')
+  const badgeSuggestions = useBadgeSuggestions(
+    dataSources.filter((ds) => ds.id !== editingSource?.id),
+    wsUid,
+  )
+  const [badges, setBadges] = useState<ProjectBadge[]>([])
+  const [version, setVersion] = useState('0.1.0')
   const [selectedType, setSelectedType] = useState<DataSourceType | null>(null)
   const [uploading, setUploading] = useState(false)
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
@@ -129,12 +141,16 @@ export function AddDatabaseDialog({
   useEffect(() => {
     if (open && editingSource) {
       setName(editingSource.name)
+      setBadges(editingSource.badges ?? [])
+      setVersion(editingSource.version ?? '0.1.0')
       setAlias(editingSource.alias ?? '')
       setAliasManuallyEdited(true)
       setDescription(editingSource.description)
       setSelectedType(editingSource.sourceType)
       setStep(2)
       setDbTab('general')
+    setBadges([])
+    setVersion('0.1.0')
       if (editingSource.sourceType === 'database') {
         const config = editingSource.connectionConfig as DatabaseConnectionConfig
         setDbEngine(config.engine)
@@ -188,6 +204,8 @@ export function AddDatabaseDialog({
   const reset = () => {
     setStep(1)
     setDbTab('general')
+    setBadges([])
+    setVersion('0.1.0')
     setSelectedType(null)
     setUploading(false)
     setName('')
@@ -221,6 +239,8 @@ export function AddDatabaseDialog({
     setSelectedType(type)
     setStep(2)
     setDbTab('general')
+    setBadges([])
+    setVersion('0.1.0')
   }
 
   const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -288,6 +308,8 @@ export function AddDatabaseDialog({
             alias: alias.trim() || editingSource.alias,
             description: description.trim(),
             schemaMapping: mapping,
+            badges,
+            version: version.trim() || '0.1.0',
           }
           const isExternal =
             selectedType === 'database' && dbEngine !== 'duckdb' && dbEngine !== 'sqlite'
@@ -346,6 +368,8 @@ export function AddDatabaseDialog({
           files: fsHandles.length > 0 ? undefined : (uploadedFiles.length > 0 ? uploadedFiles : undefined),
           fileHandles: fsHandles.length > 0 ? fsHandles : undefined,
           alias: alias.trim() || undefined,
+          badges,
+          version: version.trim() || '0.1.0',
         })
         if (projectUid) useAppStore.getState().linkDataSource(projectUid, newId)
       } else {
@@ -360,6 +384,8 @@ export function AddDatabaseDialog({
           sourceType: 'fhir',
           connectionConfig,
           alias: alias.trim() || undefined,
+          badges,
+          version: version.trim() || '0.1.0',
         })
         if (projectUid) useAppStore.getState().linkDataSource(projectUid, newId)
       }
@@ -532,7 +558,7 @@ export function AddDatabaseDialog({
 
         {step === 2 && selectedType && (
           <div className="mt-2">
-            <Tabs value={dbTab} onValueChange={(v) => setDbTab(v as 'general' | 'connection')}>
+            <Tabs value={dbTab} onValueChange={(v) => setDbTab(v as DbTab)}>
               <TabsList className="w-full">
                 <TabsTrigger value="general" className="flex-1 gap-1.5">
                   {t('databases.tab_general')}
@@ -541,6 +567,9 @@ export function AddDatabaseDialog({
                 <TabsTrigger value="connection" className="flex-1 gap-1.5">
                   {t('databases.tab_connection')}
                   {connectionMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
+                </TabsTrigger>
+                <TabsTrigger value="metadata" className="flex-1">
+                  {t('common.tab_metadata')}
                 </TabsTrigger>
               </TabsList>
 
@@ -772,6 +801,15 @@ export function AddDatabaseDialog({
                 />
               </div>
             )}
+              </TabsContent>
+
+              <TabsContent value="metadata" className="space-y-4 pt-3">
+                <BadgeEditor
+                  value={badges}
+                  onChange={setBadges}
+                  suggestions={badgeSuggestions}
+                />
+                <VersionField value={version} onChange={setVersion} />
               </TabsContent>
             </Tabs>
           </div>
