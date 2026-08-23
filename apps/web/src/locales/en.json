@@ -2602,9 +2602,6 @@
     "icon_no_results": "No icons found.",
     "appearance": "Appearance",
     "version_bump": "Bump version",
-    "bump_patch": "Patch",
-    "bump_minor": "Minor",
-    "bump_major": "Major",
     "publishing_section": "Publishing",
     "test_config": "Test configuration",
     "test_language": "Language",
@@ -2640,7 +2637,6 @@
     "settings_title": "Edit plugin",
     "tab_general": "General",
     "tab_appearance": "Appearance",
-    "tab_advanced": "Advanced",
     "search_placeholder": "Search plugins...",
     "no_results": "No plugins matching your search",
     "filter_badges": "Badges",
@@ -2654,7 +2650,8 @@
     "file_type_markdown": "Markdown",
     "file_type_json": "JSON",
     "filter_type": "Type",
-    "upload_file": "Upload file"
+    "upload_file": "Upload file",
+    "tab_metadata": "Metadata"
   },
   "profile": {
     "title": "User settings",
@@ -3090,7 +3087,10 @@
     "previous_month": "Previous month",
     "next_month": "Next month",
     "month": "Month",
-    "year": "Year"
+    "year": "Year",
+    "bump_major": "Major",
+    "bump_minor": "Minor",
+    "bump_patch": "Patch"
   },
   "user_menu": {
     "profile": "User settings",
@@ -3160,7 +3160,9 @@
     "update_available_hint": "A newer version is available in the catalog.",
     "version_unknown": "unknown",
     "version_installed": "Installed",
-    "version_catalog": "Catalog"
+    "version_catalog": "Catalog",
+    "listed": "Listed",
+    "unlisted": "Unlisted"
   },
   "wiki": {
     "title": "Wiki",

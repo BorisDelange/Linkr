@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useTallestPanel } from '@/hooks/use-tallest-panel'
 
 /**
  * The tab frame every entity create/edit dialog wears, so a project, an ETL
@@ -55,19 +56,7 @@ export function EntityDialogTabs({
   const tab = value ?? uncontrolled
   const setTab = onValueChange ?? setUncontrolled
 
-  // Grow-only floor: the tallest panel seen so far. A ResizeObserver keeps it
-  // right when a panel grows after mount (a badge added, an error shown).
-  const panelRef = useRef<HTMLDivElement>(null)
-  const [minHeight, setMinHeight] = useState(0)
-  useEffect(() => {
-    const el = panelRef.current
-    if (!el) return
-    const observer = new ResizeObserver(() => {
-      setMinHeight((prev) => Math.max(prev, el.getBoundingClientRect().height))
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+  const { containerProps, panelProps } = useTallestPanel()
 
   const tabs: EntityDialogTab[] = [
     { value: 'general', label: t('common.tab_general'), content: general, incomplete: generalIncomplete },
@@ -94,8 +83,8 @@ export function EntityDialogTabs({
           Instead the container remembers the tallest panel it has rendered and
           keeps that as a floor, so switching never moves the triggers out from
           under the pointer. */}
-      <div className="pt-3" style={{ minHeight: minHeight || undefined }}>
-        <div ref={panelRef} className="flex flex-col gap-4">
+      <div className="pt-3" {...containerProps}>
+        <div {...panelProps} className="flex flex-col gap-4">
           {tabs.find((tb) => tb.value === tab)?.content}
         </div>
       </div>

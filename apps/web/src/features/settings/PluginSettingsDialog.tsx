@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Plus } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { BadgeEditor } from '@/components/ui/badge-editor'
+import { VersionField } from '@/components/ui/version-field'
+import { useTallestPanel } from '@/hooks/use-tallest-panel'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { IconPicker } from '@/components/ui/icon-picker'
@@ -13,12 +14,10 @@ import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { cn } from '@/lib/utils'
-import { localized, setLocalized } from '@/lib/localized'
+import { localized } from '@/lib/localized'
 import { isCustomColor } from '@/lib/badge-colors'
 import { useAppStore } from '@/stores/app-store'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
-import { bumpVersion, type BumpType } from '@/lib/semver'
 import type { BadgeColor } from '@/types'
 import type { PluginBadge, PluginFormFields } from '@/types/plugin'
 
@@ -40,6 +39,7 @@ interface PluginSettingsDialogProps {
 
 export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', pluginId }: PluginSettingsDialogProps) {
   const { t } = useTranslation()
+  const { containerProps, panelProps } = useTallestPanel()
   const language = useAppStore((s) => s.language)
   const editingPluginId = usePluginEditorStore((s) => s.editingPluginId)
   const pluginList = usePluginEditorStore((s) => s.pluginList)
@@ -55,8 +55,12 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
 
   const [fields, setFields] = useState<PluginFormFields>(EMPTY_FIELDS)
   const [entityId, setEntityId] = useState('')
-  const [newBadgeLabel, setNewBadgeLabel] = useState('')
-  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
+
+  /** Badges already used by the other plugins, offered as suggestions. */
+  const badgeSuggestions = useMemo(
+    () => pluginList.filter((p) => p.id !== targetId).flatMap((p) => p.manifest.badges ?? []),
+    [pluginList, targetId],
+  )
 
   // Existing ids/names for uniqueness checks (exclude the plugin being edited).
   const existingIds = pluginList
@@ -95,20 +99,11 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
       setFields({ ...EMPTY_FIELDS, scope })
     }
     setEntityId('')
-    setNewBadgeLabel('')
-    setNewBadgeColor('blue')
   }, [open, mode, scope, language, pluginId])
 
   const set = useCallback(<K extends keyof PluginFormFields>(key: K, value: PluginFormFields[K]) => {
     setFields((f) => ({ ...f, [key]: value }))
   }, [])
-
-  const handleAddBadge = useCallback(() => {
-    const label = newBadgeLabel.trim()
-    if (!label) return
-    setFields((f) => ({ ...f, badges: [...f.badges, { id: `b-${Date.now()}`, label: setLocalized({}, language, label), color: newBadgeColor }] }))
-    setNewBadgeLabel('')
-  }, [newBadgeLabel, newBadgeColor, language])
 
   const canSubmit = !!fields.name.trim()
     && !nameTaken
@@ -142,9 +137,14 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
           <TabsList className="w-full">
             <TabsTrigger value="general" className="flex-1">{t('plugins.tab_general')}</TabsTrigger>
             {!isSystemPlugin && (
-              <TabsTrigger value="advanced" className="flex-1">{t('plugins.tab_advanced')}</TabsTrigger>
+              <TabsTrigger value="metadata" className="flex-1">{t('plugins.tab_metadata')}</TabsTrigger>
             )}
           </TabsList>
+
+          {/* Holds the tallest panel's height so switching tabs doesn't move the
+              triggers out from under the pointer. */}
+          <div {...containerProps}>
+          <div {...panelProps}>
 
           {/* --- General --- */}
           <TabsContent value="general" className="mt-0 max-h-[60vh] overflow-y-auto">
@@ -217,50 +217,19 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
                 </div>
               </div>
 
-              {/* Badges */}
-              <div className="grid gap-2">
-                <Label>{t('plugins.badges')}</Label>
-                {fields.badges.length > 0 && (
-                  <div className="mb-1 flex flex-wrap gap-1.5">
-                    {fields.badges.map((badge) => (
-                      <span
-                        key={badge.id}
-                        className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium', getBadgeClasses(badge.color))}
-                        style={getBadgeStyle(badge.color)}
-                      >
-                        {localized(badge.label, language)}
-                        <button
-                          type="button"
-                          className="ml-0.5 opacity-60 hover:opacity-100"
-                          onClick={() => set('badges', fields.badges.filter((b) => b.id !== badge.id))}
-                        >
-                          <X size={10} />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={newBadgeLabel}
-                    onChange={(e) => setNewBadgeLabel(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBadge() } }}
-                    placeholder={t('plugins.badge_label_placeholder')}
-                    className="h-8 flex-1 text-xs"
-                  />
-                  <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
-                  <Button type="button" variant="outline" size="sm" className="h-8 px-2" disabled={!newBadgeLabel.trim()} onClick={handleAddBadge}>
-                    <Plus size={12} />
-                  </Button>
-                </div>
-              </div>
             </div>
           </TabsContent>
 
-          {/* --- Advanced --- */}
+          {/* --- Metadata --- */}
           {!isSystemPlugin && (
-            <TabsContent value="advanced" className="mt-0 max-h-[60vh] overflow-y-auto">
+            <TabsContent value="metadata" className="mt-0 max-h-[60vh] overflow-y-auto">
               <div className="grid gap-4 p-1">
+                <BadgeEditor
+                  value={fields.badges}
+                  onChange={(next) => set('badges', next)}
+                  suggestions={badgeSuggestions}
+                  label={t('plugins.badges')}
+                />
                 <div className="grid gap-2">
                   <Label>{t('plugins.dependencies')}</Label>
                   <div className="grid gap-1">
@@ -285,30 +254,7 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
                   </div>
                 </div>
 
-                <div className="grid gap-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label>{t('plugins.version')}</Label>
-                    <Input
-                      value={fields.version}
-                      onChange={(e) => set('version', e.target.value)}
-                      className="h-7 w-24 text-right font-mono text-xs"
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {(['patch', 'minor', 'major'] as BumpType[]).map((type) => (
-                      <Button
-                        key={type}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => set('version', bumpVersion(fields.version, type))}
-                        className="h-auto flex-col gap-0 py-1.5"
-                      >
-                        <span className="font-medium">{t(`plugins.bump_${type}`)}</span>
-                        <span className="text-[10px] text-muted-foreground">{bumpVersion(fields.version, type)}</span>
-                      </Button>
-                    ))}
-                  </div>
-                </div>
+                <VersionField value={fields.version} onChange={(v) => set('version', v)} />
 
                 <div className="grid gap-2">
                   <Label>{t('plugins.publishing_section')}</Label>
@@ -333,6 +279,8 @@ export function PluginSettingsDialog({ open, onOpenChange, mode, scope = 'lab', 
               </div>
             </TabsContent>
           )}
+          </div>
+          </div>
         </Tabs>
     </DialogShell>
   )

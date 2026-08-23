@@ -2602,9 +2602,6 @@
     "icon_no_results": "Aucune icône trouvée.",
     "appearance": "Apparence",
     "version_bump": "Incrémenter la version",
-    "bump_patch": "Patch",
-    "bump_minor": "Mineur",
-    "bump_major": "Majeur",
     "publishing_section": "Publication",
     "test_config": "Configuration du test",
     "test_language": "Langage",
@@ -2640,7 +2637,6 @@
     "settings_title": "Modifier le plugin",
     "tab_general": "Général",
     "tab_appearance": "Apparence",
-    "tab_advanced": "Avancé",
     "search_placeholder": "Rechercher un plugin...",
     "no_results": "Aucun plugin ne correspond à votre recherche",
     "filter_badges": "Badges",
@@ -2654,7 +2650,8 @@
     "file_type_markdown": "Markdown",
     "file_type_json": "JSON",
     "filter_type": "Type",
-    "upload_file": "Téléverser un fichier"
+    "upload_file": "Téléverser un fichier",
+    "tab_metadata": "Métadonnées"
   },
   "profile": {
     "title": "Paramètres utilisateur",
@@ -3090,7 +3087,10 @@
     "previous_month": "Mois précédent",
     "next_month": "Mois suivant",
     "month": "Mois",
-    "year": "Année"
+    "year": "Année",
+    "bump_major": "Majeur",
+    "bump_minor": "Mineur",
+    "bump_patch": "Patch"
   },
   "user_menu": {
     "profile": "Paramètres utilisateur",
@@ -3160,7 +3160,9 @@
     "update_available_hint": "Une version plus récente est disponible dans le catalogue.",
     "version_unknown": "inconnue",
     "version_installed": "Installée",
-    "version_catalog": "Catalogue"
+    "version_catalog": "Catalogue",
+    "listed": "Publié",
+    "unlisted": "Non publié"
   },
   "wiki": {
     "title": "Wiki",
